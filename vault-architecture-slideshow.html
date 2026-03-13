@@ -1127,6 +1127,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                         <div class="folder-tree" style="font-size: 11px; line-height: 1.6;">
                             <div><span class="folder">parsidion-cc/</span></div>
                             <div>&nbsp;&nbsp;<span class="file">install.py</span></div>
+                            <div>&nbsp;&nbsp;<span class="file">CLAUDE-VAULT.md</span> <span class="comment">(always-on guidance)</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">agents/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">research-documentation-agent.md</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">skills/claude-vault/</span></div>
@@ -1151,6 +1152,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
                         <div class="folder-tree" style="font-size: 11px; line-height: 1.6;">
                             <div><span class="folder">~/.claude/</span></div>
                             <div>&nbsp;&nbsp;<span class="file">settings.json</span> <span class="comment">&mdash; hook registrations</span></div>
+                            <div>&nbsp;&nbsp;<span class="file">CLAUDE-VAULT.md</span> <span class="comment">&mdash; @imported by CLAUDE.md</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">agents/</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">skills/claude-vault/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">SKILL.md</span></div>
@@ -1237,11 +1239,13 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
                         <li class="yellow"><span class="bold hl-yellow">update_index.py</span> &mdash; auto-generated CLAUDE.md</li>
                         <li class="green"><span class="bold hl-green">Research Agent</span> &mdash; vault-first web research</li>
                         <li class="pink"><span class="bold hl-pink">Trigger Eval</span> &mdash; skill quality measurement</li>
+                        <li class="cyan"><span class="bold hl">CLAUDE-VAULT.md</span> &mdash; always-on vault-first guidance</li>
                     </ul>
                 </div>
                 <div>
                     <h3 style="color: var(--purple); font-size: 14px; margin-bottom: 10px;">Design Principles</h3>
                     <ul class="bullet-list">
+                        <li class="purple">Vault-first &mdash; check before debugging or implementing</li>
                         <li class="purple">Python stdlib only &mdash; maximum portability</li>
                         <li class="purple">Obsidian-native &mdash; graph view, wikilinks, templates</li>
                         <li class="purple">Config-driven &mdash; centralized YAML with fallbacks</li>

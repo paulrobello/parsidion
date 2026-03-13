@@ -6,6 +6,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
 - [Component Details](#component-details)
+  - [CLAUDE-VAULT.md — Always-On Guidance](#claude-vaultmd--always-on-guidance)
   - [Claude Vault Skill](#claude-vault-skill)
   - [Hook Scripts](#hook-scripts)
   - [Session Summarizer](#session-summarizer)
@@ -27,6 +28,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 **Purpose:** Provide a structured, searchable, cross-linked knowledge base that persists across Claude Code sessions, replacing the flat auto memory with richly organized Obsidian notes.
 
 **Key capabilities:**
+- Always-on vault-first rule: check the vault before debugging or implementing (via `CLAUDE-VAULT.md`)
 - Automatic context loading at session start based on project and recency
 - Automatic learning capture at session stop via transcript analysis
 - Working state snapshots before context compaction
@@ -51,6 +53,7 @@ graph TB
     end
 
     subgraph "Parsidion CC"
+        CVG[CLAUDE-VAULT.md]
         Skill[Claude Vault Skill]
         Agent[Research Agent]
         VC[vault_common.py]
@@ -108,9 +111,11 @@ graph TB
     VD -->|reads| VC
     VD -->|reads/writes| Daily
 
+    CVG -->|always-on vault-first rule| CC
     Skill -->|defines conventions| CC
     EVAL -->|reads description| Skill
 
+    style CVG fill:#004d40,stroke:#00bcd4,stroke-width:2px,color:#ffffff
     style CC fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
     style Hooks fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
     style Skill fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
@@ -139,6 +144,21 @@ graph TB
 ```
 
 ## Component Details
+
+### CLAUDE-VAULT.md — Always-On Guidance
+
+**Location:** `CLAUDE-VAULT.md` (repo root) → installed to `~/.claude/CLAUDE-VAULT.md`
+
+An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-VAULT.md` import appended to `~/.claude/CLAUDE.md` by the installer. Unlike the claude-vault skill (which requires explicit invocation), this file fires on every session with no trigger needed.
+
+**What it enforces:**
+
+- **Vault-first debugging:** Before diagnosing any error, extract the key signal (exception class, package name, distinctive message phrase) and search `~/ClaudeVault/Debugging/` via Grep. Widen to `Frameworks/`, `Languages/`, `Projects/` if not found. Apply documented fixes when matched; save new solutions when not.
+- **Prior-art check:** Before writing non-trivial code, search `Patterns/`, `Frameworks/`, `Languages/`, and `Projects/` for existing implementations. Reuse and adapt proven code from other projects rather than writing from scratch.
+- **Vault organization:** Enforces the subfolder rule (3+ notes sharing a prefix → move to a named subfolder; one level only) and reminds when to rebuild the index.
+- **Saving solutions:** Specifies target folders by solution type (bug fix → `Debugging/`, reusable pattern → `Patterns/`, framework fix → `Frameworks/`, architectural decision → `Projects/<project>/`).
+
+**Install behavior:** `install.py` copies `CLAUDE-VAULT.md` to `~/.claude/` and idempotently appends `@CLAUDE-VAULT.md` to `~/.claude/CLAUDE.md` if the line is not already present. Uninstall removes the file and strips the import line.
 
 ### Claude Vault Skill
 
@@ -562,6 +582,7 @@ sequenceDiagram
 parsidion-cc/
 ├── README.md
 ├── install.py                       # Installer: syncs skills/agents/hooks to ~/.claude/
+├── CLAUDE-VAULT.md                  # Always-on vault-first guidance (installed to ~/.claude/)
 ├── pyproject.toml
 ├── Makefile
 ├── scripts/
@@ -605,6 +626,8 @@ parsidion-cc/
 
 ```
 ~/.claude/
+├── CLAUDE.md                        # Global instructions (@imports CLAUDE-VAULT.md)
+├── CLAUDE-VAULT.md                  # Always-on vault-first guidance
 ├── settings.json                    # Hook registrations
 ├── agents/
 │   └── research-documentation-agent.md

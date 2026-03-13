@@ -44,7 +44,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
    ```bash
    uv run install.py
    ```
-   This installs the vault skill, research agent, and session hooks into `~/.claude/`.
+   This installs the vault skill, research agent, session hooks, and always-on vault guidance into `~/.claude/`.
 
 3. **Restart Claude Code** to activate the hooks.
 
@@ -143,6 +143,17 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
 
 The claude-vault skill includes a sub-workflow for updating these groups -- add tags to existing groups or create new ones when new projects or topics are introduced. RGB colors are stored as decimal integers (e.g., `int("FF5722", 16)` -> `16733986`).
 
+### CLAUDE-VAULT.md (`~/.claude/CLAUDE-VAULT.md`)
+
+An always-on guidance file loaded every Claude Code session via `@CLAUDE-VAULT.md` in `~/.claude/CLAUDE.md`. It enforces the **vault-first rule** unconditionally — no explicit invocation needed.
+
+**What it enforces:**
+- **Debugging:** Search `~/ClaudeVault/Debugging/` before diagnosing any error. Extract the key signal (exception class, package name, distinctive phrase) and Grep the vault first. If found, apply the documented fix. If not, diagnose then save the solution.
+- **Implementation:** Search `~/ClaudeVault/Patterns/`, `Frameworks/`, `Languages/`, and `Projects/` before writing non-trivial code. Reuse proven implementations from prior projects rather than writing from scratch.
+- **Saving solutions:** After solving a non-obvious problem, save it to the appropriate vault folder and rebuild the index.
+
+The installer copies `CLAUDE-VAULT.md` from the repo root to `~/.claude/` and ensures the `@CLAUDE-VAULT.md` import line exists in `~/.claude/CLAUDE.md`. Uninstall removes both.
+
 ### Research Agent (`~/.claude/agents/research-documentation-agent.md`)
 
 Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter.
@@ -219,7 +230,8 @@ If no `.git` directory is present, all git operations are silent no-ops.
 
 ```
 ~/.claude/
-  CLAUDE.md                          # Global Claude Code instructions
+  CLAUDE.md                          # Global Claude Code instructions (@imports CLAUDE-VAULT.md)
+  CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion-cc)
   settings.json                      # Hooks, permissions, plugins
   agents/
     research-documentation-agent.md  # Research agent (vault-integrated)
