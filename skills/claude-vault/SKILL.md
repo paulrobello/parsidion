@@ -221,6 +221,45 @@ Rebuilds the vault index automatically when done.
 Sessions from today whose generated note type is `daily` are skipped (today's daily note
 is still being built by the stop hook).
 
+## Vault Doctor
+
+`vault_doctor.py` scans all vault notes for structural issues and repairs them via Claude haiku.
+
+### Issues detected
+
+| Code | Severity | Description |
+|---|---|---|
+| `MISSING_FRONTMATTER` | error | No YAML frontmatter block |
+| `MISSING_FIELD` | error | `date`/`type` missing (all notes); `confidence`/`related` missing (non-daily) |
+| `INVALID_TYPE` | error | `type` not in allowed set |
+| `INVALID_DATE` | warning | `date` not in YYYY-MM-DD format |
+| `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field |
+| `BROKEN_WIKILINK` | warning | Link target not found in vault |
+| `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
+
+Daily notes (`type: daily` or path under `Daily/`) are exempt from `confidence`, `related`, and orphan checks.
+
+### Running the doctor
+
+```bash
+# Scan and report only (no writes)
+uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --dry-run
+
+# Scan and repair repairable issues via Claude haiku
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --fix
+
+# Repair up to 20 notes at a time
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --fix --limit 20
+
+# Errors only (skip warnings)
+uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --errors-only --dry-run
+```
+
+Repairable codes (Claude can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
+Not auto-repairable (require manual fix): `BROKEN_WIKILINK`, `FLAT_DAILY`.
+
+Run `update_index.py` after repairs to rebuild the index.
+
 ## Configuration
 
 All hooks and the summarizer read `~/ClaudeVault/config.yaml` for settings.
