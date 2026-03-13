@@ -173,6 +173,7 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 ```
 
 - Filenames: kebab-case, 3-5 words, no date suffix
+- **Daily notes**: stored as `Daily/YYYY-MM/DD.md` (e.g. `Daily/2026-03/13.md`) — the hook writes them there automatically; never create flat `Daily/YYYY-MM-DD.md` files
 - No orphan notes — every note must link to at least one other note via `related`
 - Search before create — update existing notes rather than creating duplicates
 - **Tag brevity**: prefer short single-word or minimal-hyphen tags — e.g. `voxel` not `voxel-engine`, `terminal` not `terminal-emulator`. Use a longer form only when the short form would be genuinely ambiguous.

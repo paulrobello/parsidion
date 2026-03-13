@@ -39,7 +39,7 @@ description: >
 ~/ClaudeVault/
 ├── CLAUDE.md            # Auto-generated index (rebuilt by update_index.py)
 ├── config.yaml          # Optional — hook/summarizer settings (see Configuration)
-├── Daily/               # Session summaries (YYYY-MM-DD.md)
+├── Daily/               # Session summaries (Daily/YYYY-MM/DD.md)
 ├── Projects/            # Per-project context and decisions
 ├── Languages/           # Python, Rust, TypeScript, Swift, etc.
 ├── Frameworks/          # Next.js, FastAPI, Textual, Rich, etc.
@@ -97,7 +97,7 @@ Research/
 | CLI tools, libraries, package notes | `Tools/` |
 | Long-form research and analysis | `Research/` |
 | Per-project decisions, architecture, key paths | `Projects/` |
-| Daily session summaries | `Daily/` |
+| Daily session summaries | `Daily/YYYY-MM/DD.md` (e.g. `Daily/2026-03/13.md`) |
 
 ### Frontmatter Standard
 

@@ -503,9 +503,11 @@ def ensure_vault_dirs() -> None:
 
 
 def today_daily_path() -> Path:
-    """Return the path to today's daily note: ``Daily/YYYY-MM-DD.md``."""
-    today = date.today().isoformat()
-    return VAULT_ROOT / "Daily" / f"{today}.md"
+    """Return the path to today's daily note: ``Daily/YYYY-MM/DD.md``."""
+    today = date.today()
+    month_dir = f"{today.year:04d}-{today.month:02d}"
+    day_file = f"{today.day:02d}.md"
+    return VAULT_ROOT / "Daily" / month_dir / day_file
 
 
 def create_daily_note_if_missing() -> Path:
