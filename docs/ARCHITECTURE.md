@@ -59,6 +59,7 @@ graph TB
         PCH[pre_compact_hook.py]
         SUM[summarize_sessions.py]
         IDX[update_index.py]
+        VD[vault_doctor.py]
         CGC[check_graph_coverage.py]
         EVAL[run_trigger_eval.py]
     end
@@ -104,6 +105,9 @@ graph TB
     IDX -->|generates| Index
     CGC -->|reads| Graph
 
+    VD -->|reads| VC
+    VD -->|reads/writes| Daily
+
     Skill -->|defines conventions| CC
     EVAL -->|reads description| Skill
 
@@ -117,6 +121,7 @@ graph TB
     style PCH fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
     style SUM fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style IDX fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style VD fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
     style CGC fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style EVAL fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
     style Config fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
@@ -556,6 +561,9 @@ sequenceDiagram
 ```
 parsidion-cc/
 ├── README.md
+├── install.py                       # Installer: syncs skills/agents/hooks to ~/.claude/
+├── pyproject.toml
+├── Makefile
 ├── scripts/
 │   └── show-context                 # CLI: preview session start context for any project
 ├── docs/
@@ -563,6 +571,8 @@ parsidion-cc/
 │   └── DOCUMENTATION_STYLE_GUIDE.md
 ├── agents/
 │   └── research-documentation-agent.md
+├── tests/
+│   └── test_vault_common.py
 └── skills/claude-vault/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
@@ -572,6 +582,7 @@ parsidion-cc/
     │   ├── pre_compact_hook.py      # PreCompact hook
     │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723)
     │   ├── update_index.py          # Index generator
+    │   ├── vault_doctor.py          # Vault note issue scanner and repair tool
     │   ├── check_graph_coverage.py  # Graph color group coverage audit
     │   ├── run_trigger_eval.py      # Trigger accuracy eval
     │   ├── run_trigger_eval.sh      # Shell wrapper for eval (macOS/Linux)

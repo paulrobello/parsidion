@@ -73,6 +73,7 @@ uv run install.py --dry-run
 | `--vault PATH` | Obsidian vault path (skips interactive prompt) |
 | `--claude-dir PATH` | Target Claude config dir (default: `~/.claude`) |
 | `--dry-run / -n` | Preview all actions, no changes made |
+| `--verbose / -v` | Show detailed output |
 | `--force / -f` | Overwrite existing skill files without prompting |
 | `--yes / -y` | Skip all confirmation prompts; uses `~/ClaudeVault` if `--vault` not given |
 | `--skip-hooks` | Do not modify `settings.json` |
@@ -102,7 +103,8 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
 | `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); repairs via Claude haiku; tracks state in `doctor_state.json` |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
 | `run_trigger_eval.py` | Trigger accuracy eval (skill-selection simulation) |
-| `run_trigger_eval.sh` | Shell wrapper for running eval from a separate terminal |
+| `run_trigger_eval.sh` | Shell wrapper for running eval from a separate terminal (macOS/Linux) |
+| `run_trigger_eval.bat` | Batch wrapper for running eval from a separate terminal (Windows) |
 | `migrate_research.py` | One-time migration from `~/Repos/research/` |
 | `migrate_memory.py` | One-time migration from `~/.claude/memory/` |
 
@@ -147,7 +149,7 @@ Technical research agent that searches the vault first, conducts web research, a
 
 ### Context Preview (`scripts/show-context`)
 
-A shell script that previews what vault context would be injected at session start for a given project directory. Useful for debugging the SessionStart hook.
+A shell script that previews what vault context would be injected at session start for a given project directory. Useful for debugging the SessionStart hook. Requires `jq` to be installed.
 
 ```bash
 ./scripts/show-context                    # Preview context for cwd
