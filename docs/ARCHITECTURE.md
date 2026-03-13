@@ -570,7 +570,7 @@ parsidion-cc/
 │   └── graph.json                   # Graph view color config
 ├── config.yaml                      # User config (copied from templates/config.yaml)
 ├── CLAUDE.md                        # Auto-generated index
-├── Daily/
+├── Daily/YYYY-MM/DD.md      # e.g. Daily/2026-03/13.md
 ├── Projects/
 ├── Languages/
 ├── Frameworks/

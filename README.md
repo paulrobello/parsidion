@@ -113,7 +113,7 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
   CLAUDE.md                  # Auto-generated index (includes tag cloud + Existing Tags list)
   config.yaml                # Optional -- hook/summarizer settings (see Configuration)
   pending_summaries.jsonl    # Queue of sessions awaiting AI summarization
-  Daily/                     # Session summaries
+  Daily/YYYY-MM/DD.md        # Session summaries (e.g. Daily/2026-03/13.md)
   Projects/                  # Per-project context
   Languages/                 # Language-specific knowledge
   Frameworks/                # Framework knowledge
