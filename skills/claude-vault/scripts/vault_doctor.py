@@ -69,11 +69,12 @@ class Issue:
 #     }
 #   }
 # }
-# "ok"      — no issues found; skip for STATE_STALE_DAYS before re-checking
-# "fixed"   — Claude repaired it; re-check next run to confirm
-# "failed"  — Claude returned no output; retry next run
-# "timeout" — claude -p timed out; retry next run
-# "skipped" — only non-repairable issues; skip indefinitely (manual fix needed)
+# "ok"           — no issues found; skip for STATE_STALE_DAYS before re-checking
+# "fixed"        — Claude repaired it; re-check next run to confirm
+# "failed"       — Claude returned no output; retry next run
+# "timeout"      — claude -p timed out once; retry ONE more time
+# "needs_review" — timed out on retry; skip and flag for user intervention
+# "skipped"      — only non-repairable issues; skip indefinitely (manual fix needed)
 # ---------------------------------------------------------------------------
 
 
@@ -104,7 +105,7 @@ def should_skip(key: str, state: dict) -> bool:
     if not entry:
         return False
     status = entry.get("status", "")
-    if status == "skipped":
+    if status in ("skipped", "needs_review"):
         return True
     if status == "ok":
         last = entry.get("last_checked", "")
@@ -479,12 +480,17 @@ def main() -> None:
         rel = note_path.relative_to(vault_common.VAULT_ROOT)
         repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
         print(f"  {rel} ({len(repairable)} issue(s))… ", end="", flush=True)
+        prev_status = state.get("notes", {}).get(key, {}).get("status", "")
         fixed_content, repair_status = repair_note(note_path, repairable, args.model)
         if fixed_content:
             note_path.write_text(fixed_content + "\n", encoding="utf-8")
             print("✓")
             repaired += 1
         else:
+            # Escalate timeout to needs_review after first retry
+            if repair_status == "timeout" and prev_status == "timeout":
+                repair_status = "needs_review"
+                print("  → needs_review (timed out twice; flagged for user intervention)")
             print("✗")
             failed += 1
         state.setdefault("notes", {})[key] = {

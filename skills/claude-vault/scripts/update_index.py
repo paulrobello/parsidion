@@ -179,12 +179,17 @@ def build_index() -> tuple[str, int, int]:
         notes_state: dict = state_data.get("notes", {})
         counts: Counter[str] = Counter(v.get("status", "unknown") for v in notes_state.values())
         ok_count = counts.get("ok", 0) + counts.get("fixed", 0)
-        issue_count = counts.get("failed", 0) + counts.get("timeout", 0)
+        pending_count = counts.get("failed", 0) + counts.get("timeout", 0)
+        review_count = counts.get("needs_review", 0)
         skipped_count = counts.get("skipped", 0)
         run_str = last_run[:10] if last_run else "never"
+        parts = [f"{ok_count} clean", f"{pending_count} pending repair"]
+        if review_count:
+            parts.append(f"**{review_count} need user review**")
+        if skipped_count:
+            parts.append(f"{skipped_count} manual fix needed")
         lines.append(
-            f"- **Vault health** (doctor run: {run_str}): "
-            f"{ok_count} clean, {issue_count} pending repair, {skipped_count} manual fix needed"
+            f"- **Vault health** (doctor run: {run_str}): {', '.join(parts)}"
         )
     except (OSError, json.JSONDecodeError, KeyError):
         pass  # doctor has not been run yet
