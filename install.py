@@ -75,6 +75,7 @@ def dim(t: str) -> str:
 REPO_ROOT: Path = Path(__file__).parent.resolve()
 SKILL_SRC: Path = REPO_ROOT / "skills" / "claude-vault"
 AGENT_SRC: Path = REPO_ROOT / "agents" / "research-documentation-agent.md"
+CLAUDE_VAULT_MD_SRC: Path = REPO_ROOT / "CLAUDE-VAULT.md"
 
 # Hook script filenames installed inside the skill
 _HOOK_SCRIPTS: dict[str, str] = {
@@ -493,6 +494,59 @@ def merge_hooks(
 
 
 # ---------------------------------------------------------------------------
+# CLAUDE-VAULT.md installation
+# ---------------------------------------------------------------------------
+
+_CLAUDE_VAULT_MD_IMPORT = "@CLAUDE-VAULT.md"
+
+
+def install_claude_vault_md(
+    claude_dir: Path,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> None:
+    """Copy CLAUDE-VAULT.md to claude_dir and ensure CLAUDE.md imports it.
+
+    If CLAUDE.md exists but does not already contain an @CLAUDE-VAULT.md
+    reference, the import line is appended to the end of the file.
+    """
+    if not CLAUDE_VAULT_MD_SRC.exists():
+        _warn(f"CLAUDE-VAULT.md not found at {CLAUDE_VAULT_MD_SRC} — skipping")
+        return
+
+    dest = claude_dir / "CLAUDE-VAULT.md"
+    _step(f"Install CLAUDE-VAULT.md → {dest}", dry_run=dry_run)
+    if not dry_run:
+        shutil.copy2(CLAUDE_VAULT_MD_SRC, dest)
+
+    claude_md = claude_dir / "CLAUDE.md"
+    if not claude_md.exists():
+        _print(
+            dim(f"  {claude_md} not found — skipping @import"),
+            verbose_only=True,
+            verbose=verbose,
+        )
+        return
+
+    content = claude_md.read_text(encoding="utf-8")
+    if _CLAUDE_VAULT_MD_IMPORT in content:
+        _print(
+            dim(f"  {claude_md} already imports @CLAUDE-VAULT.md"),
+            verbose_only=True,
+            verbose=verbose,
+        )
+        return
+
+    _step(f"Append @CLAUDE-VAULT.md import to {claude_md}", dry_run=dry_run)
+    if not dry_run:
+        suffix = "" if content.endswith("\n") else "\n"
+        claude_md.write_text(
+            content + suffix + _CLAUDE_VAULT_MD_IMPORT + "\n",
+            encoding="utf-8",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Index rebuild
 # ---------------------------------------------------------------------------
 
@@ -598,6 +652,31 @@ def uninstall(
             except OSError as exc:
                 _err(f"Could not write {settings_file}: {exc}")
 
+    # Remove CLAUDE-VAULT.md and its @import from CLAUDE.md
+    claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
+    if claude_vault_md.exists():
+        _step(f"Remove {claude_vault_md}", dry_run=dry_run)
+        if not dry_run:
+            claude_vault_md.unlink()
+    else:
+        _warn(f"CLAUDE-VAULT.md not found: {claude_vault_md}")
+
+    claude_md = claude_dir / "CLAUDE.md"
+    if claude_md.exists():
+        content = claude_md.read_text(encoding="utf-8")
+        if _CLAUDE_VAULT_MD_IMPORT in content:
+            _step(f"Remove @CLAUDE-VAULT.md import from {claude_md}", dry_run=dry_run)
+            if not dry_run:
+                cleaned = "\n".join(
+                    line
+                    for line in content.splitlines()
+                    if line.strip() != _CLAUDE_VAULT_MD_IMPORT
+                )
+                # Preserve trailing newline
+                if content.endswith("\n"):
+                    cleaned += "\n"
+                claude_md.write_text(cleaned, encoding="utf-8")
+
     if not dry_run:
         print()
         _ok("Uninstall complete. Your vault at ~/ClaudeVault/ was not removed.")
@@ -646,6 +725,7 @@ def install(args: argparse.Namespace) -> int:
         print(f"  {dim('Install agent:')} {claude_dir / 'agents' / AGENT_SRC.name}")
     if not args.skip_hooks:
         print(f"  {dim('Register hooks:')} SessionStart, SessionEnd, PreCompact")
+    print(f"  {dim('Install guidance:')} {claude_dir / 'CLAUDE-VAULT.md'} (@import into CLAUDE.md)")
     if dry_run:
         print(f"\n  {yellow('[DRY RUN — no changes will be made]')}")
 
@@ -692,7 +772,10 @@ def install(args: argparse.Namespace) -> int:
     if not args.skip_hooks:
         merge_hooks(claude_dir, settings_file, dry_run=dry_run, verbose=verbose)
 
-    # 6. Rebuild vault index
+    # 6. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
+    install_claude_vault_md(claude_dir, dry_run=dry_run, verbose=verbose)
+
+    # 7. Rebuild vault index
     rebuild_index(claude_dir, dry_run=dry_run)
 
     print()
