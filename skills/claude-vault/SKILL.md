@@ -1,24 +1,24 @@
 ---
 name: claude-vault
 description: >
-  Use when saving or retrieving persistent knowledge across sessions in the Obsidian
-  vault at ~/ClaudeVault/. Triggers on: "remember this", "save this", "document this",
-  "record this", "don't forget", "vault", "ClaudeVault", "check our notes", "check
-  what we know", "what do we know about", "do we have notes on", "capture this",
-  "make sure this is captured", "available everywhere", "for future sessions",
-  "rebuild vault index", "update vault index", "refresh vault index", "refresh the vault",
-  "sync the vault",
-  "summarize sessions", "process pending sessions", "generate session notes",
-  "run the summarizer", "summarize vault sessions",
-  "vault config", "vault settings", "configure vault", "vault options".
-  Also use when the user wants to persist debugging fixes, research
-  findings, reusable patterns, architectural decisions, or project context across
-  sessions - even if they don't say "vault" explicitly. Use when creating, updating,
-  or searching notes in Languages/, Frameworks/, Patterns/, Debugging/, Tools/,
-  Research/, Projects/, or Daily/ folders. Use when the user wants to configure vault
-  hooks, change AI models, adjust context size, or toggle git auto-commit.
-  If you're unsure whether to save something to the vault, consult this skill -
-  it defines the format, workflow, and anti-patterns for structured knowledge management.
+  ALWAYS invoke first — before any coding or debugging action — when the query
+  references accumulated past knowledge or future session persistence.
+  Trigger signals: "have we hit/seen this before", "what do we know about X",
+  "check our notes", "check if [project] has this", "prior art", "save this to
+  the vault", "don't forget", "remember this", "capture this", or any mention of
+  "the vault" or "ClaudeVault".
+
+  This skill owns ~/ClaudeVault/ — a persistent Obsidian knowledge base surviving
+  across all coding sessions, storing debugging solutions, reusable patterns, and
+  cross-project context.
+
+  Core use cases: (1) retrieving whether a problem or pattern was solved before,
+  (2) checking other projects for existing implementations, (3) saving new
+  discoveries for future sessions, (4) vault admin tasks like rebuilding the index,
+  running the session summarizer, or configuring vault hooks and settings.
+
+  Do NOT invoke for pure coding/debugging queries with zero reference to past
+  sessions or future memory.
 ---
 
 # Claude Vault - Knowledge Management System
@@ -32,6 +32,64 @@ description: >
 - **Frontmatter is mandatory.** Every note must have a valid YAML frontmatter block. No exceptions.
 - **Knowledge compounds.** Individual notes gain value through links. An unlinked note is a dead note.
 - **Confidence matters.** Tag what you know vs. what you suspect. Update confidence as understanding deepens.
+
+## Vault-First Consultation
+
+The vault is your **first stop** — not your last resort. Before web search, before documentation, before experimentation, check whether the vault already holds a solution.
+
+### Debugging: Search Before You Diagnose
+
+When you encounter an error, exception, or unexpected behavior:
+
+1. **Extract the key signal**: the exception type, package name, or the most distinctive phrase from the error message
+2. **Search `Debugging/`** first:
+   ```bash
+   # Use the Grep tool with path ~/ClaudeVault and glob **/*.md, e.g.:
+   grep -r "ImportError" ~/ClaudeVault/Debugging/ --include="*.md" -l
+   grep -r "sqlalchemy" ~/ClaudeVault/Debugging/ --include="*.md" -l
+   ```
+3. **Widen the search** to `Frameworks/`, `Languages/`, and `Projects/` — the fix may live there
+4. **If you find a match**: apply the documented solution; update the note if you discover new nuance
+5. **If no match**: diagnose, solve, then save the solution so future sessions benefit
+
+### Implementation: Check for Prior Art
+
+When implementing any feature, pattern, or integration:
+
+1. **Search `Patterns/`** for design patterns relevant to the feature
+2. **Search `Frameworks/` and `Languages/`** for the specific stack
+3. **Search `Projects/`** for implementations in other projects:
+   ```bash
+   grep -r "websocket" ~/ClaudeVault/Projects/ --include="*.md" -l
+   grep -r "authentication" ~/ClaudeVault/ --include="*.md" -l
+   ```
+4. **Examine `sources`** in matched notes for code references and file paths
+5. **Reuse and adapt** — a proven implementation beats a fresh one every time
+
+### Efficient Vault Search
+
+| Goal | Approach |
+|---|---|
+| Find by error type | Grep for exception class name across all vault folders |
+| Find by library/framework | Grep for the package name in `Frameworks/` or `Languages/` |
+| Find by tag | Check vault `CLAUDE.md` index for tag listings |
+| Find cross-project patterns | Search `Projects/`, follow `related` wikilinks |
+| Find by note type | Grep for `type: debugging` or `type: pattern` in frontmatter |
+
+Prefer the `Grep` tool with `path: ~/ClaudeVault` and `glob: **/*.md` over shell commands.
+
+### The Vault-First Loop
+
+```
+Error or implementation question
+  → Search vault
+    → Found? Apply / adapt solution → Update note with new learnings
+    → Not found? Solve it → Save to vault → Rebuild index
+```
+
+Saving after a successful solve is as important as searching before. Every unsaved solution is a missed opportunity for every future session.
+
+---
 
 ## Vault Structure
 
