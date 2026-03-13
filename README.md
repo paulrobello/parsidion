@@ -98,7 +98,8 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
 | `session_stop_hook.py` | SessionEnd hook - queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); auto-launches summarizer in background |
 | `summarize_sessions.py` | On-demand AI summarizer - generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`) |
 | `pre_compact_hook.py` | PreCompact hook - snapshots working state before compaction |
-| `update_index.py` | Rebuilds `~/ClaudeVault/CLAUDE.md` index (includes `## Existing Tags` for summarizer) |
+| `update_index.py` | Rebuilds `~/ClaudeVault/CLAUDE.md` index (includes `## Existing Tags` for summarizer, vault health from `doctor_state.json`) |
+| `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); repairs via Claude haiku; tracks state in `doctor_state.json` |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
 | `run_trigger_eval.py` | Trigger accuracy eval (skill-selection simulation) |
 | `run_trigger_eval.sh` | Shell wrapper for running eval from a separate terminal |
@@ -250,6 +251,23 @@ uv run --no-project ~/.claude/skills/claude-vault/scripts/summarize_sessions.py 
 # Process an explicit file (e.g. to test a single entry)
 uv run --no-project ~/.claude/skills/claude-vault/scripts/summarize_sessions.py --sessions /path/to/file.jsonl
 ```
+
+**Run vault doctor** (scan for issues and repair via Claude haiku):
+```bash
+# Scan and report only
+uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --dry-run
+
+# Repair repairable issues (must unset CLAUDECODE to allow nested claude calls)
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --fix --limit 20
+
+# Errors only; skip warnings
+uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --errors-only --dry-run
+
+# Ignore state file, rescan everything
+uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --no-state --dry-run
+```
+
+The doctor writes `~/ClaudeVault/doctor_state.json` to track processed notes. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
 
 **Run trigger eval** (from a separate terminal, not inside Claude Code):
 ```bash

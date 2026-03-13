@@ -258,7 +258,22 @@ uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --erro
 Repairable codes (Claude can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
 Not auto-repairable (require manual fix): `BROKEN_WIKILINK`, `FLAT_DAILY`.
 
-Run `update_index.py` after repairs to rebuild the index.
+### State tracking
+
+The doctor writes `~/ClaudeVault/doctor_state.json` to avoid reprocessing notes unnecessarily:
+
+| Status | Meaning | Next run behaviour |
+|---|---|---|
+| `ok` | No issues found | Skipped for 7 days |
+| `fixed` | Claude repaired it | Re-checked to confirm |
+| `failed` | Claude returned no output | Retried |
+| `timeout` | `claude -p` timed out once | Retried once more |
+| `needs_review` | Timed out on retry | Skipped — user must fix manually |
+| `skipped` | Only non-repairable issues | Skipped indefinitely |
+
+Use `--no-state` to ignore the state file and rescan all notes.
+
+Run `update_index.py` after repairs — it reads `doctor_state.json` and adds a vault health line to `CLAUDE.md`'s Quick Stats section.
 
 ## Configuration
 

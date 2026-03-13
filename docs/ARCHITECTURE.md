@@ -290,6 +290,44 @@ An on-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`) that processe
 
 **Must be run from a separate terminal** (or with `env -u CLAUDECODE`) because the Agent SDK cannot be nested inside an active Claude Code session.
 
+### Vault Doctor
+
+**Location:** `skills/claude-vault/scripts/vault_doctor.py`
+
+An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via `claude -p` (haiku model by default).
+
+**Issue codes detected:**
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| `MISSING_FRONTMATTER` | error | No YAML frontmatter block |
+| `MISSING_FIELD` | error | `date`/`type` missing (all notes); `confidence`/`related` missing (non-daily) |
+| `INVALID_TYPE` | error | `type` not in allowed set |
+| `INVALID_DATE` | warning | `date` not in YYYY-MM-DD format |
+| `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field |
+| `BROKEN_WIKILINK` | warning | Link target not found in vault |
+| `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
+
+Daily notes are exempt from `confidence`, `related`, and orphan checks.
+
+**State file:** `~/ClaudeVault/doctor_state.json` tracks per-note status across runs:
+- `ok` — no issues; skipped for 7 days before re-checking
+- `fixed` — Claude repaired it; re-checked on next run
+- `failed` — Claude returned no output; retried next run
+- `timeout` — `claude -p` timed out once; retried one more time
+- `needs_review` — timed out on retry; skipped indefinitely, flagged for user
+- `skipped` — only non-auto-repairable issues (`BROKEN_WIKILINK`, `FLAT_DAILY`); skipped indefinitely
+
+**Behavior:**
+1. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
+2. Scans remaining notes for issues using stdlib-only checks
+3. Records clean notes as `ok` in state (skipped for 7 days)
+4. In `--fix` mode: calls `claude -p` per note with haiku to repair repairable issues
+5. Saves state after each run; escalates double-timeout to `needs_review`
+6. `--no-state` rescans all notes regardless of prior results
+
+The vault health summary (clean count, pending repair, needs review, manual fix) is included in `CLAUDE.md` by `update_index.py` after each index rebuild.
+
 ### Graph Coverage Checker
 
 **Location:** `skills/claude-vault/scripts/check_graph_coverage.py`
@@ -358,7 +396,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes.
 
 **Output sections:**
-1. **Quick Stats** -- total note count and last updated timestamp
+1. **Quick Stats** -- total note count, last updated timestamp, and vault health summary (read from `doctor_state.json` if present)
 2. **Tag Cloud** -- all tags sorted by frequency
 3. **Recent Activity** -- notes modified within the last 7 days (max 20)
 4. **Folders** -- per-folder listings with wikilinks and summaries
