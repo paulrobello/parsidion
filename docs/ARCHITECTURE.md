@@ -384,12 +384,14 @@ A utility script that audits vault tags against the Obsidian graph color groups 
 A Claude Code agent definition (runs on Sonnet) that conducts technical research and saves structured findings to the vault.
 
 **Workflow:**
-1. Searches existing vault notes before doing external research
+1. Dispatches `vault-explorer` agent with the research topic to check for existing knowledge — proceeds to web research only for gaps not covered by existing notes
 2. Uses NotebookLM (if available) for deep synthesis of source material
-3. Uses Brave Search for web research, Web Fetch for content extraction
-4. Saves results to the appropriate vault subfolder with YAML frontmatter
-5. Runs `update_index.py` after saving notes
-6. Provides a summary report of findings and gaps
+3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
+4. Uses `agentchrome` CLI for full JavaScript-rendered content extraction (Web Fetch as fallback if agentchrome fails)
+5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/MCPL.md`) was also requested
+6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
+7. Runs `update_index.py` after saving vault notes
+8. Provides a summary report of findings and gaps
 
 ### Vault Explorer Agent
 
@@ -598,19 +600,24 @@ sequenceDiagram
     participant U as User
     participant CC as Claude Code
     participant RA as Research Agent
+    participant VE as vault-explorer agent
     participant WS as Web Sources
     participant V as Vault
     participant IDX as update_index.py
 
     U->>CC: Research request
     CC->>RA: Delegate to research agent
-    RA->>V: Search existing vault notes
-    V-->>RA: Existing knowledge
-    RA->>WS: Brave Search + Web Fetch
+    RA->>VE: Dispatch with topic query
+    VE->>V: Search existing vault notes
+    V-->>VE: Ranked matches
+    VE-->>RA: Answer + Sources (or "no notes found")
+    RA->>WS: Brave Search (+ mcpl fallback if rate-limited)
+    RA->>WS: agentchrome fetch (Web Fetch fallback)
     WS-->>RA: Source content
-    RA->>V: Save notes with frontmatter
+    RA->>V: Always save vault note with frontmatter
     RA->>IDX: Rebuild vault index
     IDX->>V: Write updated CLAUDE.md
+    Note over RA: If project doc requested,<br/>also save there (no frontmatter)
     RA-->>CC: Summary report
 ```
 
