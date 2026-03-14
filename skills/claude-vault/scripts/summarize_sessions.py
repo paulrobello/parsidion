@@ -262,7 +262,10 @@ Write a complete markdown vault note. Requirements:
 - YAML frontmatter: date ({today}), type (debugging|research|pattern|tool|framework|language|project),
 {tags_instruction},
   project (if project-specific), confidence (high|medium|low),
-  sources ([] or URLs mentioned), related (YAML list with quoted wikilinks, e.g. ["[[Topic One]]", "[[Topic Two]]"]),
+  sources ([] or URLs mentioned),
+  related (REQUIRED — must be a non-empty YAML list of quoted [[wikilinks]]; always provide at
+  least one entry; if no specific note title is known, link to the project name or primary
+  technology, e.g. ["[[{project}]]"]; an empty "related: []" is NEVER acceptable),
   session_id: {session_id}
 - ## Title heading (3-5 descriptive words, not generic)
 - ## Summary (2-3 sentences: what was learned and why it matters)

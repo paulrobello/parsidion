@@ -141,6 +141,8 @@ related:
 ---
 ```
 
+**CRITICAL**: `related: []` is NEVER acceptable. Every note must link to at least one other vault note via `[[wikilink]]`. If no specific note exists yet, link to the primary topic or technology name (e.g. `"[[qdrant]]"`, `"[[fastapi]]"`). A note with an empty `related` field is an orphan and fails vault validation.
+
 ### Documentation Structure
 
 Each markdown file should follow this template:
@@ -152,7 +154,8 @@ type: research
 tags: [topic]
 confidence: medium
 sources: []
-related: []
+related:
+  - "[[related-note-title]]"
 ---
 
 # [Topic Title]
