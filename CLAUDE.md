@@ -55,7 +55,7 @@ invoke `claude` internally. Use `env -u CLAUDECODE` as a workaround for the summ
 The vault supports optional git version control. When `~/ClaudeVault/.git` exists, the scripts
 automatically stage and commit changes after every vault write:
 
-- `session_stop_hook.py` — commits daily note + pending queue after each session end
+- `session_stop_wrapper.sh` / `session_stop_hook.py` — commits daily note + pending queue after each session end
 - `pre_compact_hook.py` — commits daily note after each pre-compact snapshot
 - `update_index.py` — commits `CLAUDE.md` after each index rebuild
 - `summarize_sessions.py` — commits new notes + updated index after processing
@@ -126,7 +126,13 @@ python skills/claude-vault/scripts/session_start_hook.py <<'EOF'
 {"cwd": "/Users/yourname/Repos/myproject"}
 EOF
 
-# Test session_stop_hook (requires a real transcript path)
+# Test session_stop_wrapper (the registered SessionEnd hook)
+bash skills/claude-vault/scripts/session_stop_wrapper.sh <<'EOF'
+{"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
+EOF
+# Background work logs to /tmp/session_stop_hook.log
+
+# Test session_stop_hook directly (requires a real transcript path)
 python skills/claude-vault/scripts/session_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
@@ -137,7 +143,7 @@ python skills/claude-vault/scripts/pre_compact_hook.py <<'EOF'
 EOF
 ```
 
-**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `vault_common.py`, `update_index.py`) must use Python stdlib exclusively — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
+**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `vault_common.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
 
 **Exception**: `summarize_sessions.py` is a PEP 723 script with inline dependency declarations (`claude-agent-sdk`, `anyio`). Run it with `uv run` — deps are installed automatically into an isolated environment.
 
@@ -147,7 +153,7 @@ The system has four layers:
 
 1. **Hook scripts** — Python scripts fired by Claude Code's lifecycle events, communicating via JSON stdin/stdout:
    - `session_start_hook.py`: Loads relevant vault notes as `additionalContext`; optional `--ai [MODEL]` flag uses `claude -p` (haiku by default, `CLAUDECODE` unset) to intelligently select notes from the full vault — requires bumping the hook timeout to 30 s in `settings.json`
-   - `session_stop_hook.py`: Registered under the `SessionEnd` hook (fires once when the session terminates, not on every turn). Detects learnable content; appends session metadata (session_id, transcript_path, categories) to `~/ClaudeVault/pending_summaries.jsonl`. Uses `fcntl.flock` for safe concurrent access across parallel Claude instances.
+   - `session_stop_wrapper.sh` + `session_stop_hook.py`: Registered under the `SessionEnd` hook. The shell wrapper reads stdin, outputs `{}` immediately (so Claude Code doesn't cancel it during fast exits), then spawns `session_stop_hook.py` detached via `nohup`. The Python script detects learnable content and appends session metadata (session_id, transcript_path, categories) to `~/ClaudeVault/pending_summaries.jsonl`. Uses `fcntl.flock` for safe concurrent access across parallel Claude instances.
    - `pre_compact_hook.py`: Snapshots current task state before context compaction. Extracts the current task by scanning backwards through the last 200 transcript lines for the most recent user text message. Extracts recently-touched files by parsing `tool_use` blocks from assistant messages (Read/Write/Edit/Grep/NotebookEdit tools).
 
 2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls Claude via the Agent SDK (up to 5 parallel sessions) to generate structured vault notes. Cleans processed entries from the queue and rebuilds the index when done.

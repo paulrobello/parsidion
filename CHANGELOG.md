@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `migrate_memory.py` computes TODAY at point of use instead of module level
 
 ### Fixed
+- Added `session_stop_wrapper.sh` shell wrapper for SessionEnd hook; outputs `{}` immediately then runs `session_stop_hook.py` detached via `nohup`, preventing "Hook cancelled" errors when Claude Code exits before `uv run` starts up
+- `install.py` now registers `session_stop_wrapper.sh` for SessionEnd (not the Python script directly) and makes `.sh` files executable during install
 - Changed `permission_mode` from `bypassPermissions` to `default` in summarize_sessions.py
 - Replaced MD5 with SHA-256 for content hashing in migrate_research.py
 - Set 0o600 permissions on debug log file in session_start_hook.py
