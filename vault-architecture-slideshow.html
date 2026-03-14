@@ -1012,11 +1012,11 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
             <div class="flow-diagram" style="margin: 12px 0;">
                 <div class="flow-box cyan">User Request</div>
                 <span class="flow-arrow">&rarr;</span>
-                <div class="flow-box purple">Check Vault</div>
+                <div class="flow-box purple">vault-explorer</div>
                 <span class="flow-arrow">&rarr;</span>
                 <div class="flow-box orange">Web Search</div>
                 <span class="flow-arrow">&rarr;</span>
-                <div class="flow-box green">Save Notes</div>
+                <div class="flow-box green">Always Save to Vault</div>
                 <span class="flow-arrow">&rarr;</span>
                 <div class="flow-box yellow">Reindex</div>
             </div>
@@ -1027,19 +1027,19 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                     <div class="lifecycle-flow">
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num purple">1</div>
-                            <span style="font-size: 12px;">Search existing vault notes first</span>
+                            <span style="font-size: 12px;">Dispatch vault-explorer agent to check for existing knowledge</span>
                         </div>
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num cyan">2</div>
-                            <span style="font-size: 12px;">Use Brave Search for web research</span>
+                            <span style="font-size: 12px;">Brave Search for web research (mcpl fallback if rate-limited)</span>
                         </div>
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num orange">3</div>
-                            <span style="font-size: 12px;">Web Fetch for content extraction</span>
+                            <span style="font-size: 12px;">agentchrome for JS-rendered content (Web Fetch fallback)</span>
                         </div>
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num green">4</div>
-                            <span style="font-size: 12px;">Save to vault with full frontmatter</span>
+                            <span style="font-size: 12px;">Always save vault note with frontmatter; also save project doc if requested</span>
                         </div>
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num yellow">5</div>
@@ -1049,16 +1049,22 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                 </div>
                 <div class="col-box">
                     <h3 class="green">Output</h3>
-                    <p style="margin-bottom: 8px;">Notes are saved to the appropriate subfolder with:</p>
+                    <p style="margin-bottom: 8px;">Vault notes always saved with:</p>
                     <ul class="bullet-list">
                         <li class="green" style="font-size: 11px;">Complete YAML frontmatter</li>
                         <li class="green" style="font-size: 11px;">Source URLs and citations</li>
                         <li class="green" style="font-size: 11px;">Wikilinks to related vault notes</li>
                         <li class="green" style="font-size: 11px;">Confidence levels from research</li>
                     </ul>
-                    <div style="margin-top: 10px; display: flex; gap: 6px;">
+                    <p style="margin-top: 8px; margin-bottom: 4px;">Project docs (if requested):</p>
+                    <ul class="bullet-list">
+                        <li class="cyan" style="font-size: 11px;">Style-guide compliant, no frontmatter</li>
+                        <li class="cyan" style="font-size: 11px;">Saved alongside the vault note</li>
+                    </ul>
+                    <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
                         <span class="tag purple">Sonnet-powered</span>
-                        <span class="tag info">Vault-first search</span>
+                        <span class="tag info">vault-explorer first</span>
+                        <span class="tag green">dual-save</span>
                     </div>
                 </div>
             </div>
