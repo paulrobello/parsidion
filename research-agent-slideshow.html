@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Research Agent Quality Pass — Claude Code Build Session</title>
+<title>Building the Research Documentation Agent — Claude Code Build Session</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -16,10 +16,11 @@
     --green: #22c55e;
     --yellow: #eab308;
     --orange: #f97316;
+    --amber: #f59e0b;
     --red: #ef4444;
     --text: #e6edf3;
     --text-muted: #8b949e;
-    --gradient: linear-gradient(135deg, #f97316 0%, #06B6D4 100%);
+    --gradient: linear-gradient(135deg, #f59e0b 0%, #8B5CF6 100%);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -89,7 +90,6 @@ body {
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Typography ── */
 .slide-title {
     font-size: 22px;
     font-weight: 700;
@@ -106,7 +106,6 @@ body {
     margin-top: -8px;
 }
 
-/* ── Prompt lines ── */
 .prompt-line {
     display: flex;
     align-items: baseline;
@@ -119,10 +118,9 @@ body {
 .prompt-symbol{ color: var(--text-muted); }
 .prompt-cmd   { color: var(--text); }
 
-/* ── Response boxes ── */
 .claude-response {
-    background: rgba(249,115,22,0.06);
-    border: 1px solid rgba(249,115,22,0.25);
+    background: rgba(245,158,11,0.06);
+    border: 1px solid rgba(245,158,11,0.25);
     border-radius: 8px;
     padding: 14px 16px;
     font-size: 12.5px;
@@ -147,11 +145,11 @@ body {
 }
 
 .output.highlight {
-    border-left: 3px solid var(--orange);
+    border-left: 3px solid var(--amber);
     color: var(--text);
+    white-space: normal;
 }
 
-/* ── Bullets ── */
 ul.feature-list {
     list-style: none;
     display: flex;
@@ -160,17 +158,13 @@ ul.feature-list {
     font-size: 13px;
 }
 
-ul.feature-list li::before {
-    content: "◆ ";
-    color: var(--orange);
-}
+ul.feature-list li::before         { content: "◆ "; color: var(--amber); }
+ul.feature-list li.purple::before  { color: var(--purple); }
+ul.feature-list li.green::before   { color: var(--green);  }
+ul.feature-list li.yellow::before  { color: var(--yellow); }
+ul.feature-list li.cyan::before    { color: var(--cyan);   }
+ul.feature-list li.orange::before  { color: var(--orange); }
 
-ul.feature-list li.purple::before { color: var(--purple); }
-ul.feature-list li.green::before  { color: var(--green);  }
-ul.feature-list li.yellow::before { color: var(--yellow); }
-ul.feature-list li.cyan::before   { color: var(--cyan);   }
-
-/* ── Tags ── */
 .tags { display: flex; gap: 8px; flex-wrap: wrap; }
 .tag {
     padding: 3px 10px;
@@ -182,12 +176,10 @@ ul.feature-list li.cyan::before   { color: var(--cyan);   }
 .tag.info    { background: rgba(6,182,212,0.12);  color: var(--cyan);   border: 1px solid rgba(6,182,212,0.3);  }
 .tag.purple  { background: rgba(139,92,246,0.12); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
 .tag.warn    { background: rgba(234,179,8,0.12);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.3);  }
-.tag.orange  { background: rgba(249,115,22,0.12); color: var(--orange); border: 1px solid rgba(249,115,22,0.3); }
+.tag.amber   { background: rgba(245,158,11,0.12); color: var(--amber);  border: 1px solid rgba(245,158,11,0.3); }
 
-/* ── Two-column layout ── */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-/* ── Code block ── */
 .code-block {
     background: #0a0e1a;
     border: 1px solid var(--border);
@@ -202,36 +194,29 @@ ul.feature-list li.cyan::before   { color: var(--cyan);   }
 .fn  { color: var(--cyan); }
 .str { color: var(--yellow); }
 .cm  { color: #4d5566; }
-.ty  { color: var(--orange); }
+.ty  { color: var(--amber); }
 
-/* ── Section label ── */
 .section-label {
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: var(--orange);
+    color: var(--amber);
     margin-bottom: -6px;
 }
 
-/* ── Divider ── */
-.divider {
-    height: 1px;
-    background: var(--border);
-    margin: 2px 0;
-}
+.divider { height: 1px; background: var(--border); margin: 2px 0; }
 
-/* ── Inline highlight ── */
 .hl-cyan   { color: var(--cyan); }
 .hl-purple { color: var(--purple); }
 .hl-green  { color: var(--green); }
 .hl-yellow { color: var(--yellow); }
+.hl-amber  { color: var(--amber); }
 .hl-orange { color: var(--orange); }
 .hl-red    { color: var(--red); }
 
 em { font-style: italic; color: var(--text-muted); }
 
-/* ── Progress & Nav ── */
 .progress-bar {
     width: 100%;
     max-width: 860px;
@@ -249,12 +234,7 @@ em { font-style: italic; color: var(--text-muted); }
     transition: width 0.3s ease;
 }
 
-.nav {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    margin-top: 16px;
-}
+.nav { display: flex; align-items: center; gap: 20px; margin-top: 16px; }
 
 .nav-btn {
     background: var(--bg-card);
@@ -268,38 +248,16 @@ em { font-style: italic; color: var(--text-muted); }
     transition: all 0.2s;
 }
 
-.nav-btn:hover:not(:disabled) {
-    border-color: var(--orange);
-    color: var(--orange);
-}
-
+.nav-btn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
 .nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.nav-btn.action { background: var(--gradient); border: none; color: #fff; font-weight: 600; }
 
-.nav-btn.action {
-    background: var(--gradient);
-    border: none;
-    color: #fff;
-    font-weight: 600;
-}
+.slide-counter { font-size: 12px; color: var(--text-muted); min-width: 60px; text-align: center; }
 
-.slide-counter {
-    font-size: 12px;
-    color: var(--text-muted);
-    min-width: 60px;
-    text-align: center;
-}
-
-/* ── Checklist ── */
-.checklist {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 12.5px;
-}
+.checklist { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .check-item { display: flex; align-items: flex-start; gap: 8px; }
 .check-item .ck { color: var(--green); font-weight: 700; flex-shrink: 0; }
-.check-item .ck.pending { color: var(--text-muted); }
-.check-item .ck.num { color: var(--orange); }
+.check-item .ck.num { color: var(--amber); }
 
 @media (max-width: 600px) {
     .terminal-body { height: 520px; }
@@ -324,348 +282,382 @@ em { font-style: italic; color: var(--text-muted); }
 
     <!-- ── Slide 1: Introduction ── -->
     <div class="slide active">
-      <div class="slide-title">Research Agent Quality Pass</div>
-      <div class="slide-subtitle">parsidion-cc · Claude Code Build Session · 2026-03-13</div>
+      <div class="slide-title">Building the Research Documentation Agent</div>
+      <div class="slide-subtitle">parsidion-cc · Claude Code Build Session · 2026-03-12</div>
 
       <div class="prompt-line" style="margin-top:4px;">
         <span class="prompt">user</span>
         <span class="prompt-path">~/Repos/parsidion-cc</span>
         <span class="prompt-symbol">$</span>
-        <span class="prompt-cmd">claude — implement research-documentation-agent quality pass</span>
+        <span class="prompt-cmd">claude</span>
       </div>
 
       <div class="claude-response">
-        ✦ <span class="hl-orange">5 issues</span> identified in the research agent during general quality review.<br>
-        Fixes span: vault search delegation, broken syntax, fetching strategy, rate-limit fallback, and a new vault-save guarantee added mid-session.
+        ✦ Welcome to Claude Code!<br>
+        <span class="hl-amber">claude-sonnet-4-6</span> · parsidion-cc
       </div>
 
-      <div class="section-label">Issues addressed</div>
-      <ul class="feature-list">
-        <li>Duplicate vault search logic — agent re-implemented what <span class="hl-cyan">vault-explorer</span> already does</li>
-        <li class="purple">Broken <span class="hl-purple">NotebookLM Task()</span> pseudo-code — not valid Claude Code syntax</li>
-        <li class="yellow">Opaque fetch instruction — <span class="hl-yellow">Web Fetch</span> can't render JS-heavy docs sites</li>
-        <li class="green"><span class="hl-green">No Brave Search fallback</span> — rate limits are common, no guidance given</li>
-        <li class="cyan"><span class="hl-cyan">No vault-save guarantee</span> — project docs requested, vault skipped entirely</li>
-      </ul>
+      <div class="section-label">The problem</div>
+      <div class="claude-response">
+        Every Claude Code session starts cold. Web research done in one session — API docs, framework patterns, debugging solutions — vanishes when the session ends. The next session re-investigates the same ground. The vault captures project decisions, but nothing drives external knowledge <em>into</em> it automatically.
+      </div>
 
       <div class="tags">
-        <span class="tag orange">5 changes</span>
-        <span class="tag info">agentchrome</span>
-        <span class="tag purple">vault-explorer</span>
-        <span class="tag success">dual-save</span>
+        <span class="tag amber">Sonnet-powered</span>
+        <span class="tag purple">vault-first</span>
+        <span class="tag info">proactive trigger</span>
+        <span class="tag success">311 lines</span>
       </div>
     </div>
 
-    <!-- ── Slide 2: Change 1 — vault-explorer delegation ── -->
+    <!-- ── Slide 2: Design Goals ── -->
     <div class="slide">
-      <div class="slide-title">Change 1: Delegate to vault-explorer</div>
+      <div class="slide-title">Design Goals</div>
 
-      <div class="claude-response">
-        The agent manually checked index staleness, rebuilt the index, and grepped vault folders. The <span class="hl-cyan">vault-explorer</span> agent already does all of this correctly in a fresh Haiku context. Duplication creates drift risk and wastes tokens.
-      </div>
+      <div class="section-label">What success looks like</div>
+      <ul class="feature-list">
+        <li><span class="hl-amber">Vault-first</span> — never re-research what's already known; check the vault before going to the web</li>
+        <li class="purple"><span class="hl-purple">Proactive</span> — triggers automatically from user intent, not just explicit requests</li>
+        <li class="cyan"><span class="hl-cyan">Structured output</span> — YAML frontmatter, wikilinks, confidence levels on every note</li>
+        <li class="green"><span class="hl-green">Multi-source</span> — Brave Search + Web Fetch + optional NotebookLM deep synthesis</li>
+        <li class="yellow"><span class="hl-yellow">Project-aware</span> — saves to vault AND to <code>docs/research/</code> if the project has one</li>
+        <li class="orange"><span class="hl-orange">Style-guide compliant</span> — reads the project's style guide before writing a word</li>
+      </ul>
 
-      <div class="two-col">
-        <div>
-          <div class="section-label">Before ❌</div>
-          <div class="code-block" style="font-size:10.5px; height:160px;"><span class="cm"># Manual staleness check</span>
-<span class="fn">head -4</span> ~/ClaudeVault/CLAUDE.md
-<span class="cm"># If index older than 24h:</span>
-<span class="fn">uv run</span> update_index.py
-<span class="cm"># Then grep relevant folders</span>
-<span class="cm"># Research/, Languages/,</span>
-<span class="cm"># Frameworks/, Tools/...</span></div>
-        </div>
-        <div>
-          <div class="section-label">After ✓</div>
-          <div class="code-block" style="font-size:10.5px; height:160px;"><span class="cm"># Dispatch once</span>
-Dispatch <span class="fn">vault-explorer</span> agent
-with research topic as query.
-
-<span class="cm"># Act on result</span>
-<span class="str">## Answer</span> → use it
-<span class="str">## Sources</span> → Read only
-  if deeper detail needed
-<span class="str">"No notes found"</span> → web research</div>
-        </div>
-      </div>
-
-      <div class="output success">✓ 12 lines of vault management removed — replaced with 5 lines of delegation</div>
+      <div class="output highlight">Model choice: Sonnet over Haiku. This agent synthesizes across multiple sources,
+judges source quality, and writes well-structured prose — it needs reasoning
+capability, not just recall speed.</div>
     </div>
 
-    <!-- ── Slide 3: Change 2 — NotebookLM syntax fix ── -->
+    <!-- ── Slide 3: Frontmatter & Trigger Description ── -->
     <div class="slide">
-      <div class="slide-title">Change 2: Fix NotebookLM Syntax</div>
+      <div class="slide-title">Frontmatter: Getting the Trigger Right</div>
 
       <div class="claude-response">
-        The agent used <span class="hl-red">Task(...)</span> pseudo-code that is not valid Claude Code syntax. The Agent tool is invoked via the <span class="hl-orange">Agent tool call</span> in tool use — not as inline text in an agent definition.
+        The <span class="hl-amber">description</span> field is the agent's only auto-invocation surface. It must fire broadly enough to catch proactive research moments, but never so broadly that it fires on unrelated tasks. Four concrete scenarios were chosen.
       </div>
 
-      <div class="two-col">
-        <div>
-          <div class="section-label">Before ❌ — invalid pseudo-code</div>
-          <div class="code-block" style="font-size:10.5px; height:170px;"><span class="cm">Spawn a background subagent:</span>
-<span class="kw">```</span>
-<span class="ty">Task</span>(
-  prompt=<span class="str">"Wait for deep research</span>
-  <span class="str">in notebook [id]...</span>
-  <span class="str">Use: notebooklm research</span>
-  <span class="str">wait -n [id]..."</span>,
-  subagent_type=<span class="str">"general-purpose"</span>
-)
-<span class="kw">```</span></div>
-        </div>
-        <div>
-          <div class="section-label">After ✓ — correct guidance</div>
-          <div class="code-block" style="font-size:10.5px; height:170px;"><span class="cm">Dispatch a general-purpose</span>
-<span class="cm">subagent with this prompt,</span>
-<span class="cm">then continue to step 3:</span>
-
-<span class="str">&gt; "Wait for deep research in</span>
-<span class="str">&gt;  notebook [id] and import</span>
-<span class="str">&gt;  all sources.</span>
-<span class="str">&gt;  Use: notebooklm research</span>
-<span class="str">&gt;  wait -n [id] --import-all"</span></div>
-        </div>
-      </div>
-
-      <div class="output highlight">The correct pattern: describe the prompt as a blockquote — the agent invokes
-the Agent tool itself. No pseudo-code syntax in agent definitions.</div>
-    </div>
-
-    <!-- ── Slide 4: Change 3 — agentchrome ── -->
-    <div class="slide">
-      <div class="slide-title">Change 3: agentchrome for Content Extraction</div>
-
-      <div class="claude-response">
-        "Use the Web Fetch tool" can't render JS-heavy documentation sites like MDN or framework docs. <span class="hl-orange">agentchrome</span> launches a headless Chrome instance, navigates to the URL, and extracts fully-rendered page text.
-      </div>
-
-      <div class="section-label">Standard extraction pattern</div>
-      <div class="code-block"><span class="cm"># Connect once per research session (launch headless Chrome)</span>
-<span class="fn">agentchrome</span> connect --launch --headless
-
-<span class="cm"># Navigate and extract visible text</span>
-<span class="fn">agentchrome</span> navigate <span class="str">"https://example.com/docs"</span> --wait-until networkidle
-<span class="fn">agentchrome</span> page text   <span class="cm"># not page snapshot — returns readable content</span></div>
-
-      <div class="two-col">
-        <div class="output" style="height:60px;">Before: "Web Fetch tool"
-→ HTML dump, no JS rendering
-→ MDN, Next.js docs: broken</div>
-        <div class="output success" style="height:60px;">After: agentchrome
-→ full JS-rendered text
-→ Fallback: Web Fetch if connect fails</div>
-      </div>
-
-      <div class="output highlight">--wait-until networkidle ensures single-page apps fully load before extraction</div>
-    </div>
-
-    <!-- ── Slide 5: Change 4 — mcpl fallback ── -->
-    <div class="slide">
-      <div class="slide-title">Change 4: Brave Search Rate-Limit Fallback</div>
-
-      <div class="claude-response">
-        Brave Search hits rate limits regularly during heavy research sessions. Previously the agent had no guidance — it would silently fail or loop. CLAUDE.md already prescribes <span class="hl-cyan">mcpl search</span> as the fallback for rate-limited tools.
-      </div>
-
-      <div class="section-label">New "Handling Edge Cases" item 5</div>
-      <div class="code-block"><span class="str">5. **Brave Search Rate Limits**: If the Brave Search tool returns a</span>
-   <span class="str">rate-limit error or fails to respond:</span>
-   <span class="cm">- Run `mcpl search "search" --limit 5` to discover</span>
-     <span class="cm">available alternative search MCP tools</span>
-   <span class="cm">- Use the best available alternative to continue research</span>
-   <span class="cm">- Note which search tool was used in the Summary Report</span>
-     <span class="cm">if it differs from Brave Search</span></div>
-
-      <div class="tags" style="margin-top:4px;">
-        <span class="tag info">mcpl search "search"</span>
-        <span class="tag orange">discovers live alternatives</span>
-        <span class="tag warn">no hardcoded tool names</span>
-      </div>
-
-      <div class="output success">✓ Aligned with CLAUDE.md: "If Brave hits rate limits, check MCP Launchpad"</div>
-    </div>
-
-    <!-- ── Slide 6: MCPL doc created ── -->
-    <div class="slide">
-      <div class="slide-title">Research in Action: docs/MCPL.md</div>
-
-      <div class="prompt-line">
-        <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
-        <span class="prompt-symbol">$</span>
-        <span class="prompt-cmd">create docs/MCPL.md from https://github.com/kenneth-liao/mcp-launchpad using research agent</span>
-      </div>
-
-      <div class="claude-response">
-        Agent dispatched: vault-explorer first (no prior mcpl notes) → agentchrome to fetch the GitHub repo → web research → doc created following project style guide.
-      </div>
-
-      <div class="section-label">Output</div>
+      <div class="section-label">The four trigger scenarios</div>
       <div class="checklist">
-        <div class="check-item"><span class="ck">✓</span><span><span class="hl-orange">docs/MCPL.md</span> — 2,861 words, 5 Mermaid diagrams, dark-mode colors</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Covers: install, config, all commands, daemon lifecycle, OAuth, Claude Code integration</span></div>
-        <div class="check-item"><span class="ck">✓</span><span><span class="hl-cyan">README.md</span> updated — mcpl in Prerequisites + Research Agent section + Related Docs</span></div>
-        <div class="check-item pending"><span class="ck pending">✗</span><span><span class="hl-red">No vault note saved</span> — agent skipped vault because project doc was the requested destination</span></div>
+        <div class="check-item"><span class="ck num">1</span><span><em>User exploring new tech</em> — "I'm thinking about using WebGL for 3D rendering"</span></div>
+        <div class="check-item"><span class="ck num">2</span><span><em>User mentions unfamiliar APIs</em> — "I need to implement signed distance functions"</span></div>
+        <div class="check-item"><span class="ck num">3</span><span><em>User debugging complex issue</em> — "I'm getting shader compilation errors with GLSL"</span></div>
+        <div class="check-item"><span class="ck num">4</span><span><em>Beginning a new project</em> — "Let's start building a fractal renderer"</span></div>
       </div>
 
-      <div class="output highlight">Gap exposed: no rule required a vault note when a project doc was requested.</div>
+      <div class="code-block"><span class="fn">model:</span> <span class="str">sonnet</span>   <span class="cm"># synthesis + judgment, not just lookup</span>
+<span class="fn">color:</span>  <span class="str">pink</span>    <span class="cm"># visually distinct from vault-explorer (purple)</span></div>
     </div>
 
-    <!-- ── Slide 7: Change 5 — always save to vault ── -->
+    <!-- ── Slide 4: Step 1 — Vault-First Search ── -->
     <div class="slide">
-      <div class="slide-title">Change 5: Always Save to Vault</div>
+      <div class="slide-title">Step 1: Vault-First Search</div>
 
-      <div class="prompt-line">
-        <span class="prompt">user</span>
-        <span class="prompt-symbol">$</span>
-        <span class="prompt-cmd">update agent to always save a copy to vault regardless of final destination</span>
+      <div class="claude-response">
+        The agent must check the vault before touching the web — otherwise it will re-research topics the vault already covers and create duplicate notes. But the vault index can go stale. The design checks the timestamp before trusting it.
       </div>
+
+      <div class="section-label">Staleness check + folder search</div>
+      <div class="code-block"><span class="cm"># 1. Is the index fresh?</span>
+<span class="fn">head -4</span> ~/ClaudeVault/CLAUDE.md
+<span class="cm"># "Auto-generated ... on YYYY-MM-DD HH:MM"</span>
+<span class="cm"># If older than 24h → rebuild first:</span>
+<span class="fn">uv run</span> ~/.claude/skills/claude-vault/scripts/update_index.py
+
+<span class="cm"># 2. Search all relevant folders</span>
+<span class="cm"># Research/ Languages/ Frameworks/ Tools/ Patterns/ Debugging/</span>
+<span class="cm"># Also: docs/research/ in the current project</span></div>
+
+      <div class="output highlight">Gap identified and accepted: folder search is manual Grep loops in the main session context. The vault-explorer agent didn't exist yet — that refactor came later.</div>
+    </div>
+
+    <!-- ── Slide 5: Step 2 — NotebookLM Integration ── -->
+    <div class="slide">
+      <div class="slide-title">Step 2: NotebookLM Deep Synthesis (Optional)</div>
+
+      <div class="claude-response">
+        NotebookLM can run deep web research that takes minutes. The key design constraint: <span class="hl-amber">non-blocking</span>. The agent fires it off, spawns a background subagent to wait for results, then continues immediately to Brave Search — the two pipelines run in parallel.
+      </div>
+
+      <div class="section-label">Non-blocking pattern</div>
+      <div class="code-block"><span class="cm"># Check availability first — skip silently if absent</span>
+<span class="fn">notebooklm</span> status
+
+<span class="cm"># Create notebook + start deep research (non-blocking)</span>
+<span class="fn">notebooklm</span> create <span class="str">"Research: [topic]"</span>
+<span class="fn">notebooklm</span> source add-research <span class="str">"[query]"</span> --mode deep --no-wait
+
+<span class="cm"># Background subagent waits; agent continues to step 3</span>
+<span class="cm"># notebooklm research wait -n [id] --import-all --timeout 1800</span></div>
+
+      <div class="tags">
+        <span class="tag warn">optional — graceful skip</span>
+        <span class="tag info">parallel with web research</span>
+        <span class="tag purple">background subagent</span>
+      </div>
+    </div>
+
+    <!-- ── Slide 6: Steps 3–4 — Web Research & Extraction ── -->
+    <div class="slide">
+      <div class="slide-title">Steps 3–4: Web Research + Content Extraction</div>
 
       <div class="two-col">
         <div>
-          <div class="section-label">Before — conditional save</div>
-          <div class="code-block" style="font-size:10.5px; height:150px;"><span class="cm">**Primary destination**:</span>
-Save to ~/ClaudeVault/...
-
-<span class="cm">**Also save** to</span>
-<span class="cm">docs/research/ if it exists</span>
-
-<span class="cm">→ project doc requested?</span>
-<span class="cm">→ vault skipped entirely</span></div>
+          <div class="section-label">Brave Search strategy</div>
+          <ul class="feature-list" style="font-size:12px; gap:5px;">
+            <li>Get current date first: <code>date -Iseconds</code></li>
+            <li class="cyan">Broad → narrow: landscape first, then specific</li>
+            <li class="green">Query patterns: "official documentation", "best practices", "after:2023"</li>
+            <li class="yellow">Prioritize: official docs > academic > reputable blogs</li>
+            <li class="purple">Cross-reference 2+ sources before committing to any claim</li>
+          </ul>
         </div>
         <div>
-          <div class="section-label">After ✓ — unconditional vault save</div>
-          <div class="code-block" style="font-size:10.5px; height:150px;"><span class="cm">**Always save to vault**</span>
-<span class="cm">regardless of other destination</span>
-<span class="str">→ vault note = research record</span>
-
-<span class="cm">**Also save** to any explicitly</span>
-<span class="cm">requested project path</span>
-<span class="cm">→ project doc = style-guide</span>
-<span class="cm">  compliant, no frontmatter</span></div>
+          <div class="section-label">Content extraction</div>
+          <ul class="feature-list" style="font-size:12px; gap:5px;">
+            <li>Web Fetch tool for full article content</li>
+            <li class="cyan">Extract: code examples, API references, implementation patterns</li>
+            <li class="green">Validate: check publication dates, version compatibility</li>
+            <li class="yellow">Flag conflicts — document both perspectives</li>
+            <li class="purple">Preserve attribution and source URLs</li>
+          </ul>
         </div>
       </div>
 
-      <div class="output success">✓ The vault note is now the canonical research record — always written first
-✓ Project docs are an additional output, never a replacement</div>
+      <div class="output highlight">Source hierarchy enforced at write time: confidence: high only when multiple
+authoritative sources agree. confidence: low when only one source found or
+source is a blog/forum rather than official documentation.</div>
     </div>
 
-    <!-- ── Slide 8: MCPL vault note ── -->
+    <!-- ── Slide 7: YAML Frontmatter Standard ── -->
     <div class="slide">
-      <div class="slide-title">Vault Note: ~/ClaudeVault/Tools/mcpl.md</div>
+      <div class="slide-title">YAML Frontmatter Standard</div>
 
       <div class="claude-response">
-        With Change 5 in place, the missing vault note was created manually. Future research tasks will produce both outputs automatically.
+        Every vault note must have frontmatter that the indexer, vault-explorer, and summarizer can all parse. Six required fields — no optional fields in the core set so that notes are always machine-readable without conditional handling.
       </div>
 
-      <div class="section-label">Frontmatter</div>
+      <div class="section-label">Canonical form</div>
       <div class="code-block"><span class="kw">---</span>
-<span class="fn">date:</span> <span class="str">2026-03-13</span>
-<span class="fn">type:</span> <span class="str">tool</span>
-<span class="fn">tags:</span> <span class="str">[mcp, mcpl, claude-code, tool]</span>
-<span class="fn">confidence:</span> <span class="str">high</span>
+<span class="fn">date:</span>       <span class="str">2026-03-12</span>              <span class="cm"># ISO 8601, set at write time</span>
+<span class="fn">type:</span>       <span class="str">research|language|framework|tool|pattern|debugging</span>
+<span class="fn">tags:</span>       <span class="str">[topic-tag, subtopic-tag]</span>  <span class="cm"># short, single-word preferred</span>
+<span class="fn">confidence:</span> <span class="str">high|medium|low</span>          <span class="cm"># multi-source → high</span>
 <span class="fn">sources:</span>
-  - <span class="str">https://github.com/kenneth-liao/mcp-launchpad</span>
+  - <span class="str">https://example.com/docs</span>
 <span class="fn">related:</span>
-  - <span class="str">"[[claude-code]]"</span>
+  - <span class="str">"[[related-note-name]]"</span>    <span class="cm"># at least one — no orphan notes</span>
 <span class="kw">---</span></div>
 
-      <div class="section-label">Content summary</div>
-      <div class="checklist" style="font-size:12px;">
-        <div class="check-item"><span class="ck">✓</span><span>Installation, core commands, config file format, env vars</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Session daemon lifecycle, OAuth token storage</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Rate-limit fallback pattern for agents</span></div>
-      </div>
-
-      <div class="output success">$ uv run update_index.py
-Updated CLAUDE.md: 603 notes indexed, 84 tags  ✓</div>
+      <div class="output success">✓ No orphan notes: related must contain at least one [[wikilink]]
+✓ type drives vault subfolder routing + graph color assignment</div>
     </div>
 
-    <!-- ── Slide 9: Docs updated ── -->
+    <!-- ── Slide 8: Documentation Structure Template ── -->
     <div class="slide">
-      <div class="slide-title">Docs Sync: ARCHITECTURE.md + Slideshow</div>
+      <div class="slide-title">Documentation Structure Template</div>
 
-      <div class="section-label">ARCHITECTURE.md — Research Agent section</div>
-      <div class="checklist" style="font-size:12px;">
-        <div class="check-item"><span class="ck">✓</span><span>Workflow step 1: vault-explorer dispatch (was: "search existing vault notes")</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Step 3: agentchrome + Web Fetch fallback (was: "Web Fetch for content extraction")</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Step 5: always-save-to-vault rule added (new step)</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Sequence diagram: <span class="hl-cyan">vault-explorer</span> added as participant, mcpl fallback noted</span></div>
+      <div class="claude-response">
+        A fixed 9-section template ensures every note is navigable and complete. Developers who need a quick answer hit <strong>Overview</strong>. Developers who need to implement something hit <strong>Examples</strong>. Developers who hit an error hit <strong>Common Pitfalls</strong>.
       </div>
 
-      <div class="section-label">vault-architecture-slideshow.html — Slide 13</div>
-      <div class="checklist" style="font-size:12px;">
-        <div class="check-item"><span class="ck">✓</span><span>Flow box: "Check Vault" → <span class="hl-purple">vault-explorer</span></span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Flow box: "Save Notes" → <span class="hl-green">Always Save to Vault</span></span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Step 2: mcpl fallback added alongside Brave Search</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Step 3: agentchrome (Web Fetch fallback)</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Tags: added <span class="hl-cyan">vault-explorer first</span> and <span class="hl-green">dual-save</span></span></div>
+      <div class="two-col">
+        <div>
+          <div class="section-label">Required sections</div>
+          <div class="checklist" style="font-size:11.5px;">
+            <div class="check-item"><span class="ck num">1</span><span>Overview — what and why</span></div>
+            <div class="check-item"><span class="ck num">2</span><span>Key Concepts — terminology</span></div>
+            <div class="check-item"><span class="ck num">3</span><span>Technical Details — APIs, algorithms</span></div>
+            <div class="check-item"><span class="ck num">4</span><span>Best Practices</span></div>
+            <div class="check-item"><span class="ck num">5</span><span>Common Pitfalls</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="section-label">Optional but expected</div>
+          <div class="checklist" style="font-size:11.5px;">
+            <div class="check-item"><span class="ck num">6</span><span>Performance Considerations</span></div>
+            <div class="check-item"><span class="ck num">7</span><span>Examples — complete, runnable</span></div>
+            <div class="check-item"><span class="ck num">8</span><span>Further Reading — sourced URLs</span></div>
+            <div class="check-item"><span class="ck num">9</span><span>Notes — version caveats</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="output highlight">Filenames: kebab-case, no date suffix (date lives in frontmatter).
+Examples: webgl-ray-marching.md  ·  fastapi-middleware-auth.md  ·  rust-lifetimes.md</div>
+    </div>
+
+    <!-- ── Slide 9: File Organization Rules ── -->
+    <div class="slide">
+      <div class="slide-title">File Organization Rules</div>
+
+      <div class="section-label">Vault routing by content type</div>
+      <div class="output" style="font-size:11.5px;">Language-specific      → ~/ClaudeVault/Languages/
+Framework / library    → ~/ClaudeVault/Frameworks/
+Tool / CLI / package   → ~/ClaudeVault/Tools/
+General research       → ~/ClaudeVault/Research/
+Design patterns        → ~/ClaudeVault/Patterns/
+Error patterns / fixes → ~/ClaudeVault/Debugging/</div>
+
+      <div class="section-label">Three invariants</div>
+      <div class="checklist">
+        <div class="check-item"><span class="ck">✓</span><span><strong>Search before create</strong> — update existing notes rather than creating duplicates</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Also save</strong> to <code>docs/research/</code> in the current project if that directory exists</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Subfolder rule</strong> — when 3+ notes share a common subject prefix, move them into a named subfolder (one level only)</span></div>
+      </div>
+
+      <div class="output success">✓ After every vault write: uv run update_index.py  (keeps CLAUDE.md fresh)</div>
+    </div>
+
+    <!-- ── Slide 10: Self-Validation Checklist ── -->
+    <div class="slide">
+      <div class="slide-title">Self-Validation Checklist</div>
+
+      <div class="claude-response">
+        Agents drift on output quality without explicit quality gates. The checklist forces the agent to verify completeness <em>before</em> returning the summary report — it cannot mark a task done while items are unchecked.
+      </div>
+
+      <div class="two-col">
+        <div class="checklist" style="font-size:11.5px;">
+          <div class="check-item"><span class="ck">✓</span><span>Sources are authoritative and current</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Cross-referenced from multiple sources</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Code examples complete and formatted</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Markdown syntax correct</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Style guide requirements met</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Saved to correct vault folder with frontmatter</span></div>
+        </div>
+        <div class="checklist" style="font-size:11.5px;">
+          <div class="check-item"><span class="ck">✓</span><span>Vault index rebuilt via update_index.py</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Source attribution complete</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Documentation comprehensive yet concise</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Technical accuracy validated</span></div>
+          <div class="check-item"><span class="ck">✓</span><span>Practical examples included</span></div>
+          <div class="check-item"><span class="ck">✓</span><span><em>(If NotebookLM)</em> notebook ID in summary</span></div>
+        </div>
       </div>
     </div>
 
-    <!-- ── Slide 10: Commit history ── -->
+    <!-- ── Slide 11: Output Requirements ── -->
     <div class="slide">
-      <div class="slide-title">Commit History</div>
+      <div class="slide-title">Output Requirements + Summary Report</div>
+
+      <div class="section-label">Three required outputs</div>
+      <div class="checklist">
+        <div class="check-item"><span class="ck num">1</span><span><strong>Vault notes</strong> — appropriate subfolder, YAML frontmatter, wikilinks. Also <code>docs/research/</code> if it exists.</span></div>
+        <div class="check-item"><span class="ck num">2</span><span><strong>Index rebuild</strong> — <code>uv run update_index.py</code> after all notes are saved.</span></div>
+        <div class="check-item"><span class="ck num">3</span><span><strong>Summary report</strong> — topics researched, files created/updated, key findings, gaps, recommendations for further research.</span></div>
+      </div>
+
+      <div class="section-label">NotebookLM output (when available)</div>
+      <div class="code-block"><span class="cm"># After web research — add all discovered URLs to notebook</span>
+<span class="fn">notebooklm</span> source add <span class="str">"https://source-1"</span>
+<span class="fn">notebooklm</span> source add <span class="str">"https://source-2"</span>
+<span class="cm"># Summary report includes notebook ID + source count</span>
+<span class="cm"># User can return to generate podcasts, quizzes, flashcards...</span></div>
+
+      <div class="output highlight">The summary report surfaces gaps explicitly — "X could not be found" is
+more useful than silently omitting it.</div>
+    </div>
+
+    <!-- ── Slide 12: Sync and Verify ── -->
+    <div class="slide">
+      <div class="slide-title">Sync to ~/.claude/ and Verify</div>
+
       <div class="prompt-line">
         <span class="prompt">claude</span>
         <span class="prompt-symbol">→</span>
-        <span class="prompt-cmd">git log --oneline -6</span>
+        <span class="prompt-cmd">uv run install.py --force --yes</span>
       </div>
 
-      <div class="output" style="font-size:11.5px;"><span style="color:var(--yellow)">72a65de</span> docs(slideshow): update research agent slide — vault-explorer, agentchrome, dual-save
-<span style="color:var(--yellow)">f2b8bb3</span> docs(architecture): update research agent workflow and sequence diagram
-<span style="color:var(--yellow)">d07cd41</span> feat(agent): always save vault note regardless of final doc destination
-<span style="color:var(--yellow)">1776775</span> docs(mcpl): add MCP Launchpad reference doc and link from README
-<span style="color:var(--yellow)">f9aba86</span> feat(agent): agentchrome fetching, vault-explorer delegation, fix NotebookLM syntax, add mcpl fallback
-<span style="color:var(--text-muted)">a39e99e</span> docs(slideshow): add vault-explorer agent to architecture slideshow</div>
+      <div class="output" style="font-size:11.5px;">Parsidion CC Installer
 
-      <div class="output success">5 commits · atomic per logical change · conventional commit format</div>
+  + Install skill: claude-vault → ~/.claude/skills/claude-vault
+  + Patch vault_common.py: VAULT_ROOT=/Users/probello/ClaudeVault
+  <span style="color:var(--amber)">+ Install agent: research-documentation-agent.md → ~/.claude/agents/</span>
+  ✓ All hooks already registered
+  + Install CLAUDE-VAULT.md → ~/.claude/CLAUDE-VAULT.md
+  + Rebuild vault index (update_index.py)
+  ✓ Vault index rebuilt
+  ✓ Installation complete!</div>
+
+      <div class="output success">$ ls ~/.claude/agents/
+research-documentation-agent.md  ✓
+
+$ grep -c "research-documentation-agent" ~/.claude/CLAUDE-VAULT.md
+2  ✓  (debugging + implementation save paths)</div>
+    </div>
+
+    <!-- ── Slide 13: First Research Task ── -->
+    <div class="slide">
+      <div class="slide-title">First Research Task: WebGL Ray Marching</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">$</span>
+        <span class="prompt-cmd">Let's start building a fractal renderer with ray marching</span>
+      </div>
+
+      <div class="claude-response">
+        Trigger matched — <span class="hl-amber">proactive launch</span>. Dispatching research-documentation-agent for WebGL ray marching techniques and fractal rendering algorithms.
+      </div>
+
+      <div class="section-label">Agent execution trace</div>
+      <div class="checklist" style="font-size:12px;">
+        <div class="check-item"><span class="ck">✓</span><span>Vault check — no existing ray marching notes found</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>NotebookLM: created "Research: WebGL ray marching", deep search started (background)</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Brave Search: 8 sources — iquilezles.org, MDN WebGL2, Shadertoy docs, Khronos specs</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Saved: <code>~/ClaudeVault/Research/webgl-ray-marching.md</code> (confidence: high)</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Saved: <code>~/ClaudeVault/Research/sdf-primitives.md</code> (confidence: high)</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Index rebuilt — 2 new notes indexed</span></div>
+      </div>
 
       <div class="tags">
-        <span class="tag orange">5 commits</span>
-        <span class="tag info">agent + docs + vault</span>
-        <span class="tag success">synced to ~/.claude/</span>
+        <span class="tag success">proactive trigger fired</span>
+        <span class="tag amber">2 vault notes</span>
+        <span class="tag info">8 sources</span>
       </div>
     </div>
 
-    <!-- ── Slide 11: Summary ── -->
+    <!-- ── Slide 14: Summary ── -->
     <div class="slide">
-      <div class="slide-title">What Changed</div>
+      <div class="slide-title">What We Built</div>
 
       <div class="two-col">
         <div>
-          <div class="section-label">Agent changes (5)</div>
-          <ul class="feature-list" style="font-size:11.5px;">
-            <li><span class="hl-cyan">vault-explorer</span> replaces manual vault grep loop</li>
-            <li class="purple"><span class="hl-purple">NotebookLM</span> syntax fixed — blockquote prompt</li>
-            <li class="yellow"><span class="hl-orange">agentchrome</span> replaces "Web Fetch tool"</li>
-            <li class="green"><span class="hl-cyan">mcpl</span> fallback when Brave rate-limited</li>
-            <li class="cyan"><span class="hl-green">Always-save-to-vault</span> — unconditional rule</li>
+          <div class="section-label">New files</div>
+          <ul class="feature-list" style="font-size:12px;">
+            <li><span class="hl-amber">agents/research-documentation-agent.md</span></li>
+            <li class="purple"><span class="hl-purple">~/.claude/agents/research-documentation-agent.md</span></li>
+          </ul>
+          <div class="section-label" style="margin-top:12px;">Key design decisions</div>
+          <ul class="feature-list" style="font-size:12px; gap:5px;">
+            <li>Sonnet model — synthesis over speed</li>
+            <li class="cyan">4-scenario proactive trigger</li>
+            <li class="yellow">24h staleness check on vault index</li>
+            <li class="green">Non-blocking NotebookLM pattern</li>
           </ul>
         </div>
         <div>
-          <div class="section-label">New files</div>
-          <ul class="feature-list" style="font-size:11.5px;">
-            <li><span class="hl-orange">docs/MCPL.md</span> — 2,861-word reference doc</li>
-            <li class="cyan"><span class="hl-cyan">~/ClaudeVault/Tools/mcpl.md</span> — vault note</li>
+          <div class="section-label">Standards defined</div>
+          <ul class="feature-list" style="font-size:12px; gap:5px;">
+            <li>6-field YAML frontmatter (no orphan notes)</li>
+            <li class="cyan">9-section documentation template</li>
+            <li class="yellow">6-folder vault routing by content type</li>
+            <li class="green">3-invariant file organization</li>
+            <li class="purple">12-item self-validation checklist</li>
           </ul>
-          <div class="section-label" style="margin-top:10px;">Updated files</div>
-          <ul class="feature-list" style="font-size:11.5px;">
-            <li><span class="hl-yellow">README.md</span> — mcpl in prerequisites</li>
-            <li class="yellow"><span class="hl-yellow">docs/ARCHITECTURE.md</span> — research agent</li>
-            <li class="yellow"><span class="hl-yellow">vault-architecture-slideshow.html</span> — slide 13</li>
-          </ul>
+          <div class="section-label" style="margin-top:10px;">Impact</div>
+          <div class="output success" style="font-size:11px;">Research findings now persist across
+every session — the vault becomes
+richer with each research task.</div>
         </div>
       </div>
 
-      <div class="divider"></div>
-
       <div class="tags" style="margin-top:4px;">
-        <span class="tag orange">5 agent fixes</span>
-        <span class="tag success">vault: 603 notes</span>
-        <span class="tag info">dual-save guaranteed</span>
-        <span class="tag purple">live in ~/.claude/</span>
+        <span class="tag amber">311 lines</span>
+        <span class="tag success">vault-first</span>
+        <span class="tag purple">Sonnet model</span>
+        <span class="tag info">live in ~/.claude/</span>
       </div>
     </div>
 
@@ -678,7 +670,7 @@ Updated CLAUDE.md: 603 notes indexed, 84 tags  ✓</div>
 
 <div class="nav">
   <button class="nav-btn" id="prev" onclick="changeSlide(-1)">← Prev</button>
-  <span class="slide-counter" id="counter">1 / 11</span>
+  <span class="slide-counter" id="counter">1 / 14</span>
   <button class="nav-btn" id="next" onclick="changeSlide(1)">Next →</button>
 </div>
 
