@@ -10,6 +10,7 @@ Stdlib-only. Run with:
 """
 
 import argparse
+import atexit
 import json
 import os
 import re
@@ -40,6 +41,7 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 AI_TIMEOUT = 60  # seconds
 STATE_FILE = vault_common.VAULT_ROOT / "doctor_state.json"
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
+STALE_COMMIT_MINUTES = 15  # auto-commit uncommitted files older than this
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +63,7 @@ class Issue:
 # Schema:
 # {
 #   "last_run": "2026-03-13T14:30:00",
+#   "pid": 12345,                    # PID of the currently-running doctor (if any)
 #   "notes": {
 #     "Research/foo.md": {
 #       "status": "ok" | "fixed" | "failed" | "timeout" | "skipped",
@@ -115,6 +118,101 @@ def should_skip(key: str, state: dict) -> bool:
         except ValueError:
             return False
     return False  # "fixed", "failed", "timeout" — always retry
+
+
+def is_process_running(pid: int) -> bool:
+    """Return True if a process with *pid* is currently running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # process exists; we lack permission to signal it
+
+
+def _write_pid(state: dict) -> None:
+    """Write *state* (including pid) to the state file immediately."""
+    tmp = STATE_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp.replace(STATE_FILE)
+
+
+def _release_pid() -> None:
+    """Clear our pid from the state file at process exit."""
+    try:
+        current = load_state()
+        if current.get("pid") == os.getpid():
+            current.pop("pid", None)
+            tmp = STATE_FILE.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(current, indent=2), encoding="utf-8")
+            tmp.replace(STATE_FILE)
+    except Exception:
+        pass  # best-effort cleanup
+
+
+# ---------------------------------------------------------------------------
+# Stale file auto-commit
+# ---------------------------------------------------------------------------
+
+
+def commit_stale_files(dry_run: bool = False) -> list[Path]:
+    """Stage and commit uncommitted vault files whose mtime is older than STALE_COMMIT_MINUTES.
+
+    Skips deleted files (no mtime to check) and respects the git.auto_commit
+    config flag.  Returns the list of paths that were (or would be) committed.
+    Does nothing when the vault has no .git directory.
+    """
+    git_marker = vault_common.VAULT_ROOT / ".git"
+    if not (git_marker.is_dir() or git_marker.is_file()):
+        return []
+
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "-u"],
+            cwd=str(vault_common.VAULT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    cutoff = datetime.now().timestamp() - STALE_COMMIT_MINUTES * 60
+    stale: list[Path] = []
+
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        xy = line[:2]
+        # Skip deletions — no file on disk to check mtime
+        if "D" in xy:
+            continue
+        filepath_part = line[3:]
+        # Handle renames: "old -> new"
+        if " -> " in filepath_part:
+            filepath_part = filepath_part.split(" -> ", 1)[1]
+        path = vault_common.VAULT_ROOT / filepath_part.strip()
+        try:
+            if path.stat().st_mtime <= cutoff:
+                stale.append(path)
+        except OSError:
+            continue
+
+    if not stale:
+        return []
+
+    if dry_run:
+        return stale
+
+    committed = vault_common.git_commit_vault(
+        f"chore(vault): auto-commit {len(stale)} stale file(s) via vault_doctor",
+        paths=stale,
+    )
+    return stale if committed else []
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +460,34 @@ def main() -> None:
 
     # Load persistent state
     state = load_state() if not args.no_state else {"last_run": None, "notes": {}}
+
+    # Singleton guard — only one doctor may run at a time
+    existing_pid = state.get("pid")
+    if existing_pid and existing_pid != os.getpid() and is_process_running(existing_pid):
+        print(
+            f"vault_doctor is already running (PID {existing_pid}). Exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    state["pid"] = os.getpid()
+    _write_pid(state)           # claim the lock immediately
+    atexit.register(_release_pid)  # release on any exit path
+
+    # Auto-commit uncommitted vault files older than STALE_COMMIT_MINUTES
+    stale = commit_stale_files(dry_run=args.dry_run)
+    if stale:
+        rel_stale = [str(p.relative_to(vault_common.VAULT_ROOT)) for p in stale]
+        if args.dry_run:
+            print(
+                f"[dry-run] Would commit {len(stale)} stale file(s) "
+                f"(>= {STALE_COMMIT_MINUTES} min old):"
+            )
+        else:
+            print(f"Committed {len(stale)} stale file(s) (>= {STALE_COMMIT_MINUTES} min old):")
+        for name in rel_stale:
+            print(f"  {name}")
+        print()
+
     today_str = date.today().isoformat()
 
     # Resolve target notes

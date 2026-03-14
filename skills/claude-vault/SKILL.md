@@ -304,6 +304,14 @@ uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --erro
 Repairable codes (Claude can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
 Not auto-repairable (require manual fix): `BROKEN_WIKILINK`, `FLAT_DAILY`.
 
+### Singleton guard
+
+Only one doctor may run at a time. On startup the doctor checks `doctor_state.json` for a `pid` field. If that process is still alive it prints an error and exits. Otherwise it writes its own PID immediately to claim the lock and clears it via `atexit` when it exits (including on SIGTERM; a SIGKILL'd process is detected as stale on the next run).
+
+### Auto-commit stale files
+
+Before scanning, the doctor runs `git status --porcelain` on the vault and commits any tracked or untracked files whose mtime is ≥ 15 minutes old. Deletions are skipped (no mtime to check). The commit message is `chore(vault): auto-commit N stale file(s) via vault_doctor`. This is a no-op when the vault has no `.git` directory or `git.auto_commit` is `false` in config. With `--dry-run` the files are listed but not committed.
+
 ### State tracking
 
 The doctor writes `~/ClaudeVault/doctor_state.json` to avoid reprocessing notes unnecessarily:

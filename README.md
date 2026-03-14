@@ -104,7 +104,7 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
 | `summarize_sessions.py` | On-demand AI summarizer - generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`) |
 | `pre_compact_hook.py` | PreCompact hook - snapshots working state before compaction |
 | `update_index.py` | Rebuilds `~/ClaudeVault/CLAUDE.md` index (includes `## Existing Tags` for summarizer, vault health from `doctor_state.json`) |
-| `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); repairs via Claude haiku; tracks state in `doctor_state.json` |
+| `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); repairs via Claude haiku; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
 | `run_trigger_eval.py` | Trigger accuracy eval (skill-selection simulation) |
 | `run_trigger_eval.sh` | Shell wrapper for running eval from a separate terminal (macOS/Linux) |
@@ -297,7 +297,7 @@ uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --erro
 uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --no-state --dry-run
 ```
 
-The doctor writes `~/ClaudeVault/doctor_state.json` to track processed notes. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
+The doctor is singleton-guarded — it stores its PID in `doctor_state.json` and exits if another instance is already running. Before scanning it auto-commits any uncommitted vault files whose mtime is ≥ 15 minutes old. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
 
 **Run trigger eval** (from a separate terminal, not inside Claude Code):
 ```bash

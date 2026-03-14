@@ -346,7 +346,8 @@ An on-demand diagnostic and repair tool that scans vault notes for structural is
 
 Daily notes are exempt from `confidence`, `related`, and orphan checks.
 
-**State file:** `~/ClaudeVault/doctor_state.json` tracks per-note status across runs:
+**State file:** `~/ClaudeVault/doctor_state.json` tracks per-note status across runs and the running doctor's PID:
+- `pid` — PID of the currently-running doctor; cleared on exit (singleton guard)
 - `ok` — no issues; skipped for 7 days before re-checking
 - `fixed` — Claude repaired it; re-checked on next run
 - `failed` — Claude returned no output; retried next run
@@ -355,12 +356,15 @@ Daily notes are exempt from `confidence`, `related`, and orphan checks.
 - `skipped` — only non-auto-repairable issues (`BROKEN_WIKILINK`, `FLAT_DAILY`); skipped indefinitely
 
 **Behavior:**
-1. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
-2. Scans remaining notes for issues using stdlib-only checks
-3. Records clean notes as `ok` in state (skipped for 7 days)
-4. In `--fix` mode: calls `claude -p` per note with haiku to repair repairable issues
-5. Saves state after each run; escalates double-timeout to `needs_review`
-6. `--no-state` rescans all notes regardless of prior results
+1. Checks `doctor_state.json` for a live `pid`; exits if another instance is already running
+2. Writes own PID to state file immediately (singleton lock); clears it via `atexit` on exit
+3. Auto-commits uncommitted vault files whose mtime is ≥ 15 minutes old (skips deletions; respects `git.auto_commit` config; no-op when vault has no `.git`)
+4. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
+5. Scans remaining notes for issues using stdlib-only checks
+6. Records clean notes as `ok` in state (skipped for 7 days)
+7. In `--fix` mode: calls `claude -p` per note with haiku to repair repairable issues
+8. Saves state after each run; escalates double-timeout to `needs_review`
+9. `--no-state` rescans all notes regardless of prior results
 
 The vault health summary (clean count, pending repair, needs review, manual fix) is included in `CLAUDE.md` by `update_index.py` after each index rebuild.
 
