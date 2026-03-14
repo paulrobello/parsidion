@@ -297,6 +297,9 @@ env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vaul
 # Repair with more parallelism (e.g. 5 workers)
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --fix --jobs 5
 
+# Extend per-repair timeout (default 120s) when running many parallel workers
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --fix --jobs 5 --timeout 180
+
 # Repair up to 20 notes at a time
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --fix --limit 20
 
@@ -304,7 +307,7 @@ env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/vaul
 uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_doctor.py --errors-only --dry-run
 ```
 
-Repairs run in parallel (`--jobs N`, default 3). Each `claude -p` subprocess is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved.
+Repairs run in parallel (`--jobs N`, default 3). Each `claude -p` subprocess is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved. The per-call timeout (`--timeout SECS`) defaults to 120s — increase it when running many parallel workers to avoid spurious timeouts.
 
 Repairable codes (Claude can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
 Not auto-repairable (require manual fix): `BROKEN_WIKILINK`, `FLAT_DAILY`.
