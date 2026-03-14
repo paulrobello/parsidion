@@ -464,7 +464,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 
 **Location:** `skills/claude-vault/scripts/update_index.py`
 
-Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes.
+Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID singleton guard (`~/ClaudeVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
 
 **Output sections:**
 1. **Quick Stats** -- total note count, last updated timestamp, and vault health summary (read from `doctor_state.json` if present)
@@ -652,6 +652,7 @@ parsidion-cc/
     ├── scripts/
     │   ├── vault_common.py          # Shared library
     │   ├── session_start_hook.py    # SessionStart hook
+    │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
     │   ├── session_stop_hook.py     # SessionEnd hook (queues to pending_summaries.jsonl)
     │   ├── pre_compact_hook.py      # PreCompact hook
     │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723)

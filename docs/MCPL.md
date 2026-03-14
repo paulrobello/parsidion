@@ -22,6 +22,7 @@ A unified command-line interface for discovering and executing tools from multip
   - [enable / disable](#enable--disable)
   - [session](#session)
   - [auth](#auth)
+  - [Global Options](#global-options)
 - [Session Daemon](#session-daemon)
 - [Integration with Claude Code](#integration-with-claude-code)
   - [How CLAUDE.md References mcpl](#how-claudemd-references-mcpl)
@@ -227,6 +228,8 @@ Search for tools across all configured servers by keyword or natural language de
 mcpl search "list github issues"          # Returns 5 results by default
 mcpl search "create pull request" --limit 10
 mcpl search "database query" --limit 20
+mcpl search "github" --schema            # Include full input schema in results
+mcpl search "github" --refresh           # Refresh tool cache before searching
 ```
 
 The search uses BM25 ranking, regex matching, and exact matching. Each result shows the server name, tool name, and required parameters — giving you everything needed to construct a `call` immediately.
@@ -254,6 +257,9 @@ mcpl call sentry search_issues '{"organizationSlug": "my-org", "query": "is:unre
 
 # Bypass the session daemon (useful for debugging)
 mcpl call github list_repos '{}' --no-daemon
+
+# Read large argument payloads from stdin
+echo '{"owner": "acme", "repo": "api"}' | mcpl call github list_issues --stdin
 ```
 
 ### inspect
@@ -312,6 +318,8 @@ Manage OAuth 2.1 authentication for remote MCP servers that require it (e.g., No
 mcpl auth login notion              # Open browser for OAuth authorization
 mcpl auth login figma --scope "read write"
 mcpl auth login custom --force      # Force re-authentication
+mcpl auth login custom --client-id my-id --client-secret-stdin  # Provide credentials non-interactively
+mcpl auth login notion --timeout 120  # Extend browser callback timeout (seconds)
 mcpl auth logout notion             # Remove stored token for one server
 mcpl auth logout --all              # Clear all stored tokens
 mcpl auth status                    # Show authentication status for all servers
@@ -319,6 +327,17 @@ mcpl auth status notion             # Check a specific server
 ```
 
 > **⚠️ Warning:** AI agents cannot complete OAuth flows — they require browser interaction. Authenticate all OAuth-protected servers manually before using them with an agent.
+
+### Global Options
+
+These options apply to every `mcpl` command and are placed before the subcommand:
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format (machine-readable) |
+| `--config PATH` | Path to a specific MCP config file (overrides discovery) |
+| `--env-file PATH` | Path to a `.env` file for environment variable substitution |
+| `-v, --verbose` | Enable verbose logging |
 
 ### JSON Mode
 
