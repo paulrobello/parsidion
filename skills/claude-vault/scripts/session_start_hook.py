@@ -227,7 +227,7 @@ def build_session_context(
     cwd: str,
     ai_model: str | None = None,
     max_chars: int = _DEFAULT_MAX_CHARS,
-    compact_mode: bool = False,
+    verbose_mode: bool = False,
 ) -> str:
     """Build a context string from vault notes relevant to the current session.
 
@@ -236,9 +236,9 @@ def build_session_context(
         ai_model: When set, use this claude model to select the most relevant
             notes. Falls back to standard behaviour on failure.
         max_chars: Maximum total characters for the context output (default: 4000).
-        compact_mode: When True, inject a compact one-line-per-note index instead
-            of full note summaries. Ignored when *ai_model* is set (AI mode is
-            always full summaries). Defaults to False.
+        verbose_mode: When True, inject full note summaries instead of the default
+            compact one-line-per-note index. Ignored when *ai_model* is set (AI
+            mode always uses full summaries). Defaults to False.
 
     Returns:
         A formatted context string capped at *max_chars* with project and recent notes.
@@ -293,7 +293,7 @@ def build_session_context(
 
     # Build context block from collected notes, reserving space for the header
     max_body_chars: int = max_chars - len(header)
-    if compact_mode:
+    if not verbose_mode:
         context_body: str = build_compact_index(all_notes, max_chars=max_body_chars)
     else:
         context_body = vault_common.build_context_block(
@@ -313,7 +313,7 @@ def _write_debug_log(
     ai_model: str | None,
     max_chars: int,
     elapsed_ms: float,
-    compact_mode: bool = False,
+    verbose_mode: bool = False,
 ) -> None:
     """Append injection details to the debug log file for quality evaluation.
 
@@ -324,7 +324,7 @@ def _write_debug_log(
         ai_model: The AI model used for note selection, or None if standard mode.
         max_chars: The max_chars budget that was configured.
         elapsed_ms: Wall-clock time in milliseconds to build the context.
-        compact_mode: Whether compact index mode was used.
+        verbose_mode: Whether verbose (full summaries) mode was used.
     """
     timestamp = datetime.now().isoformat(timespec="seconds")
     context_chars = len(context)
@@ -334,10 +334,10 @@ def _write_debug_log(
     budget_pct = (context_chars / max_chars * 100) if max_chars > 0 else 0.0
     if ai_model:
         mode = f"ai ({ai_model})"
-    elif compact_mode:
-        mode = "compact"
+    elif verbose_mode:
+        mode = "verbose"
     else:
-        mode = "standard"
+        mode = "compact"
 
     separator = "=" * 80
     entry = (
@@ -397,13 +397,12 @@ def main() -> None:
         help=f"Maximum characters for injected context (default: {_DEFAULT_MAX_CHARS})",
     )
     parser.add_argument(
-        "--compact",
+        "--verbose",
         action="store_true",
         default=False,
         help=(
-            "Inject a compact one-line-per-note index instead of full note summaries. "
-            "Reduces token consumption significantly. Full content is available via "
-            "the claude-vault skill."
+            "Inject full note summaries instead of the default compact one-line-per-note "
+            "index. Uses significantly more tokens."
         ),
     )
     parser.add_argument(
@@ -435,8 +434,8 @@ def main() -> None:
                 "session_start_hook", "max_chars", _DEFAULT_MAX_CHARS
             )
         )
-        compact_mode: bool = args.compact or vault_common.get_config(
-            "session_start_hook", "compact_mode", False
+        verbose_mode: bool = args.verbose or vault_common.get_config(
+            "session_start_hook", "verbose_mode", False
         )
         debug: bool = (
             args.debug
@@ -446,7 +445,7 @@ def main() -> None:
 
         start_time = datetime.now()
         context: str = build_session_context(
-            cwd, ai_model=ai_model, max_chars=max_chars, compact_mode=compact_mode
+            cwd, ai_model=ai_model, max_chars=max_chars, verbose_mode=verbose_mode
         )
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -459,7 +458,7 @@ def main() -> None:
                 ai_model=ai_model,
                 max_chars=max_chars,
                 elapsed_ms=elapsed_ms,
-                compact_mode=compact_mode,
+                verbose_mode=verbose_mode,
             )
 
         output: dict = {

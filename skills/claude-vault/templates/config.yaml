@@ -11,7 +11,7 @@ session_start_hook:
   ai_timeout: 25           # AI call timeout in seconds
   recent_days: 3           # Days to look back for recent notes
   debug: false             # Append injected context to debug log in system temp dir
-  compact_mode: false      # If true, inject compact one-line-per-note index instead of full summaries
+  verbose_mode: false      # If true, inject full note summaries instead of the default compact one-line-per-note index
 
 # Session stop hook (session_stop_hook.py)
 session_stop_hook:
