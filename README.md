@@ -10,6 +10,8 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 ![Parsidion CC Architecture](https://raw.githubusercontent.com/paulrobello/parsidion-cc/main/parsidion-cc-architecture.png)
 
 > [View the interactive architecture slideshow](https://paulrobello.github.io/parsidion-cc/vault-architecture-slideshow.html) for a detailed walkthrough of every component.
+>
+> **Build session slideshows:** [Vault Explorer Agent](https://paulrobello.github.io/parsidion-cc/vault-explorer-slideshow.html) · [Research Agent Quality Pass](https://paulrobello.github.io/parsidion-cc/research-agent-slideshow.html)
 
 ## Table of Contents
 
