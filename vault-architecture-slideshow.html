@@ -1064,8 +1064,77 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
             </div>
         </div>
 
-        <!-- Slide 14: Graph View -->
+        <!-- Slide 14: Vault Explorer Agent -->
         <div class="slide" id="slide-14">
+            <div class="slide-title">Vault Explorer Agent: Read-Only Vault Search</div>
+            <div class="slide-subtitle">A Haiku-powered subagent that isolates vault lookups from the main session</div>
+
+            <div class="flow-diagram" style="margin: 12px 0;">
+                <div class="flow-box cyan">Main Session</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-box purple">vault-explorer</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-box orange">Priority Folders</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-box green">## Answer</div>
+                <span class="flow-arrow">&rarr;</span>
+                <div class="flow-box yellow">## Sources</div>
+            </div>
+
+            <div class="two-col" style="flex: 1;">
+                <div class="col-box">
+                    <h3 class="purple">Search Procedure</h3>
+                    <div class="lifecycle-flow">
+                        <div class="lifecycle-step" style="padding: 4px 0;">
+                            <div class="lifecycle-num cyan">1</div>
+                            <span style="font-size: 12px;">Orient via <code style="color:var(--cyan);">~/ClaudeVault/CLAUDE.md</code> index</span>
+                        </div>
+                        <div class="lifecycle-step" style="padding: 4px 0;">
+                            <div class="lifecycle-num purple">2</div>
+                            <span style="font-size: 12px;">Extract key signal from query</span>
+                        </div>
+                        <div class="lifecycle-step" style="padding: 4px 0;">
+                            <div class="lifecycle-num orange">3</div>
+                            <span style="font-size: 12px;">Search by priority folder (query-type table)</span>
+                        </div>
+                        <div class="lifecycle-step" style="padding: 4px 0;">
+                            <div class="lifecycle-num green">4</div>
+                            <span style="font-size: 12px;">Rank top 5 by folder priority + signal frequency</span>
+                        </div>
+                        <div class="lifecycle-step" style="padding: 4px 0;">
+                            <div class="lifecycle-num yellow">5</div>
+                            <span style="font-size: 12px;">Synthesize &amp; return fixed two-section format</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-box">
+                    <h3 class="green">Folder Priority by Query Type</h3>
+                    <div style="font-size: 11px; line-height: 1.8; color: var(--text-muted);">
+                        <div><span style="color:var(--red);">Error / exception</span> &rarr; Debugging/ &rarr; Frameworks/ &rarr; Languages/</div>
+                        <div><span style="color:var(--cyan);">Feature / pattern</span> &rarr; Patterns/ &rarr; Frameworks/ &rarr; Projects/</div>
+                        <div><span style="color:var(--purple);">Cross-project</span> &rarr; Projects/ &rarr; Patterns/</div>
+                        <div><span style="color:var(--orange);">Library / tool</span> &rarr; Tools/ &rarr; Frameworks/</div>
+                        <div><span style="color:var(--yellow);">Research</span> &rarr; Research/ &rarr; all folders</div>
+                    </div>
+                    <div style="margin-top: 12px;">
+                        <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">Design constraints:</p>
+                        <ul class="bullet-list">
+                            <li class="green" style="font-size: 11px;">Read-only — never writes vault notes</li>
+                            <li class="green" style="font-size: 11px;">No <code style="color:var(--cyan);">update_index.py</code> calls</li>
+                            <li style="font-size: 11px;">Falls back to <code style="color:var(--purple);">research-documentation-agent</code></li>
+                        </ul>
+                    </div>
+                    <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+                        <span class="tag purple">Haiku-powered</span>
+                        <span class="tag info">Isolated context</span>
+                        <span class="tag success">Read-only</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 15: Graph View -->
+        <div class="slide" id="slide-15">
             <div class="slide-title">Obsidian Graph View: Visual Knowledge Map</div>
             <div class="slide-subtitle">Domain-based color groups with priority-ordered matching</div>
 
@@ -1115,8 +1184,8 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
   &bull; Supports --threshold N and --json output</div>
         </div>
 
-        <!-- Slide 15: Installation & File Layout -->
-        <div class="slide" id="slide-15">
+        <!-- Slide 16: Installation & File Layout -->
+        <div class="slide" id="slide-16">
             <div class="slide-title">Source Repo &amp; Installation</div>
             <div class="slide-subtitle">parsidion-cc/ &rarr; ~/.claude/ &rarr; ~/ClaudeVault/</div>
 
@@ -1130,6 +1199,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                             <div>&nbsp;&nbsp;<span class="file">CLAUDE-VAULT.md</span> <span class="comment">(always-on guidance)</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">agents/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">research-documentation-agent.md</span></div>
+                            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">vault-explorer.md</span> <span class="comment">(Haiku, read-only)</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">skills/claude-vault/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">SKILL.md</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">scripts/</span> <span class="comment">(10 Python scripts)</span></div>
@@ -1171,8 +1241,8 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
             </div>
         </div>
 
-        <!-- Slide 16: Trigger Eval -->
-        <div class="slide" id="slide-16">
+        <!-- Slide 17: Trigger Eval -->
+        <div class="slide" id="slide-17">
             <div class="slide-title">Trigger Evaluation: Skill Quality Assurance</div>
             <div class="slide-subtitle">Measure how accurately Claude invokes the vault skill</div>
 
@@ -1224,7 +1294,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
         </div>
 
         <!-- Slide 17: Summary -->
-        <div class="slide" id="slide-17">
+        <div class="slide" id="slide-18">
             <div class="slide-title large">What We Built</div>
 
             <div class="two-col" style="flex: 1;">
@@ -1238,6 +1308,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
                         <li><span class="bold hl">vault_common.py</span> &mdash; shared stdlib-only library</li>
                         <li class="yellow"><span class="bold hl-yellow">update_index.py</span> &mdash; auto-generated CLAUDE.md</li>
                         <li class="green"><span class="bold hl-green">Research Agent</span> &mdash; vault-first web research</li>
+                        <li class="purple"><span class="bold hl-purple">Vault Explorer Agent</span> &mdash; read-only Haiku vault search</li>
                         <li class="pink"><span class="bold hl-pink">Trigger Eval</span> &mdash; skill quality measurement</li>
                         <li class="cyan"><span class="bold hl">CLAUDE-VAULT.md</span> &mdash; always-on vault-first guidance</li>
                     </ul>
@@ -1271,12 +1342,12 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
 
 <div class="nav">
     <button id="prev-btn" disabled>&larr; Previous</button>
-    <span class="slide-counter" id="slide-counter">1 / 17</span>
+    <span class="slide-counter" id="slide-counter">1 / 18</span>
     <button id="next-btn">Next &rarr;</button>
 </div>
 
 <script>
-const totalSlides = 17;
+const totalSlides = 18;
 let currentSlide = 1;
 
 const prevBtn = document.getElementById('prev-btn');

@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vault Explorer Agent — Claude Code Build Session</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg-dark: #0B1120;
+    --bg-terminal: #0d1117;
+    --bg-card: #161b22;
+    --border: #30363d;
+    --cyan: #06B6D4;
+    --purple: #8B5CF6;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --gradient: linear-gradient(135deg, #06B6D4 0%, #8B5CF6 100%);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg-dark);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.terminal {
+    width: 100%;
+    max-width: 860px;
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+
+.terminal-header {
+    background: var(--bg-card);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.dots { display: flex; gap: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; }
+.dot.red    { background: #ff5f57; }
+.dot.yellow { background: #febc2e; }
+.dot.green  { background: #28c840; }
+
+.terminal-title {
+    color: var(--text-muted);
+    font-size: 12px;
+    flex: 1;
+    text-align: center;
+}
+
+.terminal-body {
+    height: 580px;
+    overflow: hidden;
+    position: relative;
+}
+
+.slide {
+    display: none;
+    padding: 32px 36px;
+    height: 100%;
+    overflow: hidden;
+    animation: fadeIn 0.3s ease;
+}
+
+.slide.active { display: flex; flex-direction: column; gap: 14px; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Typography ── */
+.slide-title {
+    font-size: 22px;
+    font-weight: 700;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.3;
+}
+
+.slide-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: -8px;
+}
+
+/* ── Prompt lines ── */
+.prompt-line {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.prompt       { color: var(--green);  font-weight: 600; }
+.prompt-path  { color: var(--purple); }
+.prompt-symbol{ color: var(--text-muted); }
+.prompt-cmd   { color: var(--text); }
+
+/* ── Response boxes ── */
+.claude-response {
+    background: rgba(6,182,212,0.06);
+    border: 1px solid rgba(6,182,212,0.25);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+}
+
+.output {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    white-space: pre;
+}
+
+.output.success {
+    border-color: rgba(34,197,94,0.35);
+    color: var(--green);
+}
+
+.output.highlight {
+    border-left: 3px solid var(--cyan);
+    color: var(--text);
+}
+
+/* ── Bullets ── */
+ul.feature-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 13px;
+}
+
+ul.feature-list li::before {
+    content: "◆ ";
+    color: var(--cyan);
+}
+
+ul.feature-list li.purple::before { color: var(--purple); }
+ul.feature-list li.green::before  { color: var(--green);  }
+ul.feature-list li.yellow::before { color: var(--yellow); }
+
+/* ── Tags ── */
+.tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.tag {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.tag.success { background: rgba(34,197,94,0.15);  color: var(--green);  border: 1px solid rgba(34,197,94,0.3);  }
+.tag.info    { background: rgba(6,182,212,0.12);  color: var(--cyan);   border: 1px solid rgba(6,182,212,0.3);  }
+.tag.purple  { background: rgba(139,92,246,0.12); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
+.tag.warn    { background: rgba(234,179,8,0.12);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.3);  }
+
+/* ── Two-column layout ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ── Code block ── */
+.code-block {
+    background: #0a0e1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 11.5px;
+    line-height: 1.7;
+    overflow: hidden;
+}
+
+.kw  { color: var(--purple); }
+.fn  { color: var(--cyan); }
+.str { color: var(--yellow); }
+.cm  { color: #4d5566; }
+.ty  { color: #fb923c; }
+
+/* ── Section label ── */
+.section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--yellow);
+    margin-bottom: -6px;
+}
+
+/* ── Divider ── */
+.divider {
+    height: 1px;
+    background: var(--border);
+    margin: 2px 0;
+}
+
+/* ── Inline highlight ── */
+.hl-cyan   { color: var(--cyan); }
+.hl-purple { color: var(--purple); }
+.hl-green  { color: var(--green); }
+.hl-yellow { color: var(--yellow); }
+.hl-red    { color: var(--red); }
+
+em { font-style: italic; color: var(--text-muted); }
+
+/* ── Progress & Nav ── */
+.progress-bar {
+    width: 100%;
+    max-width: 860px;
+    height: 3px;
+    background: var(--bg-card);
+    border-radius: 0 0 2px 2px;
+    margin-top: -1px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--gradient);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.nav {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 16px;
+}
+
+.nav-btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 22px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nav-btn:hover:not(:disabled) {
+    border-color: var(--cyan);
+    color: var(--cyan);
+}
+
+.nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.nav-btn.action {
+    background: var(--gradient);
+    border: none;
+    color: #fff;
+    font-weight: 600;
+}
+
+.slide-counter {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 60px;
+    text-align: center;
+}
+
+/* ── Checklist ── */
+.checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12.5px;
+}
+.check-item { display: flex; align-items: flex-start; gap: 8px; }
+.check-item .ck { color: var(--green); font-weight: 700; flex-shrink: 0; }
+.check-item .ck.pending { color: var(--text-muted); }
+
+@media (max-width: 600px) {
+    .terminal-body { height: 520px; }
+    .slide { padding: 20px; }
+    .slide-title { font-size: 18px; }
+    .two-col { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="terminal">
+  <div class="terminal-header">
+    <div class="dots">
+      <div class="dot red"></div>
+      <div class="dot yellow"></div>
+      <div class="dot green"></div>
+    </div>
+    <div class="terminal-title">claude-code — parsidion-cc</div>
+  </div>
+  <div class="terminal-body">
+
+    <!-- ── Slide 1: Introduction ── -->
+    <div class="slide active">
+      <div class="slide-title">Building the Vault Explorer Agent</div>
+      <div class="slide-subtitle">parsidion-cc · Claude Code Build Session · 2026-03-13</div>
+
+      <div class="prompt-line" style="margin-top:4px;">
+        <span class="prompt">user</span>
+        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-symbol">$</span>
+        <span class="prompt-cmd">claude</span>
+      </div>
+
+      <div class="claude-response">
+        ✦ Welcome to Claude Code!<br>
+        <span class="hl-cyan">claude-sonnet-4-6</span> · parsidion-cc
+      </div>
+
+      <div class="section-label">What we're building</div>
+      <ul class="feature-list">
+        <li>A new <span class="hl-cyan">vault-explorer</span> Haiku subagent for read-only vault search</li>
+        <li class="purple">Replace direct <span class="hl-purple">Grep loops</span> in CLAUDE-VAULT.md and SKILL.md</li>
+        <li class="green">Refactor <span class="hl-green">install.py</span> to support multiple agents</li>
+        <li class="yellow">Sync everything to <span class="hl-yellow">~/.claude/</span> and verify</li>
+      </ul>
+
+      <div class="tags">
+        <span class="tag info">5 chunks</span>
+        <span class="tag purple">Claude Haiku</span>
+        <span class="tag success">61/61 tests</span>
+        <span class="tag warn">stdlib-only</span>
+      </div>
+    </div>
+
+    <!-- ── Slide 2: The Plan ── -->
+    <div class="slide">
+      <div class="slide-title">The Implementation Plan</div>
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-symbol">$</span>
+        <span class="prompt-cmd">execute plan docs/superpowers/plans/2026-03-13-vault-explorer-agent.md</span>
+      </div>
+
+      <div class="claude-response">
+        Using <span class="hl-cyan">executing-plans</span> → <span class="hl-purple">subagent-driven-development</span> skill.<br>
+        Plan loaded — 5 independent chunks, dispatching fresh subagents per task.
+      </div>
+
+      <div class="section-label">5 Chunks</div>
+      <div class="checklist">
+        <div class="check-item"><span class="ck">✓</span><span>Task 1 — Create <span class="hl-cyan">agents/vault-explorer.md</span></span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Task 2 — Update <span class="hl-purple">CLAUDE-VAULT.md</span> guidance</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Task 3 — Update <span class="hl-purple">skills/claude-vault/SKILL.md</span></span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Task 4 — Refactor <span class="hl-yellow">install.py</span> for multi-agent</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Task 5 — Sync to <span class="hl-green">~/.claude/</span></span></div>
+      </div>
+
+      <div class="output highlight">Architecture: Four independent file changes applied in order.
+No new library dependencies — install.py is stdlib-only.
+Model: Claude Haiku for the new agent.</div>
+    </div>
+
+    <!-- ── Slide 3: Why vault-explorer? ── -->
+    <div class="slide">
+      <div class="slide-title">The Problem: Direct Grep Loops</div>
+
+      <div class="section-label">Before — Grep-based search in CLAUDE-VAULT.md</div>
+      <div class="code-block"><span class="cm">## Debugging: Search Before You Diagnose</span>
+
+<span class="str">2. Search ~/ClaudeVault/Debugging/ first:</span>
+   <span class="kw">Grep:</span> path=~/ClaudeVault/Debugging, glob=**/*.md, pattern=&lt;signal&gt;
+<span class="str">3. Widen to Frameworks/, Languages/, Projects/ if nothing found.</span>
+<span class="str">4. Found a match? Apply the fix.</span>
+<span class="str">5. No match? Diagnose and solve it...</span></div>
+
+      <div class="claude-response">
+        Every vault lookup consumed the <span class="hl-red">main session's context window</span> with repeated Grep tool calls across multiple folders. The <span class="hl-cyan">vault-explorer</span> agent isolates this work in a fresh Haiku context — fast, cheap, and non-polluting.
+      </div>
+
+      <div class="tags">
+        <span class="tag warn">Context pollution</span>
+        <span class="tag warn">Multi-folder Grep loops</span>
+        <span class="tag info">→ Delegate to Haiku agent</span>
+      </div>
+    </div>
+
+    <!-- ── Slide 4: Creating the Agent ── -->
+    <div class="slide">
+      <div class="slide-title">Task 1: vault-explorer.md</div>
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">Write agents/vault-explorer.md</span>
+      </div>
+
+      <div class="section-label">Frontmatter</div>
+      <div class="code-block"><span class="kw">---</span>
+<span class="fn">name:</span> <span class="str">vault-explorer</span>
+<span class="fn">description:</span> <span class="str">&gt;</span>
+  <span class="str">Use when you need to search ~/ClaudeVault/ for relevant notes,</span>
+  <span class="str">debugging solutions, reusable patterns, or prior art...</span>
+  <span class="cm">Trigger on: "search the vault for X", "check the vault",</span>
+  <span class="cm">"have we seen this before", "find vault notes about X"...</span>
+  <span class="cm">Do NOT trigger for vault writes, index rebuilds, summarization.</span>
+<span class="fn">model:</span> <span class="str">haiku</span>
+<span class="fn">color:</span> <span class="str">purple</span>
+<span class="kw">---</span></div>
+
+      <div class="output success">✓ agents/vault-explorer.md created (82 lines)
+✓ Frontmatter: name ✓  model: haiku ✓  color: purple ✓
+✓ Committed: feat(agent): add vault-explorer Haiku agent for read-only vault search</div>
+    </div>
+
+    <!-- ── Slide 5: Agent Search Procedure ── -->
+    <div class="slide">
+      <div class="slide-title">Agent: 5-Step Search Procedure</div>
+
+      <div class="checklist">
+        <div class="check-item"><span class="ck">1</span><span><strong>Orient</strong> — Read <span class="hl-cyan">~/ClaudeVault/CLAUDE.md</span> index</span></div>
+        <div class="check-item"><span class="ck">2</span><span><strong>Extract signals</strong> — exception class, package name, keyword</span></div>
+        <div class="check-item"><span class="ck">3</span><span><strong>Search by priority folder</strong> (table below)</span></div>
+        <div class="check-item"><span class="ck">4</span><span><strong>Rank &amp; read</strong> — top 5 by folder priority + signal frequency</span></div>
+        <div class="check-item"><span class="ck">5</span><span><strong>Synthesize</strong> — return fixed <span class="hl-cyan">## Answer</span> + <span class="hl-purple">## Sources</span></span></div>
+      </div>
+
+      <div class="section-label">Folder Priority Table</div>
+      <div class="output highlight">Error / exception  →  Debugging/ → Frameworks/ → Languages/
+Feature / pattern  →  Patterns/ → Frameworks/ → Projects/
+Cross-project      →  Projects/ → Patterns/
+Library / tool     →  Tools/ → Frameworks/
+Research           →  Research/ → all folders</div>
+
+      <div class="output success">✓ Read-only constraint stated 3× (description, role, bold prohibition)</div>
+    </div>
+
+    <!-- ── Slide 6: Code Review — Path Fix ── -->
+    <div class="slide">
+      <div class="slide-title">Code Review → Path Format Fix</div>
+
+      <div class="claude-response">
+        The spec-reviewer approved the file. The code-quality reviewer found one <span class="hl-yellow">Important</span> issue: the Sources format instruction was self-contradicting.
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-label">Before ❌</div>
+          <div class="output" style="height:120px;">Use absolute paths
+(starting with /Users/...
+ or ~/ClaudeVault/...
+ expanded to the real path)</div>
+        </div>
+        <div>
+          <div class="section-label">After ✓</div>
+          <div class="output success" style="height:120px;">Use absolute paths only —
+expand ~ to full home dir
+(e.g. /Users/probello/
+ClaudeVault/...)
+Never output ~/... paths</div>
+        </div>
+      </div>
+
+      <div class="output highlight">Also clarified: "0 or 1 candidate files" threshold for folder widening
+(was ambiguous "fewer than 3" without accumulation rule)</div>
+    </div>
+
+    <!-- ── Slide 7: Update CLAUDE-VAULT.md ── -->
+    <div class="slide">
+      <div class="slide-title">Task 2: Update CLAUDE-VAULT.md</div>
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">Edit CLAUDE-VAULT.md — 3 section replacements</span>
+      </div>
+
+      <div class="section-label">Three sections updated</div>
+      <div class="checklist">
+        <div class="check-item"><span class="ck">✓</span><span><strong>Debugging:</strong> replaced Grep: syntax + widen steps with vault-explorer dispatch</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Implementation:</strong> replaced 3-folder Grep search with single agent dispatch</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Efficient Vault Search:</strong> replaced Grep table with ## Answer / ## Sources prose</span></div>
+      </div>
+
+      <div class="section-label">After — Debugging section</div>
+      <div class="code-block"><span class="str">2. Dispatch the `vault-explorer` agent with the signal as the query.</span>
+<span class="str">3. **Answer returned?** Apply the documented fix. Update the note</span>
+   <span class="str">if you learn something new. `Read` source files only if needed.</span>
+<span class="str">4. **"No relevant vault notes found"?** Diagnose and solve it,</span>
+   <span class="str">then dispatch research-documentation-agent to save...</span></div>
+
+      <div class="output success">✓ No Grep: instructions remain in modified sections
+✓ Saving Solutions and Vault Organization sections unchanged</div>
+    </div>
+
+    <!-- ── Slide 8: CLAUDE-VAULT.md Review Fix ── -->
+    <div class="slide">
+      <div class="slide-title">Review Catch: "Update the Note" Reminder</div>
+
+      <div class="claude-response">
+        The code-quality reviewer caught a <span class="hl-yellow">behavioral regression</span>: the "update the note" reminder was silently dropped from Debugging step 3. This instruction is how the vault improves over time.
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-label">First commit ❌</div>
+          <div class="output" style="height:100px;">3. Apply the documented fix.
+`Read` specific source files
+from Sources only if you
+need more depth.</div>
+        </div>
+        <div>
+          <div class="section-label">After fix ✓</div>
+          <div class="output success" style="height:100px;">3. Apply the documented fix.
+Update the note if you
+learn something new.
+`Read` files only if needed.</div>
+        </div>
+      </div>
+
+      <div class="output highlight">Two-stage review (spec compliance → code quality) caught what
+a single-pass review would have missed.</div>
+    </div>
+
+    <!-- ── Slide 9: Update SKILL.md ── -->
+    <div class="slide">
+      <div class="slide-title">Task 3: Update SKILL.md</div>
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">Edit skills/claude-vault/SKILL.md — 4 section replacements</span>
+      </div>
+
+      <div class="section-label">Four sections updated</div>
+      <div class="checklist">
+        <div class="check-item"><span class="ck">✓</span><span><strong>Debugging:</strong> removed bash grep -r shell examples</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Implementation:</strong> removed multi-folder grep examples</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Efficient Vault Search:</strong> replaced table + "Prefer Grep tool" line</span></div>
+        <div class="check-item"><span class="ck">✓</span><span><strong>Vault-First Loop:</strong> updated flowchart to reference vault-explorer</span></div>
+      </div>
+
+      <div class="section-label">Vault-First Loop — before → after</div>
+      <div class="two-col">
+        <div class="output" style="font-size:11px; height:80px;">Error or question
+  → Search vault
+    → Found? Apply
+    → Not found? Save
+      → Rebuild index</div>
+        <div class="output success" style="font-size:11px; height:80px;">Error or question
+  → Dispatch vault-explorer
+    → Found? Apply
+    → Not found? Dispatch
+      research-doc-agent</div>
+      </div>
+    </div>
+
+    <!-- ── Slide 10: SKILL.md Review Fix ── -->
+    <div class="slide">
+      <div class="slide-title">Review Catch: Manual Usage Section</div>
+
+      <div class="claude-response">
+        The code-quality reviewer found a <span class="hl-red">Critical</span> issue: the <span class="hl-yellow">Manual Usage → Searching the Vault</span> section still told Claude to use Grep/Glob directly — directly contradicting the new vault-explorer guidance.
+      </div>
+
+      <div class="section-label">Fix applied</div>
+      <div class="code-block"><span class="cm">### Searching the Vault</span>
+
+<span class="str">- Dispatch the **`vault-explorer` agent** for natural language</span>
+  <span class="str">queries — it searches priority folders, ranks matches, and</span>
+  <span class="str">returns a synthesized answer with source paths.</span>
+<span class="str">- Use `vault_common.py` for programmatic search from scripts.</span>
+<span class="str">- Use Obsidian's built-in search for interactive exploration.</span>
+<span class="str">- Use `Grep` or `Glob` only for targeted investigation when</span>
+  <span class="str">you know the specific file or exact pattern needed.</span></div>
+
+      <div class="output highlight">Also aligned: "discover new nuance" → "learn something new"
+(consistent wording with CLAUDE-VAULT.md)</div>
+    </div>
+
+    <!-- ── Slide 11: Refactor install.py ── -->
+    <div class="slide">
+      <div class="slide-title">Task 4: Refactor install.py</div>
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">Edit install.py — 7 reference sites</span>
+      </div>
+
+      <div class="section-label">Constant renamed</div>
+      <div class="two-col">
+        <div class="code-block" style="font-size:11px;"><span class="cm"># Before</span>
+<span class="ty">AGENT_SRC</span>: <span class="fn">Path</span> =
+  REPO_ROOT / <span class="str">"agents"</span>
+  / <span class="str">"research-documentation-agent.md"</span></div>
+        <div class="code-block" style="font-size:11px;"><span class="cm"># After</span>
+<span class="ty">AGENT_SRCS</span>: <span class="fn">list[Path]</span> = [
+  REPO_ROOT / <span class="str">"agents"</span>
+  / <span class="str">"research-documentation-agent.md"</span>,
+  REPO_ROOT / <span class="str">"agents"</span>
+  / <span class="str">"vault-explorer.md"</span>,
+]</div>
+      </div>
+
+      <div class="section-label">7 sites updated</div>
+      <div class="checklist" style="font-size:11.5px;">
+        <div class="check-item"><span class="ck">✓</span><span>Module constant → AGENT_SRCS list[Path]</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>install_agent() → install_agents() with loop + skip-on-missing</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Call site — existence check moved inside function</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Printout block — for loop over AGENT_SRCS</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>uninstall() — for loop over AGENT_SRCS</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>--skip-agent help → "Do not install any agents"</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Module docstring updated</span></div>
+      </div>
+    </div>
+
+    <!-- ── Slide 12: Dry-run & Tests ── -->
+    <div class="slide">
+      <div class="slide-title">Verification: Dry-run + Tests</div>
+
+      <div class="section-label">Dry-run output</div>
+      <div class="output" style="font-size:11.5px;">$ uv run install.py --dry-run --yes
+
+Installation Plan
+  Install agent: /Users/probello/.claude/agents/research-documentation-agent.md
+  Install agent: /Users/probello/.claude/agents/vault-explorer.md
+
+[dry-run] Install agent: research-documentation-agent.md → ~/.claude/agents/
+<span style="color:var(--cyan)">[dry-run] Install agent: vault-explorer.md → ~/.claude/agents/</span></div>
+
+      <div class="section-label">Test suite</div>
+      <div class="output success">$ uv run pytest tests/ -v
+...
+61 passed in 0.03s  ✓</div>
+
+      <div class="output highlight">Both agents appear in plan output.
+All 61 vault_common.py tests pass — install.py changes have no regressions.</div>
+    </div>
+
+    <!-- ── Slide 13: Sync to ~/.claude ── -->
+    <div class="slide">
+      <div class="slide-title">Task 5: Sync to ~/.claude/</div>
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">uv run install.py --force --yes</span>
+      </div>
+
+      <div class="output" style="font-size:11.5px;">Parsidion CC Installer
+
+  + Install skill: claude-vault → ~/.claude/skills/claude-vault
+  + Patch vault_common.py: VAULT_ROOT=/Users/probello/ClaudeVault
+  <span style="color:var(--green)">+ Install agent: research-documentation-agent.md → ~/.claude/agents/</span>
+  <span style="color:var(--cyan)">+ Install agent: vault-explorer.md → ~/.claude/agents/</span>
+  ✓ All hooks already registered
+  + Install CLAUDE-VAULT.md → ~/.claude/CLAUDE-VAULT.md
+  + Rebuild vault index (update_index.py)
+  ✓ Vault index rebuilt
+  ✓ Installation complete!</div>
+
+      <div class="output success">$ ls ~/.claude/agents/ | grep vault
+vault-explorer.md  ✓
+
+$ grep -c "vault-explorer" ~/.claude/CLAUDE-VAULT.md
+3  ✓  (three dispatch instructions, no Grep: remaining)</div>
+    </div>
+
+    <!-- ── Slide 14: Git Log ── -->
+    <div class="slide">
+      <div class="slide-title">Commit History</div>
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">git push origin main</span>
+      </div>
+
+      <div class="output" style="font-size:11.5px;"><span style="color:var(--yellow)">90dccb0</span> feat(install): support multiple agents with AGENT_SRCS list
+<span style="color:var(--yellow)">9fc9f02</span> docs(skill): replace direct Grep guidance with vault-explorer agent dispatch
+<span style="color:var(--yellow)">f71d980</span> docs(vault): replace direct Grep guidance with vault-explorer agent dispatch
+<span style="color:var(--yellow)">fb44be2</span> feat(agent): add vault-explorer Haiku agent for read-only vault search
+<span style="color:var(--text-muted)">4fbb31b</span> docs(plan): vault-explorer agent implementation plan
+<span style="color:var(--text-muted)">48496c7</span> docs(spec): fix all review issues in vault-explorer agent spec
+<span style="color:var(--text-muted)">d5d6c91</span> docs(spec): vault-explorer agent design spec</div>
+
+      <div class="output success">To github.com:paulrobello/parsidion-cc.git
+   afb47e9..90dccb0  main -> main  ✓</div>
+
+      <div class="tags">
+        <span class="tag success">4 commits pushed</span>
+        <span class="tag info">atomic commits</span>
+        <span class="tag purple">conventional commit format</span>
+      </div>
+    </div>
+
+    <!-- ── Slide 15: Docs update ── -->
+    <div class="slide">
+      <div class="slide-title">Docs Sync: ARCHITECTURE.md</div>
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-symbol">$</span>
+        <span class="prompt-cmd">update docs and slideshow</span>
+      </div>
+
+      <div class="claude-response">
+        Running <span class="hl-cyan">sync-all-docs-to-impl</span> skill → dispatched subagent for <span class="hl-purple">docs/ARCHITECTURE.md</span>.
+      </div>
+
+      <div class="section-label">Changes to ARCHITECTURE.md</div>
+      <div class="checklist" style="font-size:12px;">
+        <div class="check-item"><span class="ck">✓</span><span>TOC — added Vault Explorer Agent and Context Preview Script entries</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Mermaid diagram — added VE node, CC→VE edge, VE→folder edges</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>New section <span class="hl-cyan">### Vault Explorer Agent</span> with model, scope, triggers, priority table</span></div>
+        <div class="check-item"><span class="ck">✓</span><span>File layout — vault-explorer.md in agents/ (source + installed)</span></div>
+      </div>
+
+      <div class="output success">✓ docs/ARCHITECTURE.md committed: "docs(architecture): sync to current implementation"</div>
+    </div>
+
+    <!-- ── Slide 16: Summary ── -->
+    <div class="slide">
+      <div class="slide-title">What We Built</div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-label">New files</div>
+          <ul class="feature-list" style="font-size:12px;">
+            <li><span class="hl-cyan">agents/vault-explorer.md</span> — Haiku agent</li>
+            <li class="purple"><span class="hl-purple">~/.claude/agents/vault-explorer.md</span></li>
+          </ul>
+        </div>
+        <div>
+          <div class="section-label">Modified files</div>
+          <ul class="feature-list" style="font-size:12px;">
+            <li><span class="hl-yellow">CLAUDE-VAULT.md</span></li>
+            <li><span class="hl-yellow">skills/claude-vault/SKILL.md</span></li>
+            <li><span class="hl-yellow">install.py</span></li>
+            <li><span class="hl-yellow">docs/ARCHITECTURE.md</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-label">Key improvements</div>
+      <ul class="feature-list" style="font-size:12px;">
+        <li>Vault search isolated in <span class="hl-cyan">Haiku subagent</span> — no main-session Grep loops</li>
+        <li class="purple">Two-stage review (spec + quality) caught <span class="hl-yellow">3 issues</span> missed in self-review</li>
+        <li class="green"><span class="hl-green">install.py</span> now scales to N agents via <code>AGENT_SRCS</code> list</li>
+        <li class="yellow">Manual Usage section aligned — vault-explorer is <span class="hl-cyan">primary search path</span></li>
+      </ul>
+
+      <div class="tags" style="margin-top:4px;">
+        <span class="tag success">61/61 tests</span>
+        <span class="tag info">4 commits</span>
+        <span class="tag purple">Haiku model</span>
+        <span class="tag success">Live in ~/.claude/</span>
+      </div>
+    </div>
+
+  </div><!-- terminal-body -->
+</div><!-- terminal -->
+
+<div class="progress-bar">
+  <div class="progress-fill" id="progress"></div>
+</div>
+
+<div class="nav">
+  <button class="nav-btn" id="prev" onclick="changeSlide(-1)">← Prev</button>
+  <span class="slide-counter" id="counter">1 / 16</span>
+  <button class="nav-btn" id="next" onclick="changeSlide(1)">Next →</button>
+</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+let current = 0;
+
+function update() {
+    slides.forEach((s, i) => s.classList.toggle('active', i === current));
+    document.getElementById('counter').textContent = `${current + 1} / ${total}`;
+    document.getElementById('progress').style.width = `${((current + 1) / total) * 100}%`;
+    document.getElementById('prev').disabled = current === 0;
+    const btn = document.getElementById('next');
+    if (current === total - 1) {
+        btn.textContent = 'Done ✓';
+        btn.classList.add('action');
+        btn.disabled = true;
+    } else {
+        btn.textContent = 'Next →';
+        btn.classList.remove('action');
+        btn.disabled = false;
+    }
+}
+
+function changeSlide(dir) {
+    current = Math.max(0, Math.min(total - 1, current + dir));
+    update();
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); changeSlide(1); }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); changeSlide(-1); }
+});
+
+update();
+</script>
+</body>
+</html>
