@@ -1035,7 +1035,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                         </div>
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num orange">3</div>
-                            <span style="font-size: 12px;">agentchrome for JS-rendered content (Web Fetch fallback)</span>
+                            <span style="font-size: 12px;"><code>agentchrome page html</code> → <code>html-to-md</code> for clean markdown (curl fallback)</span>
                         </div>
                         <div class="lifecycle-step" style="padding: 4px 0;">
                             <div class="lifecycle-num green">4</div>
@@ -1212,6 +1212,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">templates/</span> <span class="comment">(8 templates + config)</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">scripts/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">show-context</span> <span class="comment">(context preview)</span></div>
+                            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">html-to-md</span> <span class="comment">(HTML → clean markdown)</span></div>
                         </div>
                     </div>
                     <div class="col-box">
@@ -1230,6 +1231,8 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
                             <div>&nbsp;&nbsp;<span class="file">settings.json</span> <span class="comment">&mdash; hook registrations</span></div>
                             <div>&nbsp;&nbsp;<span class="file">CLAUDE-VAULT.md</span> <span class="comment">&mdash; @imported by CLAUDE.md</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">agents/</span></div>
+                            <div>&nbsp;&nbsp;<span class="folder">scripts/</span></div>
+                            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">html-to-md</span> <span class="comment">&mdash; HTML → clean markdown</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">skills/claude-vault/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">SKILL.md</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="folder">scripts/</span></div>

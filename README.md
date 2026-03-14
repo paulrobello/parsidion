@@ -11,7 +11,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 
 > [View the interactive architecture slideshow](https://paulrobello.github.io/parsidion-cc/vault-architecture-slideshow.html) for a detailed walkthrough of every component.
 >
-> **Build session slideshows:** [Vault Explorer Agent](https://paulrobello.github.io/parsidion-cc/vault-explorer-slideshow.html) · [Research Agent Quality Pass](https://paulrobello.github.io/parsidion-cc/research-agent-slideshow.html)
+> **Build session slideshows:** [Vault Explorer Agent](https://paulrobello.github.io/parsidion-cc/vault-explorer-slideshow.html) · [Research Documentation Agent](https://paulrobello.github.io/parsidion-cc/research-agent-slideshow.html)
 
 ## Table of Contents
 
@@ -160,7 +160,17 @@ The installer copies `CLAUDE-VAULT.md` from the repo root to `~/.claude/` and en
 
 ### Research Agent (`~/.claude/agents/research-documentation-agent.md`)
 
-Technical research agent that searches the vault first, conducts web research via agentchrome (with Web Fetch fallback), and saves findings to the appropriate vault folder with proper YAML frontmatter. Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits — see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
+Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter. Fetches pages via `agentchrome page html` piped through `scripts/html-to-md` for noise-free markdown (curl fallback if agentchrome unavailable). Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits — see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
+
+### HTML to Markdown (`scripts/html-to-md`)
+
+A PEP 723 standalone script (installed to `~/.claude/scripts/html-to-md`) that converts HTML to clean, noise-free markdown optimized for LLM consumption. Strips navigation, banners, cookie notices, and script/style noise while preserving code fences with language annotations. Used by the research agent to clean `agentchrome` page output.
+
+```bash
+uv run --script scripts/html-to-md page.html          # file → stdout
+uv run --script scripts/html-to-md - < page.html      # stdin → stdout
+agentchrome page html | uv run --script ~/.claude/scripts/html-to-md - --url https://example.com
+```
 
 ### Context Preview (`scripts/show-context`)
 
@@ -239,6 +249,8 @@ If no `.git` directory is present, all git operations are silent no-ops.
   settings.json                      # Hooks, permissions, plugins
   agents/
     research-documentation-agent.md  # Research agent (vault-integrated)
+  scripts/
+    html-to-md                       # HTML → clean markdown (used by research agent)
   skills/claude-vault/
     SKILL.md                         # Vault skill definition
     scripts/                         # Hook scripts and utilities

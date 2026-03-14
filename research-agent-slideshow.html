@@ -415,9 +415,9 @@ capability, not just recall speed.</div>
         <div>
           <div class="section-label" style="margin-bottom:6px;">Content extraction</div>
           <ul class="feature-list" style="font-size:12px; gap:5px;">
-            <li>Web Fetch tool for full article content</li>
-            <li class="cyan">Extract: code examples, API references, implementation patterns</li>
-            <li class="green">Validate: check publication dates, version compatibility</li>
+            <li><code>agentchrome page html</code> → <code>html-to-md</code> pipeline</li>
+            <li class="cyan">Strips nav, banners, cookie notices — preserves code fences</li>
+            <li class="green">Fallback: <code>curl -sL URL | html-to-md -</code></li>
             <li class="yellow">Flag conflicts — document both perspectives</li>
             <li class="purple">Preserve attribution and source URLs</li>
           </ul>
@@ -574,6 +574,7 @@ more useful than silently omitting it.</div>
   + Install skill: claude-vault → ~/.claude/skills/claude-vault
   + Patch vault_common.py: VAULT_ROOT=/Users/probello/ClaudeVault
   <span style="color:var(--amber)">+ Install agent: research-documentation-agent.md → ~/.claude/agents/</span>
+  <span style="color:var(--cyan)">+ Install scripts: scripts → ~/.claude/scripts/</span>
   ✓ All hooks already registered
   + Install CLAUDE-VAULT.md → ~/.claude/CLAUDE-VAULT.md
   + Rebuild vault index (update_index.py)
@@ -627,7 +628,9 @@ $ grep -c "research-documentation-agent" ~/.claude/CLAUDE-VAULT.md
           <div class="section-label" style="margin-bottom:6px;">New files</div>
           <ul class="feature-list" style="font-size:12px;">
             <li><span class="hl-amber">agents/research-documentation-agent.md</span></li>
+            <li><span class="hl-cyan">scripts/html-to-md</span> <span style="color:var(--text-muted)">(PEP 723)</span></li>
             <li class="purple"><span class="hl-purple">~/.claude/agents/research-documentation-agent.md</span></li>
+            <li class="cyan"><span class="hl-cyan">~/.claude/scripts/html-to-md</span></li>
           </ul>
           <div class="section-label" style="margin-top:12px; margin-bottom:6px;">Key design decisions</div>
           <ul class="feature-list" style="font-size:12px; gap:5px;">
@@ -657,6 +660,7 @@ richer with each research task.</div>
         <span class="tag amber">311 lines</span>
         <span class="tag success">vault-first</span>
         <span class="tag purple">Sonnet model</span>
+        <span class="tag cyan">agentchrome + html-to-md</span>
         <span class="tag info">live in ~/.claude/</span>
       </div>
     </div>

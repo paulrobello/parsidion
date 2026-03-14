@@ -387,7 +387,7 @@ A Claude Code agent definition (runs on Sonnet) that conducts technical research
 1. Dispatches `vault-explorer` agent with the research topic to check for existing knowledge — proceeds to web research only for gaps not covered by existing notes
 2. Uses NotebookLM (if available) for deep synthesis of source material
 3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
-4. Uses `agentchrome` CLI for full JavaScript-rendered content extraction (Web Fetch as fallback if agentchrome fails)
+4. Fetches raw HTML via `agentchrome page html`, pipes through `~/.claude/scripts/html-to-md` to get clean noise-free markdown (curl + html-to-md as fallback if agentchrome fails)
 5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/MCPL.md`) was also requested
 6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
 7. Runs `update_index.py` after saving vault notes
@@ -633,7 +633,8 @@ parsidion-cc/
 ├── pyproject.toml
 ├── Makefile
 ├── scripts/
-│   └── show-context                 # CLI: preview session start context for any project
+│   ├── show-context                 # CLI: preview session start context for any project
+│   └── html-to-md                   # CLI: convert HTML to clean markdown (file/stdin/URL)
 ├── docs/
 │   ├── ARCHITECTURE.md              # This document
 │   └── DOCUMENTATION_STYLE_GUIDE.md
@@ -680,6 +681,8 @@ parsidion-cc/
 ├── agents/
 │   ├── research-documentation-agent.md
 │   └── vault-explorer.md                # Read-only vault search agent (Haiku)
+├── scripts/
+│   └── html-to-md                       # HTML → clean markdown (PEP 723)
 └── skills/claude-vault/
     ├── SKILL.md
     ├── eval_results.json            # Trigger eval results
