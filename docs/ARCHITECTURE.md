@@ -32,11 +32,14 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 
 **Key capabilities:**
 - Always-on vault-first rule: check the vault before debugging or implementing (via `CLAUDE-VAULT.md`)
-- Automatic context loading at session start based on project and recency
+- Automatic context loading at session start — compact one-line-per-note index by default; full summaries opt-in via `verbose_mode`
 - Automatic learning capture at session stop via transcript analysis
+- Write-gate filter: transient sessions are skipped rather than saved
+- Hierarchical summarization for long transcripts (chunk → haiku summary → Sonnet note)
+- Automated bidirectional backlinks injected after each new note write
 - Working state snapshots before context compaction
 - A dedicated research agent that saves findings to the vault
-- An auto-generated index with tag cloud and per-folder listings
+- Auto-generated root index (`CLAUDE.md`) with tag cloud, staleness markers, and per-folder `MANIFEST.md` files
 - Obsidian graph view with domain-based color grouping
 
 **Runtime requirements:**
@@ -196,7 +199,7 @@ Three Python scripts execute at different points in the Claude Code session life
 
 Fires when a Claude Code session begins. Loads relevant vault context into the conversation so Claude has prior knowledge available immediately.
 
-**CLI flags:** `--ai [MODEL]`, `--max-chars N`, `--debug`
+**CLI flags:** `--ai [MODEL]`, `--max-chars N`, `--verbose`, `--debug`
 
 **Configurable options** (section `session_start_hook` in `config.yaml`):
 
@@ -207,13 +210,14 @@ Fires when a Claude Code session begins. Loads relevant vault context into the c
 | `ai_timeout` | `25` | AI call timeout in seconds |
 | `recent_days` | `3` | Days to look back for recent notes |
 | `debug` | `false` | Append injected context + metadata to debug log in `$TMPDIR` |
+| `verbose_mode` | `false` | When true, inject full note summaries; default is compact one-line index |
 
 **Standard behaviour:**
 1. Determines the current project from the working directory
 2. Ensures vault directories and today's daily note exist
 3. Gathers project-specific notes (by `project` frontmatter field)
 4. Gathers recent notes (modified within last `recent_days` days, configurable)
-5. Deduplicates and builds a context block (max `max_chars`, default ~4000 chars)
+5. Deduplicates and builds context: **compact mode** (default) injects one line per note — `[[stem]] (folder) — \`tags\``; **verbose mode** (`--verbose` or `verbose_mode: true`) injects full note summaries via `build_context_block()`
 6. Returns the context as `additionalContext` in the hook output
 7. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/claude-vault-session-start-debug.log`
 
@@ -316,13 +320,16 @@ An on-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`) that processe
 | `transcript_tail_lines` | `400` | Transcript lines to read per entry |
 | `max_cleaned_chars` | `12000` | Maximum characters after cleaning |
 | `persist` | `false` | SDK session persistence (for debugging) |
+| `cluster_model` | `claude-haiku-4-5-20251001` | Model for hierarchical chunk summarization |
 
 **Behavior:**
 1. Reads entries from `pending_summaries.jsonl`
-2. Pre-processes each transcript via `preprocess_transcript(tail_lines, max_chars)` to extract a cleaned human/assistant dialogue
-3. Calls Claude via the Agent SDK (up to `max_parallel` parallel sessions, default 5) to generate structured notes. Default model is `claude-sonnet-4-6`.
-4. Saves notes to the appropriate vault subfolder (`Debugging/`, `Patterns/`, `Research/`, etc.) with YAML frontmatter
-5. Removes processed entries from the queue, rebuilds the vault index, and commits via `git_commit_vault`
+2. Pre-processes each transcript via `preprocess_transcript_hierarchical()`: if the cleaned dialogue fits within `max_cleaned_chars`, it is used as-is; if it exceeds the limit, it is split into chunks, each chunk is summarized by `cluster_model` (haiku by default), and the chunk summaries are concatenated for the final note prompt
+3. **Write-gate filter:** before generating a note, Claude evaluates whether the session contains reusable insight. Transient sessions (dead-ends, routine builds, session-specific context) return `{"decision": "skip"}` and are not saved to the vault
+4. Calls Claude (Sonnet by default) via the Agent SDK (up to `max_parallel` parallel sessions) to generate structured notes
+5. **Automated backlinks:** after writing a new note, scans existing vault notes for tag overlap and injects bidirectional `[[wikilinks]]` — updating both the new note's `related` field and matching existing notes
+6. Saves notes to the appropriate vault subfolder (`Debugging/`, `Patterns/`, `Research/`, etc.) with YAML frontmatter
+7. Removes processed entries from the queue, rebuilds the vault index, and commits via `git_commit_vault`
 
 **Must be run from a separate terminal** (or with `env -u CLAUDECODE`) because the Agent SDK cannot be nested inside an active Claude Code session.
 
@@ -466,11 +473,10 @@ The shared utility library used by all hook scripts and the index generator. Use
 
 Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID singleton guard (`~/ClaudeVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
 
-**Output sections:**
-1. **Quick Stats** -- total note count, last updated timestamp, and vault health summary (read from `doctor_state.json` if present)
-2. **Tag Cloud** -- all tags sorted by frequency
-3. **Recent Activity** -- notes modified within the last 7 days (max 20)
-4. **Folders** -- per-folder listings with wikilinks and summaries
+**Output:**
+- Root `CLAUDE.md` with sections: **Quick Stats** (note count, last updated, vault health, stale count), **Tag Cloud** (frequency-sorted), **Recent Activity** (last 7 days, max 20), **Folders** (per-folder listings with wikilinks and summaries)
+- **Staleness markers:** notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in folder listings and the Quick Stats stale count. Notes are never auto-deleted — only surfaced for review.
+- **Per-folder `MANIFEST.md` files:** a table-format index (Note | Tags | Summary) written inside each subfolder after every rebuild, allowing quick orientation within a domain without loading the full root index. Stale notes are marked with ⚠️.
 
 ### Trigger Evaluation
 
@@ -540,6 +546,7 @@ session_start_hook:  # session_start_hook.py
   ai_timeout: 25     # AI call timeout in seconds
   recent_days: 3     # Days to look back for recent notes
   debug: false       # Append injected context + metadata to debug log in $TMPDIR
+  verbose_mode: false  # If true, inject full note summaries instead of compact one-line index
 
 session_stop_hook:   # session_stop_hook.py
   ai_model: null     # Model for AI classification (null = disabled)
@@ -555,6 +562,7 @@ summarizer:          # summarize_sessions.py
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
   persist: false     # SDK session persistence (for debugging)
+  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization
 
 git:
   auto_commit: true  # Auto-commit vault changes after writes
@@ -698,15 +706,24 @@ parsidion-cc/
 ├── .obsidian/
 │   └── graph.json                   # Graph view color config
 ├── config.yaml                      # User config (copied from templates/config.yaml)
-├── CLAUDE.md                        # Auto-generated index
-├── Daily/YYYY-MM/DD.md      # e.g. Daily/2026-03/13.md
+├── CLAUDE.md                        # Auto-generated root index (rebuilt by update_index.py)
+├── Daily/
+│   ├── MANIFEST.md                  # Auto-generated folder index (rebuilt by update_index.py)
+│   └── YYYY-MM/DD.md                # e.g. 2026-03/13.md
 ├── Projects/
+│   └── MANIFEST.md
 ├── Languages/
+│   └── MANIFEST.md
 ├── Frameworks/
+│   └── MANIFEST.md
 ├── Patterns/
+│   └── MANIFEST.md
 ├── Debugging/
+│   └── MANIFEST.md
 ├── Tools/
+│   └── MANIFEST.md
 ├── Research/
+│   └── MANIFEST.md
 ├── History/
 └── Templates/ -> ~/.claude/skills/claude-vault/templates/
 ```
@@ -734,6 +751,8 @@ stateDiagram-v2
 
     note right of Loaded
         Context budget: ~4000 chars
+        Default: compact one-line index
+        Verbose: full summaries (opt-in)
         Priority: project notes first,
         then recent notes
     end note
