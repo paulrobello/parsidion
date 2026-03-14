@@ -7,15 +7,18 @@ Stdlib-only. Run with:
     uv run --no-project ... --dry-run      # show issues only, no Claude calls
     uv run --no-project ... note.md ...    # scan specific notes only
     uv run --no-project ... --limit 10     # cap repairs at N notes
+    uv run --no-project ... --fix --jobs 5 # repair with 5 parallel workers (default: 3)
 """
 
 import argparse
 import atexit
+import concurrent.futures
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -412,6 +415,51 @@ Current note:
 
 
 # ---------------------------------------------------------------------------
+# Parallel repair worker
+# ---------------------------------------------------------------------------
+
+
+def _repair_one(
+    note_path: Path,
+    note_issues: list[Issue],
+    model: str,
+    state: dict,
+    today_str: str,
+    lock: threading.Lock,
+) -> bool:
+    """Repair one note, update state under *lock*, return True on success."""
+    key = _rel(note_path)
+    rel = note_path.relative_to(vault_common.VAULT_ROOT)
+    repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
+
+    with lock:
+        prev_status = state.get("notes", {}).get(key, {}).get("status", "")
+
+    fixed_content, repair_status = repair_note(note_path, repairable, model)
+
+    if fixed_content:
+        note_path.write_text(fixed_content + "\n", encoding="utf-8")
+        icon = "✓"
+    else:
+        if repair_status == "timeout" and prev_status == "timeout":
+            repair_status = "needs_review"
+        icon = "✗"
+
+    with lock:
+        msg = f"  {rel} ({len(repairable)} issue(s)) … {icon}"
+        if repair_status == "needs_review":
+            msg += "\n    → needs_review (timed out twice; flagged for user intervention)"
+        print(msg, flush=True)
+        state.setdefault("notes", {})[key] = {
+            "status": repair_status,
+            "last_checked": today_str,
+            "issues": [i.code for i in repairable],
+        }
+
+    return fixed_content is not None
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -455,6 +503,14 @@ def main() -> None:
         "--no-state",
         action="store_true",
         help="Ignore state file and scan all notes regardless of prior results",
+    )
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Number of parallel repair jobs (default: 3)",
     )
     args = parser.parse_args()
 
@@ -597,33 +653,31 @@ def main() -> None:
 
     # Apply repairs
     limit = args.limit if args.limit > 0 else len(repair_candidates)
+    jobs = max(1, args.jobs)
     repaired = 0
     failed = 0
+    lock = threading.Lock()
 
-    print(f"Repairing up to {limit} note(s) via {args.model}…\n")
-    for note_path, note_issues in repair_candidates[:limit]:
-        key = _rel(note_path)
-        rel = note_path.relative_to(vault_common.VAULT_ROOT)
-        repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
-        print(f"  {rel} ({len(repairable)} issue(s))… ", end="", flush=True)
-        prev_status = state.get("notes", {}).get(key, {}).get("status", "")
-        fixed_content, repair_status = repair_note(note_path, repairable, args.model)
-        if fixed_content:
-            note_path.write_text(fixed_content + "\n", encoding="utf-8")
-            print("✓")
-            repaired += 1
-        else:
-            # Escalate timeout to needs_review after first retry
-            if repair_status == "timeout" and prev_status == "timeout":
-                repair_status = "needs_review"
-                print("  → needs_review (timed out twice; flagged for user intervention)")
-            print("✗")
-            failed += 1
-        state.setdefault("notes", {})[key] = {
-            "status": repair_status,
-            "last_checked": today_str,
-            "issues": [i.code for i in repairable],
+    print(f"Repairing up to {limit} note(s) via {args.model} ({jobs} parallel job(s))…\n")
+    batch = repair_candidates[:limit]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
+        futures = {
+            executor.submit(
+                _repair_one, note_path, note_issues, args.model, state, today_str, lock
+            ): note_path
+            for note_path, note_issues in batch
         }
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                success = future.result()
+            except Exception as exc:
+                note_path = futures[future]
+                print(f"  {_rel(note_path)} … ✗ (exception: {exc})", flush=True)
+                success = False
+            if success:
+                repaired += 1
+            else:
+                failed += 1
 
     save_state(state)
     leftover = len(repair_candidates) - limit
