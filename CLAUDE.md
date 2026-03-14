@@ -173,7 +173,7 @@ tags: [tag1, tag2]
 project: project-name   # optional
 confidence: high|medium|low
 sources: []
-related: []             # must contain at least one [[wikilink]]
+related: ["[[note-one]]", "[[note-two]]"]  # inline quoted array; must contain at least one [[wikilink]]
 session_id: <uuid>      # optional — set by summarize_sessions.py on AI-generated notes
 ---
 ```

@@ -166,7 +166,7 @@ related: []                  # [[wikilinks]] to other vault notes
 - `type`: Must be one of the enumerated values. Drives folder placement.
 - `tags`: Freeform but prefer existing tags. Check the vault index first. When creating new tags, prefer short single-word or minimal-hyphen tags — e.g. `voxel` not `voxel-engine`, `terminal` not `terminal-emulator`. Longer compound tags are acceptable only when the shorter form would be ambiguous.
 - `confidence`: `high` = verified across multiple interactions or sources. `medium` = likely correct, single source. `low` = hypothesis or unverified.
-- `related`: Must contain at least one wikilink. No orphan notes.
+- `related`: Must contain at least one wikilink in inline quoted array format: `["[[note-one]]", "[[note-two]]"]`. No orphan notes.
 
 ## When to Save Knowledge
 

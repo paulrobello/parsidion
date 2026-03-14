@@ -136,8 +136,7 @@ tags: [topic-tag, subtopic-tag]
 confidence: high|medium|low
 sources:
   - https://example.com/docs
-related:
-  - "[[related-note-name]]"
+related: ["[[related-note-name]]"]
 ---
 ```
 
@@ -154,8 +153,7 @@ type: research
 tags: [topic]
 confidence: medium
 sources: []
-related:
-  - "[[related-note-title]]"
+related: ["[[related-note-title]]"]
 ---
 
 # [Topic Title]
