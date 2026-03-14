@@ -24,6 +24,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
+- [Related Documentation](#related-documentation)
 
 ## Prerequisites
 
@@ -31,6 +32,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - **[uv](https://docs.astral.sh/uv/)** -- Python package runner and manager
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
 - **Claude Code** -- the CLI this toolkit extends
+- **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server; used by the research agent as a fallback search gateway (see [docs/MCPL.md](docs/MCPL.md))
 
 ## Quick Start
 
@@ -156,7 +158,7 @@ The installer copies `CLAUDE-VAULT.md` from the repo root to `~/.claude/` and en
 
 ### Research Agent (`~/.claude/agents/research-documentation-agent.md`)
 
-Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter.
+Technical research agent that searches the vault first, conducts web research via agentchrome (with Web Fetch fallback), and saves findings to the appropriate vault folder with proper YAML frontmatter. Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits — see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
 
 ### Context Preview (`scripts/show-context`)
 
@@ -368,3 +370,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 ## License
 
 [MIT](LICENSE) -- [Paul Robello](https://github.com/paulrobello)
+
+## Related Documentation
+
+- [docs/MCPL.md](docs/MCPL.md) -- MCP Launchpad CLI: installation, configuration, and integration with Claude Code
+- [docs/DOCUMENTATION_STYLE_GUIDE.md](docs/DOCUMENTATION_STYLE_GUIDE.md) -- Documentation standards for this project
