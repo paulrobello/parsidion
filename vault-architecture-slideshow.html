@@ -677,8 +677,59 @@ body {
             </div>
         </div>
 
-        <!-- Slide 6: PreCompact Hook -->
+        <!-- Slide 6: SubagentStop Hook -->
         <div class="slide" id="slide-6">
+            <div class="slide-title">SubagentStop Hook: Subagent Learning Capture</div>
+            <div class="slide-subtitle">Harvest knowledge from every Agent tool invocation — asynchronously</div>
+
+            <div class="two-col">
+                <div class="col-box">
+                    <h3 class="cyan">What It Captures</h3>
+                    <p style="margin-bottom: 6px;">Reads the subagent's own <span class="hl">agent_transcript_path</span> and queues it for AI summarization — identical pipeline to SessionEnd.</p>
+                    <div class="output" style="font-size: 11px; padding: 8px; margin: 4px 0;">{"session_id": "abc-123",
+ "transcript_path": "...",
+ "source": "subagent",
+ "agent_type": "Explore",
+ "categories": ["pattern"]}</div>
+                </div>
+                <div class="col-box">
+                    <h3 class="orange">Smart Exclusions</h3>
+                    <p style="margin-bottom: 6px;">Vault system agents are excluded to avoid recursive capture loops:</p>
+                    <div class="output" style="font-size: 11px; padding: 8px; margin: 4px 0;">excluded_agents: "vault-explorer,
+  research-documentation-agent"</div>
+                    <p style="font-size: 11px; margin-top: 4px;">Configurable in <span class="hl-yellow">config.yaml</span> under <span class="hl">subagent_stop_hook</span></p>
+                </div>
+            </div>
+
+            <div class="lifecycle-flow" style="margin-top: 8px;">
+                <div class="lifecycle-step">
+                    <div class="lifecycle-num cyan">1</div>
+                    <span>SubagentStop fires — <span class="hl">agent_transcript_path</span> + <span class="hl">agent_type</span> provided</span>
+                </div>
+                <div class="lifecycle-step">
+                    <div class="lifecycle-num orange">2</div>
+                    <span>Check agent_type against <span class="hl">excluded_agents</span> list</span>
+                </div>
+                <div class="lifecycle-step">
+                    <div class="lifecycle-num green">3</div>
+                    <span>Read full transcript &amp; run keyword heuristics (no 200-line cap)</span>
+                </div>
+                <div class="lifecycle-step">
+                    <div class="lifecycle-num purple">4</div>
+                    <span>Queue to <span class="hl-yellow">pending_summaries.jsonl</span> (deduped by <span class="hl">agent_id</span>)</span>
+                </div>
+            </div>
+
+            <div style="margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap;">
+                <span class="tag cyan">async: true</span>
+                <span class="tag success">non-blocking</span>
+                <span class="tag warning">min_messages: 3</span>
+                <span class="tag info">subagent_stop_hook.py</span>
+            </div>
+        </div>
+
+        <!-- Slide 7: PreCompact Hook -->
+        <div class="slide" id="slide-7">
             <div class="slide-title">PreCompact Hook: State Snapshots</div>
             <div class="slide-subtitle">Preserve working context before Claude Code compacts memory</div>
 
@@ -718,7 +769,7 @@ body {
         </div>
 
         <!-- Slide 7: Summarize Sessions -->
-        <div class="slide" id="slide-7">
+        <div class="slide" id="slide-8">
             <div class="slide-title">Session Summarizer: AI Note Generation</div>
             <div class="slide-subtitle">Transform raw transcripts into structured vault knowledge</div>
 
@@ -763,7 +814,7 @@ because the Agent SDK cannot be nested inside an active Claude Code session.</di
         </div>
 
         <!-- Slide 8: vault_common.py -->
-        <div class="slide" id="slide-8">
+        <div class="slide" id="slide-9">
             <div class="slide-title">vault_common.py: The Shared Core</div>
             <div class="slide-subtitle">stdlib-only library powering all vault operations</div>
 
@@ -808,7 +859,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 9: Vault Structure -->
-        <div class="slide" id="slide-9">
+        <div class="slide" id="slide-10">
             <div class="slide-title">The Obsidian Vault: ~/ClaudeVault/</div>
             <div class="slide-subtitle">Structured knowledge base with 10 domain folders</div>
 
@@ -861,7 +912,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 10: Note Conventions -->
-        <div class="slide" id="slide-10">
+        <div class="slide" id="slide-11">
             <div class="slide-title">Vault Note Conventions</div>
             <div class="slide-subtitle">Every note follows strict formatting rules for consistency</div>
 
@@ -917,7 +968,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 11: Session Lifecycle -->
-        <div class="slide" id="slide-11">
+        <div class="slide" id="slide-12">
             <div class="slide-title">Session Lifecycle: Complete Data Flow</div>
             <div class="slide-subtitle">How knowledge flows through a full Claude Code session</div>
 
@@ -943,22 +994,27 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                 </div>
                 <div class="lifecycle-connector"></div>
                 <div class="lifecycle-step">
-                    <div class="lifecycle-num red">5</div>
+                    <div class="lifecycle-num cyan">5</div>
+                    <span><span class="bold hl-cyan">SubagentStop</span> &mdash; Async hook captures subagent transcripts as they finish (parallel)</span>
+                </div>
+                <div class="lifecycle-connector"></div>
+                <div class="lifecycle-step">
+                    <div class="lifecycle-num red">6</div>
                     <span><span class="bold hl-red">SessionEnd</span> &mdash; Analyze transcript, detect learnings, append to daily note</span>
                 </div>
                 <div class="lifecycle-connector"></div>
                 <div class="lifecycle-step">
-                    <div class="lifecycle-num purple">6</div>
-                    <span><span class="bold hl-purple">Queue</span> &mdash; Significant sessions queued to <span class="hl-yellow">pending_summaries.jsonl</span></span>
+                    <div class="lifecycle-num purple">7</div>
+                    <span><span class="bold hl-purple">Queue</span> &mdash; Significant sessions/subagents queued to <span class="hl-yellow">pending_summaries.jsonl</span></span>
                 </div>
                 <div class="lifecycle-connector"></div>
                 <div class="lifecycle-step">
-                    <div class="lifecycle-num purple">7</div>
+                    <div class="lifecycle-num purple">8</div>
                     <span><span class="bold hl-purple">Summarize</span> &mdash; Background process generates structured notes via Agent SDK</span>
                 </div>
                 <div class="lifecycle-connector"></div>
                 <div class="lifecycle-step">
-                    <div class="lifecycle-num cyan">8</div>
+                    <div class="lifecycle-num cyan">9</div>
                     <span><span class="bold hl">Next Session</span> &mdash; New notes are available for context injection on next start</span>
                 </div>
             </div>
@@ -969,7 +1025,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 12: Configuration -->
-        <div class="slide" id="slide-12">
+        <div class="slide" id="slide-13">
             <div class="slide-title">Configuration: config.yaml</div>
             <div class="slide-subtitle">Centralized settings with precedence: defaults &rarr; config.yaml &rarr; CLI args</div>
 
@@ -986,6 +1042,11 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
   <span class="dim">ai_model: null</span>       <span class="dim"># Model for AI classification</span>
   <span class="dim">ai_timeout: 25</span>      <span class="dim"># AI call timeout in seconds</span>
   <span class="dim">auto_summarize: true</span> <span class="dim"># Auto-launch summarizer</span>
+
+<span class="hl-yellow">subagent_stop_hook:</span>
+  <span class="dim">enabled: true</span>        <span class="dim"># Enable subagent capture</span>
+  <span class="dim">min_messages: 3</span>      <span class="dim"># Minimum messages to be worth capturing</span>
+  <span class="dim">excluded_agents: "vault-explorer,research-documentation-agent"</span>
 
 <span class="hl-yellow">pre_compact_hook:</span>
   <span class="dim">lines: 200</span>           <span class="dim"># Transcript lines to analyse</span>
@@ -1011,7 +1072,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 13: Research Agent -->
-        <div class="slide" id="slide-13">
+        <div class="slide" id="slide-14">
             <div class="slide-title">Research Agent: External Knowledge Capture</div>
             <div class="slide-subtitle">A Sonnet-powered agent that searches, synthesizes, and saves</div>
 
@@ -1077,7 +1138,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 14: Vault Explorer Agent -->
-        <div class="slide" id="slide-14">
+        <div class="slide" id="slide-15">
             <div class="slide-title">Vault Explorer Agent: Read-Only Vault Search</div>
             <div class="slide-subtitle">A Haiku-powered subagent that isolates vault lookups from the main session</div>
 
@@ -1152,7 +1213,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 15: Graph View -->
-        <div class="slide" id="slide-15">
+        <div class="slide" id="slide-16">
             <div class="slide-title">Obsidian Graph View: Visual Knowledge Map</div>
             <div class="slide-subtitle">Domain-based color groups with priority-ordered matching</div>
 
@@ -1203,7 +1264,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
         </div>
 
         <!-- Slide 16: Installation & File Layout -->
-        <div class="slide" id="slide-16">
+        <div class="slide" id="slide-17">
             <div class="slide-title">Source Repo &amp; Installation</div>
             <div class="slide-subtitle">parsidion-cc/ &rarr; ~/.claude/ &rarr; ~/ClaudeVault/</div>
 
@@ -1263,7 +1324,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
         </div>
 
         <!-- Slide 17: Trigger Eval -->
-        <div class="slide" id="slide-17">
+        <div class="slide" id="slide-18">
             <div class="slide-title">Trigger Evaluation: Skill Quality Assurance</div>
             <div class="slide-subtitle">Measure how accurately Claude invokes the vault skill</div>
 
@@ -1315,7 +1376,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
         </div>
 
         <!-- Slide 17: Summary -->
-        <div class="slide" id="slide-18">
+        <div class="slide" id="slide-19">
             <div class="slide-title large">What We Built</div>
 
             <div class="two-col" style="flex: 1;">
@@ -1324,6 +1385,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
                     <ul class="bullet-list">
                         <li><span class="bold hl-green">SessionStart Hook</span> &mdash; context injection from vault</li>
                         <li class="red"><span class="bold hl-red">SessionEnd Hook</span> &mdash; learning capture &amp; queuing</li>
+                        <li class="cyan"><span class="bold hl-cyan">SubagentStop Hook</span> &mdash; subagent learning capture (async)</li>
                         <li class="orange"><span class="bold hl-orange">PreCompact Hook</span> &mdash; state snapshots</li>
                         <li class="purple"><span class="bold hl-purple">Summarizer</span> &mdash; AI-powered note generation</li>
                         <li><span class="bold hl">vault_common.py</span> &mdash; shared stdlib-only library</li>
@@ -1364,12 +1426,12 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
 
 <div class="nav">
     <button id="prev-btn" disabled>&larr; Previous</button>
-    <span class="slide-counter" id="slide-counter">1 / 18</span>
+    <span class="slide-counter" id="slide-counter">1 / 19</span>
     <button id="next-btn">Next &rarr;</button>
 </div>
 
 <script>
-const totalSlides = 18;
+const totalSlides = 19;
 let currentSlide = 1;
 
 const prevBtn = document.getElementById('prev-btn');

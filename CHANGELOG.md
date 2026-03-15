@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `subagent_stop_hook.py` — new `SubagentStop` hook (registered with `async: true`) that captures subagent transcripts and queues them for AI summarization via the same `pending_summaries.jsonl` pipeline as the SessionEnd hook
+- `excluded_agents` config key under `subagent_stop_hook` (default: `"vault-explorer,research-documentation-agent"`) to prevent recursive capture of vault system agents
+- `TRANSCRIPT_CATEGORIES`, `TRANSCRIPT_CATEGORY_LABELS`, `parse_transcript_lines()`, `detect_categories()`, and `append_to_pending()` moved to `vault_common.py` (shared between `session_stop_hook.py` and `subagent_stop_hook.py`)
+- `source` and `agent_type` fields in `pending_summaries.jsonl` entries for traceability (`source: "session"` or `"subagent"`)
+- `subagent_stop_hook` config section in `config.yaml` template with `enabled`, `min_messages`, and `excluded_agents` keys
+- `_HOOK_OPTIONS` dict in `install.py` for per-event hook handler options (enables `async: true` on SubagentStop)
+- `[tool.ty.environment]` `extra-paths` in `pyproject.toml` so `ty` resolves `vault_common` from source
 - PID singleton guard in `update_index.py` to prevent concurrent runs (mirrors `vault_doctor.py` pattern)
 - CONTRIBUTING.md with development setup and PR guidelines
 - CHANGELOG.md following Keep a Changelog format

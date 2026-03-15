@@ -790,6 +790,12 @@ $ grep -c "vault-explorer" ~/.claude/CLAUDE-VAULT.md
         <li class="cyan"><span class="hl-cyan">Semantic search</span> (step 1) — bge-base MRR 0.889, fast-paths past grep when DB exists</li>
       </ul>
 
+      <div class="output" style="font-size:11px; margin-top:8px; padding: 8px;">
+        <span style="color:var(--orange);">⚠ SubagentStop hook exclusion:</span> this agent is listed in
+        <code>excluded_agents</code> — its transcripts are <em>not</em> harvested
+        by the SubagentStop hook, preventing recursive vault-search loops.
+      </div>
+
       <div class="tags" style="margin-top:4px;">
         <span class="tag success">61/61 tests</span>
         <span class="tag info">5 commits</span>

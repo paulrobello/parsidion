@@ -654,6 +654,12 @@ richer with each research task.</div>
         </div>
       </div>
 
+      <div class="output" style="font-size:11px; margin-top:8px; padding: 8px;">
+        <span style="color:var(--orange);">⚠ SubagentStop hook exclusion:</span> this agent is listed in
+        <code>excluded_agents</code> — its transcripts are <em>not</em> harvested
+        by the SubagentStop hook, preventing recursive vault-write loops.
+      </div>
+
       <div class="tags" style="margin-top:4px;">
         <span class="tag amber">311 lines</span>
         <span class="tag success">vault-first</span>

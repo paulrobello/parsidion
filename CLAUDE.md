@@ -91,6 +91,7 @@ Config sections:
 |---|---|---|
 | `session_start_hook` | `ai_model`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings` | `session_start_hook.py` |
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize` | `session_stop_hook.py` |
+| `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `max_cleaned_chars`, `persist`, `cluster_model` | `summarize_sessions.py` |
 | `embeddings` | `model`, `min_score`, `top_k` | `build_embeddings.py`, `vault_search.py` |
@@ -117,6 +118,9 @@ cp skills/claude-vault/SKILL.md ~/.claude/skills/claude-vault/SKILL.md
 
 # After editing the research agent
 cp agents/research-documentation-agent.md ~/.claude/agents/research-documentation-agent.md
+
+# After editing subagent_stop_hook.py
+cp skills/claude-vault/scripts/subagent_stop_hook.py ~/.claude/skills/claude-vault/scripts/subagent_stop_hook.py
 ```
 
 **Testing hooks manually** — hooks communicate via JSON on stdin/stdout.
@@ -142,9 +146,14 @@ EOF
 python skills/claude-vault/scripts/pre_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
+
+# Test subagent_stop_hook (provide a real agent_transcript_path)
+python skills/claude-vault/scripts/subagent_stop_hook.py <<'EOF'
+{"cwd": "/path/to/project", "agent_transcript_path": "/path/to/agent.jsonl", "agent_id": "abc-123", "agent_type": "Explore"}
+EOF
 ```
 
-**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `vault_common.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
+**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `vault_common.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
 
 **Exception**: `summarize_sessions.py` is a PEP 723 script with inline dependency declarations (`claude-agent-sdk`, `anyio`). Run it with `uv run` — deps are installed automatically into an isolated environment.
 
@@ -156,6 +165,7 @@ The system has four layers:
    - `session_start_hook.py`: Loads relevant vault notes as `additionalContext`. Default mode injects a **compact one-line-per-note index** (title + tags) to minimize token usage; `--verbose` flag or `verbose_mode: true` config switches to full summaries. Optional `--ai [MODEL]` flag uses `claude -p` (haiku by default, `CLAUDECODE` unset) to intelligently select notes — requires bumping hook timeout to 30 s in `settings.json`
    - `session_stop_wrapper.sh` + `session_stop_hook.py`: Registered under the `SessionEnd` hook. The shell wrapper reads stdin, outputs `{}` immediately (so Claude Code doesn't cancel it during fast exits), then spawns `session_stop_hook.py` detached via `nohup`. The Python script detects learnable content and appends session metadata (session_id, transcript_path, categories) to `~/ClaudeVault/pending_summaries.jsonl`. Uses `fcntl.flock` for safe concurrent access across parallel Claude instances.
    - `pre_compact_hook.py`: Snapshots current task state before context compaction. Extracts the current task by scanning backwards through the last 200 transcript lines for the most recent user text message. Extracts recently-touched files by parsing `tool_use` blocks from assistant messages (Read/Write/Edit/Grep/NotebookEdit tools).
+   - `subagent_stop_hook.py`: Registered under the `SubagentStop` hook with `async: true` (non-blocking). Reads the subagent's own `agent_transcript_path`, skips agents listed in `excluded_agents` (default: `vault-explorer`, `research-documentation-agent`), and queues the transcript to `pending_summaries.jsonl` with `source: "subagent"` and `agent_type` metadata. Uses `agent_id` as the dedup key. Configurable via `subagent_stop_hook` section in `config.yaml`.
 
 2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls Claude via the Agent SDK (up to 5 parallel sessions) to generate structured vault notes. Features: **write-gate filter** (Claude decides per-session if insights are reusable before generating a note), **hierarchical summarization** (transcripts exceeding `max_cleaned_chars` are chunked and summarized by haiku first), **automated backlinks** (tag-overlap scan injects bidirectional wikilinks after each note write). Cleans processed entries from the queue and rebuilds the index when done.
 
