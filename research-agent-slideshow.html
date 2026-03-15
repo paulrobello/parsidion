@@ -354,21 +354,19 @@ capability, not just recall speed.</div>
       <div class="slide-title">Step 1: Vault-First Search</div>
 
       <div class="claude-response">
-        The agent must check the vault before touching the web — otherwise it will re-research topics the vault already covers and create duplicate notes. But the vault index can go stale. The design checks the timestamp before trusting it.
+        The agent checks the vault before touching the web. Semantic search via <span class="hl-cyan">vault_search.py</span> is tried first — it matches query <em>intent</em> rather than exact keywords. If the embeddings DB is absent or returns too few results, vault-explorer's grep-based search fills the gap.
       </div>
 
-      <div class="section-label">Staleness check + folder search</div>
-      <div class="code-block"><span class="cm"># 1. Is the index fresh?</span>
-<span class="fn">head -4</span> ~/ClaudeVault/CLAUDE.md
-<span class="cm"># "Auto-generated ... on YYYY-MM-DD HH:MM"</span>
-<span class="cm"># If older than 24h → rebuild first:</span>
-<span class="fn">uv run</span> ~/.claude/skills/claude-vault/scripts/update_index.py
+      <div class="section-label">Semantic search (primary path)</div>
+      <div class="code-block"><span class="cm"># 1a. Semantic search — fast, intent-aware</span>
+<span class="fn">uv run</span> --no-project ~/.claude/skills/claude-vault/scripts/<span class="str">vault_search.py</span> <span class="str">"QUERY"</span> --top 10
+<span class="cm"># Score ≥ 0.5 → read notes directly (skip vault-explorer)</span>
 
-<span class="cm"># 2. Search all relevant folders</span>
-<span class="cm"># Research/ Languages/ Frameworks/ Tools/ Patterns/ Debugging/</span>
-<span class="cm"># Also: docs/research/ in the current project</span></div>
+<span class="cm"># 1b. Dispatch vault-explorer for remaining gaps</span>
+<span class="cm"># (graceful fallback when embeddings.db absent)</span>
+<span class="cm"># Agent: vault-explorer → ## Answer + ## Sources</span></div>
 
-      <div class="output highlight">Gap identified and accepted: folder search is manual Grep loops in the main session context. The vault-explorer agent didn't exist yet — that refactor came later.</div>
+      <div class="output highlight">update_index.py now triggers an incremental embeddings rebuild in the background — so vault notes written by this agent are automatically indexed for future semantic searches.</div>
     </div>
 
     <!-- ── Slide 5: Step 2 — NotebookLM Integration ── -->

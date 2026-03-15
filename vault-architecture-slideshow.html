@@ -980,6 +980,7 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
   <span class="dim">ai_timeout: 25</span>      <span class="dim"># AI call timeout in seconds</span>
   <span class="dim">recent_days: 3</span>      <span class="dim"># Days to look back for recent notes</span>
   <span class="dim">debug: false</span>        <span class="dim"># Append injected context to debug log</span>
+  <span class="dim">use_embeddings: true</span> <span class="dim"># Blend semantic matches into context</span>
 
 <span class="hl-yellow">session_stop_hook:</span>
   <span class="dim">ai_model: null</span>       <span class="dim"># Model for AI classification</span>
@@ -995,6 +996,11 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
   <span class="dim">transcript_tail_lines: 400</span>
   <span class="dim">max_cleaned_chars: 12000</span>
   <span class="dim">persist: false</span>      <span class="dim"># SDK session persistence</span>
+
+<span class="hl-yellow">embeddings:</span>
+  <span class="dim">model: BAAI/bge-base-en-v1.5</span> <span class="dim"># ~134MB ONNX, MRR 0.889</span>
+  <span class="dim">min_score: 0.35</span>     <span class="dim"># Cosine similarity threshold</span>
+  <span class="dim">top_k: 10</span>           <span class="dim"># Default result count</span>
 
 <span class="hl-yellow">git:</span>
   <span class="dim">auto_commit: true</span>    <span class="dim"># Auto-commit after vault writes</span></div>
@@ -1080,36 +1086,40 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                 <span class="flow-arrow">&rarr;</span>
                 <div class="flow-box purple">vault-explorer</div>
                 <span class="flow-arrow">&rarr;</span>
+                <div class="flow-box" style="background:rgba(6,182,212,0.15);border-color:var(--cyan);">vault_search.py</div>
+                <span class="flow-arrow">&rarr;</span>
                 <div class="flow-box orange">Priority Folders</div>
                 <span class="flow-arrow">&rarr;</span>
                 <div class="flow-box green">## Answer</div>
-                <span class="flow-arrow">&rarr;</span>
-                <div class="flow-box yellow">## Sources</div>
             </div>
 
             <div class="two-col" style="flex: 1;">
                 <div class="col-box">
-                    <h3 class="purple">Search Procedure</h3>
+                    <h3 class="purple">6-Step Search Procedure</h3>
                     <div class="lifecycle-flow">
-                        <div class="lifecycle-step" style="padding: 4px 0;">
-                            <div class="lifecycle-num cyan">1</div>
-                            <span style="font-size: 12px;">Orient via <code style="color:var(--cyan);">~/ClaudeVault/CLAUDE.md</code> index</span>
+                        <div class="lifecycle-step" style="padding: 3px 0;">
+                            <div class="lifecycle-num" style="background:var(--cyan);color:#000;">1</div>
+                            <span style="font-size: 11px;"><strong>Semantic:</strong> <code style="color:var(--cyan);">vault_search.py --json</code>; ≥3 results → skip to step 5</span>
                         </div>
-                        <div class="lifecycle-step" style="padding: 4px 0;">
+                        <div class="lifecycle-step" style="padding: 3px 0;">
                             <div class="lifecycle-num purple">2</div>
-                            <span style="font-size: 12px;">Extract key signal from query</span>
+                            <span style="font-size: 11px;">Orient via <code style="color:var(--cyan);">~/ClaudeVault/CLAUDE.md</code> index</span>
                         </div>
-                        <div class="lifecycle-step" style="padding: 4px 0;">
+                        <div class="lifecycle-step" style="padding: 3px 0;">
                             <div class="lifecycle-num orange">3</div>
-                            <span style="font-size: 12px;">Search by priority folder (query-type table)</span>
+                            <span style="font-size: 11px;">Extract key signal from query</span>
                         </div>
-                        <div class="lifecycle-step" style="padding: 4px 0;">
-                            <div class="lifecycle-num green">4</div>
-                            <span style="font-size: 12px;">Rank top 5 by folder priority + signal frequency</span>
+                        <div class="lifecycle-step" style="padding: 3px 0;">
+                            <div class="lifecycle-num" style="background:rgba(234,179,8,0.2);color:var(--yellow);">4</div>
+                            <span style="font-size: 11px;">Search by priority folder (query-type table)</span>
                         </div>
-                        <div class="lifecycle-step" style="padding: 4px 0;">
-                            <div class="lifecycle-num yellow">5</div>
-                            <span style="font-size: 12px;">Synthesize &amp; return fixed two-section format</span>
+                        <div class="lifecycle-step" style="padding: 3px 0;">
+                            <div class="lifecycle-num green">5</div>
+                            <span style="font-size: 11px;">Rank top 5 by <strong>semantic score</strong> → folder → signal frequency</span>
+                        </div>
+                        <div class="lifecycle-step" style="padding: 3px 0;">
+                            <div class="lifecycle-num yellow">6</div>
+                            <span style="font-size: 11px;">Synthesize &amp; return fixed two-section format</span>
                         </div>
                     </div>
                 </div>
@@ -1122,18 +1132,20 @@ _strip_inline_comment() <span class="dim"># Handle # comments</span></div>
                         <div><span style="color:var(--orange);">Library / tool</span> &rarr; Tools/ &rarr; Frameworks/</div>
                         <div><span style="color:var(--yellow);">Research</span> &rarr; Research/ &rarr; all folders</div>
                     </div>
-                    <div style="margin-top: 12px;">
-                        <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">Design constraints:</p>
+                    <div style="margin-top: 10px;">
+                        <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Design constraints:</p>
                         <ul class="bullet-list">
                             <li class="green" style="font-size: 11px;">Read-only — never writes vault notes</li>
                             <li class="green" style="font-size: 11px;">No <code style="color:var(--cyan);">update_index.py</code> calls</li>
+                            <li style="font-size: 11px;">Graceful fallback when embeddings.db absent</li>
                             <li style="font-size: 11px;">Falls back to <code style="color:var(--purple);">research-documentation-agent</code></li>
                         </ul>
                     </div>
-                    <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+                    <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">
                         <span class="tag purple">Haiku-powered</span>
                         <span class="tag info">Isolated context</span>
                         <span class="tag success">Read-only</span>
+                        <span class="tag" style="background:rgba(6,182,212,0.15);color:var(--cyan);border:1px solid rgba(6,182,212,0.3);">MRR 0.889</span>
                     </div>
                 </div>
             </div>
@@ -1320,6 +1332,7 @@ uv run install.py --uninstall  <span class="dim"># remove</span></div>
                         <li class="purple"><span class="bold hl-purple">Vault Explorer Agent</span> &mdash; read-only Haiku vault search</li>
                         <li class="pink"><span class="bold hl-pink">Trigger Eval</span> &mdash; skill quality measurement</li>
                         <li class="cyan"><span class="bold hl">CLAUDE-VAULT.md</span> &mdash; always-on vault-first guidance</li>
+                        <li><span class="bold hl-cyan">Semantic Search</span> &mdash; bge-base embeddings, MRR 0.889, auto-rebuild</li>
                     </ul>
                 </div>
                 <div>
