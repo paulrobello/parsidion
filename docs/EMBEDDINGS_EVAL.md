@@ -30,6 +30,7 @@ interactive HTML report.
   - [Time Estimates](#time-estimates)
   - [Worker Tuning](#worker-tuning)
   - [Quick Test Recipe](#quick-test-recipe)
+- [Benchmark Results](#benchmark-results)
 - [Interpreting Results](#interpreting-results)
   - [Reading MRR and Recall](#reading-mrr-and-recall)
   - [Quality vs Speed Tradeoff](#quality-vs-speed-tradeoff)
@@ -167,7 +168,8 @@ The first run:
 2. Calls `claude -p` once per note to generate 3 queries — approximately 5 minutes
 3. Saves queries to `~/ClaudeVault/embed_eval_queries.yaml`
 4. Runs the evaluation matrix across 3 models × 3 chunking strategies (9 combos) — approximately
-   10–15 minutes with default parallelism
+   18 minutes with default settings (`--workers 1`, `--max-index-notes 200`). Omit `paragraph`
+   from `--chunking` to cut this to ~4 minutes.
 
 Results appear in the terminal as a Rich table and are saved as timestamped JSON and HTML files in
 `~/ClaudeVault/`.
@@ -256,7 +258,7 @@ uv run ~/.claude/skills/claude-vault/scripts/embed_eval.py \
 
 ### Parallel Execution Model
 
-Phase 2 uses `ThreadPoolExecutor` with one thread per model (controlled by `--workers`, default 3).
+Phase 2 uses `ThreadPoolExecutor` with one thread per model (controlled by `--workers`, default 1).
 Each thread loads its embedding model **once**, then iterates through all configured chunking
 strategies serially. This design avoids the cost of loading the same model multiple times — a
 significant saving for larger models that take several seconds to initialize.
@@ -491,8 +493,9 @@ self-contained (all Chart.js assets inlined) and requires no server to view.
 | `--models M1,M2,...` | three defaults | Comma-separated list of fastembed model IDs to evaluate |
 | `--chunking C1,C2,...` | `whole,paragraph,sliding_512_128` | Comma-separated chunking strategies |
 | `--top-k K` | `10` | Recall@K cutoff for evaluation |
-| `--workers N` | `3` | Number of parallel threads (one per model) |
-| `--seed N` | `42` | Random seed for reproducible note sampling |
+| `--workers N` | `1` | Number of parallel threads (one per model). Values >1 limit ONNX threads to `cpu_count // workers` to prevent oversubscription. |
+| `--max-index-notes N` | `200` | Cap total notes indexed (0 = all vault notes). Eval notes always included; remaining slots filled with random distractors. |
+| `--seed N` | `42` | Random seed for reproducible note sampling and distractor selection |
 | `--output FILE` | auto-timestamped | Base path for output files (`.json` and `.html` appended) |
 
 **Default models evaluated:**
@@ -509,29 +512,42 @@ self-contained (all Chart.js assets inlined) and requires no server to view.
 
 ### Time Estimates
 
+Index time scales linearly with note count and with model embedding dimension.
+With the default `--max-index-notes 200` and `--workers 1`:
+
 | Phase | Approximate duration | Notes |
 |---|---|---|
 | Ground truth generation | ~3 s per note | Dominated by Claude API call latency; 100 notes ≈ 5 min |
-| Index build per combo | 20–60 s | Varies by model size and note count |
-| Query evaluation per combo | 1–5 s | Fast brute-force scan; 100 notes × 3 queries = 300 queries |
-| Full default run (9 combos, 3 parallel threads) | 10–15 min total | After ground truth is cached |
+| bge-small + whole | ~6 s | 200 notes × 384-dim |
+| bge-small + sliding_512_128 | ~48 s | 3654 chunks × 384-dim |
+| bge-small + paragraph | ~2.5 min | 7302 chunks × 384-dim |
+| bge-base + whole | ~12 s | 200 notes × 768-dim |
+| bge-base + sliding_512_128 | ~1.7 min | 3654 chunks × 768-dim |
+| bge-base + paragraph | ~5.4 min | 7302 chunks × 768-dim |
+| nomic + whole | ~17 s | 200 notes × 768-dim |
+| nomic + sliding_512_128 | ~2 min | 3654 chunks × 768-dim |
+| nomic + paragraph | ~6.4 min | 7302 chunks × 768-dim |
+| **Full 9-combo run (sequential)** | **~18 min** | All combos, 200 notes, `--workers 1` |
 
-These are reference estimates on a modern laptop CPU. Index build time scales linearly with note
-count and with model embedding dimension.
+Omit paragraph from `--chunking` to reduce total time to ~4 minutes.
 
 ### Worker Tuning
 
-`--workers` controls how many models are evaluated in parallel. The optimal value depends on
-available memory and CPU cores.
+`--workers` controls how many models evaluate in parallel. Fastembed's ONNX Runtime uses all
+available CPU cores by default — running N workers simultaneously causes N-way CPU
+oversubscription and is significantly **slower** than sequential execution.
 
-- **Default (3):** One thread per default model. Works well on a 16 GB MacBook.
-- **Reduce to 1 or 2:** If you experience memory pressure or high swap usage during the index build
-  phase. Larger models (768-dim) require more RAM than the 384-dim default.
-- **Increase beyond 3:** Only useful if you are evaluating more than 3 models. Extra workers beyond
-  the model count have no effect.
+The harness automatically limits each model to `cpu_count // workers` ONNX threads when
+`--workers > 1`, keeping total CPU usage at 100% instead of N×100%.
+
+- **Default (1):** Each model uses all CPU cores uncontested. Fastest total wall time.
+- **Set to 2 or 3:** Total wall time may be similar or slower than `--workers 1` due to
+  cache contention and memory pressure, but can be useful on machines with many idle cores
+  and ample RAM.
+- **Increase beyond 3:** Only useful if evaluating more than 3 models.
 
 > **⚠️ Warning:** Running multiple 768-dim models concurrently is memory-intensive. If your machine
-> has less than 16 GB of RAM, set `--workers 1` when evaluating `bge-base` or `nomic-embed`.
+> has less than 16 GB of RAM, keep `--workers 1` when evaluating `bge-base` or `nomic-embed`.
 
 ### Quick Test Recipe
 
@@ -547,6 +563,40 @@ uv run ~/.claude/skills/claude-vault/scripts/embed_eval.py \
 This samples 20 notes, generates 2 queries each (40 total), evaluates a single combo, and
 completes in roughly 2 minutes. It confirms the pipeline runs end-to-end without committing to a
 multi-hour full run.
+
+---
+
+## Benchmark Results
+
+Results from a representative eval run against a ~716-note vault. Ground truth: 3 notes × 2
+queries each (6 total), 200-note index with random distractors, `--workers 1`.
+
+| Rank | Model | Chunking | MRR | R@1 | R@5 | R@10 | Index time | Q/s |
+|---|---|---|---|---|---|---|---|---|
+| 🥇 | bge-base | whole | **0.889** | **0.833** | 1.0 | 1.0 | 11.8 s | 156 |
+| 🥈 | bge-small | sliding_512_128 | 0.783 | 0.667 | 1.0 | 1.0 | 47.5 s | 251 |
+| 🥉 | bge-small | whole | 0.700 | 0.500 | 1.0 | 1.0 | **5.8 s** | **302** |
+| 4 | bge-base | sliding_512_128 | 0.690 | 0.500 | 0.833 | 1.0 | 101.9 s | 112 |
+| 5 | nomic | sliding_512_128 | 0.681 | 0.500 | 1.0 | 1.0 | 121.0 s | 70 |
+| 6 | nomic | whole | 0.667 | 0.500 | 1.0 | 1.0 | 16.7 s | 113 |
+| 7–9 | all models | paragraph | ~0.583 | 0.500 | 0.667 | 0.667 | 150–381 s | 74–194 |
+
+**Key findings:**
+
+- **`bge-base` + `whole` is the top performer** — MRR 0.889 vs 0.700 for `bge-small` + `whole`,
+  with R@1 of 0.833 (correct note at rank 1 in 83% of queries). Index time of 12 s for 200 notes
+  is still fast enough for production use.
+- **`bge-small` + `whole` is the best speed/quality tradeoff** — 2× faster to build (6 s),
+  highest Q/s (302), and R@5 = 1.0 (correct note always in top 5).
+- **Paragraph chunking hurts both quality and speed** — R@10 only 0.667 means 2 of 6 queries
+  never found the right note even in the top 10. Fragmentation breaks the holistic semantic signal
+  that whole-note encoding preserves. Index time is 10–30× worse with no quality benefit.
+- **Sliding windows offer modest gains** — `bge-small` + `sliding` beats `bge-small` + `whole` on
+  MRR (0.783 vs 0.700) but at 8× the index time. Only worthwhile for long, multi-topic notes.
+- **nomic underperforms** consistently across all strategies vs the BAAI models.
+
+> **📝 Note:** This eval used only 6 queries (3 notes × 2 each). Results are directionally clear
+> but noisy. Run with `--notes 30 --queries-per-note 3` for more reliable conclusions.
 
 ---
 
