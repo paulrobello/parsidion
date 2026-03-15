@@ -17,6 +17,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
   - [Vault Explorer Agent](#vault-explorer-agent)
   - [Vault Common Library](#vault-common-library)
   - [Index Generator](#index-generator)
+  - [Metadata Query CLI](#metadata-query-cli)
   - [Trigger Evaluation](#trigger-evaluation)
   - [Context Preview Script](#context-preview-script)
   - [Obsidian Integration](#obsidian-integration)
@@ -42,6 +43,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 - Working state snapshots before context compaction
 - A dedicated research agent that saves findings to the vault
 - Auto-generated root index (`CLAUDE.md`) with tag cloud, staleness markers, and per-folder `MANIFEST.md` files
+- Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
 - Obsidian graph view with domain-based color grouping
 
 **Runtime requirements:**
@@ -433,7 +435,7 @@ A Claude Code agent definition (runs on Sonnet) that conducts technical research
 1. Dispatches `vault-explorer` agent with the research topic to check for existing knowledge — proceeds to web research only for gaps not covered by existing notes
 2. Uses NotebookLM (if available) for deep synthesis of source material
 3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
-4. Fetches raw HTML via `agentchrome page html`, pipes through `~/.claude/scripts/html-to-md` to get clean noise-free markdown (curl + html-to-md as fallback if agentchrome fails)
+4. Fetches raw HTML via `agentchrome page html`, pipes through `~/.claude/skills/claude-vault/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
 5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/MCPL.md`) was also requested
 6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
 7. Runs `update_index.py` after saving vault notes
@@ -449,10 +451,12 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
 
 **Scope:** Read-only. Does not write files, create notes, or run `update_index.py`.
 
-**Workflow:**
-1. Reads `~/ClaudeVault/CLAUDE.md` (the vault index) to orient on available content
-2. Extracts key signals from the query (exception class, package name, feature keyword)
-3. Searches folders in priority order by query type:
+**Workflow (7 steps):**
+1. **Semantic search** — runs `vault_search.py` with the full query; if 3+ results with score ≥ 0.35, skips to step 6
+2. **Metadata search** — infers filters from the query (`--folder`, `--type`, `--tag`, `--project`, `--recent-days`) and runs `vault-search` with those flags; if 3+ results, skips to step 6; gracefully handles absent DB
+3. **Orient** — reads `~/ClaudeVault/CLAUDE.md` to understand available content and folder structure
+4. **Extract signals** — identifies key search terms (exception class, package name, feature keyword)
+5. **Search by priority folder** — Grep search across folders in priority order by query type:
 
    | Query type | Folders, in priority order |
    |---|---|
@@ -462,9 +466,8 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
    | Library / tool / CLI | `Tools/` → `Frameworks/` |
    | Research / concepts | `Research/` → all folders |
 
-4. Ranks candidate files by folder priority, then by signal frequency within each file
-5. Reads the top 5 ranked files and synthesizes a direct answer
-6. Returns exactly two sections: `## Answer` (3–7 sentences) and `## Sources` (absolute paths with one-line relevance notes)
+6. **Rank and read** — ranks candidates by semantic score, then folder priority, then signal frequency; reads top 5 files
+7. **Synthesize and return** — returns exactly two sections: `## Answer` (3–7 sentences) and `## Sources` (absolute paths with one-line relevance notes)
 
 **Relationship to other agents:** When the vault has no relevant information, the agent recommends dispatching `research-documentation-agent` to research the topic externally and save findings to the vault.
 
@@ -480,10 +483,12 @@ The shared utility library used by all hook scripts and the index generator. Use
 |----------|---------|
 | `parse_frontmatter()` | Regex-based YAML frontmatter parser |
 | `get_body()` | Returns markdown content after frontmatter |
-| `find_notes_by_project()` | Search by `project` frontmatter field |
-| `find_notes_by_tag()` | Search by tag in `tags` list |
-| `find_notes_by_type()` | Search by `type` frontmatter field |
-| `find_recent_notes()` | Find notes modified within N days |
+| `ensure_note_index_schema(conn)` | Creates `note_index` table and 5 indexes in an open SQLite connection |
+| `query_note_index(*, tag, folder, note_type, project, recent_days, limit)` | DB-first metadata query; returns `None` (not `[]`) when DB absent to signal file-walk fallback |
+| `find_notes_by_project()` | Search by `project` frontmatter field — DB-first, falls back to file walk |
+| `find_notes_by_tag()` | Search by tag in `tags` list — DB-first, falls back to file walk |
+| `find_notes_by_type()` | Search by `type` frontmatter field — DB-first, falls back to file walk |
+| `find_recent_notes()` | Find notes modified within N days — DB-first, falls back to file walk |
 | `read_note_summary()` | Extract title + first few body lines |
 | `build_context_block()` | Assemble notes into a character-budgeted context string |
 | `get_project_name()` | Derive project name from cwd or git root |
@@ -517,6 +522,35 @@ Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID s
 - Root `CLAUDE.md` with sections: **Quick Stats** (note count, last updated, vault health, stale count), **Tag Cloud** (frequency-sorted), **Recent Activity** (last 7 days, max 20), **Folders** (per-folder listings with wikilinks and summaries)
 - **Staleness markers:** notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in folder listings and the Quick Stats stale count. Notes are never auto-deleted — only surfaced for review.
 - **Per-folder `MANIFEST.md` files:** a table-format index (Note | Tags | Summary) written inside each subfolder after every rebuild, allowing quick orientation within a domain without loading the full root index. Stale notes are marked with ⚠️.
+- **`note_index` DB upsert:** after writing `CLAUDE.md`, calls `_write_note_index_to_db()` to upsert all note metadata rows into `embeddings.db` and prune rows for deleted notes. No-op when `embeddings.db` does not yet exist; all DB errors are silently swallowed so a database failure never aborts the indexer.
+
+### Metadata Query (vault-search filter mode)
+
+**Location:** `skills/claude-vault/scripts/vault_search.py` (unified CLI)
+
+`vault-search` operates in two modes depending on arguments:
+
+- **Semantic mode** (positional `QUERY`): embeds the query with fastembed and retrieves top-K notes by cosine similarity. Results include a `score` field.
+- **Metadata mode** (filter flags, no `QUERY`): queries the `note_index` table in `embeddings.db` using SQL. Results set `score` to `null`.
+
+Both modes produce the same JSON output structure. The `vault-explorer` agent uses metadata mode as its Tier 2 search step (after semantic, before grep fallback).
+
+**Metadata filter flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--tag TAG` | Filter by exact tag token (comma-sep list match) |
+| `--folder FOLDER` | Filter by exact folder name |
+| `--type TYPE` | Filter by `note_type` field |
+| `--project PROJECT` | Filter by `project` field |
+| `--recent-days N` | Notes modified within N days |
+| `--limit N` | Max results for metadata mode (default: 50) |
+| `--json` | JSON array output (default) |
+| `--text` | Human-readable one-line-per-note output |
+
+**Graceful degradation:** returns `[]` when `embeddings.db` is absent or `note_index` table does not exist.
+
+**Global CLI:** installed via `uv tool install --editable ".[tools]"` from the repo root, or `uv run install.py --install-tools`. Places `vault-search` in `~/.local/bin/` (Linux/macOS) or `%APPDATA%\Python\Scripts` (Windows).
 
 ### Trigger Evaluation
 
@@ -698,8 +732,7 @@ parsidion-cc/
 ├── pyproject.toml
 ├── Makefile
 ├── scripts/
-│   ├── show-context                 # CLI: preview session start context for any project
-│   └── html-to-md                   # CLI: convert HTML to clean markdown (file/stdin/URL)
+│   └── show-context                 # CLI: preview session start context for any project
 ├── docs/
 │   ├── ARCHITECTURE.md              # This document
 │   └── DOCUMENTATION_STYLE_GUIDE.md
@@ -711,14 +744,16 @@ parsidion-cc/
 └── skills/claude-vault/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── vault_common.py          # Shared library
+    │   ├── vault_common.py          # Shared library (includes ensure_note_index_schema, query_note_index)
+    │   ├── vault_search.py          # Unified search CLI: semantic (QUERY) or metadata (--tag/--folder/...)
+    │   ├── html-to-md.py            # HTML → clean markdown (PEP 723; used by research agent)
     │   ├── session_start_hook.py    # SessionStart hook
     │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
     │   ├── session_stop_hook.py     # SessionEnd hook (queues to pending_summaries.jsonl)
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)
     │   ├── pre_compact_hook.py      # PreCompact hook
     │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723)
-    │   ├── update_index.py          # Index generator
+    │   ├── update_index.py          # Index generator + note_index DB upsert
     │   ├── vault_doctor.py          # Vault note issue scanner and repair tool
     │   ├── check_graph_coverage.py  # Graph color group coverage audit
     │   ├── run_trigger_eval.py      # Trigger accuracy eval
@@ -748,8 +783,6 @@ parsidion-cc/
 ├── agents/
 │   ├── research-documentation-agent.md
 │   └── vault-explorer.md                # Read-only vault search agent (Haiku)
-├── scripts/
-│   └── html-to-md                       # HTML → clean markdown (PEP 723)
 └── skills/claude-vault/
     ├── SKILL.md
     ├── eval_results.json            # Trigger eval results
@@ -761,6 +794,7 @@ parsidion-cc/
 │   └── graph.json                   # Graph view color config
 ├── config.yaml                      # User config (copied from templates/config.yaml)
 ├── CLAUDE.md                        # Auto-generated root index (rebuilt by update_index.py)
+├── embeddings.db                    # SQLite: note_embeddings (vectors) + note_index (metadata)
 ├── Daily/
 │   ├── MANIFEST.md                  # Auto-generated folder index (rebuilt by update_index.py)
 │   └── YYYY-MM/DD.md                # e.g. 2026-03/13.md

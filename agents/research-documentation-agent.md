@@ -50,8 +50,8 @@ You are an elite technical research agent specializing in gathering, synthesizin
    - Focus on practical, actionable information relevant to development
 
 4. **Web Content Extraction** — use the agentchrome CLI to fetch raw HTML, then pipe
-   it through `~/.claude/scripts/html-to-md` to get clean, noise-free markdown.
-   Run `agentchrome examples` to see self-documented usage examples.
+   it through `~/.claude/skills/claude-vault/scripts/html-to-md.py` to get clean,
+   noise-free markdown. Run `agentchrome examples` to see self-documented usage examples.
    Standard pattern:
    ```bash
    # Connect once per research session (launch headless Chrome)
@@ -59,23 +59,23 @@ You are an elite technical research agent specializing in gathering, synthesizin
 
    # Navigate to each URL, get raw HTML, and convert to clean markdown
    agentchrome navigate "https://example.com/docs" --wait-until networkidle
-   agentchrome page html | uv run --script ~/.claude/scripts/html-to-md - --url "https://example.com/docs" > /tmp/page-content.md
+   agentchrome page html | uv run --script ~/.claude/skills/claude-vault/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
    ```
    Then read `/tmp/page-content.md` for the cleaned content.
 
    - Use `--wait-until networkidle` to ensure JS-heavy sites fully render before extraction
-   - Use `agentchrome page html` (raw HTML) rather than `page text` — the html-to-md
+   - Use `agentchrome page html` (raw HTML) rather than `page text` — the html-to-md.py
      script removes navigation, banners, cookie notices, and script noise while
      preserving code fences with language annotations
-   - Pass `--url` to html-to-md to resolve any relative links in the output
+   - Pass `--url` to html-to-md.py to resolve any relative links in the output
 
-   agentchrome + html-to-md handles JavaScript-heavy documentation sites (MDN, framework
+   agentchrome + html-to-md.py handles JavaScript-heavy documentation sites (MDN, framework
    docs, etc.) that plain HTTP fetch cannot render.
 
    **Fallback**: If `agentchrome connect` exits non-zero, fetch raw HTML via curl or
-   the built-in Claude Code Web Fetch tool and pipe it through html-to-md:
+   the built-in Claude Code Web Fetch tool and pipe it through html-to-md.py:
    ```bash
-   curl -sL "https://example.com/docs" | uv run --script ~/.claude/scripts/html-to-md - --url "https://example.com/docs"
+   curl -sL "https://example.com/docs" | uv run --script ~/.claude/skills/claude-vault/scripts/html-to-md.py - --url "https://example.com/docs"
    ```
 
    Extract code examples, API references, and implementation patterns. Preserve

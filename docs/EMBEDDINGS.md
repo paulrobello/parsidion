@@ -18,6 +18,7 @@ using a CPU-only ONNX embedding model that runs entirely on your machine.
   - [JSON Mode](#json-mode)
   - [Filtering by Score](#filtering-by-score)
   - [Controlling Result Count](#controlling-result-count)
+- [Metadata Index (note_index)](#metadata-index-note_index)
 - [Integration](#integration)
   - [Session Start Hook](#session-start-hook)
   - [Session Summarizer](#session-summarizer)
@@ -55,6 +56,15 @@ internet connection required.
 
 ## Architecture
 
+`embeddings.db` is a single SQLite file that stores two tables:
+
+| Table | Populated by | Purpose |
+|-------|-------------|---------|
+| `note_embeddings` | `build_embeddings.py` | 384-dim float32 vectors for cosine similarity search |
+| `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, staleness) for indexed queries |
+
+Both tables are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` hasn't run yet.
+
 ```mermaid
 graph TB
     subgraph "Vault Notes"
@@ -64,43 +74,56 @@ graph TB
         N4[Research notes]
     end
 
-    subgraph "Index Builder"
-        BE[build_embeddings.py]
+    subgraph "Index Builders"
+        BE[build_embeddings.py\nVector builder]
+        IDX[update_index.py\nMetadata builder]
         MODEL[BAAI/bge-small-en-v1.5\nONNX · 384-dim · CPU]
     end
 
     subgraph "Storage"
-        DB[(embeddings.db\nSQLite + sqlite-vec)]
+        DB[(embeddings.db\nnote_embeddings + note_index)]
     end
 
     subgraph "Search Layer"
-        VS[vault_search.py\nCLI + search function]
+        VS[vault_search.py\nSemantic search]
+        VQ[vault_query.py\nMetadata search]
+        VC[vault_common.py\nquery_note_index]
     end
 
     subgraph "Consumers"
         SSH[session_start_hook.py]
         SUM[summarize_sessions.py]
-        RA[research-documentation-agent]
+        VE[vault-explorer agent]
         CLI[User CLI]
     end
 
     N1 & N2 & N3 & N4 --> BE
+    N1 & N2 & N3 & N4 --> IDX
     BE --> MODEL
     MODEL --> BE
     BE --> DB
+    IDX --> DB
     DB --> VS
+    DB --> VQ
+    DB --> VC
     VS --> SSH
     VS --> SUM
-    VS --> RA
+    VS --> VE
+    VQ --> VE
+    VC --> SSH
     VS --> CLI
+    VQ --> CLI
 
     style BE fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    style IDX fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
     style VS fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    style VQ fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
+    style VC fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style DB fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style MODEL fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style SSH fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
     style SUM fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style RA fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    style VE fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style CLI fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style N1 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style N2 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
@@ -110,15 +133,85 @@ graph TB
 
 **Data flow:**
 
-1. `build_embeddings.py` walks `~/ClaudeVault/`, reads each note's frontmatter and body, encodes
-   it with the ONNX model, and upserts the vector into `embeddings.db`.
-2. `vault_search.py` loads the same model, encodes the query, and runs a cosine similarity scan
-   against all stored vectors, returning ranked results as a JSON array.
-3. Hook scripts and agents call `vault_search.py` as a subprocess (or import `search()` directly)
-   to blend semantic matches with their existing keyword-based results.
+1. `build_embeddings.py` walks `~/ClaudeVault/`, encodes each note with the ONNX model, and upserts the vector into `note_embeddings`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
+2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
+3. `vault_search.py` loads the same ONNX model, encodes the query, and runs a cosine similarity scan against `note_embeddings`, returning ranked results as a JSON array.
+4. `vault_query.py` (or `vault_common.query_note_index()`) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking.
+5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
 The `vault_common.py` module exposes `get_embeddings_db_path()` so every script resolves the
 database path consistently without hardcoding it.
+
+---
+
+## Metadata Index (note_index)
+
+The `note_index` table in `embeddings.db` provides fast metadata-based search without loading the
+embedding model. It is populated by `update_index.py` on every index rebuild and queried via
+`vault_query.py` or `vault_common.query_note_index()`.
+
+### Schema
+
+```sql
+CREATE TABLE note_index (
+    stem           TEXT    NOT NULL PRIMARY KEY,
+    path           TEXT    NOT NULL,
+    folder         TEXT    NOT NULL DEFAULT '',
+    title          TEXT    NOT NULL DEFAULT '',
+    summary        TEXT    NOT NULL DEFAULT '',
+    tags           TEXT    NOT NULL DEFAULT '',     -- comma-separated: "python, sqlite"
+    note_type      TEXT    NOT NULL DEFAULT '',
+    project        TEXT    NOT NULL DEFAULT '',
+    confidence     TEXT    NOT NULL DEFAULT '',
+    mtime          REAL    NOT NULL DEFAULT 0.0,
+    related        TEXT    NOT NULL DEFAULT '',     -- comma-separated stems
+    is_stale       INTEGER NOT NULL DEFAULT 0,
+    incoming_links INTEGER NOT NULL DEFAULT 0
+);
+-- Secondary indexes on folder, note_type, project, mtime, tags
+```
+
+### Querying via CLI
+
+```bash
+# All notes in the Patterns folder
+python ~/.claude/skills/claude-vault/scripts/vault_query.py --folder Patterns
+
+# Notes tagged "python" modified in the last 7 days
+python ~/.claude/skills/claude-vault/scripts/vault_query.py --tag python --recent-days 7
+
+# Human-readable output
+python ~/.claude/skills/claude-vault/scripts/vault_query.py --project parsidion-cc --text
+```
+
+### Querying via Python
+
+```python
+import sys; sys.path.insert(0, '~/.claude/skills/claude-vault/scripts')
+import vault_common
+
+# DB-first: returns None if DB absent (signal to fall back to file walk)
+paths = vault_common.query_note_index(tag="python", recent_days=7)
+if paths is None:
+    paths = vault_common.find_notes_by_tag("python")  # file walk fallback
+```
+
+The four `find_notes_by_*` functions in `vault_common` already apply this pattern automatically.
+
+### Relationship to Embeddings
+
+The two tables serve complementary roles:
+
+| | `note_embeddings` | `note_index` |
+|--|---|---|
+| **Built by** | `build_embeddings.py` | `update_index.py` |
+| **Query type** | Semantic (cosine similarity) | Metadata (folder, tag, type, recency) |
+| **Speed** | ~100 ms (brute-force scan) | < 1 ms (indexed SQL) |
+| **Requires model** | Yes | No |
+| **Updated** | On demand / background | Every index rebuild |
+
+Use semantic search for "find notes related to this concept"; use metadata search for "find all
+debugging notes tagged sqlite from the last week".
 
 ---
 

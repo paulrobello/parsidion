@@ -77,6 +77,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
         "CREATE INDEX IF NOT EXISTS idx_stem ON note_embeddings(stem)"
     )
     conn.commit()
+    vault_common.ensure_note_index_schema(conn)
     return conn
 
 

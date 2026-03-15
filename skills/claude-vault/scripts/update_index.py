@@ -180,13 +180,14 @@ def _extract_wikilink_stems(related: object) -> list[str]:
     return stems
 
 
-def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, list[str], bool]]]]:
+def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, list[str], bool]]], list[dict[str, object]]]:
     """Build the full CLAUDE.md index content.
 
     Returns:
-        A tuple of (index_content, note_count, tag_count, folder_notes_extended).
+        A tuple of (index_content, note_count, tag_count, folder_notes_extended, db_rows).
         folder_notes_extended maps folder name to a list of
         (wikilink, title, summary, tags, is_stale) tuples.
+        db_rows is a list of dicts ready to upsert into the note_index table.
     """
     ensure_vault_dirs()
     # Filter out MANIFEST.md files — they are auto-generated and should not be
@@ -259,14 +260,31 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
             if target_stem in link_count:
                 link_count[target_stem] += 1
 
-    # Second pass: group by folder, compute staleness
+    # Second pass: group by folder, compute staleness, collect DB rows
     stale_count: int = 0
+    db_rows: list[dict[str, object]] = []
     for note_path, (content, fm, title, summary, folder, mtime, tags_list) in note_contents.items():
         stem: str = note_path.stem
         incoming: int = link_count.get(stem, 0)
         is_stale: bool = incoming == 0 and mtime < stale_cutoff_ts
         if is_stale:
             stale_count += 1
+
+        db_rows.append({
+            "stem": stem,
+            "path": str(note_path),
+            "folder": folder,
+            "title": title,
+            "summary": summary,
+            "tags": ", ".join(tags_list),
+            "note_type": str(fm.get("type", "") or ""),
+            "project": str(fm.get("project", "") or ""),
+            "confidence": str(fm.get("confidence", "") or ""),
+            "mtime": mtime,
+            "related": ", ".join(per_note_data.get(stem, (0.0, []))[1]),
+            "is_stale": 1 if is_stale else 0,
+            "incoming_links": incoming,
+        })
 
         if folder:
             folder_notes.setdefault(folder, []).append(
@@ -416,7 +434,7 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
             lines.append(f"- {wlink}{summary_label}{stale_marker}")
         lines.append("")
 
-    return "\n".join(lines), total_notes, total_tags, folder_notes
+    return "\n".join(lines), total_notes, total_tags, folder_notes, db_rows
 
 
 def build_manifests(
@@ -481,10 +499,70 @@ def build_manifests(
     return written
 
 
+def _write_note_index_to_db(db_rows: list[dict], current_stems: set[str]) -> None:
+    """Write per-note metadata rows to the note_index table in embeddings.db.
+
+    No-op if the DB file does not exist. All exceptions are silently swallowed
+    so a DB error never crashes the indexer.
+
+    Args:
+        db_rows: List of row dicts to upsert into note_index.
+        current_stems: Set of stems currently in the vault (used to prune deleted notes).
+    """
+    try:
+        import sqlite3 as _sqlite3
+        from vault_common import ensure_note_index_schema
+
+        db_path = get_embeddings_db_path()
+        if not db_path.exists():
+            return
+
+        conn = _sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        ensure_note_index_schema(conn)
+
+        conn.executemany(
+            """
+            INSERT INTO note_index (
+                stem, path, folder, title, summary, tags, note_type,
+                project, confidence, mtime, related, is_stale, incoming_links
+            ) VALUES (
+                :stem, :path, :folder, :title, :summary, :tags, :note_type,
+                :project, :confidence, :mtime, :related, :is_stale, :incoming_links
+            )
+            ON CONFLICT(stem) DO UPDATE SET
+                path=excluded.path,
+                folder=excluded.folder,
+                title=excluded.title,
+                summary=excluded.summary,
+                tags=excluded.tags,
+                note_type=excluded.note_type,
+                project=excluded.project,
+                confidence=excluded.confidence,
+                mtime=excluded.mtime,
+                related=excluded.related,
+                is_stale=excluded.is_stale,
+                incoming_links=excluded.incoming_links
+            """,
+            db_rows,
+        )
+
+        # Prune rows for notes that no longer exist in the vault
+        db_stems = conn.execute("SELECT stem FROM note_index").fetchall()
+        stale = [(row[0],) for row in db_stems if row[0] not in current_stems]
+        if stale:
+            conn.executemany("DELETE FROM note_index WHERE stem = ?", stale)
+
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # never crash the indexer due to a DB error
+
+
 def main() -> None:
     """Entry point: rebuild the index, write CLAUDE.md, and generate MANIFEST.md files."""
     _singleton_guard()
-    content, note_count, tag_count, folder_notes = build_index()
+    content, note_count, tag_count, folder_notes, db_rows = build_index()
     index_path: Path = VAULT_ROOT / "CLAUDE.md"
     index_path.write_text(content, encoding="utf-8")
 
@@ -494,6 +572,9 @@ def main() -> None:
     # Commit CLAUDE.md + all MANIFEST.md files together
     commit_paths: list[Path] = [index_path] + manifest_paths
     git_commit_vault("chore(vault): rebuild index and manifests", paths=commit_paths)
+
+    current_stems = {row["stem"] for row in db_rows}
+    _write_note_index_to_db(db_rows, current_stems)
 
     print(
         f"Updated CLAUDE.md: {note_count} notes indexed, {tag_count} tags; "

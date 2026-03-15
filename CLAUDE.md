@@ -33,6 +33,11 @@ uv run install.py --force --yes      # non-interactive reinstall
 uv run install.py --dry-run          # preview only
 uv run install.py --uninstall        # remove skill, agent, hooks
 
+# Install vault-search as a global CLI command — cross-platform via uv tool
+uv run install.py --install-tools    # runs uv tool install --editable ".[tools]"
+# OR manually from the repo root:
+uv tool install --editable ".[tools]"
+
 # Rebuild the vault index (after creating/renaming/deleting notes)
 uv run --no-project ~/.claude/skills/claude-vault/scripts/update_index.py
 
@@ -42,6 +47,11 @@ uv run --no-project ~/.claude/skills/claude-vault/scripts/summarize_sessions.py 
 
 # Summarize from inside a Claude Code session (unset CLAUDECODE to allow nesting)
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/claude-vault/scripts/summarize_sessions.py
+
+# Search vault notes (after uv tool install --editable ".[tools]")
+vault-search "hook patterns" --top 5          # semantic search
+vault-search --folder Patterns                # metadata: by folder
+vault-search --tag python --recent-days 7     # metadata: by tag + recency
 
 # Run the skill trigger accuracy eval (MUST be from a separate terminal, not inside Claude Code)
 bash ~/.claude/skills/claude-vault/scripts/run_trigger_eval.sh
@@ -169,9 +179,11 @@ The system has four layers:
 
 2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls Claude via the Agent SDK (up to 5 parallel sessions) to generate structured vault notes. Features: **write-gate filter** (Claude decides per-session if insights are reusable before generating a note), **hierarchical summarization** (transcripts exceeding `max_cleaned_chars` are chunked and summarized by haiku first), **automated backlinks** (tag-overlap scan injects bidirectional wikilinks after each note write). Cleans processed entries from the queue and rebuilds the index when done.
 
-3. **`vault_common.py`** — Shared library imported by all hooks. Contains frontmatter parsing (regex-based, no pyyaml), vault traversal, note search functions, and path utilities. All vault operations go through this module.
+3. **`vault_common.py`** — Shared library imported by all hooks. Contains frontmatter parsing (regex-based, no pyyaml), vault traversal, note search functions (`find_notes_by_tag` etc. — DB-first, file-walk fallback), `ensure_note_index_schema()`, `query_note_index()`, and path utilities. All vault operations go through this module.
 
-4. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated `CLAUDE.md` index at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Templates/` (symlink to skill templates).
+4. **`vault_search.py`** — Unified search CLI with two modes. **Semantic mode** (positional `QUERY`): fastembed + sqlite-vec cosine similarity search. **Metadata mode** (filter flags `--tag`/`--folder`/`--type`/`--project`/`--recent-days`, no query): SQL query against `note_index` table. Both modes output identical JSON with a `score` field (`null` for metadata). Installed globally as `vault-search` via `uv tool install`. Used by `vault-explorer` agent for both Tier 1 and Tier 2 search.
+
+5. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated `CLAUDE.md` index at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Templates/` (symlink to skill templates). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata).
 
 ## Vault Note Conventions
 
@@ -214,6 +226,7 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 - `VAULT_ROOT` = `~/ClaudeVault/` (module-level constant in `vault_common.py`, patched by installer for custom vault paths)
 - `TEMPLATES_DIR` = `~/.claude/skills/claude-vault/templates/` (module-level constant in `vault_common.py`, patched by installer)
 - `pending_summaries.jsonl` = `~/ClaudeVault/pending_summaries.jsonl` — queue of sessions awaiting AI summarization. Each line: `{"session_id": "...", "transcript_path": "...", "project": "...", "categories": [...], "timestamp": "..."}`. Deduplicated by `session_id`.
+- `embeddings.db` = `~/ClaudeVault/embeddings.db` — SQLite database with two tables: `note_embeddings` (384-dim float32 vectors built by `build_embeddings.py`) and `note_index` (per-note metadata built by `update_index.py`). Queried by `vault_search.py` (both modes) and `vault_common.query_note_index()`. All callers fall back gracefully when absent.
 - `EXCLUDE_DIRS` = set of folder names skipped by the indexer and vault traversal (defined in `vault_common.py`). Currently: `.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`.
 - Hook registration: `~/.claude/settings.json`
 - Trigger eval results: `~/.claude/skills/claude-vault/eval_results.json`

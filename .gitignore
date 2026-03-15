@@ -11,3 +11,4 @@ CLAUDE.local.md
 *.local
 *.local.*
 MEMORY_REPORT.md
+*.egg-info/

@@ -8,6 +8,7 @@ from pathlib import Path
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime, date, timedelta
@@ -58,6 +59,8 @@ __all__: list[str] = [
     "git_commit_vault",
     "EMBEDDINGS_DB_FILENAME",
     "get_embeddings_db_path",
+    "ensure_note_index_schema",
+    "query_note_index",
 ]
 
 # NOTE: VAULT_ROOT and TEMPLATES_DIR are intentionally patched by the installer
@@ -90,6 +93,120 @@ def get_embeddings_db_path() -> Path:
         Path to VAULT_ROOT/embeddings.db.
     """
     return VAULT_ROOT / EMBEDDINGS_DB_FILENAME
+
+
+def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
+    """Create the note_index table and indexes if they don't exist.
+
+    Args:
+        conn: An open sqlite3.Connection (caller sets WAL mode).
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS note_index (
+            stem           TEXT    NOT NULL PRIMARY KEY,
+            path           TEXT    NOT NULL,
+            folder         TEXT    NOT NULL DEFAULT '',
+            title          TEXT    NOT NULL DEFAULT '',
+            summary        TEXT    NOT NULL DEFAULT '',
+            tags           TEXT    NOT NULL DEFAULT '',
+            note_type      TEXT    NOT NULL DEFAULT '',
+            project        TEXT    NOT NULL DEFAULT '',
+            confidence     TEXT    NOT NULL DEFAULT '',
+            mtime          REAL    NOT NULL DEFAULT 0.0,
+            related        TEXT    NOT NULL DEFAULT '',
+            is_stale       INTEGER NOT NULL DEFAULT 0,
+            incoming_links INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_folder    ON note_index(folder)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_note_type ON note_index(note_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_project   ON note_index(project)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_mtime     ON note_index(mtime DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_tags      ON note_index(tags)")
+    conn.commit()
+
+
+def query_note_index(
+    *,
+    tag: str | None = None,
+    folder: str | None = None,
+    note_type: str | None = None,
+    project: str | None = None,
+    recent_days: int | None = None,
+    limit: int = 200,
+) -> list[Path] | None:
+    """Query the note_index table in embeddings.db for fast metadata filtering.
+
+    Returns None (not []) if the DB is absent or the table is missing,
+    signalling the caller to fall back to a file walk.
+
+    Args:
+        tag: Exact tag token to match in the comma-separated tags column.
+        folder: Exact folder name to match.
+        note_type: Exact note_type value to match.
+        project: Exact project value to match.
+        recent_days: Only return notes modified within this many days.
+        limit: Maximum number of results (default 200).
+
+    Returns:
+        List of existing Paths sorted by mtime descending, or None on DB error.
+    """
+    db_path = get_embeddings_db_path()
+    if not db_path.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+        ).fetchone()
+        if row is None:
+            return None
+
+        conditions: list[str] = []
+        params: list[object] = []
+
+        if tag is not None:
+            # 4-pattern exact-token match to avoid partial hits (e.g. "python" must not
+            # match "python-decorator").  Tags are stored as ", ".join(tags_list).
+            conditions.append(
+                "(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)"
+            )
+            params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
+
+        if folder is not None:
+            conditions.append("folder = ?")
+            params.append(folder)
+
+        if note_type is not None:
+            conditions.append("note_type = ?")
+            params.append(note_type)
+
+        if project is not None:
+            conditions.append("project = ?")
+            params.append(project)
+
+        if recent_days is not None:
+            cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
+            conditions.append("mtime >= ?")
+            params.append(cutoff)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        sql = f"SELECT path FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(sql, params).fetchall()
+        return [Path(path_str) for (path_str,) in rows if Path(path_str).exists()]
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
 
 
 # Variables safe to pass through to child processes (avoids leaking secrets)
@@ -362,21 +479,33 @@ def _find_notes_by_field(field: str, value: str) -> list[Path]:
 
 def find_notes_by_project(project: str) -> list[Path]:
     """Find all notes with a matching ``project`` field in frontmatter."""
+    result = query_note_index(project=project)
+    if result is not None:
+        return result
     return _find_notes_by_field("project", project)
 
 
 def find_notes_by_tag(tag: str) -> list[Path]:
     """Find all notes containing the given tag in their ``tags`` list."""
+    result = query_note_index(tag=tag)
+    if result is not None:
+        return result
     return _find_notes_by_field("tags", tag)
 
 
 def find_notes_by_type(note_type: str) -> list[Path]:
     """Find all notes with a matching ``type`` field in frontmatter."""
+    result = query_note_index(note_type=note_type)
+    if result is not None:
+        return result
     return _find_notes_by_field("type", note_type)
 
 
 def find_recent_notes(days: int = 3) -> list[Path]:
     """Find notes modified within the last *days* days, sorted by mtime descending."""
+    result = query_note_index(recent_days=days)
+    if result is not None:
+        return result
     cutoff = datetime.now() - timedelta(days=days)
     cutoff_ts = cutoff.timestamp()
     recent: list[tuple[float, Path]] = []

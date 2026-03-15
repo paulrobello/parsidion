@@ -370,6 +370,43 @@ def install_scripts(
 
 
 # ---------------------------------------------------------------------------
+# CLI tools via uv tool install
+# ---------------------------------------------------------------------------
+
+
+def install_cli_tools(
+    repo_root: Path,
+    dry_run: bool = False,
+) -> None:
+    """Install vault-search and vault-query as global CLI commands via uv tool.
+
+    Runs ``uv tool install --editable ".[tools]"`` from *repo_root* so that
+    ``vault-search`` and ``vault-query`` appear in the user's PATH
+    (``~/.local/bin/`` on Linux/macOS, ``%APPDATA%\\Python\\Scripts`` on
+    Windows) without copying or moving any script files.
+
+    The install is editable so updates to the source scripts take effect
+    immediately without re-running this step.
+    """
+    _step("Install CLI tools: vault-search, vault-query (uv tool install)", dry_run=dry_run)
+    if not dry_run:
+        result = subprocess.run(
+            ["uv", "tool", "install", "--editable", ".[tools]"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            _warn(
+                "uv tool install failed — vault-search / vault-query not globally available.\n"
+                f"  stdout: {result.stdout.strip()}\n"
+                f"  stderr: {result.stderr.strip()}"
+            )
+        else:
+            _ok("vault-search and vault-query installed globally")
+
+
+# ---------------------------------------------------------------------------
 # Vault directory setup
 # ---------------------------------------------------------------------------
 
@@ -861,6 +898,10 @@ def install(args: argparse.Namespace) -> int:
     # 10. Configure vault .gitignore for embeddings.db
     configure_vault_gitignore(vault_root, dry_run=dry_run)
 
+    # 11. Install global CLI tools (vault-search, vault-query) via uv tool
+    if args.install_tools:
+        install_cli_tools(REPO_ROOT, dry_run=dry_run)
+
     print()
     if dry_run:
         _ok("Dry run complete — no changes were made.")
@@ -878,6 +919,12 @@ def install(args: argparse.Namespace) -> int:
             f"  4. Run: {cyan('uv run ~/.claude/skills/claude-vault/scripts/build_embeddings.py')}"
         )
         print("         to build the semantic search index (~30s on first run)")
+        if not args.install_tools:
+            print(
+                f"  5. Run: {cyan(f'cd {REPO_ROOT} && uv tool install --editable \".[tools]\"')}"
+            )
+            print("         to add vault-search and vault-query as global CLI commands")
+            print(f"         (or re-run with {cyan('--install-tools')} to do this automatically)")
 
     return 0
 
@@ -943,6 +990,15 @@ def parse_args() -> argparse.Namespace:
         "--uninstall",
         action="store_true",
         help="Remove installed skill, agents, and hooks",
+    )
+    parser.add_argument(
+        "--install-tools",
+        action="store_true",
+        help=(
+            "Also install vault-search and vault-query as global CLI commands "
+            "via 'uv tool install --editable .[tools]' (cross-platform; "
+            "adds commands to ~/.local/bin/ or platform equivalent)"
+        ),
     )
     parser.add_argument(
         "--help",

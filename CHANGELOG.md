@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `uv tool install` support — `pyproject.toml` now declares a `vault-search` `[project.scripts]` entry point and a `[tools]` optional-dependency group (`fastembed`, `sqlite-vec`); running `uv tool install --editable ".[tools]"` from the repo (or `uv run install.py --install-tools`) makes `vault-search` globally available on all platforms without PATH manipulation
+- `install.py --install-tools` flag — calls `uv tool install --editable ".[tools]"` automatically as step 11; without the flag, the next-steps summary prints the manual command
+- `note_index` table in `embeddings.db` — populated by `update_index.py` on every index rebuild; stores per-note metadata (stem, path, folder, title, summary, tags, type, project, confidence, mtime, related, is_stale, incoming_links) with 5 secondary indexes for sub-millisecond queries without O(n) file walks
+- `vault_search.py` merged with former `vault_query.py` — single unified CLI with two modes: semantic (positional `QUERY` string, uses fastembed + sqlite-vec) and metadata (filter flags `--tag`/`--folder`/`--type`/`--project`/`--recent-days`, queries `note_index` table); both modes share identical JSON output with `score` field (`null` for metadata results); mutually exclusive — error if both a query and filter flags are provided
+- `ensure_note_index_schema(conn)` in `vault_common.py` — creates `note_index` table and all 5 indexes; called by `build_embeddings.py` `open_db()` so the schema is guaranteed from first DB creation
+- `query_note_index(*, tag, folder, note_type, project, recent_days, limit)` in `vault_common.py` — DB-first query; opens DB read-only; returns `None` (not `[]`) when absent or table missing to signal fallback to file walk; uses 4-pattern LIKE for exact tag-token matching (avoids `python` matching `python-decorator`)
+- DB-first pattern for `find_notes_by_tag()`, `find_notes_by_project()`, `find_notes_by_type()`, and `find_recent_notes()` in `vault_common.py` — try `query_note_index()` first; fall back to O(n) file walk transparently when DB absent
+- `_write_note_index_to_db()` in `update_index.py` — upserts all note rows into `note_index`, prunes rows for deleted notes, swallows all exceptions (never crashes the indexer)
 - `subagent_stop_hook.py` — new `SubagentStop` hook (registered with `async: true`) that captures subagent transcripts and queues them for AI summarization via the same `pending_summaries.jsonl` pipeline as the SessionEnd hook
 - `excluded_agents` config key under `subagent_stop_hook` (default: `"vault-explorer,research-documentation-agent"`) to prevent recursive capture of vault system agents
 - `TRANSCRIPT_CATEGORIES`, `TRANSCRIPT_CATEGORY_LABELS`, `parse_transcript_lines()`, `detect_categories()`, and `append_to_pending()` moved to `vault_common.py` (shared between `session_stop_hook.py` and `subagent_stop_hook.py`)
@@ -30,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - pyright extraPaths config for test module resolution
 
 ### Changed
+- `vault-explorer.md` agent now has a 7-step workflow with a new Tier 2 metadata search step (step 2) using `vault-search` filter flags between semantic search and the CLAUDE.md+grep fallback; existing steps 2–6 renumbered to 3–7
 - Consolidated `extract_text_from_content()` and `read_last_n_lines()` into vault_common.py (was duplicated across hooks)
 - Consolidated file locking functions (`flock_exclusive`, `flock_shared`, `funlock`) into vault_common.py
 - Replaced `asyncio.gather()` with `anyio.create_task_group()` in summarize_sessions.py
@@ -61,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History folder added to SKILL.md vault structure and update_index.py FOLDER_ORDER
 - Added missing .gitignore entries (`*-mcp.json`, `.gemini-clipboard`, `claude_scratch/`, etc.)
 - Documented show-context script in ARCHITECTURE.md
+- Moved `html-to-md` from `scripts/` to `skills/claude-vault/scripts/html-to-md.py`; added `.py` extension (it is a PEP 723 Python script); updated research agent, ARCHITECTURE.md, and slideshows to reference the new path (`~/.claude/skills/claude-vault/scripts/html-to-md.py`)
 
 ## [0.1.0] - 2026-03-10
 

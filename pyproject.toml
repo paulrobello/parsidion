@@ -4,6 +4,33 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = []
 
+[project.optional-dependencies]
+# Heavy deps needed only for vault_search (semantic search CLI)
+search = [
+    "fastembed>=0.6.0,<1.0",
+    "sqlite-vec>=0.1.6,<1.0",
+]
+# All CLI tools (vault-search + vault-query)
+tools = [
+    "parsidion-cc[search]",
+]
+
+[project.scripts]
+vault-search = "vault_search:main"
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Expose vault scripts as importable top-level modules for entry points.
+# sys.path.insert in each script remains valid because __file__ resolves to
+# the source directory when installed editable.
+py-modules = ["vault_search", "vault_common"]
+
+[tool.setuptools.package-dir]
+"" = "skills/claude-vault/scripts"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
