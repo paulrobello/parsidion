@@ -11,6 +11,7 @@ import atexit
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ from vault_common import (
     all_vault_notes,
     ensure_vault_dirs,
     get_body,
+    get_embeddings_db_path,
     git_commit_vault,
     parse_frontmatter,
 )
@@ -497,6 +499,20 @@ def main() -> None:
         f"Updated CLAUDE.md: {note_count} notes indexed, {tag_count} tags; "
         f"{manifest_count} MANIFEST.md file(s) generated"
     )
+
+    # Incrementally update embeddings.db in the background if the DB exists.
+    # Skipped silently when the DB has not been built yet.
+    db_path = get_embeddings_db_path()
+    if db_path.exists():
+        build_script = Path(__file__).parent / "build_embeddings.py"
+        if build_script.exists():
+            subprocess.Popen(
+                ["uv", "run", "--no-project", str(build_script), "--incremental"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print("Embeddings: incremental rebuild launched in background")
 
 
 if __name__ == "__main__":
