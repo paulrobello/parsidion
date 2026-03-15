@@ -46,6 +46,12 @@ __all__: list[str] = [
     # Transcript helpers
     "extract_text_from_content",
     "read_last_n_lines",
+    # Transcript analysis and queuing (shared by session_stop and subagent_stop hooks)
+    "TRANSCRIPT_CATEGORIES",
+    "TRANSCRIPT_CATEGORY_LABELS",
+    "parse_transcript_lines",
+    "detect_categories",
+    "append_to_pending",
     # Utilities
     "slugify",
     "git_commit_vault",
@@ -790,6 +796,194 @@ def slugify(text: str) -> str:
     slug = _SLUG_MULTI_HYPHEN_RE.sub("-", slug)
     slug = slug.strip("-")
     return slug
+
+
+# ---------------------------------------------------------------------------
+# Transcript analysis helpers (shared by session_stop and subagent_stop hooks)
+# ---------------------------------------------------------------------------
+
+TRANSCRIPT_CATEGORIES: dict[str, list[str]] = {
+    "error_fix": [
+        "fixed",
+        "the issue was",
+        "root cause",
+        "the error",
+        "resolved by",
+        "the fix",
+        "bug was",
+        "problem was",
+        "workaround",
+    ],
+    "research": [
+        "found that",
+        "documentation says",
+        "according to",
+        "turns out",
+        "discovered that",
+        "learned that",
+        "it appears",
+        "the docs say",
+        "the spec says",
+    ],
+    "pattern": [
+        "pattern",
+        "approach",
+        "technique",
+        "best practice",
+        "convention",
+        "idiom",
+        "architecture",
+        "design decision",
+    ],
+    "config_setup": [
+        "configured",
+        "installed",
+        "set up",
+        "added to",
+        "created",
+        "initialized",
+        "migrated",
+        "deployed",
+    ],
+}
+
+TRANSCRIPT_CATEGORY_LABELS: dict[str, str] = {
+    "error_fix": "Error Resolution",
+    "research": "Research Findings",
+    "pattern": "Pattern Discovery",
+    "config_setup": "Config/Setup",
+}
+
+
+def parse_transcript_lines(lines: list[str]) -> list[str]:
+    """Parse JSONL transcript lines and extract assistant message text.
+
+    Args:
+        lines: Raw JSONL lines from the transcript file.
+
+    Returns:
+        A list of text strings from assistant messages.
+    """
+    assistant_texts: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+        if entry.get("type") != "assistant":
+            continue
+
+        message = entry.get("message", entry)
+        content = message.get("content")
+        if content is None:
+            continue
+
+        text = extract_text_from_content(content)
+        if text.strip():
+            assistant_texts.append(text)
+
+    return assistant_texts
+
+
+def detect_categories(texts: list[str]) -> dict[str, list[str]]:
+    """Scan assistant texts for learnable content using keyword heuristics.
+
+    Args:
+        texts: List of assistant message texts.
+
+    Returns:
+        Dict mapping category keys to lists of matching text excerpts
+        (each truncated to 500 chars).
+    """
+    found: dict[str, list[str]] = {}
+
+    for text in texts:
+        text_lower = text.lower()
+        for category, keywords in TRANSCRIPT_CATEGORIES.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    if category not in found:
+                        found[category] = []
+                    excerpt = text[:500].strip()
+                    if excerpt and excerpt not in found[category]:
+                        found[category].append(excerpt)
+                    break
+
+    return found
+
+
+def append_to_pending(
+    transcript_path: Path,
+    project: str,
+    categories: dict[str, list[str]],
+    force: bool = False,
+    source: str = "session",
+    agent_type: str | None = None,
+) -> None:
+    """Append a session entry to the pending summaries queue.
+
+    Only appends when at least one significant category is detected,
+    unless *force* is True (used when the AI gate has already decided).
+    Guards against duplicates by session ID (transcript filename stem).
+
+    Args:
+        transcript_path: Path to the transcript JSONL file.
+        project: The project name.
+        categories: Detected categories mapping keys to excerpt lists.
+        force: Skip the significance filter; queue unconditionally.
+        source: Origin of the transcript — ``"session"`` or ``"subagent"``.
+        agent_type: Subagent type (e.g. ``"Explore"``); only meaningful when
+            *source* is ``"subagent"``.
+    """
+    all_keys = set(categories.keys())
+    if not force:
+        significant = {"error_fix", "research", "pattern"}
+        if not (significant & all_keys):
+            return
+
+    pending_path = VAULT_ROOT / "pending_summaries.jsonl"
+    session_id = transcript_path.stem
+
+    entry: dict[str, object] = {
+        "session_id": session_id,
+        "transcript_path": str(transcript_path),
+        "project": project,
+        "categories": sorted(all_keys),
+        "timestamp": datetime.now().isoformat(),
+        "source": source,
+    }
+    if agent_type is not None:
+        entry["agent_type"] = agent_type
+
+    try:
+        with open(pending_path, "a+", encoding="utf-8") as f:
+            flock_exclusive(f)
+            try:
+                f.seek(0)
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        existing = json.loads(line)
+                        existing_id = (
+                            existing.get("session_id")
+                            or Path(existing.get("transcript_path", "")).stem
+                        )
+                        if existing_id == session_id:
+                            return  # Already queued
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                f.seek(0, 2)
+                f.write(json.dumps(entry) + "\n")
+            finally:
+                funlock(f)
+    except OSError:
+        pass
 
 
 def git_commit_vault(message: str, paths: list[Path] | None = None) -> bool:
