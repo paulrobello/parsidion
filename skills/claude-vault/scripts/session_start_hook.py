@@ -23,6 +23,9 @@ from pathlib import Path
 # These scripts are not a proper package — sys.path.insert is intentional so
 # each script can run standalone via ``uv run`` or ``python`` without requiring
 # pip install or editable installs.  See ARC-009 in AUDIT.md.
+# SEC-011: SHADOWING RISK — a ``vault_common.py`` in the process cwd at hook
+# invocation time would shadow the real module.  Accepted risk under the
+# stdlib-only constraint; proper packaging would eliminate it.
 sys.path.insert(0, str(Path(__file__).parent))
 
 import vault_common  # noqa: E402
@@ -34,6 +37,9 @@ _DEBUG_FILE = Path(tempfile.gettempdir()) / "claude-vault-session-start-debug.lo
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
+# Characters reserved for the vault-context header injected before the AI-selected
+# note content.  Ensures the final output never slightly exceeds max_chars.
+_AI_CONTEXT_HEADER_RESERVE: int = 500
 
 
 def _build_candidates(project_name: str) -> list[Path]:
@@ -178,7 +184,9 @@ def _select_context_with_ai(
         return ""
 
     candidates_text = "".join(candidate_parts)
-    output_limit = max_chars - 500  # reserve headroom for the header
+    output_limit = (
+        max_chars - _AI_CONTEXT_HEADER_RESERVE
+    )  # reserve headroom for the header
 
     prompt = (
         "You are building context for a Claude Code session.\n\n"
@@ -246,25 +254,15 @@ def build_compact_index(notes: list[Path], max_chars: int = 2000) -> str:
         except OSError:
             continue
         fm = vault_common.parse_frontmatter(content)
-        # Extract title from first heading or filename
-        title = path.stem.replace("-", " ").title()
-        for line in content.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("# ") and not stripped.startswith("## "):
-                title = stripped[2:].strip()
-                break
+        # ARC-009: use the canonical extract_title from vault_common
+        title = vault_common.extract_title(content, path.stem)
         tags = fm.get("tags", [])
         if isinstance(tags, str):
             tags = [tags]
         tag_str = " ".join(f"`{t}`" for t in tags) if tags else ""
-        folder = (
-            path.parent.name
-            if path.parent != vault_common.VAULT_ROOT
-            else "root"
-        )
-        entry = (
-            f"- [[{path.stem}]] ({folder})"
-            + (" — " + tag_str if tag_str else "")
+        folder = path.parent.name if path.parent != vault_common.VAULT_ROOT else "root"
+        entry = f"- [[{path.stem}]] {title} ({folder})" + (
+            " — " + tag_str if tag_str else ""
         )
         total += len(entry) + 1
         if total > max_chars:
@@ -435,20 +433,51 @@ def _write_debug_log(
     )
 
     try:
-        # Use os.open with 0o600 permissions so the debug log is not world-readable
+        # SEC-008: Use O_NOFOLLOW to prevent a symlink-substitution attack — if an
+        # adversary replaced _DEBUG_FILE with a symlink to a sensitive file, O_NOFOLLOW
+        # causes the open to fail with ELOOP rather than following the symlink.
+        # O_NOFOLLOW is POSIX and available on Linux/macOS; on Windows it is absent
+        # so we fall back gracefully (Windows does not support symlinks by default).
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
         fd = os.open(
             _DEBUG_FILE,
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+            flags,
             0o600,
         )
         try:
             with open(fd, "a", encoding="utf-8", closefd=True) as f:
                 f.write(entry)
-        except Exception:
+        except Exception:  # noqa: BLE001
             # fd ownership transferred to open(); only close manually on open() failure
             pass
     except OSError:
         pass  # debug logging is best-effort
+
+
+_HOOK_ERROR_LOG = "/tmp/claude-vault-hook-errors.log"
+
+
+def _log_hook_error(hook_name: str) -> None:
+    """Append a timestamped traceback entry to the hook error log.
+
+    Called only from the outermost ``except Exception`` handler so that
+    unexpected programming errors (regressions, NameErrors, etc.) are
+    written to a persistent file rather than disappearing into stderr.
+    Best-effort — never raises.
+
+    Args:
+        hook_name: Short identifier for the hook (e.g. ``"session_start_hook"``).
+    """
+    try:
+        ts = datetime.now().isoformat(timespec="seconds")
+        tb = traceback.format_exc()
+        entry = f"[{ts}] {hook_name}\n{tb}\n"
+        with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
+            fh.write(entry)
+    except Exception:  # noqa: BLE001 — logging must never raise
+        pass
 
 
 def main() -> None:
@@ -486,11 +515,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--debug",
-        action="store_true",
-        default=None,
+        action=argparse.BooleanOptionalAction,
+        default=False,
         help=(
             f"Append injected context and metadata to {_DEBUG_FILE} "
-            "for quality evaluation."
+            "for quality evaluation. Use --no-debug to force off even if "
+            "config.yaml enables it."
         ),
     )
     args = parser.parse_args()
@@ -516,10 +546,11 @@ def main() -> None:
         verbose_mode: bool = args.verbose or vault_common.get_config(
             "session_start_hook", "verbose_mode", False
         )
-        debug: bool = (
-            args.debug
-            if args.debug is not None
-            else vault_common.get_config("session_start_hook", "debug", False)
+        # args.debug is always a bool (BooleanOptionalAction); OR with config so
+        # either --debug CLI flag or config.yaml debug:true enables it, while
+        # --no-debug explicitly overrides config.
+        debug: bool = args.debug or bool(
+            vault_common.get_config("session_start_hook", "debug", False)
         )
 
         start_time = datetime.now()
@@ -549,8 +580,11 @@ def main() -> None:
 
         sys.stdout.write(json.dumps(output))
 
-    except Exception:
+    except Exception:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
+        # Log unexpected programming errors to a persistent file so regressions
+        # are visible without requiring manual stderr inspection.
+        _log_hook_error("session_start_hook")
         # On any error, output valid JSON with empty context so the hook doesn't crash
         fallback: dict = {
             "hookSpecificOutput": {

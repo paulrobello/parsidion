@@ -32,13 +32,16 @@ import struct
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 # These scripts are not a proper package — sys.path.insert is intentional so
 # each script can run standalone via ``uv run`` without requiring pip install.
 sys.path.insert(0, str(Path(__file__).parent))
 import vault_common  # noqa: E402
 
-_DEFAULT_MODEL: str = vault_common.get_config("embeddings", "model", "BAAI/bge-small-en-v1.5")
+_DEFAULT_MODEL: str = vault_common.get_config(
+    "embeddings", "model", "BAAI/bge-small-en-v1.5"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -200,18 +203,30 @@ def query(
         return []
 
     try:
-        if conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-        ).fetchone() is None:
+        if (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+            ).fetchone()
+            is None
+        ):
             return []
 
+        # SECURITY: The SQL WHERE clause is assembled from literal condition fragments
+        # only — no column names are ever derived from external input.  All filter
+        # values are passed as bound parameters (?).  Column names used below form a
+        # static whitelist: tags, folder, note_type, project, mtime.  Any future
+        # addition of a user-supplied column name must be added to this whitelist and
+        # reviewed for injection risk.
+        # Static whitelist (documentation only — all conditions below are literals):
+        #   _ALLOWED_QUERY_COLUMNS = {"tags", "folder", "note_type", "project", "mtime"}
         conditions: list[str] = []
         params: list[object] = []
 
         if tag is not None:
-            conditions.append(
-                "(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)"
-            )
+            # Tags are stored as ", ".join(sorted(tags_list)) — canonical format
+            # enforced at write time in update_index.py and build_embeddings.py.
+            # See ARC-004.
+            conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
             params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
 
         if folder is not None:
@@ -276,7 +291,7 @@ def query(
 # ---------------------------------------------------------------------------
 
 
-def _format_text(results: list[dict[str, object]]) -> str:
+def _format_text(results: list[dict[str, Any]]) -> str:
     """Format results as human-readable one-line-per-note text.
 
     Args:
@@ -289,10 +304,10 @@ def _format_text(results: list[dict[str, object]]) -> str:
     for r in results:
         score = r.get("score")
         tags = r.get("tags", [])
-        tags_str = ", ".join(str(t) for t in tags) if tags else ""
+        tags_str = ", ".join(str(t) for t in tags) if isinstance(tags, list) else ""
         stale = " [STALE]" if r.get("is_stale") else ""
         tags_label = f" [{tags_str}]" if tags_str else ""
-        score_label = f"{float(score):.4f}  " if score is not None else ""
+        score_label = f"{float(score):.4f}  " if isinstance(score, (int, float)) else ""
         lines.append(
             f"{score_label}{r['folder'] or '.'}/{r['stem']}{tags_label}{stale} — {r['title']}"
         )
@@ -349,15 +364,21 @@ def main() -> None:
     )
 
     # Metadata filter flags
-    parser.add_argument("--tag", metavar="TAG", help="Metadata: filter by exact tag token.")
-    parser.add_argument("--folder", metavar="FOLDER", help="Metadata: filter by exact folder name.")
+    parser.add_argument(
+        "--tag", metavar="TAG", help="Metadata: filter by exact tag token."
+    )
+    parser.add_argument(
+        "--folder", metavar="FOLDER", help="Metadata: filter by exact folder name."
+    )
     parser.add_argument(
         "--type",
         metavar="TYPE",
         dest="note_type",
         help="Metadata: filter by note type.",
     )
-    parser.add_argument("--project", metavar="PROJECT", help="Metadata: filter by project name.")
+    parser.add_argument(
+        "--project", metavar="PROJECT", help="Metadata: filter by project name."
+    )
     parser.add_argument(
         "--recent-days",
         metavar="N",
@@ -392,7 +413,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    _filter_flags = (args.tag, args.folder, args.note_type, args.project, args.recent_days)
+    _filter_flags = (
+        args.tag,
+        args.folder,
+        args.note_type,
+        args.project,
+        args.recent_days,
+    )
     has_query = args.query is not None
     has_filters = any(f is not None for f in _filter_flags)
 

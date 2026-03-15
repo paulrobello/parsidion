@@ -34,6 +34,13 @@ Usage:
     # Cap index size (default 200; 0 = all vault notes):
     uv run embed_eval.py --max-index-notes 100
     uv run embed_eval.py --max-index-notes 0  # full vault (slow with paragraph)
+
+# TODO(QA-017): This file is ~1270 lines. Consider splitting into three modules:
+#   embed_eval_generate.py  — ground-truth query generation (Phase 1)
+#   embed_eval_run.py       — embedding + search evaluation (Phase 2)
+#   embed_eval_report.py    — Rich table + HTML chart rendering (Phase 3)
+# The split is straightforward but risky (shared state, PEP 723 inline deps);
+# defer until the eval harness has test coverage.
 """
 
 import argparse
@@ -55,9 +62,15 @@ from typing import Any
 import sqlite_vec  # type: ignore[import-untyped]
 import yaml  # type: ignore[import-untyped]
 from fastembed import TextEmbedding  # type: ignore[import-untyped]
-from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
-from rich.table import Table
+from rich.console import Console  # type: ignore[import-untyped]
+from rich.progress import (  # type: ignore[import-untyped]
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
+from rich.table import Table  # type: ignore[import-untyped]
 
 sys.path.insert(0, str(Path(__file__).parent))
 import vault_common  # noqa: E402
@@ -105,9 +118,9 @@ class ComboResult:
     mrr: float = 0.0
     total_queries: int = 0
     top_k: int = 10
-    index_time_s: float = 0.0    # wall-clock time to embed all notes
-    query_time_s: float = 0.0    # wall-clock time to run all queries
-    chunk_count: int = 0          # total chunks indexed (>1 note for non-whole)
+    index_time_s: float = 0.0  # wall-clock time to embed all notes
+    query_time_s: float = 0.0  # wall-clock time to run all queries
+    chunk_count: int = 0  # total chunks indexed (>1 note for non-whole)
 
     @property
     def queries_per_sec(self) -> float:
@@ -254,7 +267,10 @@ def build_index(
     with conn:
         conn.executemany(
             "INSERT INTO chunks (stem, embedding) VALUES (?, ?)",
-            [(stem, _pack_vec(list(vec))) for stem, vec in zip(stems, vectors)],
+            [
+                (stem, _pack_vec(list(vec)))
+                for stem, vec in zip(stems, vectors, strict=False)
+            ],
         )
 
     return conn, len(all_chunks), time.time() - t0
@@ -384,7 +400,7 @@ def _eval_model_combos(
         if onnx_threads is not None:
             kwargs["threads"] = onnx_threads
         model = TextEmbedding(**kwargs)  # type: ignore[arg-type]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         console.log(f"[red]Failed to load model {model_name}: {exc}[/red]")
         return []
 
@@ -397,7 +413,7 @@ def _eval_model_combos(
                 eval_items, conn, model, top_k
             )
             conn.close()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             console.log(f"[red]  {model_name}/{chunking} failed: {exc}[/red]")
             if progress_queue is not None:
                 progress_queue.put((model_name, chunking, False))
@@ -468,8 +484,12 @@ def run_evaluation(
     if max_index_notes > 0 and len(all_notes) > max_index_notes:
         distractors = [p for p in all_notes if p.resolve() not in eval_paths]
         rng = random.Random(seed)
-        sampled_distractors = rng.sample(distractors, min(max_index_notes - len(eval_paths), len(distractors)))
-        note_paths = [p for p in all_notes if p.resolve() in eval_paths] + sampled_distractors
+        sampled_distractors = rng.sample(
+            distractors, min(max_index_notes - len(eval_paths), len(distractors))
+        )
+        note_paths = [
+            p for p in all_notes if p.resolve() in eval_paths
+        ] + sampled_distractors
         index_note = f"{len(note_paths)} (capped from {len(all_notes)})"
     else:
         note_paths = all_notes
@@ -532,7 +552,7 @@ def run_evaluation(
                             f"idx={r.index_time_s:.1f}s "
                             f"qry={r.queries_per_sec:.1f}q/s"
                         )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     console.log(f"[red]  Model {model_name} raised: {exc}[/red]")
 
     return sorted(all_results, key=lambda r: r.mrr, reverse=True)
@@ -637,13 +657,17 @@ def generate_ground_truth(
         for note_path in sample:
             queries = generate_queries_for_note(note_path, queries_per_note)
             if queries:
-                items.append(EvalItem(stem=note_path.stem, path=str(note_path), queries=queries))
+                items.append(
+                    EvalItem(stem=note_path.stem, path=str(note_path), queries=queries)
+                )
             else:
                 failed += 1
             progress.advance(task)
 
     if failed:
-        console.print(f"[yellow]Warning: {failed} notes failed query generation[/yellow]")
+        console.print(
+            f"[yellow]Warning: {failed} notes failed query generation[/yellow]"
+        )
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     data = [{"stem": i.stem, "path": i.path, "queries": i.queries} for i in items]
@@ -658,9 +682,7 @@ def generate_ground_truth(
 def load_ground_truth(queries_file: Path) -> list[EvalItem]:
     """Load ground-truth items from a YAML file."""
     raw = yaml.safe_load(queries_file.read_text(encoding="utf-8"))
-    return [
-        EvalItem(stem=e["stem"], path=e["path"], queries=e["queries"]) for e in raw
-    ]
+    return [EvalItem(stem=e["stem"], path=e["path"], queries=e["queries"]) for e in raw]
 
 
 # ---------------------------------------------------------------------------
@@ -726,7 +748,9 @@ def display_results(results: list[ComboResult], top_k: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def save_json_results(results: list[ComboResult], output_path: Path, metadata: dict[str, Any]) -> None:
+def save_json_results(
+    results: list[ComboResult], output_path: Path, metadata: dict[str, Any]
+) -> None:
     """Save evaluation results as JSON."""
     out_data: dict[str, Any] = {
         "metadata": metadata,
@@ -788,11 +812,16 @@ def generate_html_report(
     idx_data = json.dumps([round(r.index_time_s, 2) for r in results])
 
     # Scatter: MRR vs queries_per_sec
-    scatter_data = json.dumps([
-        {"x": round(r.queries_per_sec, 2), "y": round(r.mrr, 4),
-         "label": f"{r.model.split('/')[-1]}/{r.chunking}"}
-        for r in results
-    ])
+    scatter_data = json.dumps(
+        [
+            {
+                "x": round(r.queries_per_sec, 2),
+                "y": round(r.mrr, 4),
+                "label": f"{r.model.split('/')[-1]}/{r.chunking}",
+            }
+            for r in results
+        ]
+    )
 
     # Medal emojis for top 3
     medals = ["🥇", "🥈", "🥉"]
@@ -800,10 +829,10 @@ def generate_html_report(
     # Build rankings cards HTML
     ranking_cards = ""
     for i, res in enumerate(results[:3]):
-        medal = medals[i] if i < len(medals) else f"#{i+1}"
+        medal = medals[i] if i < len(medals) else f"#{i + 1}"
         short = res.model.split("/")[-1]
         ranking_cards += f"""
-        <div class="rank-card rank-{i+1}">
+        <div class="rank-card rank-{i + 1}">
           <div class="medal">{medal}</div>
           <div class="rank-model">{short}</div>
           <div class="rank-chunking">{res.chunking}</div>
@@ -1031,6 +1060,10 @@ def generate_html_report(
       <div class="chart-wrap"><canvas id="r1Chart"></canvas></div>
     </div>
     <div class="chart-card">
+      <h3>Recall@5 ↑</h3>
+      <div class="chart-wrap"><canvas id="r5Chart"></canvas></div>
+    </div>
+    <div class="chart-card">
       <h3>Recall@{top_k} ↑</h3>
       <div class="chart-wrap"><canvas id="rkChart"></canvas></div>
     </div>
@@ -1104,6 +1137,7 @@ function barConfig(label, data, color) {{
 
 new Chart(document.getElementById('mrrChart'), barConfig('MRR', {mrr_data}, '#3fb950'));
 new Chart(document.getElementById('r1Chart'),  barConfig('R@1', {r1_data}, '#58a6ff'));
+new Chart(document.getElementById('r5Chart'),  barConfig('R@5', {r5_data}, '#79c0ff'));
 new Chart(document.getElementById('rkChart'),  barConfig('R@{top_k}', {rk_data}, '#bc8cff'));
 new Chart(document.getElementById('qpsChart'), barConfig('Q/s', {qps_data}, '#d29922'));
 new Chart(document.getElementById('idxChart'), barConfig('Idx(s)', {idx_data}, '#f78166'));
@@ -1156,31 +1190,86 @@ def main() -> None:
         description="Embedding evaluation harness for Claude Vault.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--generate", action="store_true", default=False,
-                        help="Generate ground-truth queries via Claude (even if queries file exists).")
-    parser.add_argument("--eval", action="store_true", default=False,
-                        help="Run evaluation only (skip query generation).")
-    parser.add_argument("--notes", type=int, default=_DEFAULT_NOTES_SAMPLE, metavar="N",
-                        help=f"Notes to sample for ground truth (default: {_DEFAULT_NOTES_SAMPLE}).")
-    parser.add_argument("--queries-per-note", type=int, default=_DEFAULT_QUERIES_PER_NOTE, metavar="K",
-                        help=f"Queries per note (default: {_DEFAULT_QUERIES_PER_NOTE}).")
-    parser.add_argument("--queries-file", type=Path, default=_DEFAULT_QUERIES_FILE, metavar="FILE",
-                        help=f"YAML ground-truth file (default: {_DEFAULT_QUERIES_FILE}).")
-    parser.add_argument("--models", default=",".join(_DEFAULT_MODELS), metavar="M1,M2",
-                        help="Comma-separated fastembed model IDs.")
-    parser.add_argument("--chunking", default=",".join(_DEFAULT_CHUNKING), metavar="C1,C2",
-                        help="Chunking strategies: whole, paragraph, sliding_SIZE_OVERLAP.")
-    parser.add_argument("--top-k", type=int, default=_DEFAULT_TOP_K, metavar="K",
-                        help=f"Evaluate Recall@K (default: {_DEFAULT_TOP_K}).")
-    parser.add_argument("--workers", type=int, default=_DEFAULT_WORKERS, metavar="N",
-                        help=f"Parallel threads — one per model (default: {_DEFAULT_WORKERS}).")
-    parser.add_argument("--max-index-notes", type=int, default=200, metavar="N",
-                        help="Max notes to index (0 = all vault notes). Eval notes always "
-                             "included; remaining slots filled with random distractors (default: 200).")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed for note sampling (default: 42).")
-    parser.add_argument("--output", type=Path, default=None, metavar="FILE",
-                        help="Base path for output files (auto-timestamped if omitted).")
+    parser.add_argument(
+        "--generate",
+        action="store_true",
+        default=False,
+        help="Generate ground-truth queries via Claude (even if queries file exists).",
+    )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        default=False,
+        help="Run evaluation only (skip query generation).",
+    )
+    parser.add_argument(
+        "--notes",
+        type=int,
+        default=_DEFAULT_NOTES_SAMPLE,
+        metavar="N",
+        help=f"Notes to sample for ground truth (default: {_DEFAULT_NOTES_SAMPLE}).",
+    )
+    parser.add_argument(
+        "--queries-per-note",
+        type=int,
+        default=_DEFAULT_QUERIES_PER_NOTE,
+        metavar="K",
+        help=f"Queries per note (default: {_DEFAULT_QUERIES_PER_NOTE}).",
+    )
+    parser.add_argument(
+        "--queries-file",
+        type=Path,
+        default=_DEFAULT_QUERIES_FILE,
+        metavar="FILE",
+        help=f"YAML ground-truth file (default: {_DEFAULT_QUERIES_FILE}).",
+    )
+    parser.add_argument(
+        "--models",
+        default=",".join(_DEFAULT_MODELS),
+        metavar="M1,M2",
+        help="Comma-separated fastembed model IDs.",
+    )
+    parser.add_argument(
+        "--chunking",
+        default=",".join(_DEFAULT_CHUNKING),
+        metavar="C1,C2",
+        help="Chunking strategies: whole, paragraph, sliding_SIZE_OVERLAP.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=_DEFAULT_TOP_K,
+        metavar="K",
+        help=f"Evaluate Recall@K (default: {_DEFAULT_TOP_K}).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=_DEFAULT_WORKERS,
+        metavar="N",
+        help=f"Parallel threads — one per model (default: {_DEFAULT_WORKERS}).",
+    )
+    parser.add_argument(
+        "--max-index-notes",
+        type=int,
+        default=200,
+        metavar="N",
+        help="Max notes to index (0 = all vault notes). Eval notes always "
+        "included; remaining slots filled with random distractors (default: 200).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for note sampling (default: 42).",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Base path for output files (auto-timestamped if omitted).",
+    )
     args = parser.parse_args()
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]
@@ -1192,7 +1281,7 @@ def main() -> None:
 
     # Phase 1: Generate
     if need_generate:
-        console.print(f"\n[bold]Phase 1: Generating ground-truth queries[/bold]")
+        console.print("\n[bold]Phase 1: Generating ground-truth queries[/bold]")
         console.print(
             f"  Sampling [cyan]{args.notes}[/cyan] notes, "
             f"[cyan]{args.queries_per_note}[/cyan] queries each via Claude\n"
@@ -1208,7 +1297,9 @@ def main() -> None:
             console.print(f"[red]Queries file not found: {queries_file}[/red]")
             sys.exit(1)
         eval_items = load_ground_truth(queries_file)
-        console.print(f"\n[dim]Loaded {len(eval_items)} eval items from {queries_file}[/dim]")
+        console.print(
+            f"\n[dim]Loaded {len(eval_items)} eval items from {queries_file}[/dim]"
+        )
 
     if not eval_items:
         console.print("[red]No eval items — cannot run evaluation.[/red]")
@@ -1217,7 +1308,7 @@ def main() -> None:
     # Phase 2: Evaluate
     if need_eval:
         total_queries = sum(len(i.queries) for i in eval_items)
-        console.print(f"\n[bold]Phase 2: Evaluation matrix[/bold]")
+        console.print("\n[bold]Phase 2: Evaluation matrix[/bold]")
         console.print(f"  Models:   {models}")
         console.print(f"  Chunking: {chunking_strategies}")
         console.print(f"  top_k:    {args.top_k}  workers: {args.workers}\n")

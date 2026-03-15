@@ -34,6 +34,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - **[uv](https://docs.astral.sh/uv/)** -- Python package runner and manager
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
 - **Claude Code** -- the CLI this toolkit extends
+- **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
 - **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server; used by the research agent as a fallback search gateway (see [docs/MCPL.md](docs/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
 
@@ -115,6 +116,7 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
 | `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); repairs via Claude haiku; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
 | `html-to-md.py` | PEP 723 standalone script -- converts HTML to clean, noise-free markdown optimized for LLM consumption; used by the research agent |
+| `embed_eval.py` | Embedding evaluation harness -- benchmarks model and chunking strategy combinations against Claude-generated ground-truth queries; outputs Rich table, JSON results, and interactive HTML report (see [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md)) |
 | `run_trigger_eval.py` | Trigger accuracy eval (skill-selection simulation) |
 | `run_trigger_eval.sh` | Shell wrapper for running eval from a separate terminal (macOS/Linux) |
 | `run_trigger_eval.bat` | Batch wrapper for running eval from a separate terminal (Windows) |
@@ -226,6 +228,10 @@ Copy the template to get started:
 cp ~/.claude/skills/claude-vault/templates/config.yaml ~/ClaudeVault/config.yaml
 ```
 
+> **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
+> `claude-haiku-4-5-20251001`, `BAAI/bge-small-en-v1.5`) are the hardcoded script defaults.
+> Override any of them via the corresponding key in `~/ClaudeVault/config.yaml`.
+
 ```yaml
 session_start_hook:
   ai_model: null           # Model for AI note selection (null = disabled)
@@ -233,6 +239,7 @@ session_start_hook:
   ai_timeout: 25           # AI call timeout in seconds
   recent_days: 3           # Days to look back for recent notes
   debug: false             # Append injected context to debug log in $TMPDIR
+  verbose_mode: false      # If true, inject full note summaries instead of compact one-line index
   use_embeddings: true     # Blend semantic search results into context injection
 
 session_stop_hook:
@@ -254,10 +261,11 @@ summarizer:
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
   persist: false           # SDK session persistence (for debugging)
+  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
 
 embeddings:
   model: BAAI/bge-small-en-v1.5  # fastembed model for semantic search
-  min_score: 0.0           # Minimum cosine similarity threshold
+  min_score: 0.35          # Minimum cosine similarity threshold
   top_k: 10                # Maximum semantic search results
 
 git:
@@ -447,8 +455,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 
 ## Related Documentation
 
+- [docs/README.md](docs/README.md) -- Navigation index for all files in the `docs/` directory
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) -- System architecture, file layout, and hook design
 - [docs/EMBEDDINGS.md](docs/EMBEDDINGS.md) -- Semantic search setup, embeddings database, and evaluation
+- [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md) -- Evaluation harness for benchmarking embedding models and chunking strategies
 - [docs/MCPL.md](docs/MCPL.md) -- MCP Launchpad CLI: installation, configuration, and integration with Claude Code
 - [docs/AGENTCHROME.md](docs/AGENTCHROME.md) -- AgentChrome browser control CLI: installation, capabilities, and integration with the research agent
 - [docs/DOCUMENTATION_STYLE_GUIDE.md](docs/DOCUMENTATION_STYLE_GUIDE.md) -- Documentation standards for this project
+- [SECURITY.md](SECURITY.md) -- Vulnerability disclosure policy and security scope statement

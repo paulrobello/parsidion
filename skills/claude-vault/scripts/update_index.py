@@ -16,6 +16,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 # These scripts are not a proper package — sys.path.insert is intentional so
 # each script can run standalone via ``uv run`` or ``python`` without requiring
@@ -26,6 +27,7 @@ from vault_common import (
     VAULT_ROOT,
     all_vault_notes,
     ensure_vault_dirs,
+    extract_title,
     get_body,
     get_embeddings_db_path,
     git_commit_vault,
@@ -56,6 +58,43 @@ PID_FILE: Path = VAULT_ROOT / "index.pid"
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
 
+class NoteEntry(NamedTuple):
+    """Per-note metadata row for the note_index SQLite table.
+
+    Used as the element type in the ``db_rows`` list returned by
+    ``build_index()`` and consumed by ``_write_note_index_to_db()``.
+
+    Attributes:
+        stem: Filename without extension (primary key in note_index).
+        path: Absolute path string to the note file.
+        folder: Immediate parent folder name relative to VAULT_ROOT.
+        title: First ``#`` heading text, or filename stem as fallback.
+        summary: First non-heading body line, truncated to 80 chars.
+        tags: Comma-separated tag string (canonical: sorted, ", " delimiter).
+        note_type: ``type`` frontmatter value.
+        project: ``project`` frontmatter value.
+        confidence: ``confidence`` frontmatter value.
+        mtime: File modification timestamp (float seconds since epoch).
+        related: Comma-separated wikilink stems from ``related`` frontmatter.
+        is_stale: 1 if the note has no incoming links and is >30 days old, else 0.
+        incoming_links: Number of other notes that link to this one.
+    """
+
+    stem: str
+    path: str
+    folder: str
+    title: str
+    summary: str
+    tags: str
+    note_type: str
+    project: str
+    confidence: str
+    mtime: float
+    related: str
+    is_stale: int
+    incoming_links: int
+
+
 def _is_process_running(pid: int) -> bool:
     """Return True if a process with *pid* is currently running."""
     try:
@@ -77,9 +116,11 @@ def _write_pid() -> None:
 def _release_pid() -> None:
     """Remove the PID file at process exit."""
     try:
-        if PID_FILE.exists() and PID_FILE.read_text(encoding="utf-8").strip() == str(os.getpid()):
+        if PID_FILE.exists() and PID_FILE.read_text(encoding="utf-8").strip() == str(
+            os.getpid()
+        ):
             PID_FILE.unlink()
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # best-effort cleanup
 
 
@@ -90,7 +131,11 @@ def _singleton_guard() -> None:
     except (OSError, ValueError):
         existing_pid = None
 
-    if existing_pid and existing_pid != os.getpid() and _is_process_running(existing_pid):
+    if (
+        existing_pid
+        and existing_pid != os.getpid()
+        and _is_process_running(existing_pid)
+    ):
         print(
             f"update_index is already running (PID {existing_pid}). Exiting.",
             file=sys.stderr,
@@ -102,15 +147,12 @@ def _singleton_guard() -> None:
 
 
 def _extract_title(content: str, filename_stem: str) -> str:
-    """Extract the title from the first ``#`` heading in the body, falling back to filename."""
-    body: str = get_body(content)
-    for line in body.splitlines():
-        stripped: str = line.strip()
-        if stripped.startswith("#"):
-            title: str = stripped.lstrip("#").strip()
-            if title:
-                return title
-    return filename_stem
+    """Extract the title from the first ``#`` heading in the body, falling back to filename.
+
+    Delegates to ``vault_common.extract_title`` — the canonical implementation.
+    See ARC-009.
+    """
+    return extract_title(content, filename_stem)
 
 
 def _extract_summary(content: str) -> str:
@@ -180,21 +222,25 @@ def _extract_wikilink_stems(related: object) -> list[str]:
     return stems
 
 
-def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, list[str], bool]]], list[dict[str, object]]]:
+def build_index() -> tuple[
+    str,
+    int,
+    int,
+    dict[str, list[tuple[str, str, str, list[str], bool]]],
+    list[NoteEntry],
+]:
     """Build the full CLAUDE.md index content.
 
     Returns:
         A tuple of (index_content, note_count, tag_count, folder_notes_extended, db_rows).
         folder_notes_extended maps folder name to a list of
         (wikilink, title, summary, tags, is_stale) tuples.
-        db_rows is a list of dicts ready to upsert into the note_index table.
+        db_rows is a list of NoteEntry records ready to upsert into the note_index table.
     """
     ensure_vault_dirs()
     # Filter out MANIFEST.md files — they are auto-generated and should not be
     # indexed as vault notes.
-    notes: list[Path] = [
-        p for p in all_vault_notes() if p.name != "MANIFEST.md"
-    ]
+    notes: list[Path] = [p for p in all_vault_notes() if p.name != "MANIFEST.md"]
 
     now: datetime = datetime.now()
     now_str: str = now.strftime("%Y-%m-%d %H:%M")
@@ -212,7 +258,9 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
 
     # Per-note data needed for staleness: stem -> (mtime, related_stems)
     # We collect this in the first pass and compute link_count after.
-    per_note_data: dict[str, tuple[float, list[str]]] = {}  # stem -> (mtime, related_stems)
+    per_note_data: dict[
+        str, tuple[float, list[str]]
+    ] = {}  # stem -> (mtime, related_stems)
 
     # First pass: read all notes, collect data
     note_contents: dict[Path, tuple[str, dict, str, str, str, float, list[str]]] = {}
@@ -248,7 +296,15 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
         related_stems: list[str] = _extract_wikilink_stems(fm.get("related"))
 
         per_note_data[note_path.stem] = (mtime, related_stems)
-        note_contents[note_path] = (content, fm, title, summary, folder, mtime, tags_list)
+        note_contents[note_path] = (
+            content,
+            fm,
+            title,
+            summary,
+            folder,
+            mtime,
+            tags_list,
+        )
 
         if mtime >= cutoff_ts:
             recent_notes.append((mtime, note_path, folder, summary))
@@ -262,29 +318,42 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
 
     # Second pass: group by folder, compute staleness, collect DB rows
     stale_count: int = 0
-    db_rows: list[dict[str, object]] = []
-    for note_path, (content, fm, title, summary, folder, mtime, tags_list) in note_contents.items():
+    db_rows: list[NoteEntry] = []
+    for note_path, (
+        _content,
+        fm,
+        title,
+        summary,
+        folder,
+        mtime,
+        tags_list,
+    ) in note_contents.items():
         stem: str = note_path.stem
         incoming: int = link_count.get(stem, 0)
         is_stale: bool = incoming == 0 and mtime < stale_cutoff_ts
         if is_stale:
             stale_count += 1
 
-        db_rows.append({
-            "stem": stem,
-            "path": str(note_path),
-            "folder": folder,
-            "title": title,
-            "summary": summary,
-            "tags": ", ".join(tags_list),
-            "note_type": str(fm.get("type", "") or ""),
-            "project": str(fm.get("project", "") or ""),
-            "confidence": str(fm.get("confidence", "") or ""),
-            "mtime": mtime,
-            "related": ", ".join(per_note_data.get(stem, (0.0, []))[1]),
-            "is_stale": 1 if is_stale else 0,
-            "incoming_links": incoming,
-        })
+        db_rows.append(
+            NoteEntry(
+                stem=stem,
+                path=str(note_path),
+                folder=folder,
+                title=title,
+                summary=summary,
+                # ARC-004: canonical tag format is ", ".join(sorted(tags)) — sorted
+                # alphabetically with a single space after each comma.  This ensures
+                # consistent LIKE matching in query_note_index and vault_search.py.
+                tags=", ".join(sorted(tags_list)),
+                note_type=str(fm.get("type", "") or ""),
+                project=str(fm.get("project", "") or ""),
+                confidence=str(fm.get("confidence", "") or ""),
+                mtime=mtime,
+                related=", ".join(per_note_data.get(stem, (0.0, []))[1]),
+                is_stale=1 if is_stale else 0,
+                incoming_links=incoming,
+            )
+        )
 
         if folder:
             folder_notes.setdefault(folder, []).append(
@@ -314,7 +383,9 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
     lines.append("## Quick Stats")
     lines.append(f"- **Total notes**: {total_notes}")
     lines.append(f"- **Last updated**: {now_str}")
-    lines.append(f"- Stale notes (no incoming links, >{STALE_DAYS} days): {stale_count}")
+    lines.append(
+        f"- Stale notes (no incoming links, >{STALE_DAYS} days): {stale_count}"
+    )
 
     # Doctor state summary
     state_file: Path = VAULT_ROOT / "doctor_state.json"
@@ -322,7 +393,9 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
         state_data: dict = json.loads(state_file.read_text(encoding="utf-8"))
         last_run: str | None = state_data.get("last_run")
         notes_state: dict = state_data.get("notes", {})
-        counts: Counter[str] = Counter(v.get("status", "unknown") for v in notes_state.values())
+        counts: Counter[str] = Counter(
+            v.get("status", "unknown") for v in notes_state.values()
+        )
         ok_count = counts.get("ok", 0) + counts.get("fixed", 0)
         pending_count = counts.get("failed", 0) + counts.get("timeout", 0)
         review_count = counts.get("needs_review", 0)
@@ -333,9 +406,7 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
             parts.append(f"**{review_count} need user review**")
         if skipped_count:
             parts.append(f"{skipped_count} manual fix needed")
-        lines.append(
-            f"- **Vault health** (doctor run: {run_str}): {', '.join(parts)}"
-        )
+        lines.append(f"- **Vault health** (doctor run: {run_str}): {', '.join(parts)}")
     except (OSError, json.JSONDecodeError, KeyError):
         pass  # doctor has not been run yet
 
@@ -410,11 +481,13 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
     lines.append("")
 
     for folder_name_str in FOLDER_ORDER:
-        entries: list[tuple[str, str, str, list[str], bool]] = folder_notes.get(folder_name_str, [])
+        entries: list[tuple[str, str, str, list[str], bool]] = folder_notes.get(
+            folder_name_str, []
+        )
         count: int = len(entries)
         lines.append(f"### {folder_name_str} ({count} notes)")
         if entries:
-            for wlink, title, summary, _tags, is_stale in entries:
+            for wlink, _title, summary, _tags, is_stale in entries:
                 summary_label = f" - {summary}" if summary else ""
                 stale_marker = " [STALE?]" if is_stale else ""
                 lines.append(f"- {wlink}{summary_label}{stale_marker}")
@@ -428,7 +501,7 @@ def build_index() -> tuple[str, int, int, dict[str, list[tuple[str, str, str, li
         entries = folder_notes[folder_name_str]
         count = len(entries)
         lines.append(f"### {folder_name_str} ({count} notes)")
-        for wlink, title, summary, _tags, is_stale in entries:
+        for wlink, _title, summary, _tags, is_stale in entries:
             summary_label = f" - {summary}" if summary else ""
             stale_marker = " [STALE?]" if is_stale else ""
             lines.append(f"- {wlink}{summary_label}{stale_marker}")
@@ -499,14 +572,14 @@ def build_manifests(
     return written
 
 
-def _write_note_index_to_db(db_rows: list[dict], current_stems: set[str]) -> None:
+def _write_note_index_to_db(db_rows: list[NoteEntry], current_stems: set[str]) -> None:
     """Write per-note metadata rows to the note_index table in embeddings.db.
 
-    No-op if the DB file does not exist. All exceptions are silently swallowed
-    so a DB error never crashes the indexer.
+    No-op if the DB file does not exist. Errors are printed to stderr so DB
+    failures are visible without crashing the indexer.
 
     Args:
-        db_rows: List of row dicts to upsert into note_index.
+        db_rows: List of NoteEntry records to upsert into note_index.
         current_stems: Set of stems currently in the vault (used to prune deleted notes).
     """
     try:
@@ -544,7 +617,7 @@ def _write_note_index_to_db(db_rows: list[dict], current_stems: set[str]) -> Non
                 is_stale=excluded.is_stale,
                 incoming_links=excluded.incoming_links
             """,
-            db_rows,
+            [row._asdict() for row in db_rows],
         )
 
         # Prune rows for notes that no longer exist in the vault
@@ -555,8 +628,8 @@ def _write_note_index_to_db(db_rows: list[dict], current_stems: set[str]) -> Non
 
         conn.commit()
         conn.close()
-    except Exception:
-        pass  # never crash the indexer due to a DB error
+    except Exception as exc:  # noqa: BLE001
+        print(f"update_index DB error: {exc}", file=sys.stderr)
 
 
 def main() -> None:
@@ -573,7 +646,7 @@ def main() -> None:
     commit_paths: list[Path] = [index_path] + manifest_paths
     git_commit_vault("chore(vault): rebuild index and manifests", paths=commit_paths)
 
-    current_stems = {row["stem"] for row in db_rows}
+    current_stems: set[str] = {row.stem for row in db_rows}
     _write_note_index_to_db(db_rows, current_stems)
 
     print(
@@ -583,6 +656,8 @@ def main() -> None:
 
     # Incrementally update embeddings.db in the background if the DB exists.
     # Skipped silently when the DB has not been built yet.
+    # ARC-011: stderr is redirected to a log file so silent failures are
+    # visible.  Check /tmp/claude-vault-embed.log when embeddings seem stale.
     db_path = get_embeddings_db_path()
     if db_path.exists():
         build_script = Path(__file__).parent / "build_embeddings.py"
@@ -590,7 +665,7 @@ def main() -> None:
             subprocess.Popen(
                 ["uv", "run", "--no-project", str(build_script), "--incremental"],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=open("/tmp/claude-vault-embed.log", "a"),  # noqa: SIM115
                 start_new_session=True,
             )
             print("Embeddings: incremental rebuild launched in background")

@@ -500,6 +500,11 @@ self-contained (all Chart.js assets inlined) and requires no server to view.
 
 **Default models evaluated:**
 
+> **📝 Note:** The model IDs shown below are the harness defaults at the time of writing.
+> Pass `--models` to override them with any fastembed-compatible model ID. The production
+> embedding model used by `build_embeddings.py` is set via `embeddings.model` in
+> `~/ClaudeVault/config.yaml` (see [EMBEDDINGS.md](EMBEDDINGS.md#configuration-reference)).
+
 | Model | Dimensions | Description |
 |---|---|---|
 | `BAAI/bge-small-en-v1.5` | 384-dim | Fast, lightweight (~67 MB) — current production model |

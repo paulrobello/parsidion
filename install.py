@@ -16,6 +16,8 @@ Options:
     --dry-run, -n       Preview actions without making changes
     --verbose, -v       Show detailed output
     --force, -f         Overwrite existing skill files
+    --yes, -y           Skip all confirmation prompts; uses ~/ClaudeVault as the
+                        vault path unless --vault PATH is also supplied
     --skip-hooks        Do not modify settings.json
     --skip-agent        Do not install any agents
     --uninstall         Remove installed skill, agent, and hooks
@@ -122,9 +124,41 @@ VAULT_DIRS: list[str] = [
 
 
 def _print(msg: str, verbose_only: bool = False, verbose: bool = False) -> None:
+    """Print *msg*, optionally gating on the *verbose* flag.
+
+    Args:
+        msg: The message to print.
+        verbose_only: When True, suppress output unless *verbose* is also True.
+        verbose: Whether verbose output is enabled (passed through from the CLI flag).
+    """
     if verbose_only and not verbose:
         return
     print(msg)
+
+
+def _make_vprint(verbose: bool):
+    """Return a ``vprint(msg)`` closure bound to *verbose*.
+
+    Use this inside functions that receive the ``verbose`` flag to avoid
+    passing it at every ``_print`` call site::
+
+        vprint = _make_vprint(verbose)
+        vprint("debug info")          # only printed when verbose=True
+        vprint("always shown", always=True)
+
+    Args:
+        verbose: The global verbosity flag.
+
+    Returns:
+        A callable ``vprint(msg, always=False)`` that prints *msg* when
+        *verbose* is True, or always when *always* is True.
+    """
+
+    def vprint(msg: str, always: bool = False) -> None:
+        if always or verbose:
+            print(msg)
+
+    return vprint
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -202,8 +236,12 @@ def validate_vault_path(raw: str) -> tuple[Path, str | None]:
 
     expanded = Path(raw).expanduser().resolve()
 
+    # SEC-009: Use Path.is_relative_to() instead of str.startswith() to prevent
+    # false positives where a forbidden prefix string matches a different path
+    # (e.g. "/usr" matching "/usrdata", or "/bin" matching "/binary").
     for forbidden in _FORBIDDEN_PREFIXES:
-        if str(expanded).startswith(forbidden):
+        forbidden_path = Path(forbidden).resolve()
+        if expanded == forbidden_path or expanded.is_relative_to(forbidden_path):
             return expanded, f"Cannot use system or Claude config directory: {expanded}"
 
     return expanded, None
@@ -388,7 +426,10 @@ def install_cli_tools(
     The install is editable so updates to the source scripts take effect
     immediately without re-running this step.
     """
-    _step("Install CLI tools: vault-search, vault-query (uv tool install)", dry_run=dry_run)
+    _step(
+        "Install CLI tools: vault-search, vault-query (uv tool install)",
+        dry_run=dry_run,
+    )
     if not dry_run:
         result = subprocess.run(
             ["uv", "tool", "install", "--editable", ".[tools]"],
@@ -530,7 +571,7 @@ def merge_hooks(
     added: list[str] = []
     skipped: list[str] = []
 
-    for event, script_name in _HOOK_SCRIPTS.items():
+    for event, _script_name in _HOOK_SCRIPTS.items():
         command = _hook_command(claude_dir, event)
         event_hooks: list[dict] = hooks_section.setdefault(event, [])
 
@@ -721,7 +762,7 @@ def uninstall(
         hooks_section: dict = settings.get("hooks", {})
         changed = False
 
-        for event, script_name in _HOOK_SCRIPTS.items():
+        for event, _script_name in _HOOK_SCRIPTS.items():
             command = _hook_command(claude_dir, event)
             event_hooks: list[dict] = hooks_section.get(event, [])
             filtered = [
@@ -842,7 +883,9 @@ def install(args: argparse.Namespace) -> int:
     if not args.skip_hooks:
         print(f"  {dim('Register hooks:')} {', '.join(_HOOK_SCRIPTS.keys())}")
     print(f"  {dim('Install scripts:')} {claude_dir / 'scripts'}/")
-    print(f"  {dim('Install guidance:')} {claude_dir / 'CLAUDE-VAULT.md'} (@import into CLAUDE.md)")
+    print(
+        f"  {dim('Install guidance:')} {claude_dir / 'CLAUDE-VAULT.md'} (@import into CLAUDE.md)"
+    )
     if dry_run:
         print(f"\n  {yellow('[DRY RUN — no changes will be made]')}")
 
@@ -921,10 +964,12 @@ def install(args: argparse.Namespace) -> int:
         print("         to build the semantic search index (~30s on first run)")
         if not args.install_tools:
             print(
-                f"  5. Run: {cyan(f'cd {REPO_ROOT} && uv tool install --editable \".[tools]\"')}"
+                f"  5. Run: {cyan(f'cd {REPO_ROOT} && uv tool install --editable ".[tools]"')}"
             )
             print("         to add vault-search and vault-query as global CLI commands")
-            print(f"         (or re-run with {cyan('--install-tools')} to do this automatically)")
+            print(
+                f"         (or re-run with {cyan('--install-tools')} to do this automatically)"
+            )
 
     return 0
 
@@ -935,6 +980,18 @@ def install(args: argparse.Namespace) -> int:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse and return command-line arguments for the installer.
+
+    Defines all CLI flags used by ``install.py``, including vault path, target
+    Claude directory, dry-run mode, verbosity, force-overwrite, skip flags, and
+    the ``--install-tools`` flag for registering ``vault-search`` as a global
+    command via ``uv tool install``.
+
+    Returns:
+        Parsed argument namespace. Key attributes: ``vault``, ``claude_dir``,
+        ``dry_run``, ``verbose``, ``force``, ``yes``, ``skip_hooks``,
+        ``skip_agent``, ``uninstall``, ``install_tools``.
+    """
     parser = argparse.ArgumentParser(
         prog="install.py",
         description="Install Parsidion CC skills, hooks, and Claude Vault.",
@@ -974,7 +1031,12 @@ def parse_args() -> argparse.Namespace:
         "--yes",
         "-y",
         action="store_true",
-        help="Skip confirmation prompts",
+        help=(
+            "Skip all confirmation prompts. Uses ~/ClaudeVault as the vault "
+            "path unless --vault PATH is also supplied. "
+            "Combine with --vault for fully non-interactive installs to a "
+            "custom path: uv run install.py --yes --vault /path/to/vault"
+        ),
     )
     parser.add_argument(
         "--skip-hooks",
@@ -1010,6 +1072,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Entry point for the Parsidion CC installer.
+
+    Dispatches to either ``uninstall()`` or ``install()`` based on the
+    ``--uninstall`` flag. Prompts for confirmation before uninstalling unless
+    ``--yes`` or ``--dry-run`` is set. Exits with the return code from the
+    chosen operation (0 = success, non-zero = error).
+    """
     args = parse_args()
     claude_dir = Path(args.claude_dir).expanduser().resolve()
     settings_file = claude_dir / "settings.json"

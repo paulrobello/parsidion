@@ -24,8 +24,18 @@ import json
 import os
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
+# These scripts are not a proper package — sys.path.insert is intentional so
+# each script can run standalone via ``uv run`` or ``python`` without requiring
+# pip install or editable installs.  See ARC-009 in AUDIT.md.
+# SEC-011: SHADOWING RISK — if a file named ``vault_common.py`` exists in the
+# process's cwd at hook invocation time, it would be imported instead of the
+# real module from this scripts directory.  This is an accepted risk given the
+# stdlib-only constraint; the real fix is to package the scripts properly
+# (eliminating the sys.path hack).  Do NOT remove this sys.path.insert without
+# first packaging vault_common as an installable module.
 sys.path.insert(0, str(Path(__file__).parent))
 
 import vault_common  # noqa: E402
@@ -50,6 +60,30 @@ def _get_excluded_agents() -> set[str]:
     return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
 
 
+_HOOK_ERROR_LOG = "/tmp/claude-vault-hook-errors.log"
+
+
+def _log_hook_error(hook_name: str) -> None:
+    """Append a timestamped traceback entry to the hook error log.
+
+    Called only from the outermost ``except Exception`` handler so that
+    unexpected programming errors (regressions, NameErrors, etc.) are
+    written to a persistent file rather than disappearing into stderr.
+    Best-effort — never raises.
+
+    Args:
+        hook_name: Short identifier for the hook (e.g. ``"subagent_stop_hook"``).
+    """
+    try:
+        ts = datetime.now().isoformat(timespec="seconds")
+        tb = traceback.format_exc()
+        entry = f"[{ts}] {hook_name}\n{tb}\n"
+        with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
+            fh.write(entry)
+    except Exception:  # noqa: BLE001 — logging must never raise
+        pass
+
+
 def main() -> None:
     """Entry point: read SubagentStop JSON from stdin, analyse transcript, queue learnings."""
     try:
@@ -63,7 +97,10 @@ def main() -> None:
     try:
         # Guard against recursive invocation
         if os.environ.get("CLAUDE_VAULT_STOP_ACTIVE"):
-            print(f"{_LOG_PREFIX} skipping: recursive invocation detected", file=sys.stderr)
+            print(
+                f"{_LOG_PREFIX} skipping: recursive invocation detected",
+                file=sys.stderr,
+            )
             sys.stdout.write("{}")
             return
 
@@ -90,7 +127,10 @@ def main() -> None:
         cwd = str(input_data.get("cwd", ""))
 
         if not agent_transcript_str:
-            print(f"{_LOG_PREFIX} skipping: no agent_transcript_path in input", file=sys.stderr)
+            print(
+                f"{_LOG_PREFIX} skipping: no agent_transcript_path in input",
+                file=sys.stderr,
+            )
             sys.stdout.write("{}")
             return
 
@@ -115,7 +155,7 @@ def main() -> None:
         # Read ALL lines (subagent sessions are short)
         all_lines: list[str] = []
         try:
-            with open(agent_transcript, "r", encoding="utf-8", errors="replace") as f:
+            with open(agent_transcript, encoding="utf-8", errors="replace") as f:
                 all_lines = f.readlines()
         except OSError as exc:
             print(f"{_LOG_PREFIX} ERROR reading transcript: {exc}", file=sys.stderr)
@@ -124,7 +164,9 @@ def main() -> None:
 
         assistant_texts = vault_common.parse_transcript_lines(all_lines)
 
-        min_messages: int = int(vault_common.get_config("subagent_stop_hook", "min_messages", 3))
+        min_messages: int = int(
+            vault_common.get_config("subagent_stop_hook", "min_messages", 3)
+        )
         if len(assistant_texts) < min_messages:
             print(
                 f"{_LOG_PREFIX} skipping: only {len(assistant_texts)} assistant message(s) "
@@ -168,8 +210,11 @@ def main() -> None:
 
         sys.stdout.write("{}")
 
-    except Exception:
+    except Exception:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
+        # Log unexpected programming errors to a persistent file so regressions
+        # are visible without requiring manual stderr inspection.
+        _log_hook_error("subagent_stop_hook")
         sys.stdout.write("{}")
 
 

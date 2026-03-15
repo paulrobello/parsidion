@@ -100,6 +100,11 @@ EOF
 python skills/claude-vault/scripts/pre_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
+
+# Test subagent_stop_hook (requires a real agent_transcript_path)
+python skills/claude-vault/scripts/subagent_stop_hook.py <<'EOF'
+{"cwd": "/path/to/project", "agent_transcript_path": "/path/to/agent.jsonl", "agent_id": "abc-123", "agent_type": "Explore"}
+EOF
 ```
 
 ## Commit Conventions

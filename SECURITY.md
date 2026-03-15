@@ -1,0 +1,100 @@
+# Security Policy
+
+Security policy, scope statement, and vulnerability disclosure process for Parsidion CC.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Scope](#scope)
+- [Stdlib-Only Hook Constraint](#stdlib-only-hook-constraint)
+- [Reporting a Vulnerability](#reporting-a-vulnerability)
+- [What to Expect](#what-to-expect)
+- [Out of Scope](#out-of-scope)
+- [Related Documentation](#related-documentation)
+
+## Overview
+
+Parsidion CC installs hook scripts that execute during every Claude Code lifecycle event
+(SessionStart, SessionEnd, PreCompact, SubagentStop). These scripts run with the same
+privileges as the user's Claude Code process and have read/write access to the Obsidian
+vault and the Claude configuration directory. This makes the hook execution surface
+security-sensitive.
+
+## Scope
+
+The following components are in scope for security reports:
+
+| Component | Location | Risk surface |
+|-----------|----------|--------------|
+| Hook scripts | `skills/claude-vault/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh` | Executed on every Claude Code lifecycle event |
+| Shared library | `skills/claude-vault/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
+| Installer | `install.py` | Writes to `~/.claude/settings.json`; copies files into the user's Claude config directory |
+| Session summarizer | `skills/claude-vault/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
+| Vault index | `skills/claude-vault/scripts/update_index.py` | Reads all vault notes; writes SQLite database |
+| Semantic search | `skills/claude-vault/scripts/vault_search.py`, `build_embeddings.py` | Reads SQLite database; returns paths for injection into session context |
+
+## Stdlib-Only Hook Constraint
+
+All hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`,
+`subagent_stop_hook.py`, `vault_common.py`, `update_index.py`) use **Python standard library
+only**. No third-party packages are imported at runtime.
+
+This constraint is intentional and security-relevant:
+
+- It eliminates the supply-chain attack surface from third-party packages in the most
+  frequently executed code paths
+- It ensures the hooks run without prior `pip install` or `uv sync`, reducing the window
+  between installation and first execution
+- It prevents a compromised package in the Python environment from intercepting vault writes
+  or session context
+
+**Exception:** `summarize_sessions.py` and `build_embeddings.py` are PEP 723 scripts with
+inline dependency declarations. They run in isolated `uv` environments and are never executed
+automatically by hook events — they require explicit user invocation.
+
+Any contribution that adds a third-party import to a hook script or to `vault_common.py`
+will be rejected on security grounds, even if the package is widely trusted.
+
+## Reporting a Vulnerability
+
+> **⚠️ Warning:** Do not open a public GitHub issue for security vulnerabilities. Use the
+> private channel below.
+
+To report a vulnerability, email **probello@gmail.com** with:
+
+1. A clear description of the vulnerability
+2. The affected component(s) and file path(s)
+3. Steps to reproduce, including any required preconditions
+4. The potential impact (what an attacker could achieve)
+5. Any proposed fix or mitigation (optional but appreciated)
+
+Use the subject line: `[SECURITY] Parsidion CC — <brief description>`
+
+## What to Expect
+
+| Step | Timeline |
+|------|----------|
+| Acknowledgement | Within 48 hours |
+| Initial assessment | Within 5 business days |
+| Fix or mitigation published | Depends on severity; critical issues within 7 days |
+| Public disclosure | After fix is available, coordinated with the reporter |
+
+Reporters who responsibly disclose a valid vulnerability will be credited in the release
+notes (unless they prefer to remain anonymous).
+
+## Out of Scope
+
+The following are not considered security vulnerabilities for the purposes of this policy:
+
+- Vulnerabilities in Obsidian, Claude Code, or other third-party tools this project
+  integrates with — report those to their respective maintainers
+- Issues requiring physical access to the user's machine
+- Social engineering attacks
+- Theoretical attacks with no practical exploit path against a default installation
+- Denial of service via intentionally malformed vault notes (the vault is user-controlled)
+
+## Related Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture and hook lifecycle
+- [CONTRIBUTING.md](CONTRIBUTING.md) — coding constraints including the stdlib-only rule
+- [CLAUDE.md](CLAUDE.md) — project-specific guidance for AI assistants

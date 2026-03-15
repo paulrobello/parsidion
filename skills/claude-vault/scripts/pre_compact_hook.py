@@ -17,6 +17,9 @@ from pathlib import Path
 # These scripts are not a proper package — sys.path.insert is intentional so
 # each script can run standalone via ``uv run`` or ``python`` without requiring
 # pip install or editable installs.  See ARC-009 in AUDIT.md.
+# SEC-011: SHADOWING RISK — a ``vault_common.py`` in the process cwd at hook
+# invocation time would shadow the real module.  Accepted risk under the
+# stdlib-only constraint; proper packaging would eliminate it.
 sys.path.insert(0, str(Path(__file__).parent))
 
 import vault_common  # noqa: E402
@@ -173,6 +176,29 @@ def append_snapshot_to_daily(
 
 _DEFAULT_LINES = 200
 
+_HOOK_ERROR_LOG = "/tmp/claude-vault-hook-errors.log"
+
+
+def _log_hook_error(hook_name: str) -> None:
+    """Append a timestamped traceback entry to the hook error log.
+
+    Called only from the outermost ``except Exception`` handler so that
+    unexpected programming errors (regressions, NameErrors, etc.) are
+    written to a persistent file rather than disappearing into stderr.
+    Best-effort — never raises.
+
+    Args:
+        hook_name: Short identifier for the hook (e.g. ``"pre_compact_hook"``).
+    """
+    try:
+        ts = datetime.now().isoformat(timespec="seconds")
+        tb = traceback.format_exc()
+        entry = f"[{ts}] {hook_name}\n{tb}\n"
+        with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
+            fh.write(entry)
+    except Exception:  # noqa: BLE001 — logging must never raise
+        pass
+
 
 def main() -> None:
     """Entry point: read session JSON from stdin, snapshot state to daily note."""
@@ -221,12 +247,19 @@ def main() -> None:
                 recent_files = extract_file_paths(raw_lines)
 
         append_snapshot_to_daily(project, task_summary, recent_files)
-        vault_common.git_commit_vault(f"chore(vault): pre-compact snapshot [{project}]")
+        # SEC-002: sanitize project name to prevent embedded newlines in commit messages
+        safe_project = project.replace("\n", " ").replace("\r", "").strip()
+        vault_common.git_commit_vault(
+            f"chore(vault): pre-compact snapshot [{safe_project}]"
+        )
 
         sys.stdout.write("{}")
 
-    except Exception:
+    except Exception:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
+        # Log unexpected programming errors to a persistent file so regressions
+        # are visible without requiring manual stderr inspection.
+        _log_hook_error("pre_compact_hook")
         # On any error, output empty JSON and exit cleanly
         sys.stdout.write("{}")
 

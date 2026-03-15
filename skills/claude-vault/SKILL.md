@@ -378,6 +378,12 @@ cp ~/.claude/skills/claude-vault/templates/config.yaml ~/ClaudeVault/config.yaml
 
 ### Config Sections
 
+> **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
+> `claude-haiku-4-5-20251001`, `BAAI/bge-small-en-v1.5`) are the hardcoded defaults.
+> They can be changed via the corresponding keys in `~/ClaudeVault/config.yaml` without
+> modifying any scripts. See the template at
+> `~/.claude/skills/claude-vault/templates/config.yaml` for all available keys.
+
 ```yaml
 session_start_hook:
   ai_model: null           # Model for AI note selection (null = disabled)
@@ -386,11 +392,17 @@ session_start_hook:
   recent_days: 3           # Days to look back for recent notes
   debug: false             # Append injected context to debug log in $TMPDIR
   verbose_mode: false      # If true, inject full note summaries instead of compact one-line index
+  use_embeddings: true     # Blend semantic matches into context; graceful fallback if db absent
 
 session_stop_hook:
   ai_model: null           # Model for AI classification (null = disabled)
   ai_timeout: 25           # AI call timeout in seconds
   auto_summarize: true     # Auto-launch summarizer when pending entries exist
+
+subagent_stop_hook:
+  enabled: true            # Set false to disable subagent transcript capture entirely
+  min_messages: 3          # Minimum assistant message count; filters trivial subagents
+  excluded_agents: "vault-explorer,research-documentation-agent"  # Never capture these
 
 pre_compact_hook:
   lines: 200               # Transcript lines to analyse
@@ -401,7 +413,12 @@ summarizer:
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
   persist: false           # SDK session persistence (for debugging)
-  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization
+  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
+
+embeddings:
+  model: BAAI/bge-small-en-v1.5  # fastembed model ID; ~67 MB ONNX model, cached after first run
+  min_score: 0.35                 # Minimum cosine similarity for search results
+  top_k: 10                       # Default result count
 
 git:
   auto_commit: true        # Auto-commit vault changes after writes

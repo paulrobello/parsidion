@@ -73,9 +73,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
         )
         """
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_stem ON note_embeddings(stem)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_stem ON note_embeddings(stem)")
     conn.commit()
     vault_common.ensure_note_index_schema(conn)
     return conn
@@ -129,6 +127,9 @@ def _pack_vector(vec: list[float]) -> bytes:
 def _note_title(note_path: Path, content: str) -> str:
     """Extract note title from first # heading, falling back to filename stem.
 
+    Delegates to ``vault_common.extract_title`` — the canonical implementation.
+    See ARC-009.
+
     Args:
         note_path: Path to the note file.
         content: Full note content.
@@ -136,12 +137,7 @@ def _note_title(note_path: Path, content: str) -> str:
     Returns:
         Title string.
     """
-    body = vault_common.get_body(content)
-    for line in body.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("# ") and not stripped.startswith("## "):
-            return stripped[2:].strip()
-    return note_path.stem.replace("-", " ").title()
+    return vault_common.extract_title(content, note_path.stem)
 
 
 def embed_and_write(
@@ -173,7 +169,7 @@ def embed_and_write(
     vectors = list(model.embed(texts))
 
     with conn:
-        for (note_path, stem, _), vec in zip(notes_to_embed, vectors):
+        for (note_path, stem, _), vec in zip(notes_to_embed, vectors, strict=False):
             try:
                 content = note_path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
@@ -183,9 +179,16 @@ def embed_and_write(
             tags = fm.get("tags", [])
             if isinstance(tags, str):
                 tags = [tags]
-            tags_str = ", ".join(str(t) for t in tags) if tags else ""
+            # ARC-004: canonical tag format is ", ".join(sorted(tags)) — sorted
+            # alphabetically with a single space after each comma.  Matches the
+            # format written by update_index.py for consistent LIKE matching.
+            tags_str = ", ".join(sorted(str(t) for t in tags)) if tags else ""
             title = _note_title(note_path, content)
-            folder = note_path.parent.name if note_path.parent != vault_common.VAULT_ROOT else ""
+            folder = (
+                note_path.parent.name
+                if note_path.parent != vault_common.VAULT_ROOT
+                else ""
+            )
             try:
                 mtime = note_path.stat().st_mtime
             except OSError:
@@ -233,7 +236,8 @@ def _collect_notes() -> list[tuple[Path, str, str]]:
         tags = fm.get("tags", [])
         if isinstance(tags, str):
             tags = [tags]
-        tags_str = ", ".join(str(t) for t in tags) if tags else ""
+        # ARC-004: canonical tag format is ", ".join(sorted(tags))
+        tags_str = ", ".join(sorted(str(t) for t in tags)) if tags else ""
         title = _note_title(note_path, content)
         body = vault_common.get_body(content)
         embed_text = build_embed_text(title, tags_str, body)
@@ -318,7 +322,8 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
             tags = fm.get("tags", [])
             if isinstance(tags, str):
                 tags = [tags]
-            tags_str = ", ".join(str(t) for t in tags) if tags else ""
+            # ARC-004: canonical tag format is ", ".join(sorted(tags))
+            tags_str = ", ".join(sorted(str(t) for t in tags)) if tags else ""
             title = _note_title(note_path, content)
             body = vault_common.get_body(content)
             embed_text = build_embed_text(title, tags_str, body)
@@ -327,9 +332,7 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
     new_count = sum(1 for p, s, _ in to_embed if s not in stored)
     changed_count = sum(1 for p, s, _ in to_embed if s in stored)
 
-    print(
-        f"{changed_count} changed, {new_count} new, {len(deleted_stems)} deleted"
-    )
+    print(f"{changed_count} changed, {new_count} new, {len(deleted_stems)} deleted")
 
     written = embed_and_write(to_embed, model_name, conn, dry_run)
     conn.close()
@@ -379,16 +382,18 @@ def main() -> None:
     # existing vectors have a different dimension. Force full rebuild.
     db_path = vault_common.get_embeddings_db_path()
     if args.incremental and db_path.exists():
-        conn_check = _open_db(db_path)
+        conn_check = open_db(db_path)
         row = conn_check.execute(
             "SELECT embedding FROM note_embeddings LIMIT 1"
         ).fetchone()
         conn_check.close()
         if row is not None:
             import struct as _struct
+
             stored_dim = len(_struct.unpack(f"{len(row[0]) // 4}f", row[0]))
             # Load model briefly to check its output dimension
             from fastembed import TextEmbedding as _TE  # type: ignore[import-untyped]
+
             probe = list(_TE(model_name=args.model).embed(["probe"]))[0]
             if len(probe) != stored_dim:
                 print(

@@ -5,6 +5,7 @@ blocks, and managing the vault directory structure. Uses only Python stdlib.
 """
 
 from pathlib import Path
+import functools
 import json
 import os
 import re
@@ -61,6 +62,8 @@ __all__: list[str] = [
     "get_embeddings_db_path",
     "ensure_note_index_schema",
     "query_note_index",
+    # Content helpers
+    "extract_title",
 ]
 
 # NOTE: VAULT_ROOT and TEMPLATES_DIR are intentionally patched by the installer
@@ -123,7 +126,9 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_folder    ON note_index(folder)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_note_type ON note_index(note_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_project   ON note_index(project)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_mtime     ON note_index(mtime DESC)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ni_mtime     ON note_index(mtime DESC)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_tags      ON note_index(tags)")
     conn.commit()
 
@@ -169,15 +174,23 @@ def query_note_index(
         if row is None:
             return None
 
+        # SECURITY: The SQL WHERE clause is assembled from literal condition fragments
+        # only — no column names are ever derived from external input.  All filter
+        # values are passed as bound parameters (?).  Column names used below form a
+        # static whitelist: tags, folder, note_type, project, mtime.  Any future
+        # addition of a user-supplied column name must be added to this whitelist and
+        # reviewed for injection risk.
+        # Static whitelist (documentation only — all conditions below are literals):
+        #   _ALLOWED_QUERY_COLUMNS = {"tags", "folder", "note_type", "project", "mtime"}
         conditions: list[str] = []
         params: list[object] = []
 
         if tag is not None:
             # 4-pattern exact-token match to avoid partial hits (e.g. "python" must not
-            # match "python-decorator").  Tags are stored as ", ".join(tags_list).
-            conditions.append(
-                "(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)"
-            )
+            # match "python-decorator").  Tags are stored as ", ".join(sorted(tags_list))
+            # — canonical format enforced at write time in update_index.py and
+            # build_embeddings.py.  See ARC-004.
+            conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
             params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
 
         if folder is not None:
@@ -202,14 +215,25 @@ def query_note_index(
         params.append(limit)
 
         rows = conn.execute(sql, params).fetchall()
-        return [Path(path_str) for (path_str,) in rows if Path(path_str).exists()]
+        # SEC-005: Reject any path that resolves outside VAULT_ROOT — guards
+        # against a tampered embeddings.db injecting arbitrary file paths.
+        vault_root_resolved = VAULT_ROOT.resolve()
+        return [
+            p
+            for (path_str,) in rows
+            if (p := Path(path_str)).exists()
+            and p.resolve().is_relative_to(vault_root_resolved)
+        ]
     except sqlite3.Error:
         return None
     finally:
         conn.close()
 
 
-# Variables safe to pass through to child processes (avoids leaking secrets)
+# Variables safe to pass through to child processes (avoids leaking secrets).
+# SEC-006: ANTHROPIC_BASE_URL is intentionally included — environments that
+# configure the Anthropic API via a proxy or custom base URL need it forwarded
+# to child ``claude -p`` processes for AI features to work.
 _SAFE_ENV_KEYS: frozenset[str] = frozenset(
     {
         "PATH",
@@ -220,6 +244,7 @@ _SAFE_ENV_KEYS: frozenset[str] = frozenset(
         "LANG",
         "LC_ALL",
         "TMPDIR",
+        "ANTHROPIC_BASE_URL",
     }
 )
 
@@ -245,10 +270,30 @@ _SLUG_MULTI_HYPHEN_RE = re.compile(r"-{2,}")
 def parse_frontmatter(content: str) -> dict[str, Any]:
     """Parse YAML frontmatter from markdown content using regex.
 
-    Returns a dict with parsed fields. Handles strings, lists (both ``[a, b]``
-    and ``- item`` forms), multi-line scalars (``>``, ``|``, ``>-``, ``|-``
-    block indicators), dates, and booleans. Returns an empty dict when no
-    frontmatter block is found.
+    **Supported YAML subset** (stdlib-only; not a full YAML 1.2 parser):
+
+    - Scalars: bare strings, single/double-quoted strings, integers, floats,
+      booleans (``true``/``false``/``yes``/``no``), ``null``/``~``, and
+      date strings (``YYYY-MM-DD`` kept as strings).
+    - Inline lists: ``key: [a, b, c]`` with optional quoting of items.
+      Quoted items may contain commas.
+    - Block sequence lists: ``key:`` followed by ``  - item`` lines.
+    - Multi-line scalars: ``>`` (folded — joins continuation lines with a
+      space), ``|`` (literal — joins with newlines), and strip variants
+      ``>-`` / ``|-``.  Only indented continuation lines (indent > 0) are
+      collected; the block ends at the next bare key or blank line.
+    - Trailing inline comments (``# comment``) are stripped from scalar
+      values, respecting surrounding quotes.
+
+    **Not supported** (silently ignored or returned as bare strings):
+    - Nested mappings deeper than 1 level (``key: {a: 1}`` or indented
+      sub-mappings).
+    - YAML anchors, aliases, and tags (``!!str``, etc.).
+    - Multi-document streams (``---`` as a separator within a value).
+    - Flow mappings.
+
+    Returns an empty dict when no frontmatter block is found or when the
+    opening/closing ``---`` delimiters are missing.
     """
     match = _FRONTMATTER_RE.match(content)
     if not match:
@@ -423,6 +468,32 @@ def get_body(content: str) -> str:
     if not match:
         return content
     return content[match.end() :]
+
+
+def extract_title(content: str, stem: str) -> str:
+    """Extract the display title from a vault note.
+
+    Searches the note body for the first top-level ``# `` heading (a single
+    hash followed by a space, never ``##`` or deeper).  Falls back to the
+    filename *stem* converted to title-case if no heading is found.
+
+    This is the canonical title-extraction function for the vault.  All
+    scripts that need a note title should call this instead of duplicating
+    the logic.  See ARC-009.
+
+    Args:
+        content: Full note content (frontmatter + body).
+        stem: Filename stem (without extension) used as fallback title.
+
+    Returns:
+        Title string — either the heading text or the humanized stem.
+    """
+    body = get_body(content)
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# ") and not stripped.startswith("## "):
+            return stripped[2:].strip()
+    return stem.replace("-", " ").title()
 
 
 def _walk_vault_notes() -> list[Path]:
@@ -700,12 +771,6 @@ def all_vault_notes() -> list[Path]:
 # Configuration loader (reads VAULT_ROOT/config.yaml)
 # ---------------------------------------------------------------------------
 
-# NOTE: _config_cache is module-level mutable state with no invalidation or
-# thread safety.  This is intentional — each hook runs as a single-threaded
-# short-lived subprocess, so the cache only needs to live for one process
-# lifetime.  See ARC-007 in AUDIT.md.
-_config_cache: dict[str, Any] | None = None
-
 
 def _strip_inline_comment(value: str) -> str:
     """Strip a trailing ``# comment`` from a YAML value, respecting quotes."""
@@ -781,47 +846,68 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
     return result
 
 
-def load_config() -> dict[str, Any]:
-    """Load ``config.yaml`` from *VAULT_ROOT*.
+@functools.lru_cache(maxsize=1)
+def _load_config_cached() -> dict[str, Any]:
+    """Internal cached implementation — call ``load_config()`` instead.
 
-    Results are cached for the lifetime of the process. Returns an empty dict
-    when the file is missing or unreadable.
+    Wrapped with ``functools.lru_cache(maxsize=1)`` so results survive for
+    the lifetime of the process (each hook is a single-threaded subprocess).
+    Use ``load_config.cache_clear()`` in tests to reset between cases.
     """
-    global _config_cache
-    if _config_cache is not None:
-        return _config_cache
-
     config_path = VAULT_ROOT / "config.yaml"
     if not config_path.is_file():
-        _config_cache = {}
-        return _config_cache
+        return {}
 
     try:
         content = config_path.read_text(encoding="utf-8")
-        _config_cache = _parse_config_yaml(content)
+        return _parse_config_yaml(content)
     except (OSError, UnicodeDecodeError):
-        _config_cache = {}
+        return {}
 
-    return _config_cache
+
+def load_config() -> dict[str, Any]:
+    """Load ``config.yaml`` from *VAULT_ROOT*.
+
+    Results are cached per-process via ``functools.lru_cache``.  Call
+    ``load_config.cache_clear()`` to invalidate the cache in tests when
+    ``VAULT_ROOT`` has been patched to point at a different directory.
+
+    Returns an empty dict when the file is missing or unreadable.
+    """
+    return _load_config_cached()
+
+
+def _clear_config_cache() -> None:
+    """Invalidate the ``load_config`` cache.
+
+    Provided as a named helper so tests don't need to reach into the
+    ``_load_config_cached`` internal name.  Equivalent to calling
+    ``_load_config_cached.cache_clear()`` directly.
+    """
+    _load_config_cached.cache_clear()
 
 
 def get_config(section: str, key: str, default: Any = None) -> Any:
     """Look up a config value with fallback to *default*.
 
+    Distinguishes between a key that is absent (returns *default*) and a key
+    that is explicitly set to ``null`` in config.yaml (returns ``None``).  This
+    allows users to disable optional features by setting e.g. ``ai_model: null``.
+
     Args:
         section: Top-level section name (e.g. ``"session_start_hook"``).
         key: Key within the section (e.g. ``"max_chars"``).
-        default: Value returned when the key is absent or ``None``.
+        default: Value returned when the key is absent from the config file.
 
     Returns:
-        The configured value, or *default*.
+        The configured value (which may be ``None`` if explicitly set), or
+        *default* when the key is absent.
     """
     config = load_config()
     section_dict = config.get(section)
     if isinstance(section_dict, dict):
-        value = section_dict.get(key)
-        if value is not None:
-            return value
+        if key in section_dict:
+            return section_dict[key]
     return default
 
 
@@ -907,7 +993,7 @@ def read_last_n_lines(filepath: Path, n: int) -> list[str]:
     from collections import deque
 
     try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        with open(filepath, encoding="utf-8", errors="replace") as f:
             tail = deque(f, maxlen=n)
         return list(tail)
     except (OSError, UnicodeDecodeError):
@@ -1089,6 +1175,13 @@ def append_to_pending(
     if agent_type is not None:
         entry["agent_type"] = agent_type
 
+    # SEC-010: On Windows, fcntl is unavailable so flock_exclusive() is a no-op
+    # (see the ImportError fallback in the locking section above).  Concurrent writes
+    # from multiple Claude instances on Windows may therefore produce duplicate entries
+    # or interleaved JSON lines.  The deduplication check below provides a best-effort
+    # guard, but is not race-free without OS-level locking.
+    # If Windows atomic locking becomes critical, add a lock-file sidecar using:
+    #   import msvcrt; msvcrt.locking(lf.fileno(), msvcrt.LK_LOCK, 1)
     try:
         with open(pending_path, "a+", encoding="utf-8") as f:
             flock_exclusive(f)
@@ -1155,6 +1248,8 @@ def git_commit_vault(message: str, paths: list[Path] | None = None) -> bool:
             return False
 
         # Commit — exit code 1 with "nothing to commit" is not an error
+        # SEC-002: message is caller-controlled but project names embedded in it
+        # are sanitized by callers using safe_project (see git_commit_vault usages).
         result = subprocess.run(
             ["git", "commit", "-m", message],
             cwd=str(VAULT_ROOT),

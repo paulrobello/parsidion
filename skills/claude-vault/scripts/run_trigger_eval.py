@@ -249,7 +249,7 @@ def main() -> None:
                 query_triggers[query] = []
             try:
                 query_triggers[query].append(future.result())
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"  Warning: query failed: {e}", file=sys.stderr)
                 query_triggers[query].append(False)
             done_count += 1

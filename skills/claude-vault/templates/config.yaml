@@ -39,6 +39,7 @@ summarizer:
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
   persist: false           # SDK session persistence (for debugging)
+  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization; used when a transcript exceeds max_cleaned_chars
 
 # Embeddings / semantic search (build_embeddings.py, vault_search.py)
 embeddings:

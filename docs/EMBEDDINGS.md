@@ -584,6 +584,7 @@ uv run ~/.claude/skills/claude-vault/scripts/vault_search.py "query"
 ## Related Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — full system architecture including hook lifecycle and vault structure
+- [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) — evaluation harness for benchmarking embedding models and chunking strategies against your vault
 - [CLAUDE.md](../CLAUDE.md) — vault note conventions, frontmatter schema, and subfolder rules
 - `~/ClaudeVault/config.yaml` — live configuration file (copy from `templates/config.yaml` to get started)
 - `~/.claude/skills/claude-vault/templates/config.yaml` — reference config with all defaults and comments

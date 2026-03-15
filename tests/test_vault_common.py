@@ -395,7 +395,7 @@ class TestFileLocking:
         """Verify that locking and unlocking a file does not raise."""
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
-        with open(f, "r", encoding="utf-8") as fh:
+        with open(f, encoding="utf-8") as fh:
             vault_common.flock_exclusive(fh)
             vault_common.funlock(fh)
 
@@ -403,7 +403,7 @@ class TestFileLocking:
         """Verify that shared lock and unlock does not raise."""
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
-        with open(f, "r", encoding="utf-8") as fh:
+        with open(f, encoding="utf-8") as fh:
             vault_common.flock_shared(fh)
             vault_common.funlock(fh)
 
@@ -412,8 +412,8 @@ class TestFileLocking:
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
         with (
-            open(f, "r", encoding="utf-8") as fh1,
-            open(f, "r", encoding="utf-8") as fh2,
+            open(f, encoding="utf-8") as fh1,
+            open(f, encoding="utf-8") as fh2,
         ):
             vault_common.flock_shared(fh1)
             vault_common.flock_shared(fh2)
@@ -439,9 +439,13 @@ class TestValidateVaultPath:
 
         return install
 
-    def test_valid_path(self, tmp_path: Path) -> None:
+    def test_valid_path(self) -> None:
         install = self._import_install()
-        path, error = install.validate_vault_path(str(tmp_path / "MyVault"))
+        # Use a home-relative path that is not under any forbidden system directory.
+        # pytest's tmp_path lives in /private/var/... on macOS which correctly
+        # matches the forbidden /var prefix — so we use ~/ClaudeVaultTestPath instead.
+        test_vault = str(Path.home() / "ClaudeVaultTestPath" / "MyVault")
+        path, error = install.validate_vault_path(test_vault)
         assert error is None
         assert path.name == "MyVault"
 
@@ -474,6 +478,74 @@ class TestValidateVaultPath:
         claude_path = str(Path.home() / ".claude" / "vault")
         path, error = install.validate_vault_path(claude_path)
         assert error is not None
+
+
+# ---------------------------------------------------------------------------
+# parse_frontmatter — multiline scalars (ARC-007)
+# ---------------------------------------------------------------------------
+
+
+class TestParseFrontmatterMultilineScalars:
+    """Tests for multiline scalar support in vault_common.parse_frontmatter.
+
+    The parser supports four block scalar indicators:
+      ``|``  — literal block: lines joined with newlines
+      ``|-`` — literal block strip: same, trailing blank lines stripped
+      ``>``  — folded block: lines joined with a single space
+      ``>-`` — folded block strip: same, trailing blank lines stripped
+
+    Only indented continuation lines (indent > 0) are collected.
+    The block ends at the next bare key or blank line.
+    """
+
+    def test_literal_block_scalar(self) -> None:
+        """``|`` joins continuation lines with newlines."""
+        content = (
+            "---\nsummary: |\n  First line.\n  Second line.\ndate: 2026-01-01\n---\n"
+        )
+        result = vault_common.parse_frontmatter(content)
+        assert result["summary"] == "First line.\nSecond line."
+        assert result["date"] == "2026-01-01"
+
+    def test_folded_block_scalar(self) -> None:
+        """``>`` joins continuation lines with spaces."""
+        content = (
+            "---\nsummary: >\n  First line.\n  Second line.\ndate: 2026-01-01\n---\n"
+        )
+        result = vault_common.parse_frontmatter(content)
+        assert result["summary"] == "First line. Second line."
+        assert result["date"] == "2026-01-01"
+
+    def test_literal_strip_variant(self) -> None:
+        """``|-`` is the strip variant of the literal block."""
+        content = "---\nnote: |-\n  Line one.\n  Line two.\nafter: done\n---\n"
+        result = vault_common.parse_frontmatter(content)
+        assert result["note"] == "Line one.\nLine two."
+
+    def test_folded_strip_variant(self) -> None:
+        """``>-`` is the strip variant of the folded block."""
+        content = "---\nnote: >-\n  Line one.\n  Line two.\nafter: done\n---\n"
+        result = vault_common.parse_frontmatter(content)
+        assert result["note"] == "Line one. Line two."
+
+    def test_block_ends_at_blank_line(self) -> None:
+        """A blank line terminates a multiline scalar block."""
+        content = "---\nsummary: |\n  Only this line.\n\ndate: 2026-01-01\n---\n"
+        result = vault_common.parse_frontmatter(content)
+        assert result["summary"] == "Only this line."
+        assert result["date"] == "2026-01-01"
+
+    def test_block_ends_at_eof(self) -> None:
+        """A multiline scalar that ends at the closing --- fence is flushed."""
+        content = "---\nsummary: |\n  Flushed at end.\n---\n"
+        result = vault_common.parse_frontmatter(content)
+        assert result["summary"] == "Flushed at end."
+
+    def test_single_continuation_line(self) -> None:
+        """A block with a single indented line works correctly."""
+        content = "---\nnote: >\n  Single line.\n---\n"
+        result = vault_common.parse_frontmatter(content)
+        assert result["note"] == "Single line."
 
 
 # ---------------------------------------------------------------------------

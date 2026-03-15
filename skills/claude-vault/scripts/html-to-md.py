@@ -44,9 +44,9 @@ import re
 import sys
 from urllib.parse import urljoin, urlparse
 
-import html2text
-import httpx
-from bs4 import BeautifulSoup
+import html2text  # type: ignore[import-untyped]
+import httpx  # type: ignore[import-untyped]
+from bs4 import BeautifulSoup  # type: ignore[import-untyped]
 
 # ── Constants (mirrored from par-fetch-mcp) ────────────────────────────────
 
@@ -76,7 +76,21 @@ _SELECTORS_TO_REMOVE = [
 
 # ── Core pipeline (mirrored from par-fetch-mcp) ────────────────────────────
 
+
 def _extract_code_language(tag) -> str:
+    """Extract the programming language identifier from a code or pre element.
+
+    Checks the element itself and all descendant ``code`` elements for CSS class
+    names that begin with ``language-``, ``lang-``, or ``highlight-``. Returns
+    the first match found.
+
+    Args:
+        tag: A BeautifulSoup tag object representing a ``pre`` or ``code`` element.
+
+    Returns:
+        The language identifier (e.g. ``"python"``, ``"bash"``), or an empty
+        string if no language class is present.
+    """
     for el in [tag] + tag.find_all("code"):
         classes = el.get("class", [])
         if isinstance(classes, str):
@@ -84,11 +98,24 @@ def _extract_code_language(tag) -> str:
         for cls in classes:
             for prefix in ("language-", "lang-", "highlight-"):
                 if cls.startswith(prefix):
-                    return cls[len(prefix):]
+                    return cls[len(prefix) :]
     return ""
 
 
 def _is_layout_table(table) -> bool:
+    """Determine whether a table is used for layout rather than data presentation.
+
+    A table is considered a layout table when it carries ``role="presentation"``
+    or when it has no header cells (``th``) and every row contains at most one
+    cell. Both heuristics are commonly produced by CSS-driven multi-column
+    layouts that should be unwrapped rather than converted to Markdown tables.
+
+    Args:
+        table: A BeautifulSoup tag object for a ``table`` element.
+
+    Returns:
+        True if the table appears to be a layout table; False otherwise.
+    """
     if table.get("role") == "presentation":
         return True
     if not table.find("th"):
@@ -99,6 +126,18 @@ def _is_layout_table(table) -> bool:
 
 
 def _clean_markdown(text: str) -> str:
+    """Remove common Markdown noise produced by html2text on real-world pages.
+
+    Applies a sequence of regex substitutions to eliminate artefacts such as
+    excessive blank lines, empty list bullets, empty links, stray emphasis
+    markers, consecutive horizontal rules, and blank table-separator rows.
+
+    Args:
+        text: Raw Markdown string produced by ``html2text``.
+
+    Returns:
+        Cleaned Markdown string with trailing whitespace stripped.
+    """
     text = re.sub(r"\n{4,}", "\n\n\n", text)
     text = re.sub(r"^[*\-+] *$", "", text, flags=re.MULTILINE)
     text = re.sub(r"\[\s*\]\([^)]*\)", "", text)
@@ -118,6 +157,28 @@ def _html_to_markdown(
     include_links: bool = True,
     include_images: bool = False,
 ) -> str:
+    """Convert an HTML string to clean Markdown optimised for LLM consumption.
+
+    Narrows the parse tree to the main content container when one is present
+    (``main``, ``[role='main']``, or ``article``), strips non-content elements
+    (navigation, banners, footers, scripts, cookie notices, layout tables),
+    resolves relative URLs when a base URL is provided, annotates fenced code
+    blocks with language identifiers, then delegates to ``html2text`` for the
+    final Markdown conversion. The result is post-processed by ``_clean_markdown``
+    to remove common conversion artefacts.
+
+    Args:
+        html_content: Raw HTML string to convert.
+        url: Base URL used to resolve relative ``href``/``src`` attributes.
+            Ignored when ``include_links`` is False.
+        include_links: When True (default), hyperlinks are preserved in the
+            output. When False, ``a`` and ``link`` elements are removed.
+        include_images: When True, ``img`` elements are preserved as Markdown
+            image references. Defaults to False.
+
+    Returns:
+        Cleaned Markdown string ready for LLM consumption.
+    """
     soup = BeautifulSoup(html_content, "html.parser")
 
     # Narrow to main content container if one exists
@@ -137,7 +198,16 @@ def _html_to_markdown(
 
     # Resolve relative URLs
     if include_links and url:
-        url_attributes = ["href", "src", "action", "data", "poster", "background", "cite", "formaction"]
+        url_attributes = [
+            "href",
+            "src",
+            "action",
+            "data",
+            "poster",
+            "background",
+            "cite",
+            "formaction",
+        ]
         for tag in soup.find_all(True):
             for attribute in url_attributes:
                 if tag.has_attr(attribute):
@@ -146,13 +216,26 @@ def _html_to_markdown(
                         continue
                     if attr_value.startswith("//"):
                         tag[attribute] = f"https:{attr_value}"
-                    elif not attr_value.startswith(("http://", "https://", "mailto:", "tel:", "javascript:")):
+                    elif not attr_value.startswith(
+                        ("http://", "https://", "mailto:", "tel:", "javascript:")
+                    ):
                         tag[attribute] = urljoin(url, attr_value)
 
     # Remove non-content elements by tag
     elements_to_remove = [
-        "head", "header", "footer", "script", "source", "style",
-        "svg", "iframe", "nav", "aside", "form", "noscript", "template",
+        "head",
+        "header",
+        "footer",
+        "script",
+        "source",
+        "style",
+        "svg",
+        "iframe",
+        "nav",
+        "aside",
+        "form",
+        "noscript",
+        "template",
     ]
     if not include_links:
         elements_to_remove.extend(["a", "link"])
@@ -171,7 +254,9 @@ def _html_to_markdown(
     for tag in soup.find_all(True):
         classes = " ".join(tag.get("class", []))
         tag_id = tag.get("id", "") or ""
-        if _COOKIE_CONSENT_PATTERN.search(classes) or _COOKIE_CONSENT_PATTERN.search(tag_id):
+        if _COOKIE_CONSENT_PATTERN.search(classes) or _COOKIE_CONSENT_PATTERN.search(
+            tag_id
+        ):
             tag.decompose()
 
     # Unwrap layout tables
@@ -190,7 +275,9 @@ def _html_to_markdown(
     for pre in soup.find_all("pre"):
         lang = _extract_code_language(pre)
         if lang:
-            marker = soup.new_string(f"{_LANG_MARKER_PREFIX}{lang}{_LANG_MARKER_SUFFIX}")
+            marker = soup.new_string(
+                f"{_LANG_MARKER_PREFIX}{lang}{_LANG_MARKER_SUFFIX}"
+            )
             pre.insert_before(marker)
 
     result_html = str(soup)
@@ -216,6 +303,20 @@ def _html_to_markdown(
     # Fix up language-annotated indented code blocks (html2text uses 4-space indent for <pre>)
     # <!--lang:python-->\n    \n    code\n → ```python\ncode\n```
     def _replace_indented_block(m: re.Match) -> str:
+        """Convert a language-annotated 4-space-indented block to a fenced code block.
+
+        Used as a ``re.sub`` replacement function. Strips the 4-space or tab
+        indentation added by html2text for ``<pre>`` elements, removes leading
+        and trailing blank lines within the block, and wraps the result in a
+        fenced code block with the extracted language identifier.
+
+        Args:
+            m: Match object with group 1 = language identifier, group 2 = indented block.
+
+        Returns:
+            Fenced code block string, or an empty string if the block is empty
+            after stripping.
+        """
         lang = m.group(1)
         block = m.group(2)
         # Strip the 4-space (or tab) indent from every line; drop leading blank lines
@@ -256,12 +357,38 @@ def _html_to_markdown(
 
 # ── Fetching ───────────────────────────────────────────────────────────────
 
+
 def _is_url(s: str) -> bool:
+    """Return True when the string looks like an HTTP or HTTPS URL.
+
+    Args:
+        s: The string to test.
+
+    Returns:
+        True if the scheme is ``http`` or ``https``; False otherwise.
+    """
     parsed = urlparse(s)
     return parsed.scheme in ("http", "https")
 
 
 def _fetch_url(url: str, timeout: int = 10, debug: bool = False) -> str:
+    """Fetch a URL and return its response body as a string.
+
+    Sends a GET request with a randomised browser User-Agent to reduce the
+    likelihood of bot-detection blocks. Follows redirects automatically.
+
+    Args:
+        url: The HTTP or HTTPS URL to fetch.
+        timeout: Request timeout in seconds. Defaults to 10.
+        debug: When True, prints the URL being fetched to stderr.
+
+    Returns:
+        The response body text.
+
+    Raises:
+        httpx.HTTPStatusError: If the server returns a 4xx or 5xx status code.
+        httpx.RequestError: If a network error occurs (DNS failure, timeout, etc.).
+    """
     import random
 
     os_list = [
@@ -279,7 +406,9 @@ def _fetch_url(url: str, timeout: int = 10, debug: bool = False) -> str:
     if debug:
         print(f"[html-to-md] fetching {url}", file=sys.stderr)
 
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
+    with httpx.Client(
+        timeout=timeout, follow_redirects=True, headers=headers
+    ) as client:
         response = client.get(url)
         response.raise_for_status()
         return response.text
@@ -287,12 +416,23 @@ def _fetch_url(url: str, timeout: int = 10, debug: bool = False) -> str:
 
 # ── CLI ────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
+    """Entry point for the html-to-md CLI.
+
+    Parses command-line arguments, reads HTML from a URL, file, or stdin,
+    converts it to clean Markdown via ``_html_to_markdown``, then writes
+    the result to stdout or to the file specified by ``--output``.
+
+    Exits with status 1 on HTTP errors, missing input files, or OS I/O errors.
+    """
     parser = argparse.ArgumentParser(
         prog="html-to-md",
         description="Convert HTML to clean markdown optimised for LLM consumption.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__.split("Examples:")[1].strip() if "Examples:" in __doc__ else "",
+        epilog=__doc__.split("Examples:")[1].strip()
+        if __doc__ and "Examples:" in __doc__
+        else "",
     )
     parser.add_argument(
         "input",
@@ -302,7 +442,8 @@ def main() -> None:
         help="HTML file, URL to fetch, or - for stdin (default: -)",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         metavar="FILE",
         help="Write output to FILE instead of stdout",
     )
@@ -329,7 +470,8 @@ def main() -> None:
         help="HTTP timeout in seconds when fetching a URL (default: 10)",
     )
     parser.add_argument(
-        "--debug", "-D",
+        "--debug",
+        "-D",
         action="store_true",
         help="Print extra info to stderr",
     )
@@ -343,9 +485,14 @@ def main() -> None:
         # Input is a URL — fetch it
         base_url = base_url or args.input
         try:
-            html_content = _fetch_url(args.input, timeout=args.timeout, debug=args.debug)
+            html_content = _fetch_url(
+                args.input, timeout=args.timeout, debug=args.debug
+            )
         except httpx.HTTPStatusError as e:
-            print(f"error: HTTP {e.response.status_code} fetching {args.input}", file=sys.stderr)
+            print(
+                f"error: HTTP {e.response.status_code} fetching {args.input}",
+                file=sys.stderr,
+            )
             sys.exit(1)
         except httpx.RequestError as e:
             print(f"error: {e}", file=sys.stderr)
@@ -371,7 +518,10 @@ def main() -> None:
 
     # ── Convert ─────────────────────────────────────────────────────────────
     if args.debug:
-        print(f"[html-to-md] converting {len(html_content):,} bytes of HTML", file=sys.stderr)
+        print(
+            f"[html-to-md] converting {len(html_content):,} bytes of HTML",
+            file=sys.stderr,
+        )
 
     markdown = _html_to_markdown(
         html_content,

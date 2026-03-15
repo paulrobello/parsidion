@@ -8,6 +8,21 @@ Stdlib-only. Run with:
     uv run --no-project ... note.md ...    # scan specific notes only
     uv run --no-project ... --limit 10     # cap repairs at N notes
     uv run --no-project ... --fix --jobs 5 # repair with 5 parallel workers (default: 3)
+
+# ARC-015: Concurrency model rationale
+# vault_doctor.py uses ``concurrent.futures.ThreadPoolExecutor`` because it is
+# a stdlib-only script.  ``ThreadPoolExecutor`` is sufficient here: the work is
+# I/O-bound (subprocess calls to ``claude -p`` + file reads/writes) and Python's
+# GIL does not prevent I/O parallelism.  Adding ``anyio`` or ``asyncio`` would
+# require a dependency change that violates the stdlib-only constraint.
+#
+# summarize_sessions.py uses ``anyio`` + ``anyio.create_task_group`` because it
+# already depends on ``claude-agent-sdk`` (which is built on anyio) and benefits
+# from structured concurrency guarantees (task groups propagate exceptions
+# reliably, unlike ThreadPoolExecutor's ``Future`` cancellation model).
+#
+# Both approaches are intentional — the choice was driven by dependency
+# constraints, not inconsistency.  See ARC-015.
 """
 
 import argparse
@@ -31,14 +46,29 @@ import vault_common  # noqa: E402
 # ---------------------------------------------------------------------------
 
 VALID_TYPES = frozenset(
-    {"pattern", "debugging", "research", "project", "daily", "tool", "language", "framework"}
+    {
+        "pattern",
+        "debugging",
+        "research",
+        "project",
+        "daily",
+        "tool",
+        "language",
+        "framework",
+    }
 )
 # Fields required for all notes
 REQUIRED_FIELDS_ALL = ("date", "type")
 # Additional fields required for knowledge notes (not daily)
 REQUIRED_FIELDS_KNOWLEDGE = ("confidence", "related")
 REPAIRABLE_CODES = frozenset(
-    {"MISSING_FRONTMATTER", "MISSING_FIELD", "INVALID_TYPE", "INVALID_DATE", "ORPHAN_NOTE"}
+    {
+        "MISSING_FRONTMATTER",
+        "MISSING_FIELD",
+        "INVALID_TYPE",
+        "INVALID_DATE",
+        "ORPHAN_NOTE",
+    }
 )
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 AI_TIMEOUT = 120  # seconds
@@ -150,7 +180,7 @@ def _release_pid() -> None:
             tmp = STATE_FILE.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(current, indent=2), encoding="utf-8")
             tmp.replace(STATE_FILE)
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # best-effort cleanup
 
 
@@ -289,7 +319,9 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
     fm = vault_common.parse_frontmatter(content)
     if not fm:
         issues.append(
-            Issue(path, "error", "MISSING_FRONTMATTER", "No YAML frontmatter block found")
+            Issue(
+                path, "error", "MISSING_FRONTMATTER", "No YAML frontmatter block found"
+            )
         )
         # Can't check field-level issues without frontmatter
         return issues
@@ -297,12 +329,21 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
     # Required fields
     note_type_raw = fm.get("type", "")
     is_daily = note_type_raw == "daily" or parts[0] == "Daily"
-    required = REQUIRED_FIELDS_ALL if is_daily else REQUIRED_FIELDS_ALL + REQUIRED_FIELDS_KNOWLEDGE
+    required = (
+        REQUIRED_FIELDS_ALL
+        if is_daily
+        else REQUIRED_FIELDS_ALL + REQUIRED_FIELDS_KNOWLEDGE
+    )
     for fname in required:
         val = fm.get(fname)
         if val is None or val == "" or val == [] or val == "[]":
             issues.append(
-                Issue(path, "error", "MISSING_FIELD", f"Required field '{fname}' is absent or empty")
+                Issue(
+                    path,
+                    "error",
+                    "MISSING_FIELD",
+                    f"Required field '{fname}' is absent or empty",
+                )
             )
 
     # Valid type
@@ -320,7 +361,9 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
     date_val = str(fm.get("date", ""))
     if date_val and not re.match(r"^\d{4}-\d{2}-\d{2}$", date_val):
         issues.append(
-            Issue(path, "warning", "INVALID_DATE", f"date '{date_val}' is not YYYY-MM-DD")
+            Issue(
+                path, "warning", "INVALID_DATE", f"date '{date_val}' is not YYYY-MM-DD"
+            )
         )
 
     # Orphan check — related must contain at least one [[wikilink]] (not for daily notes)
@@ -330,7 +373,10 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
         if not re.search(r"\[\[.+?\]\]", related_str):
             issues.append(
                 Issue(
-                    path, "warning", "ORPHAN_NOTE", "No [[wikilinks]] in 'related' field (orphan note)"
+                    path,
+                    "warning",
+                    "ORPHAN_NOTE",
+                    "No [[wikilinks]] in 'related' field (orphan note)",
                 )
             )
 
@@ -355,7 +401,12 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
 # ---------------------------------------------------------------------------
 
 
-def repair_note(path: Path, issues: list[Issue], model: str = DEFAULT_MODEL, timeout: int = AI_TIMEOUT) -> tuple[str | None, str]:
+def repair_note(
+    path: Path,
+    issues: list[Issue],
+    model: str = DEFAULT_MODEL,
+    timeout: int = AI_TIMEOUT,
+) -> tuple[str | None, str]:
     """Call Claude *model* to fix *issues* in *path*.
 
     Returns (fixed_content_or_None, status) where status is one of
@@ -363,7 +414,9 @@ def repair_note(path: Path, issues: list[Issue], model: str = DEFAULT_MODEL, tim
     """
     content = path.read_text(encoding="utf-8")
     rel = path.relative_to(vault_common.VAULT_ROOT)
-    issue_lines = "\n".join(f"  - [{i.severity.upper()}] {i.code}: {i.message}" for i in issues)
+    issue_lines = "\n".join(
+        f"  - [{i.severity.upper()}] {i.code}: {i.message}" for i in issues
+    )
 
     prompt = f"""You are a vault note repair tool. Fix ONLY the listed issues in this Obsidian markdown note.
 Do NOT rewrite, summarise, or add content beyond what is needed to resolve each issue.
@@ -375,7 +428,7 @@ Issues to fix:
 {issue_lines}
 
 Rules:
-- Valid values for 'type': {', '.join(sorted(VALID_TYPES))}
+- Valid values for 'type': {", ".join(sorted(VALID_TYPES))}
 - Valid values for 'confidence': high | medium | low
 - 'date' must be YYYY-MM-DD
 - 'related' must contain at least one [[wikilink]] to a related concept
@@ -449,7 +502,9 @@ def _repair_one(
     with lock:
         msg = f"  {rel} ({len(repairable)} issue(s)) … {icon}"
         if repair_status == "needs_review":
-            msg += "\n    → needs_review (timed out twice; flagged for user intervention)"
+            msg += (
+                "\n    → needs_review (timed out twice; flagged for user intervention)"
+            )
         print(msg, flush=True)
         state.setdefault("notes", {})[key] = {
             "status": repair_status,
@@ -472,10 +527,15 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument(
-        "notes", nargs="*", type=Path, help="Specific notes to check (default: all vault notes)"
+        "notes",
+        nargs="*",
+        type=Path,
+        help="Specific notes to check (default: all vault notes)",
     )
     parser.add_argument(
-        "--fix", action="store_true", help="Apply Claude-suggested repairs (writes files)"
+        "--fix",
+        action="store_true",
+        help="Apply Claude-suggested repairs (writes files)",
     )
     parser.add_argument(
         "--dry-run",
@@ -527,14 +587,18 @@ def main() -> None:
 
     # Singleton guard — only one doctor may run at a time
     existing_pid = state.get("pid")
-    if existing_pid and existing_pid != os.getpid() and is_process_running(existing_pid):
+    if (
+        existing_pid
+        and existing_pid != os.getpid()
+        and is_process_running(existing_pid)
+    ):
         print(
             f"vault_doctor is already running (PID {existing_pid}). Exiting.",
             file=sys.stderr,
         )
         sys.exit(1)
     state["pid"] = os.getpid()
-    _write_pid(state)           # claim the lock immediately
+    _write_pid(state)  # claim the lock immediately
     atexit.register(_release_pid)  # release on any exit path
 
     # Auto-commit uncommitted vault files older than STALE_COMMIT_MINUTES
@@ -547,7 +611,9 @@ def main() -> None:
                 f"(>= {STALE_COMMIT_MINUTES} min old):"
             )
         else:
-            print(f"Committed {len(stale)} stale file(s) (>= {STALE_COMMIT_MINUTES} min old):")
+            print(
+                f"Committed {len(stale)} stale file(s) (>= {STALE_COMMIT_MINUTES} min old):"
+            )
         for name in rel_stale:
             print(f"  {name}")
         print()
@@ -608,7 +674,9 @@ def main() -> None:
         return
 
     # Summarise
-    total_errors = sum(1 for iv in issues_by_note.values() for i in iv if i.severity == "error")
+    total_errors = sum(
+        1 for iv in issues_by_note.values() for i in iv if i.severity == "error"
+    )
     total_warnings = sum(
         1 for iv in issues_by_note.values() for i in iv if i.severity == "warning"
     )
@@ -647,7 +715,9 @@ def main() -> None:
         }
 
     if not repair_candidates:
-        print("No repairable issues (broken wikilinks and flat daily notes require manual fixes).")
+        print(
+            "No repairable issues (broken wikilinks and flat daily notes require manual fixes)."
+        )
         save_state(state)
         return
 
@@ -666,19 +736,28 @@ def main() -> None:
     failed = 0
     lock = threading.Lock()
 
-    print(f"Repairing up to {limit} note(s) via {args.model} ({jobs} parallel job(s), {args.timeout}s timeout)…\n")
+    print(
+        f"Repairing up to {limit} note(s) via {args.model} ({jobs} parallel job(s), {args.timeout}s timeout)…\n"
+    )
     batch = repair_candidates[:limit]
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
         futures = {
             executor.submit(
-                _repair_one, note_path, note_issues, args.model, state, today_str, lock, args.timeout
+                _repair_one,
+                note_path,
+                note_issues,
+                args.model,
+                state,
+                today_str,
+                lock,
+                args.timeout,
             ): note_path
             for note_path, note_issues in batch
         }
         for future in concurrent.futures.as_completed(futures):
             try:
                 success = future.result()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 note_path = futures[future]
                 print(f"  {_rel(note_path)} … ✗ (exception: {exc})", flush=True)
                 success = False
@@ -689,7 +768,9 @@ def main() -> None:
 
     save_state(state)
     leftover = len(repair_candidates) - limit
-    print(f"\nDone: {repaired} repaired, {failed} failed, {leftover} not yet processed.")
+    print(
+        f"\nDone: {repaired} repaired, {failed} failed, {leftover} not yet processed."
+    )
 
     if repaired:
         print("\nRun update_index.py to rebuild the vault index after repairs.")
