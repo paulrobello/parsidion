@@ -88,6 +88,13 @@ _HOOK_SCRIPTS: dict[str, str] = {
     "SessionStart": "session_start_hook.py",
     "SessionEnd": "session_stop_wrapper.sh",
     "PreCompact": "pre_compact_hook.py",
+    "SubagentStop": "subagent_stop_hook.py",
+}
+
+# Per-event hook options merged into the hook handler entry in settings.json.
+# Keys match event names in _HOOK_SCRIPTS.
+_HOOK_OPTIONS: dict[str, dict] = {
+    "SubagentStop": {"async": True},
 }
 
 # Vault subdirectories to create.
@@ -499,15 +506,17 @@ def merge_hooks(
             skipped.append(event)
             continue
 
+        hook_handler: dict = {
+            "type": "command",
+            "command": command,
+            "timeout": 10000,
+        }
+        # Apply per-event options (e.g. async: true for SubagentStop)
+        hook_handler.update(_HOOK_OPTIONS.get(event, {}))
+
         new_entry: dict = {
             "matcher": "",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": command,
-                    "timeout": 10000,
-                }
-            ],
+            "hooks": [hook_handler],
         }
         _step(f"Register hook {bold(event)}: {dim(command)}", dry_run=dry_run)
         if not dry_run:

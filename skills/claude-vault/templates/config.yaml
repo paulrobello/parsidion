@@ -20,6 +20,14 @@ session_stop_hook:
   ai_timeout: 25           # AI call timeout in seconds
   auto_summarize: true     # Auto-launch summarizer when pending entries exist
 
+# Subagent stop hook (subagent_stop_hook.py)
+subagent_stop_hook:
+  enabled: true            # Set false to disable subagent transcript capture entirely
+  min_messages: 3          # Minimum assistant message count; filters trivial subagents
+  # Agent types to skip — these run constantly as vault system internals.
+  # Value is a comma-separated string (config parser limitation).
+  excluded_agents: "vault-explorer,research-documentation-agent"
+
 # Pre-compact hook (pre_compact_hook.py)
 pre_compact_hook:
   lines: 200               # Transcript lines to analyse
