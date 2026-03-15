@@ -24,14 +24,25 @@ you find, and return it in the standard format below.
 
 ## Search Procedure
 
-1. **Orient:** Read `~/ClaudeVault/CLAUDE.md` (the vault index) to understand
+1. **Semantic search (if available):** Run vault_search.py with the full
+   natural-language query as a single Bash call:
+   ```bash
+   uv run --no-project ~/.claude/skills/claude-vault/scripts/vault_search.py "QUERY" --json 2>/dev/null
+   ```
+   - If the command returns **3 or more results** with `score ≥ 0.35`, use
+     those `path` values as your candidates and **skip to step 5**.
+   - If fewer than 3 results (or the command fails / DB absent), continue to
+     step 2. Do not treat a failed command as an error — the DB may simply
+     not exist yet.
+
+2. **Orient:** Read `~/ClaudeVault/CLAUDE.md` (the vault index) to understand
    what notes exist and which folders are relevant.
 
-2. **Extract signals:** From the query, identify the key search terms —
+3. **Extract signals:** From the query, identify the key search terms —
    exception class name, package/library name, feature keyword, or concept.
    Use the most distinctive term as the primary signal.
 
-3. **Search by priority folder** (use the Grep tool with `path` and `glob: **/*.md`):
+4. **Search by priority folder** (use the Grep tool with `path` and `glob: **/*.md`):
    Follow the folder priority order from the table below for the query type.
    Search the highest-priority folder first; widen to lower-priority folders
    only if the top folder yields 0 or 1 candidate files (accumulate results
@@ -45,12 +56,12 @@ you find, and return it in the standard format below.
    | Library / tool / CLI | `~/ClaudeVault/Tools/` → `~/ClaudeVault/Frameworks/` |
    | Research / concepts | `~/ClaudeVault/Research/` → all folders |
 
-4. **Rank and read:** Rank candidate files by: (a) folder priority position
-   (higher-priority folder = ranked first), then (b) frequency of the search
-   signal in the file (count of occurrences — more = ranked higher). Read the
-   top 5 ranked files using the Read tool.
+5. **Rank and read:** Rank candidate files by: (a) semantic score if available
+   (higher score = ranked first), then (b) folder priority position, then
+   (c) frequency of the search signal in the file. Read the top 5 ranked
+   files using the Read tool.
 
-5. **Synthesize and return** in the exact format below.
+6. **Synthesize and return** in the exact format below.
 
 ## Return Format
 
