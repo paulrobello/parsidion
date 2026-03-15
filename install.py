@@ -730,6 +730,27 @@ def uninstall(
         _ok("Uninstall complete. Your vault at ~/ClaudeVault/ was not removed.")
 
 
+def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
+    """Add embeddings.db to vault .gitignore to prevent committing the binary DB.
+
+    Args:
+        vault_root: Path to the vault root directory.
+        dry_run: If True, print actions without writing.
+    """
+    gitignore = vault_root / ".gitignore"
+    entry = "embeddings.db\n"
+    if gitignore.exists():
+        content = gitignore.read_text(encoding="utf-8")
+        if "embeddings.db" not in content:
+            _step("Add embeddings.db to vault .gitignore", dry_run=dry_run)
+            if not dry_run:
+                gitignore.write_text(content + entry, encoding="utf-8")
+    else:
+        _step("Create vault .gitignore with embeddings.db", dry_run=dry_run)
+        if not dry_run:
+            gitignore.write_text(entry, encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Main install flow
 # ---------------------------------------------------------------------------
@@ -828,6 +849,9 @@ def install(args: argparse.Namespace) -> int:
     # 9. Rebuild vault index
     rebuild_index(claude_dir, dry_run=dry_run)
 
+    # 10. Configure vault .gitignore for embeddings.db
+    configure_vault_gitignore(vault_root, dry_run=dry_run)
+
     print()
     if dry_run:
         _ok("Dry run complete — no changes were made.")
@@ -841,6 +865,10 @@ def install(args: argparse.Namespace) -> int:
             f"  3. Run: {cyan('uv run ~/.claude/skills/claude-vault/scripts/update_index.py')}"
         )
         print("         to rebuild the vault index at any time")
+        print(
+            f"  4. Run: {cyan('uv run ~/.claude/skills/claude-vault/scripts/build_embeddings.py')}"
+        )
+        print("         to build the semantic search index (~30s on first run)")
 
     return 0
 

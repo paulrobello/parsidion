@@ -580,6 +580,87 @@ def _find_related_by_tags(
     return [f"[[{p.stem}]]" for _, p in candidates[:max_links]]
 
 
+def _find_related_by_semantic(
+    new_note_path: Path,
+    vault_root: Path,
+    max_links: int = 5,
+) -> list[str]:
+    """Find related vault notes using semantic search via vault_search.py subprocess.
+
+    Returns an empty list when vault_search.py or embeddings.db is missing,
+    or when the subprocess fails for any reason.
+
+    Args:
+        new_note_path: Path to the newly written note (excluded from results).
+        vault_root: Vault root directory.
+        max_links: Maximum number of related note wikilinks to return.
+
+    Returns:
+        List of ``"[[stem]]"`` wikilink strings, sorted by semantic similarity.
+    """
+    import json as _json
+
+    vault_search_script = Path(__file__).parent / "vault_search.py"
+    if not vault_search_script.exists():
+        return []
+
+    db_path = vault_common.VAULT_ROOT / vault_common.EMBEDDINGS_DB_FILENAME
+    if not db_path.exists():
+        return []
+
+    # Build query from stem and tags of the new note
+    try:
+        content = new_note_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+
+    fm = vault_common.parse_frontmatter(content)
+    note_tags = fm.get("tags") or []
+    if not isinstance(note_tags, list):
+        note_tags = []
+    tag_part = " ".join(str(t) for t in note_tags)
+    query = f"{new_note_path.stem.replace('-', ' ')} {tag_part}".strip()
+
+    try:
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--no-project",
+                str(vault_search_script),
+                query,
+                "--top",
+                str(max_links + 1),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=vault_common.env_without_claudecode(),
+        )
+        if result.returncode != 0:
+            return []
+        items: list[dict[str, object]] = _json.loads(result.stdout)
+    except (
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        OSError,
+        _json.JSONDecodeError,
+    ):
+        return []
+
+    links: list[str] = []
+    for item in items:
+        stem = str(item.get("stem", ""))
+        if not stem or stem == new_note_path.stem:
+            continue
+        links.append(f"[[{stem}]]")
+        if len(links) >= max_links:
+            break
+
+    return links
+
+
 def _inject_related_links(note_path: Path, new_links: list[str]) -> None:
     """Merge new wikilinks into the ``related`` frontmatter field of a note.
 
@@ -767,7 +848,11 @@ async def summarize_one(
                 if not isinstance(note_tags, list):
                     note_tags = []
                 tag_strs = [str(t) for t in note_tags]
-                related_links = _find_related_by_tags(written, tag_strs)
+                related_links = _find_related_by_semantic(
+                    written, vault_common.VAULT_ROOT, max_links=5
+                )
+                if not related_links:
+                    related_links = _find_related_by_tags(written, tag_strs)
                 if related_links:
                     _inject_related_links(written, related_links)
                     _add_backlinks_to_existing(written, related_links)

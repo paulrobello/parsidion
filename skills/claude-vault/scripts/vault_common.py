@@ -49,6 +49,8 @@ __all__: list[str] = [
     # Utilities
     "slugify",
     "git_commit_vault",
+    "EMBEDDINGS_DB_FILENAME",
+    "get_embeddings_db_path",
 ]
 
 # NOTE: VAULT_ROOT and TEMPLATES_DIR are intentionally patched by the installer
@@ -70,6 +72,18 @@ VAULT_DIRS: list[str] = [
     "History",
 ]
 EXCLUDE_DIRS: set[str] = {".obsidian", "Templates", ".git", ".trash", "TagsRoutes"}
+
+EMBEDDINGS_DB_FILENAME: str = "embeddings.db"
+
+
+def get_embeddings_db_path() -> Path:
+    """Return the path to the vault's embeddings database.
+
+    Returns:
+        Path to VAULT_ROOT/embeddings.db.
+    """
+    return VAULT_ROOT / EMBEDDINGS_DB_FILENAME
+
 
 # Variables safe to pass through to child processes (avoids leaking secrets)
 _SAFE_ENV_KEYS: frozenset[str] = frozenset(

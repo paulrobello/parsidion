@@ -31,6 +31,9 @@ _DEFAULT_AI_MODEL = "claude-haiku-4-5-20251001"
 _DEFAULT_AI_TIMEOUT = 25  # seconds; hook timeout in settings.json should be >= 30000ms
 _DEFAULT_MAX_CHARS = 4000
 _DEBUG_FILE = Path(tempfile.gettempdir()) / "claude-vault-session-start-debug.log"
+_VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
+_SEMANTIC_TOP_N: int = 5
+_SEMANTIC_TIMEOUT: int = 10  # seconds
 
 
 def _build_candidates(project_name: str) -> list[Path]:
@@ -69,6 +72,65 @@ def _build_candidates(project_name: str) -> list[Path]:
 
     other_notes_with_mtime.sort(key=lambda x: x[0], reverse=True)
     return project_notes + [p for _, p in other_notes_with_mtime]
+
+
+def _run_semantic_search(
+    query: str,
+    top: int,
+    vault_search_script: Path,
+) -> list[Path]:
+    """Run vault_search.py as a subprocess and return matching note paths.
+
+    Returns an empty list if the script doesn't exist, the DB is missing,
+    the subprocess times out, or any other error occurs.
+
+    Args:
+        query: Search query string.
+        top: Number of results to request.
+        vault_search_script: Path to vault_search.py.
+
+    Returns:
+        List of note Paths from the semantic search results.
+    """
+    import json as _json
+
+    if not vault_search_script.exists():
+        return []
+
+    db_path = vault_common.get_embeddings_db_path()
+    if not db_path.exists():
+        return []
+
+    try:
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--no-project",
+                str(vault_search_script),
+                query,
+                "--top",
+                str(top),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_SEMANTIC_TIMEOUT,
+            env=vault_common.env_without_claudecode(),
+        )
+        if result.returncode != 0:
+            return []
+        items: list[dict[str, object]] = _json.loads(result.stdout)
+        return [Path(str(item["path"])) for item in items]
+    except (
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        OSError,
+        _json.JSONDecodeError,
+        KeyError,
+        ValueError,
+    ):
+        return []
 
 
 def _select_context_with_ai(
@@ -282,6 +344,23 @@ def build_session_context(
         if resolved not in seen:
             seen.add(resolved)
             all_notes.append(note)
+
+    # Blend semantic search results when embeddings.db is available
+    use_embeddings: bool = vault_common.get_config(
+        "session_start_hook", "use_embeddings", True
+    )
+    if use_embeddings:
+        db_path = vault_common.get_embeddings_db_path()
+        if db_path.exists():
+            vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
+            semantic_notes = _run_semantic_search(
+                project_name, _SEMANTIC_TOP_N, vault_search_script
+            )
+            for note in semantic_notes:
+                resolved = note.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
+                    all_notes.append(note)
 
     # Ensure today's daily note is included
     daily_resolved: Path = daily_path.resolve()
