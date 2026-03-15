@@ -803,7 +803,7 @@ def install(args: argparse.Namespace) -> int:
         for agent_src in AGENT_SRCS:
             print(f"  {dim('Install agent:')} {claude_dir / 'agents' / agent_src.name}")
     if not args.skip_hooks:
-        print(f"  {dim('Register hooks:')} SessionStart, SessionEnd, PreCompact")
+        print(f"  {dim('Register hooks:')} {', '.join(_HOOK_SCRIPTS.keys())}")
     print(f"  {dim('Install scripts:')} {claude_dir / 'scripts'}/")
     print(f"  {dim('Install guidance:')} {claude_dir / 'CLAUDE-VAULT.md'} (@import into CLAUDE.md)")
     if dry_run:
