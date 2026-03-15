@@ -22,6 +22,7 @@ using a CPU-only ONNX embedding model that runs entirely on your machine.
   - [Session Start Hook](#session-start-hook)
   - [Session Summarizer](#session-summarizer)
   - [Research Agent](#research-agent)
+  - [Automatic Index Rebuild](#automatic-index-rebuild)
 - [Configuration Reference](#configuration-reference)
 - [Installation Notes](#installation-notes)
 - [Performance and Limits](#performance-and-limits)
@@ -306,6 +307,31 @@ did not surface with high confidence.
 
 This reduces the number of vault-explorer invocations for topics that are well-represented in the
 vault, while preserving full coverage for novel topics.
+
+### Automatic Index Rebuild
+
+`update_index.py` automatically triggers an incremental embeddings rebuild in the background
+after every vault index regeneration:
+
+```
+Note written → update_index.py runs → embeddings rebuild launched (background)
+```
+
+This means `embeddings.db` stays current without any manual intervention. The rebuild is
+fire-and-forget: `update_index.py` returns immediately and the embedding runs in a separate
+process. Only new or changed notes are re-embedded — a typical post-session rebuild takes
+a few seconds for a handful of new notes.
+
+The automatic rebuild is skipped silently when `embeddings.db` does not yet exist. To create
+the database for the first time, run `build_embeddings.py` manually (see [Quick Start](#quick-start)).
+
+**Triggers that indirectly kick off an incremental rebuild:**
+
+| Trigger | Via |
+|---|---|
+| `summarize_sessions.py` completes | calls `update_index.py` → incremental rebuild |
+| `research-documentation-agent` saves a note | calls `update_index.py` → incremental rebuild |
+| Manual `uv run update_index.py` | → incremental rebuild |
 
 ---
 

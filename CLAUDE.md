@@ -89,10 +89,11 @@ Config sections:
 
 | Section | Keys | Used by |
 |---|---|---|
-| `session_start_hook` | `ai_model`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode` | `session_start_hook.py` |
+| `session_start_hook` | `ai_model`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings` | `session_start_hook.py` |
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize` | `session_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `max_cleaned_chars`, `persist`, `cluster_model` | `summarize_sessions.py` |
+| `embeddings` | `model`, `min_score`, `top_k` | `build_embeddings.py`, `vault_search.py` |
 | `git` | `auto_commit` | `vault_common.git_commit_vault()` |
 
 The config is parsed by `vault_common.load_config()` (simple stdlib YAML parser — supports

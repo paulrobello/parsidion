@@ -146,19 +146,21 @@ def main() -> None:
         description="Semantic search for Claude Vault notes.",
     )
     parser.add_argument("query", help="Search query string.")
+    _cfg_top_k: int = vault_common.get_config("embeddings", "top_k", 10)
+    _cfg_min_score: float = vault_common.get_config("embeddings", "min_score", 0.0)
     parser.add_argument(
         "--top",
         type=int,
-        default=10,
+        default=_cfg_top_k,
         metavar="N",
-        help="Maximum number of results (default: 10).",
+        help=f"Maximum number of results (default from config: {_cfg_top_k}).",
     )
     parser.add_argument(
         "--min-score",
         type=float,
-        default=0.0,
+        default=_cfg_min_score,
         metavar="FLOAT",
-        help="Minimum cosine similarity threshold 0.0–1.0 (default: 0.0).",
+        help=f"Minimum cosine similarity threshold 0.0–1.0 (default from config: {_cfg_min_score}).",
     )
     parser.add_argument(
         "--model",
