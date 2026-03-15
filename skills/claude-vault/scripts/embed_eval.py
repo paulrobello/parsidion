@@ -440,19 +440,21 @@ def run_evaluation(
     Returns:
         List of ComboResult sorted by MRR descending.
     """
-    note_paths: list[Path] = [
-        Path(item.path) for item in eval_items if Path(item.path).exists()
-    ]
+    # Index ALL vault notes — the eval must find the correct note among the full
+    # corpus, not just among the sampled notes. Searching only the sampled notes
+    # trivially yields perfect recall regardless of model quality.
+    note_paths: list[Path] = vault_common.all_vault_notes()
 
     if not note_paths:
-        console.print("[red]No valid note paths found in eval items.[/red]")
+        console.print("[red]No vault notes found.[/red]")
         return []
 
     total_combos = len(models) * len(chunking_strategies)
     total_queries = sum(len(i.queries) for i in eval_items)
     console.print(
         f"\n[bold]Running {total_combos} combinations in parallel[/bold] "
-        f"({len(eval_items)} notes, {total_queries} queries, {len(models)} threads)\n"
+        f"({len(eval_items)} eval notes out of {len(note_paths)} total, "
+        f"{total_queries} queries, {len(models)} threads)\n"
     )
 
     all_results: list[ComboResult] = []
