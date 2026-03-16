@@ -92,6 +92,7 @@ AI_TIMEOUT = 120  # seconds
 STATE_FILE = vault_common.VAULT_ROOT / "doctor_state.json"
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
 STALE_COMMIT_MINUTES = 15  # auto-commit uncommitted files older than this
+PREFIX_CLUSTER_MIN = 3  # minimum flat notes sharing a prefix to trigger subfolder grouping
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +277,232 @@ def build_note_map(notes: list[Path]) -> dict[str, list[Path]]:
     for p in notes:
         note_map.setdefault(p.stem.lower(), []).append(p)
     return note_map
+
+
+def find_prefix_clusters(
+    all_notes: list[Path],
+) -> list[tuple[Path, str, list[Path], Path | None]]:
+    """Find groups of flat notes that should be reorganised into a subfolder.
+
+    Two cluster types are detected:
+
+    **Exact-stem** (base_note is not None):
+        One note's stem is the exact prefix of 2+ sibling notes separated by ``-``.
+        Example: ``gpu-voxel-ray-marching-optimizations``,
+                 ``gpu-voxel-ray-marching-optimizations-0853``,
+                 ``gpu-voxel-ray-marching-optimizations-0930``
+        → subfolder ``gpu-voxel-ray-marching-optimizations/``, base note keeps its
+          filename (wikilinks stay valid), variants drop the full base-stem prefix.
+        These clusters bypass Claude filtering (relationship is unambiguous).
+
+    **First-word** (base_note is None):
+        3+ notes share the same first ``-``-delimited word and that word represents
+        a specific named subject (project, library, OS …).  Generic words are filtered
+        out by ``_filter_clusters_with_claude`` before fixes are applied.
+
+    Returns list of ``(folder, prefix, notes, base_note | None)``.
+    Only examines notes at depth-2 relative to vault root (e.g. Patterns/foo.md).
+    Skips Daily/, MANIFEST.md, and cases where the subfolder already exists.
+    """
+    by_folder: dict[Path, list[Path]] = {}
+    for note in all_notes:
+        rel = note.relative_to(vault_common.VAULT_ROOT)
+        parts = rel.parts
+        if len(parts) != 2:
+            continue
+        if parts[0] == "Daily":
+            continue
+        if parts[1] in ("MANIFEST.md", "CLAUDE.md"):
+            continue
+        by_folder.setdefault(note.parent, []).append(note)
+
+    clusters: list[tuple[Path, str, list[Path], Path | None]] = []
+    for folder, folder_notes in sorted(by_folder.items()):
+        already_claimed: set[Path] = set()
+
+        # Pass 1 — exact-stem clusters (unambiguous; bypass Claude filter)
+        for base in sorted(folder_notes, key=lambda p: len(p.stem), reverse=True):
+            if base in already_claimed:
+                continue
+            variants = [
+                n
+                for n in folder_notes
+                if n is not base and n.stem.startswith(f"{base.stem}-")
+            ]
+            if len(variants) < 2:
+                continue
+            subfolder = folder / base.stem
+            if subfolder.exists():
+                continue
+            all_in_cluster = [base, *variants]
+            clusters.append((folder, base.stem, all_in_cluster, base))
+            already_claimed.update(all_in_cluster)
+
+        # Pass 2 — first-word clusters (filtered by Claude)
+        by_prefix: dict[str, list[Path]] = {}
+        for note in folder_notes:
+            if note in already_claimed:
+                continue
+            stem_parts = note.stem.split("-")
+            if len(stem_parts) < 2:
+                continue
+            by_prefix.setdefault(stem_parts[0], []).append(note)
+
+        for prefix, cluster_notes in sorted(by_prefix.items()):
+            if len(cluster_notes) < PREFIX_CLUSTER_MIN:
+                continue
+            if (folder / prefix).exists():
+                continue
+            clusters.append((folder, prefix, cluster_notes, None))
+
+    return clusters
+
+
+def _filter_clusters_with_claude(
+    clusters: list[tuple[Path, str, list[Path], Path | None]],
+    model: str = DEFAULT_MODEL,
+    timeout: int = AI_TIMEOUT,
+) -> list[tuple[Path, str, list[Path], Path | None]]:
+    """Use Claude to discard first-word clusters whose prefix is a generic English word.
+
+    Exact-stem clusters (base_note is not None) are always kept — the relationship
+    is unambiguous.  Only first-word clusters (base_note is None) are evaluated.
+
+    A "meaningful" first-word prefix is a specific project/library/tool/OS name
+    (e.g. 'parvitar', 'redis', 'obsidian').  Generic verbs, adjectives, and modifiers
+    (e.g. 'fixing', 'missing', 'multi', 'cross') are rejected.  Falls back to keeping
+    all clusters on any error so the caller is never silently blocked.
+    """
+    if not clusters:
+        return clusters
+
+    # Exact-stem clusters pass through unconditionally
+    exact_stem = [(f, p, n, b) for f, p, n, b in clusters if b is not None]
+    first_word = [(f, p, n, b) for f, p, n, b in clusters if b is None]
+
+    if not first_word:
+        return clusters
+
+    lines = []
+    for folder, prefix, notes, _ in first_word:
+        stems = ", ".join(n.stem for n in sorted(notes))
+        lines.append(f"  prefix='{prefix}' folder='{folder.name}' stems=[{stems}]")
+
+    prompt = (
+        "You are a vault organizer. Below are candidate prefix clusters found in a\n"
+        "knowledge vault. Each cluster groups notes that share the same first word\n"
+        "in their kebab-case filename.\n\n"
+        "Decide which clusters represent a SPECIFIC subject worth its own subfolder:\n"
+        "- KEEP: project names, library names, tool names, OS names, technology names\n"
+        "  (e.g. 'parvitar', 'redis', 'obsidian', 'cctmux', 'macos', 'gitnexus')\n"
+        "- REJECT: generic English words that are unrelated verbs, adjectives, or\n"
+        "  modifiers that happen to share a prefix\n"
+        "  (e.g. 'fixing', 'missing', 'multi', 'cross', 'harness', 'build')\n\n"
+        "Candidates:\n"
+        + "\n".join(lines)
+        + "\n\nReturn ONLY a JSON array of prefix strings to KEEP — no explanation.\n"
+        'Example: ["parvitar", "redis", "obsidian"]'
+    )
+
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
+
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--model", model],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        if result.returncode != 0:
+            return clusters  # fallback
+
+        output = result.stdout.strip()
+        m = re.search(r"\[.*?\]", output, re.DOTALL)
+        if not m:
+            return clusters
+
+        accepted: set[str] = set(json.loads(m.group(0)))
+        kept_first_word = [(f, p, n, b) for f, p, n, b in first_word if p in accepted]
+        return exact_stem + kept_first_word
+
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError, ValueError):
+        return clusters  # fallback: keep all
+
+
+def fix_prefix_cluster(
+    folder: Path,
+    prefix: str,
+    cluster_notes: list[Path],
+    all_notes: list[Path],
+    base_note: Path | None = None,
+) -> list[tuple[Path, Path]]:
+    """Move *cluster_notes* into *folder*/*prefix*/ and patch wikilinks vault-wide.
+
+    Returns list of (old_path, new_path) moves performed.
+
+    For **first-word clusters** (base_note is None): notes whose stem starts with
+    ``prefix-`` are moved and the prefix is stripped from their filename.
+
+    For **exact-stem clusters** (base_note is the note whose stem == prefix):
+    - The base note is moved into the subfolder with its **original filename**
+      (stem unchanged → existing ``[[wikilinks]]`` keep resolving).
+    - Variant notes have the full ``prefix-`` stripped from their stem.
+    """
+    subfolder = folder / prefix
+    moves: list[tuple[Path, Path]] = []
+
+    for note in cluster_notes:
+        if note is base_note:
+            # Exact-stem base: keep same filename, just relocate into subfolder
+            moves.append((note, subfolder / note.name))
+        elif note.stem.startswith(f"{prefix}-"):
+            new_stem = note.stem[len(prefix) + 1 :]
+            if new_stem:
+                moves.append((note, subfolder / f"{new_stem}.md"))
+        # else: skip notes that don't match the expected pattern
+
+    if not moves:
+        return []
+
+    subfolder.mkdir(parents=True, exist_ok=True)
+
+    # Only variant notes (not the base) change their stem — only those need patching
+    stem_map: dict[str, str] = {
+        old.stem: new.stem
+        for old, new in moves
+        if old is not base_note and old.stem != new.stem
+    }
+    old_paths = {old for old, _ in moves}
+
+    # Move files first
+    for old_path, new_path in moves:
+        old_path.rename(new_path)
+
+    def _patch(path: Path) -> None:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return
+        original = content
+        for old_stem, new_stem in stem_map.items():
+            content = content.replace(f"[[{old_stem}]]", f"[[{new_stem}]]")
+            content = re.sub(
+                rf"\[\[{re.escape(old_stem)}\|",
+                f"[[{new_stem}|",
+                content,
+            )
+        if content != original:
+            path.write_text(content, encoding="utf-8")
+
+    for note in all_notes:
+        if note not in old_paths:
+            _patch(note)
+    for _, new_path in moves:
+        _patch(new_path)
+
+    return moves
 
 
 def resolve_wikilink(raw_link: str, note_map: dict[str, list[Path]]) -> bool:
@@ -895,15 +1122,71 @@ def main() -> None:
     else:
         skipped_by_state = 0
 
+    # Build note map once for wikilink resolution
+    all_notes = list(vault_common.all_vault_notes())
+    note_map = build_note_map(all_notes)
+
+    # ── Prefix cluster detection and fixing ──────────────────────────────────
+    clusters = find_prefix_clusters(all_notes)
+    if clusters and not args.dry_run:
+        # Filter out generic-word false positives using Claude
+        clusters = _filter_clusters_with_claude(clusters, model=args.model, timeout=args.timeout)
+    cluster_repaired = 0
+    if clusters:
+        total_cluster_notes = sum(len(n) for _, _, n, _ in clusters)
+        print(
+            f"\nFound {len(clusters)} prefix cluster(s) "
+            f"({total_cluster_notes} note(s) to reorganize):\n"
+        )
+        for cluster_folder, prefix, cluster_notes, base_note in clusters:
+            folder_rel = cluster_folder.relative_to(vault_common.VAULT_ROOT)
+            kind = "exact-stem" if base_note is not None else "first-word"
+            print(f"  {folder_rel}/{prefix}/  ({len(cluster_notes)} notes, {kind})")
+            for note in sorted(cluster_notes):
+                note_rel = note.relative_to(vault_common.VAULT_ROOT)
+                if note is base_note:
+                    new_name = note.name  # base note keeps its filename
+                elif note.stem.startswith(f"{prefix}-"):
+                    new_name = note.stem[len(prefix) + 1 :] + ".md"
+                else:
+                    new_name = note.name
+                print(f"    {note_rel}  →  {folder_rel}/{prefix}/{new_name}")
+        print()
+
+        if not args.dry_run and args.fix:
+            print("Reorganizing prefix clusters…\n")
+            for cluster_folder, prefix, cluster_notes, base_note in clusters:
+                moves = fix_prefix_cluster(
+                    cluster_folder, prefix, cluster_notes, all_notes, base_note
+                )
+                for old_path, new_path in moves:
+                    old_rel = old_path.relative_to(vault_common.VAULT_ROOT)
+                    new_rel = new_path.relative_to(vault_common.VAULT_ROOT)
+                    print(f"  {old_rel}  →  {new_rel}")
+                    cluster_repaired += 1
+            if cluster_repaired:
+                vault_common.git_commit_vault(
+                    f"refactor(vault): reorganize {cluster_repaired} note(s) into prefix subfolders",
+                )
+                print()
+                # Refresh after moves
+                all_notes = list(vault_common.all_vault_notes())
+                note_map = build_note_map(all_notes)
+                all_filtered = [p for p in all_notes if p != vault_claude_md]
+                if not explicit and not args.no_state:
+                    target_notes = [
+                        p for p in all_filtered if not should_skip(_rel(p), state)
+                    ]
+                    skipped_by_state = len(all_filtered) - len(target_notes)
+                else:
+                    target_notes = all_filtered
+                    skipped_by_state = 0
+
     print(
         f"Scanning {len(target_notes)} vault notes"
         + (f" ({skipped_by_state} skipped — already OK)" if skipped_by_state else "")
         + "…"
     )
-
-    # Build note map once for wikilink resolution
-    all_notes = list(vault_common.all_vault_notes())
-    note_map = build_note_map(all_notes)
 
     # Scan — also record clean notes in state
     issues_by_note: dict[Path, list[Issue]] = {}
