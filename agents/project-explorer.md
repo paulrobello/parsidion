@@ -83,7 +83,8 @@ Look for project-level patterns worth documenting:
 
 ## Step 6 — Write Project Overview Note
 
-Write to `~/ClaudeVault/Projects/{project-slug}-overview.md` (update if exists):
+All notes for this project go into a dedicated subfolder: `~/ClaudeVault/Projects/{project-slug}/`.
+Create the folder if it does not exist. Write the overview to `overview.md` inside it:
 
 ```markdown
 ---
@@ -126,13 +127,14 @@ Key modules:
 ```
 
 **CRITICAL**: The `related` field must never be empty. It must contain wikilinks to all
-feature pattern notes you are about to create. If those notes don't exist yet, still
-include the wikilinks — they become valid once you write the feature notes in Step 7.
+feature notes you are about to create. If those notes don't exist yet, still include
+the wikilinks — they become valid once you write the feature notes in Step 7.
 
 ## Step 7 — Write Feature Pattern Notes
 
-For each significant feature (those reusable across projects), write
-`~/ClaudeVault/Patterns/{feature-slug}.md`:
+For each significant feature, write `~/ClaudeVault/Projects/{project-slug}/{feature-slug}.md`.
+All feature notes go in the **same project subfolder** as the overview — do NOT use the
+project name as a filename prefix (the folder provides that context already).
 
 ```markdown
 ---
@@ -142,7 +144,7 @@ tags: [{feature-tag}, {project-name}, {language}]
 project: {project-name}
 confidence: high
 sources: ["{/absolute/path/to/implementing/file}"]
-related: ["[[{project-slug}-overview]]"]
+related: ["[[overview]]"]
 ---
 
 ## {Feature Name}
@@ -165,7 +167,7 @@ Numbered steps to reproduce this pattern in another project.
 - It is too tightly coupled to this project's domain to be reusable elsewhere, OR
 - A dedicated vault note for this exact pattern already exists (just add a `related` link instead)
 
-**Minimum**: Write at least 3 pattern notes. If fewer than 3 features are reusable,
+**Minimum**: Write at least 3 feature notes. If fewer than 3 features are reusable,
 include the most distinctive architectural choice even if it is project-specific.
 
 ## Step 8 — Rebuild Vault Index
@@ -189,8 +191,8 @@ Return a structured summary:
 **Path**: {/absolute/path}
 
 ### Notes Written
-- `~/ClaudeVault/Projects/{project-slug}-overview.md` — [created|updated]
-- `~/ClaudeVault/Patterns/{feature-slug}.md` — [created|updated]
+- `~/ClaudeVault/Projects/{project-slug}/overview.md` — [created|updated]
+- `~/ClaudeVault/Projects/{project-slug}/{feature-slug}.md` — [created|updated]
 - ...
 
 ### Skipped Features
@@ -205,7 +207,8 @@ update_index.py: {success|failed — error message}
 1. **No orphan notes**: every note's `related` field must contain at least one `[[wikilink]]`.
 2. **No empty sections**: omit a section heading rather than leaving it blank.
 3. **Absolute source paths**: `sources` field must use the full filesystem path, not `~`.
-4. **Kebab-case filenames**: `{project-slug}-overview.md`, `{feature-slug}.md` — no date suffix.
+4. **Subfolder per project**: all notes for a project go under `Projects/{project-slug}/`. Use clean
+   filenames without the project prefix (`overview.md`, `{feature-slug}.md`) — the folder provides context.
 5. **Search before create**: if a pattern note already exists for this concept, update it
    instead of creating a duplicate. Add a `related` link back to the project overview.
 6. **Related field format**: inline quoted array — `related: ["[[note-a]]", "[[note-b]]"]`

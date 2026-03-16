@@ -239,7 +239,7 @@ related: ["[[related-note-title]]"]
 - **Search before create**: Always check if a note on the topic already exists in the vault. Update existing notes rather than creating duplicates
 - Use `[[wikilinks]]` in the `related` frontmatter field and body text to cross-reference other vault notes
 - For project-local research, also save to `docs/research/` if the directory exists
-- **Subfolder rule**: When 3 or more notes share a common subject, group them in a subfolder named after that subject. Only one level of subfolder is allowed — never nest subfolders within subfolders. Drop the redundant prefix from filenames inside the folder. Example: `Research/fastapi-middleware-basics.md` + `fastapi-middleware-auth.md` + `fastapi-middleware-cors.md` → `Research/fastapi-middleware/basics.md`, `auth.md`, `cors.md`. Update all `[[wikilinks]]` and rebuild the index after reorganizing.
+- **Subfolder rule (proactive)**: Before writing any notes, count how many you plan to create. If 3 or more notes share a common subject prefix, create a named subfolder upfront and place all notes there — do NOT create flat files first and reorganize later. Drop the redundant prefix from filenames inside the subfolder. Only one level of subfolder is allowed. Example: researching FastAPI middleware with 4 notes → create `Research/fastapi-middleware/` and write `basics.md`, `auth.md`, `cors.md`, `rate-limiting.md` directly there (not `Research/fastapi-middleware-basics.md` etc.). Use path-disambiguated wikilinks when needed: `[[fastapi-middleware/auth]]`.
 
 ## Web Search Best Practices
 
