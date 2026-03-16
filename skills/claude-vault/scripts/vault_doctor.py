@@ -9,6 +9,22 @@ Stdlib-only. Run with:
     uv run --no-project ... --limit 10     # cap repairs at N notes
     uv run --no-project ... --fix --jobs 5 # repair with 5 parallel workers (default: 3)
 
+When repairing BROKEN_WIKILINK issues, the doctor uses a Python-only two-stage
+strategy — no Claude call needed:
+  1. Exact case-insensitive stem match against the note map.
+  2. Semantic fallback via ``vault-search --json --top=2 --min-score=0.5``.
+  If a replacement is found the link is updated everywhere in the note; if not,
+  the brackets are stripped (text kept in body, entry dropped from ``related``).
+  If stripping empties the ``related`` field, the orphan-repair workflow kicks in
+  (semantic candidates injected via ``_find_semantic_candidates``).
+
+When repairing ORPHAN_NOTE issues (no [[wikilinks]] in 'related'), the doctor
+queries ``vault-search`` semantically — using the note's H1 heading or stem as
+the query — and injects the top-5 candidate stems into the Claude prompt.  This
+ensures repairs pick real, existing notes rather than hallucinated links.
+Degrades gracefully when ``vault-search`` is not installed or ``embeddings.db``
+is absent.
+
 # ARC-015: Concurrency model rationale
 # vault_doctor.py uses ``concurrent.futures.ThreadPoolExecutor`` because it is
 # a stdlib-only script.  ``ThreadPoolExecutor`` is sufficient here: the work is
@@ -68,6 +84,7 @@ REPAIRABLE_CODES = frozenset(
         "INVALID_TYPE",
         "INVALID_DATE",
         "ORPHAN_NOTE",
+        "BROKEN_WIKILINK",
     }
 )
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
@@ -401,6 +418,195 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
 # ---------------------------------------------------------------------------
 
 
+def _find_link_replacement(
+    link_text: str,
+    note_map: dict[str, list[Path]],
+    exclude_path: Path | None = None,
+    min_score: float = 0.5,
+) -> str | None:
+    """Return the stem to replace a broken [[link_text]] with, or None to remove it.
+
+    Strategy:
+    1. Exact case-insensitive stem match — if exactly one vault note matches,
+       return its stem.
+    2. Semantic fallback via vault-search — take the top result above min_score
+       that isn't exclude_path.
+    Returns None if no match is found (caller should remove the link).
+    """
+    # 1. Exact match (case-insensitive stem)
+    key = link_text.lower().strip()
+    matches = note_map.get(key, [])
+    if len(matches) == 1:
+        return matches[0].stem
+    # Multiple exact matches — ambiguous, fall through to semantic search
+
+    # 2. Semantic fallback
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
+    try:
+        result = subprocess.run(
+            [
+                "vault-search",
+                link_text,
+                "--json",
+                "--top=2",
+                f"--min-score={min_score}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout)
+        exclude_resolved = str(exclude_path.resolve()) if exclude_path else None
+        for item in data:
+            item_resolved = str(Path(str(item["path"])).resolve())
+            if exclude_resolved and item_resolved == exclude_resolved:
+                continue
+            return str(item["stem"])
+    except (OSError, json.JSONDecodeError, subprocess.TimeoutExpired, KeyError):
+        pass
+    return None
+
+
+def _auto_repair_broken_wikilinks(
+    path: Path,
+    broken_issues: list[Issue],
+    note_map: dict[str, list[Path]],
+) -> tuple[str | None, bool]:
+    """Repair broken wikilinks in *path* using exact + semantic matching.
+
+    Returns (new_content | None, became_orphan).
+
+    - For each broken link: attempt to find a replacement via _find_link_replacement().
+    - If a replacement is found → update the link everywhere in the note.
+    - If no replacement → remove the link (strip brackets in body; drop from related).
+    - If removing all related links empties the field → became_orphan = True,
+      and _find_semantic_candidates() is called to inject candidates.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return None, False
+
+    original_content = content
+
+    # Deduplicate broken link texts from issues
+    seen: set[str] = set()
+    broken_links: list[str] = []
+    for issue in broken_issues:
+        m = re.search(r"\[\[([^\]]+)\]\]", issue.message)
+        if m:
+            link_text = m.group(1).strip()
+            if link_text not in seen:
+                seen.add(link_text)
+                broken_links.append(link_text)
+
+    if not broken_links:
+        return None, False
+
+    # Resolve replacements
+    replacements: dict[str, str | None] = {}
+    for link in broken_links:
+        replacements[link] = _find_link_replacement(link, note_map, exclude_path=path)
+
+    # --- Update `related` frontmatter field ---
+    became_orphan = False
+    related_pattern = re.compile(
+        r'^(related:\s*)(\[.*?\])\s*$', re.MULTILINE
+    )
+    related_match = related_pattern.search(content)
+    if related_match:
+        prefix = related_match.group(1)
+        raw_list = related_match.group(2)
+        # Parse individual quoted wikilink entries: "[[stem]]"
+        entries = re.findall(r'"(\[\[[^\]]+\]\])"', raw_list)
+        new_entries: list[str] = []
+        for entry in entries:
+            m = re.match(r'\[\[([^\]]+)\]\]', entry)
+            if not m:
+                new_entries.append(f'"{entry}"')
+                continue
+            stem = m.group(1).strip()
+            if stem in replacements:
+                replacement = replacements[stem]
+                if replacement is not None:
+                    new_entries.append(f'"[[{replacement}]]"')
+                # else: drop (removed)
+            else:
+                new_entries.append(f'"{entry}"')
+
+        if new_entries:
+            new_related_line = f'{prefix}[{", ".join(new_entries)}]'
+        else:
+            # All links removed — check if we can inject semantic candidates
+            became_orphan = True
+            candidates = _find_semantic_candidates(path)
+            if candidates:
+                candidate_entries = [f'"[[{s}]]"' for s in candidates]
+                new_related_line = f'{prefix}[{", ".join(candidate_entries)}]'
+                became_orphan = False
+            else:
+                new_related_line = f"{prefix}[]"
+
+        content = related_pattern.sub(new_related_line, content)
+
+    # --- Update body text broken links ---
+    for link, replacement in replacements.items():
+        if replacement:
+            content = content.replace(f"[[{link}]]", f"[[{replacement}]]")
+        else:
+            # Strip brackets, keep text
+            content = content.replace(f"[[{link}]]", link)
+
+    if content == original_content:
+        return None, False
+
+    return content, became_orphan
+
+
+def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
+    """Return stem names of semantically similar vault notes for wikilink suggestions.
+
+    Calls the ``vault-search`` CLI as a subprocess and returns up to *top_k* stem
+    names (excluding *path* itself).  Returns [] gracefully on any failure —
+    missing ``vault-search`` binary, absent ``embeddings.db``, JSON parse errors.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    # Use the H1 heading as the query — most descriptive; fall back to the stem
+    title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
+    query = title_match.group(1).strip() if title_match else path.stem.replace("-", " ")
+
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)  # permit nested invocation
+
+    try:
+        result = subprocess.run(
+            ["vault-search", query, "--json", f"--top={top_k + 1}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        if result.returncode != 0:
+            return []
+        data = json.loads(result.stdout)
+        self_path = str(path.resolve())
+        return [
+            str(item["stem"])
+            for item in data
+            if str(Path(str(item["path"])).resolve()) != self_path
+        ][:top_k]
+    except (OSError, json.JSONDecodeError, subprocess.TimeoutExpired, KeyError):
+        return []
+
+
 def repair_note(
     path: Path,
     issues: list[Issue],
@@ -418,6 +624,18 @@ def repair_note(
         f"  - [{i.severity.upper()}] {i.code}: {i.message}" for i in issues
     )
 
+    # For ORPHAN_NOTE issues, find semantically similar notes so Claude can
+    # pick real wikilinks instead of inventing them from thin air.
+    has_orphan = any(i.code == "ORPHAN_NOTE" for i in issues)
+    candidates: list[str] = _find_semantic_candidates(path) if has_orphan else []
+    candidate_section = ""
+    if candidates:
+        links = ", ".join(f"[[{s}]]" for s in candidates)
+        candidate_section = (
+            f"\n\nSemantically similar vault notes "
+            f"(choose from these for the 'related' field — do NOT invent others):\n{links}"
+        )
+
     prompt = f"""You are a vault note repair tool. Fix ONLY the listed issues in this Obsidian markdown note.
 Do NOT rewrite, summarise, or add content beyond what is needed to resolve each issue.
 Return ONLY the corrected note — no explanation, no code fences.
@@ -433,7 +651,7 @@ Rules:
 - 'date' must be YYYY-MM-DD
 - 'related' must contain at least one [[wikilink]] to a related concept
 - Every note needs: date, type, confidence, related in its YAML frontmatter
-- 'sources' should be [] if unknown
+- 'sources' should be [] if unknown{candidate_section}
 
 Current note:
 ---BEGIN---
@@ -480,24 +698,61 @@ def _repair_one(
     today_str: str,
     lock: threading.Lock,
     timeout: int = AI_TIMEOUT,
+    note_map: dict[str, list[Path]] | None = None,
 ) -> bool:
     """Repair one note, update state under *lock*, return True on success."""
     key = _rel(note_path)
     rel = note_path.relative_to(vault_common.VAULT_ROOT)
     repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
+    broken = [i for i in repairable if i.code == "BROKEN_WIKILINK"]
+    other = [i for i in repairable if i.code != "BROKEN_WIKILINK"]
 
     with lock:
         prev_status = state.get("notes", {}).get(key, {}).get("status", "")
 
-    fixed_content, repair_status = repair_note(note_path, repairable, model, timeout)
+    # Step 1: Python-based broken-link repair (no Claude needed)
+    link_fix_made = False
+    became_orphan = False
+    if broken and note_map is not None:
+        fixed_content, became_orphan = _auto_repair_broken_wikilinks(
+            note_path, broken, note_map
+        )
+        if fixed_content:
+            note_path.write_text(fixed_content + "\n", encoding="utf-8")
+            link_fix_made = True
+
+    # Step 2: If note became orphan (all related removed, no candidates found),
+    #         inject a synthetic ORPHAN_NOTE issue so Claude's orphan repair fires
+    if became_orphan:
+        other.append(
+            Issue(
+                note_path,
+                "warning",
+                "ORPHAN_NOTE",
+                "All related links removed — no candidates found",
+            )
+        )
+
+    # Step 3: Claude repair for remaining issues (MISSING_FIELD, ORPHAN_NOTE, etc.)
+    fixed_content = None
+    repair_status = "failed"
+    if other:
+        fixed_content, repair_status = repair_note(note_path, other, model, timeout)
+        if fixed_content:
+            note_path.write_text(fixed_content + "\n", encoding="utf-8")
+    elif broken:
+        # Only broken wikilinks — no Claude call needed
+        repair_status = "fixed" if link_fix_made else "failed"
 
     if fixed_content:
-        note_path.write_text(fixed_content + "\n", encoding="utf-8")
+        icon = "✓"
+    elif link_fix_made and not other:
+        # Broken links fixed by Python, no Claude needed
         icon = "✓"
     else:
         if repair_status == "timeout" and prev_status == "timeout":
             repair_status = "needs_review"
-        icon = "✗"
+        icon = "✗" if not link_fix_made else "~"
 
     with lock:
         msg = f"  {rel} ({len(repairable)} issue(s)) … {icon}"
@@ -512,7 +767,7 @@ def _repair_one(
             "issues": [i.code for i in repairable],
         }
 
-    return fixed_content is not None
+    return fixed_content is not None or link_fix_made
 
 
 # ---------------------------------------------------------------------------
@@ -716,7 +971,7 @@ def main() -> None:
 
     if not repair_candidates:
         print(
-            "No repairable issues (broken wikilinks and flat daily notes require manual fixes)."
+            "No repairable issues (flat daily notes require manual fixes)."
         )
         save_state(state)
         return
@@ -751,6 +1006,7 @@ def main() -> None:
                 today_str,
                 lock,
                 args.timeout,
+                note_map,
             ): note_path
             for note_path, note_issues in batch
         }

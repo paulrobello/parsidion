@@ -385,8 +385,8 @@ An on-demand diagnostic and repair tool that scans vault notes for structural is
 | `MISSING_FIELD` | error | `date`/`type` missing (all notes); `confidence`/`related` missing (non-daily) |
 | `INVALID_TYPE` | error | `type` not in allowed set |
 | `INVALID_DATE` | warning | `date` not in YYYY-MM-DD format |
-| `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field |
-| `BROKEN_WIKILINK` | warning | Link target not found in vault |
+| `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field; repaired with semantic candidates from `vault-search` |
+| `BROKEN_WIKILINK` | warning | Link target not found in vault; auto-repaired via exact stem match or `vault-search` semantic lookup; removed if no match found |
 | `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
 
 Daily notes are exempt from `confidence`, `related`, and orphan checks.
@@ -398,7 +398,7 @@ Daily notes are exempt from `confidence`, `related`, and orphan checks.
 - `failed` — Claude returned no output; retried next run
 - `timeout` — `claude -p` timed out once; retried one more time
 - `needs_review` — timed out on retry; skipped indefinitely, flagged for user
-- `skipped` — only non-auto-repairable issues (`BROKEN_WIKILINK`, `FLAT_DAILY`); skipped indefinitely
+- `skipped` — only non-auto-repairable issues (`FLAT_DAILY`); skipped indefinitely
 
 **Behavior:**
 1. Checks `doctor_state.json` for a live `pid`; exits if another instance is already running
@@ -407,7 +407,7 @@ Daily notes are exempt from `confidence`, `related`, and orphan checks.
 4. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
 5. Scans remaining notes for issues using stdlib-only checks
 6. Records clean notes as `ok` in state (skipped for 7 days)
-7. In `--fix` mode: calls `claude -p` per note with haiku to repair repairable issues
+7. In `--fix` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match first, then `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the Claude prompt, then calls `claude -p` per note with haiku to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent.
 8. Saves state after each run; escalates double-timeout to `needs_review`
 9. `--no-state` rescans all notes regardless of prior results
 
