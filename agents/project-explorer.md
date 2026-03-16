@@ -213,3 +213,7 @@ update_index.py: {success|failed — error message}
    instead of creating a duplicate. Add a `related` link back to the project overview.
 6. **Related field format**: inline quoted array — `related: ["[[note-a]]", "[[note-b]]"]`
    (not bare wikilinks, not YAML block sequence with `-`).
+7. **Reuse existing tags**: before choosing tags, scan `~/ClaudeVault/CLAUDE.md` for tags
+   already used on related notes and reuse them where they fit. Prefer short single-word or
+   minimal-hyphen tags — e.g. `swift` not `swift-language`, `arkit` not `arkit-tracking`.
+   Invent new tags only when no existing tag accurately describes the concept.
