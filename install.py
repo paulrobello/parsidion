@@ -551,6 +551,93 @@ def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
     return False
 
 
+def enable_ai_mode(
+    settings_file: Path,
+    vault_root: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+) -> None:
+    """Write ai_model to vault config.yaml and set SessionStart timeout to 30s.
+
+    Called when the user opts into AI-powered note selection during install.
+    Updates the vault's config.yaml so ``session_start_hook.py`` uses
+    ``claude-haiku`` for intelligent note selection, and bumps the SessionStart
+    hook timeout to 30 000 ms so the AI call has time to complete.
+
+    Args:
+        settings_file: Path to ``~/.claude/settings.json``.
+        vault_root: Path to the vault root directory.
+        claude_dir: Path to the ``~/.claude/`` directory (used to locate the hook command).
+        dry_run: When True, print actions without writing files.
+    """
+    # 1. Update vault config.yaml
+    config_path = vault_root / "config.yaml"
+    ai_model = "claude-haiku-4-5-20251001"
+
+    if config_path.exists():
+        try:
+            content = config_path.read_text(encoding="utf-8")
+        except OSError:
+            content = ""
+    else:
+        content = ""
+
+    # Replace existing ai_model: null or ai_model: <value> in session_start_hook section
+    if re.search(r"^\s*ai_model\s*:", content, re.MULTILINE):
+        new_content = re.sub(
+            r"^(\s*ai_model\s*:).*$",
+            rf"\1 {ai_model}",
+            content,
+            flags=re.MULTILINE,
+        )
+    elif "session_start_hook:" in content:
+        new_content = content.replace(
+            "session_start_hook:",
+            f"session_start_hook:\n  ai_model: {ai_model}",
+            1,
+        )
+    else:
+        ai_section = (
+            "# Session start hook (session_start_hook.py)\n"
+            f"session_start_hook:\n  ai_model: {ai_model}\n\n"
+        )
+        new_content = ai_section + content
+
+    _step(f"Write ai_model to {config_path}", dry_run=dry_run)
+    if not dry_run:
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(new_content, encoding="utf-8")
+        except OSError as exc:
+            _warn(f"Could not write {config_path}: {exc}")
+
+    # 2. Bump SessionStart hook timeout to 30 000 ms in settings.json
+    if not settings_file.exists():
+        return
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+
+    command = _hook_command(claude_dir, "SessionStart")
+    modified = False
+    for entry in settings.get("hooks", {}).get("SessionStart", []):
+        for handler in entry.get("hooks", []):
+            if handler.get("command") == command and handler.get("timeout") != 30000:
+                _step("Set SessionStart hook timeout to 30000ms", dry_run=dry_run)
+                if not dry_run:
+                    handler["timeout"] = 30000
+                    modified = True
+
+    if modified and not dry_run:
+        try:
+            settings_file.write_text(
+                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+            )
+        except OSError as exc:
+            _warn(f"Could not update {settings_file}: {exc}")
+
+
 def merge_hooks(
     claude_dir: Path,
     settings_file: Path,
@@ -873,10 +960,26 @@ def install(args: argparse.Namespace) -> int:
         else:
             vault_root = prompt_vault_path(default_vault)
 
+    # --- AI mode prompt ---
+    enable_ai: bool = False
+    if not args.yes and not args.skip_hooks:
+        print()
+        print(bold("AI-Powered Note Selection (optional)"))
+        print(
+            dim(
+                "  When enabled, the SessionStart hook uses claude-haiku to\n"
+                "  intelligently select relevant vault notes instead of keyword\n"
+                "  matching. Requires a 30s hook timeout and an Anthropic API key."
+            )
+        )
+        enable_ai = _confirm("Enable AI-powered note selection?", default=False)
+
     print()
     print(bold("Installation Plan"))
     print(f"  {dim('Claude dir   :')} {claude_dir}")
     print(f"  {dim('Vault path   :')} {vault_root}")
+    if enable_ai:
+        print(f"  {dim('AI mode      :')} enabled (SessionStart timeout → 30s)")
     print(f"  {dim('Settings     :')} {settings_file}")
     print(f"  {dim('Install skill:')} {claude_dir / 'skills' / 'parsidion-cc'}")
     if not args.skip_agent:
@@ -933,6 +1036,10 @@ def install(args: argparse.Namespace) -> int:
     # 7. Register hooks
     if not args.skip_hooks:
         merge_hooks(claude_dir, settings_file, dry_run=dry_run, verbose=verbose)
+
+    # 7b. Enable AI mode if requested
+    if enable_ai and not args.skip_hooks:
+        enable_ai_mode(settings_file, vault_root, claude_dir, dry_run=dry_run)
 
     # 8. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
     install_claude_vault_md(claude_dir, dry_run=dry_run, verbose=verbose)

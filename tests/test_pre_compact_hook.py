@@ -12,7 +12,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
 # Mirror the sys.path.insert pattern used by all hook scripts (ARC-009).
 sys.path.insert(

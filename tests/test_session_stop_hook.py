@@ -105,7 +105,9 @@ class TestDetectCategories:
 class TestAppendToPending:
     """Tests for vault_common.append_to_pending."""
 
-    def test_writes_jsonl_entry(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_writes_jsonl_entry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "abc123.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
@@ -119,14 +121,20 @@ class TestAppendToPending:
 
         pending = tmp_path / "pending_summaries.jsonl"
         assert pending.exists()
-        lines = [line.strip() for line in pending.read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = [
+            line.strip()
+            for line in pending.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
         assert len(lines) == 1
         entry = json.loads(lines[0])
         assert entry["session_id"] == "abc123"
         assert entry["project"] == "test-project"
         assert "error_fix" in entry["categories"]
 
-    def test_deduplication_same_session_id(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_deduplication_same_session_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "session-xyz.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
@@ -136,10 +144,16 @@ class TestAppendToPending:
         vault_common.append_to_pending(transcript, "proj", categories)
 
         pending = tmp_path / "pending_summaries.jsonl"
-        lines = [l.strip() for l in pending.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [
+            ln.strip()
+            for ln in pending.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
         assert len(lines) == 1, "Duplicate session_id must not be appended twice"
 
-    def test_no_significant_category_skips_write(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_significant_category_skips_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "routine.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
@@ -151,10 +165,14 @@ class TestAppendToPending:
         pending = tmp_path / "pending_summaries.jsonl"
         # File either doesn't exist or is empty — nothing written
         if pending.exists():
-            lines = [l for l in pending.read_text(encoding="utf-8").splitlines() if l.strip()]
+            lines = [
+                ln for ln in pending.read_text(encoding="utf-8").splitlines() if ln.strip()
+            ]
             assert len(lines) == 0
 
-    def test_force_bypasses_significance_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_force_bypasses_significance_filter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "forced.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
@@ -164,10 +182,16 @@ class TestAppendToPending:
 
         pending = tmp_path / "pending_summaries.jsonl"
         assert pending.exists()
-        lines = [l.strip() for l in pending.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [
+            ln.strip()
+            for ln in pending.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
         assert len(lines) == 1
 
-    def test_entry_has_required_fields(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_entry_has_required_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "full-entry.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
@@ -184,7 +208,9 @@ class TestAppendToPending:
         assert "timestamp" in entry
         assert "source" in entry
 
-    def test_source_defaults_to_session(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_source_defaults_to_session(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "src-test.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
@@ -195,13 +221,19 @@ class TestAppendToPending:
         entry = json.loads(pending.read_text(encoding="utf-8").strip())
         assert entry["source"] == "session"
 
-    def test_source_subagent_stored(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_source_subagent_stored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
         transcript = tmp_path / "sub-test.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
 
         vault_common.append_to_pending(
-            transcript, "proj", {"error_fix": []}, source="subagent", agent_type="Explore"
+            transcript,
+            "proj",
+            {"error_fix": []},
+            source="subagent",
+            agent_type="Explore",
         )
 
         pending = tmp_path / "pending_summaries.jsonl"
@@ -209,7 +241,9 @@ class TestAppendToPending:
         assert entry["source"] == "subagent"
         assert entry.get("agent_type") == "Explore"
 
-    def test_multiple_different_sessions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_multiple_different_sessions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
 
         for name in ("session-a", "session-b", "session-c"):
@@ -218,5 +252,9 @@ class TestAppendToPending:
             vault_common.append_to_pending(t, "proj", {"error_fix": []})
 
         pending = tmp_path / "pending_summaries.jsonl"
-        lines = [l.strip() for l in pending.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [
+            ln.strip()
+            for ln in pending.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
         assert len(lines) == 3

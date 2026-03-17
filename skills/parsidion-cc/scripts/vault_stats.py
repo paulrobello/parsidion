@@ -13,12 +13,15 @@ Modes (mutually exclusive; default is --summary):
     --top-linked N   Top N most-linked notes (default: 10)
     --by-project     Count notes per project
     --growth N       Notes created per week for the last N weeks (default: 8)
+    --tags           Show tag cloud (top 30 most-used tags)
+    --dashboard      Full-page analytics dashboard (combines all views)
 
 All modes read from ~/ClaudeVault/embeddings.db (note_index table).
 Falls back to a plain-text walk when the DB is absent.
 """
 
 import argparse
+import json
 import sqlite3
 import sys
 import time
@@ -28,8 +31,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import vault_common  # noqa: E402
 
+from rich.columns import Columns
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 from rich import box
 
 
@@ -260,6 +266,205 @@ def run_growth(conn: sqlite3.Connection, weeks: int = 8) -> None:
     _CONSOLE.print(t)
 
 
+def _collect_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
+    """Collect all tags from note_index, returning (tag, count) sorted by count desc.
+
+    The ``tags`` column stores a JSON array as text (e.g. ``["python", "vault"]``).
+    Falls back gracefully when parsing fails for any row.
+
+    Args:
+        conn: Open DB connection.
+
+    Returns:
+        List of (tag, count) tuples sorted by count descending.
+    """
+    rows = _fetch_all(
+        conn, "SELECT tags FROM note_index WHERE tags IS NOT NULL AND tags != ''"
+    )
+    counts: dict[str, int] = {}
+    for row in rows:
+        try:
+            tags = json.loads(row["tags"])
+            if not isinstance(tags, list):
+                continue
+            for tag in tags:
+                t = str(tag).strip()
+                if t:
+                    counts[t] = counts.get(t, 0) + 1
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return sorted(counts.items(), key=lambda x: -x[1])
+
+
+def run_tags(conn: sqlite3.Connection, top_n: int = 30) -> None:
+    """Print a tag cloud showing the most-used tags.
+
+    Args:
+        conn: Open DB connection.
+        top_n: Maximum number of tags to display.
+    """
+    tags = _collect_tags(conn)[:top_n]
+    if not tags:
+        _CONSOLE.print("[dim]No tags found.[/dim]")
+        return
+
+    _CONSOLE.print(
+        f"\n[bold cyan]Tag Cloud[/bold cyan] — top {min(top_n, len(tags))} tags\n"
+    )
+    t = Table(box=box.SIMPLE_HEAD, show_lines=False)
+    t.add_column("Tag", style="cyan")
+    t.add_column("Count", justify="right", style="white")
+    t.add_column("Bar", style="blue")
+    max_count = tags[0][1] if tags else 1
+    for tag, count in tags:
+        bar = "█" * max(1, int(count / max_count * 20))
+        t.add_row(tag, str(count), bar)
+    _CONSOLE.print(t)
+
+
+def run_dashboard(conn: sqlite3.Connection) -> None:
+    """Print a full-page analytics dashboard combining all views.
+
+    Shows: vault overview, folder distribution, note growth (8 weeks),
+    top 10 most-linked notes, top 10 stale notes, and tag cloud.
+
+    Args:
+        conn: Open DB connection.
+    """
+    now = time.time()
+    week_secs = 7 * 24 * 3600
+
+    # --- collect data ---
+    total = _fetch_all(conn, "SELECT COUNT(*) AS n FROM note_index")[0]["n"]
+    stale_count = _fetch_all(
+        conn, "SELECT COUNT(*) AS n FROM note_index WHERE is_stale = 1"
+    )[0]["n"]
+    linked_count = _fetch_all(
+        conn, "SELECT COUNT(*) AS n FROM note_index WHERE incoming_links > 0"
+    )[0]["n"]
+    folder_rows = _fetch_all(
+        conn,
+        "SELECT folder, COUNT(*) AS n FROM note_index GROUP BY folder ORDER BY n DESC",
+    )
+    top_linked_rows = _fetch_all(
+        conn,
+        "SELECT stem, title, incoming_links FROM note_index "
+        "WHERE incoming_links > 0 ORDER BY incoming_links DESC LIMIT 10",
+    )
+    stale_rows = _fetch_all(
+        conn,
+        "SELECT stem, folder, mtime FROM note_index WHERE is_stale = 1 ORDER BY mtime ASC LIMIT 10",
+    )
+    growth_rows = _fetch_all(
+        conn,
+        "SELECT mtime FROM note_index WHERE mtime >= ? ORDER BY mtime ASC",
+        (now - 8 * week_secs,),
+    )
+    tags_data = _collect_tags(conn)[:20]
+
+    # --- header ---
+    _CONSOLE.print()
+    _CONSOLE.rule("[bold cyan]Claude Vault Dashboard[/bold cyan]")
+    _CONSOLE.print(
+        f"\n  [bold white]{total}[/bold white] notes  ·  "
+        f"[yellow]{stale_count}[/yellow] stale  ·  "
+        f"[green]{linked_count}[/green] linked  ·  "
+        f"[dim]{datetime.now(tz=UTC).strftime('%Y-%m-%d %H:%M UTC')}[/dim]\n"
+    )
+
+    # --- folder distribution ---
+    folder_table = Table(title="Notes by Folder", box=box.SIMPLE_HEAD, show_lines=False)
+    folder_table.add_column("Folder", style="cyan")
+    folder_table.add_column("Count", justify="right", style="white")
+    folder_table.add_column("Bar", style="green")
+    max_n = folder_rows[0]["n"] if folder_rows else 1
+    for row in folder_rows:
+        bar = "█" * max(1, int(row["n"] / max_n * 16))
+        folder_table.add_row(row["folder"] or "(root)", str(row["n"]), bar)
+
+    # --- weekly growth ---
+    buckets: dict[int, int] = {}
+    for row in growth_rows:
+        w = int((now - row["mtime"]) / week_secs)
+        w = min(w, 7)
+        buckets[w] = buckets.get(w, 0) + 1
+    growth_table = Table(
+        title="Note Growth (8w)", box=box.SIMPLE_HEAD, show_lines=False
+    )
+    growth_table.add_column("Week", style="dim")
+    growth_table.add_column("n", justify="right", style="white")
+    growth_table.add_column("Bar", style="green")
+    max_g = max(buckets.values()) if buckets else 1
+    for w in range(7, -1, -1):
+        n = buckets.get(w, 0)
+        label = "this week" if w == 0 else f"{w}w ago"
+        bar = "█" * max(0, int(n / max_g * 16)) if n else ""
+        growth_table.add_row(label, str(n), bar)
+
+    _CONSOLE.print(Columns([folder_table, growth_table], equal=False, expand=False))
+
+    # --- top linked ---
+    _CONSOLE.print()
+    linked_table = Table(
+        title="Top 10 Most-Linked Notes", box=box.SIMPLE_HEAD, show_lines=False
+    )
+    linked_table.add_column("Note", style="cyan")
+    linked_table.add_column("Title", style="white")
+    linked_table.add_column("Links", justify="right", style="green")
+    if top_linked_rows:
+        for row in top_linked_rows:
+            linked_table.add_row(
+                f"[[{row['stem']}]]",
+                (row["title"] or row["stem"])[:40],
+                str(row["incoming_links"]),
+            )
+    else:
+        linked_table.add_row("[dim]—[/dim]", "[dim]no linked notes[/dim]", "")
+
+    # --- stale notes ---
+    stale_table = Table(
+        title="Top 10 Stale Notes", box=box.SIMPLE_HEAD, show_lines=False
+    )
+    stale_table.add_column("Note", style="yellow")
+    stale_table.add_column("Folder", style="dim")
+    stale_table.add_column("Modified", style="white")
+    if stale_rows:
+        for row in stale_rows:
+            try:
+                age = datetime.fromtimestamp(row["mtime"], tz=UTC).strftime("%Y-%m-%d")
+            except (OSError, ValueError):
+                age = "unknown"
+            stale_table.add_row(f"[[{row['stem']}]]", row["folder"] or "(root)", age)
+    else:
+        stale_table.add_row("[dim]—[/dim]", "[dim]no stale notes[/dim]", "")
+
+    _CONSOLE.print(Columns([linked_table, stale_table], equal=False, expand=False))
+
+    # --- tag cloud ---
+    _CONSOLE.print()
+    if tags_data:
+        tag_text = Text()
+        max_count = tags_data[0][1]
+        for i, (tag, count) in enumerate(tags_data):
+            ratio = count / max_count
+            if ratio >= 0.7:
+                style = "bold cyan"
+            elif ratio >= 0.4:
+                style = "cyan"
+            elif ratio >= 0.2:
+                style = "blue"
+            else:
+                style = "dim"
+            if i > 0:
+                tag_text.append("  ")
+            tag_text.append(f"{tag}({count})", style=style)
+        _CONSOLE.print(Panel(tag_text, title="Tag Cloud (top 20)", border_style="dim"))
+    else:
+        _CONSOLE.print("[dim]No tags found.[/dim]")
+
+    _CONSOLE.print()
+
+
 def run_no_db_summary() -> None:
     """Print a simple file-walk based note count when DB is absent.
 
@@ -340,6 +545,22 @@ def main() -> None:
         type=int,
         help="Notes created per week for the last N weeks (default: 8)",
     )
+    mode.add_argument(
+        "--tags",
+        "-t",
+        metavar="N",
+        nargs="?",
+        const=30,
+        type=int,
+        help="Show tag cloud — top N most-used tags (default: 30)",
+    )
+    mode.add_argument(
+        "--dashboard",
+        "-d",
+        action="store_true",
+        default=False,
+        help="Full-page analytics dashboard combining all views",
+    )
     args = parser.parse_args()
 
     conn = _open_db()
@@ -351,10 +572,12 @@ def main() -> None:
         or args.by_project
         or args.top_linked is not None
         or args.growth is not None
+        or args.tags is not None
+        or args.dashboard
     )
 
     if conn is None:
-        if no_mode or args.summary:
+        if no_mode or args.summary or args.dashboard:
             run_no_db_summary()
         else:
             _CONSOLE.print(
@@ -364,7 +587,9 @@ def main() -> None:
         return
 
     try:
-        if no_mode or args.summary:
+        if args.dashboard:
+            run_dashboard(conn)
+        elif no_mode or args.summary:
             run_summary(conn)
         elif args.stale:
             run_stale(conn)
@@ -374,6 +599,8 @@ def main() -> None:
             run_by_project(conn)
         elif args.growth is not None:
             run_growth(conn, args.growth)
+        elif args.tags is not None:
+            run_tags(conn, args.tags)
     finally:
         conn.close()
 
