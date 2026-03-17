@@ -571,7 +571,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `git_commit_vault()` | Stage and commit vault changes; respects `git.auto_commit` config |
 | `load_config()` | Load and cache `config.yaml` from `VAULT_ROOT` |
 | `get_config()` | Look up a config value by section/key with fallback default |
-| `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset (for nested `claude -p` calls); `ANTHROPIC_API_KEY` is included via `_SAFE_ENV_KEYS` so custom API keys are forwarded to subprocesses |
+| `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset (for nested `claude -p` calls); `_SAFE_ENV_KEYS` allowlist forwards `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so proxy/org/Bedrock configurations reach subprocesses |
 | `flock_exclusive()` | Acquire an exclusive file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `flock_shared()` | Acquire a shared file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `funlock()` | Release a file lock |
