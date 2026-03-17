@@ -54,7 +54,22 @@ vault-search -n 5 -r "hook patterns"         # semantic, rich output
 vault-search -f Patterns                     # metadata: by folder
 vault-search -T python -d 7                  # metadata: by tag + recency
 vault-search --folder Patterns --tag python  # metadata: long form still works
+vault-search --grep "dedup_threshold"        # full-text body search (case-insensitive)
+vault-search --grep "FLOCK" --grep-case      # full-text body search (case-sensitive)
 VAULT_SEARCH_FORMAT=rich VAULT_SEARCH_MIN_SCORE=0.5 vault-search "query"  # env vars
+
+# Scaffold a new vault note (after uv tool install --editable ".[tools]")
+vault-new --type pattern --title "My Pattern" --project myproj --tags python,vault --open
+vault-new --type debugging --title "Fix X Error" --tags sqlite
+
+# Vault analytics (after uv tool install --editable ".[tools]")
+vault-stats --summary        # note counts, growth, top tags
+vault-stats --stale          # notes with no incoming links older than 30 days
+vault-stats --top-linked     # most-referenced notes
+vault-stats --by-project     # note counts per project
+vault-stats --growth         # notes added per week
+vault-stats --tags           # tag frequency cloud
+vault-stats --dashboard      # full combined dashboard
 
 # Run the skill trigger accuracy eval (MUST be from a separate terminal, not inside Claude Code)
 bash ~/.claude/skills/parsidion-cc/scripts/run_trigger_eval.sh
@@ -106,7 +121,8 @@ Config sections:
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize` | `session_stop_hook.py` |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
-| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `max_cleaned_chars`, `persist`, `cluster_model` | `summarize_sessions.py` |
+| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `max_cleaned_chars`, `persist`, `cluster_model`, `dedup_threshold` | `summarize_sessions.py` |
+| `defaults` | `haiku_model`, `sonnet_model` | all scripts that call Claude |
 | `embeddings` | `model`, `min_score`, `top_k` | `build_embeddings.py`, `vault_search.py` |
 | `git` | `auto_commit` | `vault_common.git_commit_vault()` |
 
@@ -166,7 +182,7 @@ python skills/parsidion-cc/scripts/subagent_stop_hook.py <<'EOF'
 EOF
 ```
 
-**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `vault_common.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
+**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `vault_common.py`, `vault_links.py`, `vault_new.py`, `vault_stats.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
 
 **Exception**: `summarize_sessions.py` is a PEP 723 script with inline dependency declarations (`claude-agent-sdk`, `anyio`). Run it with `uv run` — deps are installed automatically into an isolated environment.
 
@@ -181,13 +197,15 @@ The system has four layers:
    - `post_compact_hook.py`: Restores working context after compaction. Reads today's daily note, finds the most recent `## Pre-Compact Snapshot` section written by `pre_compact_hook.py`, and returns it as `additionalContext` so Claude can resume the session without re-reading files.
    - `subagent_stop_hook.py`: Registered under the `SubagentStop` hook with `async: true` (non-blocking). Reads the subagent's own `agent_transcript_path`, skips agents listed in `excluded_agents` (default: `vault-explorer`, `research-agent`), and queues the transcript to `pending_summaries.jsonl` with `source: "subagent"` and `agent_type` metadata. Uses `agent_id` as the dedup key. Configurable via `subagent_stop_hook` section in `config.yaml`.
 
-2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls Claude via the Agent SDK (up to 5 parallel sessions) to generate structured vault notes. Features: **write-gate filter** (Claude decides per-session if insights are reusable before generating a note), **hierarchical summarization** (transcripts exceeding `max_cleaned_chars` are chunked and summarized by haiku first), **automated backlinks** (tag-overlap scan injects bidirectional wikilinks after each note write). Cleans processed entries from the queue and rebuilds the index when done.
+2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls Claude via the Agent SDK (up to 5 parallel sessions) to generate structured vault notes. Features: **write-gate filter** (Claude decides per-session if insights are reusable before generating a note), **hierarchical summarization** (transcripts exceeding `max_cleaned_chars` are chunked and summarized by haiku first), **semantic dedup** (before writing a note, checks for near-duplicates using `vault_search.py`; controlled by `summarizer.dedup_threshold` in config, default `0.80`), **automated backlinks** (via `vault_links.py` — injects bidirectional wikilinks after each note write). Cleans processed entries from the queue and rebuilds the index when done.
 
-3. **`vault_common.py`** — Shared library imported by all hooks. Contains frontmatter parsing (regex-based, no pyyaml), vault traversal, note search functions (`find_notes_by_tag` etc. — DB-first, file-walk fallback), `ensure_note_index_schema()`, `query_note_index()`, and path utilities. All vault operations go through this module.
+3. **`vault_common.py`** — Shared library imported by all hooks. Contains frontmatter parsing (regex-based, no pyyaml), vault traversal, note search functions (`find_notes_by_tag` etc. — DB-first, file-walk fallback), `ensure_note_index_schema()`, `query_note_index()`, `build_compact_index()` (moved here from `session_start_hook.py`; also used by `parsidion-mcp`), and path utilities. `_SAFE_ENV_KEYS` includes `ANTHROPIC_API_KEY` so subprocess calls inherit custom API keys. All vault operations go through this module.
 
-4. **`vault_search.py`** — Unified search CLI with two modes. **Semantic mode** (positional `QUERY`): fastembed + sqlite-vec cosine similarity search. **Metadata mode** (filter flags `--tag`/`-T`, `--folder`/`-f`, `--type`/`-k`, `--project`/`-p`, `--recent-days`/`-d`, no query): SQL query against `note_index` table. Both modes output identical JSON with a `score` field (`null` for metadata). Three output formats: `--json`/`-j` (default), `--text`/`-t` (human-readable), `--rich`/`-r` (Rich-colorized one-line-per-note). All flags have short options; defaults configurable via `VAULT_SEARCH_*` environment variables. Installed globally as `vault-search` via `uv tool install`. Used by `vault-explorer` agent for both Tier 1 and Tier 2 search.
+4. **`vault_search.py`** — Unified search CLI with three modes. **Semantic mode** (positional `QUERY`): fastembed + sqlite-vec cosine similarity search. **Metadata mode** (filter flags `--tag`/`-T`, `--folder`/`-f`, `--type`/`-k`, `--project`/`-p`, `--recent-days`/`-d`, no query): SQL query against `note_index` table. **Full-text body search** (`--grep`/`-G` flag): scans note bodies for a regex pattern; `--grep-case` enables case-sensitive matching. All modes output identical JSON with a `score` field (`null` for metadata/grep). Three output formats: `--json`/`-j` (default), `--text`/`-t` (human-readable), `--rich`/`-r` (Rich-colorized one-line-per-note). All flags have short options; defaults configurable via `VAULT_SEARCH_*` environment variables. Installed globally as `vault-search` via `uv tool install`. Used by `vault-explorer` agent for both Tier 1 and Tier 2 search.
 
-5. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated `CLAUDE.md` index at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Templates/` (symlink to skill templates). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata).
+5. **`vault_links.py`** — Shared stdlib-only module for backlink operations. Extracted from `summarize_sessions.py` and used by both the summarizer and `parsidion-mcp`. Key functions: `find_related_by_tags()` (tag-overlap candidates), `find_related_by_semantic()` (embedding-based candidates), `inject_related_links()` (add wikilinks to a note's `related` field), `add_backlinks_to_existing()` (bidirectional backlink injection after a new note is written).
+
+6. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated `CLAUDE.md` index at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Templates/` (symlink to skill templates). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata).
 
 ## Vault Note Conventions
 

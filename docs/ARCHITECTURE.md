@@ -29,6 +29,8 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 - [Obsidian Graph View](#obsidian-graph-view)
 - [Related Documentation](#related-documentation)
 
+> **Table of Contents note:** New components added in the enhancement sprint — `post_compact_hook.py` (PostCompact hook), `vault_links.py` (backlink module), `vault_new.py` / `vault-new` CLI, `vault_stats.py` / `vault-stats` CLI — are documented under [Hook Scripts](#hook-scripts), [Vault Links Library](#vault-links-library), and [CLI Utilities](#cli-utilities) respectively.
+
 ## Overview
 
 **Purpose:** Provide a structured, searchable, cross-linked knowledge base that persists across Claude Code sessions, replacing the flat auto memory with richly organized Obsidian notes.
@@ -41,7 +43,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 - Write-gate filter: transient sessions are skipped rather than saved
 - Hierarchical summarization for long transcripts (chunk → haiku summary → Sonnet note)
 - Automated bidirectional backlinks injected after each new note write
-- Working state snapshots before context compaction
+- Working state snapshots before context compaction; snapshot restored automatically after compaction via PostCompact hook
 - A dedicated research agent that saves findings to the vault
 - Auto-generated root index (`CLAUDE.md`) with tag cloud, staleness markers, and per-folder `MANIFEST.md` files
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
@@ -74,6 +76,7 @@ graph TB
         STH[session_stop_hook.py]
         ASH[subagent_stop_hook.py]
         PCH[pre_compact_hook.py]
+        POCH[post_compact_hook.py]
         SUM[summarize_sessions.py]
         IDX[update_index.py]
         VD[vault_doctor.py]
@@ -102,6 +105,7 @@ graph TB
     Hooks -->|SessionEnd| STH
     Hooks -->|SubagentStop| ASH
     Hooks -->|PreCompact| PCH
+    Hooks -->|PostCompact| POCH
     CC -->|invokes| Agent
     CC -->|invokes| VE
     CC -->|invokes| PE
@@ -110,6 +114,7 @@ graph TB
     STH -->|reads| VC
     ASH -->|reads| VC
     PCH -->|reads| VC
+    POCH -->|reads| VC
     IDX -->|reads| VC
     SUM -->|reads| VC
     VC -->|loads| Config
@@ -133,6 +138,7 @@ graph TB
     SUM -->|creates notes in| Patterns
     SUM -->|creates notes in| Research
     PCH -->|writes to| Daily
+    POCH -->|reads from| Daily
     IDX -->|generates| Index
     CGC -->|reads| Graph
 
@@ -155,6 +161,7 @@ graph TB
     style STH fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
     style ASH fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
     style PCH fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    style POCH fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
     style SUM fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style IDX fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style VD fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
@@ -209,7 +216,7 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Three Python scripts execute at different points in the Claude Code session lifecycle. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args).
+Four Python scripts execute at different points in the Claude Code session lifecycle. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args).
 
 #### SessionStart Hook
 
@@ -322,6 +329,18 @@ Fires before Claude Code compacts the conversation context. Snapshots the curren
 4. Appends a `## Pre-Compact Snapshot` section to today's daily note
 5. Calls `git_commit_vault` to commit the snapshot (respects `git.auto_commit` config)
 
+#### PostCompact Hook
+
+**Script:** `skills/parsidion-cc/scripts/post_compact_hook.py`
+
+Fires after Claude Code compacts the conversation context. Restores the pre-compaction working state so Claude can resume the session without manually re-reading files.
+
+**Behavior:**
+1. Reads today's daily note (`Daily/YYYY-MM/DD.md`)
+2. Scans backwards for the most recent `## Pre-Compact Snapshot` section written by `pre_compact_hook.py`
+3. Returns the snapshot content as `additionalContext` in the hook output
+4. If no snapshot is found (e.g. first compact of a session), returns an empty context gracefully
+
 #### SubagentStop Hook
 
 **Script:** `skills/parsidion-cc/scripts/subagent_stop_hook.py`
@@ -368,15 +387,17 @@ An on-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`) that processe
 | `max_cleaned_chars` | `12000` | Maximum characters after cleaning |
 | `persist` | `false` | SDK session persistence (for debugging) |
 | `cluster_model` | `claude-haiku-4-5-20251001` | Model for hierarchical chunk summarization |
+| `dedup_threshold` | `0.80` | Cosine similarity above which a note is considered a near-duplicate and skipped |
 
 **Behavior:**
 1. Reads entries from `pending_summaries.jsonl`
 2. Pre-processes each transcript via `preprocess_transcript_hierarchical()`: if the cleaned dialogue fits within `max_cleaned_chars`, it is used as-is; if it exceeds the limit, it is split into chunks, each chunk is summarized by `cluster_model` (haiku by default), and the chunk summaries are concatenated for the final note prompt
 3. **Write-gate filter:** before generating a note, Claude evaluates whether the session contains reusable insight. Transient sessions (dead-ends, routine builds, session-specific context) return `{"decision": "skip"}` and are not saved to the vault
-4. Calls Claude (Sonnet by default) via the Agent SDK (up to `max_parallel` parallel sessions) to generate structured notes
-5. **Automated backlinks:** after writing a new note, scans existing vault notes for tag overlap and injects bidirectional `[[wikilinks]]` — updating both the new note's `related` field and matching existing notes
-6. Saves notes to the appropriate vault subfolder (`Debugging/`, `Patterns/`, `Research/`, etc.) with YAML frontmatter
-7. Removes processed entries from the queue, rebuilds the vault index, and commits via `git_commit_vault`
+4. **Semantic dedup:** before writing a note, runs `vault_search.py` to check for near-duplicate existing notes (cosine similarity ≥ `dedup_threshold`); skips writing if a near-duplicate is found
+5. Calls Claude (Sonnet by default) via the Agent SDK (up to `max_parallel` parallel sessions) to generate structured notes
+6. **Automated backlinks:** after writing a new note, delegates to `vault_links.add_backlinks_to_existing()` to inject bidirectional `[[wikilinks]]` — updating both the new note's `related` field and matching existing notes
+7. Saves notes to the appropriate vault subfolder (`Debugging/`, `Patterns/`, `Research/`, etc.) with YAML frontmatter
+8. Removes processed entries from the queue, rebuilds the vault index, and commits via `git_commit_vault`
 
 **Must be run from a separate terminal** (or with `env -u CLAUDECODE`) because the Agent SDK cannot be nested inside an active Claude Code session.
 
@@ -539,7 +560,8 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `find_notes_by_type()` | Search by `type` frontmatter field — DB-first, falls back to file walk |
 | `find_recent_notes()` | Find notes modified within N days — DB-first, falls back to file walk |
 | `read_note_summary()` | Extract title + first few body lines |
-| `build_context_block()` | Assemble notes into a character-budgeted context string |
+| `build_compact_index()` | Build a compact one-line-per-note index string for context injection; moved here from `session_start_hook.py` and also used by `parsidion-mcp` |
+| `build_context_block()` | Assemble notes into a character-budgeted context string (verbose mode) |
 | `get_project_name()` | Derive project name from cwd or git root |
 | `ensure_vault_dirs()` | Create missing vault directories and Templates symlink |
 | `today_daily_path()` | Return the `Daily/YYYY-MM/DD.md` path for today |
@@ -549,7 +571,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `git_commit_vault()` | Stage and commit vault changes; respects `git.auto_commit` config |
 | `load_config()` | Load and cache `config.yaml` from `VAULT_ROOT` |
 | `get_config()` | Look up a config value by section/key with fallback default |
-| `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset (for nested `claude -p` calls) |
+| `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset (for nested `claude -p` calls); `ANTHROPIC_API_KEY` is included via `_SAFE_ENV_KEYS` so custom API keys are forwarded to subprocesses |
 | `flock_exclusive()` | Acquire an exclusive file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `flock_shared()` | Acquire a shared file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `funlock()` | Release a file lock |
@@ -582,12 +604,13 @@ Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID s
 
 **Location:** `skills/parsidion-cc/scripts/vault_search.py` (unified CLI)
 
-`vault-search` operates in two modes depending on arguments:
+`vault-search` operates in three modes depending on arguments:
 
 - **Semantic mode** (positional `QUERY`): embeds the query with fastembed and retrieves top-K notes by cosine similarity. Results include a `score` field.
 - **Metadata mode** (filter flags, no `QUERY`): queries the `note_index` table in `embeddings.db` using SQL. Results set `score` to `null`.
+- **Full-text body search** (`--grep`/`-G` flag): scans note bodies for a regex/literal pattern. `--grep-case` enables case-sensitive matching. Results set `score` to `null`. Can be combined with metadata filters (e.g. `vault-search --grep "pattern" -f Patterns`).
 
-Both modes produce the same JSON output structure. The `vault-explorer` agent uses metadata mode as its Tier 2 search step (after semantic, before grep fallback).
+All modes produce the same JSON output structure. The `vault-explorer` agent uses metadata mode as its Tier 2 search step (after semantic, before grep fallback).
 
 **Output formats** (all modes):
 
@@ -596,6 +619,13 @@ Both modes produce the same JSON output structure. The `vault-explorer` agent us
 | `--json` | `-j` | JSON array output (default) |
 | `--text` | `-t` | Human-readable one-line-per-note output |
 | `--rich` | `-r` | Rich-colorized one-line-per-note (score green/yellow/red, folder cyan, tags dim) |
+
+**Full-text search flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--grep PATTERN` | `-G` | Search note bodies for a regex/literal pattern (case-insensitive by default) |
+| `--grep-case` | — | Make `--grep` matching case-sensitive |
 
 **Metadata filter flags:**
 
@@ -629,6 +659,61 @@ Both modes produce the same JSON output structure. The `vault-explorer` agent us
 **Graceful degradation:** returns `[]` when `embeddings.db` is absent or `note_index` table does not exist.
 
 **Global CLI:** installed via `uv tool install --editable ".[tools]"` from the repo root, or `uv run install.py --install-tools`. Places `vault-search` in `~/.local/bin/` (Linux/macOS) or `%APPDATA%\Python\Scripts` (Windows).
+
+### Vault Links Library
+
+**Location:** `skills/parsidion-cc/scripts/vault_links.py`
+
+A shared stdlib-only module that encapsulates all backlink operations. Refactored out of `summarize_sessions.py` so the same logic is available to `parsidion-mcp` without code duplication.
+
+**Key functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `find_related_by_tags(note_path, vault_root, limit)` | Returns candidate wikilinks by tag overlap with the given note |
+| `find_related_by_semantic(title, vault_root, limit)` | Returns candidate wikilinks using `vault-search` semantic query; falls back gracefully when `embeddings.db` is absent |
+| `inject_related_links(note_path, links)` | Adds wikilinks to the `related` frontmatter field of a note, avoiding duplicates |
+| `add_backlinks_to_existing(new_note_path, vault_root)` | After writing a new note, scans existing vault notes for tag overlap and injects bidirectional `[[wikilinks]]` into both the new note and matching existing notes |
+
+**Design:** stdlib-only for maximum portability. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent.
+
+### CLI Utilities
+
+#### vault-new
+
+**Location:** `skills/parsidion-cc/scripts/vault_new.py` · Global command: `vault-new` (after `--install-tools`)
+
+Scaffolds a new vault note from the appropriate template, pre-populating frontmatter fields. Eliminates the need to manually copy templates and fill in boilerplate.
+
+**CLI flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--type TYPE` | Note type: `pattern`, `debugging`, `research`, `tool`, `language`, `framework`, `project` |
+| `--title TITLE` | Note title (used as H1 heading and to derive the kebab-case filename) |
+| `--project PROJECT` | Optional project tag |
+| `--tags TAGS` | Comma-separated tag list |
+| `--open` | Open the new note in `$EDITOR` after creation |
+
+**Behavior:** Selects the matching template from `TEMPLATES_DIR`, writes the file to the correct vault subfolder, and optionally opens it. Uses `slugify()` from `vault_common` to derive the filename from the title.
+
+#### vault-stats
+
+**Location:** `skills/parsidion-cc/scripts/vault_stats.py` · Global command: `vault-stats` (after `--install-tools`)
+
+Analytics CLI for vault health and activity. All modes output to stdout; Rich formatting is used when available.
+
+**CLI modes:**
+
+| Flag | Description |
+|------|-------------|
+| `--summary` | Note counts, most active folders, top tags, growth trend |
+| `--stale` | Notes with no incoming wikilinks that are older than 30 days |
+| `--top-linked` | Most-referenced notes (by incoming wikilink count) |
+| `--by-project` | Note count per project tag |
+| `--growth` | Notes added per week (rolling 8-week window) |
+| `--tags` | Tag frequency cloud |
+| `--dashboard` | All modes combined into a full report |
 
 ### Trigger Evaluation
 
@@ -721,12 +806,17 @@ summarizer:          # summarize_sessions.py
   max_cleaned_chars: 12000
   persist: false     # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization
+  dedup_threshold: 0.80  # Cosine similarity above which a near-duplicate note is detected and skipped
+
+defaults:            # Centralized model IDs; all scripts fall back to these
+  haiku_model: claude-haiku-4-5-20251001
+  sonnet_model: claude-sonnet-4-6
 
 git:
   auto_commit: true  # Auto-commit vault changes after writes
 ```
 
-**Model defaults:** Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) default to `claude-haiku-4-5-20251001` when AI mode is enabled. The summarizer defaults to `claude-sonnet-4-6`. Override any model via the corresponding config key or CLI flag. Setting `ai_model` to a model ID in config enables AI mode without needing the `--ai` CLI flag.
+**Model defaults:** Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) default to `claude-haiku-4-5-20251001` when AI mode is enabled. The summarizer defaults to `claude-sonnet-4-6`. Override any model via the corresponding config key or CLI flag. Setting `ai_model` to a model ID in config enables AI mode without needing the `--ai` CLI flag. The `defaults.haiku_model` and `defaults.sonnet_model` keys provide a centralized place to change model IDs across all scripts at once.
 
 **`git.auto_commit`:** When `false`, `git_commit_vault()` returns immediately without staging or committing. This disables all automatic vault git commits across hooks and the summarizer.
 
@@ -742,6 +832,7 @@ sequenceDiagram
     participant STH as SessionEnd Hook
     participant ASH as SubagentStop Hook
     participant PCH as PreCompact Hook
+    participant POCH as PostCompact Hook
 
     CC->>SSH: SessionStart (cwd, session info)
     SSH->>V: Read project notes + recent notes
@@ -753,8 +844,11 @@ sequenceDiagram
     CC->>PCH: PreCompact (transcript path)
     PCH->>V: Read last 200 transcript lines
     PCH->>V: Write snapshot to Daily/
+    CC->>POCH: PostCompact
+    POCH->>V: Read today's daily note
+    POCH-->>CC: additionalContext (Pre-Compact Snapshot)
 
-    Note over CC: Context compacted, session continues...
+    Note over CC: Context compacted, session resumes with restored context...
 
     CC->>STH: SessionEnd (transcript path)
     STH->>V: Read last 200 transcript lines
@@ -851,15 +945,19 @@ parsidion-cc/
 └── skills/parsidion-cc/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── vault_common.py          # Shared library (includes ensure_note_index_schema, query_note_index)
-    │   ├── vault_search.py          # Unified search CLI: semantic (QUERY) or metadata (--tag/--folder/...)
+    │   ├── vault_common.py          # Shared library (includes ensure_note_index_schema, query_note_index, build_compact_index)
+    │   ├── vault_links.py           # Shared backlink module (find_related_*, inject_related_links, add_backlinks_to_existing)
+    │   ├── vault_search.py          # Unified search CLI: semantic (QUERY), metadata (--tag/--folder/...), or body search (--grep)
+    │   ├── vault_new.py             # CLI to scaffold vault notes from templates (vault-new)
+    │   ├── vault_stats.py           # Analytics CLI for vault health and activity (vault-stats)
     │   ├── html-to-md.py            # HTML → clean markdown (PEP 723; used by research agent)
     │   ├── session_start_hook.py    # SessionStart hook
     │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
     │   ├── session_stop_hook.py     # SessionEnd hook (queues to pending_summaries.jsonl)
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)
     │   ├── pre_compact_hook.py      # PreCompact hook
-    │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723)
+    │   ├── post_compact_hook.py     # PostCompact hook (restores Pre-Compact Snapshot as additionalContext)
+    │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723; semantic dedup via vault_search)
     │   ├── update_index.py          # Index generator + note_index DB upsert
     │   ├── vault_doctor.py          # Vault note issue scanner and repair tool
     │   ├── check_graph_coverage.py  # Graph color group coverage audit

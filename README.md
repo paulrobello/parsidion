@@ -88,8 +88,10 @@ uv run install.py --force --yes --install-tools
 | `--yes / -y` | Skip all confirmation prompts; uses `~/ClaudeVault` if `--vault` not given |
 | `--skip-hooks` | Do not modify `settings.json` |
 | `--skip-agent` | Do not install any agents |
-| `--install-tools` | Install `vault-search` as a global CLI command via `uv tool install` |
+| `--install-tools` | Install `vault-search`, `vault-new`, and `vault-stats` as global CLI commands via `uv tool install` |
 | `--uninstall` | Remove installed skill, agents, and hook registrations |
+
+During interactive installation, the installer prompts **"Enable AI-powered note selection?"**. Answering yes writes `ai_model` to `config.yaml` and sets the SessionStart hook timeout to 30 s, enabling intelligent context selection at every session start.
 
 After installation, open the vault path in Obsidian and restart Claude Code to activate hooks.
 
@@ -105,14 +107,18 @@ An Obsidian vault-based knowledge management system that replaces Claude Code's 
 
 | Script | Purpose |
 |--------|---------|
-| `vault_common.py` | Shared library (frontmatter parsing, search, path utilities, config loader, git commit) |
+| `vault_common.py` | Shared library (frontmatter parsing, search, path utilities, config loader, git commit, `build_compact_index()`) |
+| `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via `claude -p`; `--debug` logs injected context to `$TMPDIR` |
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked) |
 | `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents` |
-| `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`) |
+| `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`); checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
 | `pre_compact_hook.py` | PreCompact hook -- snapshots working state before compaction |
+| `post_compact_hook.py` | PostCompact hook -- reads today's daily note, finds the last `## Pre-Compact Snapshot`, and returns it as `additionalContext` to restore context after compaction |
 | `build_embeddings.py` | Builds the semantic search embeddings database (`embeddings.db`) using fastembed and sqlite-vec |
-| `vault_search.py` | Unified search CLI -- semantic mode (natural language query) or metadata mode (`--tag`/`--folder`/`--type`/`--project`/`--recent-days`); available as `vault-search` global command with `--install-tools` |
+| `vault_search.py` | Unified search CLI -- semantic mode (natural language query), metadata mode (`--tag`/`--folder`/`--type`/`--project`/`--recent-days`), or full-text body search (`--grep`/`-G`); available as `vault-search` global command with `--install-tools` |
+| `vault_new.py` | CLI to scaffold new vault notes from templates -- `vault-new --type pattern --title "My Note" --project myproj --tags python,vault --open`; available as `vault-new` global command with `--install-tools` |
+| `vault_stats.py` | Analytics CLI for vault health and activity -- modes: `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags` (tag cloud), `--dashboard` (all modes combined); available as `vault-stats` global command with `--install-tools` |
 | `update_index.py` | Rebuilds `~/ClaudeVault/CLAUDE.md` index and populates the `note_index` SQLite table; includes tag cloud and vault health from `doctor_state.json` |
 | `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); auto-repairs broken wikilinks via exact stem match or `vault-search` semantic lookup (Python-only, no Claude call); repairs other issues via Claude haiku with semantic candidates from `vault-search`; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
@@ -218,6 +224,7 @@ All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#co
 | SessionStart | `session_start_hook.py` | 10 s (30 s with `--ai`) | `session_start_hook` | `--ai [MODEL]` or `session_start_hook.ai_model` enables AI selection |
 | SessionEnd | `session_stop_wrapper.sh` → `session_stop_hook.py` | 10 s | `session_stop_hook` | Shell wrapper outputs `{}` immediately; Python script runs detached via `nohup` |
 | PreCompact | `pre_compact_hook.py` | 10 s | `pre_compact_hook` | Configurable transcript lines |
+| PostCompact | `post_compact_hook.py` | 10 s | — | Reads last Pre-Compact Snapshot from today's daily note and returns it as `additionalContext` |
 | SubagentStop | `subagent_stop_hook.py` | async | `subagent_stop_hook` | Non-blocking; skips agents listed in `excluded_agents` |
 
 ## parsidion-mcp (Claude Desktop)
@@ -299,6 +306,11 @@ summarizer:
   max_cleaned_chars: 12000
   persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
+  dedup_threshold: 0.80    # Cosine similarity above which a near-duplicate note is detected and skipped
+
+defaults:
+  haiku_model: claude-haiku-4-5-20251001   # Centralized haiku model ID used across hooks
+  sonnet_model: claude-sonnet-4-6          # Centralized sonnet model ID used across scripts
 
 embeddings:
   model: BAAI/bge-small-en-v1.5  # fastembed model for semantic search
@@ -368,6 +380,11 @@ vault-search --folder Patterns --tag python           # long options (also valid
 vault-search -d 7                                     # modified in last 7 days
 vault-search -p parsidion-cc -k debugging             # by project and type
 
+# Full-text body search
+vault-search --grep "dedup_threshold"                 # case-insensitive body search
+vault-search --grep "FLOCK" --grep-case               # case-sensitive body search
+vault-search --grep "pattern" -f Patterns             # combine with metadata filters
+
 # Environment variables (override config.yaml defaults)
 VAULT_SEARCH_FORMAT=rich vault-search "query"
 VAULT_SEARCH_MIN_SCORE=0.5 VAULT_SEARCH_TOP=5 vault-search "query"
@@ -386,6 +403,29 @@ VAULT_SEARCH_MIN_SCORE=0.5 VAULT_SEARCH_TOP=5 vault-search "query"
 Precedence: **CLI flag > env var > config.yaml > built-in default**
 
 > **📝 Note:** `vault-search` requires `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root) to register it as a global command. Without this, use `uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_search.py` instead.
+
+**Scaffold a new vault note:**
+```bash
+# Create a new pattern note and open it in your editor
+vault-new --type pattern --title "My Reusable Pattern" --project myproj --tags python,vault --open
+
+# Create a debugging note without opening
+vault-new --type debugging --title "Fix SQLite Connection Error" --tags sqlite,python
+
+# See all options
+vault-new --help
+```
+
+**Vault analytics and health:**
+```bash
+vault-stats --summary          # note counts, growth, top tags
+vault-stats --stale            # notes with no incoming links, older than 30 days
+vault-stats --top-linked       # most-referenced notes
+vault-stats --by-project       # note counts per project
+vault-stats --growth           # notes added per week
+vault-stats --tags             # tag frequency cloud
+vault-stats --dashboard        # full combined dashboard (all modes)
+```
 
 **Summarize queued sessions** (generates structured vault notes via Claude Agent SDK):
 ```bash
