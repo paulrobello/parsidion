@@ -247,6 +247,7 @@ def build_prompt(
     cleaned_transcript: str,
     existing_tags: list[str],
     session_id: str,
+    similar_notes: list[tuple[str, float, str]] | None = None,
 ) -> str:
     """Build the Sonnet prompt for generating a vault note.
 
@@ -256,6 +257,9 @@ def build_prompt(
         cleaned_transcript: Pre-processed transcript text.
         existing_tags: All tags currently in the vault (for reuse preference).
         session_id: Claude session ID to embed in frontmatter.
+        similar_notes: Optional list of (stem, score, summary) tuples for
+            near-duplicate notes found by semantic search.  When provided and
+            non-empty, instructs Claude to merge rather than create a new note.
 
     Returns:
         Complete prompt string.
@@ -276,6 +280,27 @@ def build_prompt(
             "  tags (2-4 relevant tags; prefer short single-word or minimal-hyphen tags,\n"
             "  e.g. 'voxel' not 'voxel-engine', 'terminal' not 'terminal-emulator')"
         )
+    # Build optional dedup block when similar notes are found
+    dedup_block = ""
+    if similar_notes:
+        note_lines: list[str] = []
+        for stem, score, summary in similar_notes[:3]:
+            note_lines.append(
+                f"  - [[{stem}]] (similarity {score:.2f}): {summary or stem}"
+            )
+        notes_str = "\n".join(note_lines)
+        dedup_block = f"""
+IMPORTANT: The following existing vault notes are highly similar to this session
+(semantic similarity >= threshold). Prefer MERGING new insights into one of them
+rather than creating a duplicate note. Only create a new note if the new insights
+are genuinely distinct from all of these:
+
+{notes_str}
+
+If you decide to merge, output ONLY this JSON (no other text):
+{{"decision": "merge", "target": "[[stem-of-note-to-update]]", "new_content": "<full updated note markdown>"}}
+"""
+
     # SEC-004: The session transcript may contain adversarial content from user
     # files or web pages. The SYSTEM prefix instructs the model to treat the
     # transcript as passive data only, not as instructions to follow.
@@ -288,7 +313,7 @@ You are writing a knowledge note for an Obsidian vault.
 Project: {project}
 Detected topics: {cats_str}
 Today's date: {today}
-
+{dedup_block}
 Session transcript (cleaned):
 {cleaned_transcript}
 
@@ -629,6 +654,113 @@ async def preprocess_transcript_hierarchical(
     return f"{header}\n\n{body}"
 
 
+def _resolve_note_stem(stem: str) -> Path | None:
+    """Resolve a note stem to its vault path via the note_index DB.
+
+    Args:
+        stem: Note filename without extension (e.g. "my-note").
+
+    Returns:
+        Path to the note file, or None if not found.
+    """
+    db_path = vault_common.get_embeddings_db_path()
+    if db_path.exists():
+        try:
+            import sqlite3 as _sqlite3
+
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            row = conn.execute(
+                "SELECT path FROM note_index WHERE stem = ?", (stem,)
+            ).fetchone()
+            conn.close()
+            if row:
+                p = Path(row[0])
+                if p.exists():
+                    return p
+        except Exception:  # noqa: BLE001
+            pass
+    # Fallback: walk vault notes
+    for note in vault_common.all_vault_notes():
+        if note.stem == stem:
+            return note
+    return None
+
+
+def _find_dedup_candidates(
+    topic_query: str,
+    threshold: float = 0.80,
+    top_k: int = 5,
+) -> list[tuple[str, float, str]]:
+    """Search for existing notes semantically similar to *topic_query*.
+
+    Used before the Claude summarization call to detect near-duplicates and
+    prompt Claude to merge rather than create a new note.
+
+    Args:
+        topic_query: Free-text query derived from project name and categories.
+        threshold: Minimum cosine similarity score to consider a duplicate.
+        top_k: Maximum number of candidates to return.
+
+    Returns:
+        List of (stem, score, summary) tuples for notes above *threshold*,
+        ordered by descending score.  Returns empty list when vault_search.py
+        or embeddings.db is absent, or when the subprocess fails.
+    """
+    import json as _json
+
+    vault_search_script = Path(__file__).parent / "vault_search.py"
+    db_path = vault_common.get_embeddings_db_path()
+    if not vault_search_script.exists() or not db_path.exists():
+        return []
+
+    try:
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--no-project",
+                str(vault_search_script),
+                topic_query,
+                "--top",
+                str(top_k),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=vault_common.env_without_claudecode(),
+        )
+        if result.returncode != 0:
+            return []
+        items: list[dict[str, object]] = _json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError, _json.JSONDecodeError):
+        return []
+
+    candidates: list[tuple[str, float, str]] = []
+    for item in items:
+        try:
+            score = float(item.get("score") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if score < threshold:
+            continue
+        stem = str(item.get("stem", ""))
+        if not stem:
+            continue
+        # Read summary from the note file
+        path_str = str(item.get("path", ""))
+        summary = ""
+        if path_str:
+            try:
+                summary_lines = vault_common.read_note_summary(Path(path_str)).splitlines()
+                summary = " ".join(summary_lines[:3]).strip()[:400]
+            except (OSError, UnicodeDecodeError):
+                summary = stem
+        candidates.append((stem, score, summary))
+
+    return candidates
+
+
 async def summarize_one(
     entry: dict[str, object],
     model: str,
@@ -683,7 +815,16 @@ async def summarize_one(
             )
             return entry, None
 
-        prompt = build_prompt(project, categories, cleaned, existing_tags, session_id)
+        # Semantic dedup: find near-duplicate notes before calling Claude
+        dedup_threshold: float = vault_common.get_config(
+            "summarizer", "dedup_threshold", 0.80
+        )
+        topic_query = f"{project} {' '.join(categories)}".strip()
+        similar_notes = _find_dedup_candidates(topic_query, threshold=dedup_threshold)
+
+        prompt = build_prompt(
+            project, categories, cleaned, existing_tags, session_id, similar_notes
+        )
 
         result_text = ""
         try:
@@ -709,18 +850,39 @@ async def summarize_one(
             print(f"  No result from Claude for {transcript_path_str}", file=sys.stderr)
             return entry, None
 
-        # Write-gate: check if Claude decided this session is not worth saving
+        # Write-gate: check if Claude decided this session is not worth saving or to merge
         stripped_result = result_text.strip()
         if stripped_result.startswith("{"):
             try:
                 decision = json.loads(stripped_result)
-                if isinstance(decision, dict) and decision.get("decision") == "skip":
-                    reason = decision.get("reason", "no reason given")
-                    short_id = str(entry.get("session_id", "?"))[:8]
-                    print(f"  [write-gate] Skipping session {short_id}: {reason}")
-                    return entry, None
+                if isinstance(decision, dict):
+                    if decision.get("decision") == "skip":
+                        reason = decision.get("reason", "no reason given")
+                        short_id = str(entry.get("session_id", "?"))[:8]
+                        print(f"  [write-gate] Skipping session {short_id}: {reason}")
+                        return entry, None
+                    if decision.get("decision") == "merge":
+                        # Claude chose to merge into an existing note
+                        target_wikilink = str(decision.get("target", ""))
+                        new_content = str(decision.get("new_content", ""))
+                        if new_content and target_wikilink:
+                            # Extract stem from [[stem]] wikilink
+                            target_stem = target_wikilink.strip("[]")
+                            target_path = _resolve_note_stem(target_stem)
+                            if target_path is not None and not dry_run:
+                                target_path.write_text(new_content, encoding="utf-8")
+                                print(
+                                    f"  [dedup-merge] Updated [[{target_stem}]] "
+                                    f"instead of creating new note"
+                                )
+                                return entry, target_path
+                            elif dry_run:
+                                print(
+                                    f"  [dry-run] Would merge into [[{target_stem}]]"
+                                )
+                                return entry, None
             except (json.JSONDecodeError, ValueError):
-                pass  # Not a skip decision — treat as normal note
+                pass  # Not a structured decision — treat as normal note
 
         result_text = inject_project_tag(result_text, project)
         written = write_note(result_text, dry_run)
