@@ -101,3 +101,14 @@ def test_vault_write_path_escape_returns_error(tmp_path: Path) -> None:
         result = vault_write("../../evil.md", "content")
 
     assert result.startswith("ERROR: path escapes vault root")
+
+
+def test_vault_write_oserror_returns_error(tmp_path: Path) -> None:
+    with (
+        patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.notes.Path.write_text", side_effect=OSError("disk full")),
+    ):
+        mock_vc.VAULT_ROOT = tmp_path
+        result = vault_write("note.md", "content")
+
+    assert result.startswith("ERROR:")
