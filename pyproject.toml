@@ -25,6 +25,7 @@ eval = [
 
 [project.scripts]
 vault-search = "vault_search:main"
+vault-new = "vault_new:main"
 
 [build-system]
 requires = ["setuptools>=70"]
@@ -42,7 +43,7 @@ build-backend = "setuptools.build_meta"
 #   uv tool install --editable ".[tools]"
 # A plain ``uv tool install .`` or ``pip install .`` will produce an install
 # where the sys.path.insert pattern in each script resolves incorrectly.
-py-modules = ["vault_search", "vault_common"]
+py-modules = ["vault_search", "vault_common", "vault_new"]
 
 [tool.setuptools.package-dir]
 "" = "skills/parsidion-cc/scripts"
