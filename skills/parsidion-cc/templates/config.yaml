@@ -51,3 +51,8 @@ embeddings:
 # Git integration
 git:
   auto_commit: true        # Auto-commit vault changes after writes
+
+# Default model IDs — override once here instead of editing each script
+defaults:
+  haiku_model: claude-haiku-4-5-20251001   # Used by session hooks, vault_doctor repair
+  sonnet_model: claude-sonnet-4-6          # Used by summarize_sessions.py

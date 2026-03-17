@@ -87,7 +87,9 @@ REPAIRABLE_CODES = frozenset(
         "BROKEN_WIKILINK",
     }
 )
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL: str = vault_common.get_config(
+    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
+)
 AI_TIMEOUT = 120  # seconds
 STATE_FILE = vault_common.VAULT_ROOT / "doctor_state.json"
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days

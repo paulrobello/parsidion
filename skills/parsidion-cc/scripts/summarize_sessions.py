@@ -54,8 +54,10 @@ _flock_shared = vault_common.flock_shared
 _funlock = vault_common.funlock
 
 
-_DEFAULT_MODEL = "claude-sonnet-4-6"
-_DEFAULT_CLUSTER_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_MODEL: str = vault_common.get_config("defaults", "sonnet_model", "claude-sonnet-4-6")
+_DEFAULT_CLUSTER_MODEL: str = vault_common.get_config(
+    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
+)
 _DEFAULT_MAX_PARALLEL = 5
 _DEFAULT_TRANSCRIPT_TAIL_LINES = 400
 _DEFAULT_MAX_CLEANED_CHARS = 12_000

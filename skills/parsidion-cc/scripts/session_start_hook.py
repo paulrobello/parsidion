@@ -30,7 +30,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import vault_common  # noqa: E402
 
-_DEFAULT_AI_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_AI_MODEL: str = vault_common.get_config(
+    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
+)
 _DEFAULT_AI_TIMEOUT = 25  # seconds; hook timeout in settings.json should be >= 30000ms
 _DEFAULT_MAX_CHARS = 4000
 _DEBUG_FILE = Path(tempfile.gettempdir()) / "parsidion-cc-session-start-debug.log"
