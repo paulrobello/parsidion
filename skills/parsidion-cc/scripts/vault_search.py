@@ -29,6 +29,7 @@ field (cosine similarity); metadata results set ``score`` to ``null``.
 import argparse
 import json
 import os
+import re
 import sqlite3
 import struct
 import sys
@@ -289,6 +290,155 @@ def query(
 
 
 # ---------------------------------------------------------------------------
+# Grep / full-text body search
+# ---------------------------------------------------------------------------
+
+
+def _get_all_notes_as_results(limit: int) -> list[dict[str, Any]]:
+    """Return all vault notes as result dicts suitable for grep filtering.
+
+    Tries the note_index DB first; falls back to a file walk via
+    ``vault_common.all_vault_notes()``.
+
+    Args:
+        limit: Maximum number of notes to return.
+
+    Returns:
+        List of result dicts with ``score`` set to ``None``.
+    """
+    db_path = vault_common.get_embeddings_db_path()
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+            ).fetchone()
+            if row is not None:
+                sql = (
+                    "SELECT stem, path, folder, title, summary, tags, note_type, "
+                    "project, confidence, mtime, related, is_stale, incoming_links "
+                    "FROM note_index ORDER BY mtime DESC LIMIT ?"
+                )
+                rows = conn.execute(sql, (limit,)).fetchall()
+                conn.close()
+                results: list[dict[str, Any]] = []
+                for r in rows:
+                    d = dict(r)
+                    tags_str: str = d.get("tags", "") or ""
+                    related_str: str = d.get("related", "") or ""
+                    results.append(
+                        {
+                            "score": None,
+                            "stem": d.get("stem", ""),
+                            "title": d.get("title", ""),
+                            "folder": d.get("folder", ""),
+                            "tags": [
+                                t.strip() for t in tags_str.split(",") if t.strip()
+                            ],
+                            "path": d.get("path", ""),
+                            "summary": d.get("summary", ""),
+                            "note_type": d.get("note_type", ""),
+                            "project": d.get("project", ""),
+                            "confidence": d.get("confidence", ""),
+                            "mtime": d.get("mtime"),
+                            "related": [
+                                r2.strip()
+                                for r2 in related_str.split(",")
+                                if r2.strip()
+                            ],
+                            "is_stale": bool(d.get("is_stale", 0)),
+                            "incoming_links": d.get("incoming_links", 0),
+                        }
+                    )
+                return results
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+    # Fallback: file walk
+    fallback_results: list[dict[str, Any]] = []
+    for path in vault_common.all_vault_notes()[:limit]:
+        stem = path.stem
+        folder = path.parent.name if path.parent != vault_common.VAULT_ROOT else ""
+        fallback_results.append(
+            {
+                "score": None,
+                "stem": stem,
+                "title": stem.replace("-", " ").title(),
+                "folder": folder,
+                "tags": [],
+                "path": str(path),
+                "summary": "",
+                "note_type": "",
+                "project": "",
+                "confidence": "",
+                "mtime": None,
+                "related": [],
+                "is_stale": False,
+                "incoming_links": 0,
+            }
+        )
+    return fallback_results
+
+
+def _apply_grep_filter(
+    results: list[dict[str, Any]],
+    pattern: str,
+    case_sensitive: bool,
+    has_filters: bool,
+    has_query: bool,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Filter *results* (or all vault notes) by a regex pattern applied to note bodies.
+
+    When used standalone (no metadata filters and no semantic query), fetches
+    candidate notes from the DB or file walk first.
+
+    Args:
+        results: Existing results from semantic or metadata search (may be empty).
+        pattern: Regular expression pattern for ``re.search``.
+        case_sensitive: If True, disables ``re.IGNORECASE``.
+        has_filters: Whether metadata filter flags were supplied.
+        has_query: Whether a semantic query was supplied.
+        limit: Max results cap when fetching all notes standalone.
+
+    Returns:
+        Filtered list of result dicts whose note bodies match *pattern*.
+    """
+    flags = 0 if case_sensitive else re.IGNORECASE
+
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        print(f"--grep: invalid regex pattern: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    # Standalone grep — no prior results from semantic or metadata mode
+    if not has_filters and not has_query:
+        results = _get_all_notes_as_results(limit)
+
+    matched: list[dict[str, Any]] = []
+    for result in results:
+        note_path_str = result.get("path", "")
+        if not note_path_str:
+            continue
+        note_path = Path(note_path_str)
+        if not note_path.exists():
+            continue
+        try:
+            content = note_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        body = vault_common.get_body(content)
+        if compiled.search(body):
+            # Normalise score to None for grep-only results
+            matched.append({**result, "score": result.get("score")})
+
+    return matched
+
+
+# ---------------------------------------------------------------------------
 # Output formatting
 # ---------------------------------------------------------------------------
 
@@ -339,7 +489,9 @@ def _format_rich(results: list[dict[str, Any]]) -> None:
 
         if isinstance(score, (int, float)):
             s = float(score)
-            score_style = "bold green" if s >= 0.80 else "yellow" if s >= 0.60 else "red"
+            score_style = (
+                "bold green" if s >= 0.80 else "yellow" if s >= 0.60 else "red"
+            )
             line.append(f"{s:.4f}  ", style=score_style)
 
         line.append(r.get("folder") or ".", style="cyan")
@@ -474,7 +626,10 @@ def main() -> None:
         "--tag", "-T", metavar="TAG", help="Metadata: filter by exact tag token."
     )
     parser.add_argument(
-        "--folder", "-f", metavar="FOLDER", help="Metadata: filter by exact folder name."
+        "--folder",
+        "-f",
+        metavar="FOLDER",
+        help="Metadata: filter by exact folder name.",
     )
     parser.add_argument(
         "--type",
@@ -493,6 +648,26 @@ def main() -> None:
         type=int,
         help="Metadata: notes modified within the last N days.",
     )
+
+    # Grep / full-text body search flags
+    parser.add_argument(
+        "--grep",
+        "-G",
+        metavar="PATTERN",
+        default=None,
+        help=(
+            "Full-text: filter notes whose body matches PATTERN (re.search). "
+            "Case-insensitive by default; use --grep-case to make it case-sensitive. "
+            "Can be combined with metadata filters or used standalone."
+        ),
+    )
+    parser.add_argument(
+        "--grep-case",
+        action="store_true",
+        default=False,
+        help="Full-text: disable case-insensitive matching for --grep.",
+    )
+
     _eff_limit = _env_int("LIMIT", 50)
     parser.add_argument(
         "--limit",
@@ -545,11 +720,12 @@ def main() -> None:
     )
     has_query = args.query is not None
     has_filters = any(f is not None for f in _filter_flags)
+    has_grep = args.grep is not None
 
-    if not has_query and not has_filters:
+    if not has_query and not has_filters and not has_grep:
         parser.error(
             "Provide a search QUERY for semantic search, or at least one filter flag "
-            "(--tag, --folder, --type, --project, --recent-days) for metadata search."
+            "(--tag, --folder, --type, --project, --recent-days, --grep) for metadata/grep search."
         )
 
     if has_query and has_filters:
@@ -579,6 +755,17 @@ def main() -> None:
             note_type=args.note_type,
             project=args.project,
             recent_days=args.recent_days,
+            limit=args.limit,
+        )
+
+    # --grep post-filter: applied after semantic or metadata results, or standalone
+    if has_grep:
+        results = _apply_grep_filter(
+            results=results,
+            pattern=args.grep,
+            case_sensitive=args.grep_case,
+            has_filters=has_filters,
+            has_query=has_query,
             limit=args.limit,
         )
 
