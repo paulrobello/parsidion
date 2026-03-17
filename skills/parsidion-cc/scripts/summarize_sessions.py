@@ -54,7 +54,9 @@ _flock_shared = vault_common.flock_shared
 _funlock = vault_common.funlock
 
 
-_DEFAULT_MODEL: str = vault_common.get_config("defaults", "sonnet_model", "claude-sonnet-4-6")
+_DEFAULT_MODEL: str = vault_common.get_config(
+    "defaults", "sonnet_model", "claude-sonnet-4-6"
+)
 _DEFAULT_CLUSTER_MODEL: str = vault_common.get_config(
     "defaults", "haiku_model", "claude-haiku-4-5-20251001"
 )
@@ -733,13 +735,18 @@ def _find_dedup_candidates(
         if result.returncode != 0:
             return []
         items: list[dict[str, object]] = _json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError, _json.JSONDecodeError):
+    except (
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        OSError,
+        _json.JSONDecodeError,
+    ):
         return []
 
     candidates: list[tuple[str, float, str]] = []
     for item in items:
         try:
-            score = float(item.get("score") or 0.0)
+            score = float(item.get("score") or 0.0)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             continue
         if score < threshold:
@@ -752,7 +759,9 @@ def _find_dedup_candidates(
         summary = ""
         if path_str:
             try:
-                summary_lines = vault_common.read_note_summary(Path(path_str)).splitlines()
+                summary_lines = vault_common.read_note_summary(
+                    Path(path_str)
+                ).splitlines()
                 summary = " ".join(summary_lines[:3]).strip()[:400]
             except (OSError, UnicodeDecodeError):
                 summary = stem
@@ -877,9 +886,7 @@ async def summarize_one(
                                 )
                                 return entry, target_path
                             elif dry_run:
-                                print(
-                                    f"  [dry-run] Would merge into [[{target_stem}]]"
-                                )
+                                print(f"  [dry-run] Would merge into [[{target_stem}]]")
                                 return entry, None
             except (json.JSONDecodeError, ValueError):
                 pass  # Not a structured decision — treat as normal note
