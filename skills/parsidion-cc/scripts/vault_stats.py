@@ -269,8 +269,9 @@ def run_growth(conn: sqlite3.Connection, weeks: int = 8) -> None:
 def _collect_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     """Collect all tags from note_index, returning (tag, count) sorted by count desc.
 
-    The ``tags`` column stores a JSON array as text (e.g. ``["python", "vault"]``).
-    Falls back gracefully when parsing fails for any row.
+    The ``tags`` column stores either a comma-separated string
+    (``"python, vault, hooks"``) or a JSON array (``["python", "vault"]``).
+    Both formats are handled; malformed values are skipped silently.
 
     Args:
         conn: Open DB connection.
@@ -283,16 +284,17 @@ def _collect_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     )
     counts: dict[str, int] = {}
     for row in rows:
+        raw = row["tags"]
+        # Try JSON array first, fall back to comma-separated string
         try:
-            tags = json.loads(row["tags"])
-            if not isinstance(tags, list):
-                continue
-            for tag in tags:
-                t = str(tag).strip()
-                if t:
-                    counts[t] = counts.get(t, 0) + 1
+            parsed = json.loads(raw)
+            tag_list: list[str] = parsed if isinstance(parsed, list) else []
         except (json.JSONDecodeError, TypeError):
-            continue
+            tag_list = [t.strip() for t in raw.split(",")]
+        for tag in tag_list:
+            t = str(tag).strip()
+            if t:
+                counts[t] = counts.get(t, 0) + 1
     return sorted(counts.items(), key=lambda x: -x[1])
 
 
