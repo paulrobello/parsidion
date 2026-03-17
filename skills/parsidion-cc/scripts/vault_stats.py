@@ -114,7 +114,7 @@ def run_summary(conn: sqlite3.Connection) -> None:
     t.add_column("Bar", style="green")
     max_n = folder_rows[0]["n"] if folder_rows else 1
     for row in folder_rows:
-        bar = "█" * max(1, int(row["n"] / max_n * 20))
+        bar = "▄" * max(1, int(row["n"] / max_n * 20))
         t.add_row(row["folder"] or "(root)", str(row["n"]), bar)
     _CONSOLE.print(t)
 
@@ -261,7 +261,7 @@ def run_growth(conn: sqlite3.Connection, weeks: int = 8) -> None:
     for w in range(weeks - 1, -1, -1):
         n = buckets.get(w, 0)
         label = "this week" if w == 0 else f"{w}w ago"
-        bar = "█" * max(0, int(n / max_count * 20)) if n else ""
+        bar = "▄" * max(0, int(n / max_count * 20)) if n else ""
         t.add_row(label, str(n), bar)
     _CONSOLE.print(t)
 
@@ -319,7 +319,7 @@ def run_tags(conn: sqlite3.Connection, top_n: int = 30) -> None:
     t.add_column("Bar", style="blue")
     max_count = tags[0][1] if tags else 1
     for tag, count in tags:
-        bar = "█" * max(1, int(count / max_count * 20))
+        bar = "▄" * max(1, int(count / max_count * 20))
         t.add_row(tag, str(count), bar)
     _CONSOLE.print(t)
 
@@ -381,7 +381,7 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     folder_table.add_column("Bar", style="green")
     max_n = folder_rows[0]["n"] if folder_rows else 1
     for row in folder_rows:
-        bar = "█" * max(1, int(row["n"] / max_n * 16))
+        bar = "▄" * max(1, int(row["n"] / max_n * 16))
         folder_table.add_row(row["folder"] or "(root)", str(row["n"]), bar)
 
     # --- weekly growth ---
@@ -400,7 +400,7 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     for w in range(7, -1, -1):
         n = buckets.get(w, 0)
         label = "this week" if w == 0 else f"{w}w ago"
-        bar = "█" * max(0, int(n / max_g * 16)) if n else ""
+        bar = "▄" * max(0, int(n / max_g * 16)) if n else ""
         growth_table.add_row(label, str(n), bar)
 
     _CONSOLE.print(Columns([folder_table, growth_table], equal=False, expand=False))
