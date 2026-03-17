@@ -235,54 +235,8 @@ def _select_context_with_ai(
     return ""
 
 
-def build_compact_index(notes: list[Path], max_chars: int = 2000) -> str:
-    """Build a compact one-line-per-note index: title [tags] (folder).
-
-    Much smaller than build_context_block — use when vault is large or
-    token budget is tight. Full note content is available via the parsidion-cc skill.
-
-    Args:
-        notes: List of note paths to include.
-        max_chars: Maximum total characters before truncating with a count line.
-
-    Returns:
-        A compact index string, or empty string if notes is empty.
-    """
-    lines: list[str] = []
-    total = 0
-    for path in notes:
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        fm = vault_common.parse_frontmatter(content)
-        # ARC-009: use the canonical extract_title from vault_common
-        title = vault_common.extract_title(content, path.stem)
-        tags = fm.get("tags", [])
-        if isinstance(tags, str):
-            tags = [tags]
-        tag_str = " ".join(f"`{t}`" for t in tags) if tags else ""
-        folder = path.parent.name if path.parent != vault_common.VAULT_ROOT else "root"
-        entry = f"- [[{path.stem}]] {title} ({folder})" + (
-            " — " + tag_str if tag_str else ""
-        )
-        total += len(entry) + 1
-        if total > max_chars:
-            lines.append(
-                f"- ... ({len(notes) - len(lines)} more notes, "
-                "use parsidion-cc skill to browse)"
-            )
-            break
-        lines.append(entry)
-
-    if not lines:
-        return ""
-
-    header = (
-        "**Available vault notes** (compact index — "
-        "use `parsidion-cc` skill to load full content):\n"
-    )
-    return header + "\n".join(lines)
+# Canonical implementation lives in vault_common; re-export for backwards compatibility.
+build_compact_index = vault_common.build_compact_index
 
 
 def build_session_context(

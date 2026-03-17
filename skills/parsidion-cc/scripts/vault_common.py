@@ -34,6 +34,7 @@ __all__: list[str] = [
     "all_vault_notes",
     "read_note_summary",
     "build_context_block",
+    "build_compact_index",
     # Project and vault management
     "get_project_name",
     "ensure_vault_dirs",
@@ -679,6 +680,55 @@ def build_context_block(notes: list[Path], max_chars: int = 4000) -> str:
         char_count += len(block)
 
     return "".join(parts).rstrip("\n")
+
+
+def build_compact_index(notes: list[Path], max_chars: int = 2000) -> str:
+    """Build a compact one-line-per-note index: title [tags] (folder).
+
+    Much smaller than build_context_block — use when vault is large or
+    token budget is tight. Full note content is available via the parsidion-cc skill.
+
+    Args:
+        notes: List of note paths to include.
+        max_chars: Maximum total characters before truncating with a count line.
+
+    Returns:
+        A compact index string, or empty string if notes is empty.
+    """
+    lines: list[str] = []
+    total = 0
+    for path in notes:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm = parse_frontmatter(content)
+        title = extract_title(content, path.stem)
+        tags = fm.get("tags", [])
+        if isinstance(tags, str):
+            tags = [tags]
+        tag_str = " ".join(f"`{t}`" for t in tags) if tags else ""
+        folder = path.parent.name if path.parent != VAULT_ROOT else "root"
+        entry = f"- [[{path.stem}]] {title} ({folder})" + (
+            " — " + tag_str if tag_str else ""
+        )
+        total += len(entry) + 1
+        if total > max_chars:
+            lines.append(
+                f"- ... ({len(notes) - len(lines)} more notes, "
+                "use parsidion-cc skill to browse)"
+            )
+            break
+        lines.append(entry)
+
+    if not lines:
+        return ""
+
+    header = (
+        "**Available vault notes** (compact index — "
+        "use `parsidion-cc` skill to load full content):\n"
+    )
+    return header + "\n".join(lines)
 
 
 def get_project_name(cwd: str | None = None) -> str:

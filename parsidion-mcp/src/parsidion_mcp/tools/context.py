@@ -5,60 +5,6 @@ from pathlib import Path
 import vault_common
 
 
-def _build_compact_index(notes: list[Path], max_chars: int = 4000) -> str:
-    """Build a compact one-line-per-note index.
-
-    Format matches session_start_hook.build_compact_index():
-      - [[stem]] Title (folder) — `tag1` `tag2`
-
-    Args:
-        notes: Ordered list of note Paths to include.
-        max_chars: Maximum total characters before truncating.
-
-    Returns:
-        Formatted compact index string, or a "no notes" message if empty.
-    """
-    if not notes:
-        return "No vault notes available."
-
-    vault_root = vault_common.VAULT_ROOT
-    lines: list[str] = []
-    total = 0
-
-    for path in notes:
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        fm = vault_common.parse_frontmatter(content)
-        title = vault_common.extract_title(content, path.stem)
-        tags = fm.get("tags", [])
-        if isinstance(tags, str):
-            tags = [tags]
-        tag_str = " ".join(f"`{t}`" for t in tags) if tags else ""
-        folder = path.parent.name if path.parent != vault_root else "root"
-        entry = f"- [[{path.stem}]] {title} ({folder})"
-        if tag_str:
-            entry += f" — {tag_str}"
-        total += len(entry) + 1
-        if total > max_chars:
-            remaining = len(notes) - len(lines)
-            lines.append(
-                f"- ... ({remaining} more notes, use parsidion-cc skill to browse)"
-            )
-            break
-        lines.append(entry)
-
-    if not lines:
-        return "No vault notes available."
-
-    header = (
-        "**Available vault notes** (compact index — "
-        "use `parsidion-cc` skill to load full content):\n"
-    )
-    return header + "\n".join(lines)
-
-
 def vault_context(
     project: str | None = None,
     recent_days: int = 3,
@@ -97,4 +43,4 @@ def vault_context(
     if verbose:
         return vault_common.build_context_block(notes)
 
-    return _build_compact_index(notes)
+    return vault_common.build_compact_index(notes)
