@@ -186,7 +186,7 @@ A Haiku-powered read-only subagent that isolates vault lookups from the main ses
 
 > **📝 Note:** The vault-explorer agent is listed in `excluded_agents` in `config.yaml` to prevent its own transcripts from being recursively harvested by the SubagentStop hook.
 
-### Research Agent (`~/.claude/agents/research-documentation-agent.md`)
+### Research Agent (`~/.claude/agents/research-agent.md`)
 
 Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter. Fetches pages via `agentchrome page html` piped through `html-to-md.py` for noise-free markdown (curl fallback if agentchrome unavailable). Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits -- see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
 
@@ -287,7 +287,7 @@ session_stop_hook:
 subagent_stop_hook:
   enabled: true            # Enable/disable subagent transcript capture
   min_messages: 3          # Minimum messages before capturing transcript
-  excluded_agents: "vault-explorer,research-documentation-agent"  # Never capture these
+  excluded_agents: "vault-explorer,research-agent"  # Never capture these
 
 pre_compact_hook:
   lines: 200               # Transcript lines to analyse
@@ -330,7 +330,7 @@ If no `.git` directory is present, all git operations are silent no-ops.
   CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion-cc)
   settings.json                      # Hooks, permissions, plugins
   agents/
-    research-documentation-agent.md  # Research agent (vault-integrated)
+    research-agent.md  # Research agent (vault-integrated)
     vault-explorer.md                # Read-only Haiku vault search agent (7-step)
   skills/parsidion-cc/
     SKILL.md                         # Vault skill definition

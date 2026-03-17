@@ -437,7 +437,7 @@ tags, while tag-overlap catches notes with explicit shared labels.
 
 ### Research Agent
 
-`research-documentation-agent.md` integrates semantic search as the first step of its vault
+`research-agent.md` integrates semantic search as the first step of its vault
 lookup sequence.
 
 When `embeddings.db` exists, Step 1 of the agent now runs:
@@ -478,7 +478,7 @@ embeddings appear stale after an expected rebuild.
 | Trigger | Via |
 |---|---|
 | `summarize_sessions.py` completes | calls `update_index.py` → incremental rebuild |
-| `research-documentation-agent` saves a note | calls `update_index.py` → incremental rebuild |
+| `research-agent` saves a note | calls `update_index.py` → incremental rebuild |
 | Manual `uv run update_index.py` | → incremental rebuild |
 
 ---

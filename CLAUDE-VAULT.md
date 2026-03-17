@@ -23,7 +23,7 @@ When you encounter an error, exception, or unexpected behavior:
    something new about the problem. `Read` specific source files from the Sources
    section only if you need more depth.
 4. **"No relevant vault notes found"?** Diagnose and solve it, then dispatch the
-   `research-documentation-agent` to save the solution (see "Saving Solutions" below).
+   `research-agent` to save the solution (see "Saving Solutions" below).
 
 ## Implementation: Check for Prior Art
 
@@ -35,7 +35,7 @@ Before writing non-trivial code for any feature, integration, or pattern:
    Sources section for implementation details and the `sources` frontmatter field
    for referenced code paths.
 3. **"No relevant vault notes found"?** Implement it, then dispatch the
-   `research-documentation-agent` to save the pattern (see "Saving Solutions" below).
+   `research-agent` to save the pattern (see "Saving Solutions" below).
 
 ## Efficient Vault Search
 
@@ -48,7 +48,7 @@ results, reads the top matches, and returns:
 
 **If the answer is sufficient:** proceed without reading any source files.
 **If you need more depth:** `Read` specific files from the Sources section.
-**If "No relevant vault notes found":** dispatch the `research-documentation-agent`
+**If "No relevant vault notes found":** dispatch the `research-agent`
 to research externally and save findings to the vault.
 
 ## Vault Organization

@@ -386,7 +386,7 @@ em { font-style: italic; color: var(--text-muted); }
 
       <div class="claude-response">
         Single self-contained agent file, following the same structure as
-        <span class="hl-cyan">research-documentation-agent.md</span> and
+        <span class="hl-cyan">research-agent.md</span> and
         <span class="hl-purple">vault-explorer.md</span>. No new scripts required.
       </div>
 
@@ -641,14 +641,14 @@ update_index.py: {success|failed — error message}</div>
         <div class="code-block" style="font-size:11px;"><span class="cm"># Before</span>
 <span class="ty">AGENT_SRCS</span>: <span class="fn">list[Path]</span> = [
   REPO_ROOT / <span class="str">"agents"</span>
-  / <span class="str">"research-documentation-agent.md"</span>,
+  / <span class="str">"research-agent.md"</span>,
   REPO_ROOT / <span class="str">"agents"</span>
   / <span class="str">"vault-explorer.md"</span>,
 ]</div>
         <div class="code-block" style="font-size:11px;"><span class="cm"># After</span>
 <span class="ty">AGENT_SRCS</span>: <span class="fn">list[Path]</span> = [
   REPO_ROOT / <span class="str">"agents"</span>
-  / <span class="str">"research-documentation-agent.md"</span>,
+  / <span class="str">"research-agent.md"</span>,
   REPO_ROOT / <span class="str">"agents"</span>
   / <span class="str">"vault-explorer.md"</span>,
   <span class="str">REPO_ROOT / </span><span class="str">"agents"</span>
@@ -674,11 +674,11 @@ update_index.py: {success|failed — error message}</div>
       <div class="output" style="font-size:11.5px;">$ uv run install.py --dry-run --yes
 
 Installation Plan
-  Install agent: ~/.claude/agents/research-documentation-agent.md
+  Install agent: ~/.claude/agents/research-agent.md
   Install agent: ~/.claude/agents/vault-explorer.md
   <span style="color:var(--green);">Install agent: ~/.claude/agents/project-explorer.md</span>
 
-[dry-run] Install agent: research-documentation-agent.md → ~/.claude/agents/
+[dry-run] Install agent: research-agent.md → ~/.claude/agents/
 [dry-run] Install agent: vault-explorer.md → ~/.claude/agents/
 <span style="color:var(--green);">[dry-run] Install agent: project-explorer.md → ~/.claude/agents/</span>
 

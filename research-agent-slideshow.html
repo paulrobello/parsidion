@@ -572,7 +572,7 @@ more useful than silently omitting it.</div>
 
   + Install skill: parsidion-cc → ~/.claude/skills/parsidion-cc
   + Patch vault_common.py: VAULT_ROOT=/Users/probello/ClaudeVault
-  <span style="color:var(--amber)">+ Install agent: research-documentation-agent.md → ~/.claude/agents/</span>
+  <span style="color:var(--amber)">+ Install agent: research-agent.md → ~/.claude/agents/</span>
   <span style="color:var(--cyan)">+ Install scripts: scripts → ~/.claude/scripts/</span>
   ✓ All hooks already registered
   + Install CLAUDE-VAULT.md → ~/.claude/CLAUDE-VAULT.md
@@ -581,9 +581,9 @@ more useful than silently omitting it.</div>
   ✓ Installation complete!</div>
 
       <div class="output success">$ ls ~/.claude/agents/
-research-documentation-agent.md  ✓
+research-agent.md  ✓
 
-$ grep -c "research-documentation-agent" ~/.claude/CLAUDE-VAULT.md
+$ grep -c "research-agent" ~/.claude/CLAUDE-VAULT.md
 2  ✓  (debugging + implementation save paths)</div>
     </div>
 
@@ -598,7 +598,7 @@ $ grep -c "research-documentation-agent" ~/.claude/CLAUDE-VAULT.md
       </div>
 
       <div class="claude-response">
-        Trigger matched — <span class="hl-amber">proactive launch</span>. Dispatching research-documentation-agent for WebGL ray marching techniques and fractal rendering algorithms.
+        Trigger matched — <span class="hl-amber">proactive launch</span>. Dispatching research-agent for WebGL ray marching techniques and fractal rendering algorithms.
       </div>
 
       <div class="section-label">Agent execution trace</div>
@@ -626,9 +626,9 @@ $ grep -c "research-documentation-agent" ~/.claude/CLAUDE-VAULT.md
         <div>
           <div class="section-label" style="margin-bottom:6px;">New files</div>
           <ul class="feature-list" style="font-size:12px;">
-            <li><span class="hl-amber">agents/research-documentation-agent.md</span></li>
+            <li><span class="hl-amber">agents/research-agent.md</span></li>
             <li><span class="hl-cyan">skills/parsidion-cc/scripts/html-to-md.py</span> <span style="color:var(--text-muted)">(PEP 723)</span></li>
-            <li class="purple"><span class="hl-purple">~/.claude/agents/research-documentation-agent.md</span></li>
+            <li class="purple"><span class="hl-purple">~/.claude/agents/research-agent.md</span></li>
             <li class="cyan"><span class="hl-cyan">~/.claude/skills/parsidion-cc/scripts/html-to-md.py</span></li>
           </ul>
           <div class="section-label" style="margin-top:12px; margin-bottom:6px;">Key design decisions</div>

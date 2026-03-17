@@ -11,7 +11,7 @@ description: >
   "what do we know about X", any vault search request.
 
   Do NOT trigger for vault writes, index rebuilds, or summarization — those
-  belong to the research-documentation-agent and parsidion-cc skill.
+  belong to the research-agent and parsidion-cc skill.
 model: haiku
 color: purple
 ---
@@ -102,7 +102,7 @@ If the vault has no relevant information, your full response must be:
 ```
 ## Answer
 No relevant vault notes found. Consider dispatching the
-`research-documentation-agent` to research this topic externally and save
+`research-agent` to research this topic externally and save
 findings to the vault.
 
 ## Sources

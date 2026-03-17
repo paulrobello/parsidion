@@ -17,7 +17,7 @@ Differences from session_stop_hook.py:
 - Respects ``subagent_stop_hook.min_messages`` config (default: 3) to filter
   trivial subagents with only one or two assistant turns
 - Respects ``subagent_stop_hook.excluded_agents`` config — comma-separated list
-  of agent types to skip (default: "vault-explorer,research-documentation-agent")
+  of agent types to skip (default: "vault-explorer,research-agent")
 """
 
 import json
@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import vault_common  # noqa: E402
 
 _LOG_PREFIX = "[subagent_stop_hook]"
-_DEFAULT_EXCLUDED_AGENTS = {"vault-explorer", "research-documentation-agent"}
+_DEFAULT_EXCLUDED_AGENTS = {"vault-explorer", "research-agent"}
 
 
 def _get_excluded_agents() -> set[str]:
@@ -112,7 +112,7 @@ def main() -> None:
 
         agent_type = str(input_data.get("agent_type", "unknown"))
 
-        # Skip excluded agent types (vault-explorer, research-documentation-agent, etc.)
+        # Skip excluded agent types (vault-explorer, research-agent, etc.)
         excluded = _get_excluded_agents()
         if agent_type.lower() in excluded:
             print(

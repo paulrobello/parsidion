@@ -37,7 +37,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with an O
 - Always-on vault-first rule: check the vault before debugging or implementing (via `CLAUDE-VAULT.md`)
 - Automatic context loading at session start — compact one-line-per-note index by default; full summaries opt-in via `verbose_mode`
 - Automatic learning capture at session stop via transcript analysis
-- Automatic learning capture from subagent transcripts via `SubagentStop` hook (vault-explorer and research-documentation-agent excluded to prevent recursion)
+- Automatic learning capture from subagent transcripts via `SubagentStop` hook (vault-explorer and research-agent excluded to prevent recursion)
 - Write-gate filter: transient sessions are skipped rather than saved
 - Hierarchical summarization for long transcripts (chunk → haiku summary → Sonnet note)
 - Automated bidirectional backlinks injected after each new note write
@@ -334,11 +334,11 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 |-----|---------|-------------|
 | `enabled` | `true` | Set `false` to disable subagent transcript capture entirely |
 | `min_messages` | `3` | Minimum assistant message count; filters trivial subagents |
-| `excluded_agents` | `"vault-explorer,research-documentation-agent"` | Comma-separated agent types to skip |
+| `excluded_agents` | `"vault-explorer,research-agent"` | Comma-separated agent types to skip |
 
 **Behavior:**
 1. Checks `subagent_stop_hook.enabled` config (default `true`); exits immediately if disabled
-2. Checks `agent_type` against the `excluded_agents` list — skips `vault-explorer` and `research-documentation-agent` by default to prevent recursive capture of vault system internals
+2. Checks `agent_type` against the `excluded_agents` list — skips `vault-explorer` and `research-agent` by default to prevent recursive capture of vault system internals
 3. Reads **all** lines of the subagent's `agent_transcript_path` (subagent sessions are short)
 4. Skips subagents with fewer than `min_messages` assistant turns (filters trivial one-shot agents)
 5. Runs the same keyword heuristics as SessionEnd to detect significant categories
@@ -444,7 +444,7 @@ A utility script that audits vault tags against the Obsidian graph color groups 
 
 ### Research Agent
 
-**Location:** `agents/research-documentation-agent.md`
+**Location:** `agents/research-agent.md`
 
 A Claude Code agent definition (runs on Sonnet) that conducts technical research and saves structured findings to the vault.
 
@@ -486,7 +486,7 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
 6. **Rank and read** — ranks candidates by semantic score, then folder priority, then signal frequency; reads top 5 files
 7. **Synthesize and return** — returns exactly two sections: `## Answer` (3–7 sentences) and `## Sources` (absolute paths with one-line relevance notes)
 
-**Relationship to other agents:** When the vault has no relevant information, the agent recommends dispatching `research-documentation-agent` to research the topic externally and save findings to the vault.
+**Relationship to other agents:** When the vault has no relevant information, the agent recommends dispatching `research-agent` to research the topic externally and save findings to the vault.
 
 ### Project Explorer Agent
 
@@ -709,7 +709,7 @@ session_stop_hook:   # session_stop_hook.py
 subagent_stop_hook:  # subagent_stop_hook.py
   enabled: true      # Set false to disable subagent transcript capture
   min_messages: 3    # Minimum assistant turns before queuing
-  excluded_agents: "vault-explorer,research-documentation-agent"  # comma-separated skip list
+  excluded_agents: "vault-explorer,research-agent"  # comma-separated skip list
 
 pre_compact_hook:    # pre_compact_hook.py
   lines: 200         # Transcript lines to analyse
@@ -843,7 +843,7 @@ parsidion-cc/
 │   ├── ARCHITECTURE.md              # This document
 │   └── DOCUMENTATION_STYLE_GUIDE.md
 ├── agents/
-│   ├── research-documentation-agent.md
+│   ├── research-agent.md
 │   ├── vault-explorer.md                # Read-only vault search agent (Haiku)
 │   └── project-explorer.md              # Project analysis + vault pattern capture (Sonnet)
 ├── tests/
@@ -890,7 +890,7 @@ parsidion-cc/
 ├── CLAUDE-VAULT.md                  # Always-on vault-first guidance
 ├── settings.json                    # Hook registrations
 ├── agents/
-│   ├── research-documentation-agent.md
+│   ├── research-agent.md
 │   ├── vault-explorer.md                # Read-only vault search agent (Haiku)
 │   └── project-explorer.md              # Project analysis + vault pattern capture (Sonnet)
 └── skills/parsidion-cc/

@@ -77,7 +77,7 @@ def dim(t: str) -> str:
 REPO_ROOT: Path = Path(__file__).parent.resolve()
 SKILL_SRC: Path = REPO_ROOT / "skills" / "parsidion-cc"
 AGENT_SRCS: list[Path] = [
-    REPO_ROOT / "agents" / "research-documentation-agent.md",
+    REPO_ROOT / "agents" / "research-agent.md",
     REPO_ROOT / "agents" / "vault-explorer.md",
     REPO_ROOT / "agents" / "project-explorer.md",
 ]

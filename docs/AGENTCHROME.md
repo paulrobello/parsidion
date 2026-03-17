@@ -118,7 +118,7 @@ agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion
 
 Then read `/tmp/page-content.md` for the cleaned content.
 
-The research agent (`~/.claude/agents/research-documentation-agent.md`) uses this pipeline automatically when agentchrome is available, falling back to `curl` otherwise.
+The research agent (`~/.claude/agents/research-agent.md`) uses this pipeline automatically when agentchrome is available, falling back to `curl` otherwise.
 
 ### Manual Page Inspection
 

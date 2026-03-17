@@ -696,7 +696,7 @@ body {
                     <h3 class="orange">Smart Exclusions</h3>
                     <p style="margin-bottom: 6px;">Vault system agents are excluded to avoid recursive capture loops:</p>
                     <div class="output" style="font-size: 11px; padding: 8px; margin: 4px 0;">excluded_agents: "vault-explorer,
-  research-documentation-agent"</div>
+  research-agent"</div>
                     <p style="font-size: 11px; margin-top: 4px;">Configurable in <span class="hl-yellow">config.yaml</span> under <span class="hl">subagent_stop_hook</span></p>
                 </div>
             </div>
@@ -1102,7 +1102,7 @@ vault-search --project parsidion-cc
 <span class="hl-yellow">subagent_stop_hook:</span>
   <span class="dim">enabled: true</span>        <span class="dim"># Enable subagent capture</span>
   <span class="dim">min_messages: 3</span>      <span class="dim"># Minimum messages to be worth capturing</span>
-  <span class="dim">excluded_agents: "vault-explorer,research-documentation-agent"</span>
+  <span class="dim">excluded_agents: "vault-explorer,research-agent"</span>
 
 <span class="hl-yellow">pre_compact_hook:</span>
   <span class="dim">lines: 200</span>           <span class="dim"># Transcript lines to analyse</span>
@@ -1261,7 +1261,7 @@ vault-search --project parsidion-cc
                             <li class="green" style="font-size: 11px;">Read-only — never writes vault notes</li>
                             <li class="green" style="font-size: 11px;">No <code style="color:var(--cyan);">update_index.py</code> calls</li>
                             <li style="font-size: 11px;">Graceful fallback when embeddings.db absent</li>
-                            <li style="font-size: 11px;">Falls back to <code style="color:var(--purple);">research-documentation-agent</code></li>
+                            <li style="font-size: 11px;">Falls back to <code style="color:var(--purple);">research-agent</code></li>
                         </ul>
                     </div>
                     <div style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
@@ -1340,7 +1340,7 @@ vault-search --project parsidion-cc
                             <div>&nbsp;&nbsp;<span class="file">install.py</span></div>
                             <div>&nbsp;&nbsp;<span class="file">CLAUDE-VAULT.md</span> <span class="comment">(always-on guidance)</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">agents/</span></div>
-                            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">research-documentation-agent.md</span></div>
+                            <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">research-agent.md</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">vault-explorer.md</span> <span class="comment">(Haiku, read-only)</span></div>
                             <div>&nbsp;&nbsp;<span class="folder">skills/parsidion-cc/</span></div>
                             <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">SKILL.md</span></div>

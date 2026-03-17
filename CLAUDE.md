@@ -12,7 +12,7 @@ parsidion-cc is a Claude Code customization toolkit — the **source repository*
 |---|---|---|
 | Installer | `install.py` | run in-place (`uv run install.py`) |
 | Claude Vault skill | `skills/parsidion-cc/` | `~/.claude/skills/parsidion-cc/` |
-| Research agent | `agents/research-documentation-agent.md` | `~/.claude/agents/` |
+| Research agent | `agents/research-agent.md` | `~/.claude/agents/` |
 | Hook scripts | `skills/parsidion-cc/scripts/` | referenced from `~/.claude/settings.json` |
 | Vault | (generated) | `~/ClaudeVault/` (or custom path) |
 
@@ -130,7 +130,7 @@ cp skills/parsidion-cc/scripts/vault_common.py ~/.claude/skills/parsidion-cc/scr
 cp skills/parsidion-cc/SKILL.md ~/.claude/skills/parsidion-cc/SKILL.md
 
 # After editing the research agent
-cp agents/research-documentation-agent.md ~/.claude/agents/research-documentation-agent.md
+cp agents/research-agent.md ~/.claude/agents/research-agent.md
 
 # After editing subagent_stop_hook.py
 cp skills/parsidion-cc/scripts/subagent_stop_hook.py ~/.claude/skills/parsidion-cc/scripts/subagent_stop_hook.py
@@ -178,7 +178,7 @@ The system has four layers:
    - `session_start_hook.py`: Loads relevant vault notes as `additionalContext`. Default mode injects a **compact one-line-per-note index** (title + tags) to minimize token usage; `--verbose` flag or `verbose_mode: true` config switches to full summaries. Optional `--ai [MODEL]` flag uses `claude -p` (haiku by default, `CLAUDECODE` unset) to intelligently select notes — requires bumping hook timeout to 30 s in `settings.json`
    - `session_stop_wrapper.sh` + `session_stop_hook.py`: Registered under the `SessionEnd` hook. The shell wrapper reads stdin, outputs `{}` immediately (so Claude Code doesn't cancel it during fast exits), then spawns `session_stop_hook.py` detached via `nohup`. The Python script detects learnable content and appends session metadata (session_id, transcript_path, categories) to `~/ClaudeVault/pending_summaries.jsonl`. Uses `fcntl.flock` for safe concurrent access across parallel Claude instances.
    - `pre_compact_hook.py`: Snapshots current task state before context compaction. Extracts the current task by scanning backwards through the last 200 transcript lines for the most recent user text message. Extracts recently-touched files by parsing `tool_use` blocks from assistant messages (Read/Write/Edit/Grep/NotebookEdit tools).
-   - `subagent_stop_hook.py`: Registered under the `SubagentStop` hook with `async: true` (non-blocking). Reads the subagent's own `agent_transcript_path`, skips agents listed in `excluded_agents` (default: `vault-explorer`, `research-documentation-agent`), and queues the transcript to `pending_summaries.jsonl` with `source: "subagent"` and `agent_type` metadata. Uses `agent_id` as the dedup key. Configurable via `subagent_stop_hook` section in `config.yaml`.
+   - `subagent_stop_hook.py`: Registered under the `SubagentStop` hook with `async: true` (non-blocking). Reads the subagent's own `agent_transcript_path`, skips agents listed in `excluded_agents` (default: `vault-explorer`, `research-agent`), and queues the transcript to `pending_summaries.jsonl` with `source: "subagent"` and `agent_type` metadata. Uses `agent_id` as the dedup key. Configurable via `subagent_stop_hook` section in `config.yaml`.
 
 2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls Claude via the Agent SDK (up to 5 parallel sessions) to generate structured vault notes. Features: **write-gate filter** (Claude decides per-session if insights are reusable before generating a note), **hierarchical summarization** (transcripts exceeding `max_cleaned_chars` are chunked and summarized by haiku first), **automated backlinks** (tag-overlap scan injects bidirectional wikilinks after each note write). Cleans processed entries from the queue and rebuilds the index when done.
 
@@ -218,7 +218,7 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 
 ## Research Agent
 
-`agents/research-documentation-agent.md` defines a Sonnet-powered agent that:
+`agents/research-agent.md` defines a Sonnet-powered agent that:
 1. Searches `~/ClaudeVault/` first for existing knowledge
 2. Uses Brave Search + Web Fetch for external research
 3. Saves findings to the appropriate vault subfolder with YAML frontmatter

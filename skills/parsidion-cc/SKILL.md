@@ -63,7 +63,7 @@ matches, reads the top files, and returns:
 - **`## Answer`** — synthesized answer ready to use
 - **`## Sources`** — absolute paths for targeted `Read` calls if deeper context is needed
 
-**No results?** Dispatch the `research-documentation-agent` to research externally
+**No results?** Dispatch the `research-agent` to research externally
 and save findings to the vault.
 
 ### The Vault-First Loop
@@ -72,7 +72,7 @@ and save findings to the vault.
 Error or implementation question
   → Dispatch vault-explorer agent
     → Found? Apply / adapt solution → Update note with new learnings
-    → Not found? Solve it → Dispatch research-documentation-agent to save
+    → Not found? Solve it → Dispatch research-agent to save
 ```
 
 Saving after a successful solve is as important as searching before. Every unsaved solution is a missed opportunity for every future session.
@@ -405,7 +405,7 @@ session_stop_hook:
 subagent_stop_hook:
   enabled: true            # Set false to disable subagent transcript capture entirely
   min_messages: 3          # Minimum assistant message count; filters trivial subagents
-  excluded_agents: "vault-explorer,research-documentation-agent"  # Never capture these
+  excluded_agents: "vault-explorer,research-agent"  # Never capture these
 
 pre_compact_hook:
   lines: 200               # Transcript lines to analyse
@@ -485,7 +485,7 @@ Common patterns after vault research:
 - **Mind maps**: Visual overview of a notebook containing the same sources as a vault cluster.
 
 **Workflow**: Add the `sources` URLs from your vault note(s) as NotebookLM sources, then use
-`notebooklm generate` for the desired artifact. The research-documentation-agent does this
+`notebooklm generate` for the desired artifact. The research-agent does this
 automatically when NotebookLM is available.
 
 **Requirement**: `pip install notebooklm-py` then `notebooklm login`. Run `notebooklm status`
@@ -499,14 +499,15 @@ The Obsidian graph at `~/ClaudeVault/.obsidian/graph.json` uses color groups to 
 
 | Group | Tags | RGB (decimal) |
 |---|---|---|
-| Projects | `#synknot`, `#fractal-flythroughs`, `#parvitar`, `#parsistant`, `#termflix`, `#parvault`, `#cctmux`, `#parsidion-cc` | 48340 |
+| Projects | `#synknot`, `#parvitar`, `#parsistant`, `#termflix`, `#parvault`, `#parsidion-cc`, `#pkm`, `#vault`, `#par-cc-bot`, `#parllama`, `#par-dc-bot`, `#par-particle-life`, `#par-shape-2d`, `#par_qr_3d`, `#par_scrape`, `#par-gpt`, `#par-ocr`, `#par_infini_sweeper`, `#parsplat`, `#pim-leaderboard`, `#par-ai-core`, `#cctmux` | 48340 |
 | Debugging | `#debugging` | 16733986 |
-| Patterns | `#memory`, `#migration`, `#sync` | 5025616 |
-| Research | `#research`, `#e2b`, `#qdrant`, `#pkm-apps-comparison` | 10233776 |
-| Tools & SDKs | `#claude-code`, `#claude-agent-sdk`, `#claude`, `#rich`, `#mcp`, `#ollama`, `#maturin`, `#redis`, `#websockets`, `#sentry`, `#mermaid-cli`, `#custom-tools`, `#acp-protocol`, `#tool`, `#api`, `#encryption` | 2201331 |
-| Languages | `#rust`, `#python`, `#swift`, `#swiftui`, `#typescript`, `#nextjs`, `#react`, `#macos`, `#macos-26`, `#rust-packages` | 16761095 |
-| Terminal | `#terminal`, `#par-term`, `#par-term-emu-core-rust` | 38536 |
-| Graphics / 3D | `#wgpu`, `#sdf`, `#sdf-terrain`, `#voxel`, `#fractals`, `#mandel`, `#vrm`, `#avatar`, `#face-tracking` | 15277667 |
+| Patterns | `#memory`, `#migration`, `#sync`, `#architecture`, `#pattern`, `#automation`, `#config`, `#event-driven`, `#pipeline`, `#subprocess`, `#crdt`, `#layered-config`, `#rate-limiting`, `#semantic-search`, `#vector-search`, `#codesign`, `#state-machine`, `#concurrency` | 5025616 |
+| Research | `#research`, `#qdrant`, `#embeddings`, `#vector-database`, `#ocr` | 10233776 |
+| Tools & SDKs | `#claude-code`, `#claude-sdk`, `#claude`, `#rich`, `#mcp`, `#ollama`, `#maturin`, `#redis`, `#websockets`, `#sentry`, `#mermaid`, `#mermaid-cli`, `#custom-tools`, `#acp-protocol`, `#tool`, `#api`, `#encryption`, `#discord`, `#security`, `#git`, `#performance`, `#plugin`, `#cli`, `#llm`, `#hooks`, `#sqlite`, `#agent`, `#pydantic`, `#langchain`, `#multi-provider`, `#docker`, `#xdg`, `#image`, `#textual`, `#typer`, `#fastapi`, `#websocket`, `#image-processing`, `#json`, `#yaml`, `#ai` | 2201331 |
+| Languages | `#rust`, `#python`, `#swift`, `#swiftui`, `#typescript`, `#nextjs`, `#react`, `#macos`, `#macos-26`, `#rust-packages`, `#ui`, `#ux`, `#documentation`, `#sql`, `#ios`, `#python-bindings` | 16761095 |
+| Terminal | `#terminal`, `#tmux`, `#par-term`, `#par-term-emu-core-rust`, `#tui`, `#vt100`, `#vte`, `#pty`, `#ansi`, `#crossterm`, `#svt` | 38536 |
+| Graphics / 3D | `#wgpu`, `#sdf`, `#sdf-terrain`, `#voxel`, `#fractals`, `#mandel`, `#vrm`, `#avatar`, `#face-tracking`, `#arkit`, `#graphics`, `#fractal`, `#gpu-rendering`, `#animation`, `#gaussian-splatting`, `#physics`, `#rendering`, `#simulation`, `#glsl`, `#shader`, `#shaders`, `#3d-printing`, `#par-fractal`, `#voxel-world`, `#sparse-voxel-tree`, `#sub-voxel`, `#wgsl`, `#vulkan`, `#game` | 15277667 |
+| Daily | `#daily` | 16744448 |
 
 ### When to Update
 

@@ -560,7 +560,7 @@ Never output ~/... paths</div>
 <span class="str">3. **Answer returned?** Apply the documented fix. Update the note</span>
    <span class="str">if you learn something new. `Read` source files only if needed.</span>
 <span class="str">4. **"No relevant vault notes found"?** Diagnose and solve it,</span>
-   <span class="str">then dispatch research-documentation-agent to save...</span></div>
+   <span class="str">then dispatch research-agent to save...</span></div>
 
       <div class="output success">✓ No Grep: instructions remain in modified sections
 ✓ Saving Solutions and Vault Organization sections unchanged</div>
@@ -664,11 +664,11 @@ a single-pass review would have missed.</div>
         <div class="code-block" style="font-size:11px;"><span class="cm"># Before</span>
 <span class="ty">AGENT_SRC</span>: <span class="fn">Path</span> =
   REPO_ROOT / <span class="str">"agents"</span>
-  / <span class="str">"research-documentation-agent.md"</span></div>
+  / <span class="str">"research-agent.md"</span></div>
         <div class="code-block" style="font-size:11px;"><span class="cm"># After</span>
 <span class="ty">AGENT_SRCS</span>: <span class="fn">list[Path]</span> = [
   REPO_ROOT / <span class="str">"agents"</span>
-  / <span class="str">"research-documentation-agent.md"</span>,
+  / <span class="str">"research-agent.md"</span>,
   REPO_ROOT / <span class="str">"agents"</span>
   / <span class="str">"vault-explorer.md"</span>,
 ]</div>
@@ -694,10 +694,10 @@ a single-pass review would have missed.</div>
       <div class="output" style="font-size:11.5px;">$ uv run install.py --dry-run --yes
 
 Installation Plan
-  Install agent: /Users/probello/.claude/agents/research-documentation-agent.md
+  Install agent: /Users/probello/.claude/agents/research-agent.md
   Install agent: /Users/probello/.claude/agents/vault-explorer.md
 
-[dry-run] Install agent: research-documentation-agent.md → ~/.claude/agents/
+[dry-run] Install agent: research-agent.md → ~/.claude/agents/
 <span style="color:var(--cyan)">[dry-run] Install agent: vault-explorer.md → ~/.claude/agents/</span></div>
 
       <div class="section-label">Test suite</div>
@@ -722,7 +722,7 @@ All 61 vault_common.py tests pass — install.py changes have no regressions.</d
 
   + Install skill: parsidion-cc → ~/.claude/skills/parsidion-cc
   + Patch vault_common.py: VAULT_ROOT=/Users/probello/ClaudeVault
-  <span style="color:var(--green)">+ Install agent: research-documentation-agent.md → ~/.claude/agents/</span>
+  <span style="color:var(--green)">+ Install agent: research-agent.md → ~/.claude/agents/</span>
   <span style="color:var(--cyan)">+ Install agent: vault-explorer.md → ~/.claude/agents/</span>
   ✓ All hooks already registered
   + Install CLAUDE-VAULT.md → ~/.claude/CLAUDE-VAULT.md
