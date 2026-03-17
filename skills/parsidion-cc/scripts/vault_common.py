@@ -234,6 +234,9 @@ def query_note_index(
 # SEC-006: ANTHROPIC_BASE_URL is intentionally included — environments that
 # configure the Anthropic API via a proxy or custom base URL need it forwarded
 # to child ``claude -p`` processes for AI features to work.
+# ANTHROPIC_API_KEY is included so non-default key configurations (proxy, org,
+# Bedrock) work correctly; without it all ``claude -p`` subprocess calls fail
+# silently when the user has a non-standard API key configured.
 _SAFE_ENV_KEYS: frozenset[str] = frozenset(
     {
         "PATH",
@@ -245,6 +248,7 @@ _SAFE_ENV_KEYS: frozenset[str] = frozenset(
         "LC_ALL",
         "TMPDIR",
         "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_API_KEY",
     }
 )
 
