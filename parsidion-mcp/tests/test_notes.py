@@ -11,6 +11,7 @@ from parsidion_mcp.tools.notes import vault_read, vault_write
 # vault_read
 # ---------------------------------------------------------------------------
 
+
 def test_vault_read_returns_content(tmp_path: Path) -> None:
     note = tmp_path / "Patterns" / "my-note.md"
     note.parent.mkdir()
@@ -64,6 +65,7 @@ def test_vault_read_missing_vault_returns_error(tmp_path: Path) -> None:
 # vault_write
 # ---------------------------------------------------------------------------
 
+
 def test_vault_write_creates_file(tmp_path: Path) -> None:
     with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
         mock_vc.VAULT_ROOT = tmp_path
@@ -105,7 +107,10 @@ def test_vault_write_path_escape_returns_error(tmp_path: Path) -> None:
 def test_vault_write_oserror_returns_error(tmp_path: Path) -> None:
     with (
         patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
-        patch("parsidion_mcp.tools.notes.Path.write_text", side_effect=OSError("disk full")),
+        patch(
+            "parsidion_mcp.tools.notes.Path.write_text",
+            side_effect=OSError("disk full"),
+        ),
     ):
         mock_vc.VAULT_ROOT = tmp_path
         result = vault_write("note.md", "content")

@@ -28,6 +28,7 @@ _FAKE_NOTE = {
 # Semantic mode
 # ---------------------------------------------------------------------------
 
+
 def test_semantic_search_returns_json(tmp_path: Path) -> None:
     db = tmp_path / "embeddings.db"
     db.touch()
@@ -75,6 +76,7 @@ def test_semantic_search_respects_top_k_and_min_score(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Metadata mode
 # ---------------------------------------------------------------------------
+
 
 def test_metadata_search_returns_json() -> None:
     with patch("parsidion_mcp.tools.search._vault_search_module") as mock_vs:

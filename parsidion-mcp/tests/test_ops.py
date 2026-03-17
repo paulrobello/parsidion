@@ -18,6 +18,7 @@ def _make_proc(returncode: int = 0, stdout: str = "ok", stderr: str = "") -> Mag
 # rebuild_index
 # ---------------------------------------------------------------------------
 
+
 def test_rebuild_index_success() -> None:
     with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
         mock_run.return_value = _make_proc(stdout="Index rebuilt.")
@@ -57,6 +58,7 @@ def test_rebuild_index_timeout_is_30s() -> None:
 # ---------------------------------------------------------------------------
 # vault_doctor
 # ---------------------------------------------------------------------------
+
 
 def test_vault_doctor_scan_only_omits_fix_flag() -> None:
     with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:

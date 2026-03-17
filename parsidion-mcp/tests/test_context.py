@@ -10,6 +10,7 @@ from parsidion_mcp.tools.context import vault_context, _build_compact_index
 # _build_compact_index
 # ---------------------------------------------------------------------------
 
+
 def test_build_compact_index_formats_notes(tmp_path: Path) -> None:
     note = tmp_path / "Patterns" / "test.md"
     note.parent.mkdir()
@@ -58,6 +59,7 @@ def test_build_compact_index_truncates_at_max_chars(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # vault_context
 # ---------------------------------------------------------------------------
+
 
 def test_vault_context_with_project(tmp_path: Path) -> None:
     note = tmp_path / "proj.md"
