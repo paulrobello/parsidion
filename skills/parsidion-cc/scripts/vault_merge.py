@@ -16,6 +16,8 @@ updates all wikilinks across the vault.
 import argparse
 import re
 import shutil
+import struct
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -318,6 +320,108 @@ def _print_diff_summary(
 
 
 # ---------------------------------------------------------------------------
+# Duplicate scan
+# ---------------------------------------------------------------------------
+
+_DEFAULT_SCAN_THRESHOLD = 0.92
+_DEFAULT_SCAN_TOP = 50
+
+
+def _scan_duplicates(threshold: float = _DEFAULT_SCAN_THRESHOLD, top: int = _DEFAULT_SCAN_TOP) -> None:
+    """Scan all vault notes for near-duplicate pairs using embedding similarity.
+
+    Loads all embeddings from the DB, computes pairwise cosine similarity,
+    and prints pairs above *threshold* sorted by score descending.
+
+    Args:
+        threshold: Minimum similarity score to report (0.0–1.0).
+        top: Maximum number of pairs to report.
+    """
+    db_path = vault_common.get_embeddings_db_path()
+    if not db_path.exists():
+        print(
+            "No embeddings database found. Run build_embeddings.py first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        import sqlite_vec  # type: ignore[import-untyped]
+    except ImportError:
+        print(
+            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    conn = sqlite3.connect(db_path)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+
+    try:
+        rows = conn.execute(
+            "SELECT stem, path, folder, title, embedding FROM note_embeddings"
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error reading embeddings: {exc}", file=sys.stderr)
+        conn.close()
+        sys.exit(1)
+    conn.close()
+
+    if not rows:
+        print("No embeddings found in database.")
+        return
+
+    # Unpack vectors
+    n = len(rows)
+    stems = [r[0] for r in rows]
+    folders = [r[2] for r in rows]
+    titles = [r[3] for r in rows]
+    blobs = [r[4] for r in rows]
+
+    dim = len(blobs[0]) // 4  # float32 = 4 bytes each
+    vecs: list[list[float]] = [
+        list(struct.unpack(f"{dim}f", b)) for b in blobs
+    ]
+
+    # Compute pairwise cosine similarity (upper triangle only)
+    pairs: list[tuple[float, int, int]] = []
+    for i in range(n):
+        vi = vecs[i]
+        norm_i = sum(x * x for x in vi) ** 0.5
+        if norm_i == 0:
+            continue
+        for j in range(i + 1, n):
+            vj = vecs[j]
+            norm_j = sum(x * x for x in vj) ** 0.5
+            if norm_j == 0:
+                continue
+            dot = sum(a * b for a, b in zip(vi, vj, strict=True))
+            score = dot / (norm_i * norm_j)
+            if score >= threshold:
+                pairs.append((score, i, j))
+
+    if not pairs:
+        print(f"No note pairs found above similarity threshold {threshold:.2f}.")
+        return
+
+    pairs.sort(key=lambda x: x[0], reverse=True)
+    pairs = pairs[:top]
+
+    print(f"Found {len(pairs)} near-duplicate pair(s) (threshold={threshold:.2f}):\n")
+    for rank, (score, i, j) in enumerate(pairs, 1):
+        label_a = f"{folders[i] or '.'}/{stems[i]}"
+        label_b = f"{folders[j] or '.'}/{stems[j]}"
+        print(f"  {rank:>3}.  [{score:.4f}]  {label_a}")
+        print(f"              {label_b}")
+        print(f"         A: {titles[i]}")
+        print(f"         B: {titles[j]}")
+        print(f"         → vault-merge {stems[i]} {stems[j]}")
+        print()
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -330,17 +434,19 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser(
         prog="vault-merge",
-        description="Merge two vault notes into one.",
+        description="Merge two vault notes into one, or scan for near-duplicate pairs.",
     )
     parser.add_argument(
         "note_a",
         metavar="NOTE_A",
-        help="Path or stem of the primary note (kept after merge).",
+        nargs="?",
+        help="Path or stem of the primary note (kept after merge). Omit when using --scan.",
     )
     parser.add_argument(
         "note_b",
         metavar="NOTE_B",
-        help="Path or stem of the note to merge into NOTE_A (moved to .trash/).",
+        nargs="?",
+        help="Path or stem of the note to merge into NOTE_A (moved to .trash/). Omit when using --scan.",
     )
     parser.add_argument(
         "--output",
@@ -358,9 +464,37 @@ def main() -> None:
         action="store_true",
         help="Write merged note, move NOTE_B to .trash/, update wikilinks.",
     )
+    parser.add_argument(
+        "--scan",
+        action="store_true",
+        help="Scan all vault notes for near-duplicate pairs using embedding similarity.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=_DEFAULT_SCAN_THRESHOLD,
+        metavar="SCORE",
+        help=f"Minimum similarity score for --scan (default: {_DEFAULT_SCAN_THRESHOLD}).",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=_DEFAULT_SCAN_TOP,
+        metavar="N",
+        help=f"Maximum number of pairs to report in --scan (default: {_DEFAULT_SCAN_TOP}).",
+    )
     args = parser.parse_args()
 
     try:
+        # --scan mode: find near-duplicate pairs across the whole vault
+        if args.scan:
+            _scan_duplicates(threshold=args.threshold, top=args.top)
+            return
+
+        # Require NOTE_A and NOTE_B when not scanning
+        if not args.note_a or not args.note_b:
+            parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
+
         # Resolve notes
         path_a = _find_note(args.note_a)
         if path_a is None:
