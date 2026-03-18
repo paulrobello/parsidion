@@ -193,7 +193,7 @@ def run_single_query(
 
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--model", MODEL],
+            ["claude", "-p", prompt, "--model", MODEL, "--no-session-persistence"],
             capture_output=True,
             text=True,
             timeout=30,

@@ -368,6 +368,15 @@ def main() -> None:
             )
             sys.stdout.write("{}")
             return
+        # Skip sessions launched internally by parsidion-cc tools (vault_doctor,
+        # summarizer, etc.) — they set PARSIDION_INTERNAL=1 via env_without_claudecode()
+        if os.environ.get("PARSIDION_INTERNAL"):
+            print(
+                "[session_stop_hook] skipping: internal parsidion session",
+                file=sys.stderr,
+            )
+            sys.stdout.write("{}")
+            return
         os.environ["CLAUDE_VAULT_STOP_ACTIVE"] = "1"
         _hook_start = time.monotonic()
 

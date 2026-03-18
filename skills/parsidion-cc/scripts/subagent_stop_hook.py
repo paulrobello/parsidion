@@ -105,6 +105,15 @@ def main() -> None:
             sys.stdout.write("{}")
             return
 
+        # Skip sessions launched internally by parsidion-cc tools
+        if os.environ.get("PARSIDION_INTERNAL"):
+            print(
+                f"{_LOG_PREFIX} skipping: internal parsidion session",
+                file=sys.stderr,
+            )
+            sys.stdout.write("{}")
+            return
+
         # Respect enabled config (default: true)
         if not vault_common.get_config("subagent_stop_hook", "enabled", True):
             print(f"{_LOG_PREFIX} disabled via config", file=sys.stderr)

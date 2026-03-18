@@ -412,16 +412,13 @@ def _filter_clusters_with_claude(
         'Example: ["parvitar", "redis", "obsidian"]'
     )
 
-    env = os.environ.copy()
-    env.pop("CLAUDECODE", None)
-
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--model", model],
+            ["claude", "-p", prompt, "--model", model, "--no-session-persistence"],
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=env,
+            env=vault_common.env_without_claudecode(),
         )
         if result.returncode != 0:
             return clusters  # fallback
@@ -1042,16 +1039,13 @@ Current note:
 {content}
 ---END---"""
 
-    env = os.environ.copy()
-    env.pop("CLAUDECODE", None)  # permit nested claude invocation
-
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--model", model],
+            ["claude", "-p", prompt, "--model", model, "--no-session-persistence"],
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=env,
+            env=vault_common.env_without_claudecode(),
         )
         if result.returncode == 0:
             output = result.stdout.strip()

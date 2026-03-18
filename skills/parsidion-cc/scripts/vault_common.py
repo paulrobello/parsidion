@@ -291,10 +291,15 @@ def env_without_claudecode() -> dict[str, str]:
     Only includes variables listed in ``_SAFE_ENV_KEYS``, which avoids leaking
     secrets or triggering the Claude nesting guard (``CLAUDECODE``).
 
+    Always injects ``PARSIDION_INTERNAL=1`` so that hook scripts invoked by the
+    resulting ``claude -p`` session can detect and skip internal sessions.
+
     Returns:
         A dict suitable for passing as ``env=`` to ``subprocess.run`` / ``Popen``.
     """
-    return {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
+    env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
+    env["PARSIDION_INTERNAL"] = "1"
+    return env
 
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?\n)---\s*\n", re.DOTALL)
