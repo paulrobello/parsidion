@@ -170,11 +170,16 @@ def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES) -> list[str]:
                     obj = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
-                # Extract human-readable text from transcript events
+                # Extract human-readable text from transcript events.
+                # Subagent transcripts nest content under obj["message"]["content"];
+                # session transcripts use obj["content"] directly.
                 if isinstance(obj, dict):
-                    text = vault_common.extract_text_from_content(
-                        obj.get("content", obj.get("message", ""))
-                    )
+                    msg = obj.get("message")
+                    if isinstance(msg, dict):
+                        raw_content = msg.get("content", "")
+                    else:
+                        raw_content = obj.get("content", "")
+                    text = vault_common.extract_text_from_content(raw_content)
                     if text:
                         lines.append(text[:200])
                         if len(lines) >= n:
