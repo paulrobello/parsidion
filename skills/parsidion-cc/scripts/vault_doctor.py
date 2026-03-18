@@ -1236,6 +1236,15 @@ def main() -> None:
             "and rebuild the vault index. Has no effect without --migrate-subfolders."
         ),
     )
+    parser.add_argument(
+        "--migrate-pending-paths",
+        action="store_true",
+        help=(
+            "Fix broken transcript paths in pending_summaries.jsonl that are "
+            "missing the 'agent-' prefix written by older hook versions. "
+            "Safe to run multiple times. Use --dry-run to preview changes."
+        ),
+    )
     args = parser.parse_args()
 
     # Load persistent state
@@ -1256,6 +1265,16 @@ def main() -> None:
     state["pid"] = os.getpid()
     _write_pid(state)  # claim the lock immediately
     atexit.register(_release_pid)  # release on any exit path
+
+    # ── --migrate-pending-paths mode (standalone — exits after running) ──────
+    if args.migrate_pending_paths:
+        fixed = vault_common.migrate_pending_paths(dry_run=args.dry_run)
+        if fixed:
+            action = "Would fix" if args.dry_run else "Fixed"
+            print(f"{action} {fixed} transcript path(s) in pending_summaries.jsonl.")
+        else:
+            print("No broken pending paths found.")
+        return
 
     # ── --migrate-subfolders mode (standalone — exits after running) ──────────
     if args.migrate_subfolders:

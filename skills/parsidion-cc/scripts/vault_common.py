@@ -1518,6 +1518,56 @@ def append_to_pending(
         pass
 
 
+def migrate_pending_paths(dry_run: bool = False) -> int:
+    """Fix broken transcript paths in pending_summaries.jsonl.
+
+    Older versions of subagent_stop_hook stored paths without the ``agent-``
+    prefix used by Claude Code (e.g. ``<id>.jsonl`` instead of
+    ``agent-<id>.jsonl``).  This scans every entry, resolves the real path,
+    and rewrites the file with corrected paths.
+
+    Args:
+        dry_run: If True, report what would change without writing.
+
+    Returns:
+        Number of entries whose paths were fixed.
+    """
+    pending_path = VAULT_ROOT / "pending_summaries.jsonl"
+    if not pending_path.exists():
+        return 0
+    entries: list[dict] = []
+    with open(pending_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    fixed = 0
+    for entry in entries:
+        stored = entry.get("transcript_path", "")
+        if not stored:
+            continue
+        stored_path = Path(stored)
+        if stored_path.exists():
+            continue
+        candidate = stored_path.parent / f"agent-{stored_path.stem}.jsonl"
+        if candidate.exists():
+            if not dry_run:
+                entry["transcript_path"] = str(candidate)
+            fixed += 1
+    if fixed and not dry_run:
+        tmp = pending_path.with_suffix(".jsonl.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            flock_exclusive(fh)
+            for entry in entries:
+                fh.write(json.dumps(entry) + "\n")
+        tmp.replace(pending_path)
+    return fixed
+
+
 def git_commit_vault(message: str, paths: list[Path] | None = None) -> bool:
     """Stage and commit changes to the vault git repository.
 

@@ -111,6 +111,33 @@ def _entry_summary(entry: dict) -> str:
     return f"{ts}  {project:<20}  {source_label:<14}  {cat_str}{status_suffix}"
 
 
+def _resolve_transcript_path(entry: dict) -> Path | None:
+    """Return the best available Path for an entry's transcript.
+
+    Tries the stored ``transcript_path`` first, then applies known fallbacks
+    for older entries where the path was stored without the ``agent-`` prefix
+    that Claude Code uses for subagent transcript filenames.
+
+    Args:
+        entry: Pending summary entry dict.
+
+    Returns:
+        Resolved Path if a readable file is found, else None.
+    """
+    raw = entry.get("transcript_path", "") or entry.get("agent_transcript_path", "")
+    if not raw:
+        return None
+    path = Path(raw)
+    if path.exists():
+        return path
+    # Fallback: Claude Code stores subagent transcripts as agent-<id>.jsonl but
+    # older hook versions stored the path without the "agent-" prefix.
+    candidate = path.parent / f"agent-{path.stem}.jsonl"
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES) -> list[str]:
     """Read the first n text-bearing lines from the transcript.
 
@@ -121,16 +148,11 @@ def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES) -> list[str]:
     Returns:
         List of text lines from the transcript.
     """
-    transcript_path = entry.get("transcript_path", "") or entry.get(
-        "agent_transcript_path", ""
-    )
-    if not transcript_path:
-        return ["(no transcript path in entry)"]
-    path = Path(transcript_path)
-    if not path.exists():
-        # Graceful message — transcript may have been deleted or path was synthetic
+    path = _resolve_transcript_path(entry)
+    if path is None:
+        raw = entry.get("transcript_path", "")
         return [
-            f"Transcript not found: {path}",
+            f"Transcript not found: {raw or '(no path)'}",
             "",
             "This can happen when:",
             "  • Claude Code cleaned up old transcripts",
@@ -461,6 +483,9 @@ def main() -> None:
         if args.clear:
             _cmd_clear()
             return
+
+        # Auto-migrate on every startup (silent — fixes old entries in-place)
+        vault_common.migrate_pending_paths(dry_run=False)
 
         # Check for pending sessions before attempting curses
         entries = _read_entries()
