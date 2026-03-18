@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vault Deduplicator — Claude Code Build Session</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg-dark: #0B1120;
+    --bg-terminal: #0d1117;
+    --bg-card: #161b22;
+    --border: #30363d;
+    --cyan: #06B6D4;
+    --purple: #8B5CF6;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --gradient: linear-gradient(135deg, #06B6D4 0%, #8B5CF6 100%);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg-dark);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.terminal {
+    width: 100%;
+    max-width: 860px;
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+
+.terminal-header {
+    background: var(--bg-card);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.dots { display: flex; gap: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; }
+.dot.red    { background: #ff5f57; }
+.dot.yellow { background: #febc2e; }
+.dot.green  { background: #28c840; }
+
+.terminal-title {
+    color: var(--text-muted);
+    font-size: 12px;
+    flex: 1;
+    text-align: center;
+}
+
+.terminal-body {
+    height: 580px;
+    overflow: hidden;
+    position: relative;
+}
+
+.slide {
+    display: none;
+    padding: 32px 36px;
+    height: 100%;
+    overflow: hidden;
+    animation: fadeIn 0.3s ease;
+}
+
+.slide.active { display: flex; flex-direction: column; gap: 14px; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Typography ── */
+.slide-title {
+    font-size: 22px;
+    font-weight: 700;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.3;
+}
+
+.slide-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: -8px;
+}
+
+/* ── Prompt lines ── */
+.prompt-line {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.prompt       { color: var(--green);  font-weight: 600; }
+.prompt-path  { color: var(--purple); }
+.prompt-symbol{ color: var(--text-muted); }
+.prompt-cmd   { color: var(--text); }
+
+/* ── Response boxes ── */
+.claude-response {
+    background: rgba(6,182,212,0.06);
+    border: 1px solid rgba(6,182,212,0.25);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+}
+
+.output {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    white-space: pre;
+}
+
+.output.success {
+    border-color: rgba(34,197,94,0.35);
+    color: var(--green);
+}
+
+.output.highlight {
+    border-left: 3px solid var(--cyan);
+    color: var(--text);
+    white-space: normal;
+}
+
+/* ── Bullets ── */
+ul.feature-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 13px;
+}
+
+ul.feature-list li::before {
+    content: "◆ ";
+    color: var(--cyan);
+}
+
+ul.feature-list li.purple::before { color: var(--purple); }
+ul.feature-list li.green::before  { color: var(--green);  }
+ul.feature-list li.yellow::before { color: var(--yellow); }
+
+/* ── Tags ── */
+.tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.tag {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.tag.success { background: rgba(34,197,94,0.15);  color: var(--green);  border: 1px solid rgba(34,197,94,0.3);  }
+.tag.info    { background: rgba(6,182,212,0.12);  color: var(--cyan);   border: 1px solid rgba(6,182,212,0.3);  }
+.tag.purple  { background: rgba(139,92,246,0.12); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
+.tag.warn    { background: rgba(234,179,8,0.12);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.3);  }
+
+/* ── Two-column layout ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+/* ── Code block ── */
+.code-block {
+    background: #0a0e1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 11.5px;
+    line-height: 1.7;
+    overflow: hidden;
+}
+
+.kw  { color: var(--purple); }
+.fn  { color: var(--cyan); }
+.st  { color: var(--green); }
+.cm  { color: var(--text-muted); }
+
+/* ── Agent cards ── */
+.agent-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+}
+
+.agent-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 8px;
+    font-size: 10.5px;
+    text-align: center;
+    line-height: 1.5;
+}
+
+.agent-card .agent-num {
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.agent-card .agent-label {
+    color: var(--text-muted);
+    font-size: 9.5px;
+    margin-top: 2px;
+}
+
+.agent-card .agent-status {
+    color: var(--green);
+    margin-top: 4px;
+    font-size: 10px;
+}
+
+/* ── Result row ── */
+.result-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+}
+
+.result-row:last-child { border-bottom: none; }
+
+.result-icon { font-size: 14px; width: 20px; text-align: center; }
+.result-note { color: var(--text); flex: 1; }
+.result-reason { color: var(--text-muted); font-size: 11px; }
+
+/* ── Stat box ── */
+.stat-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.stat-box .stat-num {
+    font-size: 32px;
+    font-weight: 700;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.stat-box .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* ── Progress bar ── */
+.progress-bar {
+    width: 100%;
+    max-width: 860px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 0 0 2px 2px;
+    overflow: hidden;
+    margin-top: -1px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--gradient);
+    transition: width 0.3s ease;
+}
+
+/* ── Navigation ── */
+.nav {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.nav-btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    padding: 8px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+}
+
+.nav-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+.nav-btn.action {
+    background: var(--gradient);
+    border: none;
+    color: #fff;
+    font-weight: 600;
+}
+
+.slide-counter {
+    flex: 1;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* ── Section label ── */
+.section-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--yellow);
+    margin-bottom: 4px;
+}
+
+/* ── Divider ── */
+.divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2px 0;
+}
+
+/* ── Inline accent ── */
+.cy  { color: var(--cyan); }
+.pu  { color: var(--purple); }
+.gr  { color: var(--green); }
+.ye  { color: var(--yellow); }
+.re  { color: var(--red); }
+.mu  { color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<div class="terminal">
+  <div class="terminal-header">
+    <div class="dots">
+      <div class="dot red"></div>
+      <div class="dot yellow"></div>
+      <div class="dot green"></div>
+    </div>
+    <div class="terminal-title">claude-code — parsidion-cc</div>
+  </div>
+  <div class="terminal-body">
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 1: INTRODUCTION                                   -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide active">
+      <div class="slide-title">Building vault-deduplicator<br>with Claude Code</div>
+      <div class="slide-subtitle">From a one-liner question to a fully-automated AI dedup pipeline</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-symbol">$</span>
+        <span class="prompt-cmd">claude</span>
+      </div>
+
+      <div class="claude-response" style="padding:0; overflow:hidden;">
+        <div style="background:rgba(6,182,212,0.10); border-bottom:1px solid rgba(6,182,212,0.25); padding:10px 16px; font-size:13px; font-weight:600; letter-spacing:0.05em;">
+          Claude Code &nbsp;<span style="color:var(--text-muted);">—</span>&nbsp; <span style="color:var(--cyan);">parsidion-cc</span>
+        </div>
+        <div style="padding:12px 16px; font-size:12.5px; line-height:1.65;">
+          <span class="gr">✓</span> Vault context loaded &nbsp;<span class="mu">·</span>&nbsp; 1,531 notes indexed
+        </div>
+      </div>
+
+      <div class="section-label">What we'll build</div>
+      <ul class="feature-list">
+        <li>Add <span class="cy">--no-index</span> flag to <span class="cy">vault-merge</span> for batch workflows</li>
+        <li class="purple">Run <span class="cy">vault-merge --scan</span> to find 50 near-duplicate pairs</li>
+        <li class="green">Launch 10 parallel Haiku agents to evaluate &amp; merge 46 pairs</li>
+        <li class="yellow">Create the <span class="cy">vault-deduplicator</span> agent codifying the workflow</li>
+        <li>Sync all docs and commit</li>
+      </ul>
+
+      <div class="tags">
+        <span class="tag info">vault-merge</span>
+        <span class="tag purple">parallel agents</span>
+        <span class="tag success">46 merges</span>
+        <span class="tag warn">haiku model</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 2: DISCOVERY                                      -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Does vault-merge re-index?</div>
+      <div class="slide-subtitle">A simple question reveals a missing feature</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">→</span>
+        <em style="color:var(--text-muted)">does vault-merge trigger re-index after a merge?</em>
+      </div>
+
+      <div class="prompt-line" style="margin-top:4px;">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">grep -r "update_index" skills/parsidion-cc/scripts/vault_merge.py</span>
+      </div>
+
+      <div class="output" style="color:var(--red)">No matches found</div>
+
+      <div class="claude-response">
+        <span class="re">No</span> — <span class="cy">vault-merge</span> does <strong>not</strong> trigger a re-index after merging.<br>
+        You'd need to run it manually:<br><br>
+        <span class="gr">$</span> uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py<br><br>
+        Want me to add an automatic re-index call at the end of a successful merge?
+      </div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">→</span>
+        <em style="color:var(--text-muted)">yes, but add a --no-index option to disable it</em>
+      </div>
+
+      <div class="output highlight">
+        Gap identified: batch workflows need <span class="cy">--no-index</span> to skip per-merge rebuilds
+        and do one final rebuild at the end — much faster for 50+ merges.
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 3: IMPLEMENTING --no-index                        -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Adding --no-index to vault-merge</div>
+      <div class="slide-subtitle">Three targeted edits to vault_merge.py</div>
+
+      <div class="section-label">1 — import subprocess</div>
+      <div class="code-block"><span class="kw">import</span> <span class="fn">argparse</span>, <span class="fn">re</span>, <span class="fn">shutil</span>, <span class="fn">struct</span>, <span class="fn">sqlite3</span>
+<span class="cy">+import subprocess</span>
+<span class="kw">import</span> <span class="fn">sys</span>
+<span class="kw">from</span> <span class="fn">pathlib</span> <span class="kw">import</span> <span class="fn">Path</span></div>
+
+      <div class="section-label">2 — add _rebuild_index() helper</div>
+      <div class="code-block"><span class="kw">def</span> <span class="fn">_rebuild_index</span>() -> <span class="fn">None</span>:
+    index_script = <span class="fn">Path</span>(__file__).parent / <span class="st">"update_index.py"</span>
+    <span class="kw">if not</span> index_script.exists():
+        index_script = <span class="fn">Path</span>.home() / <span class="st">".claude/skills/parsidion-cc/scripts/update_index.py"</span>
+    subprocess.<span class="fn">run</span>([<span class="st">"uv"</span>, <span class="st">"run"</span>, <span class="fn">str</span>(index_script)], check=<span class="kw">True</span>, ...)</div>
+
+      <div class="section-label">3 — add flag + call after git commit</div>
+      <div class="code-block">parser.<span class="fn">add_argument</span>(<span class="st">"--no-index"</span>, action=<span class="st">"store_true"</span>,
+    help=<span class="st">"Skip rebuilding the vault index after a successful merge."</span>)
+
+<span class="cm"># after git_commit_vault():</span>
+<span class="kw">if not</span> args.no_index:
+    <span class="fn">_rebuild_index</span>()</div>
+
+      <div class="output success">✓ vault_merge.py updated  ·  synced to ~/.claude/skills/parsidion-cc/scripts/</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 4: RUNNING THE SCAN                               -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">vault-merge --scan</div>
+      <div class="slide-subtitle">Embedding similarity reveals 50 near-duplicate pairs</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">$</span>
+        <span class="prompt-cmd">vault-merge --scan</span>
+      </div>
+
+      <div class="output">Found <span class="ye">50</span> near-duplicate pair(s) (threshold=0.92):
+
+    1.  [<span class="gr">0.9995</span>]  burning/ship-fractal-implementation-0929
+              burning/ship-fractal-implementation-0843
+         → vault-merge ship-fractal-implementation-0929 ship-fractal-implementation-0843
+
+    2.  [<span class="gr">0.9980</span>]  burning/ship-fractal-implementation-0929
+              burning/ship-fractal-implementation
+
+    3.  [<span class="gr">0.9977</span>]  qdrant/capacity-planning-essentials-0928
+              qdrant/capacity-planning-essentials
+    ...
+   50.  [<span class="cy">0.9833</span>]  Patterns/terminal-emulator-core-architecture-patterns
+              Patterns/terminal-emulator-core-architecture-patterns-0801</div>
+
+      <div class="output highlight">
+        All pairs scored <span class="cy">≥ 0.9833</span> — well above the 0.92 threshold. Most are
+        timestamped variants (e.g. <span class="pu">foo-0929</span> vs <span class="pu">foo</span>) created when the
+        summarizer wrote the same insight across multiple sessions.
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 5: CHAIN ANALYSIS                                 -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Identifying Chain Dependencies</div>
+      <div class="slide-subtitle">Some notes appear in multiple pairs — order matters</div>
+
+      <div class="claude-response">
+        Before launching agents, I identified <span class="ye">6 chain groups</span> where the same stem
+        appears as both NOTE_A in one pair and NOTE_B in another. These must be
+        processed <strong>sequentially</strong> within a single agent.
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-label">Chains (sequential)</div>
+          <div class="output" style="font-size:11px;">ship-fractal: 3 variants
+  0929 + 0843 → then base + 0929
+
+par-fractal: 3 variants
+  0804 + 0803 → then base + 0804
+
+pydantic-fix: 3 variants
+  0758 + 0759 → then base + 0758
+
+ai-service-client: 3 variants
+  0802 + base → then 0803 + base
+
+tmux-click-jitter: 3 variants
+  1028 + base → then base + tmux/
+
+parsidion-cc-arch: 3 variants
+  0806 + base → then Patterns/ + Projects/</div>
+        </div>
+        <div>
+          <div class="section-label">Strategy</div>
+          <div class="output" style="font-size:11px; white-space:normal; line-height:1.7;">
+            <span class="gr">◆</span> 10 parallel Haiku agents<br>
+            <span class="gr">◆</span> Chains stay within 1 agent<br>
+            <span class="gr">◆</span> Independent pairs batched 5/agent<br>
+            <span class="gr">◆</span> --no-index on every merge<br>
+            <span class="gr">◆</span> One index rebuild at the end<br>
+            <span class="gr">◆</span> Skip redundant pairs after chain<br>
+            <span class="ye">◆</span> Cross-folder pairs: careful eval<br>
+            <span class="ye">◆</span> Prefer base name as NOTE_A
+          </div>
+        </div>
+      </div>
+
+      <div class="tags">
+        <span class="tag warn">6 chains</span>
+        <span class="tag info">~36 independent pairs</span>
+        <span class="tag purple">4 pairs needing careful review</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 6: LAUNCHING 10 PARALLEL AGENTS                   -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">10 Parallel Haiku Agents</div>
+      <div class="slide-subtitle">Each agent reads both notes, decides validity, executes merge</div>
+
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">Agent × 10  (model: haiku, parallel)</span>
+      </div>
+
+      <div class="agent-grid">
+        <div class="agent-card">
+          <div class="agent-num">1</div>
+          <div class="agent-label">ship-fractal chain</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">2</div>
+          <div class="agent-label">qdrant/research batch</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">3</div>
+          <div class="agent-label">debugging batch</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">4</div>
+          <div class="agent-label">tmux + parsidion chains</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">5</div>
+          <div class="agent-label">patterns batch</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">6</div>
+          <div class="agent-label">pydantic + ai-service chains</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">7</div>
+          <div class="agent-label">par-fractal chain + colbert</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">8</div>
+          <div class="agent-label">debugging/patterns batch</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">9</div>
+          <div class="agent-label">cross-named + special</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-num">10</div>
+          <div class="agent-label">patterns batch 6</div>
+          <div class="agent-status">⟳ running</div>
+        </div>
+      </div>
+
+      <div class="output highlight">
+        Each agent: (1) Read both notes &nbsp;(2) Evaluate same topic?
+        &nbsp;(3) If YES → <span class="cy">vault-merge A B --no-index --execute</span>
+        &nbsp;(4) Report decision + reason
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 7: AGENTS 1-4 RESULTS                             -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Agents 1–4 Complete</div>
+      <div class="slide-subtitle">Ship-fractal chain, qdrant batch, debugging batch, tmux+parsidion chains</div>
+
+      <div class="result-row">
+        <div class="result-icon">🔗</div>
+        <div class="result-note"><span class="gr">Agent 1</span> — ship-fractal chain</div>
+        <div class="result-reason"><span class="gr">2 merged</span> · 0929+0843 then base+0929</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">✓</div>
+        <div class="result-note"><span class="gr">Agent 2</span> — qdrant/research (pairs 3,5,6,7,8)</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · all identical content</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">✓</div>
+        <div class="result-note"><span class="gr">Agent 3</span> — debugging/qdrant (pairs 9,10,12,13,15)</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · same session_id on each pair</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">🔗</div>
+        <div class="result-note"><span class="gr">Agent 4</span> — tmux chain + parsidion-cc arch chain</div>
+        <div class="result-reason"><span class="gr">3 merged</span> · 1 skipped (tmux/ note missing)</div>
+      </div>
+
+      <div class="output" style="margin-top:4px; font-size:11.5px;">Agent 4 detail:
+  Pair 14: tmux-click-jitter-1028 → tmux-click-jitter  <span class="gr">✓ merged</span>
+  Pair 11: tmux-click-jitter (Debugging/) ↔ click-jitter (tmux/)  <span class="re">⚠ note missing</span>
+  Pair 16: parsidion-cc-arch-0806 → parsidion-cc-arch              <span class="gr">✓ merged</span>
+  Pair 32: parsidion-cc-arch-gap (Patterns/) → parsidion-cc-arch   <span class="gr">✓ merged</span></div>
+
+      <div class="tags" style="margin-top:auto;">
+        <span class="tag success">15 merged so far</span>
+        <span class="tag warn">1 skipped</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 8: AGENTS 5-7 RESULTS                             -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Agents 5–7 Complete</div>
+      <div class="slide-subtitle">Patterns batch, pydantic+ai-service chains, par-fractal chain</div>
+
+      <div class="result-row">
+        <div class="result-icon">✓</div>
+        <div class="result-note"><span class="gr">Agent 5</span> — patterns batch (pairs 17-21)</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · synknot, mandelbrot, parsplat, frontmatter</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">🔗</div>
+        <div class="result-note"><span class="gr">Agent 6</span> — pydantic chain + ai-service chain</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · 6 notes consolidated (chains)</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">🔗</div>
+        <div class="result-note"><span class="gr">Agent 7</span> — par-fractal chain + colbert/brush/yaml</div>
+        <div class="result-reason"><span class="gr">6 merged</span> · 0804+0803 then base+0804</div>
+      </div>
+
+      <div class="output" style="font-size:11.5px;">Agent 6 chain detail:
+  pydantic-fix: 0758+0759 → base+0758  (3 notes → 1)  <span class="gr">✓</span>
+  pydantic-pitfalls: 0759 → base        (2 notes → 1)  <span class="gr">✓</span>
+  ai-service: 0802+base → 0803+base     (3 notes → 1)  <span class="gr">✓</span>
+
+Agent 7 chain detail:
+  par-fractal: 0804+0803 → base+0804    (3 notes → 1)  <span class="gr">✓</span></div>
+
+      <div class="tags" style="margin-top:auto;">
+        <span class="tag success">31 merged so far</span>
+        <span class="tag info">chains preserved ordering</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 9: AGENTS 8-10 RESULTS                            -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Agents 8–10 Complete</div>
+      <div class="slide-subtitle">Debugging/patterns, cross-named specials, final patterns batch</div>
+
+      <div class="result-row">
+        <div class="result-icon">✓</div>
+        <div class="result-note"><span class="gr">Agent 8</span> — agentchrome, arkit, par-term, codable, ai-writing</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · identical session_id on all pairs</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">⚠</div>
+        <div class="result-note"><span class="ye">Agent 9</span> — cross-named pairs (careful eval)</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · same session_id confirmed same content</div>
+      </div>
+      <div class="result-row">
+        <div class="result-icon">✓</div>
+        <div class="result-note"><span class="gr">Agent 10</span> — secret-env, mainactor, fastapi, claudevault, terminal</div>
+        <div class="result-reason"><span class="gr">5 merged</span> · classic summarizer duplicates</div>
+      </div>
+
+      <div class="output" style="font-size:11.5px;">Agent 9 cross-name decisions:
+  path-traversal-vault-boundary-fixes
+    ↔ vault-path-traversal-boundary-fixes       <span class="gr">✓ MERGED</span>  same session_id SEC-001/005
+  image-tagging-pipeline-architecture
+    ↔ ai-image-tagging-pipeline-architecture    <span class="gr">✓ MERGED</span>  same par_image_tag project</div>
+
+      <div class="tags" style="margin-top:auto;">
+        <span class="tag success">46 merged total</span>
+        <span class="tag warn">4 skipped</span>
+        <span class="tag info">~170 wikilinks updated</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 10: STATS + INDEX REBUILD                         -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">All Agents Done — Rebuilding Index</div>
+      <div class="slide-subtitle">Final tally and one rebuild to rule them all</div>
+
+      <div class="three-col">
+        <div class="stat-box">
+          <div class="stat-num">50</div>
+          <div class="stat-label">pairs scanned</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num">46</div>
+          <div class="stat-label">notes merged</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num">4</div>
+          <div class="stat-label">skipped / invalid</div>
+        </div>
+      </div>
+
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py</span>
+      </div>
+
+      <div class="output success">Updated CLAUDE.md: 1531 notes indexed, 490 tags; 8 MANIFEST.md file(s) generated
+Embeddings: incremental rebuild launched in background</div>
+
+      <div class="output highlight">
+        <span class="cy">--no-index</span> saved ~46 sequential index rebuilds. Instead: one parallel
+        batch of merges, one final rebuild. Significant time savings on large vaults.
+      </div>
+
+      <div class="tags" style="margin-top:auto;">
+        <span class="tag success">1,531 notes</span>
+        <span class="tag info">490 tags</span>
+        <span class="tag purple">embeddings rebuilding in background</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 11: CREATING THE AGENT                            -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Creating vault-deduplicator Agent</div>
+      <div class="slide-subtitle">Codifying the workflow so any future session can run it</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">→</span>
+        <em style="color:var(--text-muted)">create a new agent for the dedupe process we just ran, following existing naming conventions</em>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-label">agents/vault-deduplicator.md</div>
+          <div class="code-block" style="font-size:11px;">---
+<span class="kw">name</span>: <span class="st">vault-deduplicator</span>
+<span class="kw">description</span>: >
+  Use when you need to find and merge
+  near-duplicate notes in ~/ClaudeVault/.
+  Scans, evaluates, merges, rebuilds.
+
+  Trigger on: "deduplicate the vault",
+  "find duplicate notes", "merge duplicate
+  vault notes", "vault has duplicates" ...
+<span class="kw">model</span>: <span class="st">haiku</span>
+<span class="kw">color</span>: <span class="st">cyan</span>
+---</div>
+        </div>
+        <div>
+          <div class="section-label">4-step procedure</div>
+          <ul class="feature-list" style="font-size:12px;">
+            <li><strong>Step 1</strong> — <span class="cy">vault-merge --scan</span></li>
+            <li class="purple"><strong>Step 2</strong> — Identify chain dependencies</li>
+            <li class="green"><strong>Step 3</strong> — Batch parallel Agent launches (Haiku)</li>
+            <li class="yellow"><strong>Step 4</strong> — One final <span class="cy">update_index.py</span></li>
+          </ul>
+          <div style="margin-top:10px;" class="output success" style="font-size:11px;">✓ Follows vault-* naming pattern
+✓ Haiku model (utility task)
+✓ Cyan color (distinct from others)
+✓ Synced to ~/.claude/agents/</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 12: DOC SYNC                                      -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Syncing All Docs</div>
+      <div class="slide-subtitle">7 parallel agents check each doc for implementation drift</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">→</span>
+        <em style="color:var(--text-muted)">update docs · also update skill to be aware of it</em>
+      </div>
+
+      <div class="prompt-line">
+        <span class="prompt">claude</span>
+        <span class="prompt-symbol">→</span>
+        <span class="prompt-cmd">Agent × 8  (7 docs + SKILL.md update)</span>
+      </div>
+
+      <div class="output" style="font-size:11.5px;">ARCHITECTURE.md   <span class="gr">✓</span> Added vault-deduplicator to ToC, Mermaid diagram, component
+                    details, and both file layout trees
+README.md         <span class="gr">✓</span> No drift — already accurate
+MCP.md            <span class="gr">✓</span> Added --migrate-subfolders/--execute flags; removed brittle model size
+MCPL.md           <span class="gr">✓</span> Fixed --activate/--deactivate to accept index or path
+EMBEDDINGS.md     <span class="gr">✓</span> Documented auto-detection of dimension mismatch on incr. rebuild
+EMBEDDINGS_EVAL.md <span class="gr">✓</span> Fixed "sortable by column" → "pre-sorted by MRR descending"
+AGENTCHROME.md    <span class="gr">✓</span> Updated fallback: curl OR Claude Code Web Fetch tool</div>
+
+      <div class="output success">SKILL.md: Added vault-deduplicator agent table + ## Vault Merge section
+         with --no-index batch-merge pattern  ·  synced to ~/.claude/skills/</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 13: COMMIT                                        -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">Commit &amp; Ship</div>
+      <div class="slide-subtitle">9 files, one atomic commit</div>
+
+      <div class="prompt-line">
+        <span class="prompt">user</span>
+        <span class="prompt-symbol">→</span>
+        <em style="color:var(--text-muted)">commit all</em>
+      </div>
+
+      <div class="output" style="font-size:11.5px;">On branch main · ahead of origin/main by 19 commits
+
+Changes to commit:
+  <span class="gr">M</span>  docs/AGENTCHROME.md
+  <span class="gr">M</span>  docs/ARCHITECTURE.md
+  <span class="gr">M</span>  docs/EMBEDDINGS.md
+  <span class="gr">M</span>  docs/EMBEDDINGS_EVAL.md
+  <span class="gr">M</span>  docs/MCP.md
+  <span class="gr">M</span>  docs/MCPL.md
+  <span class="gr">M</span>  skills/parsidion-cc/SKILL.md
+  <span class="gr">M</span>  skills/parsidion-cc/scripts/vault_merge.py
+  <span class="gr">A</span>  agents/vault-deduplicator.md
+
+ 9 files changed, 232 insertions(+), 13 deletions(-)</div>
+
+      <div class="output success">[main a8a3c5d] feat(vault): add vault-deduplicator agent and vault-merge --no-index flag
+
+Merged: vault-deduplicator agent · --no-index flag · 7 doc syncs · SKILL.md update</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SLIDE 14: SUMMARY                                       -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="slide">
+      <div class="slide-title">What We Built</div>
+      <div class="slide-subtitle">A fully-automated vault deduplication pipeline</div>
+
+      <div class="two-col">
+        <div>
+          <div class="section-label">Features shipped</div>
+          <ul class="feature-list" style="font-size:12px;">
+            <li><span class="cy">vault-merge --no-index</span> flag for batch workflows</li>
+            <li class="purple"><span class="cy">_rebuild_index()</span> auto-called after merge</li>
+            <li class="green"><span class="cy">vault-deduplicator</span> agent (haiku, cyan)</li>
+            <li class="yellow">10 parallel Haiku agents merged <strong>46/50</strong> pairs</li>
+            <li>~170 wikilinks updated across vault</li>
+            <li class="purple">1,531 notes re-indexed, 490 tags</li>
+            <li class="green">7 docs synced, SKILL.md updated</li>
+          </ul>
+        </div>
+        <div>
+          <div class="section-label">Commands / workflow</div>
+          <div class="output" style="font-size:11px; white-space:normal; line-height:1.8;">
+            <span class="cy">vault-merge --scan</span><br>
+            <span class="cy">vault-merge A B --no-index --execute</span><br>
+            <span class="cy">vault-merge A B --execute</span>  (auto re-index)<br>
+            <span class="pu">vault-deduplicator</span>  agent trigger<br>
+            <span class="gr">update_index.py</span>  final rebuild
+          </div>
+        </div>
+      </div>
+
+      <div class="tags" style="margin-top:auto;">
+        <span class="tag success">46 duplicate pairs merged</span>
+        <span class="tag info">vault-deduplicator agent</span>
+        <span class="tag purple">--no-index batch pattern</span>
+        <span class="tag warn">commit a8a3c5d</span>
+      </div>
+    </div>
+
+  </div><!-- terminal-body -->
+</div><!-- terminal -->
+
+<div class="progress-bar">
+  <div class="progress-fill" id="progress" style="width: 7.14%"></div>
+</div>
+
+<div class="nav">
+  <button class="nav-btn" id="prev" onclick="changeSlide(-1)" disabled>← Prev</button>
+  <div class="slide-counter" id="counter">1 / 14</div>
+  <button class="nav-btn" id="next" onclick="changeSlide(1)">Next →</button>
+</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+let current = 0;
+
+function changeSlide(dir) {
+  slides[current].classList.remove('active');
+  current = Math.max(0, Math.min(total - 1, current + dir));
+  slides[current].classList.add('active');
+  document.getElementById('counter').textContent = `${current + 1} / ${total}`;
+  document.getElementById('progress').style.width = `${((current + 1) / total) * 100}%`;
+  document.getElementById('prev').disabled = current === 0;
+  const nextBtn = document.getElementById('next');
+  if (current === total - 1) {
+    nextBtn.textContent = '✓ Done';
+    nextBtn.disabled = true;
+    nextBtn.classList.add('action');
+  } else {
+    nextBtn.textContent = 'Next →';
+    nextBtn.disabled = false;
+    nextBtn.classList.remove('action');
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); changeSlide(1); }
+  if (e.key === 'ArrowLeft')                    { e.preventDefault(); changeSlide(-1); }
+});
+</script>
+</body>
+</html>
