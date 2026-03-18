@@ -1101,9 +1101,72 @@ def uninstall(
                     cleaned += "\n"
                 claude_md.write_text(cleaned, encoding="utf-8")
 
+    # Remove nightly summarizer scheduler
+    unschedule_summarizer(dry_run=dry_run)
+
     if not dry_run:
         print()
         _ok("Uninstall complete. Your vault at ~/ClaudeVault/ was not removed.")
+
+
+def unschedule_summarizer(dry_run: bool = False) -> None:
+    """Remove the nightly summarizer cron job or launchd plist if present.
+
+    On macOS: unloads and deletes the launchd plist from ``~/Library/LaunchAgents/``.
+    On Linux/other: removes the parsidion-cc line from the user's crontab.
+    Silent no-op when no scheduler entry is found.
+
+    Args:
+        dry_run: If True, print what would be done without making changes.
+    """
+    if sys.platform == "darwin":
+        plist_path = Path.home() / "Library" / "LaunchAgents" / _LAUNCHD_PLIST_NAME
+        if not plist_path.exists():
+            return
+        _step(f"Remove launchd plist: {plist_path}", dry_run=dry_run)
+        if dry_run:
+            print(f"    {dim('Would run:')} launchctl unload {plist_path}")
+            print(f"    {dim('Would delete:')} {plist_path}")
+            return
+        subprocess.run(
+            ["launchctl", "unload", str(plist_path)],
+            capture_output=True,
+        )
+        try:
+            plist_path.unlink()
+            _ok("Launchd plist removed")
+        except OSError as exc:
+            _warn(f"Could not remove plist: {exc}")
+    else:
+        # Linux/other: remove the crontab line
+        try:
+            result = subprocess.run(
+                ["crontab", "-l"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return  # No crontab
+            existing = result.stdout
+            if _CRON_MARKER not in existing:
+                return  # No parsidion-cc entry
+            _step("Remove parsidion-cc line from crontab", dry_run=dry_run)
+            if dry_run:
+                return
+            lines = [ln for ln in existing.splitlines() if _CRON_MARKER not in ln]
+            new_crontab = "\n".join(lines) + "\n"
+            install_result = subprocess.run(
+                ["crontab", "-"],
+                input=new_crontab,
+                capture_output=True,
+                text=True,
+            )
+            if install_result.returncode == 0:
+                _ok("Cron job removed")
+            else:
+                _warn(f"crontab update failed: {install_result.stderr.strip()}")
+        except FileNotFoundError:
+            pass  # crontab not available, nothing to remove
 
 
 def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
