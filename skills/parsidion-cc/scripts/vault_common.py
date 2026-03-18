@@ -1443,6 +1443,7 @@ def append_to_pending(
     force: bool = False,
     source: str = "session",
     agent_type: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Append a session entry to the pending summaries queue.
 
@@ -1451,13 +1452,17 @@ def append_to_pending(
     Guards against duplicates by session ID (transcript filename stem).
 
     Args:
-        transcript_path: Path to the transcript JSONL file.
+        transcript_path: Path to the transcript JSONL file (must be readable).
         project: The project name.
         categories: Detected categories mapping keys to excerpt lists.
         force: Skip the significance filter; queue unconditionally.
         source: Origin of the transcript — ``"session"`` or ``"subagent"``.
         agent_type: Subagent type (e.g. ``"Explore"``); only meaningful when
             *source* is ``"subagent"``.
+        session_id: Explicit deduplication key.  Defaults to
+            ``transcript_path.stem`` when omitted.  Pass the ``agent_id``
+            here when the transcript path is the real agent transcript so
+            that the stored path remains readable while dedup uses the ID.
     """
     all_keys = set(categories.keys())
     if not force:
@@ -1466,7 +1471,7 @@ def append_to_pending(
             return
 
     pending_path = VAULT_ROOT / "pending_summaries.jsonl"
-    session_id = transcript_path.stem
+    session_id = session_id if session_id is not None else transcript_path.stem
 
     entry: dict[str, object] = {
         "session_id": session_id,

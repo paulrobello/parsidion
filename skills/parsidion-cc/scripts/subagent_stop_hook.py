@@ -187,18 +187,16 @@ def main() -> None:
         cats_str = ", ".join(categories.keys()) or "none"
         print(f"{_LOG_PREFIX} detected categories: [{cats_str}]", file=sys.stderr)
 
-        # Use agent_id as the deduplication key when available; fall back to transcript stem
-        dedup_path = agent_transcript
-        if agent_id:
-            # Synthetic path whose stem is the agent_id — used only for deduplication
-            dedup_path = agent_transcript.parent / f"{agent_id}.jsonl"
-
+        # Pass the real transcript path so vault-review can read it.
+        # Use agent_id as the explicit dedup key when available so that
+        # restarted subagents with the same agent_id are not queued twice.
         vault_common.append_to_pending(
-            transcript_path=dedup_path,
+            transcript_path=agent_transcript,
             project=project,
             categories=categories,
             source="subagent",
             agent_type=agent_type,
+            session_id=agent_id if agent_id else None,
         )
 
         significant = {"error_fix", "research", "pattern"}
