@@ -128,7 +128,14 @@ def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES) -> list[str]:
         return ["(no transcript path in entry)"]
     path = Path(transcript_path)
     if not path.exists():
-        return [f"(transcript not found: {path})"]
+        # Graceful message — transcript may have been deleted or path was synthetic
+        return [
+            f"Transcript not found: {path}",
+            "",
+            "This can happen when:",
+            "  • Claude Code cleaned up old transcripts",
+            "  • The entry was queued before a bug fix (re-queue by running a new session)",
+        ]
 
     lines: list[str] = []
     try:
