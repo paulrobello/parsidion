@@ -252,7 +252,7 @@ def _draw_footer(stdscr, msg: str = "") -> None:
     import curses
 
     h, w = stdscr.getmaxyx()
-    keys = "j/k:nav  d:dump  y:approve  n:reject  s:skip  q:quit"
+    keys = "j/k:nav  Enter/d:dump  y:approve  n:reject  s:skip  q:quit"
     footer = (msg or keys)[: w - 1].ljust(w - 1)
     stdscr.attron(curses.A_REVERSE)
     try:
@@ -416,7 +416,7 @@ def _run_tui(stdscr) -> None:
             selected = max(selected - 1, 0)
 
         # Dump transcript excerpt
-        elif key == ord("d"):
+        elif key in (ord("d"), ord("\n"), curses.KEY_ENTER, 10, 13):
             entry = entries[selected]
             excerpt = _read_transcript_excerpt(entry)
             _show_popup(stdscr, excerpt, title="Transcript Excerpt")
