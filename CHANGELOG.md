@@ -7,11 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-18
+
 ### Added
+- `vault-deduplicator` agent (`agents/vault-deduplicator.md`) — scans for near-duplicate note pairs via embedding similarity, evaluates with parallel Haiku subagents, merges confirmed duplicates with `--no-index`, and rebuilds the index once at the end
+- `--no-index` flag for `vault-merge` — skips per-merge index rebuild, enabling efficient batch deduplication workflows; auto-rebuilds by default when omitted
+- `vault-merge --scan` — scans all vault notes for near-duplicate pairs using embedding similarity with configurable `--threshold` and `--top` options
+- `vault-deduplicator-slideshow.html` — interactive build session slideshow documenting the dedup pipeline creation
+- Updated `parsidion-cc-architecture.png` infographic via NotebookLM covering all 5 architectural layers
 - `--rich` / `-r` output format for `vault-search` — Rich-colorized one-line-per-note output with score colored green/yellow/red by value, folder in cyan, stem bold, tags dim yellow, and title bright white
 - Short options for all `vault-search` flags: `-n`/`--top`, `-s`/`--min-score`, `-m`/`--model`, `-T`/`--tag` (uppercase to avoid conflict with `-t`), `-f`/`--folder`, `-k`/`--type`, `-p`/`--project`, `-d`/`--recent-days`, `-l`/`--limit`, `-j`/`--json`, `-t`/`--text`, `-r`/`--rich`
 - `VAULT_SEARCH_*` environment variable support: `VAULT_SEARCH_FORMAT`, `VAULT_SEARCH_MIN_SCORE`, `VAULT_SEARCH_TOP`, `VAULT_SEARCH_LIMIT`, `VAULT_SEARCH_MODEL`; precedence is CLI flag > env var > config.yaml > built-in default
 - `rich>=13.0` added to `[tools]` extras in `pyproject.toml` (was only in `[eval]`)
+- `vault-review` y/n keyboard support inside transcript popup; auto-chains to next session
+- `--run-doctor` flag for `summarize_sessions.py`; cron/launchd always passes it
+- `--enable-ai` flag for non-interactive AI mode setup in installer
+- Unschedule summarizer on uninstall (launchd/cron)
+
+### Changed
+- `vault-merge` now auto-rebuilds the vault index after a successful `--execute` merge (unless `--no-index` is passed)
+- Hooks suppress internal `claude -p` sessions from vault queue
+- `vault-doctor` auto-checks and repairs legacy pending paths on every run
+- Architecture slideshow embedded image updated to v2 infographic
+- README.md slideshow links now include vault-deduplicator
+- SKILL.md updated with vault-deduplicator agent and vault-merge batch pattern
+- All docs synced to current implementation (ARCHITECTURE, AGENTCHROME, EMBEDDINGS, EMBEDDINGS_EVAL, MCP, MCPL)
+
+### Fixed
+- `vault-review`: read subagent transcript content from nested `message.content`
+- `vault-review`: enable keypad on popup so arrow keys scroll instead of close
+- `vault-review`: split transcript text on newlines to prevent curses row corruption
+- `vault-review`: store real transcript path for subagent entries so dump works
+- `vault-review`: improve transcript-not-found message with explanation
+- `vault_common`: forward additional Anthropic env vars (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, proxy vars) to child processes
+- `vault_stats`: use half-block char for bar charts; parse comma-separated tags column in `_collect_tags`
+- `chat-to-slideshow` skill: section-label spacing fix (positive margin) and ASCII box alignment guidance
 
 ## [0.2.0] - 2026-03-15
 
