@@ -1190,13 +1190,28 @@ def install(args: argparse.Namespace) -> int:
         )
         enable_ai = _confirm("Enable AI-powered note selection?", default=False)
 
+    # --- Nightly summarizer scheduler prompt ---
+    do_schedule: bool = args.schedule_summarizer
+    if not args.yes and not do_schedule:
+        scheduler = "launchd" if sys.platform == "darwin" else "cron"
+        print()
+        print(bold("Nightly Summarizer Scheduler (optional)"))
+        print(
+            dim(
+                f"  Installs a {scheduler} job that runs summarize_sessions.py\n"
+                f"  automatically at {args.summarizer_hour:02d}:00 each night.\n"
+                "  Keeps the vault up to date without manual intervention."
+            )
+        )
+        do_schedule = _confirm("Schedule nightly summarizer?", default=False)
+
     print()
     print(bold("Installation Plan"))
     print(f"  {dim('Claude dir   :')} {claude_dir}")
     print(f"  {dim('Vault path   :')} {vault_root}")
     if install_tools:
         print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
-    if args.schedule_summarizer:
+    if do_schedule:
         print(
             f"  {dim('Scheduler    :')} nightly summarizer at {args.summarizer_hour:02d}:00 "
             f"({'launchd' if sys.platform == 'darwin' else 'cron'})"
@@ -1278,7 +1293,7 @@ def install(args: argparse.Namespace) -> int:
         install_cli_tools(REPO_ROOT, dry_run=dry_run)
 
     # 12. Schedule nightly summarizer (optional, --schedule-summarizer)
-    if args.schedule_summarizer:
+    if do_schedule:
         schedule_summarizer(claude_dir, dry_run=dry_run, hour=args.summarizer_hour)
 
     print()
