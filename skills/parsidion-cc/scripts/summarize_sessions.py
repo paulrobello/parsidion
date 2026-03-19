@@ -58,6 +58,10 @@ _DEFAULT_MODEL: str = vault_common.get_config(
     "defaults", "sonnet_model", "claude-sonnet-4-6"
 )
 
+# Sentinel: returned as written_path when the transcript file no longer exists.
+# Stale entries are purged from the pending queue (they can never succeed).
+_STALE = "__STALE__"
+
 # Progress tracking (#13)
 _PROGRESS_FILE = Path("/tmp/parsidion-cc-summarizer-progress.json")
 
@@ -852,7 +856,8 @@ async def summarize_one(
 
     Returns:
         Tuple of (entry, written_path). written_path is None on dry-run,
-        skip decision, or error.
+        skip decision, or error.  written_path is ``_STALE`` when the
+        transcript file no longer exists (entry should be purged).
     """
     async with semaphore:
         transcript_path_str = str(entry.get("transcript_path", ""))
@@ -864,6 +869,17 @@ async def summarize_one(
         extra: dict[str, str | None] = (
             {} if persist else {"no-session-persistence": None}
         )
+
+        # Check for missing transcript before expensive preprocessing.
+        # Subagent transcripts are ephemeral — Claude Code may rename or
+        # delete them between hook fire time and summarizer run.  Mark
+        # these as stale so they get purged from the pending queue.
+        if not Path(transcript_path_str).is_file():
+            print(
+                f"  Purging stale entry (transcript missing): {transcript_path_str}",
+                file=sys.stderr,
+            )
+            return entry, _STALE
 
         cleaned = await preprocess_transcript_hierarchical(
             transcript_path_str, tail_lines, max_cleaned_chars, cluster_model, extra
@@ -1264,14 +1280,16 @@ def main() -> None:
         ),
     )
 
-    # Categorise results: written notes, write-gate skips, and hard failures.
-    # A None written_path covers both "skipped by write-gate" and "failed";
-    # the write-gate already prints its own message, so we just distinguish
-    # from any other None (no transcript, query error) to avoid double-printing.
+    # Categorise results: written notes, stale (missing transcript), write-gate
+    # skips, and hard failures.  Stale entries are purged from the queue since
+    # the transcript can never be recovered.
     successful_entries: list[dict[str, object]] = []
+    stale_entries: list[dict[str, object]] = []
     failed_count = 0
     for entry, written_path in results:
-        if written_path is not None:
+        if written_path == _STALE:
+            stale_entries.append(entry)
+        elif written_path is not None:
             print(f"  Written: {written_path}")
             successful_entries.append(entry)
         elif not args.dry_run:
@@ -1279,12 +1297,15 @@ def main() -> None:
             # count everything else as a failure for the summary line.
             failed_count += 1
 
-    skipped_count = len(entries) - len(successful_entries) - failed_count
+    skipped_count = (
+        len(entries) - len(successful_entries) - len(stale_entries) - failed_count
+    )
 
     if not args.dry_run:
-        # Remove processed entries from pending file (only when using the default pending path)
-        if not args.sessions and successful_entries:
-            remove_processed(source_path, successful_entries)
+        # Remove processed + stale entries from pending file
+        removable = successful_entries + stale_entries
+        if not args.sessions and removable:
+            remove_processed(source_path, removable)
 
         # Rebuild vault index and commit all new notes + updated index
         if successful_entries:
@@ -1303,6 +1324,8 @@ def main() -> None:
             )
 
     summary_parts = [f"{len(successful_entries)} written"]
+    if stale_entries:
+        summary_parts.append(f"{len(stale_entries)} purged (stale)")
     if skipped_count:
         summary_parts.append(f"{skipped_count} skipped by write-gate")
     if failed_count:
