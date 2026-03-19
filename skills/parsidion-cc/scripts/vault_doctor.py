@@ -1489,6 +1489,109 @@ def run_fix_tags(dry_run: bool = True) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Redundant prefix stripping
+# ---------------------------------------------------------------------------
+
+
+def _find_redundant_prefixes(
+    all_notes: list[Path],
+) -> list[tuple[Path, Path]]:
+    """Find notes inside subfolders whose filename redundantly starts with the subfolder name.
+
+    For example, ``Projects/cctmux/cctmux-overview.md`` should be
+    ``Projects/cctmux/overview.md`` since the subfolder already provides
+    the namespace.
+
+    Returns list of (old_path, new_path) pairs.
+    """
+    vault = vault_common.VAULT_ROOT
+    pairs: list[tuple[Path, Path]] = []
+    for note in all_notes:
+        rel = note.relative_to(vault)
+        parts = rel.parts
+        if len(parts) != 3:  # folder/subfolder/note.md
+            continue
+        subfolder = parts[1].lower()
+        stem = note.stem.lower()
+        if stem.startswith(f"{subfolder}-"):
+            new_stem = note.stem[len(subfolder) + 1 :]
+            if new_stem:
+                new_path = note.parent / f"{new_stem}.md"
+                # Don't rename if the target already exists
+                if not new_path.exists():
+                    pairs.append((note, new_path))
+    return pairs
+
+
+def run_strip_prefixes(dry_run: bool = True) -> None:
+    """Strip redundant subfolder prefixes from note filenames.
+
+    Renames files and updates all wikilinks vault-wide.
+
+    Args:
+        dry_run: When True, only report — do not modify any files.
+    """
+    all_notes = list(vault_common.all_vault_notes())
+    pairs = _find_redundant_prefixes(all_notes)
+
+    if not pairs:
+        print("No redundant prefixes found.")
+        return
+
+    # Group by subfolder for display
+    by_folder: dict[str, list[tuple[Path, Path]]] = {}
+    for old, new in pairs:
+        folder_key = str(old.parent.relative_to(vault_common.VAULT_ROOT))
+        by_folder.setdefault(folder_key, []).append((old, new))
+
+    print(f"\nFound {len(pairs)} note(s) with redundant subfolder prefix:\n")
+    for folder, folder_pairs in sorted(by_folder.items()):
+        print(f"  {folder}/")
+        for old, new in folder_pairs:
+            print(f"    {old.name}  →  {new.name}")
+    print()
+
+    if dry_run:
+        print(f"[dry-run] {len(pairs)} file(s) would be renamed. Run with --execute to apply.")
+        return
+
+    # Build stem remapping for wikilink patching
+    stem_map: dict[str, str] = {old.stem: new.stem for old, new in pairs}
+
+    # Rename files
+    for old, new in pairs:
+        old.rename(new)
+
+    # Patch wikilinks vault-wide (including in the renamed files)
+    patched_notes = 0
+    current_notes = list(vault_common.all_vault_notes())
+    for note in current_notes:
+        try:
+            content = note.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        original = content
+        for old_stem, new_stem in stem_map.items():
+            content = content.replace(f"[[{old_stem}]]", f"[[{new_stem}]]")
+            content = re.sub(
+                rf"\[\[{re.escape(old_stem)}\|",
+                f"[[{new_stem}|",
+                content,
+            )
+        if content != original:
+            note.write_text(content, encoding="utf-8")
+            patched_notes += 1
+
+    vault_common.git_commit_vault(
+        f"refactor(vault): strip redundant subfolder prefix from {len(pairs)} note(s)",
+    )
+    print(
+        f"Renamed {len(pairs)} file(s), patched wikilinks in {patched_notes} note(s)."
+    )
+    print("Run update_index.py to rebuild the vault index.")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1593,6 +1696,15 @@ def main() -> None:
             "collapsed hyphens). Shows candidates by default; use --execute to apply."
         ),
     )
+    parser.add_argument(
+        "--strip-prefixes",
+        action="store_true",
+        help=(
+            "Strip redundant subfolder prefixes from filenames "
+            "(e.g. cctmux/cctmux-overview.md → cctmux/overview.md). "
+            "Shows candidates by default; use --execute to apply."
+        ),
+    )
     args = parser.parse_args()
 
     # Load persistent state
@@ -1618,6 +1730,7 @@ def main() -> None:
     if args.fix_all:
         args.fix_frontmatter = True
         args.fix_tags = True
+        args.strip_prefixes = True
         args.migrate_subfolders = True
         args.execute = True
 
@@ -1625,6 +1738,13 @@ def main() -> None:
     if args.fix_tags:
         dry = not args.execute
         run_fix_tags(dry_run=dry)
+        if not args.fix_all:
+            return
+
+    # ── --strip-prefixes mode ──────────────────────────────────────────────
+    if args.strip_prefixes:
+        dry = not args.execute
+        run_strip_prefixes(dry_run=dry)
         if not args.fix_all:
             return
 
