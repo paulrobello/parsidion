@@ -1428,61 +1428,187 @@ def _update_graph_json_tags(merges: list[tuple[str, str, str]]) -> int:
     return subs
 
 
+def _normalize_underscores_in_frontmatter(
+    notes: list[Path],
+    dry_run: bool = True,
+) -> int:
+    """Convert underscores to hyphens in tags and project frontmatter fields.
+
+    Handles all YAML tag formats (inline, quoted inline, block sequence) and
+    the scalar ``project`` field.  Returns the number of notes modified.
+    """
+    # Regex for project field: project: some_value
+    project_re = re.compile(r"^(project:\s*)(.+)$", re.MULTILINE)
+
+    found: list[tuple[Path, list[str]]] = []
+    for note in notes:
+        try:
+            content = note.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm_match = re.match(r"^---\n(.*?\n)---", content, re.DOTALL)
+        if not fm_match:
+            continue
+        fm = vault_common.parse_frontmatter(content)
+        issues: list[str] = []
+        # Check tags
+        tags = fm.get("tags", [])
+        if isinstance(tags, list):
+            for t in tags:
+                if "_" in str(t):
+                    issues.append(f"tag: {t} → {str(t).replace('_', '-')}")
+        # Check project
+        proj = str(fm.get("project", ""))
+        if "_" in proj:
+            issues.append(f"project: {proj} → {proj.replace('_', '-')}")
+        if issues:
+            found.append((note, issues))
+
+    if not found:
+        return 0
+
+    print(f"\nFound {len(found)} note(s) with underscores in tags/project:\n")
+    for note, issues in found[:20]:
+        rel = note.relative_to(vault_common.VAULT_ROOT)
+        print(f"  {rel}")
+        for issue in issues:
+            print(f"    {issue}")
+    if len(found) > 20:
+        print(f"  ... and {len(found) - 20} more")
+    print()
+
+    if dry_run:
+        return 0
+
+    modified = 0
+    for note, _ in found:
+        try:
+            content = note.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm_match = re.match(r"^---\n(.*?\n)---", content, re.DOTALL)
+        if not fm_match:
+            continue
+        fm_text = fm_match.group(1)
+        original_fm = fm_text
+
+        # Fix tags: replace underscores with hyphens in tag values only
+        # Inline: tags: [par_ai_core, foo] or tags: ["par_ai_core", "foo"]
+        inline_m = _TAGS_INLINE_RE.search(fm_text)
+        if inline_m:
+            old_items = inline_m.group(2)
+            new_items = old_items.replace("_", "-")
+            if old_items != new_items:
+                fm_text = (
+                    fm_text[: inline_m.start(2)]
+                    + new_items
+                    + fm_text[inline_m.end(2) :]
+                )
+        else:
+            # Block sequence: replace underscores in "  - tag_name" lines
+            block_m = _TAGS_BLOCK_START_RE.search(fm_text)
+            if block_m:
+                after = fm_text[block_m.end() :]
+                new_after = re.sub(
+                    r"^(  - )(.+)$",
+                    lambda m: m.group(1) + m.group(2).replace("_", "-"),
+                    after,
+                    flags=re.MULTILINE,
+                )
+                if new_after != after:
+                    fm_text = fm_text[: block_m.end()] + new_after
+
+        # Fix project field
+        fm_text = project_re.sub(
+            lambda m: m.group(1) + m.group(2).replace("_", "-"),
+            fm_text,
+        )
+
+        if fm_text != original_fm:
+            new_content = (
+                content[: fm_match.start(1)] + fm_text + content[fm_match.end(1) :]
+            )
+            note.write_text(new_content, encoding="utf-8")
+            modified += 1
+
+    if modified:
+        print(f"  Normalized underscores → hyphens in {modified} note(s)")
+    return modified
+
+
 def run_fix_tags(dry_run: bool = True) -> None:
     """Detect and merge duplicate tags across the vault.
 
     Finds duplicate tag pairs (plural/singular, hyphen/underscore,
-    collapsed hyphens) and merges them to a canonical form.
+    collapsed hyphens) and merges them to a canonical form.  Also
+    normalizes any remaining underscores in tags and project fields.
 
     Args:
         dry_run: When True, only report — do not modify any files.
     """
     all_notes = list(vault_common.all_vault_notes())
+
+    # Step 1: Normalize underscores → hyphens in tags and project fields
+    underscore_fixed = _normalize_underscores_in_frontmatter(all_notes, dry_run=dry_run)
+
+    # Step 2: Detect and merge duplicate tag pairs
     tag_counts = _collect_all_tags(all_notes)
     duplicates = _find_tag_duplicates(tag_counts)
 
-    if not duplicates:
+    if not duplicates and not underscore_fixed:
         print("No duplicate tags found.")
         return
 
-    print(f"\nFound {len(duplicates)} duplicate tag pair(s):\n")
-    print(f"  {'Keep':<30} {'#':>4}  {'Merge away':<30} {'#':>4}  Reason")
-    print(f"  {'─' * 80}")
-    for keep, away, reason in sorted(duplicates, key=lambda x: -tag_counts.get(x[1], 0)):
-        ck = tag_counts.get(keep, 0)
-        ca = tag_counts.get(away, 0)
-        print(f"  {keep:<30} {ck:>4}  {away:<30} {ca:>4}  {reason}")
-    print()
+    total_modified = underscore_fixed
 
-    total_affected = sum(tag_counts.get(away, 0) for _, away, _ in duplicates)
-    print(f"Total note edits needed: ~{total_affected}")
+    if duplicates:
+        print(f"\nFound {len(duplicates)} duplicate tag pair(s):\n")
+        print(f"  {'Keep':<30} {'#':>4}  {'Merge away':<30} {'#':>4}  Reason")
+        print(f"  {'─' * 80}")
+        for keep, away, reason in sorted(
+            duplicates, key=lambda x: -tag_counts.get(x[1], 0)
+        ):
+            ck = tag_counts.get(keep, 0)
+            ca = tag_counts.get(away, 0)
+            print(f"  {keep:<30} {ck:>4}  {away:<30} {ca:>4}  {reason}")
+        print()
 
-    if dry_run:
-        print("\n[dry-run] Run with --execute to apply tag merges.")
+        total_affected = sum(tag_counts.get(away, 0) for _, away, _ in duplicates)
+        print(f"Total note edits needed: ~{total_affected}")
+
+        if dry_run:
+            print("\n[dry-run] Run with --execute to apply all fixes.")
+            return
+
+        # Apply merges
+        for keep, away, reason in duplicates:
+            count = 0
+            for note in all_notes:
+                if _replace_tag_in_note(note, away, keep):
+                    count += 1
+                    total_modified += 1
+            if count:
+                print(f"  Merged '{away}' → '{keep}' in {count} note(s)")
+
+        # Update graph.json
+        graph_subs = _update_graph_json_tags(duplicates)
+        if graph_subs:
+            print(f"  Updated {graph_subs} graph.json color group(s)")
+    elif dry_run:
         return
 
-    # Apply merges
-    notes_modified = 0
-    for keep, away, reason in duplicates:
-        count = 0
-        for note in all_notes:
-            if _replace_tag_in_note(note, away, keep):
-                count += 1
-                notes_modified += 1
-        if count:
-            print(f"  Merged '{away}' → '{keep}' in {count} note(s)")
-
-    # Update graph.json
-    graph_subs = _update_graph_json_tags(duplicates)
-    if graph_subs:
-        print(f"  Updated {graph_subs} graph.json color group(s)")
-
-    if notes_modified:
+    if total_modified:
+        msg_parts: list[str] = []
+        if underscore_fixed:
+            msg_parts.append(f"normalize {underscore_fixed} underscore field(s)")
+        if duplicates:
+            msg_parts.append(
+                f"merge {len(duplicates)} duplicate tag pair(s)"
+            )
         vault_common.git_commit_vault(
-            f"refactor(vault): merge {len(duplicates)} duplicate tag pair(s) "
-            f"across {notes_modified} note(s)",
+            f"refactor(vault): {', '.join(msg_parts)}",
         )
-        print(f"\nMerged {len(duplicates)} tag pair(s) across {notes_modified} note(s).")
+        print(f"\nDone: {total_modified} note(s) modified.")
         print("Run update_index.py to rebuild the vault index.")
     else:
         print("\nNo files were modified.")
