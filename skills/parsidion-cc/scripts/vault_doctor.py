@@ -1308,43 +1308,60 @@ def _replace_tag_in_note(path: Path, old_tag: str, new_tag: str) -> bool:
         fm_text = fm_text[: inline_m.start()] + new_line + fm_text[inline_m.end() :]
 
     else:
-        # Block sequence: tags:\n  - item
+        # Block sequence: tags:\n  - item\n  - item\n...
         block_m = _TAGS_BLOCK_START_RE.search(fm_text)
         if block_m:
-            # Find all "  - tag" lines after "tags:"
-            pos = block_m.end()
-            lines = fm_text[pos:].split("\n")
-            new_lines: list[str] = []
-            replaced = False
-            seen_tags: set[str] = set()
-            for line in lines:
+            # Split everything after "tags:" into lines and find the
+            # contiguous block of "  - ..." items.  The first line is
+            # often empty (the newline right after "tags:").
+            after = fm_text[block_m.end():]
+            all_lines = after.split("\n")
+            tag_lines: list[str] = []  # original "  - X" lines
+            end_idx = 0
+            for i, line in enumerate(all_lines):
                 stripped = line.strip()
                 if stripped.startswith("- "):
-                    tag_val = stripped[2:].strip().strip('"').strip("'")
-                    if tag_val == old_tag:
-                        if new_tag not in seen_tags:
-                            new_lines.append(f"  - {new_tag}")
-                            seen_tags.add(new_tag)
-                        replaced = True
-                    elif tag_val not in seen_tags:
-                        new_lines.append(line)
-                        seen_tags.add(tag_val)
-                    else:
-                        # Duplicate after merge — skip
-                        replaced = True
+                    tag_lines.append(line)
+                    end_idx = i + 1
+                elif not stripped and not tag_lines:
+                    # Leading blank line before first item — skip
+                    end_idx = i + 1
+                    continue
+                elif not stripped and tag_lines:
+                    # Blank line after items — end of block
+                    break
                 else:
-                    new_lines.append(line)
-                    break  # End of block sequence
+                    break  # next field
+
+            if not tag_lines:
+                return False
+
+            # Parse old tags, build new list with replacement
+            replaced = False
+            seen_tags: set[str] = set()
+            new_tag_lines: list[str] = []
+            for line in tag_lines:
+                tag_val = line.strip()[2:].strip().strip('"').strip("'")
+                if tag_val == old_tag:
+                    if new_tag not in seen_tags:
+                        new_tag_lines.append(f"  - {new_tag}")
+                        seen_tags.add(new_tag)
+                    replaced = True
+                elif tag_val not in seen_tags:
+                    new_tag_lines.append(line)
+                    seen_tags.add(tag_val)
 
             if not replaced:
                 return False
 
-            # Reconstruct: everything before block items + new items + rest
-            remaining_lines = lines[len(new_lines) + (1 if replaced else 0) :]
+            # Reconstruct: "tags:\n" + new tag lines + everything after the block
+            rest = "\n".join(all_lines[end_idx:])
             fm_text = (
                 fm_text[: block_m.end()]
-                + "\n".join(new_lines)
-                + ("\n" + "\n".join(remaining_lines) if remaining_lines else "")
+                + "\n"
+                + "\n".join(new_tag_lines)
+                + "\n"
+                + rest
             )
         else:
             return False
