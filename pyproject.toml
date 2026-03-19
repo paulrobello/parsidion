@@ -5,17 +5,14 @@ requires-python = ">=3.13"
 dependencies = []
 
 [project.optional-dependencies]
-# Heavy deps needed only for vault_search (semantic search CLI)
 search = [
     "fastembed>=0.6.0,<1.0",
     "sqlite-vec>=0.1.6,<1.0",
 ]
-# All CLI tools (vault-search + vault-query)
 tools = [
     "parsidion-cc[search]",
     "rich>=13.0",
 ]
-# QA-019: Dependencies for embed_eval.py and migrate_*.py (not needed for core operation)
 eval = [
     "rich>=13.0",
     "pyyaml>=6.0",
@@ -32,59 +29,70 @@ vault-export = "vault_export:main"
 vault-merge = "vault_merge:main"
 
 [build-system]
-requires = ["setuptools>=70"]
+requires = [
+    "setuptools>=70",
+]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# Expose vault scripts as importable top-level modules for entry points.
-# sys.path.insert in each script remains valid because __file__ resolves to
-# the source directory when installed editable.
-#
-# ARC-016: IMPORTANT — non-editable installs are NOT supported.  The package
-# layout (py-modules pointing into a subdirectory) requires --editable so that
-# ``__file__`` in each script resolves to the source tree rather than a site-
-# packages copy.  Always install with:
-#   uv tool install --editable ".[tools]"
-# A plain ``uv tool install .`` or ``pip install .`` will produce an install
-# where the sys.path.insert pattern in each script resolves incorrectly.
-py-modules = ["vault_search", "vault_common", "vault_new", "vault_stats", "vault_links", "vault_review", "vault_export", "vault_merge"]
+py-modules = [
+    "vault_search",
+    "vault_common",
+    "vault_new",
+    "vault_stats",
+    "vault_links",
+    "vault_review",
+    "vault_export",
+    "vault_merge",
+]
 
 [tool.setuptools.package-dir]
 "" = "skills/parsidion-cc/scripts"
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-timeout>=0.5",
-    "pytest-cov>=4.0",
-    "ruff>=0.9",
-    "pyright>=1.1",
-    "rich>=13.0",
-]
-
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = [
+    "tests",
+]
 addopts = "-v --cov=skills/parsidion-cc/scripts --cov-report=term-missing"
 timeout = 10
 
 [tool.ruff]
-# ARC-012: explicit target version so ruff uses Python 3.13 rules rather than
-# the 3.8 default.  All hook scripts and vault_common require Python 3.13.
 target-version = "py313"
 
 [tool.ruff.lint]
-# E/W: pycodestyle errors/warnings
-# F: pyflakes (undefined names, unused imports, etc.)
-# B: flake8-bugbear (likely bugs and design issues)
-# BLE: flake8-blind-except (bare except / broad Exception catches)
-# UP: pyupgrade (enforce modern Python syntax)
-select = ["E", "W", "F", "B", "BLE", "UP"]
-# Ignore line-length (formatter handles it) and a few noisy rules
-ignore = ["E501", "B008", "B904"]
+select = [
+    "E",
+    "W",
+    "F",
+    "B",
+    "BLE",
+    "UP",
+]
+ignore = [
+    "E501",
+    "B008",
+    "B904",
+]
 
 [tool.pyright]
-extraPaths = ["skills/parsidion-cc/scripts"]
-exclude = ["parsidion-mcp"]
+extraPaths = [
+    "skills/parsidion-cc/scripts",
+]
+exclude = [
+    "parsidion-mcp",
+]
 
 [tool.ty.environment]
-extra-paths = ["skills/parsidion-cc/scripts"]
+extra-paths = [
+    "skills/parsidion-cc/scripts",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-timeout>=2.4.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.6",
+    "pyright>=1.1.408",
+    "rich>=14.3.3",
+]
