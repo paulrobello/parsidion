@@ -29,6 +29,84 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import vault_common  # noqa: E402
 
+_DEFAULT_AI_MODEL: str = vault_common.get_config(
+    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
+)
+_DEFAULT_AI_TIMEOUT: int = 60
+
+
+# ---------------------------------------------------------------------------
+# AI merge
+# ---------------------------------------------------------------------------
+
+
+def _ai_merge_bodies(path_a: Path, path_b: Path, title: str) -> str | None:
+    """Use claude to intelligently merge two note bodies into one.
+
+    Passes file paths to Claude so it can read the notes directly, avoiding
+    prompt bloat and character limits.
+
+    Args:
+        path_a: Path to the primary note file.
+        path_b: Path to the note being merged in.
+        title: Title of the merged note (for context).
+
+    Returns:
+        The merged body text, or None on failure (caller should fall back
+        to naive concatenation).
+    """
+    prompt = (
+        "You are a note-merging assistant. Read the two vault notes at the "
+        "paths below and merge them into a SINGLE cohesive note.\n\n"
+        f"Note A (primary): {path_a}\n"
+        f"Note B (to merge in): {path_b}\n"
+        f"Topic: {title}\n\n"
+        "Rules:\n"
+        "- Read both files, then combine all unique information into one unified note\n"
+        "- Remove duplicate or near-duplicate content — do NOT repeat the same "
+        "information in different words\n"
+        "- Preserve all unique details, code snippets, and specific facts\n"
+        "- Keep the structure: ## Summary, ## Key Learnings, ## Context (or "
+        "whatever headings the notes use)\n"
+        "- Use bullet points for Key Learnings (consolidate overlapping bullets)\n"
+        "- Output ONLY the merged note body (no frontmatter, no explanation)\n"
+        "- Do NOT wrap the output in markdown code fences\n"
+        "- Do NOT include any preamble or commentary — output starts with the "
+        "first heading"
+    )
+
+    model = vault_common.get_config(
+        "summarizer", "merge_model", _DEFAULT_AI_MODEL
+    )
+    timeout = vault_common.get_config(
+        "summarizer", "merge_timeout", _DEFAULT_AI_TIMEOUT
+    )
+
+    try:
+        result = subprocess.run(
+            [
+                "claude",
+                "-p",
+                prompt,
+                "--model",
+                model,
+                "--no-session-persistence",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=vault_common.env_without_claudecode(),
+        )
+        if result.returncode != 0:
+            return None
+        merged = result.stdout.strip()
+        # Sanity check: AI output should be non-trivial
+        if len(merged) < 50:
+            return None
+        return merged
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Note lookup
@@ -164,6 +242,8 @@ def _merge_notes(
     content_a: str,
     path_b: Path,
     content_b: str,
+    *,
+    no_ai: bool = False,
 ) -> str:
     """Produce merged note content from two vault notes.
 
@@ -172,7 +252,8 @@ def _merge_notes(
     - Type: NOTE_A's type
     - Project: NOTE_A's project if set, else NOTE_B's
     - Related: union, deduplicated
-    - Body: NOTE_A's body, then ``---``, then NOTE_B's body
+    - Body: AI-merged (intelligently deduplicated), with naive concatenation
+      fallback if AI is unavailable or ``no_ai`` is True
     - Title: NOTE_A's title (from heading or stem)
 
     Args:
@@ -180,6 +261,7 @@ def _merge_notes(
         content_a: Full content of note A.
         path_b: Path to note B (used for stem/title fallback).
         content_b: Full content of note B.
+        no_ai: Skip AI merge and use naive concatenation.
 
     Returns:
         Full merged note content including frontmatter and body.
@@ -220,12 +302,27 @@ def _merge_notes(
     merged_fm["sources"] = fm_a.get("sources", [])
     merged_fm["related"] = merged_related
 
+    title_a = vault_common.extract_title(content_a, path_a.stem)
     title_b = vault_common.extract_title(content_b, path_b.stem)
-    separator_comment = f"<!-- merged from: {title_b} ({path_b.name}) -->"
 
-    merged_body = body_a
-    if body_b:
-        merged_body += f"\n\n---\n\n{separator_comment}\n\n{body_b}"
+    # Try AI merge for intelligent deduplication
+    merged_body: str | None = None
+    if not no_ai and body_b:
+        merged_body = _ai_merge_bodies(path_a, path_b, title_a)
+        if merged_body:
+            # Add a comment noting the merge source
+            merged_body += (
+                f"\n\n<!-- merged from: {title_b} ({path_b.name}) -->"
+            )
+
+    # Fallback: naive concatenation
+    if merged_body is None:
+        merged_body = body_a
+        if body_b:
+            separator_comment = (
+                f"<!-- merged from: {title_b} ({path_b.name}) -->"
+            )
+            merged_body += f"\n\n---\n\n{separator_comment}\n\n{body_b}"
 
     return _build_frontmatter(merged_fm) + "\n" + merged_body + "\n"
 
@@ -523,6 +620,11 @@ def main() -> None:
         action="store_true",
         help="Skip rebuilding the vault index after a successful merge.",
     )
+    parser.add_argument(
+        "--no-ai",
+        action="store_true",
+        help="Skip AI-powered content deduplication; use naive concatenation.",
+    )
     args = parser.parse_args()
 
     try:
@@ -557,7 +659,9 @@ def main() -> None:
         _print_diff_summary(path_a, content_a, path_b, content_b)
 
         # Build merged content
-        merged = _merge_notes(path_a, content_a, path_b, content_b)
+        merged = _merge_notes(
+            path_a, content_a, path_b, content_b, no_ai=args.no_ai
+        )
 
         if args.dry_run or not args.execute:
             print("=== Proposed merged content ===\n")
