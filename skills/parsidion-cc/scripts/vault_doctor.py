@@ -820,20 +820,27 @@ def _find_link_replacement(
        that isn't exclude_path.
     Returns None if no match is found (caller should remove the link).
     """
+    # Normalize: strip .md extension if present (some links use [[note.md]] format)
+    clean = link_text.strip()
+    if clean.lower().endswith(".md"):
+        clean = clean[:-3]
+
     # 1. Exact match (case-insensitive stem)
-    key = link_text.lower().strip()
+    key = clean.lower()
     matches = note_map.get(key, [])
     if len(matches) == 1:
         return matches[0].stem
     # Multiple exact matches — ambiguous, fall through
 
-    # 2. Prefix-strip match: "prefix-rest-of-stem" → "rest-of-stem" in prefix/ subfolder
-    parts = link_text.split("-", 1)
-    if len(parts) == 2:
-        prefix, rest = parts[0].lower(), parts[1].lower()
+    # 2. Prefix-strip match: try splitting at each hyphen position to find
+    #    a subfolder that matches the prefix and a note that matches the rest.
+    #    e.g. "claude-agent-sdk-overview" → prefix="claude-agent-sdk", rest="overview"
+    segments = clean.split("-")
+    for i in range(1, len(segments)):
+        prefix = "-".join(segments[:i]).lower()
+        rest = "-".join(segments[i:]).lower()
         rest_matches = note_map.get(rest, [])
         for m in rest_matches:
-            # Verify the note lives inside a folder named after the prefix
             if any(p.lower() == prefix for p in m.parent.parts):
                 return m.stem
 
