@@ -270,6 +270,51 @@ def commit_stale_files(dry_run: bool = False) -> list[Path]:
     return stale if committed else []
 
 
+def dedup_related_links(dry_run: bool = False) -> int:
+    """Remove duplicate wikilinks from the ``related`` frontmatter field.
+
+    Scans all vault notes and rewrites any ``related:`` line that contains
+    duplicate entries.  Returns the number of notes fixed.
+    """
+    fixed = 0
+    related_re = re.compile(r'^(related:\s*)(\[.*?\])\s*$', re.MULTILINE)
+    entry_re = re.compile(r'"(\[\[[^\]]+\]\])"')
+
+    for note_path in vault_common.all_vault_notes():
+        try:
+            content = note_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        m = related_re.search(content)
+        if not m:
+            continue
+        prefix = m.group(1)
+        entries = entry_re.findall(m.group(2))
+        deduped = list(dict.fromkeys(entries))
+        if len(deduped) == len(entries):
+            continue
+        if dry_run:
+            dropped = len(entries) - len(deduped)
+            rel = note_path.relative_to(vault_common.VAULT_ROOT)
+            print(f"  {rel}: {dropped} duplicate(s)")
+            fixed += 1
+            continue
+        quoted = ", ".join(f'"{e}"' for e in deduped)
+        new_line = f"{prefix}[{quoted}]"
+        updated = related_re.sub(new_line, content, count=1)
+        try:
+            note_path.write_text(updated, encoding="utf-8")
+            fixed += 1
+        except OSError:
+            pass
+
+    if fixed and not dry_run:
+        vault_common.git_commit_vault(
+            f"chore(vault): deduplicate related links in {fixed} note(s)",
+        )
+    return fixed
+
+
 # ---------------------------------------------------------------------------
 # Wikilink resolution
 # ---------------------------------------------------------------------------
@@ -1896,6 +1941,12 @@ def main() -> None:
     if fixed_paths:
         action = "Would fix" if args.dry_run else "Fixed"
         print(f"{action} {fixed_paths} legacy transcript path(s) in pending_summaries.jsonl.\n")
+
+    # Auto-deduplicate related wikilinks (silent when nothing to fix)
+    deduped = dedup_related_links(dry_run=args.dry_run)
+    if deduped:
+        action = "Would deduplicate" if args.dry_run else "Deduplicated"
+        print(f"{action} related links in {deduped} note(s).\n")
 
     # Auto-commit uncommitted vault files older than STALE_COMMIT_MINUTES
     stale = commit_stale_files(dry_run=args.dry_run)
