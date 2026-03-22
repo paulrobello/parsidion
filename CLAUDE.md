@@ -37,6 +37,10 @@ uv run install.py --uninstall        # remove skill, agent, hooks, and launchd p
 uv run install.py --schedule-summarizer
 uv run install.py --schedule-summarizer --summarizer-hour 3  # run at 3 AM
 
+# Also rebuild visualizer graph.json each night
+uv run install.py --schedule-summarizer --rebuild-graph
+uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
+
 # Install vault CLIs as global commands — cross-platform via uv tool
 uv run install.py --install-tools    # runs uv tool install --editable ".[tools]"
 # OR manually from the repo root:
@@ -44,6 +48,12 @@ uv tool install --editable ".[tools]"
 
 # Rebuild the vault index (after creating/renaming/deleting notes)
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+
+# Rebuild index AND regenerate visualizer graph.json in one pass
+uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph
+
+# Also include Daily notes in the graph
+uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph --graph-include-daily
 
 # Summarize queued sessions (from a terminal outside Claude Code)
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py

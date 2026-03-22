@@ -19,6 +19,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Components](#components)
+- [Vault Visualizer](#vault-visualizer)
 - [parsidion-mcp (Claude Desktop)](#parsidion-mcp-claude-desktop)
 - [Configuration](#configuration)
 - [Vault Git Integration](#vault-git-integration)
@@ -78,6 +79,10 @@ uv run install.py --force --yes --install-tools
 # Schedule nightly auto-summarization (launchd on macOS, cron on Linux)
 uv run install.py --schedule-summarizer
 uv run install.py --schedule-summarizer --summarizer-hour 3   # run at 3 AM instead of default
+
+# Also rebuild visualizer graph.json each night (after indexing)
+uv run install.py --schedule-summarizer --rebuild-graph
+uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 ```
 
 **Options:**
@@ -96,6 +101,8 @@ uv run install.py --schedule-summarizer --summarizer-hour 3   # run at 3 AM inst
 | `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, and `vault-merge` as global CLI commands via `uv tool install` |
 | `--schedule-summarizer` | Generate a launchd plist (macOS) or cron job (Linux) for nightly auto-summarization |
 | `--summarizer-hour N` | Hour (0-23) for the scheduled summarizer job (default: 2) |
+| `--rebuild-graph` | Add `--rebuild-graph` to the scheduled command so `graph.json` is regenerated each night (use with `--schedule-summarizer`) |
+| `--graph-include-daily` | Include Daily folder notes in the nightly graph rebuild (use with `--rebuild-graph`) |
 | `--uninstall` | Remove installed skill, agents, hook registrations, and launchd plist / cron job |
 
 During interactive installation, the installer prompts for two optional features:
@@ -244,6 +251,47 @@ All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#co
 | PreCompact | `pre_compact_hook.py` | 10 s | `pre_compact_hook` | Configurable transcript lines |
 | PostCompact | `post_compact_hook.py` | 10 s | — | Reads last Pre-Compact Snapshot from today's daily note and returns it as `additionalContext` |
 | SubagentStop | `subagent_stop_hook.py` | async | `subagent_stop_hook` | Non-blocking; skips agents listed in `excluded_agents` |
+
+## Vault Visualizer
+
+An interactive web application for exploring and navigating the vault through dual-mode reading and graph visualization. It runs as a local Next.js server on **port 3999** and is built from the `visualizer/` subdirectory.
+
+**Two modes:**
+
+| Mode | Description |
+|------|-------------|
+| **Read** | Centered Markdown pane with wikilink navigation, tag pills, and related-notes section |
+| **Graph** | Force-directed Sigma.js graph — 2-hop neighborhood around the active note, or full-vault view |
+
+**Key features:**
+- Multi-tab browsing (up to 20 tabs, state persisted to localStorage)
+- Collapsible file explorer sidebar with nested folder tree
+- Unified **⌘K** search across titles, tags, and folders (no server round-trips)
+- Graph HUD panel: semantic threshold slider, node-type filters, physics controls, live stats
+- Pre-computed `graph.json` from vault embeddings — no live queries during navigation
+
+**Running the visualizer:**
+
+```bash
+# First time: install dependencies
+make visualizer-setup
+
+# Build graph data from vault embeddings
+make graph               # exclude Daily notes (recommended)
+make graph-with-daily    # include Daily folder notes
+
+# Start development server (port 3999)
+cd visualizer && bun dev
+
+# Production
+make build-visualizer    # compile
+make start-visualizer    # serve on port 3999
+make stop-visualizer     # stop
+```
+
+> **📝 Note:** Requires vault embeddings to be built first: `uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py`
+
+See [docs/VISUALIZER.md](docs/VISUALIZER.md) for the full architecture, data model, graph engine details, and configuration reference.
 
 ## parsidion-mcp (Claude Desktop)
 
@@ -623,5 +671,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 - [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md) -- Evaluation harness for benchmarking embedding models and chunking strategies
 - [docs/MCPL.md](docs/MCPL.md) -- MCP Launchpad CLI: installation, configuration, and integration with Claude Code
 - [docs/AGENTCHROME.md](docs/AGENTCHROME.md) -- AgentChrome browser control CLI: installation, capabilities, and integration with the research agent
+- [docs/VISUALIZER.md](docs/VISUALIZER.md) -- Vault Visualizer: architecture, graph engine, data model, and configuration
 - [docs/DOCUMENTATION_STYLE_GUIDE.md](docs/DOCUMENTATION_STYLE_GUIDE.md) -- Documentation standards for this project
 - [SECURITY.md](SECURITY.md) -- Vulnerability disclosure policy and security scope statement

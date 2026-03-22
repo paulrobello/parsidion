@@ -462,18 +462,31 @@ _LAUNCHD_PLIST_NAME = f"{_LAUNCHD_PLIST_LABEL}.plist"
 _CRON_MARKER = "# parsidion-cc: nightly summarizer"
 
 
-def _build_launchd_plist(uv_path: str, scripts_dir: Path, hour: int = 3) -> str:
+def _build_launchd_plist(
+    uv_path: str,
+    scripts_dir: Path,
+    hour: int = 3,
+    rebuild_graph: bool = False,
+    graph_include_daily: bool = False,
+) -> str:
     """Generate a macOS launchd plist XML for nightly summarization.
 
     Args:
         uv_path: Absolute path to the ``uv`` executable.
         scripts_dir: Directory containing ``summarize_sessions.py``.
         hour: Hour of the day (0-23) to run the job. Default 3 = 3 AM.
+        rebuild_graph: When True, append ``--rebuild-graph`` to the command.
+        graph_include_daily: When True, also append ``--graph-include-daily``.
 
     Returns:
         Plist XML string.
     """
     script_path = scripts_dir / "summarize_sessions.py"
+    extra_args = ""
+    if rebuild_graph:
+        extra_args += "\n        <string>--rebuild-graph</string>"
+    if graph_include_daily:
+        extra_args += "\n        <string>--graph-include-daily</string>"
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -487,7 +500,7 @@ def _build_launchd_plist(uv_path: str, scripts_dir: Path, hour: int = 3) -> str:
         <string>run</string>
         <string>--no-project</string>
         <string>{script_path}</string>
-        <string>--run-doctor</string>
+        <string>--run-doctor</string>{extra_args}
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -516,6 +529,8 @@ def schedule_summarizer(
     claude_dir: Path,
     dry_run: bool = False,
     hour: int = 3,
+    rebuild_graph: bool = False,
+    graph_include_daily: bool = False,
 ) -> None:
     """Install a nightly cron job or launchd plist to run the summarizer.
 
@@ -527,6 +542,10 @@ def schedule_summarizer(
         claude_dir: The ~/.claude directory (contains installed scripts).
         dry_run: If True, print what would be done without making changes.
         hour: Hour of the day (0-23) to run. Default 3 = 3 AM.
+        rebuild_graph: When True, add ``--rebuild-graph`` to the scheduled command
+            so the visualizer graph.json is regenerated each night.
+        graph_include_daily: When True, also add ``--graph-include-daily``
+            (only meaningful when ``rebuild_graph`` is True).
     """
     scripts_dir = claude_dir / "skills" / "parsidion-cc" / "scripts"
     script_path = scripts_dir / "summarize_sessions.py"
@@ -535,9 +554,15 @@ def schedule_summarizer(
     uv_path = shutil.which("uv") or "uv"
 
     if sys.platform == "darwin":
-        _schedule_summarizer_launchd(scripts_dir, script_path, uv_path, dry_run, hour)
+        _schedule_summarizer_launchd(
+            scripts_dir, script_path, uv_path, dry_run, hour,
+            rebuild_graph=rebuild_graph, graph_include_daily=graph_include_daily,
+        )
     else:
-        _schedule_summarizer_cron(script_path, uv_path, dry_run, hour)
+        _schedule_summarizer_cron(
+            script_path, uv_path, dry_run, hour,
+            rebuild_graph=rebuild_graph, graph_include_daily=graph_include_daily,
+        )
 
 
 def _schedule_summarizer_launchd(
@@ -546,6 +571,8 @@ def _schedule_summarizer_launchd(
     uv_path: str,
     dry_run: bool,
     hour: int,
+    rebuild_graph: bool = False,
+    graph_include_daily: bool = False,
 ) -> None:
     """Install a launchd plist for macOS.
 
@@ -555,10 +582,15 @@ def _schedule_summarizer_launchd(
         uv_path: Path to the uv executable.
         dry_run: Preview only when True.
         hour: Hour of day to run (0-23).
+        rebuild_graph: When True, include ``--rebuild-graph`` in the plist.
+        graph_include_daily: When True, include ``--graph-include-daily``.
     """
     launch_agents = Path.home() / "Library" / "LaunchAgents"
     plist_path = launch_agents / _LAUNCHD_PLIST_NAME
-    plist_content = _build_launchd_plist(uv_path, scripts_dir, hour)
+    plist_content = _build_launchd_plist(
+        uv_path, scripts_dir, hour,
+        rebuild_graph=rebuild_graph, graph_include_daily=graph_include_daily,
+    )
 
     _step(f"Schedule nightly summarizer via launchd ({plist_path})", dry_run=dry_run)
     if dry_run:
@@ -604,6 +636,8 @@ def _schedule_summarizer_cron(
     uv_path: str,
     dry_run: bool,
     hour: int,
+    rebuild_graph: bool = False,
+    graph_include_daily: bool = False,
 ) -> None:
     """Add a crontab entry for Linux/other platforms.
 
@@ -612,9 +646,16 @@ def _schedule_summarizer_cron(
         uv_path: Path to the uv executable.
         dry_run: Preview only when True.
         hour: Hour of day to run (0-23).
+        rebuild_graph: When True, append ``--rebuild-graph`` to the cron command.
+        graph_include_daily: When True, also append ``--graph-include-daily``.
     """
+    extra = ""
+    if rebuild_graph:
+        extra += " --rebuild-graph"
+    if graph_include_daily:
+        extra += " --graph-include-daily"
     cron_line = (
-        f"0 {hour} * * * {uv_path} run --no-project {script_path} --run-doctor"
+        f"0 {hour} * * * {uv_path} run --no-project {script_path} --run-doctor{extra}"
         f" >> /tmp/parsidion-cc-summarizer.log 2>&1  {_CRON_MARKER}"
     )
     _step(f"Schedule nightly summarizer via cron (hour={hour})", dry_run=dry_run)
@@ -1276,9 +1317,10 @@ def install(args: argparse.Namespace) -> int:
     if install_tools:
         print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
     if do_schedule:
+        graph_suffix = " + graph rebuild" if args.rebuild_graph else ""
         print(
             f"  {dim('Scheduler    :')} nightly summarizer at {args.summarizer_hour:02d}:00 "
-            f"({'launchd' if sys.platform == 'darwin' else 'cron'})"
+            f"({'launchd' if sys.platform == 'darwin' else 'cron'}){graph_suffix}"
         )
     if enable_ai:
         print(f"  {dim('AI mode      :')} enabled (SessionStart timeout → 30s)")
@@ -1358,7 +1400,13 @@ def install(args: argparse.Namespace) -> int:
 
     # 12. Schedule nightly summarizer (optional, --schedule-summarizer)
     if do_schedule:
-        schedule_summarizer(claude_dir, dry_run=dry_run, hour=args.summarizer_hour)
+        schedule_summarizer(
+            claude_dir,
+            dry_run=dry_run,
+            hour=args.summarizer_hour,
+            rebuild_graph=args.rebuild_graph,
+            graph_include_daily=args.graph_include_daily,
+        )
 
     print()
     if dry_run:
@@ -1408,7 +1456,8 @@ def parse_args() -> argparse.Namespace:
         Parsed argument namespace. Key attributes: ``vault``, ``claude_dir``,
         ``dry_run``, ``verbose``, ``force``, ``yes``, ``skip_hooks``,
         ``skip_agent``, ``uninstall``, ``enable_ai``, ``install_tools``,
-        ``schedule_summarizer``, ``summarizer_hour``.
+        ``schedule_summarizer``, ``summarizer_hour``, ``rebuild_graph``,
+        ``graph_include_daily``.
     """
     parser = argparse.ArgumentParser(
         prog="install.py",
@@ -1509,6 +1558,23 @@ def parse_args() -> argparse.Namespace:
         default=3,
         metavar="HOUR",
         help="Hour of day (0-23) to run the scheduled summarizer (default: 3 = 3 AM)",
+    )
+    parser.add_argument(
+        "--rebuild-graph",
+        action="store_true",
+        help=(
+            "Add --rebuild-graph to the scheduled summarizer command so the "
+            "visualizer graph.json is regenerated each night after indexing. "
+            "Only meaningful with --schedule-summarizer."
+        ),
+    )
+    parser.add_argument(
+        "--graph-include-daily",
+        action="store_true",
+        help=(
+            "Also add --graph-include-daily to the scheduled command to include "
+            "Daily folder notes in the graph. Only meaningful with --rebuild-graph."
+        ),
     )
     parser.add_argument(
         "--help",

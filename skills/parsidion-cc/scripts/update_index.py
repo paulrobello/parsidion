@@ -7,6 +7,7 @@ Also generates per-folder MANIFEST.md files for quick orientation.
 Uses only Python stdlib.
 """
 
+import argparse
 import atexit
 import json
 import os
@@ -635,8 +636,79 @@ def _write_note_index_to_db(db_rows: list[NoteEntry], current_stems: set[str]) -
         print(f"update_index DB error: {exc}", file=sys.stderr)
 
 
+def _find_build_graph_script() -> Path | None:
+    """Locate build_graph.py in known locations.
+
+    Checks two candidates in order:
+    1. Same directory as this script (works when build_graph.py is co-installed).
+    2. ``<repo-root>/scripts/build_graph.py`` (works when running from source,
+       where ``__file__`` lives at ``skills/parsidion-cc/scripts/``).
+
+    Returns:
+        Path to the script if found, else None.
+    """
+    # Candidate 1: alongside this script (co-installed scenario)
+    candidate = Path(__file__).parent / "build_graph.py"
+    if candidate.exists():
+        return candidate
+    # Candidate 2: repo-root/scripts/ (source-repo scenario)
+    # __file__ = <repo>/skills/parsidion-cc/scripts/update_index.py
+    # four parents up  → <repo>/
+    candidate = Path(__file__).resolve().parents[3] / "scripts" / "build_graph.py"
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def _rebuild_graph(include_daily: bool) -> None:
+    """Run build_graph.py synchronously and print its output.
+
+    Args:
+        include_daily: When True, pass ``--include-daily`` to build_graph.py.
+    """
+    graph_script = _find_build_graph_script()
+    if graph_script is None:
+        print(
+            "Graph rebuild skipped: build_graph.py not found. "
+            "Run from the parsidion-cc repo or co-install build_graph.py.",
+            file=sys.stderr,
+        )
+        return
+
+    cmd = ["uv", "run", "--no-project", str(graph_script)]
+    if include_daily:
+        cmd.append("--include-daily")
+
+    print(f"Graph: rebuilding graph.json ({'with' if include_daily else 'without'} Daily notes)...")
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode != 0:
+        print(f"Graph rebuild failed (exit {result.returncode})", file=sys.stderr)
+
+
+def _parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for update_index."""
+    parser = argparse.ArgumentParser(
+        description="Rebuild the vault index (CLAUDE.md, MANIFEST.md, note_index DB).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--rebuild-graph",
+        action="store_true",
+        default=False,
+        help="Also rebuild visualizer graph.json after the index update",
+    )
+    parser.add_argument(
+        "--graph-include-daily",
+        action="store_true",
+        default=False,
+        help="Include Daily folder notes in the graph (only used with --rebuild-graph)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Entry point: rebuild the index, write CLAUDE.md, and generate MANIFEST.md files."""
+    args = _parse_args()
     _singleton_guard()
     content, note_count, tag_count, folder_notes, db_rows = build_index()
     index_path: Path = VAULT_ROOT / "CLAUDE.md"
@@ -678,6 +750,9 @@ def main() -> None:
                 start_new_session=True,
             )
             print(f"Embeddings: {label} rebuild launched in background")
+
+    if args.rebuild_graph:
+        _rebuild_graph(include_daily=args.graph_include_daily)
 
 
 if __name__ == "__main__":

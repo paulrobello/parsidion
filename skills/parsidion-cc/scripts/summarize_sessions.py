@@ -1139,8 +1139,18 @@ def remove_processed(
         print(f"Warning: could not update pending file: {e}", file=sys.stderr)
 
 
-def rebuild_index() -> None:
-    """Run update_index.py to rebuild the vault index."""
+def rebuild_index(
+    rebuild_graph: bool = False,
+    graph_include_daily: bool = False,
+) -> None:
+    """Run update_index.py to rebuild the vault index.
+
+    Args:
+        rebuild_graph: When True, pass ``--rebuild-graph`` to update_index.py
+            so the visualizer graph.json is regenerated after indexing.
+        graph_include_daily: When True, also pass ``--graph-include-daily``
+            (only meaningful when ``rebuild_graph`` is True).
+    """
     index_script = Path(__file__).parent / "update_index.py"
     if not index_script.exists():
         # Try installed location
@@ -1158,9 +1168,14 @@ def rebuild_index() -> None:
             file=sys.stderr,
         )
         return
+    cmd = ["uv", "run", str(index_script)]
+    if rebuild_graph:
+        cmd.append("--rebuild-graph")
+    if graph_include_daily:
+        cmd.append("--graph-include-daily")
     try:
         subprocess.run(
-            ["uv", "run", str(index_script)],
+            cmd,
             check=True,
             capture_output=True,
             text=True,
@@ -1205,6 +1220,18 @@ def main() -> None:
         action="store_true",
         default=False,
         help="Run vault_doctor before summarizing to fix legacy pending paths and stale files.",
+    )
+    parser.add_argument(
+        "--rebuild-graph",
+        action="store_true",
+        default=False,
+        help="Rebuild visualizer graph.json after indexing (passed to update_index.py --rebuild-graph).",
+    )
+    parser.add_argument(
+        "--graph-include-daily",
+        action="store_true",
+        default=False,
+        help="Include Daily folder notes in the graph (only used with --rebuild-graph).",
     )
     args = parser.parse_args()
 
@@ -1309,7 +1336,10 @@ def main() -> None:
 
         # Rebuild vault index and commit all new notes + updated index
         if successful_entries:
-            rebuild_index()
+            rebuild_index(
+                rebuild_graph=args.rebuild_graph,
+                graph_include_daily=args.graph_include_daily,
+            )
             # SEC-002: sanitize project names to prevent embedded newlines in commit messages
             projects = {
                 str(e.get("project", "unknown"))
