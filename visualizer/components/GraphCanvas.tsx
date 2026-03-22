@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react'
 import type { GraphData, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
 import { getNodeColor, getNodeSize } from '@/lib/sigma-colors'
@@ -22,7 +22,7 @@ interface Props {
   showOverlayEdges: boolean
   filterNodesBySimilarity: boolean
   selectedNode: string | null
-  onNodeClick: (stem: string) => void
+  onNodeClick: (stem: string, newTab: boolean) => void
   onBackgroundClick: () => void
   scalingRatio: number
   gravity: number
@@ -35,6 +35,8 @@ interface Props {
   isLayoutRunning: boolean
   onLayoutStop?: () => void
   onLayoutRestart?: () => void
+  neighborhoodCenter?: string | null
+  neighborhoodHops?: number
 }
 
 // Per-frame temperature decay: temp *= (1 - COOL_FACTOR * slowDown)
@@ -47,6 +49,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, selectedNode,
     onNodeClick, onBackgroundClick,
     scalingRatio, gravity, slowDown, edgeWeightInfluence, startTemperature, stopThreshold, isLayoutRunning, onLayoutStop, onLayoutRestart,
+    neighborhoodCenter, neighborhoodHops,
   },
   ref
 ) {
@@ -86,6 +89,36 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const draggedNodeRef = useRef<string | null>(null)
   const dragHasMovedRef = useRef(false)
   const dragPositionRef = useRef<{ x: number; y: number } | null>(null)
+
+  // Compute neighborhood BFS when in local mode
+  const neighborhoodInfo = useMemo(() => {
+    if (!neighborhoodCenter || !data) return null
+    const hops = neighborhoodHops ?? 2
+    const distances = new Map<string, number>()
+    distances.set(neighborhoodCenter, 0)
+    let frontier = [neighborhoodCenter]
+    for (let h = 1; h <= hops; h++) {
+      const nextFrontier: string[] = []
+      for (const nodeId of frontier) {
+        for (const edge of data.edges) {
+          const other = edge.s === nodeId ? edge.t : edge.t === nodeId ? edge.s : null
+          if (other && !distances.has(other)) {
+            distances.set(other, h)
+            nextFrontier.push(other)
+          }
+        }
+      }
+      frontier = nextFrontier
+    }
+    return { nodes: new Set(distances.keys()), distances, maxHop: hops }
+  }, [neighborhoodCenter, neighborhoodHops, data])
+
+  const neighborhoodRef = useRef(neighborhoodInfo)
+  useEffect(() => { neighborhoodRef.current = neighborhoodInfo }, [neighborhoodInfo])
+
+  useEffect(() => {
+    sigmaRef.current?.refresh()
+  }, [neighborhoodCenter, neighborhoodHops])
 
   useEffect(() => { onLayoutRestartRef.current = onLayoutRestart }, [onLayoutRestart])
   useEffect(() => { thresholdRef.current = threshold }, [threshold])
@@ -331,6 +364,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const nodeReducer = (node: string, data: any) => {
+        const nh = neighborhoodRef.current
+        if (nh && !nh.nodes.has(node)) {
+          return { ...data, hidden: true, label: '' }
+        }
         const fn = filteredNodesRef.current
         if (fn.size > 0 && !fn.has(node)) {
           return { ...data, hidden: true, label: '' }
@@ -354,11 +391,24 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         if (!isHighlighted && !isHovered) {
           return { ...data, label, color: '#0d1020', size: data.size * 0.6, zIndex: 0 }
         }
+        if (nh) {
+          const hopDist = nh.distances.get(node)
+          if (hopDist === nh.maxHop) {
+            const dimColor = (data.originalColor || data.color) + '66'
+            return { ...data, label, color: dimColor, size: data.size * 0.8 }
+          }
+        }
         return { ...data, label }
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const edgeReducer = (edge: string, data: any) => {
+        const nh = neighborhoodRef.current
+        if (nh) {
+          const src = graph.source(edge)
+          const tgt = graph.target(edge)
+          if (!nh.nodes.has(src) || !nh.nodes.has(tgt)) return { ...data, hidden: true }
+        }
         const fn = filteredNodesRef.current
         if (fn.size > 0) {
           const src = graph.source(edge)
@@ -465,9 +515,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         // Restart async FA2 worker and reheat so graph settles from new positions
         reheat()
       })
-      sigma.on('clickNode', ({ node }: { node: string }) => {
+      sigma.on('clickNode', ({ node, event }: { node: string; event: { original: MouseEvent | TouchEvent } }) => {
         if (dragHasMovedRef.current) return  // drag, not click
-        onNodeClick(node)
+        const orig = event.original
+        const newTab = orig instanceof MouseEvent ? (orig.metaKey || orig.ctrlKey) : false
+        onNodeClick(node, newTab)
         const neighbors = new Set(graph.neighbors(node) as string[])
         neighbors.add(node)
         highlightedNodesRef.current = neighbors
@@ -514,6 +566,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         for (const n of allNodes) {
           // Similarity filter: if active, only nodes in the filtered set are visible
           if (fn.size > 0 && !fn.has(n)) continue
+          if (neighborhoodRef.current && !neighborhoodRef.current.nodes.has(n)) continue
           visibleSet.add(n)
         }
         // Hide isolated: remove nodes with no visible non-overlay edges
