@@ -193,12 +193,7 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     existing_strs: list[str] = [str(r) for r in existing_related]
 
     # Deduplicate existing + new, preserving order
-    seen: set[str] = set()
-    merged: list[str] = []
-    for lnk in existing_strs + new_links:
-        if lnk not in seen:
-            seen.add(lnk)
-            merged.append(lnk)
+    merged = list(dict.fromkeys(existing_strs + new_links))
     if merged == existing_strs:
         # Nothing new to add
         return

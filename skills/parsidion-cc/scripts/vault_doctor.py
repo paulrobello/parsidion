@@ -941,13 +941,7 @@ def _auto_repair_broken_wikilinks(
                 new_entries.append(f'"{entry}"')
 
         # Deduplicate entries, preserving order
-        seen_entries: set[str] = set()
-        deduped_entries: list[str] = []
-        for e in new_entries:
-            if e not in seen_entries:
-                seen_entries.add(e)
-                deduped_entries.append(e)
-        new_entries = deduped_entries
+        new_entries = list(dict.fromkeys(new_entries))
 
         if new_entries:
             new_related_line = f"{prefix}[{', '.join(new_entries)}]"
