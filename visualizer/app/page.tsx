@@ -142,7 +142,13 @@ export default function Home() {
             <FileExplorer
               fileTree={state.fileTree}
               activeTab={state.activeTab}
-              onSelectNote={(stem, newTab) => state.openNote(stem, newTab)}
+              onSelectNote={(stem, newTab) => {
+                state.openNote(stem, newTab)
+                if (state.viewMode === 'graph') {
+                  graphCanvasRef.current?.flyToNode(stem)
+                  graphCanvasRef.current?.selectNode(stem)
+                }
+              }}
               width={state.sidebarWidth}
               onWidthChange={state.setSidebarWidth}
               collapsed={state.sidebarCollapsed}
