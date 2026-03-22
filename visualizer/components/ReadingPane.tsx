@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useTransition } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { getNodeColor } from '@/lib/sigma-colors'
@@ -14,18 +14,20 @@ interface Props {
 
 export function ReadingPane({ node, fetchContent, onNavigate }: Props) {
   const [content, setContent] = useState<string>('')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (!node) { setContent(''); setError(null); return }
+    if (!node) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    fetchContent(node.id)
-      .then(c => { if (!cancelled) setContent(c) })
-      .catch(e => { if (!cancelled) setError(e.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+    startTransition(async () => {
+      try {
+        const c = await fetchContent(node.id)
+        if (!cancelled) { setContent(c); setError(null) }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      }
+    })
     return () => { cancelled = true }
   }, [node, fetchContent])
 
@@ -112,7 +114,7 @@ export function ReadingPane({ node, fetchContent, onNavigate }: Props) {
           ))}
         </div>
 
-        {loading && (
+        {isPending && (
           <div style={{ color: '#6b7a99', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, paddingTop: 20 }}>
             Loading...
           </div>
@@ -123,7 +125,7 @@ export function ReadingPane({ node, fetchContent, onNavigate }: Props) {
           </div>
         )}
 
-        {!loading && !error && relatedStems.length > 0 && (
+        {!isPending && !error && relatedStems.length > 0 && (
           <div style={{
             marginBottom: 16, padding: '8px 12px',
             background: 'rgba(123,97,255,0.06)',
@@ -149,7 +151,7 @@ export function ReadingPane({ node, fetchContent, onNavigate }: Props) {
           </div>
         )}
 
-        {!loading && !error && displayContent && (
+        {!isPending && !error && displayContent && (
           <div className="note-markdown">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { NoteNode } from '@/lib/graph'
 import { getNodeColor } from '@/lib/sigma-colors'
 
@@ -11,8 +11,7 @@ interface Props {
 
 export function UnifiedSearch({ nodes, onSelect }: Props) {
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const [results, setResults] = useState<NoteNode[]>([])
+  const [dismissed, setDismissed] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -27,9 +26,10 @@ export function UnifiedSearch({ nodes, onSelect }: Props) {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  useEffect(() => {
+  // Compute results as derived state (no useEffect + setState)
+  const results = useMemo(() => {
     const q = query.trim()
-    if (!q) { setResults([]); setOpen(false); return }
+    if (!q) return []
 
     let filtered: NoteNode[]
 
@@ -44,14 +44,15 @@ export function UnifiedSearch({ nodes, onSelect }: Props) {
       filtered = nodes.filter(n => n.title.toLowerCase().includes(lq) || n.id.toLowerCase().includes(lq))
     }
 
-    setResults(filtered.slice(0, 8))
-    setSelectedIdx(0)
-    setOpen(filtered.length > 0)
+    return filtered.slice(0, 8)
   }, [query, nodes])
+
+  // Derive open state: auto-open when results exist, unless manually dismissed
+  const open = !dismissed && results.length > 0 && query.trim().length > 0
 
   const handleSelect = useCallback((stem: string, newTab: boolean) => {
     setQuery('')
-    setOpen(false)
+    setDismissed(true)
     onSelect(stem, newTab)
   }, [onSelect])
 
@@ -67,7 +68,7 @@ export function UnifiedSearch({ nodes, onSelect }: Props) {
       handleSelect(results[selectedIdx].id, e.metaKey || e.ctrlKey)
     } else if (e.key === 'Escape') {
       setQuery('')
-      setOpen(false)
+      setDismissed(true)
       inputRef.current?.blur()
     }
   }, [results, selectedIdx, handleSelect])
@@ -94,15 +95,15 @@ export function UnifiedSearch({ nodes, onSelect }: Props) {
             position: 'fixed', inset: 0, zIndex: 150,
             background: 'rgba(0,0,0,0.3)',
           }}
-          onClick={() => { setOpen(false); setQuery(''); inputRef.current?.blur() }}
+          onClick={() => { setDismissed(true); setQuery(''); inputRef.current?.blur() }}
         />
       )}
       <input
         ref={inputRef}
         value={query}
-        onChange={e => setQuery(e.target.value)}
-        onFocus={() => results.length > 0 && setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        onChange={e => { setQuery(e.target.value); setDismissed(false) }}
+        onFocus={() => setDismissed(false)}
+        onBlur={() => setTimeout(() => setDismissed(true), 200)}
         onKeyDown={handleKeyDown}
         placeholder="⌘K  Search titles, #tags, /folders..."
         style={{
