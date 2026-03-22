@@ -128,7 +128,13 @@ export default function Home() {
             tabs={state.openTabs}
             activeTab={state.activeTab}
             nodeMap={state.nodeMap}
-            onSwitchTab={state.switchTab}
+            onSwitchTab={(stem: string) => {
+              state.switchTab(stem)
+              if (state.viewMode === 'graph') {
+                graphCanvasRef.current?.flyToNode(stem)
+                graphCanvasRef.current?.selectNode(stem)
+              }
+            }}
             onCloseTab={state.closeTab}
             nodes={graphData.nodes}
             onSearchSelect={handleSearchSelect}
