@@ -59,7 +59,7 @@ export function ReadingPane({ node, fetchContent, onNavigate }: Props) {
     const re = /\[\[([^\]]+)\]\]/g
     let m: RegExpExecArray | null
     while ((m = re.exec(relatedLine[1])) !== null) stems.push(m[1])
-    return stems
+    return [...new Set(stems)]
   })()
 
   const displayContent = content
