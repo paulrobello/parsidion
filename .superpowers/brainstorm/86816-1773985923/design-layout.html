@@ -1,0 +1,182 @@
+<h2>Full App Layout Design</h2>
+<p class="subtitle">All decisions locked in — here's the complete UI composition</p>
+
+<div class="mockup">
+  <div class="mockup-header">Vault Visualizer — Default state (no note selected)</div>
+  <div class="mockup-body" style="height:380px;background:#080810;position:relative;overflow:hidden;display:flex">
+
+    <!-- Full graph canvas -->
+    <div style="flex:1;position:relative;overflow:hidden">
+
+      <!-- Graph nodes -->
+      <svg style="position:absolute;inset:0;width:100%;height:100%">
+        <line x1="18%" y1="45%" x2="35%" y2="30%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="35%" y1="30%" x2="52%" y2="40%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="52%" y1="40%" x2="65%" y2="25%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="35%" y1="30%" x2="45%" y2="55%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="52%" y1="40%" x2="45%" y2="55%" stroke="#1a1a3a" stroke-width="1.2"/>
+        <line x1="65%" y1="25%" x2="75%" y2="45%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="75%" y1="45%" x2="62%" y2="65%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="45%" y1="55%" x2="62%" y2="65%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="25%" y1="65%" x2="45%" y2="55%" stroke="#1a1a3a" stroke-width="0.8"/>
+        <line x1="25%" y1="65%" x2="18%" y2="45%" stroke="#1a1a3a" stroke-width="0.8"/>
+      </svg>
+
+      <!-- Nodes by type -->
+      <!-- pattern = indigo -->
+      <div style="position:absolute;width:9px;height:9px;border-radius:50%;background:#6366f1;top:28%;left:34%"></div>
+      <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#6366f1;top:23%;left:64%"></div>
+      <div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#6366f1;top:63%;left:61%"></div>
+      <!-- debugging = red -->
+      <div style="position:absolute;width:14px;height:14px;border-radius:50%;background:#ef4444;top:38%;left:51%"></div>
+      <div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#ef4444;top:43%;left:17%"></div>
+      <!-- research = emerald -->
+      <div style="position:absolute;width:10px;height:10px;border-radius:50%;background:#10b981;top:43%;left:74%"></div>
+      <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#10b981;top:25%;left:52%"></div>
+      <!-- tool = amber -->
+      <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#f59e0b;top:53%;left:44%"></div>
+      <!-- project = sky -->
+      <div style="position:absolute;width:11px;height:11px;border-radius:50%;background:#0ea5e9;top:63%;left:24%"></div>
+      <!-- language = violet -->
+      <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#a855f7;top:75%;left:55%"></div>
+
+      <!-- ① Floating HUD — top left -->
+      <div style="position:absolute;top:12px;left:12px;background:rgba(10,10,25,0.88);border:1px solid #1e1e3f;border-radius:12px;padding:14px 16px;backdrop-filter:blur(12px);width:210px;box-shadow:0 4px 24px rgba(0,0,0,0.6)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#6366f1;font-weight:600">Vault Visualizer</div>
+          <div style="font-size:9px;color:#374151">⊟</div>
+        </div>
+
+        <!-- Threshold slider -->
+        <div style="font-size:8px;color:#6b7280;margin-bottom:4px">Similarity threshold</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div style="flex:1;height:3px;background:#1f2937;border-radius:2px;position:relative">
+            <div style="position:absolute;left:0;width:60%;height:100%;background:linear-gradient(90deg,#4338ca,#6366f1);border-radius:2px"></div>
+            <div style="position:absolute;left:60%;top:-4px;width:9px;height:9px;border-radius:50%;background:#818cf8;border:1px solid #4338ca;transform:translateX(-50%)"></div>
+          </div>
+          <div style="font-size:9px;color:#c7d2fe;width:26px">0.65</div>
+        </div>
+
+        <!-- Force sliders -->
+        <div style="font-size:8px;color:#6b7280;margin-bottom:4px">Force layout</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          <div style="font-size:8px;color:#4b5563;width:36px">repel</div>
+          <div style="flex:1;height:2px;background:#1f2937;border-radius:2px;position:relative">
+            <div style="position:absolute;left:0;width:45%;height:100%;background:#374151;border-radius:2px"></div>
+            <div style="position:absolute;left:45%;top:-3px;width:7px;height:7px;border-radius:50%;background:#6b7280;transform:translateX(-50%)"></div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <div style="font-size:8px;color:#4b5563;width:36px">gravity</div>
+          <div style="flex:1;height:2px;background:#1f2937;border-radius:2px;position:relative">
+            <div style="position:absolute;left:0;width:30%;height:100%;background:#374151;border-radius:2px"></div>
+            <div style="position:absolute;left:30%;top:-3px;width:7px;height:7px;border-radius:50%;background:#6b7280;transform:translateX(-50%)"></div>
+          </div>
+        </div>
+
+        <!-- Type filter pills -->
+        <div style="font-size:8px;color:#6b7280;margin-bottom:5px">Note type</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px">
+          <span style="font-size:7px;background:#312e81;color:#a5b4fc;padding:2px 6px;border-radius:8px">pattern</span>
+          <span style="font-size:7px;background:#7f1d1d;color:#fca5a5;padding:2px 6px;border-radius:8px">debug</span>
+          <span style="font-size:7px;background:#064e3b;color:#6ee7b7;padding:2px 6px;border-radius:8px">research</span>
+          <span style="font-size:7px;background:#1f2937;color:#4b5563;padding:2px 6px;border-radius:8px">daily</span>
+          <span style="font-size:7px;background:#1f2937;color:#6b7280;padding:2px 6px;border-radius:8px">+4</span>
+        </div>
+
+        <!-- Stats -->
+        <div style="border-top:1px solid #1f2937;padding-top:8px;display:flex;justify-content:space-between">
+          <span style="font-size:7px;color:#4b5563">847 nodes</span>
+          <span style="font-size:7px;color:#4b5563">3,241 edges</span>
+          <span style="font-size:7px;color:#4b5563">∅ 0.71</span>
+        </div>
+      </div>
+
+      <!-- ② Search box — top right -->
+      <div style="position:absolute;top:12px;right:12px;background:rgba(10,10,25,0.88);border:1px solid #1e1e3f;border-radius:8px;padding:6px 10px;backdrop-filter:blur(12px);display:flex;align-items:center;gap:6px;width:200px">
+        <span style="font-size:10px;color:#374151">⌕</span>
+        <span style="font-size:9px;color:#374151">Search title or #tag…</span>
+      </div>
+
+      <!-- ③ Legend — bottom left -->
+      <div style="position:absolute;bottom:10px;left:12px;background:rgba(10,10,25,0.75);border:1px solid #1e1e3f;border-radius:8px;padding:6px 10px;display:flex;gap:10px;backdrop-filter:blur(8px)">
+        <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:#6366f1"></div><span style="font-size:7px;color:#6b7280">pattern</span></div>
+        <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:#ef4444"></div><span style="font-size:7px;color:#6b7280">debug</span></div>
+        <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:#10b981"></div><span style="font-size:7px;color:#6b7280">research</span></div>
+        <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:#0ea5e9"></div><span style="font-size:7px;color:#6b7280">project</span></div>
+        <span style="font-size:7px;color:#4b5563">+4…</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:16px">
+  <div class="mockup-header">Note selected — side panel open (click ⛶ to maximize)</div>
+  <div class="mockup-body" style="height:300px;background:#080810;position:relative;overflow:hidden;display:flex">
+
+    <!-- Dimmed graph -->
+    <div style="flex:1;position:relative;overflow:hidden">
+      <svg style="position:absolute;inset:0;width:100%;height:100%">
+        <line x1="18%" y1="45%" x2="35%" y2="30%" stroke="#0f0f1a" stroke-width="0.5"/>
+        <line x1="52%" y1="40%" x2="45%" y2="55%" stroke="#6366f1" stroke-width="1.5" opacity="0.6"/>
+        <line x1="35%" y1="30%" x2="52%" y2="40%" stroke="#6366f1" stroke-width="1.5" opacity="0.5"/>
+        <line x1="52%" y1="40%" x2="65%" y2="25%" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/>
+        <line x1="52%" y1="40%" x2="75%" y2="45%" stroke="#6366f1" stroke-width="1" opacity="0.3"/>
+      </svg>
+      <!-- dim nodes -->
+      <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#111120;top:43%;left:17%"></div>
+      <div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#111120;top:63%;left:61%"></div>
+      <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#111120;top:23%;left:64%"></div>
+      <div style="position:absolute;width:9px;height:9px;border-radius:50%;background:#111120;top:63%;left:24%"></div>
+      <!-- selected node glowing -->
+      <div style="position:absolute;width:16px;height:16px;border-radius:50%;background:#ef4444;top:36%;left:50%;box-shadow:0 0 0 4px rgba(239,68,68,0.25),0 0 24px rgba(239,68,68,0.5)"></div>
+      <!-- lit neighbors -->
+      <div style="position:absolute;width:10px;height:10px;border-radius:50%;background:#6366f1;top:26%;left:33%;box-shadow:0 0 8px rgba(99,102,241,0.6)"></div>
+      <div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#6366f1;top:50%;left:43%;box-shadow:0 0 8px rgba(99,102,241,0.5)"></div>
+      <div style="position:absolute;width:9px;height:9px;border-radius:50%;background:#10b981;top:42%;left:73%;box-shadow:0 0 8px rgba(16,185,129,0.5)"></div>
+      <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#6366f1;top:23%;left:63%;box-shadow:0 0 6px rgba(99,102,241,0.4)"></div>
+      <!-- score labels -->
+      <div style="position:absolute;top:30%;left:38%;font-size:8px;color:#6366f1;opacity:0.9">0.81</div>
+      <div style="position:absolute;top:42%;left:56%;font-size:8px;color:#6366f1;opacity:0.8">0.74</div>
+
+      <!-- HUD (still visible, smaller) -->
+      <div style="position:absolute;top:10px;left:10px;background:rgba(10,10,25,0.88);border:1px solid #1e1e3f;border-radius:10px;padding:10px 12px;width:160px;opacity:0.7">
+        <div style="font-size:7px;color:#6366f1;margin-bottom:6px;letter-spacing:1px">VAULT VISUALIZER</div>
+        <div style="height:2px;background:#1f2937;border-radius:2px;margin-bottom:3px;position:relative">
+          <div style="position:absolute;width:60%;height:100%;background:#6366f1;border-radius:2px"></div>
+        </div>
+        <div style="font-size:7px;color:#4b5563;text-align:right">0.65</div>
+      </div>
+    </div>
+
+    <!-- Note side panel -->
+    <div style="width:42%;background:#0d0d1a;border-left:1px solid #1e1e3f;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid #1a1a2e;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#ef4444;margin-bottom:3px">debugging · high confidence</div>
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9">Fix Session Hook Silent Logging</div>
+        </div>
+        <div style="display:flex;gap:8px;font-size:11px;color:#374151">
+          <span title="maximize" style="cursor:pointer;color:#6366f1">⛶</span>
+          <span title="close">✕</span>
+        </div>
+      </div>
+      <div style="flex:1;padding:12px 14px;overflow:hidden">
+        <div style="font-size:9px;color:#4b5563;margin-bottom:8px">tags: hook · python · debugging · automation</div>
+        <div style="font-size:10px;color:#9ca3af;line-height:1.7;margin-bottom:10px">When the session hook logs silently, check that <code style="color:#818cf8;background:#1e1e3f;padding:1px 4px;border-radius:3px">ANTHROPIC_API_KEY</code> is in <code style="color:#818cf8;background:#1e1e3f;padding:1px 4px;border-radius:3px">_SAFE_ENV_KEYS</code>…</div>
+        <div style="font-size:10px;color:#6b7280;line-height:1.6;margin-bottom:8px">The hook script uses <code style="color:#818cf8;background:#1e1e3f;padding:1px 4px;border-radius:3px">subprocess</code> to call claude -p but strips the environment by default…</div>
+        <div style="margin-top:10px;font-size:9px;color:#374151;border-top:1px solid #1a1a2e;padding-top:8px">Related:</div>
+        <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">
+          <span style="font-size:8px;color:#6366f1;cursor:pointer;background:#1e1e3f;padding:2px 6px;border-radius:4px">[[fix-uv-hook-python-version-conflicts]]</span>
+          <span style="font-size:8px;color:#6366f1;cursor:pointer;background:#1e1e3f;padding:2px 6px;border-radius:4px">[[parsidion-cc]]</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top:12px;background:#0d1117;border:1px solid #1e2936;border-radius:8px;padding:14px 18px;font-size:12px;color:#9ca3af;line-height:1.7">
+  Does this layout match your vision? Any tweaks before I write the full spec?
+</div>

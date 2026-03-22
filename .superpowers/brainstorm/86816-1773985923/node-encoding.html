@@ -1,0 +1,76 @@
+<h2>Node Visual Encoding</h2>
+<p class="subtitle">What do node color and size communicate?</p>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+
+  <!-- Color options -->
+  <div>
+    <h3 style="margin-bottom:14px">🎨 Node Color</h3>
+    <div class="options" style="gap:10px">
+      <div class="option" data-choice="color-folder" onclick="toggleSelect(this)">
+        <div class="letter" style="font-size:11px;width:28px;height:28px">C1</div>
+        <div class="content">
+          <h3>By Folder</h3>
+          <p>Each vault folder gets a distinct hue. Patterns=blue, Debugging=red, Research=green, Daily=gray…</p>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <span style="width:14px;height:14px;border-radius:50%;background:#7c6aff;display:inline-block"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#f44336;display:inline-block"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#4caf50;display:inline-block"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#ff9800;display:inline-block"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#2196f3;display:inline-block"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#888;display:inline-block"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#e91e63;display:inline-block"></span>
+          </div>
+        </div>
+      </div>
+      <div class="option" data-choice="color-type" onclick="toggleSelect(this)">
+        <div class="letter" style="font-size:11px;width:28px;height:28px">C2</div>
+        <div class="content">
+          <h3>By Note Type</h3>
+          <p>pattern / debugging / research / project / daily / tool / language / framework — 8 types, 8 colors</p>
+        </div>
+      </div>
+      <div class="option" data-choice="color-confidence" onclick="toggleSelect(this)">
+        <div class="letter" style="font-size:11px;width:28px;height:28px">C3</div>
+        <div class="content">
+          <h3>By Confidence</h3>
+          <p>Green=high, Yellow=medium, Red=low. Useful for spotting weak/stale notes in the graph.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Size options -->
+  <div>
+    <h3 style="margin-bottom:14px">⬤ Node Size</h3>
+    <div class="options" style="gap:10px">
+      <div class="option" data-choice="size-links" onclick="toggleSelect(this)">
+        <div class="letter" style="font-size:11px;width:28px;height:28px">S1</div>
+        <div class="content">
+          <h3>Incoming Links</h3>
+          <p>Bigger = more notes reference this one. Hub notes emerge visually — like PageRank for your vault.</p>
+        </div>
+      </div>
+      <div class="option" data-choice="size-degree" onclick="toggleSelect(this)">
+        <div class="letter" style="font-size:11px;width:28px;height:28px">S2</div>
+        <div class="content">
+          <h3>Graph Degree</h3>
+          <p>Bigger = more semantic neighbors above threshold. Shows which notes are most "connected" conceptually.</p>
+        </div>
+      </div>
+      <div class="option" data-choice="size-uniform" onclick="toggleSelect(this)">
+        <div class="letter" style="font-size:11px;width:28px;height:28px">S3</div>
+        <div class="content">
+          <h3>Uniform</h3>
+          <p>All nodes the same size. Cleaner look, lets layout and color do the work.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="background:#1a1a1a;border-radius:8px;padding:14px 18px;border:1px solid #333;font-size:13px;color:#aaa">
+  <strong style="color:#7c6aff">My recommendation:</strong> Color by <strong>Folder</strong> (9 distinct clusters, maps to your mental model) + Size by <strong>Incoming Links</strong> (surfaces hub notes — instantly shows the most-referenced knowledge). You can always add a toggle to switch color dimension later.
+  <br><br>Pick one from each column — or just pick your top choices and I'll note the others as toggle options.
+</div>

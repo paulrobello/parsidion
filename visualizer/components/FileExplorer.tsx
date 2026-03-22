@@ -78,15 +78,15 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, width, onWidth
       }}
     >
       <div style={{
-        padding: '8px 10px',
+        padding: '12px 12px 10px',
         borderBottom: '1px solid #1e293b',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
-        <span style={{ color: '#6b7a99', fontSize: 9, textTransform: 'uppercase', letterSpacing: '1px' }}>Vault</span>
-        <span style={{ color: '#6b7a99', fontSize: 10 }}>{totalNotes} notes</span>
+        <span style={{ color: '#00FFC8', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>◈ Vault</span>
+        <span style={{ color: '#4b5563', fontSize: 9, fontVariantNumeric: 'tabular-nums' }}>{totalNotes}</span>
       </div>
 
-      <div style={{ flex: 1, padding: '6px 0', overflowY: 'auto', overflowX: 'hidden' }}>
+      <div style={{ flex: 1, padding: '8px 0', overflowY: 'auto', overflowX: 'hidden' }}>
         {sortedFolders.map(folder => {
           const subMap = fileTree.get(folder)!
           const isExpanded = expandedSet.has(folder)
@@ -99,10 +99,13 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, width, onWidth
               <div
                 onClick={() => toggleFolder(folder)}
                 style={{
-                  padding: '4px 6px 4px 8px',
-                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '5px 10px 5px 10px',
+                  display: 'flex', alignItems: 'center', gap: 6,
                   cursor: 'pointer',
+                  transition: 'background 0.1s',
                 }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
                 <span style={{ color: isExpanded ? '#f59e0b' : '#6b7a99', fontSize: 10, width: 12, textAlign: 'center' }}>
                   {isExpanded ? '▾' : '▸'}
@@ -121,10 +124,13 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, width, onWidth
                       <div
                         onClick={() => toggleFolder(subKey)}
                         style={{
-                          padding: '3px 6px 3px 22px',
-                          display: 'flex', alignItems: 'center', gap: 4,
-                          cursor: 'pointer', color: '#9ca3af', fontSize: 10,
+                          padding: '4px 10px 4px 24px',
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          cursor: 'pointer', color: '#8892a8', fontSize: 10,
+                          transition: 'background 0.1s',
                         }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                       >
                         <span style={{ color: subExpanded ? '#f59e0b' : '#6b7a99', fontSize: 9, width: 10, textAlign: 'center' }}>
                           {subExpanded ? '▾' : '▸'}
@@ -137,22 +143,27 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, width, onWidth
                           key={note.id}
                           note={note}
                           isActive={note.id === activeTab}
-                          indent={36}
+                          indent={38}
                           onSelect={onSelectNote}
                         />
                       ))}
                     </div>
                   )
                 }
-                return notes.map(note => (
-                  <NoteItem
-                    key={note.id}
-                    note={note}
-                    isActive={note.id === activeTab}
-                    indent={22}
-                    onSelect={onSelectNote}
-                  />
-                ))
+                // Use folder+sub as key prefix to avoid duplicate keys across subfolders
+                return (
+                  <div key={`${folder}/_root`}>
+                    {notes.map(note => (
+                      <NoteItem
+                        key={note.id}
+                        note={note}
+                        isActive={note.id === activeTab}
+                        indent={24}
+                        onSelect={onSelectNote}
+                      />
+                    ))}
+                  </div>
+                )
               })}
             </div>
           )
@@ -182,17 +193,30 @@ function NoteItem({ note, isActive, indent, onSelect }: {
     <div
       onClick={(e) => onSelect(note.id, e.metaKey || e.ctrlKey)}
       style={{
-        padding: `3px 6px 3px ${indent}px`,
+        padding: `4px 10px 4px ${indent}px`,
         fontSize: 10, cursor: 'pointer',
-        color: isActive ? '#e8e8f0' : '#9ca3af',
-        background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+        color: isActive ? '#e8e8f0' : '#8892a8',
+        background: isActive ? 'rgba(99,102,241,0.12)' : 'transparent',
         borderLeft: isActive ? '2px solid #6366f1' : '2px solid transparent',
         borderRadius: isActive ? '0 3px 3px 0' : 0,
-        display: 'flex', alignItems: 'center', gap: 4,
+        display: 'flex', alignItems: 'center', gap: 5,
         overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+        transition: 'background 0.1s, color 0.1s',
+      }}
+      onMouseEnter={e => {
+        if (!isActive) {
+          e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+          e.currentTarget.style.color = '#c0c8d8'
+        }
+      }}
+      onMouseLeave={e => {
+        if (!isActive) {
+          e.currentTarget.style.background = 'transparent'
+          e.currentTarget.style.color = '#8892a8'
+        }
       }}
     >
-      <span style={{ color: getNodeColor(note.type), fontSize: 6 }}>●</span>
+      <span style={{ color: getNodeColor(note.type), fontSize: 7, flexShrink: 0 }}>●</span>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {note.id}.md
       </span>

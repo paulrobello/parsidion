@@ -1,0 +1,48 @@
+<h2>Graph Renderer</h2>
+<p class="subtitle">1,006 nodes is the threshold where SVG starts struggling. Which rendering approach?</p>
+
+<div class="options">
+
+  <div class="option" data-choice="d3-canvas" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>D3 force + Canvas 2D</h3>
+      <p>D3 runs the physics simulation, draws to an HTML5 Canvas each frame. Smooth at 1k+ nodes, handles zoom/pan natively. Click detection requires manual hit-testing.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul><li>60fps at 1k+ nodes</li><li>Familiar D3 API</li><li>Simple stack</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Manual hit-testing for clicks</li><li>No DOM per-node (labels need redraw)</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="sigma" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Sigma.js + WebGL</h3>
+      <p>Purpose-built graph library with WebGL renderer. Handles 10k–100k nodes. Native click/hover, built-in zoom, label rendering. Used by Obsidian's graph view internally.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul><li>WebGL = GPU accelerated</li><li>Built-in node interaction</li><li>Obsidian-proven at this scale</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Extra dependency</li><li>Less D3 flexibility</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d3-svg" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>D3 force + SVG</h3>
+      <p>Classic approach: each node is a real DOM element. Easy tooltips, hover states, CSS styling. Gets choppy above ~500 nodes but fine if we cluster/filter first.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul><li>Simple, zero extra deps</li><li>CSS hover/selection trivial</li><li>Labels always sharp</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>~500 node limit for 60fps</li><li>Requires smart culling/LOD</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:24px">
+  <div style="background:#1a1a2e;border-radius:8px;padding:14px 18px;border:1px solid #2d2d4e;font-size:13px;color:#aaa">
+    <strong style="color:#7c6aff">Context:</strong> Your vault has 1,006 notes. With a 0.7 similarity threshold the edge count will likely be 5k–30k edges — comfortably in D3+Canvas territory. At 0.5 threshold it could balloon to 100k+ edges, where WebGL starts to matter.
+  </div>
+</div>

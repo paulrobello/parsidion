@@ -41,20 +41,24 @@ export function TabBar({ tabs, activeTab, nodeMap, onSwitch, onClose }: Props) {
             onClick={() => onSwitch(stem)}
             style={{
               background: isActive ? '#111827' : 'transparent',
-              padding: '5px 12px',
+              padding: '6px 14px',
               borderRadius: '6px 6px 0 0',
-              color: isActive ? '#e8e8f0' : '#6b7a99',
+              color: isActive ? '#e8e8f0' : '#5a6478',
               fontSize: 11,
               fontFamily: "'JetBrains Mono', monospace",
               cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
+              display: 'flex', alignItems: 'center', gap: 7,
               border: isActive ? '1px solid #1e293b' : '1px solid transparent',
               borderBottom: isActive ? '1px solid #111827' : '1px solid transparent',
               whiteSpace: 'nowrap',
               flexShrink: 0,
-              maxWidth: 200,
+              maxWidth: 220,
               overflow: 'hidden',
-            }}
+              transition: 'color 0.15s, background 0.15s',
+            }
+            }
+            onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#9ca3af' }}
+            onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#5a6478' }}
           >
             <span style={{ color: getNodeColor(node?.type ?? ''), fontSize: 7 }}>●</span>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>

@@ -42,14 +42,16 @@ export function Toolbar({
 
   return (
     <div style={{
-      background: '#0a0f1e',
-      padding: '6px 12px',
+      background: 'linear-gradient(180deg, #0d1224 0%, #0a0f1e 100%)',
+      padding: '0 12px',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
       borderBottom: '1px solid #1e293b',
       flexShrink: 0,
       height: 'var(--toolbar-height, 42px)',
+      boxShadow: '0 1px 8px rgba(0,0,0,0.3)',
+      zIndex: 5,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
         <button

@@ -160,9 +160,9 @@ export default function Home() {
               ) : (
                 /* Graph mode */
                 <div style={{ flex: 1, position: 'relative' }}>
-                  {/* Scope indicator */}
+                  {/* Scope indicator — top-right to avoid HUD overlap */}
                   <div style={{
-                    position: 'absolute', top: 12, left: 12,
+                    position: 'absolute', top: 12, right: 12,
                     display: 'flex', gap: 6, zIndex: 10,
                     fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
                   }}>

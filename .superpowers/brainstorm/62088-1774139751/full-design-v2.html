@@ -1,0 +1,360 @@
+<h2>Vault Visualizer Redesign — Final Design</h2>
+<p class="subtitle">Unified search, browse-only sidebar, tabbed reading pane, graph toggle</p>
+
+<!-- READ MODE MOCKUP -->
+<div class="section">
+  <h3>Read Mode</h3>
+  <div class="mockup">
+    <div class="mockup-header">Read Mode — unified search, browse-only sidebar</div>
+    <div class="mockup-body" style="padding: 0; height: 420px; display: flex; background: #060612;">
+      <!-- Sidebar (browse only, no search) -->
+      <div style="width: 240px; background: #0c1021; display: flex; flex-direction: column; border-right: 1px solid #1e293b; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+        <div style="padding: 8px 10px; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: #6b7a99; font-size: 9px; text-transform: uppercase; letter-spacing: 1px;">Vault</span>
+          <span style="color: #6b7a99; font-size: 10px;">328 notes</span>
+        </div>
+        <div style="flex: 1; padding: 6px 8px; overflow: auto; display: flex; flex-direction: column; gap: 1px;">
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #f59e0b;">▾</span> Daily/
+          </div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">2026-03/</div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #6b7a99;">▸</span> Debugging/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">42</span>
+          </div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #6b7a99;">▸</span> Frameworks/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">28</span>
+          </div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #6b7a99;">▸</span> Languages/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">15</span>
+          </div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #f59e0b;">▾</span> Patterns/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">67</span>
+          </div>
+          <div style="color: #e8e8f0; padding: 3px 6px 3px 22px; font-size: 10px; background: rgba(99,102,241,0.15); border-radius: 3px; border-left: 2px solid #6366f1;">architecture-patterns.md</div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">caching-patterns.md</div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">hook-patterns.md</div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">remediation.md</div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">data-flow.md</div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #6b7a99;">▸</span> Projects/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">35</span>
+          </div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #6b7a99;">▸</span> Research/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">89</span>
+          </div>
+          <div style="color: #e8e8f0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+            <span style="color: #6b7a99;">▸</span> Tools/
+            <span style="color: #4b5563; font-size: 9px; margin-left: auto;">52</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main area -->
+      <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+        <!-- Toolbar -->
+        <div style="background: #0a0f1e; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #6b7a99; cursor: pointer; font-size: 14px;">☰</span>
+            <div style="display: flex; gap: 1px;">
+              <div style="background: #111827; padding: 5px 14px; border-radius: 6px 6px 0 0; color: #e8e8f0; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1px solid #1e293b; border-bottom: 1px solid #111827; display: flex; align-items: center; gap: 8px;">
+                <span style="color: #6366f1;">●</span> architecture-patterns
+                <span style="color: #4b5563; font-size: 9px; cursor: pointer;">✕</span>
+              </div>
+              <div style="background: #060612; padding: 5px 14px; border-radius: 6px 6px 0 0; color: #6b7a99; font-size: 11px; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 8px;">
+                <span style="color: #ef4444;">●</span> hook-patterns
+                <span style="color: #4b5563; font-size: 9px; cursor: pointer;">✕</span>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <!-- Unified search -->
+            <div style="background: #111827; border: 1px solid #1e293b; border-radius: 5px; padding: 4px 10px; color: #6b7a99; font-size: 10px; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 6px; width: 240px;">
+              <span style="opacity: 0.7;">⌘K</span>
+              <span>Search titles, #tags, /folders...</span>
+            </div>
+            <!-- Mode toggle -->
+            <div style="display: flex; background: #1e293b; border-radius: 5px; padding: 2px;">
+              <span style="color: #e8e8f0; background: #6366f1; padding: 3px 10px; border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace;">Read</span>
+              <span style="color: #6b7a99; padding: 3px 10px; font-size: 10px; font-family: 'JetBrains Mono', monospace;">Graph</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reading pane -->
+        <div style="flex: 1; padding: 32px 48px; overflow: auto; font-family: 'Syne', sans-serif;">
+          <div style="max-width: 720px; margin: 0 auto;">
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+              <span style="background: #6366f1; color: white; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-family: 'JetBrains Mono', monospace;">pattern</span>
+              <span style="color: #6b7a99; font-size: 11px;">2026-03-15</span>
+              <span style="color: #6b7a99; font-size: 11px;">·</span>
+              <span style="color: #10b981; font-size: 11px;">high confidence</span>
+            </div>
+            <h1 style="color: #e8e8f0; font-size: 24px; font-weight: 700; margin: 0 0 12px; font-family: 'Oxanium', sans-serif;">Architecture Patterns</h1>
+            <div style="display: flex; gap: 6px; margin-bottom: 20px;">
+              <span style="background: #1e293b; color: #9ca3af; padding: 2px 8px; border-radius: 12px; font-size: 10px;">#architecture</span>
+              <span style="background: #1e293b; color: #9ca3af; padding: 2px 8px; border-radius: 12px; font-size: 10px;">#vault</span>
+              <span style="background: #1e293b; color: #9ca3af; padding: 2px 8px; border-radius: 12px; font-size: 10px;">#python</span>
+            </div>
+            <div style="color: #c0c8d8; font-size: 13px; line-height: 1.8;">
+              <p>The vault uses a layered architecture with four main components: hook scripts, summarizer, shared library, and the vault filesystem itself.</p>
+              <h2 style="color: #e8e8f0; font-size: 18px; margin-top: 20px; font-family: 'Oxanium', sans-serif;">Key Components</h2>
+              <ul style="padding-left: 20px; margin-top: 8px;">
+                <li>Hook scripts handle lifecycle events (session start/stop, compaction)</li>
+                <li><code style="background: #1e293b; padding: 1px 6px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 12px;">vault_common.py</code> provides shared utilities</li>
+                <li>The summarizer processes queued sessions into vault notes</li>
+              </ul>
+              <h2 style="color: #e8e8f0; font-size: 18px; margin-top: 20px; font-family: 'Oxanium', sans-serif;">Related</h2>
+              <p><span style="color: #7b61ff; cursor: pointer; border-bottom: 1px dotted #7b61ff;">[[remediation-patterns]]</span> · <span style="color: #7b61ff; cursor: pointer; border-bottom: 1px dotted #7b61ff;">[[cc-architectural-patterns-overview]]</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SEARCH DROPDOWN MOCKUP -->
+<div class="section" style="margin-top: 32px;">
+  <h3>Unified Search (⌘K) — Dropdown</h3>
+  <div class="mockup">
+    <div class="mockup-header">Search open — showing mixed results for "arch"</div>
+    <div class="mockup-body" style="padding: 0; height: 320px; display: flex; background: #060612;">
+      <!-- Sidebar dimmed -->
+      <div style="width: 240px; background: #0c1021; opacity: 0.4; border-right: 1px solid #1e293b; flex-shrink: 0;"></div>
+
+      <!-- Main area -->
+      <div style="flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative;">
+        <!-- Toolbar -->
+        <div style="background: #0a0f1e; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #6b7a99; font-size: 14px;">☰</span>
+            <div style="background: #111827; padding: 5px 14px; border-radius: 6px 6px 0 0; color: #e8e8f0; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1px solid #1e293b; border-bottom: 1px solid #111827;">
+              <span style="color: #6366f1;">●</span> architecture-patterns <span style="color: #4b5563; font-size: 9px;">✕</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <!-- Active search -->
+            <div style="background: #111827; border: 1px solid #6366f1; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 6px; width: 280px; box-shadow: 0 0 12px rgba(99,102,241,0.2);">
+              <span style="color: #6b7a99; font-size: 10px;">⌘K</span>
+              <span style="color: #e8e8f0;">arch</span>
+              <span style="color: #2d3748; animation: blink 1s infinite;">|</span>
+            </div>
+            <div style="display: flex; background: #1e293b; border-radius: 5px; padding: 2px;">
+              <span style="color: #e8e8f0; background: #6366f1; padding: 3px 10px; border-radius: 4px; font-size: 10px;">Read</span>
+              <span style="color: #6b7a99; padding: 3px 10px; font-size: 10px;">Graph</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search dropdown -->
+        <div style="position: absolute; top: 40px; right: 80px; width: 360px; background: #111827; border: 1px solid #1e293b; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 100; font-family: 'JetBrains Mono', monospace; font-size: 11px; overflow: hidden;">
+          <div style="padding: 6px 12px; border-bottom: 1px solid #1e293b; color: #6b7a99; font-size: 9px; text-transform: uppercase; letter-spacing: 1px;">
+            6 results · <span style="color: #4b5563;">Cmd+click for new tab</span>
+          </div>
+          <div style="padding: 4px;">
+            <div style="padding: 8px 10px; background: rgba(99,102,241,0.1); border-radius: 4px; display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+              <span style="color: #6366f1; font-size: 9px;">●</span>
+              <div>
+                <div style="color: #e8e8f0;"><span style="color: #f97316;">arch</span>itecture-patterns</div>
+                <div style="color: #4b5563; font-size: 9px;">Patterns/ · #architecture #vault</div>
+              </div>
+            </div>
+            <div style="padding: 8px 10px; border-radius: 4px; display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+              <span style="color: #6366f1; font-size: 9px;">●</span>
+              <div>
+                <div style="color: #c0c8d8;">cc-<span style="color: #f97316;">arch</span>itectural-patterns-overview</div>
+                <div style="color: #4b5563; font-size: 9px;">Patterns/ · #architecture #parsidion-cc</div>
+              </div>
+            </div>
+            <div style="padding: 8px 10px; border-radius: 4px; display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+              <span style="color: #ef4444; font-size: 9px;">●</span>
+              <div>
+                <div style="color: #c0c8d8;">parsidion-cc-<span style="color: #f97316;">arch</span>itecture-audit</div>
+                <div style="color: #4b5563; font-size: 9px;">Patterns/ · #architecture #python</div>
+              </div>
+            </div>
+            <div style="padding: 8px 10px; border-radius: 4px; display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+              <span style="color: #10b981; font-size: 9px;">●</span>
+              <div>
+                <div style="color: #c0c8d8;"><span style="color: #f97316;">arch</span>itecture-patterns (event-harness)</div>
+                <div style="color: #4b5563; font-size: 9px;">Patterns/ · #architecture #redis</div>
+              </div>
+            </div>
+          </div>
+          <div style="padding: 6px 12px; border-top: 1px solid #1e293b; color: #4b5563; font-size: 9px; display: flex; gap: 12px;">
+            <span>↑↓ navigate</span>
+            <span>⏎ open</span>
+            <span>⌘⏎ new tab</span>
+            <span>esc close</span>
+          </div>
+        </div>
+
+        <!-- Dimmed content behind -->
+        <div style="flex: 1; padding: 32px 48px; opacity: 0.3;">
+          <div style="max-width: 720px; margin: 0 auto;">
+            <h1 style="color: #e8e8f0; font-size: 24px; font-family: 'Oxanium', sans-serif;">Architecture Patterns</h1>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top: 12px; font-size: 12px; color: #9ca3af; line-height: 1.6; padding: 0 4px;">
+    <strong style="color: #e8e8f0;">Search prefixes:</strong>
+    type normally → fuzzy title match &nbsp;·&nbsp;
+    <code style="background: #1e293b; padding: 1px 6px; border-radius: 3px;">#tag</code> → filter by tag &nbsp;·&nbsp;
+    <code style="background: #1e293b; padding: 1px 6px; border-radius: 3px;">/folder</code> → filter by folder path
+  </div>
+</div>
+
+<!-- GRAPH MODE MOCKUP -->
+<div class="section" style="margin-top: 32px;">
+  <h3>Graph Mode — Local Neighborhood</h3>
+  <div class="mockup">
+    <div class="mockup-header">Graph Mode — 2-hop neighborhood, same unified search in toolbar</div>
+    <div class="mockup-body" style="padding: 0; height: 380px; display: flex; background: #060612;">
+      <!-- Sidebar -->
+      <div style="width: 240px; background: #0c1021; display: flex; flex-direction: column; border-right: 1px solid #1e293b; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+        <div style="padding: 8px 10px; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: #6b7a99; font-size: 9px; text-transform: uppercase; letter-spacing: 1px;">Vault</span>
+          <span style="color: #6b7a99; font-size: 10px;">328 notes</span>
+        </div>
+        <div style="flex: 1; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px;">
+          <div style="color: #e8e8f0; padding: 4px 6px;"><span style="color: #6b7a99;">▸</span> Daily/</div>
+          <div style="color: #e8e8f0; padding: 4px 6px;"><span style="color: #6b7a99;">▸</span> Debugging/</div>
+          <div style="color: #e8e8f0; padding: 4px 6px;"><span style="color: #f59e0b;">▾</span> Patterns/</div>
+          <div style="color: #e8e8f0; padding: 3px 6px 3px 22px; font-size: 10px; background: rgba(99,102,241,0.15); border-radius: 3px; border-left: 2px solid #6366f1;">architecture-patterns.md</div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">caching-patterns.md</div>
+          <div style="color: #9ca3af; padding: 3px 6px 3px 22px; font-size: 10px;">hook-patterns.md</div>
+        </div>
+      </div>
+
+      <!-- Main area -->
+      <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+        <div style="background: #0a0f1e; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #6b7a99; font-size: 14px;">☰</span>
+            <div style="background: #111827; padding: 5px 14px; border-radius: 6px 6px 0 0; color: #e8e8f0; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1px solid #1e293b; border-bottom: 1px solid #111827;">
+              <span style="color: #6366f1;">●</span> architecture-patterns <span style="color: #4b5563; font-size: 9px;">✕</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="background: #111827; border: 1px solid #1e293b; border-radius: 5px; padding: 4px 10px; color: #6b7a99; font-size: 10px; font-family: 'JetBrains Mono', monospace; width: 240px;">⌘K Search titles, #tags, /folders...</div>
+            <div style="display: flex; background: #1e293b; border-radius: 5px; padding: 2px;">
+              <span style="color: #6b7a99; padding: 3px 10px; font-size: 10px; font-family: 'JetBrains Mono', monospace;">Read</span>
+              <span style="color: #e8e8f0; background: #6366f1; padding: 3px 10px; border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace;">Graph</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Graph -->
+        <div style="flex: 1; position: relative; background: #060612;">
+          <!-- Scope bar -->
+          <div style="position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; z-index: 10;">
+            <div style="background: rgba(15,23,42,0.92); border: 1px solid #1e293b; border-radius: 5px; padding: 4px 10px; display: flex; gap: 8px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 10px;">
+              <span style="color: #f97316;">●</span>
+              <span style="color: #e8e8f0;">architecture-patterns</span>
+              <span style="color: #6b7a99;">·</span>
+              <span style="color: #6b7a99;">2 hops · 12 nodes</span>
+            </div>
+            <div style="background: rgba(15,23,42,0.92); border: 1px solid #1e293b; border-radius: 5px; padding: 4px 10px; color: #7b61ff; font-family: 'JetBrains Mono', monospace; font-size: 10px; cursor: pointer;">
+              Show Full Vault ⤢
+            </div>
+          </div>
+
+          <!-- HUD -->
+          <div style="position: absolute; top: 44px; left: 12px; width: 190px; background: rgba(12,16,33,0.92); border: 1px solid #1e293b; border-radius: 8px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 10px; z-index: 10;">
+            <div style="color: #6b7a99; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Graph Controls</div>
+            <div style="color: #9ca3af; margin-bottom: 4px;">Similarity: <span style="color: #e8e8f0;">0.70</span></div>
+            <div style="background: #1e293b; height: 3px; border-radius: 2px; margin-bottom: 8px;"><div style="background: #6366f1; height: 3px; border-radius: 2px; width: 70%;"></div></div>
+            <div style="color: #9ca3af; margin-bottom: 3px;">Source: <span style="color: #e8e8f0;">Semantic</span></div>
+            <div style="color: #9ca3af;">Overlay: <span style="color: #6366f1;">on</span></div>
+            <div style="color: #9ca3af; margin-top: 6px; padding-top: 6px; border-top: 1px solid #1e293b;">⏸ Pause · ↻ Reset</div>
+          </div>
+
+          <svg viewBox="0 0 600 320" style="width: 100%; height: 100%;">
+            <line x1="300" y1="160" x2="180" y2="70" stroke="#6366f1" stroke-opacity="0.4" stroke-width="2"/>
+            <line x1="300" y1="160" x2="420" y2="80" stroke="#6366f1" stroke-opacity="0.4" stroke-width="2"/>
+            <line x1="300" y1="160" x2="160" y2="230" stroke="#7b61ff" stroke-opacity="0.5" stroke-width="2"/>
+            <line x1="300" y1="160" x2="440" y2="240" stroke="#6366f1" stroke-opacity="0.35" stroke-width="1.5"/>
+            <line x1="300" y1="160" x2="350" y2="280" stroke="#6366f1" stroke-opacity="0.3" stroke-width="1.5"/>
+            <line x1="180" y1="70" x2="100" y2="30" stroke="#6366f1" stroke-opacity="0.2" stroke-width="1"/>
+            <line x1="180" y1="70" x2="80" y2="120" stroke="#6366f1" stroke-opacity="0.2" stroke-width="1"/>
+            <line x1="420" y1="80" x2="500" y2="40" stroke="#6366f1" stroke-opacity="0.2" stroke-width="1"/>
+            <line x1="420" y1="80" x2="520" y2="140" stroke="#6366f1" stroke-opacity="0.2" stroke-width="1"/>
+            <circle cx="100" cy="30" r="4" fill="#6366f1" opacity="0.5"/>
+            <circle cx="80" cy="120" r="4" fill="#10b981" opacity="0.5"/>
+            <circle cx="500" cy="40" r="4" fill="#ef4444" opacity="0.5"/>
+            <circle cx="520" cy="140" r="4" fill="#6366f1" opacity="0.5"/>
+            <circle cx="180" cy="70" r="8" fill="#6366f1"/>
+            <circle cx="420" cy="80" r="8" fill="#ef4444"/>
+            <circle cx="160" cy="230" r="7" fill="#6366f1"/>
+            <circle cx="440" cy="240" r="6" fill="#10b981"/>
+            <circle cx="350" cy="280" r="6" fill="#f59e0b"/>
+            <circle cx="300" cy="160" r="12" fill="#f97316" stroke="#f97316" stroke-opacity="0.3" stroke-width="4"/>
+            <text x="300" y="147" text-anchor="middle" fill="#e8e8f0" font-size="10" font-family="monospace" font-weight="bold">architecture-patterns</text>
+            <text x="180" y="58" text-anchor="middle" fill="#c0c8d8" font-size="8" font-family="monospace">remediation</text>
+            <text x="420" y="68" text-anchor="middle" fill="#c0c8d8" font-size="8" font-family="monospace">debugging-hooks</text>
+            <text x="160" y="248" text-anchor="middle" fill="#c0c8d8" font-size="8" font-family="monospace">vault-common</text>
+            <text x="440" y="258" text-anchor="middle" fill="#c0c8d8" font-size="8" font-family="monospace">caching</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DESIGN SUMMARY -->
+<div class="section" style="margin-top: 32px; padding: 20px; background: rgba(15,23,42,0.5); border-radius: 8px; border: 1px solid #1e293b;">
+  <h3 style="margin-top: 0;">Final Design Summary</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 13px; color: #c0c8d8;">
+    <div>
+      <h4 style="color: #6366f1; margin: 0 0 8px;">Layout</h4>
+      <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+        <li>Resizable + collapsible left sidebar (browse-only file tree)</li>
+        <li>Note count per folder in tree</li>
+        <li>Tab bar for multiple open notes</li>
+        <li>Full-width content area (Read or Graph mode)</li>
+        <li>Read/Graph toggle in top-right toolbar</li>
+        <li>Single unified ⌘K search in toolbar</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="color: #6366f1; margin: 0 0 8px;">Search (⌘K)</h4>
+      <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+        <li>Plain text → fuzzy title match</li>
+        <li><code style="background: #1e293b; padding: 1px 4px; border-radius: 3px;">#tag</code> → filter by tag</li>
+        <li><code style="background: #1e293b; padding: 1px 4px; border-radius: 3px;">/folder</code> → filter by folder</li>
+        <li>⏎ opens in current tab</li>
+        <li>⌘⏎ opens in new tab</li>
+        <li>In Graph mode: also flies to node</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="color: #6366f1; margin: 0 0 8px;">Graph Mode</h4>
+      <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+        <li>Default: local 2-hop neighborhood</li>
+        <li>Config option for full-vault default</li>
+        <li>"Show Full Vault" button</li>
+        <li>Draggable HUD panel (existing controls)</li>
+        <li>Click node → opens note in tab</li>
+        <li>Existing physics simulation preserved</li>
+      </ul>
+    </div>
+    <div>
+      <h4 style="color: #6366f1; margin: 0 0 8px;">Interactions</h4>
+      <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+        <li>Click wikilink → replace current tab</li>
+        <li>Cmd+click → new tab</li>
+        <li>Sidebar file click → open in current tab</li>
+        <li>☰ toggle sidebar visibility</li>
+        <li>Drag sidebar edge to resize</li>
+        <li>All settings persisted to localStorage</li>
+      </ul>
+    </div>
+  </div>
+</div>

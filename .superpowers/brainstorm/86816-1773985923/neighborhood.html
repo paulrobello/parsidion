@@ -1,0 +1,95 @@
+<h2>Node Selection Behavior</h2>
+<p class="subtitle">When you click a node, what happens to the surrounding graph?</p>
+
+<div class="options">
+
+  <div class="option" data-choice="focus-dim" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Focus + Dim</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Preview — clicked the red node</div>
+        <div class="mockup-body" style="height:150px;background:#0a0a0a;position:relative;overflow:hidden">
+          <svg style="position:absolute;inset:0;width:100%;height:100%">
+            <!-- dim edges -->
+            <line x1="20%" y1="30%" x2="55%" y2="25%" stroke="#1a1a1a" stroke-width="0.5"/>
+            <line x1="75%" y1="60%" x2="80%" y2="25%" stroke="#1a1a1a" stroke-width="0.5"/>
+            <!-- bright neighbor edges -->
+            <line x1="50%" y1="55%" x2="30%" y2="70%" stroke="#f44336" stroke-width="1.5" opacity="0.7"/>
+            <line x1="50%" y1="55%" x2="65%" y2="30%" stroke="#f44336" stroke-width="1.5" opacity="0.7"/>
+            <line x1="50%" y1="55%" x2="72%" y2="65%" stroke="#f44336" stroke-width="1.5" opacity="0.7"/>
+          </svg>
+          <!-- dim nodes -->
+          <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#1a1a1a;top:28%;left:19%"></div>
+          <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#1a1a1a;top:23%;left:54%"></div>
+          <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#1a1a1a;top:58%;left:79%"></div>
+          <div style="position:absolute;width:5px;height:5px;border-radius:50%;background:#1a1a1a;top:23%;left:79%"></div>
+          <!-- selected node -->
+          <div style="position:absolute;width:14px;height:14px;border-radius:50%;background:#f44336;top:52%;left:47%;box-shadow:0 0 0 3px rgba(244,67,54,0.4),0 0 16px rgba(244,67,54,0.6)"></div>
+          <!-- lit neighbors -->
+          <div style="position:absolute;width:9px;height:9px;border-radius:50%;background:#7c6aff;top:67%;left:28%;box-shadow:0 0 8px rgba(124,106,255,0.5)"></div>
+          <div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#4caf50;top:27%;left:63%;box-shadow:0 0 8px rgba(76,175,80,0.5)"></div>
+          <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#ff9800;top:62%;left:71%;box-shadow:0 0 8px rgba(255,152,0,0.5)"></div>
+          <!-- score labels -->
+          <div style="position:absolute;top:58%;left:35%;font-size:8px;color:#f44336;opacity:0.8">0.81</div>
+          <div style="position:absolute;top:35%;left:60%;font-size:8px;color:#f44336;opacity:0.8">0.74</div>
+        </div>
+      </div>
+      <p style="margin-top:8px">Unrelated nodes fade to near-invisible. Selected node glows. Direct neighbors stay bright with similarity scores shown on edges.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="highlight-only" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Highlight Ring Only</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Preview — clicked the red node</div>
+        <div class="mockup-body" style="height:150px;background:#0a0a0a;position:relative;overflow:hidden">
+          <svg style="position:absolute;inset:0;width:100%;height:100%">
+            <line x1="20%" y1="30%" x2="55%" y2="25%" stroke="#2a2a2a" stroke-width="0.5"/>
+            <line x1="75%" y1="60%" x2="80%" y2="25%" stroke="#2a2a2a" stroke-width="0.5"/>
+            <line x1="50%" y1="55%" x2="30%" y2="70%" stroke="#f44336" stroke-width="2" opacity="0.6"/>
+            <line x1="50%" y1="55%" x2="65%" y2="30%" stroke="#f44336" stroke-width="2" opacity="0.6"/>
+            <line x1="50%" y1="55%" x2="72%" y2="65%" stroke="#f44336" stroke-width="2" opacity="0.6"/>
+          </svg>
+          <!-- all nodes stay visible -->
+          <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#444;top:28%;left:19%"></div>
+          <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#444;top:23%;left:54%"></div>
+          <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:#444;top:58%;left:79%"></div>
+          <div style="position:absolute;width:5px;height:5px;border-radius:50%;background:#444;top:23%;left:79%"></div>
+          <!-- selected node with ring -->
+          <div style="position:absolute;width:14px;height:14px;border-radius:50%;background:#f44336;top:52%;left:47%;box-shadow:0 0 0 4px rgba(244,67,54,0.5)"></div>
+          <!-- neighbors with ring -->
+          <div style="position:absolute;width:9px;height:9px;border-radius:50%;background:#7c6aff;top:67%;left:28%;box-shadow:0 0 0 3px rgba(124,106,255,0.4)"></div>
+          <div style="position:absolute;width:8px;height:8px;border-radius:50%;background:#4caf50;top:27%;left:63%;box-shadow:0 0 0 3px rgba(76,175,80,0.4)"></div>
+          <div style="position:absolute;width:7px;height:7px;border-radius:50%;background:#ff9800;top:62%;left:71%;box-shadow:0 0 0 3px rgba(255,152,0,0.4)"></div>
+        </div>
+      </div>
+      <p style="margin-top:8px">All nodes stay visible. Selected node gets a glowing ring. Neighbor edges highlight in the selected color. Less dramatic, easier to keep context.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="camera-fly" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Focus + Dim + Camera Fly</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Preview — camera animates to center selected node</div>
+        <div class="mockup-body" style="height:150px;background:#0a0a0a;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center">
+          <div style="text-align:center">
+            <div style="width:20px;height:20px;border-radius:50%;background:#f44336;margin:0 auto;box-shadow:0 0 0 6px rgba(244,67,54,0.2),0 0 30px rgba(244,67,54,0.4)"></div>
+            <div style="margin-top:8px;font-size:10px;color:#666">camera zooms + centers</div>
+            <div style="margin-top:4px;display:flex;gap:16px;justify-content:center">
+              <div style="width:8px;height:8px;border-radius:50%;background:#7c6aff;opacity:0.5"></div>
+              <div style="width:7px;height:7px;border-radius:50%;background:#4caf50;opacity:0.5"></div>
+              <div style="width:6px;height:6px;border-radius:50%;background:#ff9800;opacity:0.3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:8px">Like A, but the camera smoothly animates to center and slightly zoom on the selected node. Best for following wikilink navigation — feels like teleporting between notes.</p>
+    </div>
+  </div>
+
+</div>
