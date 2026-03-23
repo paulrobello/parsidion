@@ -85,6 +85,7 @@ REPAIRABLE_CODES = frozenset(
         "INVALID_DATE",
         "ORPHAN_NOTE",
         "BROKEN_WIKILINK",
+        "HEADING_MISMATCH",
     }
 )
 DEFAULT_MODEL: str = vault_common.get_config(
@@ -531,9 +532,18 @@ def fix_prefix_cluster(
     }
     old_paths = {old for old, _ in moves}
 
-    # Move files first
+    # Move files first (skip missing files gracefully)
+    failed_moves: list[tuple[Path, Path]] = []
     for old_path, new_path in moves:
-        old_path.rename(new_path)
+        try:
+            old_path.rename(new_path)
+        except FileNotFoundError:
+            print(f"  ⚠ skipped (not found): {old_path.relative_to(vault_common.VAULT_ROOT)}")
+            failed_moves.append((old_path, new_path))
+    # Remove failed moves so wikilink patching doesn't reference nonexistent files
+    if failed_moves:
+        failed_set = set(failed_moves)
+        moves = [m for m in moves if m not in failed_set]
 
     def _patch(path: Path) -> None:
         try:
@@ -819,6 +829,28 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
                 )
             )
 
+    # Heading mismatch — first heading is ## but no # heading exists (skip daily notes)
+    if not is_daily:
+        body = vault_common.get_body(content)
+        has_h1 = False
+        first_h2_line: str | None = None
+        for bline in body.splitlines():
+            s = bline.strip()
+            if s.startswith("# ") and not s.startswith("## "):
+                has_h1 = True
+                break
+            if first_h2_line is None and s.startswith("## ") and not s.startswith("### "):
+                first_h2_line = s
+        if not has_h1 and first_h2_line is not None:
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "HEADING_MISMATCH",
+                    f"No # heading found; first ## heading should be promoted to #: {first_h2_line}",
+                )
+            )
+
     # Broken wikilinks anywhere in the document.
     # Exclude newlines from the match to avoid capturing cross-line false positives
     # (e.g. truncated MANIFEST table cells in daily notes).
@@ -1057,6 +1089,36 @@ def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
         return []
 
 
+def _auto_fix_headings(path: Path) -> bool:
+    """Promote the first ``## `` heading to ``# `` when no ``# `` heading exists.
+
+    Returns True if the file was modified.
+    """
+    content = path.read_text(encoding="utf-8")
+    body = vault_common.get_body(content)
+
+    # Check there is no existing # heading
+    for line in body.splitlines():
+        s = line.strip()
+        if s.startswith("# ") and not s.startswith("## "):
+            return False  # already has a proper H1
+
+    # Find and promote the first ## heading
+    lines = content.split("\n")
+    modified = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("## ") and not stripped.startswith("### "):
+            # Only promote if we're past the frontmatter
+            lines[i] = line.replace("## ", "# ", 1)
+            modified = True
+            break
+
+    if modified:
+        path.write_text("\n".join(lines), encoding="utf-8")
+    return modified
+
+
 def repair_note(
     path: Path,
     issues: list[Issue],
@@ -1146,16 +1208,26 @@ def _repair_one(
     lock: threading.Lock,
     timeout: int = AI_TIMEOUT,
     note_map: dict[str, list[Path]] | None = None,
+    fix_headings: bool = True,
 ) -> bool:
     """Repair one note, update state under *lock*, return True on success."""
     key = _rel(note_path)
     rel = note_path.relative_to(vault_common.VAULT_ROOT)
     repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
     broken = [i for i in repairable if i.code == "BROKEN_WIKILINK"]
-    other = [i for i in repairable if i.code != "BROKEN_WIKILINK"]
+    heading_issues = [i for i in repairable if i.code == "HEADING_MISMATCH"]
+    other = [i for i in repairable if i.code not in ("BROKEN_WIKILINK", "HEADING_MISMATCH")]
 
     with lock:
         prev_status = state.get("notes", {}).get(key, {}).get("status", "")
+
+    # Step 0: Python-based heading promotion (no Claude needed)
+    heading_fix_made = False
+    if heading_issues and fix_headings:
+        heading_fix_made = _auto_fix_headings(note_path)
+        if heading_fix_made:
+            with lock:
+                print(f"  ✓ {rel}: promoted ## heading to #", flush=True)
 
     # Step 1: Python-based broken-link repair (no Claude needed)
     link_fix_made = False
@@ -1187,14 +1259,14 @@ def _repair_one(
         fixed_content, repair_status = repair_note(note_path, other, model, timeout)
         if fixed_content:
             note_path.write_text(fixed_content + "\n", encoding="utf-8")
-    elif broken:
-        # Only broken wikilinks — no Claude call needed
-        repair_status = "fixed" if link_fix_made else "failed"
+    elif broken or heading_issues:
+        # Only broken wikilinks / heading fixes — no Claude call needed
+        repair_status = "fixed" if (link_fix_made or heading_fix_made) else "failed"
 
     if fixed_content:
         icon = "✓"
-    elif link_fix_made and not other:
-        # Broken links fixed by Python, no Claude needed
+    elif (link_fix_made or heading_fix_made) and not other:
+        # Fixed by Python, no Claude needed
         icon = "✓"
     else:
         if repair_status == "timeout" and prev_status == "timeout":
@@ -1214,7 +1286,7 @@ def _repair_one(
             "issues": [i.code for i in repairable],
         }
 
-    return fixed_content is not None or link_fix_made
+    return fixed_content is not None or link_fix_made or heading_fix_made
 
 
 # ---------------------------------------------------------------------------
@@ -1878,6 +1950,21 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--fix-headings",
+        action="store_true",
+        default=True,
+        help=(
+            "Promote first ## heading to # when no # heading exists (enabled by default). "
+            "Disable with --no-fix-headings."
+        ),
+    )
+    parser.add_argument(
+        "--no-fix-headings",
+        action="store_false",
+        dest="fix_headings",
+        help="Disable heading promotion repair.",
+    )
+    parser.add_argument(
         "--strip-prefixes",
         action="store_true",
         help=(
@@ -2158,6 +2245,7 @@ def main() -> None:
                 lock,
                 args.timeout,
                 note_map,
+                args.fix_headings,
             ): note_path
             for note_path, note_issues in batch
         }

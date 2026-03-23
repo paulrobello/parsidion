@@ -110,8 +110,10 @@ uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-subfolders           # detect prefix clusters (dry-run)
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-subfolders --execute # apply moves
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-frontmatter    # repair frontmatter via Claude
+uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --no-fix-headings --fix-frontmatter  # repair frontmatter without heading promotion
 
 # Vault doctor — fix everything in one pass (used by nightly cron)
+# Note: --fix-headings is enabled by default (promotes ## to # when no # heading exists)
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-all
 
 # Run the skill trigger accuracy eval (MUST be from a separate terminal, not inside Claude Code)

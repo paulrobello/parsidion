@@ -17,6 +17,7 @@ interface Props {
   onSearchSelect: (stem: string, newTab: boolean) => void
   viewMode: 'read' | 'graph'
   onViewModeChange: (mode: 'read' | 'graph') => void
+  onNewNote: () => void
 }
 
 export function Toolbar({
@@ -24,6 +25,7 @@ export function Toolbar({
   tabs, activeTab, nodeMap, onSwitchTab, onCloseTab,
   nodes, onSearchSelect,
   viewMode, onViewModeChange,
+  onNewNote,
 }: Props) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -75,7 +77,20 @@ export function Toolbar({
         />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <button
+          onClick={onNewNote}
+          title="New note"
+          style={{
+            background: 'rgba(0,255,200,0.08)',
+            border: '1px solid rgba(0,255,200,0.2)',
+            color: '#00FFC8', cursor: 'pointer', borderRadius: 5,
+            padding: '2px 8px', fontSize: 14, lineHeight: 1,
+            fontFamily: 'monospace',
+          }}
+        >
+          +
+        </button>
         <UnifiedSearch nodes={nodes} onSelect={onSearchSelect} />
         <ViewToggle mode={viewMode} onToggle={onViewModeChange} />
       </div>

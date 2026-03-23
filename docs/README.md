@@ -19,7 +19,7 @@ below with its intended audience and purpose.
 | [MCPL.md](MCPL.md) | MCP Launchpad CLI: installation, configuration, and use as a fallback search gateway when the research agent exhausts other search options. |
 | [VISUALIZER.md](VISUALIZER.md) | Vault Visualizer: interactive web app for reading and graph-exploring vault notes — architecture, graph engine, data model, and configuration. |
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
-| [superpowers/](superpowers/) | Implementation plans and design specs for major features (vault-explorer agent, subagent stop hook, parsidion-mcp). |
+| [superpowers/](superpowers/) | Implementation plans and design specs for major features (vault-explorer agent, subagent stop hook, parsidion-mcp, visualizer redesign). |
 
 ## Where to Start
 

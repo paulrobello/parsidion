@@ -137,6 +137,36 @@ export function useVisualizerState(graphData: GraphData | null) {
     return content
   }, [])
 
+  // --- Save note content ---
+  const saveNote = useCallback(async (stem: string, content: string): Promise<void> => {
+    const res = await fetch('/api/note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stem, content }),
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error as string)
+    contentCache.current.set(stem, content)
+  }, [])
+
+  // --- Delete note ---
+  const deleteNote = useCallback(async (stem: string): Promise<void> => {
+    const res = await fetch(`/api/note?stem=${encodeURIComponent(stem)}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error as string)
+  }, [])
+
+  // --- Create note ---
+  const createNote = useCallback(async (notePath: string, content: string): Promise<void> => {
+    const res = await fetch('/api/note', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: notePath, content }),
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error as string)
+  }, [])
+
   // --- Resolve wikilink stem ---
   const resolveWikilink = useCallback((rawStem: string): string | null => {
     return stemLookup.get(rawStem) ?? null
@@ -247,7 +277,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     // Sidebar state
     sidebarWidth, setSidebarWidth, sidebarCollapsed, setSidebarCollapsed,
     // Content
-    fetchNoteContent, resolveWikilink, nodeMap, fileTree,
+    fetchNoteContent, saveNote, deleteNote, createNote, resolveWikilink, nodeMap, fileTree,
     // Graph controls
     threshold, setThreshold,
     graphSource, setGraphSource,

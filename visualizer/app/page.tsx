@@ -10,6 +10,7 @@ import { FileExplorer } from '@/components/FileExplorer'
 import { Toolbar } from '@/components/Toolbar'
 import { ReadingPane } from '@/components/ReadingPane'
 import { HUDPanel } from '@/components/HUDPanel'
+import { NewNoteDialog } from '@/components/NewNoteDialog'
 
 const GraphCanvas = dynamic(() => import('@/components/GraphCanvas').then(m => m.GraphCanvas), {
   ssr: false,
@@ -31,6 +32,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const graphCanvasRef = useRef<GraphCanvasHandle>(null)
+  const [showNewNote, setShowNewNote] = useState(false)
+  const [pendingOpenStem, setPendingOpenStem] = useState<string | null>(null)
 
   useEffect(() => {
     localStorage.removeItem('vv:isLayoutRunning')
@@ -78,6 +81,30 @@ export default function Home() {
       graphCanvasRef.current?.flyToNode(resolved)
     }
   }, [state])
+
+  const handleDelete = useCallback(async (stem: string) => {
+    await state.deleteNote(stem)
+    state.closeTab(stem)
+  }, [state])
+
+  const handleCreate = useCallback(async (notePath: string, content: string, stem: string) => {
+    await state.createNote(notePath, content)
+    setShowNewNote(false)
+    // Rebuild graph.json then reload it
+    await fetch('/api/graph/rebuild', { method: 'POST' })
+    const fresh = await fetch(`/graph.json?t=${Date.now()}`).then(r => r.json()) as GraphData
+    setGraphData(fresh)
+    setPendingOpenStem(stem)
+  }, [state])
+
+  // Open the new note once nodeMap contains it (after graphData reloads)
+  useEffect(() => {
+    if (pendingOpenStem && state.nodeMap.has(pendingOpenStem)) {
+      state.openNote(pendingOpenStem, false)
+      state.setViewMode('read')
+      setPendingOpenStem(null)
+    }
+  }, [pendingOpenStem, state])
 
   // Determine neighborhood center for graph mode
   const neighborhoodCenter = state.graphScope === 'local' ? state.activeTab : null
@@ -140,6 +167,7 @@ export default function Home() {
             onSearchSelect={handleSearchSelect}
             viewMode={state.viewMode}
             onViewModeChange={state.setViewMode}
+            onNewNote={() => setShowNewNote(true)}
           />
 
           {/* Body: sidebar + content */}
@@ -168,6 +196,9 @@ export default function Home() {
                   node={state.activeNode}
                   fetchContent={state.fetchNoteContent}
                   onNavigate={handleNavigate}
+                  onSave={state.saveNote}
+                  onDelete={handleDelete}
+                  nodes={graphData.nodes}
                 />
               ) : (
                 /* Graph mode */
@@ -273,6 +304,14 @@ export default function Home() {
               )}
             </div>
           </div>
+
+          {showNewNote && (
+            <NewNoteDialog
+              onConfirm={handleCreate}
+              onCancel={() => setShowNewNote(false)}
+              nodes={graphData.nodes}
+            />
+          )}
         </>
       )}
     </main>

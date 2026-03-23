@@ -364,8 +364,9 @@ uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "qdrant embeddings"
 uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "qdrant embeddings" -s 0.4
 ```
 
-The global default minimum score is controlled by `embeddings.min_score` in `config.yaml`
-(default `0.35`). The CLI flag overrides it for a single invocation. You can also set it via
+The global default minimum score is controlled by `embeddings.min_score` in `config.yaml`.
+The template sets it to `0.35`; when `config.yaml` is absent the built-in default is `0.0`
+(all results returned). The CLI flag overrides it for a single invocation. You can also set it via
 environment variable: `VAULT_SEARCH_MIN_SCORE=0.5 vault-search "query"`.
 
 > **Tip:** A score above `0.5` indicates strong topical overlap. Use `--min-score 0.5` when
@@ -543,7 +544,7 @@ session_start_hook:
 |---|---|---|---|---|
 | `enabled` | `embeddings` | boolean | `true` | Master switch — set `false` to disable all embedding builds and `note_index` writes |
 | `model` | `embeddings` | string | `BAAI/bge-small-en-v1.5` | fastembed model ID for the embedding model |
-| `min_score` | `embeddings` | float | `0.35` | Global minimum cosine similarity threshold; results below this are excluded |
+| `min_score` | `embeddings` | float | `0.35` (template) / `0.0` (built-in) | Global minimum cosine similarity threshold; results below this are excluded |
 | `top_k` | `embeddings` | integer | `10` | Default number of results returned per search |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
 

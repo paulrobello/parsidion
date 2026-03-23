@@ -25,6 +25,8 @@ A Claude Code customization toolkit that replaces built-in auto memory with a ma
   - [Trigger Evaluation](#trigger-evaluation)
   - [Context Preview Script](#context-preview-script)
   - [Obsidian Integration](#obsidian-integration)
+  - [Vault Visualizer](#vault-visualizer)
+  - [parsidion-mcp](#parsidion-mcp)
 - [Configuration](#configuration)
 - [Data Flow](#data-flow)
 - [File Layout](#file-layout)
@@ -84,6 +86,9 @@ graph TB
         VD[vault_doctor.py]
         CGC[check_graph_coverage.py]
         EVAL[run_trigger_eval.py]
+        BG[build_graph.py]
+        VIZ[Vault Visualizer]
+        MCP[parsidion-mcp]
     end
 
     subgraph "Obsidian Vault ~/ClaudeVault/"
@@ -152,6 +157,10 @@ graph TB
     CVG -->|always-on vault-first rule| CC
     Skill -->|defines conventions| CC
     EVAL -->|reads description| Skill
+    BG -->|reads| Graph
+    BG -->|reads embeddings| Graph
+    VIZ -->|serves| BG
+    MCP -->|reads/writes| VC
 
     style CVG fill:#004d40,stroke:#00bcd4,stroke-width:2px,color:#ffffff
     style CC fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
@@ -172,6 +181,9 @@ graph TB
     style VD fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
     style CGC fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style EVAL fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    style BG fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style VIZ fill:#006064,stroke:#00bcd4,stroke-width:2px,color:#ffffff
+    style MCP fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style Config fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
     style Index fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
     style Pending fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
@@ -847,6 +859,62 @@ A shell script that previews what vault context would be injected at session sta
 
 Requires `jq` to be installed. The script invokes `session_start_hook.py` with a synthetic JSON input and extracts the `additionalContext` field from the hook output.
 
+### Vault Visualizer
+
+**Location:** `visualizer/` (Next.js app) · `scripts/build_graph.py` (graph data builder)
+
+An interactive browser-based interface for reading and navigating vault notes through dual-mode viewing. Documented in detail in [VISUALIZER.md](VISUALIZER.md).
+
+**Key features:**
+- **Read mode:** Markdown rendering with multi-tab browsing and persistent state
+- **Graph mode:** Force-directed visualization powered by pre-computed semantic embeddings and explicit wikilinks
+- **Unified search** (⌘K) across titles, tags, and folders
+- **File Explorer sidebar** with hierarchical folder navigation; clicking a file in sidebar opens it in Read mode and flies to its node in Graph mode
+
+**Build pipeline:**
+
+```bash
+# 1. Build embeddings (if not already built)
+uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+
+# 2. Build graph.json from embeddings.db
+uv run --no-project scripts/build_graph.py
+
+# 3. Run the dev server
+cd visualizer && bun dev
+```
+
+`scripts/build_graph.py` is a PEP 723 script (depends on `numpy`). It reads `embeddings.db`, computes pairwise cosine similarity between note vectors, extracts wikilink edges from `related` frontmatter fields, and writes `visualizer/public/graph.json` for the Next.js frontend to consume.
+
+The `update_index.py` indexer and `summarize_sessions.py` summarizer both accept a `--rebuild-graph` flag to rebuild `graph.json` after each vault write. The nightly scheduler can also be configured with `--rebuild-graph` to keep the graph current automatically.
+
+### parsidion-mcp
+
+**Location:** `parsidion-mcp/` · Python package
+
+A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vault read, write, search, and maintenance operations to Claude Desktop and any MCP-capable client. Documented in detail in [MCP.md](MCP.md).
+
+**Purpose:** Claude Desktop has no native mechanism to access the vault. `parsidion-mcp` bridges this gap by running as a local stdio MCP server, wrapping `vault_common` and `vault_search` behind six MCP tools.
+
+**Six tools exposed:**
+
+| Tool | Description |
+|------|-------------|
+| `vault_search` | Semantic vector search and structured metadata filtering |
+| `vault_read` | Read a note by stem or absolute path (path-containment enforced) |
+| `vault_write` | Write or update a vault note with frontmatter validation |
+| `vault_context` | Session-start-style context injection (compact index or full summaries) |
+| `rebuild_index` | Trigger `update_index.py` from within a conversation |
+| `vault_doctor` | Run vault health scan and automated repair |
+
+**Installation:**
+
+```bash
+cd parsidion-mcp
+uv tool install --editable .
+# Then add to Claude Desktop's MCP config: parsidion-mcp stdio
+```
+
 ### Obsidian Integration
 
 The vault at `~/ClaudeVault/` is plain markdown — no Obsidian required. If you open it in [Obsidian](https://obsidian.md/), you get graph view, search, and wikilink navigation, but all core functionality (hooks, search, summarizer) works without it.
@@ -1045,7 +1113,17 @@ parsidion-cc/
 ├── pyproject.toml
 ├── Makefile
 ├── scripts/
-│   └── show-context                 # CLI: preview session start context for any project
+│   ├── show-context                 # CLI: preview session start context for any project
+│   └── build_graph.py               # PEP 723: compute graph.json from embeddings.db (numpy dep)
+├── visualizer/                      # Next.js vault visualizer (bun dev)
+│   ├── app/                         # Next.js App Router pages and API routes
+│   ├── components/                  # ReadingPane, GraphCanvas, FileExplorer, UnifiedSearch
+│   ├── lib/                         # Shared hooks and utilities
+│   └── public/
+│       └── graph.json               # Pre-computed graph data (generated by build_graph.py)
+├── parsidion-mcp/                   # FastMCP server: vault access for Claude Desktop
+│   ├── src/parsidion_mcp/           # MCP tool implementations
+│   └── pyproject.toml
 ├── docs/
 │   ├── ARCHITECTURE.md              # This document
 │   └── DOCUMENTATION_STYLE_GUIDE.md
@@ -1197,6 +1275,8 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 ## Related Documentation
 
 - [README.md](../README.md) - Project overview and quick reference
+- [VISUALIZER.md](VISUALIZER.md) - Vault Visualizer: architecture, features, and running instructions
+- [MCP.md](MCP.md) - parsidion-mcp: MCP server tools reference and installation
 - [AGENTCHROME.md](AGENTCHROME.md) - AgentChrome browser CLI: installation and integration with the research agent
 - [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) - Documentation formatting standards
 - [SKILL.md](../skills/parsidion-cc/SKILL.md) - Vault philosophy, conventions, and anti-patterns

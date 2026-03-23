@@ -111,6 +111,9 @@ graph TD
     GraphCanvas[GraphCanvas.tsx]
     HUD[HUDPanel.tsx]
     TempBar[TemperatureBar.tsx]
+    NewNote[NewNoteDialog.tsx]
+    Confirm[ConfirmDialog.tsx]
+    FmEditor[FrontmatterEditor.tsx]
 
     Page --> Toolbar
     Toolbar --> TabBar
@@ -119,6 +122,9 @@ graph TD
     Page --> Sidebar
     Page --> ReadPane
     Page --> GraphCanvas
+    Page --> NewNote
+    ReadPane --> Confirm
+    ReadPane --> FmEditor
     GraphCanvas --> HUD
     GraphCanvas --> TempBar
 
@@ -132,6 +138,9 @@ graph TD
     style Search fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style ViewToggle fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style TempBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style NewNote fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
+    style Confirm fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
+    style FmEditor fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
 ```
 
 ## Features
@@ -148,6 +157,9 @@ The default mode when opening a note. Provides a distraction-free reading experi
   - Click → open in current tab
   - Cmd+click → open in new tab
 - Related notes section extracted from YAML frontmatter
+- **Inline editing**: toggle edit mode to modify note body and frontmatter
+  - FrontmatterEditor provides structured editing of type, date, confidence, tags, project, sources, and related links with tag autocomplete from the graph
+  - Save and delete operations via the note CRUD API
 
 ### Graph Mode
 
@@ -281,9 +293,9 @@ Open `http://localhost:3999` in your browser.
 ### Production
 
 ```bash
-make build-visualizer   # Compile Next.js production build
-make start-visualizer   # Start production server on port 3999
-make stop-visualizer    # Kill the process on port 3999
+make build-visualizer         # Compile Next.js production build
+cd visualizer && bun start    # Start production server on port 3999
+make stop-visualizer          # Kill the process on port 3999
 ```
 
 ## Building Graph Data
@@ -391,15 +403,25 @@ graph LR
 
 **`GET /api/note?stem=<stem>`**
 
-Returns the raw Markdown content for a note identified by its stem ID.
+Returns the Markdown content for a note identified by its stem ID.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `stem` | string | Yes | Vault note stem (filename without extension) |
 
-**Response (200):** Plain text Markdown content
+**Response (200):** JSON `{ content: string, path: string }` — raw Markdown and vault-relative path
 
-**Response (404):** Empty body — note not found
+**Response (404):** JSON error — note not found
+
+**`POST /api/note`** — Update (overwrite) an existing note.
+Body: `{ stem: string, content: string }`
+
+**`PUT /api/note`** — Create a new note at a vault-relative path.
+Body: `{ path: string, content: string }`. Returns 409 if the note already exists.
+
+**`DELETE /api/note?stem=<stem>`** — Delete a note by stem.
+
+**`POST /api/graph/rebuild`** — Trigger a server-side `build_graph.py` run to regenerate `graph.json`.
 
 ## State Management
 
@@ -518,7 +540,8 @@ parsidion-cc/
 │   ├── app/
 │   │   ├── page.tsx                  # Main layout and state wiring
 │   │   ├── layout.tsx                # HTML head, global styles
-│   │   └── api/note/route.ts         # Note content API endpoint
+│   │   ├── api/note/route.ts         # Note CRUD API (GET, POST, PUT, DELETE)
+│   │   └── api/graph/rebuild/route.ts  # Trigger graph.json rebuild (POST)
 │   ├── components/
 │   │   ├── GraphCanvas.tsx           # Sigma.js WebGL renderer
 │   │   ├── HUDPanel.tsx              # Graph controls overlay
@@ -528,7 +551,9 @@ parsidion-cc/
 │   │   ├── TabBar.tsx                # Scrollable tab strip
 │   │   ├── UnifiedSearch.tsx         # ⌘K search input + dropdown
 │   │   ├── ViewToggle.tsx            # Read / Graph pill toggle
-│   │   └── TemperatureBar.tsx        # Simulation energy indicator
+│   │   ├── TemperatureBar.tsx        # Simulation energy indicator
+│   │   ├── NewNoteDialog.tsx         # Dialog for creating new vault notes
+│   │   └── ConfirmDialog.tsx         # Reusable confirmation prompt
 │   ├── lib/
 │   │   ├── graph.ts                  # Data types and fetch helpers
 │   │   ├── useVisualizerState.ts     # Central state management hook

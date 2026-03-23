@@ -113,6 +113,8 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Skill management** | Install agentchrome skill files for AI coding tools (`skill install`) |
 | **Configuration** | Manage connection config via TOML config file (`config show`, `config init`, `config path`) |
 | **Capabilities manifest** | Output a machine-readable manifest of all CLI commands and flags (`capabilities`) |
+| **Man pages** | Display man pages for agentchrome commands (`man`) |
+| **Shell completions** | Generate shell completion scripts (`completions`) |
 
 ## Usage in Parsidion CC
 
@@ -219,6 +221,12 @@ agentchrome skill install
 
 # Output machine-readable manifest of all commands and flags
 agentchrome capabilities
+
+# Display man page for a command
+agentchrome man navigate
+
+# Generate shell completions (e.g., for bash)
+agentchrome completions bash
 ```
 
 ## Troubleshooting

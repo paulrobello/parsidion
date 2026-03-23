@@ -336,6 +336,7 @@ vault-merge NOTE_A NOTE_B --no-index --execute
 | `INVALID_DATE` | warning | `date` not in YYYY-MM-DD format |
 | `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field |
 | `BROKEN_WIKILINK` | warning | Link target not found in vault |
+| `HEADING_MISMATCH` | warning | No `#` heading found; first `##` heading should be promoted to `#` (skips daily notes) |
 | `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
 | `PREFIX_CLUSTER` | warning | 3+ flat notes share a kebab prefix — should be moved into a subfolder |
 
@@ -375,7 +376,7 @@ uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --erro
 Repairs run in parallel (`--jobs N`, default 3). Each `claude -p` subprocess is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved. The per-call timeout (`--timeout SECS`) defaults to 120s — increase it when running many parallel workers to avoid spurious timeouts.
 
 Repairable codes (Claude can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
-Auto-repairable without Claude (Python-only): `BROKEN_WIKILINK` (exact/semantic match), `DUPLICATE_TAG` (merge via `--fix-tags`).
+Auto-repairable without Claude (Python-only): `BROKEN_WIKILINK` (exact/semantic match), `DUPLICATE_TAG` (merge via `--fix-tags`), `HEADING_MISMATCH` (promotes first `##` to `#`; enabled by default, disable with `--no-fix-headings`).
 Auto-repairable via Python + Claude filter: `PREFIX_CLUSTER` — candidates are detected by Python, then Claude haiku filters out generic-word false positives (e.g. 'fixing', 'missing'), keeping only specific subject names (project, library, OS, tool). Files are then moved and wikilinks patched by Python.
 Not auto-repairable (require manual fix): `FLAT_DAILY`.
 
