@@ -91,7 +91,7 @@ def _pack_vector(vec: list[float]) -> bytes:
 def search(
     query: str,
     top: int = 10,
-    min_score: float = 0.0,
+    min_score: float = 0.45,
     model_name: str = _DEFAULT_MODEL,
 ) -> list[dict[str, object]]:
     """Search the vault for notes semantically similar to *query*.
@@ -579,7 +579,7 @@ def _interactive_search() -> None:
         db_path = vault_common.get_embeddings_db_path()
         if db_path.exists():
             try:
-                return search(query=q, top=10, min_score=0.0)
+                return search(query=q, top=10, min_score=0.45)
             except Exception:  # noqa: BLE001
                 pass
         # Fallback: metadata title search via grep over all notes
@@ -775,7 +775,7 @@ def main() -> None:
 
     # Semantic-only flags
     _cfg_top_k: int = vault_common.get_config("embeddings", "top_k", 10)
-    _cfg_min_score: float = vault_common.get_config("embeddings", "min_score", 0.0)
+    _cfg_min_score: float = vault_common.get_config("embeddings", "min_score", 0.45)
     _eff_top_k = _env_int("TOP", _cfg_top_k)
     _eff_min_score = _env_float("MIN_SCORE", _cfg_min_score)
     _eff_model = os.environ.get(_ENV_PREFIX + "MODEL", _DEFAULT_MODEL)

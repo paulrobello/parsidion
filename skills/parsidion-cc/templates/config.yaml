@@ -48,7 +48,7 @@ summarizer:
 embeddings:
   enabled: true                   # Set false to disable all embedding builds, note_index writes, and auto-rebuild after update_index.py runs
   model: BAAI/bge-small-en-v1.5  # ~67 MB ONNX model, cached after first run
-  min_score: 0.35                 # Minimum cosine similarity for search results
+  min_score: 0.45                 # Minimum cosine similarity for search results
   top_k: 10                       # Default result count for vault_search.py
 
 # Git integration

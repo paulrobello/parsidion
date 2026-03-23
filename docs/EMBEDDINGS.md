@@ -544,7 +544,7 @@ session_start_hook:
 |---|---|---|---|---|
 | `enabled` | `embeddings` | boolean | `true` | Master switch — set `false` to disable all embedding builds and `note_index` writes |
 | `model` | `embeddings` | string | `BAAI/bge-small-en-v1.5` | fastembed model ID for the embedding model |
-| `min_score` | `embeddings` | float | `0.35` (template) / `0.0` (built-in) | Global minimum cosine similarity threshold; results below this are excluded |
+| `min_score` | `embeddings` | float | `0.45` | Global minimum cosine similarity threshold; results below this are excluded |
 | `top_k` | `embeddings` | integer | `10` | Default number of results returned per search |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
 
