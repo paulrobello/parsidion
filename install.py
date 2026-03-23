@@ -303,11 +303,11 @@ def patch_vault_common(
 
     content = target.read_text(encoding="utf-8")
 
-    vault_repr = f'Path("{vault_root}")'
-    templates_repr = f'Path("{templates_dir}")'
+    vault_repr = f'Path(r"{vault_root}")'
+    templates_repr = f'Path(r"{templates_dir}")'
 
-    new_content = _VAULT_ROOT_RE.sub(rf"\g<1>{vault_repr}", content)
-    new_content = _TEMPLATES_DIR_RE.sub(rf"\g<1>{templates_repr}", new_content)
+    new_content = _VAULT_ROOT_RE.sub(lambda m: m.group(1) + vault_repr, content)
+    new_content = _TEMPLATES_DIR_RE.sub(lambda m: m.group(1) + templates_repr, new_content)
 
     if new_content == content:
         _print(
@@ -730,7 +730,11 @@ def create_templates_symlink(
         _step(f"Update Templates symlink → {templates_src}", dry_run=dry_run)
         if not dry_run:
             link.unlink()
-            link.symlink_to(templates_src)
+            try:
+                link.symlink_to(templates_src)
+            except OSError:
+                import shutil
+                shutil.copytree(templates_src, link)
     elif link.exists():
         # It's a real directory — only replace if empty
         try:
@@ -739,22 +743,26 @@ def create_templates_symlink(
             is_empty = False
         if is_empty:
             _step(
-                f"Replace empty Templates dir with symlink → {templates_src}",
+                f"Replace empty Templates dir with symlink/copy → {templates_src}",
                 dry_run=dry_run,
             )
             if not dry_run:
                 link.rmdir()
-                link.symlink_to(templates_src)
+                try:
+                    link.symlink_to(templates_src)
+                except OSError:
+                    import shutil
+                    shutil.copytree(templates_src, link)
         else:
             _warn("Templates/ exists and is non-empty; skipping symlink creation")
     else:
-        _step(f"Create Templates symlink → {templates_src}", dry_run=dry_run)
+        _step(f"Create Templates symlink/copy → {templates_src}", dry_run=dry_run)
         if not dry_run:
             try:
                 link.symlink_to(templates_src)
-            except OSError as exc:
-                _warn(f"Could not create symlink ({exc}); leaving as plain directory")
-                link.mkdir(exist_ok=True)
+            except OSError:
+                import shutil
+                shutil.copytree(templates_src, link)
 
 
 # ---------------------------------------------------------------------------
