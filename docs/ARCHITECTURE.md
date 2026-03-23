@@ -457,14 +457,32 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 - `needs_review` — timed out on retry; skipped indefinitely, flagged for user
 - `skipped` — only non-auto-repairable issues (`FLAT_DAILY`); skipped indefinitely
 
+**Additional CLI flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--fix-frontmatter` | off | Apply Claude-suggested frontmatter repairs |
+| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolders) |
+| `--fix-tags` | off | Detect and merge duplicate tags; use `--execute` to apply |
+| `--fix-headings` | on | Promote first `##` to `#` when no `#` heading exists |
+| `--no-fix-headings` | — | Disable heading promotion |
+| `--strip-prefixes` | off | Strip redundant subfolder prefixes from filenames |
+| `--migrate-subfolders` | off | Detect prefix clusters; use `--execute` to move files |
+| `--execute` | off | Apply changes for `--migrate-subfolders` and `--fix-tags` |
+| `--jobs N` | `3` | Number of parallel repair workers |
+| `--timeout SECS` | `30` | Timeout per Claude repair call |
+| `--limit N` | `0` | Max notes to repair (0 = unlimited) |
+| `--errors-only` | off | Only report/repair notes with errors (skip warnings) |
+| `--no-state` | off | Ignore state file and rescan all notes |
+
 **Behavior:**
 1. Checks `doctor_state.json` for a live `pid`; exits if another instance is already running
 2. Writes own PID to state file immediately (singleton lock); clears it via `atexit` on exit
-3. Auto-commits uncommitted vault files whose mtime is ≥ 15 minutes old (skips deletions; respects `git.auto_commit` config; no-op when vault has no `.git`)
+3. Auto-commits uncommitted vault files whose mtime is >= 15 minutes old (skips deletions; respects `git.auto_commit` config; no-op when vault has no `.git`)
 4. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
 5. Scans remaining notes for issues using stdlib-only checks
 6. Records clean notes as `ok` in state (skipped for 7 days)
-7. In `--fix` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match first, then `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the Claude prompt, then calls `claude -p` per note with haiku to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent.
+7. In `--fix-frontmatter` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match first, then `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the Claude prompt, then calls `claude -p` per note with haiku to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent. Uses `--jobs` parallel workers (default 3).
 8. Saves state after each run; escalates double-timeout to `needs_review`
 9. `--no-state` rescans all notes regardless of prior results
 
@@ -618,6 +636,19 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `parse_transcript_lines()` | Extract assistant texts from JSONL transcript lines |
 | `detect_categories()` | Keyword heuristic scanner returning category→excerpt mappings |
 | `append_to_pending()` | Deduplication-safe queue writer for `pending_summaries.jsonl`; includes `source` and `agent_type` metadata |
+| `write_hook_event()` | Append a structured JSON event to `hook_events.log` with rotation |
+| `validate_config()` | Validate `config.yaml` and return a list of warning messages |
+| `get_last_seen_path()` | Return path to `last_seen.json` (per-project session timestamp tracking) |
+| `load_last_seen()` | Load per-project last-seen timestamps |
+| `save_last_seen()` | Save a last-seen timestamp for a project |
+| `extract_text_from_content()` | Extract plain text from a string or list-of-dicts content block |
+| `read_last_n_lines()` | Efficiently read the last N lines of a file |
+| `migrate_pending_paths()` | Migrate old-format pending entries to current schema |
+| `get_usefulness_path()` | Return path to `usefulness.json` (adaptive context scoring) |
+| `load_usefulness_scores()` | Load per-note usefulness scores for adaptive context |
+| `get_injected_stems()` | Get list of note stems injected in the last session for a project |
+| `save_injected_notes()` | Save the list of injected note stems for a project |
+| `update_usefulness_scores()` | Update usefulness scores based on which injected notes were referenced |
 | `TRANSCRIPT_CATEGORIES` | Keyword lists for four learning categories (error_fix, research, pattern, config_setup) |
 | `TRANSCRIPT_CATEGORY_LABELS` | Human-readable labels for category keys |
 
@@ -1118,8 +1149,8 @@ parsidion-cc/
 │   └── build_graph.py               # PEP 723: compute graph.json from embeddings.db (numpy dep)
 ├── visualizer/                      # Next.js vault visualizer (bun dev)
 │   ├── app/                         # Next.js App Router pages and API routes
-│   ├── components/                  # ReadingPane, GraphCanvas, FileExplorer, UnifiedSearch
-│   ├── lib/                         # Shared hooks and utilities
+│   ├── components/                  # ReadingPane, GraphCanvas, FileExplorer, UnifiedSearch, TabBar, Toolbar, ViewToggle, HUDPanel, FrontmatterEditor, NewNoteDialog, ConfirmDialog, TemperatureBar
+│   ├── lib/                         # Shared hooks, utilities, graph helpers, and Sigma color mapping
 │   └── public/
 │       └── graph.json               # Pre-computed graph data (generated by build_graph.py)
 ├── parsidion-mcp/                   # FastMCP server: vault access for Claude Desktop
@@ -1134,7 +1165,12 @@ parsidion-cc/
 │   ├── project-explorer.md              # Project analysis + vault pattern capture (Sonnet)
 │   └── vault-deduplicator.md            # Near-duplicate note scanner and merger (Haiku)
 ├── tests/
-│   └── test_vault_common.py
+│   ├── test_vault_common.py
+│   ├── test_vault_dirs_sync.py
+│   ├── test_update_index.py
+│   ├── test_session_stop_hook.py
+│   ├── test_pre_compact_hook.py
+│   └── test_hook_integration.py
 └── skills/parsidion-cc/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
@@ -1279,5 +1315,8 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [VISUALIZER.md](VISUALIZER.md) - Vault Visualizer: architecture, features, and running instructions
 - [MCP.md](MCP.md) - parsidion-mcp: MCP server tools reference and installation
 - [AGENTCHROME.md](AGENTCHROME.md) - AgentChrome browser CLI: installation and integration with the research agent
+- [EMBEDDINGS.md](EMBEDDINGS.md) - Embedding system: build pipeline, search, and evaluation
+- [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) - Embedding search quality evaluation results
+- [MCPL.md](MCPL.md) - MCP Launchpad integration and usage
 - [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) - Documentation formatting standards
 - [SKILL.md](../skills/parsidion-cc/SKILL.md) - Vault philosophy, conventions, and anti-patterns
