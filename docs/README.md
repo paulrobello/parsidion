@@ -18,6 +18,7 @@ below with its intended audience and purpose.
 | [AGENTCHROME.md](AGENTCHROME.md) | AgentChrome browser control CLI: installation, capabilities, and integration with the research agent for fetching fully-rendered pages. |
 | [MCPL.md](MCPL.md) | MCP Launchpad CLI: installation, configuration, and use as a fallback search gateway when the research agent exhausts other search options. |
 | [VISUALIZER.md](VISUALIZER.md) | Vault Visualizer: interactive web app for reading and graph-exploring vault notes — architecture, graph engine, data model, and configuration. |
+| [VAULT_SYNC.md](VAULT_SYNC.md) | Multi-machine vault sync: strategies, recommended git-based setup, post-merge hook, conflict handling, and troubleshooting. |
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
 | [superpowers/](superpowers/) | Implementation plans and design specs for major features (vault-explorer agent, subagent stop hook, parsidion-mcp, visualizer redesign). |
 
@@ -27,6 +28,7 @@ below with its intended audience and purpose.
 - **Setting up semantic search?** See [EMBEDDINGS.md](EMBEDDINGS.md).
 - **Evaluating which embedding model to use?** See [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md).
 - **Using the MCP server with Claude Desktop?** See [MCP.md](MCP.md).
+- **Sharing the vault across machines?** See [VAULT_SYNC.md](VAULT_SYNC.md).
 - **Exploring the vault visually?** See [VISUALIZER.md](VISUALIZER.md).
 - **Writing or updating documentation?** Follow [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md).
 

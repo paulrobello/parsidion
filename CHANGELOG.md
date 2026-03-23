@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-23
+
+### Added
+- Multi-machine vault sync support — installer now initializes the vault as a git repo (`git init` + initial commit) and installs a `post-merge` hook that rebuilds the index and embeddings after every `git pull`
+- `install_vault_post_merge_hook()` in `install.py` — creates `.git/hooks/post-merge` with marker-based idempotency; never overwrites user hooks
+- `init_vault_git()` in `install.py` — runs `git init`, `git add -A`, and initial commit; silent no-op when `.git` already exists
+- `remove_vault_post_merge_hook()` in `install.py` — cleans up the hook on uninstall (only if it was created by the installer)
+- `docs/VAULT_SYNC.md` — multi-machine sync guide covering strategies, recommended git setup, what gets synced, conflict handling, and troubleshooting
+- FAQ section in README covering token usage, context bloat, and multi-machine sync
+
+### Changed
+- `configure_vault_gitignore()` now also adds `pending_summaries.jsonl` and `hook_events.log` to the vault `.gitignore` (previously only `embeddings.db`)
+- CLAUDE.md "Vault Git Integration" section updated to describe automatic git initialization and multi-machine sync
+
 ## [0.3.0] - 2026-03-18
 
 ### Added

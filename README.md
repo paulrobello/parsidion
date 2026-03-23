@@ -26,6 +26,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - [File Locations](#file-locations)
 - [Usage](#usage)
 - [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
 - [Contributing](#contributing)
 - [License](#license)
 - [Related Documentation](#related-documentation)
@@ -657,6 +658,32 @@ uv run install.py --uninstall
 
 - Run `uv run install.py --force --yes --install-tools` to register the global command, or manually: `cd /path/to/parsidion-cc && uv tool install --editable ".[tools]"`
 - Ensure `~/.local/bin/` is on your PATH (Linux/macOS) or `%APPDATA%\Python\Scripts` (Windows).
+
+## FAQ
+
+### Will this use extra API tokens?
+
+Parsidion CC is designed to minimize token usage. The lifecycle hooks (`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`) are **pure Python scripts** that run locally -- they read transcripts, parse frontmatter, and write files without calling any AI model. The only places that use API tokens are:
+
+- **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically) and uses **Sonnet** to generate vault notes from queued transcripts. This is the only component that uses a large model. Long transcripts are pre-chunked and summarized by **Haiku** first to reduce cost.
+- **AI-powered note selection** (optional `--ai` flag on `SessionStart`) -- uses **Haiku** to intelligently pick which vault notes to inject. Disabled by default.
+- **Semantic dedup** during summarization -- uses **Haiku** to compare candidate notes against existing vault content before writing.
+
+Everything else -- indexing, embedding, searching, hook execution, daily notes, git commits -- is local Python with zero API calls.
+
+### Will this bloat my agent context?
+
+No. The `SessionStart` hook injects a **compact one-line-per-note index** (title + tags only) as context, not full note contents. For a vault with 300+ notes this typically adds 3-5 KB -- roughly 1,000 tokens. The `PreCompact` and `PostCompact` hooks inject a small snapshot (~20 lines) of the current task and recently-touched files so Claude can resume after context compaction. None of these inject full note bodies into the conversation. When Claude needs a specific note, it reads it on demand via the vault-explorer agent or the Read tool.
+
+### How can I share a vault across multiple machines?
+
+The installer sets up everything you need. It initializes the vault as a git repo, configures `.gitignore` for machine-local files (`embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`), and installs a `post-merge` git hook that automatically rebuilds the local search index after every `git pull`. To share:
+
+1. Run the installer: `uv run install.py --force --yes`
+2. Push to a private remote: `cd ~/ClaudeVault && git remote add origin <url> && git push -u origin main`
+3. On other machines: clone the vault, then run the installer
+
+See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide, conflict handling, and troubleshooting.
 
 ## Contributing
 

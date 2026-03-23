@@ -555,13 +555,22 @@ def schedule_summarizer(
 
     if sys.platform == "darwin":
         _schedule_summarizer_launchd(
-            scripts_dir, script_path, uv_path, dry_run, hour,
-            rebuild_graph=rebuild_graph, graph_include_daily=graph_include_daily,
+            scripts_dir,
+            script_path,
+            uv_path,
+            dry_run,
+            hour,
+            rebuild_graph=rebuild_graph,
+            graph_include_daily=graph_include_daily,
         )
     else:
         _schedule_summarizer_cron(
-            script_path, uv_path, dry_run, hour,
-            rebuild_graph=rebuild_graph, graph_include_daily=graph_include_daily,
+            script_path,
+            uv_path,
+            dry_run,
+            hour,
+            rebuild_graph=rebuild_graph,
+            graph_include_daily=graph_include_daily,
         )
 
 
@@ -588,8 +597,11 @@ def _schedule_summarizer_launchd(
     launch_agents = Path.home() / "Library" / "LaunchAgents"
     plist_path = launch_agents / _LAUNCHD_PLIST_NAME
     plist_content = _build_launchd_plist(
-        uv_path, scripts_dir, hour,
-        rebuild_graph=rebuild_graph, graph_include_daily=graph_include_daily,
+        uv_path,
+        scripts_dir,
+        hour,
+        rebuild_graph=rebuild_graph,
+        graph_include_daily=graph_include_daily,
     )
 
     _step(f"Schedule nightly summarizer via launchd ({plist_path})", dry_run=dry_run)
@@ -1143,6 +1155,10 @@ def uninstall(
                     cleaned += "\n"
                 claude_md.write_text(cleaned, encoding="utf-8")
 
+    # Remove vault post-merge hook
+    vault_root = _resolve_vault_root_for_uninstall()
+    remove_vault_post_merge_hook(vault_root, dry_run=dry_run)
+
     # Remove nightly summarizer scheduler
     unschedule_summarizer(dry_run=dry_run)
 
@@ -1212,24 +1228,193 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
 
 
 def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
-    """Add embeddings.db to vault .gitignore to prevent committing the binary DB.
+    """Ensure machine-local files are listed in the vault ``.gitignore``.
+
+    Adds entries for ``embeddings.db`` (binary SQLite — must be rebuilt
+    locally), ``pending_summaries.jsonl`` (machine-local session queue),
+    and ``hook_events.log`` (machine-local structured log).
 
     Args:
         vault_root: Path to the vault root directory.
         dry_run: If True, print actions without writing.
     """
     gitignore = vault_root / ".gitignore"
-    entry = "embeddings.db\n"
+    entries = ["embeddings.db", "pending_summaries.jsonl", "hook_events.log"]
+
     if gitignore.exists():
         content = gitignore.read_text(encoding="utf-8")
-        if "embeddings.db" not in content:
-            _step("Add embeddings.db to vault .gitignore", dry_run=dry_run)
-            if not dry_run:
-                gitignore.write_text(content + entry, encoding="utf-8")
     else:
-        _step("Create vault .gitignore with embeddings.db", dry_run=dry_run)
-        if not dry_run:
-            gitignore.write_text(entry, encoding="utf-8")
+        content = ""
+
+    missing = [e for e in entries if e not in content]
+    if not missing:
+        return
+
+    if gitignore.exists():
+        _step(f"Add {', '.join(missing)} to vault .gitignore", dry_run=dry_run)
+    else:
+        _step(f"Create vault .gitignore with {', '.join(missing)}", dry_run=dry_run)
+
+    if not dry_run:
+        addition = "\n".join(missing) + "\n"
+        gitignore.write_text(content + addition, encoding="utf-8")
+
+
+def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
+    """Initialize the vault as a git repository if it isn't one already.
+
+    Runs ``git init``, adds all files, and creates an initial commit.
+    Silent no-op when ``.git`` already exists.
+
+    Args:
+        vault_root: Path to the vault root directory.
+        dry_run: If True, print what would be done without writing.
+    """
+    git_dir = vault_root / ".git"
+    if git_dir.exists():
+        return  # Already a git repo.
+
+    _step("Initialize vault as a git repository", dry_run=dry_run)
+    if dry_run:
+        return
+
+    subprocess.run(
+        ["git", "init"],
+        cwd=vault_root,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "add", "-A"],
+        cwd=vault_root,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "chore(vault): initial commit"],
+        cwd=vault_root,
+        capture_output=True,
+    )
+    _ok(f"Git repo initialized at {vault_root}")
+
+
+# Marker comment used to identify our post-merge hook.
+_POST_MERGE_MARKER = "# parsidion-cc post-merge hook"
+
+_POST_MERGE_HOOK_TEMPLATE = """\
+#!/bin/bash
+{marker} — rebuilds vault index and embeddings after pull
+set -e
+echo "[parsidion-cc] Rebuilding vault index..."
+uv run --no-project {scripts_dir}/update_index.py
+echo "[parsidion-cc] Updating embeddings (incremental)..."
+uv run {scripts_dir}/build_embeddings.py --incremental
+echo "[parsidion-cc] Post-merge sync complete."
+"""
+
+
+def install_vault_post_merge_hook(
+    vault_root: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+) -> None:
+    """Install a git post-merge hook in the vault for multi-machine sync.
+
+    The hook rebuilds ``note_index`` and refreshes embeddings after every
+    ``git pull`` / ``git merge`` so that the local SQLite database stays
+    in sync with notes pulled from a remote.
+
+    Skips silently when the vault is not a git repository.  Never overwrites
+    a pre-existing hook that was not created by this installer.
+
+    Args:
+        vault_root: Path to the vault root directory.
+        claude_dir: Path to the Claude configuration directory.
+        dry_run: If True, print what would be done without writing.
+    """
+    git_dir = vault_root / ".git"
+    if not git_dir.is_dir():
+        return  # Not a git repo — nothing to do.
+
+    hooks_dir = git_dir / "hooks"
+    hook_path = hooks_dir / "post-merge"
+
+    # Build portable ~ path to scripts dir.
+    scripts_dir = claude_dir / "skills" / "parsidion-cc" / "scripts"
+    try:
+        rel = scripts_dir.relative_to(Path.home())
+        scripts_rel = f"~/{rel.as_posix()}"
+    except ValueError:
+        scripts_rel = scripts_dir.as_posix()
+
+    if hook_path.exists():
+        existing = hook_path.read_text(encoding="utf-8")
+        if _POST_MERGE_MARKER in existing:
+            return  # Already installed — idempotent.
+        _warn(
+            f"Vault post-merge hook already exists (not ours): {hook_path}\n"
+            "       Skipping to avoid overwriting your custom hook."
+        )
+        return
+
+    _step("Install vault git post-merge hook (multi-machine sync)", dry_run=dry_run)
+    if dry_run:
+        return
+
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_content = _POST_MERGE_HOOK_TEMPLATE.format(
+        marker=_POST_MERGE_MARKER,
+        scripts_dir=scripts_rel,
+    )
+    hook_path.write_text(hook_content, encoding="utf-8")
+    hook_path.chmod(0o755)
+
+
+def remove_vault_post_merge_hook(
+    vault_root: Path,
+    dry_run: bool = False,
+) -> None:
+    """Remove the parsidion-cc post-merge hook from the vault if present.
+
+    Only deletes the hook if it was created by this installer (identified
+    by the marker comment).  Leaves custom user hooks untouched.
+
+    Args:
+        vault_root: Path to the vault root directory.
+        dry_run: If True, print what would be done without writing.
+    """
+    hook_path = vault_root / ".git" / "hooks" / "post-merge"
+    if not hook_path.exists():
+        return
+
+    content = hook_path.read_text(encoding="utf-8")
+    if _POST_MERGE_MARKER not in content:
+        return  # Not ours — leave it.
+
+    _step(f"Remove vault post-merge hook: {hook_path}", dry_run=dry_run)
+    if not dry_run:
+        hook_path.unlink()
+
+
+def _resolve_vault_root_for_uninstall() -> Path:
+    """Best-effort vault root resolution for uninstall (no args available).
+
+    Checks ``~/ClaudeVault/config.yaml`` first, then falls back to the
+    default ``~/ClaudeVault``.
+    """
+    default = Path.home() / "ClaudeVault"
+    config = default / "config.yaml"
+    if not config.exists():
+        return default
+    # Minimal stdlib YAML parse — look for a top-level vault_root key.
+    try:
+        for line in config.read_text(encoding="utf-8").splitlines():
+            stripped = line.split("#", 1)[0].strip()
+            if stripped.startswith("vault_root:"):
+                val = stripped.split(":", 1)[1].strip().strip("'\"")
+                if val:
+                    return Path(val).expanduser().resolve()
+    except OSError:
+        pass
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -1391,8 +1576,14 @@ def install(args: argparse.Namespace) -> int:
     # 9. Rebuild vault index
     rebuild_index(claude_dir, dry_run=dry_run)
 
-    # 10. Configure vault .gitignore for embeddings.db
+    # 10. Configure vault .gitignore for machine-local files
     configure_vault_gitignore(vault_root, dry_run=dry_run)
+
+    # 10b. Initialize vault as a git repo (no-op if already initialized)
+    init_vault_git(vault_root, dry_run=dry_run)
+
+    # 10c. Install post-merge git hook for multi-machine sync
+    install_vault_post_merge_hook(vault_root, claude_dir, dry_run=dry_run)
 
     # 11. Install global CLI tools (vault-search, vault-new, vault-stats) via uv tool
     if install_tools:

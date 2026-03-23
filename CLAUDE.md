@@ -125,26 +125,25 @@ invoke `claude` internally. Use `env -u CLAUDECODE` as a workaround for the summ
 
 ## Vault Git Integration
 
-The vault supports optional git version control. When `~/ClaudeVault/.git` exists, the scripts
-automatically stage and commit changes after every vault write:
+The installer automatically initializes the vault as a git repository (with `.gitignore` and
+initial commit) during installation. When `~/ClaudeVault/.git` exists, the scripts automatically
+stage and commit changes after every vault write:
 
 - `session_stop_wrapper.sh` / `session_stop_hook.py` — commits daily note + pending queue after each session end
 - `pre_compact_hook.py` — commits daily note after each pre-compact snapshot
 - `update_index.py` — commits `CLAUDE.md` + per-folder `MANIFEST.md` files after each index rebuild
 - `summarize_sessions.py` — commits new notes + updated index after processing
 
-To enable, initialize the vault as a git repo:
-
-```bash
-cd ~/ClaudeVault
-git init
-# Optionally add a .gitignore (e.g. exclude .obsidian/)
-echo ".obsidian/" > .gitignore
-git add -A
-git commit -m "chore(vault): initial commit"
-```
-
 If no `.git` directory is present, all `git_commit_vault()` calls are silent no-ops.
+
+### Multi-Machine Sync
+
+The installer creates a `post-merge` git hook inside the vault (`~/ClaudeVault/.git/hooks/post-merge`)
+that rebuilds the `note_index` and refreshes embeddings after every `git pull`. This allows sharing
+the vault via a private git remote — only markdown notes are synced; `embeddings.db`,
+`pending_summaries.jsonl`, and `hook_events.log` are gitignored and rebuilt locally.
+
+See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full multi-machine setup guide.
 
 ## Vault Configuration
 
