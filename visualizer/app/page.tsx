@@ -144,6 +144,7 @@ export default function Home() {
   const handleGraphNodeClick = useCallback((stem: string, newTab: boolean) => {
     state.openNote(stem, newTab)
     state.setSelectedNode(stem)
+    state.setViewMode('read')
   }, [state])
 
   const handleNavigate = useCallback((stem: string, newTab: boolean) => {
