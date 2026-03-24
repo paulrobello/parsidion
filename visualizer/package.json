@@ -10,6 +10,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "diff": "^8.0.4",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -18,7 +19,8 @@
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "sigma": "^3.0.2"
+    "sigma": "^3.0.2",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -26,9 +28,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   },
   "ignoreScripts": [
