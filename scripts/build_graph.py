@@ -35,10 +35,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--include-daily",
+        dest="include_daily",
         action="store_true",
-        default=False,
-        help="Include notes from the Daily folder (excluded by default)",
+        help="Include notes from the Daily folder (default; kept for backward compatibility)",
     )
+    parser.add_argument(
+        "--no-daily",
+        dest="include_daily",
+        action="store_false",
+        help="Exclude notes from the Daily folder",
+    )
+    parser.set_defaults(include_daily=True)
     parser.add_argument(
         "--min-threshold",
         type=float,

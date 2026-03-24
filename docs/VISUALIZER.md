@@ -398,7 +398,7 @@ The `graph.json` file is a pre-computed snapshot of vault relationships. Rebuild
 uv run scripts/build_graph.py [OPTIONS]
 
 Options:
-  --include-daily        Include Daily folder notes (excluded by default)
+  --no-daily             Exclude Daily folder notes (included by default)
   --min-threshold FLOAT  Minimum cosine similarity for semantic edges (default: 0.70)
   --output PATH          Output path for graph.json
   --vault PATH           Custom vault root path
