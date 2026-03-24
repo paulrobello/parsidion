@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { NoteNode } from '@/lib/graph'
 import { TabBar } from './TabBar'
 import { UnifiedSearch } from './UnifiedSearch'
@@ -44,6 +44,8 @@ export function Toolbar({
     return () => window.removeEventListener('keydown', handler)
   }, [onToggleSidebar, onGraphTabClick])
 
+  const [wsHover, setWsHover] = useState(false)
+
   return (
     <div style={{
       background: 'linear-gradient(180deg, #0d1224 0%, #0a0f1e 100%)',
@@ -84,19 +86,39 @@ export function Toolbar({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         {/* WebSocket status indicator */}
         <div
-          title={
-            wsStatus === 'connected' ? 'Vault sync connected' :
-            wsStatus === 'connecting' ? 'Vault sync reconnecting…' :
-            'Vault sync disconnected'
-          }
-          style={{
-            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+          style={{ position: 'relative', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          onMouseEnter={() => setWsHover(true)}
+          onMouseLeave={() => setWsHover(false)}
+        >
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
             background:
               wsStatus === 'connected' ? '#10b981' :
               wsStatus === 'connecting' ? '#f59e0b' : '#ef4444',
             animation: wsStatus === 'connecting' ? 'vault-pulse 1.2s ease-in-out infinite' : 'none',
-          }}
-        />
+            cursor: 'default',
+          }} />
+          {wsHover && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+              background: '#0d1224',
+              border: '1px solid #1e293b',
+              borderRadius: 5,
+              padding: '5px 10px',
+              whiteSpace: 'nowrap',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10,
+              color: wsStatus === 'connected' ? '#10b981' : wsStatus === 'connecting' ? '#f59e0b' : '#ef4444',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              pointerEvents: 'none',
+              zIndex: 100,
+            }}>
+              {wsStatus === 'connected' ? '● Vault sync connected' :
+               wsStatus === 'connecting' ? '● Vault sync reconnecting…' :
+               '● Vault sync disconnected'}
+            </div>
+          )}
+        </div>
         <button
           onClick={onNewNote}
           title="New note"
