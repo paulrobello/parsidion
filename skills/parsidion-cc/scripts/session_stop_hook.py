@@ -175,6 +175,7 @@ def append_session_to_daily(
     project: str,
     categories: dict[str, list[str]],
     first_summary: str,
+    vault_path: Path,
 ) -> None:
     """Append a session summary section to today's daily note.
 
@@ -182,8 +183,19 @@ def append_session_to_daily(
         project: The project name.
         categories: Detected category keys mapped to excerpts.
         first_summary: The first significant assistant message summary.
+        vault_path: The vault root path.
     """
-    daily_path = vault_common.create_daily_note_if_missing()
+    daily_path = vault_common.today_daily_path(vault=vault_path)
+    # Ensure the daily note exists
+    if not daily_path.exists():
+        vault_common.ensure_vault_dirs(vault=vault_path)
+        from datetime import date as _date
+
+        _month = f"{_date.today().year:04d}-{_date.today().month:02d}"
+        daily_dir = vault_path / "Daily" / _month
+        daily_dir.mkdir(parents=True, exist_ok=True)
+        daily_path.touch()
+
     now_time = datetime.now().strftime("%H:%M")
 
     topic_labels = [_CATEGORY_LABELS.get(cat, cat) for cat in categories]
@@ -224,7 +236,7 @@ def append_session_to_daily(
     daily_path.write_text(updated, encoding="utf-8")
 
 
-def _launch_summarizer_if_pending() -> None:
+def _launch_summarizer_if_pending(vault_path: Path) -> None:
     """Launch summarize_sessions.py as a detached background process if threshold met.
 
     Checks pending summaries count against ``auto_summarize_after`` threshold.
@@ -232,11 +244,14 @@ def _launch_summarizer_if_pending() -> None:
 
     Respects ``session_stop_hook.auto_summarize`` (default: ``true``) and
     ``session_stop_hook.auto_summarize_after`` (default: ``1``) in config.
+
+    Args:
+        vault_path: The vault root path.
     """
     if not vault_common.get_config("session_stop_hook", "auto_summarize", True):
         return
 
-    pending_path = vault_common.VAULT_ROOT / "pending_summaries.jsonl"
+    pending_path = vault_path / "pending_summaries.jsonl"
     if not pending_path.exists():
         return
 
@@ -400,8 +415,11 @@ def main() -> None:
             sys.stdout.write("{}")
             return
 
+        # Resolve vault path from cwd (supports multi-vault)
+        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+
         # Ensure vault directories exist
-        vault_common.ensure_vault_dirs()
+        vault_common.ensure_vault_dirs(vault=vault_path)
 
         project: str = vault_common.get_project_name(cwd) if cwd else "unknown"
         print(
@@ -458,11 +476,17 @@ def main() -> None:
                 first_summary_ai: str = ai_summary or (
                     assistant_texts[0][:500] if assistant_texts else ""
                 )
-                append_session_to_daily(project, ai_categories, first_summary_ai)
+                append_session_to_daily(
+                    project, ai_categories, first_summary_ai, vault_path
+                )
                 print("[session_stop_hook] daily note updated", file=sys.stderr)
                 if should_queue and ai_categories:
                     append_to_pending(
-                        transcript_path, project, ai_categories, force=True
+                        transcript_path,
+                        project,
+                        ai_categories,
+                        force=True,
+                        vault=vault_path,
                     )
                     print(
                         "[session_stop_hook] session queued for summarization",
@@ -478,9 +502,10 @@ def main() -> None:
                 # use argv list, not shell=True, but message integrity matters).
                 safe_project = project.replace("\n", " ").replace("\r", "").strip()
                 vault_common.git_commit_vault(
-                    f"chore(vault): session notes [{safe_project}]"
+                    f"chore(vault): session notes [{safe_project}]",
+                    vault=vault_path,
                 )
-                _launch_summarizer_if_pending()
+                _launch_summarizer_if_pending(vault_path)
                 vault_common.write_hook_event(
                     hook="SessionEnd",
                     project=project,
@@ -488,6 +513,7 @@ def main() -> None:
                     queued=bool(should_queue and ai_categories),
                     categories={k: len(v) for k, v in ai_categories.items()},
                     mode="ai",
+                    vault=vault_path,
                 )
                 sys.stdout.write("{}")
                 return
@@ -513,9 +539,9 @@ def main() -> None:
         if not first_summary and assistant_texts:
             first_summary = assistant_texts[0][:500]
 
-        append_session_to_daily(project, categories, first_summary)
+        append_session_to_daily(project, categories, first_summary, vault_path)
         print("[session_stop_hook] daily note updated", file=sys.stderr)
-        append_to_pending(transcript_path, project, categories)
+        append_to_pending(transcript_path, project, categories, vault=vault_path)
         significant = {"error_fix", "research", "pattern"}
         if significant & set(categories.keys()):
             print(
@@ -528,8 +554,11 @@ def main() -> None:
             )
         # SEC-002: sanitize project name to prevent embedded newlines in commit messages
         safe_project = project.replace("\n", " ").replace("\r", "").strip()
-        vault_common.git_commit_vault(f"chore(vault): session notes [{safe_project}]")
-        _launch_summarizer_if_pending()
+        vault_common.git_commit_vault(
+            f"chore(vault): session notes [{safe_project}]",
+            vault=vault_path,
+        )
+        _launch_summarizer_if_pending(vault_path)
         queued_kw = bool(significant & set(categories.keys()))
         vault_common.write_hook_event(
             hook="SessionEnd",
@@ -538,6 +567,7 @@ def main() -> None:
             queued=queued_kw,
             categories={k: len(v) for k, v in categories.items()},
             mode="keyword",
+            vault=vault_path,
         )
 
         sys.stdout.write("{}")
