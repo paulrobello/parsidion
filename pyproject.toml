@@ -1,6 +1,6 @@
 [project]
 name = "parsidion-cc"
-version = "0.3.2"
+version = "0.3.4"
 requires-python = ">=3.13"
 dependencies = []
 

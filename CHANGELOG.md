@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-03-24
+
+### Added
+- **Real-time vault sync in visualizer** — WebSocket-based live updates when vault files change externally
+  - `/ws/vault` WebSocket endpoint with automatic reconnection and exponential backoff
+  - Heartbeat mechanism (30-second ping/pong) with connection status indicator in toolbar
+  - Live file tree updates (new/deleted notes appear instantly without refresh)
+  - Auto-refresh for modified notes with scroll position preservation
+  - `graph:rebuilt` event handling triggers automatic graph refetch
+- **Conflict detection in visualizer** — warns when external modifications conflict with local edits
+  - `ConflictDialog` component with three resolution options: Take theirs / Keep mine / Merge
+  - Server-side conflict detection via `lastModified` timestamp comparison
+- **Graph includes daily notes by default** — `update_index.py --rebuild-graph` now includes daily notes; use `--no-daily` to exclude
+- **Note editing in visualizer** — full edit mode with frontmatter editor, keyboard shortcuts (⌘E/⌘S), and auto-save
+- **WebSocket status indicator** — green/amber/red dot in toolbar shows connection health with tooltip
+
+### Changed
+- Graph tab is now permanent (cannot be closed) with stable layout persistence
+- Clicking a graph node switches to read mode and opens the note
+- Same-stem collision handling — visualizer now uses full vault-relative paths instead of stems to disambiguate notes with identical filenames in different folders
+- FileExplorer renders vault root files inline under "Root" instead of a phantom folder
+- Synthetic `NoteNode` objects created on-the-fly for vault-only notes not in graph.json (e.g. daily notes)
+- FrontmatterEditor includes 'daily' in note type options
+
+### Fixed
+- WebSocket upgrades for non-vault paths now forward to Next.js so HMR works correctly
+- Graph node highlighting uses path not stem to avoid wrong highlights when multiple notes share the same stem
+- Opening a note from graph context menu switches to read mode first
+- WS status tooltip positioned below dot, not above toolbar edge
+
+### Documentation
+- Synced all 13 documents in `docs/` with current implementation
+- Updated architecture docs to reflect `vault.username` config and per-user daily note paths
+- Fixed `min_score` default values (0.35→0.45) in EMBEDDINGS.md and ARCHITECTURE.md
+- Documented real-time sync, conflict detection, and edit mode in VISUALIZER.md
+- Marked implemented specs: vault-explorer-agent, parsidion-mcp, visualizer-redesign, git-diff-viewer
+
 ## [0.3.3] - 2026-03-23
 
 ### Added
