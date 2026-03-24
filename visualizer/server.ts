@@ -44,14 +44,15 @@ app.prepare().then(() => {
 
   const wss = new WebSocketServer({ noServer: true })
 
-  // Only upgrade requests targeting /ws/vault
+  // Only upgrade requests targeting /ws/vault; forward everything else to Next.js (HMR etc.)
+  const nextUpgradeHandler = app.getUpgradeHandler()
   server.on('upgrade', (req, socket, head) => {
     if (req.url === '/ws/vault') {
       wss.handleUpgrade(req, socket as import('net').Socket, head, ws => {
         wss.emit('connection', ws)
       })
     } else {
-      socket.destroy()
+      nextUpgradeHandler(req, socket, head)
     }
   })
 
