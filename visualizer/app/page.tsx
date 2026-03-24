@@ -6,6 +6,7 @@ import { loadGraphData } from '@/lib/graph'
 import type { GraphData } from '@/lib/graph'
 import type { GraphCanvasHandle } from '@/components/GraphCanvas'
 import { useVisualizerState } from '@/lib/useVisualizerState'
+import { useVaultFiles } from '@/lib/useVaultFiles'
 import { FileExplorer } from '@/components/FileExplorer'
 import { Toolbar } from '@/components/Toolbar'
 import { ReadingPane } from '@/components/ReadingPane'
@@ -35,6 +36,7 @@ export default function Home() {
   const graphCanvasRef = useRef<GraphCanvasHandle>(null)
   const [showNewNote, setShowNewNote] = useState(false)
   const [pendingOpenStem, setPendingOpenStem] = useState<string | null>(null)
+  const [noteRefreshTrigger, setNoteRefreshTrigger] = useState(0)
 
   useEffect(() => {
     localStorage.removeItem('vv:isLayoutRunning')
@@ -49,6 +51,28 @@ export default function Home() {
   }, [])
 
   const state = useVisualizerState(graphData)
+
+  const handleNoteModified = useCallback((notePath: string) => {
+    const stem = notePath.replace(/\.md$/, '').split('/').pop() ?? notePath
+    state.invalidateNote(stem)
+    if (stem === state.activeTab) {
+      setNoteRefreshTrigger(n => n + 1)
+    }
+  }, [state])
+
+  const handleGraphRebuilt = useCallback(async () => {
+    try {
+      const fresh = await fetch(`/graph.json?t=${Date.now()}`).then(r => r.json()) as GraphData
+      setGraphData(fresh)
+    } catch (err) {
+      console.warn('[page] graph.json refetch failed:', err)
+    }
+  }, [])
+
+  const { fileTree, wsStatus, totalFiles } = useVaultFiles({
+    onNoteModified: handleNoteModified,
+    onGraphRebuilt: handleGraphRebuilt,
+  })
 
   // Auto-collapse sidebar on narrow viewports
   useEffect(() => {
@@ -169,13 +193,14 @@ export default function Home() {
             viewMode={state.viewMode}
             onViewModeChange={state.setViewMode}
             onNewNote={() => setShowNewNote(true)}
+            wsStatus={wsStatus}
           />
 
           {/* Body: sidebar + content */}
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
             {/* File Explorer */}
             <FileExplorer
-              fileTree={state.fileTree}
+              fileTree={fileTree}
               activeTab={state.activeTab}
               onSelectNote={(stem, newTab) => {
                 state.openNote(stem, newTab)
@@ -187,7 +212,7 @@ export default function Home() {
               width={state.sidebarWidth}
               onWidthChange={state.setSidebarWidth}
               collapsed={state.sidebarCollapsed}
-              totalNotes={graphData.nodes.length}
+              totalNotes={totalFiles}
               onOpenHistory={state.openHistory}
               onDeleteNote={handleDelete}
             />
@@ -209,6 +234,7 @@ export default function Home() {
                   onDelete={handleDelete}
                   onOpenHistory={state.openHistory}
                   nodes={graphData.nodes}
+                  refreshTrigger={noteRefreshTrigger}
                 />
               ) : (
                 /* Graph mode */
