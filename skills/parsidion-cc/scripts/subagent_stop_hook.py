@@ -154,7 +154,10 @@ def main() -> None:
             sys.stdout.write("{}")
             return
 
-        vault_common.ensure_vault_dirs()
+        # Resolve vault path from cwd (supports multi-vault)
+        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+
+        vault_common.ensure_vault_dirs(vault=vault_path)
 
         project: str = vault_common.get_project_name(cwd) if cwd else "unknown"
         print(
@@ -206,6 +209,7 @@ def main() -> None:
             source="subagent",
             agent_type=agent_type,
             session_id=agent_id if agent_id else None,
+            vault=vault_path,
         )
 
         significant = {"error_fix", "research", "pattern"}
@@ -224,6 +228,7 @@ def main() -> None:
             duration_ms=(time.monotonic() - _hook_start) * 1000,
             agent_type=agent_type,
             categories={k: len(v) for k, v in categories.items()},
+            vault=vault_path,
         )
 
         sys.stdout.write("{}")
