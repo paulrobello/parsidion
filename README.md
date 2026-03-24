@@ -22,6 +22,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - [Vault Visualizer](#vault-visualizer)
 - [parsidion-mcp (Claude Desktop)](#parsidion-mcp-claude-desktop)
 - [Configuration](#configuration)
+- [Multi-Vault Support](#multi-vault-support)
 - [Vault Git Integration](#vault-git-integration)
 - [File Locations](#file-locations)
 - [Usage](#usage)
@@ -106,6 +107,7 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--summarizer-hour N` | Hour (0-23) for the scheduled summarizer job (default: 2) |
 | `--rebuild-graph` | Add `--rebuild-graph` to the scheduled command so `graph.json` is regenerated each night (use with `--schedule-summarizer`) |
 | `--graph-include-daily` | Include Daily folder notes in the nightly graph rebuild (use with `--rebuild-graph`) |
+| `--create-vaults-config` | Create `~/.claude/vaults.yaml` for multi-vault support (see [Multi-Vault Support](#multi-vault-support)) |
 | `--uninstall` | Remove installed skill, agents, hook registrations, and launchd plist / cron job |
 
 During interactive installation, the installer prompts for two optional features:
@@ -403,6 +405,90 @@ adaptive_context:
   enabled: false           # Track which injected notes were referenced; derank unused ones
   decay_days: 30           # Half-life in days for deranking unreferenced notes
 ```
+
+## Multi-Vault Support
+
+Parsidion CC supports multiple isolated vaults with per-vault configuration. This enables:
+
+- **Separate work/personal vaults** — keep client work isolated from personal notes
+- **Project-specific vaults** — each codebase can have its own knowledge base
+- **Team vaults** — share a vault via git with teammates while maintaining a private vault
+
+### Setup
+
+Use `--create-vaults-config` to generate a vaults configuration file:
+
+```bash
+uv run install.py --create-vaults-config
+```
+
+This creates `~/.claude/vaults.yaml`:
+
+```yaml
+vaults:
+  default:
+    path: ~/ClaudeVault
+  work:
+    path: ~/WorkVault
+  personal:
+    path: ~/PersonalVault
+```
+
+### Using Multiple Vaults
+
+All vault tools support a `--vault` flag to specify the target vault:
+
+```bash
+# Search in a specific vault
+vault-search "error patterns" --vault work
+
+# Create a note in the personal vault
+vault-new --type pattern --title "My Pattern" --vault personal
+
+# View stats for work vault
+vault-stats --summary --vault work
+
+# Run doctor on a specific vault
+vault-doctor --vault work --dry-run
+
+# Build embeddings for a vault
+build_embeddings.py --vault work
+update_index.py --vault work
+```
+
+### Vault-Aware Tools
+
+| Tool | `--vault` Flag |
+|------|----------------|
+| `vault-search` | ✅ |
+| `vault-new` | ✅ |
+| `vault-stats` | ✅ |
+| `vault-review` | ✅ |
+| `vault-export` | ✅ |
+| `vault-merge` | ✅ |
+| `vault-doctor` | ✅ |
+| `build_embeddings.py` | ✅ |
+| `update_index.py` | ✅ |
+| `summarize_sessions.py` | ✅ |
+
+### Vault-Aware Hooks
+
+All session hooks support multi-vault via the vaults config:
+
+- `session_start_hook.py` — loads context from the project's associated vault
+- `session_stop_hook.py` — queues sessions to the appropriate vault
+- `pre_compact_hook.py` — snapshots to the project's vault
+- `post_compact_hook.py` — restores from the project's vault
+- `subagent_stop_hook.py` — queues to the active vault
+
+### Default Vault Resolution
+
+When `--vault` is not specified, tools use this resolution order:
+
+1. `--vault NAME` CLI flag (highest priority)
+2. `VAULT_DEFAULT` environment variable
+3. `default` vault in `~/.claude/vaults.yaml`
+4. `~/ClaudeVault` (fallback if no config exists)
 
 ## Vault Git Integration
 
