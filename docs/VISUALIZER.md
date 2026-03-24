@@ -693,3 +693,18 @@ parsidion-cc/
 - [Architecture](ARCHITECTURE.md) — Full system component map
 - [Embeddings](EMBEDDINGS.md) — How embeddings are built and evaluated
 - [CLAUDE.md](../CLAUDE.md) — Project conventions and script reference
+
+## Changelog
+
+## [Unreleased]
+
+### Added
+- Real-time `FileExplorer` via WebSocket vault watcher — new and deleted notes appear instantly without a page reload
+- Custom `server.ts` replacing `next dev/start` — bootstraps Next.js + WebSocket server + chokidar file watcher in a single process
+- Auto-refresh for notes open in read mode when externally modified (scroll position preserved)
+- Conflict detection on save: if a note was modified externally since it was last loaded, a `ConflictDialog` is shown before overwriting
+- `ConflictDialog` with three resolution paths: Take theirs / Keep mine / Merge (manual editor with diff view)
+- WebSocket connection status indicator dot in Toolbar (green = connected, amber = connecting, red = disconnected)
+- `GET /api/files` endpoint for initial vault file tree used by `useVaultFiles` hook
+- `useVaultFiles` custom hook encapsulating WebSocket lifecycle, retry backoff, and file tree state
+- `WsStatus` type and `VaultFile` type for typed WebSocket message handling
