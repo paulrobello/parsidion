@@ -93,6 +93,7 @@ def search(
     top: int = 10,
     min_score: float = 0.45,
     model_name: str = _DEFAULT_MODEL,
+    vault: Path | None = None,
 ) -> list[dict[str, object]]:
     """Search the vault for notes semantically similar to *query*.
 
@@ -103,12 +104,13 @@ def search(
         top: Maximum number of results to return.
         min_score: Minimum cosine similarity threshold (0.0–1.0).
         model_name: fastembed model ID used when the index was built.
+        vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
         List of result dicts with keys: score, stem, title, folder, tags, path.
         Sorted by score descending.
     """
-    db_path = vault_common.get_embeddings_db_path()
+    db_path = vault_common.get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -179,6 +181,7 @@ def query(
     project: str | None = None,
     recent_days: int | None = None,
     limit: int = 50,
+    vault: Path | None = None,
 ) -> list[dict[str, object]]:
     """Query the note_index table for metadata-filtered results.
 
@@ -191,11 +194,12 @@ def query(
         project: Exact project name to match.
         recent_days: Notes modified within this many days.
         limit: Maximum result count.
+        vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
         List of result dicts with score set to null, sorted by mtime descending.
     """
-    db_path = vault_common.get_embeddings_db_path()
+    db_path = vault_common.get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -294,7 +298,7 @@ def query(
 # ---------------------------------------------------------------------------
 
 
-def _get_all_notes_as_results(limit: int) -> list[dict[str, Any]]:
+def _get_all_notes_as_results(limit: int, vault: Path | None = None) -> list[dict[str, Any]]:
     """Return all vault notes as result dicts suitable for grep filtering.
 
     Tries the note_index DB first; falls back to a file walk via
@@ -302,11 +306,13 @@ def _get_all_notes_as_results(limit: int) -> list[dict[str, Any]]:
 
     Args:
         limit: Maximum number of notes to return.
+        vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
         List of result dicts with ``score`` set to ``None``.
     """
-    db_path = vault_common.get_embeddings_db_path()
+    vault = vault or vault_common.resolve_vault()
+    db_path = vault_common.get_embeddings_db_path(vault)
     if db_path.exists():
         try:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -358,9 +364,9 @@ def _get_all_notes_as_results(limit: int) -> list[dict[str, Any]]:
 
     # Fallback: file walk
     fallback_results: list[dict[str, Any]] = []
-    for path in vault_common.all_vault_notes()[:limit]:
+    for path in vault_common.all_vault_notes(vault)[:limit]:
         stem = path.stem
-        folder = path.parent.name if path.parent != vault_common.VAULT_ROOT else ""
+        folder = path.parent.name if path.parent != vault else ""
         fallback_results.append(
             {
                 "score": None,
@@ -389,6 +395,7 @@ def _apply_grep_filter(
     has_filters: bool,
     has_query: bool,
     limit: int,
+    vault: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Filter *results* (or all vault notes) by a regex pattern applied to note bodies.
 
@@ -402,6 +409,7 @@ def _apply_grep_filter(
         has_filters: Whether metadata filter flags were supplied.
         has_query: Whether a semantic query was supplied.
         limit: Max results cap when fetching all notes standalone.
+        vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
         Filtered list of result dicts whose note bodies match *pattern*.
@@ -416,7 +424,7 @@ def _apply_grep_filter(
 
     # Standalone grep — no prior results from semantic or metadata mode
     if not has_filters and not has_query:
-        results = _get_all_notes_as_results(limit)
+        results = _get_all_notes_as_results(limit, vault)
 
     matched: list[dict[str, Any]] = []
     for result in results:
@@ -562,30 +570,35 @@ def _env_int(name: str, fallback: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _interactive_search() -> None:
+def _interactive_search(vault: Path | None = None) -> None:
     """Launch a curses-based interactive vault search TUI.
 
     Real-time search as you type. Arrow keys navigate results.
     Enter opens the selected note in $EDITOR. 'q' or Ctrl+C quits.
     Falls back to a simple line-input loop when curses is unavailable.
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
     """
     import curses
     import subprocess as _sp
+
+    vault = vault or vault_common.resolve_vault()
 
     def _search_notes(q: str) -> list[dict[str, object]]:
         """Run a search and return results."""
         if not q.strip():
             return []
-        db_path = vault_common.get_embeddings_db_path()
+        db_path = vault_common.get_embeddings_db_path(vault)
         if db_path.exists():
             try:
-                return search(query=q, top=10, min_score=0.45)
+                return search(query=q, top=10, min_score=0.45, vault=vault)
             except Exception:  # noqa: BLE001
                 pass
         # Fallback: metadata title search via grep over all notes
         matched: list[dict[str, object]] = []
         q_lower = q.lower()
-        for note_path in vault_common.all_vault_notes()[:200]:
+        for note_path in vault_common.all_vault_notes(vault)[:200]:
             if q_lower in note_path.stem.lower():
                 try:
                     content = note_path.read_text(encoding="utf-8")
@@ -602,7 +615,7 @@ def _interactive_search() -> None:
                         "stem": note_path.stem,
                         "title": title,
                         "folder": note_path.parent.name
-                        if note_path.parent != vault_common.VAULT_ROOT
+                        if note_path.parent != vault
                         else "",
                         "tags": tags,
                         "path": str(note_path),
@@ -765,6 +778,15 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    # Vault selection flag
+    parser.add_argument(
+        "--vault",
+        "-V",
+        metavar="PATH|NAME",
+        default=None,
+        help="Vault path or named vault (default: ~/ClaudeVault)",
+    )
+
     # Positional — optional; triggers semantic mode when present
     parser.add_argument(
         "query",
@@ -905,9 +927,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Resolve vault path
+    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
     # Interactive mode — runs before the normal search logic
     if args.interactive:
-        _interactive_search()
+        _interactive_search(vault_path)
         return
 
     _filter_flags = (
@@ -934,7 +959,7 @@ def main() -> None:
         )
 
     if has_query:
-        db_path = vault_common.get_embeddings_db_path()
+        db_path = vault_common.get_embeddings_db_path(vault_path)
         if not db_path.exists():
             print(
                 "embeddings.db not found — run build_embeddings.py first",
@@ -946,6 +971,7 @@ def main() -> None:
             top=args.top,
             min_score=args.min_score,
             model_name=args.model,
+            vault=vault_path,
         )
     else:
         results = query(
@@ -955,6 +981,7 @@ def main() -> None:
             project=args.project,
             recent_days=args.recent_days,
             limit=args.limit,
+            vault=vault_path,
         )
 
     # --grep post-filter: applied after semantic or metadata results, or standalone
@@ -966,6 +993,7 @@ def main() -> None:
             has_filters=has_filters,
             has_query=has_query,
             limit=args.limit,
+            vault=vault_path,
         )
 
     if args.output_format == "text":
