@@ -161,15 +161,29 @@ export function useVisualizerState(graphData: GraphData | null) {
   }, [])
 
   // --- Save note content ---
-  const saveNote = useCallback(async (stem: string, content: string): Promise<void> => {
+  const saveNote = useCallback(async (
+    stem: string,
+    content: string,
+    lastModified?: number,
+  ): Promise<{ conflict: true; serverContent: string } | { ok: true }> => {
     const res = await fetch('/api/note', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stem, content }),
+      body: JSON.stringify({ stem, content, lastModified }),
     })
-    const data = await res.json()
-    if (data.error) throw new Error(data.error as string)
+    const data = await res.json() as { error?: string; conflict?: boolean; serverContent?: string; ok?: boolean }
+    if (data.error) throw new Error(data.error)
+    if (data.conflict && data.serverContent) {
+      return { conflict: true, serverContent: data.serverContent }
+    }
+    // Only cache on successful save
     contentCache.current.set(stem, content)
+    return { ok: true }
+  }, [])
+
+  // --- Invalidate cached note (called when vault watcher detects external edit) ---
+  const invalidateNote = useCallback((stem: string): void => {
+    contentCache.current.delete(stem)
   }, [])
 
   // --- Delete note ---
@@ -270,27 +284,6 @@ export function useVisualizerState(graphData: GraphData | null) {
     return { nodeCount: visibleNodes.size, edgeCount: edges.length, avgScore: avg }
   }, [graphData, threshold, graphSource, activeTypes, showDaily, filterNodesBySimilarity])
 
-  // --- File tree ---
-  const fileTree = useMemo(() => {
-    if (!graphData) return new Map<string, Map<string, NoteNode[]>>()
-    const tree = new Map<string, Map<string, NoteNode[]>>()
-    for (const node of graphData.nodes) {
-      const parts = node.path.replace(/\.md$/, '').split('/')
-      const folder = parts[0] || 'Root'
-      const subfolder = parts.length > 2 ? parts[1] : ''
-      if (!tree.has(folder)) tree.set(folder, new Map())
-      const folderMap = tree.get(folder)!
-      if (!folderMap.has(subfolder)) folderMap.set(subfolder, [])
-      folderMap.get(subfolder)!.push(node)
-    }
-    for (const [, subMap] of tree) {
-      for (const [, notes] of subMap) {
-        notes.sort((a, b) => a.title.localeCompare(b.title))
-      }
-    }
-    return tree
-  }, [graphData])
-
   return {
     // Tab state
     openTabs: validTabs, activeTab: validActiveTab, activeNode,
@@ -301,7 +294,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     // Sidebar state
     sidebarWidth, setSidebarWidth, sidebarCollapsed, setSidebarCollapsed,
     // Content
-    fetchNoteContent, saveNote, deleteNote, createNote, resolveWikilink, nodeMap, fileTree,
+    fetchNoteContent, saveNote, deleteNote, createNote, resolveWikilink, nodeMap, invalidateNote,
     // Graph controls
     threshold, setThreshold,
     graphSource, setGraphSource,
