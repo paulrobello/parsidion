@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState, forwardRef, useImperativeHandle } from 'react'
 import type { GraphData, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
 import { getNodeColor, getNodeSize } from '@/lib/sigma-colors'
@@ -24,6 +24,7 @@ interface Props {
   selectedNode: string | null
   onNodeClick: (stem: string, newTab: boolean) => void
   onBackgroundClick: () => void
+  onOpenHistory?: (stem: string) => void
   scalingRatio: number
   gravity: number
   // slowDown is now the cooling rate (how fast temperature decays per frame).
@@ -47,7 +48,7 @@ const COOL_FACTOR = 0.002
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
   {
     data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, selectedNode,
-    onNodeClick, onBackgroundClick,
+    onNodeClick, onBackgroundClick, onOpenHistory,
     scalingRatio, gravity, slowDown, edgeWeightInfluence, startTemperature, stopThreshold, isLayoutRunning, onLayoutStop, onLayoutRestart,
     neighborhoodCenter, neighborhoodHops,
   },
@@ -89,6 +90,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const draggedNodeRef = useRef<string | null>(null)
   const dragHasMovedRef = useRef(false)
   const dragPositionRef = useRef<{ x: number; y: number } | null>(null)
+
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ stem: string; x: number; y: number } | null>(null)
 
   // Compute neighborhood BFS when in local mode.
   // Uses wiki edges only — semantic edges are too dense (19K+) and would
@@ -541,8 +544,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         sigma.refresh()
         flyToNode(node)
       })
+      sigma.on('rightClickNode', ({ node, event }: { node: string; event: { original: MouseEvent | TouchEvent } }) => {
+        const orig = event.original
+        if (orig instanceof MouseEvent) orig.preventDefault()
+        const x = orig instanceof MouseEvent ? orig.clientX : 0
+        const y = orig instanceof MouseEvent ? orig.clientY : 0
+        setNodeContextMenu({ stem: node, x, y })
+      })
       sigma.on('clickStage', () => {
         onBackgroundClick()
+        setNodeContextMenu(null)
         highlightedNodesRef.current = new Set()
         highlightedEdgesRef.current = new Set()
         sigma.refresh()
@@ -776,9 +787,41 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   }, [threshold, graphSource, data, reheat])
 
   return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%', background: 'transparent' }}
-    />
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', background: 'transparent' }}
+      />
+      {nodeContextMenu && (
+        <div
+          style={{
+            position: 'fixed', left: nodeContextMenu.x, top: nodeContextMenu.y,
+            background: '#0a0e1a', border: '1px solid #1a2040', borderRadius: 4,
+            zIndex: 1000, minWidth: 160, boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div
+            style={{ padding: '6px 12px', cursor: 'pointer', color: '#ccc' }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#1a2040')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            onClick={() => { onNodeClick(nodeContextMenu.stem, false); setNodeContextMenu(null) }}
+          >
+            Open in Reading Pane
+          </div>
+          {onOpenHistory && (
+            <div
+              style={{ padding: '6px 12px', cursor: 'pointer', color: '#00FFC8' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#1a2040')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              onClick={() => { onOpenHistory(nodeContextMenu.stem); setNodeContextMenu(null) }}
+            >
+              View History
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 })

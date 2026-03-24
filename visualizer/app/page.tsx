@@ -11,6 +11,7 @@ import { Toolbar } from '@/components/Toolbar'
 import { ReadingPane } from '@/components/ReadingPane'
 import { HUDPanel } from '@/components/HUDPanel'
 import { NewNoteDialog } from '@/components/NewNoteDialog'
+import { HistoryView } from '@/components/HistoryView'
 
 const GraphCanvas = dynamic(() => import('@/components/GraphCanvas').then(m => m.GraphCanvas), {
   ssr: false,
@@ -187,17 +188,26 @@ export default function Home() {
               onWidthChange={state.setSidebarWidth}
               collapsed={state.sidebarCollapsed}
               totalNotes={graphData.nodes.length}
+              onOpenHistory={state.openHistory}
+              onDeleteNote={handleDelete}
             />
 
             {/* Content area */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
-              {state.viewMode === 'read' ? (
+              {state.historyMode && state.historyNote ? (
+                <HistoryView
+                  stem={state.historyNote}
+                  node={state.nodeMap.get(state.historyNote) ?? null}
+                  onClose={state.closeHistory}
+                />
+              ) : state.viewMode === 'read' ? (
                 <ReadingPane
                   node={state.activeNode}
                   fetchContent={state.fetchNoteContent}
                   onNavigate={handleNavigate}
                   onSave={state.saveNote}
                   onDelete={handleDelete}
+                  onOpenHistory={state.openHistory}
                   nodes={graphData.nodes}
                 />
               ) : (
@@ -249,6 +259,7 @@ export default function Home() {
                     selectedNode={state.selectedNode}
                     onNodeClick={handleGraphNodeClick}
                     onBackgroundClick={() => state.setSelectedNode(null)}
+                    onOpenHistory={state.openHistory}
                     scalingRatio={state.scalingRatio}
                     gravity={state.gravity}
                     slowDown={state.slowDown}
