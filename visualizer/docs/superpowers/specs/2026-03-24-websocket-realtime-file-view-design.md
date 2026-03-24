@@ -26,7 +26,7 @@ The visualizer's `FileExplorer` sidebar is built from `graph.json`, a static fil
 
 ```
 ┌─────────────────── server.ts ───────────────────┐
-│  HTTP server (port 8030)                         │
+│  HTTP server (port 3999)                         │
 │  ├── Next.js request handler (all HTTP routes)  │
 │  ├── WebSocketServer (upgrade on /ws/vault)     │
 │  └── chokidar watcher → broadcasts events       │
@@ -44,7 +44,7 @@ The visualizer's `FileExplorer` sidebar is built from `graph.json`, a static fil
 └───────────────────────────────────────────────────┘
 ```
 
-A shared `vaultBroadcast` `EventEmitter` (module-level singleton in `lib/vaultBroadcast.server.ts`) connects route handlers to the WebSocket layer. Both run in the same Node.js process.
+A shared `vaultBroadcast` `EventEmitter` (module-level singleton in `lib/vaultBroadcast.server.ts`) connects route handlers to the WebSocket layer. Both run in the same Node.js process. **Critical:** `vaultBroadcast.server.ts` must be imported by both `server.ts` and the route handler using the same Node.js `require` cache. Because `server.ts` bootstraps Next.js (rather than Next.js running standalone), both imports resolve through the same module registry and share the same singleton. If the app were running without a custom server, this would not work.
 
 **Data source split:**
 - `FileExplorer` → real-time `VaultFile[]` from `useVaultFiles`
@@ -82,19 +82,28 @@ All payloads are JSON. Data flows server → client only (except pong).
 | Direction | Message |
 |-----------|---------|
 | S → C | `{ type: "file:created",  path: "Patterns/foo.md", stem: "foo", noteType: "pattern" }` |
-| S → C | `{ type: "file:deleted",  path: "Patterns/foo.md", stem: "foo" }` |
-| S → C | `{ type: "file:modified", path: "Patterns/foo.md", stem: "foo" }` |
+| S → C | `{ type: "file:deleted",  path: "Patterns/foo.md" }` |
+| S → C | `{ type: "file:modified", path: "Patterns/foo.md" }` |
 | S → C | `{ type: "graph:rebuilt" }` |
 | S → C | `{ type: "ping" }` |
 | C → S | `{ type: "pong" }` |
+
+**`path` is the primary identifier** for `file:deleted` and `file:modified` events (relative to vault root). `stem` alone cannot uniquely identify a file because two notes named `foo.md` in different folders produce the same stem. The frontend must key file tree entries by `path`, not `stem`. `stem` is included on `file:created` to avoid the client needing to derive it, but `path` drives all lookups.
 
 ### `package.json` script changes
 
 | Script | Before | After |
 |--------|--------|-------|
-| `dev` | `next dev -p 8030` | `tsx server.ts` |
-| `start` | `next start -p 8030` | `node dist/server.js` |
-| `build` | `next build` | `next build && tsc server.ts --outDir dist` |
+| `dev` | `next dev -p 3999` | `tsx server.ts` |
+| `start` | `next start -p 3999` | `node dist/server.js` |
+| `build` | `next build` | `next build && tsc --project tsconfig.server.json` |
+
+`server.ts` reads `PORT` from the environment (defaulting to `3999`):
+```ts
+const PORT = parseInt(process.env.PORT ?? '3999', 10)
+```
+
+A new `tsconfig.server.json` must be created at the `visualizer/` root targeting `server.ts` with `outDir: "dist"`.
 
 New dependencies: `ws`, `chokidar` (runtime); `tsx`, `@types/ws` (dev).
 
@@ -161,7 +170,7 @@ function useVaultFiles(opts: {
   - `graph:rebuilt` → call `opts.onGraphRebuilt()`
   - `ping` → send `pong`
 - Reconnection: exponential backoff, 1 s → 2 s → … → 30 s max, unlimited retries
-- Cleans up WebSocket and chokidar subscription on unmount
+- On unmount: closes the WebSocket connection cleanly (`ws.close()`); the chokidar watcher lives in `server.ts` and is never touched by this hook
 
 ### `page.tsx` changes
 
@@ -174,7 +183,11 @@ function useVaultFiles(opts: {
 ### `FileExplorer.tsx` changes
 
 - `fileTree` prop type changes from `Map<string, Map<string, NoteNode[]>>` to `Map<string, Map<string, VaultFile[]>>`
-- Color dot uses `vaultFile.noteType` instead of `node.type`
+- The internal `NoteItem` subcomponent must be updated throughout:
+  - `note.id` → `vaultFile.path` as the React key; `vaultFile.stem` passed to `onSelectNote`/`onOpenHistory`/`onDeleteNote`
+  - `note.type` → `vaultFile.noteType` for `getNodeColor()`
+  - Active tab highlight: `vaultFile.stem === activeTab` (unchanged logic, just new field name)
+- `totalNotes` prop: caller (`page.tsx`) must derive this as the total count of `VaultFile` entries across the `fileTree` from `useVaultFiles`, not from `graphData.nodes.length`
 - All other visual behaviour unchanged
 
 ### `useVisualizerState.ts` changes
@@ -194,8 +207,13 @@ function useVaultFiles(opts: {
 ### `ReadingPane.tsx` save changes
 
 - Tracks `loadedAt: number` (set when note content is fetched)
-- On save: POST `{ stem, content, lastModified: loadedAt }`
-- If response is `{ conflict: true, serverContent }`: open `ConflictDialog`
+- **`onSave` prop signature changes** from `(stem: string, content: string) => Promise<void>` to `(stem: string, content: string, lastModified: number) => Promise<{ conflict?: boolean; serverContent?: string } | void>`
+- `ReadingPane` calls `onSave(stem, content, loadedAt)` and awaits the result
+- If result has `{ conflict: true, serverContent }`: open `ConflictDialog`
+- `useVisualizerState.saveNote` is updated to:
+  1. Accept the new `lastModified` parameter and forward it to the POST body
+  2. Return the raw response object (including `{ conflict, serverContent }`) instead of swallowing it
+  3. Only update the content cache (`contentCache.current[stem]`) when the save succeeds without conflict
 
 ### New: `ConflictDialog.tsx`
 
@@ -224,6 +242,7 @@ Reuses `DiffViewer.tsx` for the side-by-side comparison panels.
 | File | Change |
 |------|--------|
 | `server.ts` | **New** — custom Next.js + WebSocket server |
+| `tsconfig.server.json` | **New** — TypeScript config for compiling `server.ts` to `dist/` |
 | `lib/vaultBroadcast.server.ts` | **New** — shared EventEmitter |
 | `lib/useVaultFiles.ts` | **New** — real-time file tree hook |
 | `components/ConflictDialog.tsx` | **New** — conflict resolution dialog |
