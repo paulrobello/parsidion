@@ -177,6 +177,16 @@ Examples:
         default=False,
         help="Print what would be created without writing anything.",
     )
+    parser.add_argument(
+        "--vault",
+        "-V",
+        default=None,
+        metavar="VAULT",
+        help=(
+            "Explicit vault path or named vault. "
+            "If not set, uses current working directory context."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -185,14 +195,17 @@ Examples:
     if args.tags:
         tags = [t.strip() for t in args.tags.split(",") if t.strip()]
 
+    # Resolve vault path
+    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
     # Build slug and target path
     slug = _build_slug(args.title)
     folder_name = _TYPE_TO_FOLDER[args.type]
-    target_dir = vault_common.VAULT_ROOT / folder_name
+    target_dir = vault_path / folder_name
 
     # Ensure vault directories exist (unless dry-run)
     if not args.dry_run:
-        vault_common.ensure_vault_dirs()
+        vault_common.ensure_vault_dirs(vault_path)
 
     # Verify the target directory exists
     if not target_dir.exists() and not args.dry_run:
