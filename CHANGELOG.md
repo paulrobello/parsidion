@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-24
+
+### Added
+
+#### Multi-Vault Support
+
+Major new feature enabling multiple isolated vaults with per-vault configuration.
+
+- **New `--vault` flag** on all vault tools:
+  - `vault-search --vault <name>`
+  - `vault-new --vault <name>`
+  - `vault-stats --vault <name>`
+  - `vault-review --vault <name>`
+  - `vault-export --vault <name>`
+  - `vault-merge --vault <name>`
+  - `vault-doctor --vault <name>`
+- **Multi-vault support in build scripts**:
+  - `build_embeddings.py --vault <name>`
+  - `update_index.py --vault <name>`
+- **Multi-vault support in hooks**:
+  - `session_start_hook.py`
+  - `session_stop_hook.py`
+  - `pre_compact_hook.py`
+  - `post_compact_hook.py`
+  - `subagent_stop_hook.py`
+- **New installer option**: `install.py --create-vaults-config` for multi-vault setup
+- **Vault resolver**: Centralized vault path resolution with config file support
+
+### Changed
+
+- **Summarizer improvements**:
+  - Convert relative dates to absolute dates in generated notes
+  - Added `--vault` flag for multi-vault support
+- **Archived completed roadmap**: ENHANCE.md moved to archive
+
+### Fixed
+
+- Resolved F821 undefined name errors in vault scripts
+- Removed invalid `vault_path` args from pure functions
+- Lint fixes and formatting for multi-vault support
+
 ## [0.3.5] - 2026-03-24
 
 ### Added
