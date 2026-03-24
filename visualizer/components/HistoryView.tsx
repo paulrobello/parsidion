@@ -36,7 +36,7 @@ export function HistoryView({ stem, node, onClose }: Props) {
 
   // Load commit history on mount
   useEffect(() => {
-    setLoadingCommits(true)
+    setLoadingCommits(true) // eslint-disable-line react-hooks/set-state-in-effect
     setCommitsError(null)
     fetch(`/api/note/history?stem=${encodeURIComponent(stem)}`)
       .then(r => r.json())
@@ -59,7 +59,7 @@ export function HistoryView({ stem, node, onClose }: Props) {
 
   // Fetch diff whenever from/to changes; abort stale in-flight requests
   useEffect(() => {
-    if (!fromHash || !toHash) { setRawDiff(''); return }
+    if (!fromHash || !toHash) { setRawDiff(''); return } // eslint-disable-line react-hooks/set-state-in-effect
     const controller = new AbortController()
     setLoadingDiff(true)
     setDiffError(null)

@@ -199,7 +199,7 @@ function ChipInput({ values, onChange, placeholder, normalize, suggestions }: {
       .slice(0, 8)
   }, [suggestions, input, values])
 
-  useEffect(() => { setSelectedIdx(0) }, [filtered])
+  useEffect(() => { setSelectedIdx(0) }, [filtered]) // eslint-disable-line react-hooks/set-state-in-effect
 
   const add = useCallback((raw: string) => {
     const val = normalize ? normalize(raw) : raw.trim()
@@ -332,7 +332,7 @@ function RelatedInput({ values, onChange, nodes }: {
   }, [input, nodes, values])
 
   // Reset selectedIdx when results change
-  useEffect(() => { setSelectedIdx(0) }, [results])
+  useEffect(() => { setSelectedIdx(0) }, [results]) // eslint-disable-line react-hooks/set-state-in-effect
 
   const add = useCallback((stem: string) => {
     if (stem && !values.includes(stem)) onChange([...values, stem])

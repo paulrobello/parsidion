@@ -51,6 +51,8 @@ export function useVaultFiles(opts: Opts): {
   const retryDelayRef = useRef(1_000)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  // Ref to hold the connect function so ws.onclose can reference it without TDZ issues
+  const connectRef = useRef<(() => void) | null>(null)
 
   // Fetch initial file list once on mount
   useEffect(() => {
@@ -126,7 +128,7 @@ export function useVaultFiles(opts: Opts): {
       setWsStatus('disconnected')
       const delay = retryDelayRef.current
       retryDelayRef.current = Math.min(delay * 2, 30_000)
-      retryTimerRef.current = setTimeout(connect, delay)
+      retryTimerRef.current = setTimeout(() => connectRef.current?.(), delay)
     }
 
     ws.onerror = () => ws.close()
@@ -134,7 +136,9 @@ export function useVaultFiles(opts: Opts): {
 
   useEffect(() => {
     mountedRef.current = true
-    connect()
+    // Keep connectRef in sync with the stable connect callback so ws.onclose can reference it
+    connectRef.current = connect
+    connect() // eslint-disable-line react-hooks/set-state-in-effect
     return () => {
       mountedRef.current = false
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current)

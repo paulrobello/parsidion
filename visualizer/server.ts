@@ -140,7 +140,7 @@ app.prepare().then(() => {
     broadcast({ type: 'file:modified', path: path.relative(vaultRoot, filePath) })
   })
 
-  watcher.on('error', (err: Error) => console.error('[chokidar]', err))
+  watcher.on('error', (err: unknown) => console.error('[chokidar]', err))
 
   // ── Clean up on server close ───────────────────────────────────────────────
 
