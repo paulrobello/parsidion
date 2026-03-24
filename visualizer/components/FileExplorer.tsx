@@ -2,11 +2,11 @@
 
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { useLocalStorage } from '@/lib/useLocalStorage'
-import type { NoteNode } from '@/lib/graph'
+import type { VaultFile } from '@/lib/vaultFile'
 import { getNodeColor } from '@/lib/sigma-colors'
 
 interface Props {
-  fileTree: Map<string, Map<string, NoteNode[]>>
+  fileTree: Map<string, Map<string, VaultFile[]>>
   activeTab: string | null
   onSelectNote: (stem: string, newTab: boolean) => void
   onOpenHistory: (stem: string) => void
@@ -148,11 +148,11 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, onOpenHistory,
                         <span>{sub}/</span>
                         <span style={{ color: '#4b5563', fontSize: 9, marginLeft: 'auto' }}>{notes.length}</span>
                       </div>
-                      {subExpanded && notes.map(note => (
+                      {subExpanded && notes.map(file => (
                         <NoteItem
-                          key={note.id}
-                          note={note}
-                          isActive={note.id === activeTab}
+                          key={file.path}
+                          file={file}
+                          isActive={file.stem === activeTab}
                           indent={38}
                           onSelect={onSelectNote}
                           onContextMenu={(stem, x, y) => setContextMenu({ stem, x, y })}
@@ -164,11 +164,11 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, onOpenHistory,
                 // Use folder+sub as key prefix to avoid duplicate keys across subfolders
                 return (
                   <div key={`${folder}/_root`}>
-                    {notes.map(note => (
+                    {notes.map(file => (
                       <NoteItem
-                        key={note.id}
-                        note={note}
-                        isActive={note.id === activeTab}
+                        key={file.path}
+                        file={file}
+                        isActive={file.stem === activeTab}
                         indent={24}
                         onSelect={onSelectNote}
                         onContextMenu={(stem, x, y) => setContextMenu({ stem, x, y })}
@@ -234,8 +234,8 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, onOpenHistory,
   )
 }
 
-function NoteItem({ note, isActive, indent, onSelect, onContextMenu }: {
-  note: NoteNode
+function NoteItem({ file, isActive, indent, onSelect, onContextMenu }: {
+  file: VaultFile
   isActive: boolean
   indent: number
   onSelect: (stem: string, newTab: boolean) => void
@@ -243,10 +243,10 @@ function NoteItem({ note, isActive, indent, onSelect, onContextMenu }: {
 }) {
   return (
     <div
-      onClick={(e) => onSelect(note.id, e.metaKey || e.ctrlKey)}
+      onClick={(e) => onSelect(file.stem, e.metaKey || e.ctrlKey)}
       onContextMenu={(e) => {
         e.preventDefault()
-        onContextMenu(note.id, e.clientX, e.clientY)
+        onContextMenu(file.stem, e.clientX, e.clientY)
       }}
       style={{
         padding: `4px 10px 4px ${indent}px`,
@@ -272,9 +272,9 @@ function NoteItem({ note, isActive, indent, onSelect, onContextMenu }: {
         }
       }}
     >
-      <span style={{ color: getNodeColor(note.type), fontSize: 7, flexShrink: 0 }}>●</span>
+      <span style={{ color: getNodeColor(file.noteType ?? ''), fontSize: 7, flexShrink: 0 }}>●</span>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {note.id}.md
+        {file.stem}.md
       </span>
     </div>
   )
