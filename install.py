@@ -1069,6 +1069,7 @@ def uninstall(
     claude_dir: Path,
     settings_file: Path,
     dry_run: bool = False,
+    yes: bool = False,
 ) -> None:
     """Remove installed skill, agent, and hook registrations."""
     print(bold("\nUninstalling Parsidion CC..."))
@@ -1168,6 +1169,18 @@ def uninstall(
 
     # Remove nightly summarizer scheduler
     unschedule_summarizer(dry_run=dry_run)
+
+    # Optionally remove vaults.yaml (named vaults config)
+    vaults_config = Path.home() / ".config" / "parsidion-cc" / "vaults.yaml"
+    if vaults_config.exists():
+        if yes or _confirm(f"Remove {vaults_config}?", default=False):
+            _step(f"Remove {vaults_config}", dry_run=dry_run)
+            if not dry_run:
+                try:
+                    vaults_config.unlink()
+                    _ok(f"Removed {vaults_config}")
+                except OSError as exc:
+                    _warn(f"Could not remove {vaults_config}: {exc}")
 
     if not dry_run:
         print()
@@ -1311,6 +1324,44 @@ def configure_vault_username(
         config_path.write_text(new_content, encoding="utf-8")
     except OSError as exc:
         _warn(f"Could not write vault.username to {config_path}: {exc}")
+
+
+def create_vaults_config(dry_run: bool = False) -> None:
+    """Create vaults.yaml template with example configuration.
+
+    Creates ``~/.config/parsidion-cc/vaults.yaml`` with commented examples for
+    named vault configuration. This enables users to reference vaults by name
+    via ``--vault NAME`` or ``CLAUDE_VAULT=NAME``.
+
+    Args:
+        dry_run: If True, print what would be done without writing.
+    """
+    config_dir = Path.home() / ".config" / "parsidion-cc"
+    config_path = config_dir / "vaults.yaml"
+
+    if config_path.exists():
+        print(f"  ℹ {config_path} already exists, skipping")
+        return
+
+    content = """# Named vaults for parsidion-cc
+# Use with: vault-search --vault NAME or CLAUDE_VAULT=NAME
+
+vaults:
+  # personal: ~/ClaudeVault
+  # work: ~/WorkVault
+  # team: ~/team-vault
+
+# Optional: override default vault
+# default: work
+"""
+
+    _step(f"Create vaults config template: {config_path}", dry_run=dry_run)
+    if dry_run:
+        return
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(content, encoding="utf-8")
+    _ok(f"Created {config_path}")
 
 
 def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
@@ -1712,6 +1763,10 @@ def install(args: argparse.Namespace) -> int:
             graph_include_daily=args.graph_include_daily,
         )
 
+    # 13. Create vaults.yaml config template (optional, --create-vaults-config)
+    if args.create_vaults_config:
+        create_vaults_config(dry_run=dry_run)
+
     print()
     if dry_run:
         _ok("Dry run complete — no changes were made.")
@@ -1892,6 +1947,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--create-vaults-config",
+        action="store_true",
+        help="Create ~/.config/parsidion-cc/vaults.yaml template",
+    )
+    parser.add_argument(
         "--help",
         "-h",
         action="help",
@@ -1920,7 +1980,7 @@ def main() -> None:
             if not _confirm("Proceed with uninstall?", default=False):
                 print(dim("Aborted."))
                 sys.exit(0)
-        uninstall(claude_dir, settings_file, dry_run=args.dry_run)
+        uninstall(claude_dir, settings_file, dry_run=args.dry_run, yes=args.yes)
         sys.exit(0)
 
     sys.exit(install(args))
