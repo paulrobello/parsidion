@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code PostCompact hook that restores working context after compaction.
 
-Reads JSON from stdin (unused — no session data provided at PostCompact time),
+Reads JSON from stdin with session info (extracts cwd for vault resolution),
 scans today's daily note for the most recent Pre-Compact Snapshot section, and
 returns it as ``additionalContext`` so Claude can resume where it left off.
 """
@@ -85,12 +85,21 @@ def main() -> None:
     """Entry point: read daily note and inject latest snapshot as additionalContext."""
     try:
         # Consume stdin (Claude Code always sends JSON; ignore contents here)
-        sys.stdin.read()
+        raw_stdin = sys.stdin.read()
+        # Try to parse as JSON to extract cwd for vault resolution
+        try:
+            input_data = json.loads(raw_stdin)
+            cwd = input_data.get("cwd", "")
+        except (json.JSONDecodeError, ValueError):
+            cwd = ""
     except Exception:  # noqa: BLE001
-        pass
+        cwd = ""
 
     try:
-        daily_path = vault_common.today_daily_path()
+        # Resolve vault path from cwd (supports multi-vault)
+        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+
+        daily_path = vault_common.today_daily_path(vault=vault_path)
 
         if not daily_path.is_file():
             # Fallback: legacy un-namespaced path (pre-migration vault)
@@ -98,9 +107,7 @@ def main() -> None:
 
             _today = _date.today()
             _month = f"{_today.year:04d}-{_today.month:02d}"
-            _legacy = (
-                vault_common.VAULT_ROOT / "Daily" / _month / f"{_today.day:02d}.md"
-            )
+            _legacy = vault_path / "Daily" / _month / f"{_today.day:02d}.md"
             if _legacy.is_file():
                 daily_path = _legacy
             else:
