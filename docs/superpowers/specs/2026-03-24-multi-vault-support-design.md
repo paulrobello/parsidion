@@ -134,6 +134,7 @@ parser.add_argument(
 | `vault-merge` | Add `-V` flag |
 | `update-index` | Add `-V` flag |
 | `build-embeddings` | Add `-V` flag |
+| `summarize_sessions.py` | Add `-V` flag (PEP 723 script, reads `pending_summaries.jsonl`) |
 
 ### Pattern
 
@@ -242,6 +243,19 @@ def git_commit_vault(message: str, vault: Path | None = None, paths: list[Path] 
 | `vault_merge.py` | ~5 |
 | `update_index.py` | ~10 |
 | `build_embeddings.py` | ~5 |
+| `summarize_sessions.py` | ~10 |
+
+### Installer
+
+| File | Est. Lines |
+|------|------------|
+| `install.py` | ~15 |
+
+**Installer changes:**
+- Add `--create-vaults-config` flag to scaffold `~/.config/parsidion-cc/vaults.yaml`
+- Update `--uninstall` to remove `vaults.yaml` (with confirmation)
+- Add help text documenting multi-vault feature
+- Ensure `~/.config/parsidion-cc/` directory is created during install
 
 ### Hooks
 
@@ -253,7 +267,7 @@ def git_commit_vault(message: str, vault: Path | None = None, paths: list[Path] 
 | `post_compact_hook.py` | ~3 |
 | `subagent_stop_hook.py` | ~3 |
 
-**Total estimated:** ~100-150 lines changed across 14 files.
+**Total estimated:** ~120-180 lines changed across 16 files.
 
 ## Backward Compatibility
 
