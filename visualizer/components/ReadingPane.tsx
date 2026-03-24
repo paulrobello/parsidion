@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useTransition } from 'react'
+import { useState, useEffect, useCallback, useTransition, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { getNodeColor } from '@/lib/sigma-colors'
 import type { NoteNode } from '@/lib/graph'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ConflictDialog } from './ConflictDialog'
 import { FrontmatterEditor } from './FrontmatterEditor'
 import { parseFrontmatter, serializeFrontmatter } from '@/lib/frontmatter'
 import type { FrontmatterFields } from '@/lib/frontmatter'
@@ -14,13 +15,14 @@ interface Props {
   node: NoteNode | null
   fetchContent: (stem: string) => Promise<string>
   onNavigate: (stem: string, newTab: boolean) => void
-  onSave: (stem: string, content: string) => Promise<void>
+  onSave: (stem: string, content: string, lastModified?: number) => Promise<{ conflict: true; serverContent: string } | { ok: true }>
   onDelete: (stem: string) => Promise<void>
   onOpenHistory: (stem: string) => void
   nodes: NoteNode[]
+  refreshTrigger?: number
 }
 
-export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes }: Props) {
+export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0 }: Props) {
   const [content, setContent] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -33,6 +35,11 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [loadedAt, setLoadedAt] = useState(0)
+  const [conflictData, setConflictData] = useState<{ serverContent: string } | null>(null)
+  const [externallyModified, setExternallyModified] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const savedScrollRef = useRef(0)
 
   useEffect(() => {
     if (!node) return
@@ -41,7 +48,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     startTransition(async () => {
       try {
         const c = await fetchContent(node.id)
-        if (!cancelled) { setContent(c); setError(null) }
+        if (!cancelled) { setContent(c); setLoadedAt(Date.now()); setError(null) }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
       }
@@ -70,10 +77,40 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     return () => window.removeEventListener('keydown', handler)
   }, [isEditing, handleStartEdit])
 
+  useEffect(() => {
+    if (refreshTrigger === 0 || !node) return
+    if (isEditing) {
+      setExternallyModified(true)
+      return
+    }
+    savedScrollRef.current = scrollContainerRef.current?.scrollTop ?? 0
+    let cancelled = false
+    startTransition(async () => {
+      try {
+        const c = await fetchContent(node.id)
+        if (!cancelled) {
+          setContent(c)
+          setLoadedAt(Date.now())
+          setError(null)
+        }
+      } catch { /* ignore refresh errors */ }
+    })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTrigger])
+
+  useEffect(() => {
+    if (savedScrollRef.current > 0 && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = savedScrollRef.current
+      savedScrollRef.current = 0
+    }
+  }, [content])
+
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false)
     setPreviewMode(false)
     setSaveError(null)
+    setExternallyModified(false)
   }, [])
 
   const handleSave = useCallback(async () => {
@@ -82,16 +119,22 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     setSaveError(null)
     try {
       const fullContent = serializeFrontmatter(editFields, editBody)
-      await onSave(node.id, fullContent)
+      const result = await onSave(node.id, fullContent, loadedAt)
+      if ('conflict' in result && result.conflict) {
+        setConflictData({ serverContent: result.serverContent })
+        return
+      }
       setContent(fullContent)
+      setLoadedAt(Date.now())
       setIsEditing(false)
       setPreviewMode(false)
+      setExternallyModified(false)
     } catch (e) {
       setSaveError((e as Error).message)
     } finally {
       setIsSaving(false)
     }
-  }, [node, editFields, editBody, onSave])
+  }, [node, editFields, editBody, onSave, loadedAt])
 
   const handleConfirmDelete = useCallback(async () => {
     if (!node) return
@@ -105,6 +148,26 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
       setIsDeleting(false)
     }
   }, [node, onDelete])
+
+  const handleConflictResolve = useCallback(async (resolved: string) => {
+    if (!node) return
+    setConflictData(null)
+    setIsSaving(true)
+    setSaveError(null)
+    try {
+      // Force-save: omit lastModified so the server skips the conflict check
+      await onSave(node.id, resolved)
+      setContent(resolved)
+      setLoadedAt(Date.now())
+      setIsEditing(false)
+      setPreviewMode(false)
+      setExternallyModified(false)
+    } catch (e) {
+      setSaveError((e as Error).message)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [node, onSave])
 
   const handleWikilink = useCallback((stem: string, e: React.MouseEvent) => {
     onNavigate(stem, e.metaKey || e.ctrlKey)
@@ -156,6 +219,11 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
           }}>
             Editing: <span style={{ color: '#e8e8f0' }}>{node.title}</span>
           </span>
+          {externallyModified && (
+            <span style={{ color: '#f59e0b', fontFamily: "'JetBrains Mono', monospace", fontSize: 10, flexShrink: 0 }}>
+              ⚠ modified externally — save to see conflict
+            </span>
+          )}
           {saveError && (
             <span style={{ color: '#ef4444', fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
               {saveError}
@@ -282,12 +350,21 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
             }}
           />
         )}
+        {conflictData && node && (
+          <ConflictDialog
+            stem={node.id}
+            myContent={serializeFrontmatter(editFields!, editBody)}
+            serverContent={conflictData.serverContent}
+            onResolve={handleConflictResolve}
+            onCancel={() => setConflictData(null)}
+          />
+        )}
       </div>
     )
   }
 
   return (
-    <div style={{ flex: 1, overflow: 'auto', padding: '32px 48px', fontFamily: "'Syne', sans-serif" }}>
+    <div ref={scrollContainerRef} style={{ flex: 1, overflow: 'auto', padding: '32px 48px', fontFamily: "'Syne', sans-serif" }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
           <span style={{
