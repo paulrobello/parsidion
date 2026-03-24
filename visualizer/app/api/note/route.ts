@@ -26,11 +26,22 @@ function findNote(dir: string, stemToFind: string): string | null {
 
 export async function GET(req: NextRequest) {
   const stem = req.nextUrl.searchParams.get('stem')
-  if (!stem) return NextResponse.json({ error: 'stem required' }, { status: 400 })
+  const relPath = req.nextUrl.searchParams.get('path')
+  if (!stem && !relPath) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
 
   const vaultRoot = getVaultRoot()
-  const notePath = findNote(vaultRoot, stem)
-  if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
+  let notePath: string | null
+  if (relPath) {
+    // Direct path lookup — avoids stem collision across folders
+    const candidate = path.join(vaultRoot, relPath)
+    if (!guardPath(candidate, vaultRoot)) {
+      return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
+    notePath = fs.existsSync(candidate) ? candidate : null
+  } else {
+    notePath = findNote(vaultRoot, stem!)
+  }
+  if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
 
   try {
     const content = fs.readFileSync(notePath, 'utf-8')

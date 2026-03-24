@@ -13,7 +13,7 @@ import type { FrontmatterFields } from '@/lib/frontmatter'
 
 interface Props {
   node: NoteNode | null
-  fetchContent: (stem: string) => Promise<string>
+  fetchContent: (stem: string, path?: string) => Promise<string>
   onNavigate: (stem: string, newTab: boolean) => void
   onSave: (stem: string, content: string, lastModified?: number) => Promise<{ conflict: true; serverContent: string } | { ok: true }>
   onDelete: (stem: string) => Promise<void>
@@ -47,7 +47,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     let cancelled = false
     startTransition(async () => {
       try {
-        const c = await fetchContent(node.id)
+        const c = await fetchContent(node.id, node.path)
         if (!cancelled) { setContent(c); setLoadedAt(Date.now()); setError(null) }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
@@ -87,7 +87,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     let cancelled = false
     startTransition(async () => {
       try {
-        const c = await fetchContent(node.id)
+        const c = await fetchContent(node.id, node.path)
         if (!cancelled) {
           setContent(c)
           setLoadedAt(Date.now())

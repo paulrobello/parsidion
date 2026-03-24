@@ -148,15 +148,21 @@ export function useVisualizerState(graphData: GraphData | null) {
   }, [setViewMode])
 
   // --- Fetch note content (with cache) ---
-  const fetchNoteContent = useCallback(async (stem: string): Promise<string> => {
-    const cached = contentCache.current.get(stem)
+  // notePath: vault-relative path (e.g. "Daily/MANIFEST.md"). When provided, used for both
+  // the API call and the cache key so same-stem notes in different folders don't collide.
+  const fetchNoteContent = useCallback(async (stem: string, notePath?: string): Promise<string> => {
+    const cacheKey = notePath ?? stem
+    const cached = contentCache.current.get(cacheKey)
     if (cached !== undefined) return cached
 
-    const res = await fetch(`/api/note?stem=${encodeURIComponent(stem)}`)
+    const query = notePath
+      ? `path=${encodeURIComponent(notePath)}`
+      : `stem=${encodeURIComponent(stem)}`
+    const res = await fetch(`/api/note?${query}`)
     const data = await res.json()
     if (data.error) throw new Error(data.error as string)
     const content = data.content as string
-    contentCache.current.set(stem, content)
+    contentCache.current.set(cacheKey, content)
     return content
   }, [])
 
