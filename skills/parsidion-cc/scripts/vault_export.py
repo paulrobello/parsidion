@@ -14,6 +14,7 @@ Filters (all modes):
 
 import argparse
 import html
+import os
 import re
 import sys
 import zipfile
@@ -35,6 +36,7 @@ def _collect_notes(
     project: str | None,
     folder: str | None,
     tag: str | None,
+    vault_path: Path,
 ) -> list[Path]:
     """Collect vault notes matching the given filters.
 
@@ -44,6 +46,7 @@ def _collect_notes(
         project: Only include notes with this project field.
         folder: Only include notes whose vault folder matches this name.
         tag: Only include notes containing this tag.
+        vault_path: Path to the vault root.
 
     Returns:
         Sorted list of matching note paths.
@@ -305,6 +308,7 @@ def _cmd_list(
     project: str | None,
     folder: str | None,
     tag: str | None,
+    vault_path: Path,
 ) -> None:
     """List notes that would be exported without performing export.
 
@@ -312,8 +316,9 @@ def _cmd_list(
         project: Project filter.
         folder: Folder filter.
         tag: Tag filter.
+        vault_path: Path to the vault root.
     """
-    notes = _collect_notes(project=project, folder=folder, tag=tag)
+    notes = _collect_notes(project=project, folder=folder, tag=tag, vault_path=vault_path)
     if not notes:
         print("No notes match the given filters.")
         return
@@ -328,6 +333,7 @@ def _cmd_html(
     project: str | None,
     folder: str | None,
     tag: str | None,
+    vault_path: Path,
 ) -> None:
     """Export vault notes as static HTML files.
 
@@ -338,8 +344,9 @@ def _cmd_html(
         project: Project filter.
         folder: Folder filter.
         tag: Tag filter.
+        vault_path: Path to the vault root.
     """
-    notes = _collect_notes(project=project, folder=folder, tag=tag)
+    notes = _collect_notes(project=project, folder=folder, tag=tag, vault_path=vault_path)
     if not notes:
         print("No notes match the given filters.")
         return
@@ -404,6 +411,7 @@ def _cmd_zip(
     project: str | None,
     folder: str | None,
     tag: str | None,
+    vault_path: Path,
 ) -> None:
     """Export vault notes as a ZIP archive of .md files.
 
@@ -412,8 +420,9 @@ def _cmd_zip(
         project: Project filter.
         folder: Folder filter.
         tag: Tag filter.
+        vault_path: Path to the vault root.
     """
-    notes = _collect_notes(project=project, folder=folder, tag=tag)
+    notes = _collect_notes(project=project, folder=folder, tag=tag, vault_path=vault_path)
     if not notes:
         print("No notes match the given filters.")
         return
@@ -512,6 +521,7 @@ def main() -> None:
                 project=args.project,
                 folder=args.folder,
                 tag=args.tag,
+                vault_path=vault_path,
             )
         elif args.zip is not None:
             _cmd_zip(
@@ -519,6 +529,7 @@ def main() -> None:
                 project=args.project,
                 folder=args.folder,
                 tag=args.tag,
+                vault_path=vault_path,
             )
         else:
             # Default: --list
@@ -526,6 +537,7 @@ def main() -> None:
                 project=args.project,
                 folder=args.folder,
                 tag=args.tag,
+                vault_path=vault_path,
             )
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)

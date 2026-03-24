@@ -18,6 +18,7 @@ Key bindings (TUI):
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -59,11 +60,12 @@ def _read_entries() -> list[dict]:
     return entries
 
 
-def _write_entries(entries: list[dict]) -> None:
+def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
     """Atomically write entries back to pending_summaries.jsonl.
 
     Args:
         entries: List of JSON-serialisable dicts to persist.
+        vault_path: Path to the vault root.
     """
     tmp = _PENDING_PATH.with_suffix(".jsonl.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -138,12 +140,13 @@ def _resolve_transcript_path(entry: dict) -> Path | None:
     return None
 
 
-def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES) -> list[str]:
+def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES, vault_path: Path | None = None) -> list[str]:
     """Read the first n text-bearing lines from the transcript.
 
     Args:
         entry: Pending summary entry dict containing ``transcript_path``.
         n: Number of lines to extract.
+        vault_path: Path to the vault root.
 
     Returns:
         List of text lines from the transcript.
@@ -215,8 +218,12 @@ def _cmd_list() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _cmd_clear() -> None:
-    """Remove all entries from the queue after confirmation."""
+def _cmd_clear(vault_path: Path | None = None) -> None:
+    """Remove all entries from the queue after confirmation.
+
+    Args:
+        vault_path: Path to the vault root.
+    """
     entries = _read_entries()
     if not entries:
         print("Queue is already empty.")
@@ -225,7 +232,7 @@ def _cmd_clear() -> None:
     if answer != "y":
         print("Cancelled.")
         return
-    _write_entries([])
+    _write_entries([], vault_path=vault_path)
     print("Queue cleared.")
 
 
@@ -382,11 +389,12 @@ def _show_popup(stdscr, lines: list[str], title: str = "") -> int:
 # ---------------------------------------------------------------------------
 
 
-def _run_tui(stdscr) -> None:
+def _run_tui(stdscr, vault_path: Path | None = None) -> None:
     """Main curses event loop for the review TUI.
 
     Args:
         stdscr: The curses window provided by ``curses.wrapper``.
+        vault_path: Path to the vault root.
     """
     import curses
 
@@ -436,19 +444,19 @@ def _run_tui(stdscr) -> None:
         elif key in (ord("d"), ord("\n"), curses.KEY_ENTER, 10, 13):
             while True:
                 entry = entries[selected]
-                excerpt = _read_transcript_excerpt(entry)
+                excerpt = _read_transcript_excerpt(entry, vault_path=vault_path)
                 closing = _show_popup(stdscr, excerpt, title="Transcript Excerpt")
 
                 if closing == ord("y"):
                     entries[selected]["status"] = "approved"
-                    _write_entries(entries)
+                    _write_entries(entries, vault_path=vault_path)
                     status_msg = f"Entry {selected + 1} approved."
                     selected = min(selected + 1, len(entries) - 1)
                     if selected >= len(entries):
                         break
                 elif closing == ord("n"):
                     entries.pop(selected)
-                    _write_entries(entries)
+                    _write_entries(entries, vault_path=vault_path)
                     if not entries:
                         break
                     selected = min(selected, len(entries) - 1)
@@ -464,14 +472,14 @@ def _run_tui(stdscr) -> None:
         # Approve
         elif key == ord("y"):
             entries[selected]["status"] = "approved"
-            _write_entries(entries)
+            _write_entries(entries, vault_path=vault_path)
             status_msg = f"Entry {selected + 1} approved."
             selected = min(selected + 1, len(entries) - 1)
 
         # Reject (remove from queue)
         elif key == ord("n"):
             entries.pop(selected)
-            _write_entries(entries)
+            _write_entries(entries, vault_path=vault_path)
             if not entries:
                 break
             selected = min(selected, len(entries) - 1)
@@ -534,7 +542,7 @@ def main() -> None:
             return
 
         if args.clear:
-            _cmd_clear()
+            _cmd_clear(vault_path=vault_path)
             return
 
         # Auto-migrate on every startup (silent — fixes old entries in-place)
@@ -550,7 +558,7 @@ def main() -> None:
         try:
             import curses
 
-            curses.wrapper(_run_tui)
+            curses.wrapper(lambda stdscr: _run_tui(stdscr, vault_path=vault_path))
         except Exception:  # noqa: BLE001
             print(
                 "Warning: terminal does not support curses, falling back to --list mode.",

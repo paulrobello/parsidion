@@ -14,6 +14,7 @@ updates all wikilinks across the vault.
 """
 
 import argparse
+import os
 import re
 import shutil
 import struct
@@ -40,7 +41,7 @@ _DEFAULT_AI_TIMEOUT: int = 60
 # ---------------------------------------------------------------------------
 
 
-def _ai_merge_bodies(path_a: Path, path_b: Path, title: str) -> str | None:
+def _ai_merge_bodies(path_a: Path, path_b: Path, title: str, vault_path: Path) -> str | None:
     """Use claude to intelligently merge two note bodies into one.
 
     Passes file paths to Claude so it can read the notes directly, avoiding
@@ -50,6 +51,7 @@ def _ai_merge_bodies(path_a: Path, path_b: Path, title: str) -> str | None:
         path_a: Path to the primary note file.
         path_b: Path to the note being merged in.
         title: Title of the merged note (for context).
+        vault_path: Path to the vault root.
 
     Returns:
         The merged body text, or None on failure (caller should fall back
@@ -111,7 +113,7 @@ def _ai_merge_bodies(path_a: Path, path_b: Path, title: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _find_note(query: str) -> Path | None:
+def _find_note(query: str, vault_path: Path) -> Path | None:
     """Locate a vault note by absolute path or stem name.
 
     If ``query`` is an absolute path that exists, return it directly.
@@ -120,6 +122,7 @@ def _find_note(query: str) -> Path | None:
 
     Args:
         query: Absolute path string or stem name.
+        vault_path: Path to the vault root.
 
     Returns:
         Matching Path, or None if not found.
@@ -242,6 +245,7 @@ def _merge_notes(
     content_b: str,
     *,
     no_ai: bool = False,
+    vault_path: Path | None = None,
 ) -> str:
     """Produce merged note content from two vault notes.
 
@@ -260,6 +264,7 @@ def _merge_notes(
         path_b: Path to note B (used for stem/title fallback).
         content_b: Full content of note B.
         no_ai: Skip AI merge and use naive concatenation.
+        vault_path: Path to the vault root.
 
     Returns:
         Full merged note content including frontmatter and body.
@@ -306,7 +311,7 @@ def _merge_notes(
     # Try AI merge for intelligent deduplication
     merged_body: str | None = None
     if not no_ai and body_b:
-        merged_body = _ai_merge_bodies(path_a, path_b, title_a)
+        merged_body = _ai_merge_bodies(path_a, path_b, title_a, vault_path=vault_path)
         if merged_body:
             # Add a comment noting the merge source
             merged_body += f"\n\n<!-- merged from: {title_b} ({path_b.name}) -->"
@@ -328,7 +333,7 @@ def _merge_notes(
 _WIKILINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]")
 
 
-def _update_wikilinks_in_vault(old_stem: str, new_stem: str) -> int:
+def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -> int:
     """Replace all wikilinks referencing old_stem with new_stem across the vault.
 
     Only rewrites files that actually contain the old wikilink.
@@ -336,6 +341,7 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str) -> int:
     Args:
         old_stem: Stem name being replaced.
         new_stem: Stem name to use instead.
+        vault_path: Path to the vault root.
 
     Returns:
         Number of files updated.
@@ -368,6 +374,7 @@ def _print_diff_summary(
     content_a: str,
     path_b: Path,
     content_b: str,
+    vault_path: Path | None = None,
 ) -> None:
     """Print a human-readable diff summary of two notes.
 
@@ -376,6 +383,7 @@ def _print_diff_summary(
         content_a: Content of note A.
         path_b: Path to note B.
         content_b: Content of note B.
+        vault_path: Path to the vault root.
     """
     title_a = vault_common.extract_title(content_a, path_a.stem, vault_path=vault_path)
     title_b = vault_common.extract_title(content_b, path_b.stem, vault_path=vault_path)
@@ -420,7 +428,9 @@ _DEFAULT_SCAN_TOP = 50
 
 
 def _scan_duplicates(
-    threshold: float = _DEFAULT_SCAN_THRESHOLD, top: int = _DEFAULT_SCAN_TOP
+    threshold: float = _DEFAULT_SCAN_THRESHOLD,
+    top: int = _DEFAULT_SCAN_TOP,
+    vault_path: Path | None = None,
 ) -> None:
     """Scan all vault notes for near-duplicate pairs using embedding similarity.
 
@@ -430,6 +440,7 @@ def _scan_duplicates(
     Args:
         threshold: Minimum similarity score to report (0.0–1.0).
         top: Maximum number of pairs to report.
+        vault_path: Path to the vault root.
     """
     db_path = vault_common.get_embeddings_db_path(vault_path=vault_path)
     if not db_path.exists():
@@ -640,7 +651,7 @@ def main() -> None:
     try:
         # --scan mode: find near-duplicate pairs across the whole vault
         if args.scan:
-            _scan_duplicates(threshold=args.threshold, top=args.top)
+            _scan_duplicates(threshold=args.threshold, top=args.top, vault_path=vault_path)
             return
 
         # Require NOTE_A and NOTE_B when not scanning
@@ -648,12 +659,12 @@ def main() -> None:
             parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
 
         # Resolve notes
-        path_a = _find_note(args.note_a)
+        path_a = _find_note(args.note_a, vault_path)
         if path_a is None:
             print(f"Error: note not found: {args.note_a}", file=sys.stderr)
             sys.exit(1)
 
-        path_b = _find_note(args.note_b)
+        path_b = _find_note(args.note_b, vault_path)
         if path_b is None:
             print(f"Error: note not found: {args.note_b}", file=sys.stderr)
             sys.exit(1)
@@ -666,10 +677,10 @@ def main() -> None:
         content_b = path_b.read_text(encoding="utf-8")
 
         # Show diff summary
-        _print_diff_summary(path_a, content_a, path_b, content_b)
+        _print_diff_summary(path_a, content_a, path_b, content_b, vault_path=vault_path)
 
         # Build merged content
-        merged = _merge_notes(path_a, content_a, path_b, content_b, no_ai=args.no_ai)
+        merged = _merge_notes(path_a, content_a, path_b, content_b, no_ai=args.no_ai, vault_path=vault_path)
 
         if args.dry_run or not args.execute:
             print("=== Proposed merged content ===\n")
@@ -697,7 +708,7 @@ def main() -> None:
         print(f"Moved {path_b.name} to .trash/")
 
         # Update wikilinks
-        n_updated = _update_wikilinks_in_vault(path_b.stem, output_path.stem)
+        n_updated = _update_wikilinks_in_vault(path_b.stem, output_path.stem, vault_path)
         if n_updated:
             print(
                 f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"

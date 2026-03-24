@@ -383,6 +383,9 @@ def main() -> None:
             "(cached in ~/.cache/fastembed after that)."
         )
 
+    # Resolve vault path first (needed for model dimension check)
+    vault_path = vault_common.resolve_vault(explicit=args.vault)
+
     # If the model changed since the last build, incremental is unsafe —
     # existing vectors have a different dimension. Force full rebuild.
     db_path = vault_common.get_embeddings_db_path(vault=vault_path)
@@ -406,9 +409,6 @@ def main() -> None:
                     f"new={len(probe)}) — forcing full rebuild."
                 )
                 args.incremental = False
-
-    # Resolve vault path
-    vault_path = vault_common.resolve_vault(explicit=args.vault)
 
     # Replace VAULT_ROOT with vault_path for this run
     original_vault_root = vault_common.VAULT_ROOT

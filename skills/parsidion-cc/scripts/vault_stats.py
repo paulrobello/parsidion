@@ -29,6 +29,7 @@ Falls back to a plain-text walk when the DB is absent.
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -1089,8 +1090,8 @@ def run_no_db_summary(vault: Path | None = None) -> None:
 
     counts: dict[str, int] = {}
     total = 0
-    for md in vault_root.rglob("*.md"):
-        folder = md.parent.name if md.parent != vault_root else "(root)"
+    for md in vault.rglob("*.md"):
+        folder = md.parent.name if md.parent != vault else "(root)"
         counts[folder] = counts.get(folder, 0) + 1
         total += 1
 
