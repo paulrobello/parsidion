@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-03-23
+
+### Added
+- **Git diff viewer in visualizer** — browse version history for any vault note and compare any two commits with syntax-highlighted diffs
+  - `HistoryView` component — split-screen container with commit list (left) and diff viewer (right)
+  - `CommitList` component — scrollable commit list with FROM/TO badge selection; clicking FROM/TO on any commit sets the comparison range; defaults to latest vs previous commit
+  - `DiffViewer` component — three render modes: UNIFIED (single column with `+`/`-` prefixes), SPLIT (side-by-side with aligned line pairs), WORDS (inline word-level highlighting using the `diff` package); default is SPLIT
+  - `/api/note/history` route — runs `git log --follow` inside `VAULT_ROOT` and returns a commit list
+  - `/api/note/diff` route — runs `git diff` between two commits; supports `to=working` sentinel for uncommitted working-tree diffs; truncates at 5000 lines
+  - `parseDiff.ts` — client-side unified diff parser producing typed `DiffHunk[]` / `DiffLine[]` models
+  - History accessible from three entry points: HISTORY button in ReadingPane toolbar, right-click context menu on FileExplorer file items, right-click context menu on GraphCanvas nodes
+  - `historyMode` / `historyNote` / `openHistory` / `closeHistory` state added to `useVisualizerState`; previous view mode is saved and restored on close
+  - Path traversal protection (`guardPath`) and SHA validation on all new API routes
+
 ## [0.3.2] - 2026-03-23
 
 ### Added
