@@ -18,7 +18,7 @@ function buildTree(files: VaultFile[]): VaultFileTree {
   const tree: VaultFileTree = new Map()
   for (const file of files) {
     const parts = file.path.replace(/\.md$/, '').split('/')
-    const folder = parts[0] || 'Root'
+    const folder = parts.length > 1 ? parts[0] : 'Root'
     const subfolder = parts.length > 2 ? parts[1] : ''
     if (!tree.has(folder)) tree.set(folder, new Map())
     const folderMap = tree.get(folder)!
