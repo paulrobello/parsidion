@@ -75,9 +75,9 @@ def _ai_merge_bodies(path_a: Path, path_b: Path, title: str) -> str | None:
         "first heading"
     )
 
-    model = vault_common.get_config("summarizer", "merge_model", _DEFAULT_AI_MODEL)
+    model = vault_common.get_config("summarizer", "merge_model", _DEFAULT_AI_MODEL, vault_path=vault_path)
     timeout = vault_common.get_config(
-        "summarizer", "merge_timeout", _DEFAULT_AI_TIMEOUT
+        "summarizer", "merge_timeout", _DEFAULT_AI_TIMEOUT, vault_path=vault_path
     )
 
     try:
@@ -130,18 +130,18 @@ def _find_note(query: str) -> Path | None:
 
     # Relative path: try relative to vault root
     if not candidate.is_absolute():
-        vault_candidate = vault_common.VAULT_ROOT / query
+        vault_candidate = vault_path / query
         if vault_candidate.exists():
             return vault_candidate
         # Add .md if missing
         if not query.endswith(".md"):
-            vault_candidate_md = vault_common.VAULT_ROOT / (query + ".md")
+            vault_candidate_md = vault_path / (query + ".md")
             if vault_candidate_md.exists():
                 return vault_candidate_md
 
     # Stem search across all vault notes
     query_lower = query.lower().removesuffix(".md")
-    for path in vault_common.all_vault_notes():
+    for path in vault_common.all_vault_notes(vault_path=vault_path):
         if path.stem.lower() == query_lower:
             return path
     return None
@@ -264,10 +264,10 @@ def _merge_notes(
     Returns:
         Full merged note content including frontmatter and body.
     """
-    fm_a = vault_common.parse_frontmatter(content_a)
-    fm_b = vault_common.parse_frontmatter(content_b)
-    body_a = vault_common.get_body(content_a).strip()
-    body_b = vault_common.get_body(content_b).strip()
+    fm_a = vault_common.parse_frontmatter(content_a, vault_path=vault_path)
+    fm_b = vault_common.parse_frontmatter(content_b, vault_path=vault_path)
+    body_a = vault_common.get_body(content_a, vault_path=vault_path).strip()
+    body_b = vault_common.get_body(content_b, vault_path=vault_path).strip()
 
     # Tags: union, sorted
     tags_a = _parse_tags_list(fm_a)
@@ -300,8 +300,8 @@ def _merge_notes(
     merged_fm["sources"] = fm_a.get("sources", [])
     merged_fm["related"] = merged_related
 
-    title_a = vault_common.extract_title(content_a, path_a.stem)
-    title_b = vault_common.extract_title(content_b, path_b.stem)
+    title_a = vault_common.extract_title(content_a, path_a.stem, vault_path=vault_path)
+    title_b = vault_common.extract_title(content_b, path_b.stem, vault_path=vault_path)
 
     # Try AI merge for intelligent deduplication
     merged_body: str | None = None
@@ -346,7 +346,7 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str) -> int:
         re.IGNORECASE,
     )
     replacement = f"[[{new_stem}\\1]]"
-    for path in vault_common.all_vault_notes():
+    for path in vault_common.all_vault_notes(vault_path=vault_path):
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:
@@ -377,8 +377,8 @@ def _print_diff_summary(
         path_b: Path to note B.
         content_b: Content of note B.
     """
-    title_a = vault_common.extract_title(content_a, path_a.stem)
-    title_b = vault_common.extract_title(content_b, path_b.stem)
+    title_a = vault_common.extract_title(content_a, path_a.stem, vault_path=vault_path)
+    title_b = vault_common.extract_title(content_b, path_b.stem, vault_path=vault_path)
     fm_a = vault_common.parse_frontmatter(content_a)
     fm_b = vault_common.parse_frontmatter(content_b)
     tags_a = _parse_tags_list(fm_a)
@@ -431,7 +431,7 @@ def _scan_duplicates(
         threshold: Minimum similarity score to report (0.0–1.0).
         top: Maximum number of pairs to report.
     """
-    db_path = vault_common.get_embeddings_db_path()
+    db_path = vault_common.get_embeddings_db_path(vault_path=vault_path)
     if not db_path.exists():
         print(
             "No embeddings database found. Run build_embeddings.py first.",
@@ -566,6 +566,13 @@ def main() -> None:
         description="Merge two vault notes into one, or scan for near-duplicate pairs.",
     )
     parser.add_argument(
+        "--vault",
+        "-V",
+        metavar="VAULT",
+        default=None,
+        help="Use a specific vault (path or named vault).",
+    )
+    parser.add_argument(
         "note_a",
         metavar="NOTE_A",
         nargs="?",
@@ -624,6 +631,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve vault path
+    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
+    # Replace module-level VAULT_ROOT with resolved vault path
+    vault_common.VAULT_ROOT = vault_path
+
     try:
         # --scan mode: find near-duplicate pairs across the whole vault
         if args.scan:
@@ -671,7 +684,7 @@ def main() -> None:
         print(f"Merged note written to: {output_path}")
 
         # Move NOTE_B to .trash/
-        trash_dir = vault_common.VAULT_ROOT / ".trash"
+        trash_dir = vault_path / ".trash"
         trash_dir.mkdir(exist_ok=True)
         trash_dest = trash_dir / path_b.name
         # Avoid clobbering existing trash file
@@ -693,6 +706,7 @@ def main() -> None:
         # Commit
         vault_common.git_commit_vault(
             f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
+            vault_path=vault_path,
         )
 
         # Rebuild index
