@@ -342,7 +342,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
                   onClick={() => onOpenHistory(node.id)}
                   title="Version History"
                   style={{
-                    background: 'none', border: '1px solid #1a2040', borderRadius: 3,
+                    background: 'none', border: '1px solid #1e293b', borderRadius: 5,
                     color: '#888', cursor: 'pointer', padding: '2px 8px', fontSize: 10,
                     fontFamily: "'JetBrains Mono', monospace",
                   }}
