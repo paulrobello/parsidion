@@ -33,7 +33,7 @@ A new top-level `HistoryView` component replaces `ReadingPane` when history mode
 | `/api/note/history` | GET `?stem=<stem>` | Returns git log for the note file |
 | `/api/note/diff` | GET `?stem=<stem>&from=<hash>&to=<hash>` | Returns diff between two commits |
 
-Both routes shell out to git inside `VAULT_ROOT`. `to=HEAD` means the current working-tree version.
+Both routes shell out to git inside `VAULT_ROOT`. Both routes must verify the resolved file path starts with `VAULT_ROOT` before executing any git command (path traversal protection, same pattern as the existing `guardPath()` in `/api/note/route.ts`).
 
 ### State additions to `useVisualizerState`
 
@@ -44,7 +44,7 @@ openHistory: (stem: string) => void
 closeHistory: () => void
 ```
 
-`openHistory` sets both flags; `closeHistory` clears them and returns to the previous view mode (read/graph).
+`openHistory` saves the current `viewMode` into a `prevViewMode` field before setting `historyMode: true`. `closeHistory` restores `viewMode` from `prevViewMode` and clears `historyMode` and `historyNote`.
 
 ---
 
@@ -82,10 +82,10 @@ closeHistory: () => void
 - Header: "COMMITS · N total"
 - Each row: FROM/TO badge (blue/green when selected), short hash, commit message (truncated), relative timestamp
 - Click behaviour:
-  - First click on an unselected commit → replaces FROM
-  - Second click on a different commit → replaces TO
+  - Each commit row has two distinct clickable badges: **[FROM]** and **[TO]** (shown as small buttons on hover, always shown when that commit is selected)
+  - Clicking **[FROM]** on any commit sets it as the FROM reference; clicking **[TO]** sets it as TO
+  - FROM and TO cannot be the same commit — setting FROM to the current TO automatically clears TO (and vice versa)
   - Default on open: FROM = latest commit, TO = previous commit
-  - Clicking a selected commit deselects it (cycles FROM → TO → deselect)
 - Scrollable, supports any number of commits
 
 ### Diff Viewer (right panel)
@@ -127,9 +127,12 @@ Returns empty `commits: []` if the file has no git history (not an error).
 
 ### GET `/api/note/diff?stem=<stem>&from=<hash>&to=<hash>`
 
-- `from` and `to` are full or short git SHAs, or `HEAD` for current working tree.
-- Runs `git diff <from> <to> -- <filepath>` inside `VAULT_ROOT`.
+- `from` and `to` are full or short git SHAs. The special value `working` for `to` means the current on-disk file (uncommitted working tree).
+- Git commands used:
+  - Normal case (both SHAs): `git diff <from> <to> -- <filepath>`
+  - Working tree case (`to=working`): `git diff <from> -- <filepath>` (no second SHA; diffs committed state vs working tree)
 - Returns raw unified diff string; parsing into hunks happens client-side.
+- The file header lines (`--- a/...`, `+++ b/...`) are included in the raw output. The client-side parser strips them before building the `DiffHunk[]` model.
 
 Response:
 ```typescript
@@ -177,7 +180,7 @@ interface DiffHunk {
 }
 ```
 
-For WORDS mode, apply a secondary word-level diff on changed line pairs (Myers diff algorithm on word tokens).
+For WORDS mode, apply a secondary word-level diff on changed line pairs using the [`diff`](https://www.npmjs.com/package/diff) npm package (`diffWords` function). This package is already used in similar Next.js projects and provides Myers-based word diffing with no extra setup. Install with `bun add diff` + `bun add -d @types/diff`.
 
 ---
 
@@ -187,7 +190,7 @@ For WORDS mode, apply a secondary word-level diff on changed line pairs (Myers d
 |---|---|
 | File not in git history | Show "No version history found" empty state |
 | Git not available | Show "Git not available in vault" with instructions |
-| Single commit | Disable TO selection; show "only one version" message |
+| Single commit | FROM is auto-selected and shown read-only. TO selection is disabled. Show "Only one version — no diff available." The diff panel shows the full file content (no `+`/`-` lines) as a reference view. |
 | Binary or very large diff | Cap at 5000 lines with "diff truncated" notice |
 | `from === to` | Show "Select two different commits to compare" |
 | VAULT_ROOT not a git repo | API returns `{ commits: [] }`, UI shows empty state |
