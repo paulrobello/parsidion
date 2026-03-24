@@ -54,13 +54,16 @@ _CONSOLE = Console()
 # ---------------------------------------------------------------------------
 
 
-def _open_db() -> sqlite3.Connection | None:
+def _open_db(vault: Path | None = None) -> sqlite3.Connection | None:
     """Open the embeddings.db in read-only mode.
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
         An open connection, or None if the DB is absent or unreadable.
     """
-    db_path = vault_common.get_embeddings_db_path()
+    db_path = vault_common.get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
     try:
@@ -474,14 +477,15 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     _CONSOLE.print()
 
 
-def run_pending() -> None:
+def run_pending(vault: Path | None = None) -> None:
     """Print a summary of pending_summaries.jsonl queue.
 
     Shows total entries queued, breakdown by source (session vs subagent),
     projects with pending summaries, oldest pending entry timestamp, and a
     rough token estimate (100 tokens per entry as proxy).
     """
-    pending_path = vault_common.VAULT_ROOT / "pending_summaries.jsonl"
+    vault = vault or vault_common.resolve_vault()
+    pending_path = vault / "pending_summaries.jsonl"
     if not pending_path.exists():
         _CONSOLE.print("[dim]No pending_summaries.jsonl found — queue is empty.[/dim]")
         return
@@ -637,7 +641,7 @@ def run_graph(conn: sqlite3.Connection) -> None:
     _CONSOLE.print()
 
 
-def run_hooks(last_n: int = 20) -> None:
+def run_hooks(last_n: int = 20, vault: Path | None = None) -> None:
     """Print the last N events from hook_events.log.
 
     Each line is a JSON object with: hook, ts, project, duration_ms, plus
@@ -645,8 +649,10 @@ def run_hooks(last_n: int = 20) -> None:
 
     Args:
         last_n: Number of most-recent events to show.
+        vault: Optional vault path. Defaults to resolve_vault().
     """
-    log_path = vault_common.VAULT_ROOT / "hook_events.log"
+    vault = vault or vault_common.resolve_vault()
+    log_path = vault / "hook_events.log"
     if not log_path.exists():
         _CONSOLE.print("[dim]No hook_events.log found.[/dim]")
         return
@@ -695,7 +701,7 @@ def run_hooks(last_n: int = 20) -> None:
     _CONSOLE.print(t)
 
 
-def run_weekly(conn: sqlite3.Connection | None, dry_run: bool = False) -> None:
+def run_weekly(conn: sqlite3.Connection | None, dry_run: bool = False, vault: Path | None = None) -> None:
     """Generate or preview a weekly rollup note for the current ISO week.
 
     Reads all daily notes from the current week's directory, extracts
@@ -705,7 +711,9 @@ def run_weekly(conn: sqlite3.Connection | None, dry_run: bool = False) -> None:
     Args:
         conn: Open DB connection (unused currently, reserved for future use).
         dry_run: If True, print the note content without writing it.
+        vault: Optional vault path. Defaults to resolve_vault().
     """
+    vault = vault or vault_common.resolve_vault()
     from datetime import date, timedelta
 
     today = date.today()
@@ -715,7 +723,7 @@ def run_weekly(conn: sqlite3.Connection | None, dry_run: bool = False) -> None:
     sunday = monday + timedelta(days=6)
 
     month_dir = (
-        vault_common.VAULT_ROOT / "Daily" / f"{today.year:04d}-{today.month:02d}"
+        vault / "Daily" / f"{today.year:04d}-{today.month:02d}"
     )
 
     # Collect daily note paths for this week (supports both DD.md and DD-{user}.md)
@@ -726,7 +734,7 @@ def run_weekly(conn: sqlite3.Connection | None, dry_run: bool = False) -> None:
     for delta in range(7):
         day = monday + timedelta(days=delta)
         day_month_dir = (
-            vault_common.VAULT_ROOT / "Daily" / f"{day.year:04d}-{day.month:02d}"
+            vault / "Daily" / f"{day.year:04d}-{day.month:02d}"
         )
         day_prefix = f"{day.day:02d}"
         if day_month_dir.exists():
@@ -836,7 +844,7 @@ related: [{related_field}]
     )
 
 
-def run_monthly(conn: sqlite3.Connection | None, dry_run: bool = False) -> None:
+def run_monthly(conn: sqlite3.Connection | None, dry_run: bool = False, vault: Path | None = None) -> None:
     """Generate or preview a monthly rollup note for the current month.
 
     Reads all daily notes from the current month's directory, extracts
@@ -845,13 +853,15 @@ def run_monthly(conn: sqlite3.Connection | None, dry_run: bool = False) -> None:
     Args:
         conn: Open DB connection (unused currently, reserved for future use).
         dry_run: If True, print the note content without writing it.
+        vault: Optional vault path. Defaults to resolve_vault().
     """
+    vault = vault or vault_common.resolve_vault()
     from datetime import date
     import calendar
 
     today = date.today()
     month_dir = (
-        vault_common.VAULT_ROOT / "Daily" / f"{today.year:04d}-{today.month:02d}"
+        vault / "Daily" / f"{today.year:04d}-{today.month:02d}"
     )
 
     # Collect all daily note files in this month's directory (DD.md and DD-{user}.md)
@@ -961,7 +971,7 @@ related: [{related_field}]
     )
 
 
-def run_timeline(conn: sqlite3.Connection | None, days: int = 30) -> None:
+def run_timeline(conn: sqlite3.Connection | None, days: int = 30, vault: Path | None = None) -> None:
     """Print a bar chart of notes created per day for the last N days.
 
     Uses mtime from note_index. Falls back to a file walk if DB is absent.
@@ -969,6 +979,7 @@ def run_timeline(conn: sqlite3.Connection | None, days: int = 30) -> None:
     Args:
         conn: Open DB connection, or None for file-walk fallback.
         days: Number of days to display (default: 30).
+        vault: Optional vault path. Defaults to resolve_vault().
     """
     from datetime import date, timedelta
 
@@ -991,9 +1002,9 @@ def run_timeline(conn: sqlite3.Connection | None, days: int = 30) -> None:
             age_days = min(age_days, days - 1)
             day_counts[age_days] = day_counts.get(age_days, 0) + 1
     else:
-        vault_root = vault_common.VAULT_ROOT
-        if vault_root.exists():
-            for md in vault_root.rglob("*.md"):
+        vault = vault or vault_common.resolve_vault()
+        if vault.exists():
+            for md in vault.rglob("*.md"):
                 try:
                     mtime = md.stat().st_mtime
                 except OSError:
@@ -1066,14 +1077,14 @@ def run_summarizer_progress() -> None:
     _CONSOLE.print()
 
 
-def run_no_db_summary() -> None:
+def run_no_db_summary(vault: Path | None = None) -> None:
     """Print a simple file-walk based note count when DB is absent.
 
     Counts .md files per vault subfolder as a fallback.
     """
-    vault_root = vault_common.VAULT_ROOT
-    if not vault_root.exists():
-        _CONSOLE.print("[red]Vault not found at[/red] " + str(vault_root))
+    vault = vault or vault_common.resolve_vault()
+    if not vault.exists():
+        _CONSOLE.print("[red]Vault not found at[/red] " + str(vault))
         return
 
     counts: dict[str, int] = {}
@@ -1106,6 +1117,15 @@ def main() -> None:
         description="Vault analytics from the note_index database.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
+    )
+
+    # Vault selection flag
+    parser.add_argument(
+        "--vault",
+        "-V",
+        metavar="PATH|NAME",
+        default=None,
+        help="Vault path or named vault (default: ~/ClaudeVault)",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -1217,7 +1237,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    conn = _open_db()
+    # Resolve vault path
+    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
+    conn = _open_db(vault_path)
 
     # If no explicit mode chosen, default to summary
     no_mode = not (
@@ -1239,10 +1262,10 @@ def main() -> None:
 
     # Modes that don't require a DB connection
     if args.pending:
-        run_pending()
+        run_pending(vault_path)
         return
     if args.hooks is not None:
-        run_hooks(args.hooks)
+        run_hooks(args.hooks, vault_path)
         return
     if args.summarizer_progress:
         run_summarizer_progress()
@@ -1250,18 +1273,18 @@ def main() -> None:
 
     if conn is None:
         if no_mode or args.summary or args.dashboard:
-            run_no_db_summary()
+            run_no_db_summary(vault_path)
         elif args.graph:
             _CONSOLE.print(
                 "[yellow]note_index DB not found — run update_index.py first.[/yellow]"
             )
             sys.exit(1)
         elif args.timeline is not None:
-            run_timeline(None, args.timeline)
+            run_timeline(None, args.timeline, vault_path)
         elif args.weekly:
-            run_weekly(None, dry_run=args.dry_run)
+            run_weekly(None, dry_run=args.dry_run, vault=vault_path)
         elif args.monthly:
-            run_monthly(None, dry_run=args.dry_run)
+            run_monthly(None, dry_run=args.dry_run, vault=vault_path)
         else:
             _CONSOLE.print(
                 "[yellow]note_index DB not found — run update_index.py first.[/yellow]"
@@ -1287,11 +1310,11 @@ def main() -> None:
         elif args.graph:
             run_graph(conn)
         elif args.timeline is not None:
-            run_timeline(conn, args.timeline)
+            run_timeline(conn, args.timeline, vault_path)
         elif args.weekly:
-            run_weekly(conn, dry_run=args.dry_run)
+            run_weekly(conn, dry_run=args.dry_run, vault=vault_path)
         elif args.monthly:
-            run_monthly(conn, dry_run=args.dry_run)
+            run_monthly(conn, dry_run=args.dry_run, vault=vault_path)
     finally:
         conn.close()
 
