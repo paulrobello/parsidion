@@ -64,11 +64,11 @@ export function useVisualizerState(graphData: GraphData | null) {
     return map
   }, [graphData])
 
-  // Validate persisted tabs against current graph data
+  // Keep all persisted tabs — vault-only notes (not in graph.json) are still valid
   const validTabs = useMemo(() => {
     if (!graphData) return []
-    return openTabStems.filter(stem => nodeMap.has(stem))
-  }, [openTabStems, nodeMap, graphData])
+    return openTabStems
+  }, [openTabStems, graphData])
 
   const validActiveTab = useMemo(() => {
     if (activeTabStem && validTabs.includes(activeTabStem)) return activeTabStem
@@ -82,8 +82,8 @@ export function useVisualizerState(graphData: GraphData | null) {
 
   // --- Tab operations ---
   const openNote = useCallback((stem: string, newTab: boolean) => {
+    // resolvedStem: use wikilink resolution for graph notes; fall back to raw stem for vault-only notes
     const resolvedStem = stemLookup.get(stem) ?? stem
-    if (!nodeMap.has(resolvedStem)) return
 
     setOpenTabStems(prev => {
       // Already open — just switch to it
@@ -111,7 +111,7 @@ export function useVisualizerState(graphData: GraphData | null) {
       setActiveTabStem(resolvedStem)
       return [...prev, resolvedStem]
     })
-  }, [stemLookup, nodeMap, setOpenTabStems, setActiveTabStem, validActiveTab])
+  }, [stemLookup, setOpenTabStems, setActiveTabStem, validActiveTab])
 
   const closeTab = useCallback((stem: string) => {
     setOpenTabStems(prev => {
