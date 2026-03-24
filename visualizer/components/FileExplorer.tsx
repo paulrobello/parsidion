@@ -97,7 +97,23 @@ export function FileExplorer({ fileTree, activeTab, onSelectNote, onOpenHistory,
       </div>
 
       <div style={{ flex: 1, padding: '8px 0', overflowY: 'auto', overflowX: 'hidden' }}>
-        {sortedFolders.map(folder => {
+        {/* Root-level files rendered inline without a collapsible folder wrapper */}
+        {fileTree.has('Root') && (() => {
+          const subMap = fileTree.get('Root')!
+          const rootFiles = subMap.get('') ?? []
+          return rootFiles.map(file => (
+            <NoteItem
+              key={file.path}
+              file={file}
+              isActive={file.stem === activeTab}
+              indent={12}
+              onSelect={onSelectNote}
+              onContextMenu={(stem, x, y) => setContextMenu({ stem, x, y })}
+            />
+          ))
+        })()}
+
+        {sortedFolders.filter(f => f !== 'Root').map(folder => {
           const subMap = fileTree.get(folder)!
           const isExpanded = expandedSet.has(folder)
           let count = 0
