@@ -142,6 +142,7 @@ graph TD
     TabBar[TabBar.tsx]
     Search[UnifiedSearch.tsx]
     WsIndicator[WS Status Dot]
+    ViewToggle[ViewToggle.tsx]
     Sidebar[FileExplorer.tsx]
     ReadPane[ReadingPane.tsx]
     GraphCanvas[GraphCanvas.tsx]
@@ -159,6 +160,7 @@ graph TD
     Toolbar --> TabBar
     Toolbar --> Search
     Toolbar --> WsIndicator
+    Toolbar --> ViewToggle
     Page --> Sidebar
     Page --> ReadPane
     Page --> GraphCanvas
@@ -181,6 +183,7 @@ graph TD
     style TabBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style Search fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style WsIndicator fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
+    style ViewToggle fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style TempBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style NewNote fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
     style Confirm fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
@@ -442,8 +445,8 @@ The `graph.json` file is a pre-computed snapshot of vault relationships. Rebuild
 
 2. Run the graph builder:
    ```bash
-   make graph               # Exclude Daily notes (recommended)
-   make graph-with-daily    # Include Daily folder notes
+   make graph                        # Include Daily notes (default)
+   uv run scripts/build_graph.py --no-daily  # Exclude Daily folder notes
    ```
 
 ### Graph Builder Options
@@ -582,7 +585,8 @@ Body: `{ path: string, content: string }`. Returns 409 if the note already exist
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `stem` | string | Yes | Vault note stem |
+| `stem` | string | Yes* | Vault note stem (*required if `path` not provided) |
+| `path` | string | No | Vault-relative path (for disambiguation when multiple notes share the same stem) |
 
 **Response (200):** `{ commits: CommitEntry[] }` where each entry has `{ hash, shortHash, date, message }`. Returns `{ commits: [] }` when the vault has no git history (not an error).
 
@@ -590,7 +594,8 @@ Body: `{ path: string, content: string }`. Returns 409 if the note already exist
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `stem` | string | Yes | Vault note stem |
+| `stem` | string | Yes* | Vault note stem (*required if `path` not provided) |
+| `path` | string | No | Vault-relative path (for disambiguation when multiple notes share the same stem) |
 | `from` | string | Yes | Base commit SHA (4–40 hex chars) |
 | `to` | string | Yes | Target commit SHA, or `working` for the uncommitted working tree |
 
@@ -617,7 +622,8 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 |-----|------|-------------|
 | `historyMode` | `boolean` | Whether the history viewer is active |
 | `historyNote` | `string \| null` | Stem of the note whose history is being viewed |
-| `openHistory(stem)` | callback | Enters history mode; saves current `viewMode` for restoration |
+| `historyPath` | `string \| null` | Vault-relative path for disambiguation |
+| `openHistory(stem, path?)` | callback | Enters history mode; saves current `viewMode` for restoration |
 | `closeHistory()` | callback | Exits history mode; restores `viewMode` to its pre-history value |
 
 **Sidebar State**
@@ -632,8 +638,10 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 | Key | Type | Description |
 |-----|------|-------------|
 | `contentCache` | `Map<string, string>` | In-memory cache of note content (stem/path → content) |
-| `invalidateNote(stem, path)` | callback | Evict cached content when external modification detected |
-| `saveNote(stem, content, lastModified, path)` | callback | Save with optional conflict detection |
+| `invalidateNote(stem, path?)` | callback | Evict cached content when external modification detected |
+| `saveNote(stem, content, lastModified?, path?)` | callback | Save with optional conflict detection |
+| `deleteNote(stem)` | callback | Delete a note by stem |
+| `createNote(path, content)` | callback | Create a new note at a vault-relative path |
 
 **WebSocket State** (from `useVaultFiles`)
 
@@ -760,6 +768,7 @@ parsidion-cc/
 │   │   ├── Toolbar.tsx               # Top bar with hamburger + tabs + WS status dot
 │   │   ├── TabBar.tsx                # Scrollable tab strip
 │   │   ├── UnifiedSearch.tsx         # ⌘K search input + dropdown
+│   │   ├── ViewToggle.tsx            # Read/Graph mode toggle button
 │   │   ├── TemperatureBar.tsx        # Simulation energy indicator
 │   │   ├── NewNoteDialog.tsx         # Dialog for creating new vault notes
 │   │   ├── ConfirmDialog.tsx         # Reusable confirmation prompt

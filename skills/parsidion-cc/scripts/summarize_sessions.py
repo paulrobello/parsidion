@@ -398,6 +398,9 @@ Write a complete markdown vault note. Requirements:
   technology, e.g. ["[[{project}]]"]; an empty "related: []" is NEVER acceptable),
   session_id: {session_id}
 - # Title heading (3-5 descriptive words, not generic) — use a single # (H1), not ##
+- Convert ALL relative dates to absolute dates (e.g. "yesterday" → "{today} - 1 day",
+  "last week" → the actual date range, "two days ago" → the specific date) so notes
+  remain interpretable after time passes
 - ## Summary (2-3 sentences: what was learned and why it matters)
 - ## Key Learnings (3-6 bullet points, concrete and reusable)
 - ## Context (1-2 sentences: what triggered this, what project)
