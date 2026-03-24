@@ -67,7 +67,7 @@ def _write_entries(entries: list[dict]) -> None:
     """
     tmp = _PENDING_PATH.with_suffix(".jsonl.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
-        vault_common.flock_exclusive(fh)
+        vault_common.flock_exclusive(fh, vault_path=vault_path)
         for entry in entries:
             fh.write(json.dumps(entry) + "\n")
     tmp.replace(_PENDING_PATH)
@@ -179,7 +179,7 @@ def _read_transcript_excerpt(entry: dict, n: int = _EXCERPT_LINES) -> list[str]:
                         raw_content = msg.get("content", "")
                     else:
                         raw_content = obj.get("content", "")
-                    text = vault_common.extract_text_from_content(raw_content)
+                    text = vault_common.extract_text_from_content(raw_content, vault_path=vault_path)
                     if text:
                         for sub in text.splitlines():
                             lines.append(sub[:200])
@@ -502,6 +502,13 @@ def main() -> None:
         prog="vault-review",
         description="Review pending sessions in pending_summaries.jsonl.",
     )
+    parser.add_argument(
+        "--vault",
+        "-V",
+        metavar="VAULT",
+        default=None,
+        help="Use a specific vault (path or named vault).",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--list",
@@ -515,6 +522,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve vault path
+    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
+    # Replace module-level VAULT_ROOT with resolved vault path
+    vault_common.VAULT_ROOT = vault_path
+
     try:
         if args.list:
             _cmd_list()
@@ -525,7 +538,7 @@ def main() -> None:
             return
 
         # Auto-migrate on every startup (silent — fixes old entries in-place)
-        vault_common.migrate_pending_paths(dry_run=False)
+        vault_common.migrate_pending_paths(dry_run=False, vault_path=vault_path)
 
         # Check for pending sessions before attempting curses
         entries = _read_entries()
