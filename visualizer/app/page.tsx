@@ -112,7 +112,7 @@ export default function Home() {
     return {
       id: state.activeTab,
       title: state.activeTab,
-      type: vf.noteType ?? 'daily',
+      type: vf.noteType ?? 'pattern',
       folder: parts[0] ?? '',
       path: vf.path,
       tags: [],
