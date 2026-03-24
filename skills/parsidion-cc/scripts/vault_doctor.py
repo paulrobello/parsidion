@@ -92,7 +92,6 @@ DEFAULT_MODEL: str = vault_common.get_config(
     "defaults", "haiku_model", "claude-haiku-4-5-20251001"
 )
 AI_TIMEOUT = 120  # seconds
-STATE_FILE = vault_common.VAULT_ROOT / "doctor_state.json"
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
 STALE_COMMIT_MINUTES = 15  # auto-commit uncommitted files older than this
 PREFIX_CLUSTER_MIN = (
@@ -136,26 +135,37 @@ class Issue:
 # "skipped"      — only non-repairable issues; skip indefinitely (manual fix needed)
 # ---------------------------------------------------------------------------
 
+# Module-level vault path, set by main() after argument parsing
+_vault_path: Path | None = None
+
+
+def _get_state_file(vault_path: Path) -> Path:
+    """Return the state file path for the given vault."""
+    return vault_path / "doctor_state.json"
+
 
 def _rel(path: Path) -> str:
-    """Return path relative to VAULT_ROOT as a string key."""
-    return str(path.relative_to(vault_common.VAULT_ROOT))
+    """Return path relative to vault root as a string key."""
+    if _vault_path is None:
+        raise RuntimeError("Vault path not initialized - call main() first")
+    return str(path.relative_to(_vault_path))
 
 
-def load_state() -> dict:
+def load_state(vault_path: Path) -> dict:
     """Load doctor_state.json, returning empty structure if missing/corrupt."""
     try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        return json.loads(_get_state_file(vault_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {"last_run": None, "notes": {}}
 
 
-def save_state(state: dict) -> None:
+def save_state(state: dict, vault_path: Path) -> None:
     """Write doctor_state.json atomically."""
     state["last_run"] = datetime.now().isoformat(timespec="seconds")
-    tmp = STATE_FILE.with_suffix(".json.tmp")
+    state_file = _get_state_file(vault_path)
+    tmp = state_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    tmp.replace(STATE_FILE)
+    tmp.replace(state_file)
 
 
 def should_skip(key: str, state: dict) -> bool:
@@ -187,22 +197,24 @@ def is_process_running(pid: int) -> bool:
         return True  # process exists; we lack permission to signal it
 
 
-def _write_pid(state: dict) -> None:
+def _write_pid(state: dict, vault_path: Path) -> None:
     """Write *state* (including pid) to the state file immediately."""
-    tmp = STATE_FILE.with_suffix(".json.tmp")
+    state_file = _get_state_file(vault_path)
+    tmp = state_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    tmp.replace(STATE_FILE)
+    tmp.replace(state_file)
 
 
-def _release_pid() -> None:
+def _release_pid(vault_path: Path) -> None:
     """Clear our pid from the state file at process exit."""
     try:
-        current = load_state()
+        current = load_state(vault_path)
         if current.get("pid") == os.getpid():
             current.pop("pid", None)
-            tmp = STATE_FILE.with_suffix(".json.tmp")
+            state_file = _get_state_file(vault_path)
+            tmp = state_file.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(current, indent=2), encoding="utf-8")
-            tmp.replace(STATE_FILE)
+            tmp.replace(state_file)
     except Exception:  # noqa: BLE001
         pass  # best-effort cleanup
 
@@ -212,21 +224,23 @@ def _release_pid() -> None:
 # ---------------------------------------------------------------------------
 
 
-def commit_stale_files(dry_run: bool = False) -> list[Path]:
+def commit_stale_files(dry_run: bool = False, vault_path: Path | None = None) -> list[Path]:
     """Stage and commit uncommitted vault files whose mtime is older than STALE_COMMIT_MINUTES.
 
     Skips deleted files (no mtime to check) and respects the git.auto_commit
     config flag.  Returns the list of paths that were (or would be) committed.
     Does nothing when the vault has no .git directory.
     """
-    git_marker = vault_common.VAULT_ROOT / ".git"
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
+    git_marker = vault_path / ".git"
     if not (git_marker.is_dir() or git_marker.is_file()):
         return []
 
     try:
         result = subprocess.run(
             ["git", "status", "--porcelain", "-u"],
-            cwd=str(vault_common.VAULT_ROOT),
+            cwd=str(vault_path),
             capture_output=True,
             text=True,
             timeout=10,
@@ -251,7 +265,7 @@ def commit_stale_files(dry_run: bool = False) -> list[Path]:
         # Handle renames: "old -> new"
         if " -> " in filepath_part:
             filepath_part = filepath_part.split(" -> ", 1)[1]
-        path = vault_common.VAULT_ROOT / filepath_part.strip()
+        path = vault_path / filepath_part.strip()
         try:
             if path.stat().st_mtime <= cutoff:
                 stale.append(path)
@@ -267,21 +281,24 @@ def commit_stale_files(dry_run: bool = False) -> list[Path]:
     committed = vault_common.git_commit_vault(
         f"chore(vault): auto-commit {len(stale)} stale file(s) via vault_doctor",
         paths=stale,
+        vault=vault_path,
     )
     return stale if committed else []
 
 
-def dedup_related_links(dry_run: bool = False) -> int:
+def dedup_related_links(dry_run: bool = False, vault_path: Path | None = None) -> int:
     """Remove duplicate wikilinks from the ``related`` frontmatter field.
 
     Scans all vault notes and rewrites any ``related:`` line that contains
     duplicate entries.  Returns the number of notes fixed.
     """
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
     fixed = 0
     related_re = re.compile(r"^(related:\s*)(\[.*?\])\s*$", re.MULTILINE)
     entry_re = re.compile(r'"(\[\[[^\]]+\]\])"')
 
-    for note_path in vault_common.all_vault_notes():
+    for note_path in vault_common.all_vault_notes(vault_path):
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -296,7 +313,7 @@ def dedup_related_links(dry_run: bool = False) -> int:
             continue
         if dry_run:
             dropped = len(entries) - len(deduped)
-            rel = note_path.relative_to(vault_common.VAULT_ROOT)
+            rel = note_path.relative_to(vault_path)
             print(f"  {rel}: {dropped} duplicate(s)")
             fixed += 1
             continue
@@ -312,6 +329,7 @@ def dedup_related_links(dry_run: bool = False) -> int:
     if fixed and not dry_run:
         vault_common.git_commit_vault(
             f"chore(vault): deduplicate related links in {fixed} note(s)",
+            vault=vault_path,
         )
     return fixed
 
@@ -331,6 +349,7 @@ def build_note_map(notes: list[Path]) -> dict[str, list[Path]]:
 
 def find_prefix_clusters(
     all_notes: list[Path],
+    vault_path: Path,
 ) -> list[tuple[Path, str, list[Path], Path | None]]:
     """Find groups of flat notes that should be reorganised into a subfolder.
 
@@ -356,7 +375,7 @@ def find_prefix_clusters(
     """
     by_folder: dict[Path, list[Path]] = {}
     for note in all_notes:
-        rel = note.relative_to(vault_common.VAULT_ROOT)
+        rel = note.relative_to(vault_path)
         parts = rel.parts
         if len(parts) != 2:
             continue
@@ -539,7 +558,7 @@ def fix_prefix_cluster(
             old_path.rename(new_path)
         except FileNotFoundError:
             print(
-                f"  ⚠ skipped (not found): {old_path.relative_to(vault_common.VAULT_ROOT)}"
+                f"  ⚠ skipped (not found): {old_path.relative_to(_vault_path if _vault_path else vault_common.VAULT_ROOT)}"
             )
             failed_moves.append((old_path, new_path))
     # Remove failed moves so wikilink patching doesn't reference nonexistent files
@@ -586,7 +605,7 @@ def find_subfolder_candidates(
         (prefix, [note_paths]) tuples — one per qualifying prefix group.
     """
     by_folder: dict[Path, list[Path]] = {}
-    for note in vault_common.all_vault_notes():
+    for note in vault_common.all_vault_notes(vault_root):
         rel = note.relative_to(vault_root)
         parts = rel.parts
         # Only flat notes (depth 2: folder/note.md) — skip subfolders and root
@@ -673,7 +692,7 @@ def run_migrate_subfolders(vault_root: Path, dry_run: bool = True) -> None:
         return
 
     # --- Execute migrations ---
-    all_notes = list(vault_common.all_vault_notes())
+    all_notes = list(vault_common.all_vault_notes(vault_root))
     total_moved = 0
     for folder_rel, groups in sorted(candidates.items()):
         folder = vault_root / folder_rel
@@ -688,6 +707,7 @@ def run_migrate_subfolders(vault_root: Path, dry_run: bool = True) -> None:
     if total_moved:
         vault_common.git_commit_vault(
             f"refactor(vault): migrate {total_moved} note(s) into prefix subfolders via vault_doctor --migrate-subfolders",
+            vault=vault_root,
         )
         print(f"\nMoved {total_moved} note(s). Running update_index.py…")
         update_index_script = Path(__file__).parent / "update_index.py"
@@ -742,7 +762,7 @@ def resolve_wikilink(raw_link: str, note_map: dict[str, list[Path]]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
+def check_note(path: Path, note_map: dict[str, list[Path]], vault_path: Path) -> list[Issue]:
     """Return a list of Issues found in *path*."""
     issues: list[Issue] = []
 
@@ -751,7 +771,7 @@ def check_note(path: Path, note_map: dict[str, list[Path]]) -> list[Issue]:
     except OSError as exc:
         return [Issue(path, "error", "READ_ERROR", str(exc))]
 
-    rel = path.relative_to(vault_common.VAULT_ROOT)
+    rel = path.relative_to(vault_path)
 
     # Flat daily note: Daily/YYYY-MM-DD.md should be Daily/YYYY-MM/DD.md
     parts = rel.parts
@@ -1130,14 +1150,17 @@ def repair_note(
     issues: list[Issue],
     model: str = DEFAULT_MODEL,
     timeout: int = AI_TIMEOUT,
+    vault_path: Path | None = None,
 ) -> tuple[str | None, str]:
     """Call Claude *model* to fix *issues* in *path*.
 
     Returns (fixed_content_or_None, status) where status is one of
     "fixed", "failed", or "timeout".
     """
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
     content = path.read_text(encoding="utf-8")
-    rel = path.relative_to(vault_common.VAULT_ROOT)
+    rel = path.relative_to(vault_path)
     issue_lines = "\n".join(
         f"  - [{i.severity.upper()}] {i.code}: {i.message}" for i in issues
     )
@@ -1215,10 +1238,13 @@ def _repair_one(
     timeout: int = AI_TIMEOUT,
     note_map: dict[str, list[Path]] | None = None,
     fix_headings: bool = True,
+    vault_path: Path | None = None,
 ) -> bool:
     """Repair one note, update state under *lock*, return True on success."""
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
     key = _rel(note_path)
-    rel = note_path.relative_to(vault_common.VAULT_ROOT)
+    rel = note_path.relative_to(vault_path)
     repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
     broken = [i for i in repairable if i.code == "BROKEN_WIKILINK"]
     heading_issues = [i for i in repairable if i.code == "HEADING_MISMATCH"]
@@ -1517,12 +1543,14 @@ def _replace_tag_in_note(path: Path, old_tag: str, new_tag: str) -> bool:
     return True
 
 
-def _update_graph_json_tags(merges: list[tuple[str, str, str]]) -> int:
+def _update_graph_json_tags(merges: list[tuple[str, str, str]], vault_path: Path | None = None) -> int:
     """Update graph.json to replace merged-away tags with their canonical form.
 
     Returns the number of substitutions made.
     """
-    graph_path = vault_common.VAULT_ROOT / ".obsidian" / "graph.json"
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
+    graph_path = vault_path / ".obsidian" / "graph.json"
     if not graph_path.is_file():
         return 0
 
@@ -1558,12 +1586,15 @@ def _update_graph_json_tags(merges: list[tuple[str, str, str]]) -> int:
 def _normalize_underscores_in_frontmatter(
     notes: list[Path],
     dry_run: bool = True,
+    vault_path: Path | None = None,
 ) -> int:
     """Convert underscores to hyphens in tags and project frontmatter fields.
 
     Handles all YAML tag formats (inline, quoted inline, block sequence) and
     the scalar ``project`` field.  Returns the number of notes modified.
     """
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
     # Regex for project field: project: some_value
     project_re = re.compile(r"^(project:\s*)(.+)$", re.MULTILINE)
 
@@ -1596,7 +1627,7 @@ def _normalize_underscores_in_frontmatter(
 
     print(f"\nFound {len(found)} note(s) with underscores in tags/project:\n")
     for note, issues in found[:20]:
-        rel = note.relative_to(vault_common.VAULT_ROOT)
+        rel = note.relative_to(vault_path)
         print(f"  {rel}")
         for issue in issues:
             print(f"    {issue}")
@@ -1663,7 +1694,7 @@ def _normalize_underscores_in_frontmatter(
     return modified
 
 
-def run_fix_tags(dry_run: bool = True) -> None:
+def run_fix_tags(dry_run: bool = True, vault_path: Path | None = None) -> None:
     """Detect and merge duplicate tags across the vault.
 
     Finds duplicate tag pairs (plural/singular, hyphen/underscore,
@@ -1672,11 +1703,14 @@ def run_fix_tags(dry_run: bool = True) -> None:
 
     Args:
         dry_run: When True, only report — do not modify any files.
+        vault_path: Vault root path (uses resolver if None).
     """
-    all_notes = list(vault_common.all_vault_notes())
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
+    all_notes = list(vault_common.all_vault_notes(vault_path))
 
     # Step 1: Normalize underscores → hyphens in tags and project fields
-    underscore_fixed = _normalize_underscores_in_frontmatter(all_notes, dry_run=dry_run)
+    underscore_fixed = _normalize_underscores_in_frontmatter(all_notes, dry_run=dry_run, vault_path=vault_path)
 
     # Step 2: Detect and merge duplicate tag pairs
     tag_counts = _collect_all_tags(all_notes)
@@ -1718,7 +1752,7 @@ def run_fix_tags(dry_run: bool = True) -> None:
                 print(f"  Merged '{away}' → '{keep}' in {count} note(s)")
 
         # Update graph.json
-        graph_subs = _update_graph_json_tags(duplicates)
+        graph_subs = _update_graph_json_tags(duplicates, vault_path=vault_path)
         if graph_subs:
             print(f"  Updated {graph_subs} graph.json color group(s)")
     elif dry_run:
@@ -1732,6 +1766,7 @@ def run_fix_tags(dry_run: bool = True) -> None:
             msg_parts.append(f"merge {len(duplicates)} duplicate tag pair(s)")
         vault_common.git_commit_vault(
             f"refactor(vault): {', '.join(msg_parts)}",
+            vault=vault_path,
         )
         print(f"\nDone: {total_modified} note(s) modified.")
         print("Run update_index.py to rebuild the vault index.")
@@ -1746,6 +1781,7 @@ def run_fix_tags(dry_run: bool = True) -> None:
 
 def _find_redundant_prefixes(
     all_notes: list[Path],
+    vault_path: Path,
 ) -> list[tuple[Path, Path]]:
     """Find notes inside subfolders whose filename redundantly starts with the subfolder name.
 
@@ -1755,10 +1791,9 @@ def _find_redundant_prefixes(
 
     Returns list of (old_path, new_path) pairs.
     """
-    vault = vault_common.VAULT_ROOT
     pairs: list[tuple[Path, Path]] = []
     for note in all_notes:
-        rel = note.relative_to(vault)
+        rel = note.relative_to(vault_path)
         parts = rel.parts
         if len(parts) != 3:  # folder/subfolder/note.md
             continue
@@ -1774,16 +1809,19 @@ def _find_redundant_prefixes(
     return pairs
 
 
-def run_strip_prefixes(dry_run: bool = True) -> None:
+def run_strip_prefixes(dry_run: bool = True, vault_path: Path | None = None) -> None:
     """Strip redundant subfolder prefixes from note filenames.
 
     Renames files and updates all wikilinks vault-wide.
 
     Args:
         dry_run: When True, only report — do not modify any files.
+        vault_path: Vault root path (uses resolver if None).
     """
-    all_notes = list(vault_common.all_vault_notes())
-    pairs = _find_redundant_prefixes(all_notes)
+    if vault_path is None:
+        vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
+    all_notes = list(vault_common.all_vault_notes(vault_path))
+    pairs = _find_redundant_prefixes(all_notes, vault_path)
 
     if not pairs:
         print("No redundant prefixes found.")
@@ -1792,7 +1830,7 @@ def run_strip_prefixes(dry_run: bool = True) -> None:
     # Group by subfolder for display
     by_folder: dict[str, list[tuple[Path, Path]]] = {}
     for old, new in pairs:
-        folder_key = str(old.parent.relative_to(vault_common.VAULT_ROOT))
+        folder_key = str(old.parent.relative_to(vault_path))
         by_folder.setdefault(folder_key, []).append((old, new))
 
     print(f"\nFound {len(pairs)} note(s) with redundant subfolder prefix:\n")
@@ -1817,7 +1855,7 @@ def run_strip_prefixes(dry_run: bool = True) -> None:
 
     # Patch wikilinks vault-wide (including in the renamed files)
     patched_notes = 0
-    current_notes = list(vault_common.all_vault_notes())
+    current_notes = list(vault_common.all_vault_notes(vault_path))
     for note in current_notes:
         try:
             content = note.read_text(encoding="utf-8")
@@ -1837,6 +1875,7 @@ def run_strip_prefixes(dry_run: bool = True) -> None:
 
     vault_common.git_commit_vault(
         f"refactor(vault): strip redundant subfolder prefix from {len(pairs)} note(s)",
+        vault=vault_path,
     )
     print(
         f"Renamed {len(pairs)} file(s), patched wikilinks in {patched_notes} note(s)."
@@ -2005,6 +2044,14 @@ def main() -> None:
         help="Specific notes to check (default: all vault notes)",
     )
     parser.add_argument(
+        "--vault",
+        "-V",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Path to vault root (default: ~/ClaudeVault or VAULT_ROOT env)",
+    )
+    parser.add_argument(
         "--fix-frontmatter",
         action="store_true",
         help="Apply Claude-suggested frontmatter repairs (writes files)",
@@ -2138,8 +2185,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve vault path
+    global _vault_path
+    _vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
     # Load persistent state
-    state = load_state() if not args.no_state else {"last_run": None, "notes": {}}
+    state = load_state(_vault_path) if not args.no_state else {"last_run": None, "notes": {}}
 
     # Singleton guard — only one doctor may run at a time
     existing_pid = state.get("pid")
@@ -2154,8 +2205,13 @@ def main() -> None:
         )
         sys.exit(1)
     state["pid"] = os.getpid()
-    _write_pid(state)  # claim the lock immediately
-    atexit.register(_release_pid)  # release on any exit path
+    _write_pid(state, _vault_path)  # claim the lock immediately
+
+    def _release_pid_wrapper() -> None:
+        if _vault_path is not None:
+            _release_pid(_vault_path)
+
+    atexit.register(_release_pid_wrapper)  # release on any exit path
 
     # --fix-all implies all fix flags + execute
     if args.fix_all:
@@ -2169,21 +2225,21 @@ def main() -> None:
     # ── --fix-tags mode ────────────────────────────────────────────────────
     if args.fix_tags:
         dry = not args.execute
-        run_fix_tags(dry_run=dry)
+        run_fix_tags(dry_run=dry, vault_path=_vault_path)
         if not args.fix_all:
             return
 
     # ── --strip-prefixes mode ──────────────────────────────────────────────
     if args.strip_prefixes:
         dry = not args.execute
-        run_strip_prefixes(dry_run=dry)
+        run_strip_prefixes(dry_run=dry, vault_path=_vault_path)
         if not args.fix_all:
             return
 
     # ── --migrate-subfolders mode ──────────────────────────────────────────
     if args.migrate_subfolders:
         dry = not args.execute
-        run_migrate_subfolders(vault_common.VAULT_ROOT, dry_run=dry)
+        run_migrate_subfolders(_vault_path, dry_run=dry)
         if not args.fix_all:
             return
 
@@ -2191,13 +2247,13 @@ def main() -> None:
     if args.migrate_daily_notes:
         dry = not args.execute
         run_migrate_daily_notes(
-            vault_common.VAULT_ROOT, dry_run=dry, username=args.daily_username
+            _vault_path, dry_run=dry, username=args.daily_username
         )
         if not args.fix_all:
             return
 
     # Auto-fix legacy pending paths (silent when nothing to fix)
-    fixed_paths = vault_common.migrate_pending_paths(dry_run=args.dry_run)
+    fixed_paths = vault_common.migrate_pending_paths(dry_run=args.dry_run, vault=_vault_path)
     if fixed_paths:
         action = "Would fix" if args.dry_run else "Fixed"
         print(
@@ -2205,15 +2261,15 @@ def main() -> None:
         )
 
     # Auto-deduplicate related wikilinks (silent when nothing to fix)
-    deduped = dedup_related_links(dry_run=args.dry_run)
+    deduped = dedup_related_links(dry_run=args.dry_run, vault_path=_vault_path)
     if deduped:
         action = "Would deduplicate" if args.dry_run else "Deduplicated"
         print(f"{action} related links in {deduped} note(s).\n")
 
     # Auto-commit uncommitted vault files older than STALE_COMMIT_MINUTES
-    stale = commit_stale_files(dry_run=args.dry_run)
+    stale = commit_stale_files(dry_run=args.dry_run, vault_path=_vault_path)
     if stale:
-        rel_stale = [str(p.relative_to(vault_common.VAULT_ROOT)) for p in stale]
+        rel_stale = [str(p.relative_to(_vault_path)) for p in stale]
         if args.dry_run:
             print(
                 f"[dry-run] Would commit {len(stale)} stale file(s) "
@@ -2234,12 +2290,12 @@ def main() -> None:
         target_notes = [Path(n).resolve() for n in args.notes]
         explicit = True
     else:
-        target_notes = list(vault_common.all_vault_notes())
+        target_notes = list(vault_common.all_vault_notes(_vault_path))
         explicit = False
 
     # Always skip the auto-generated vault index and per-folder MANIFEST files —
     # both are rebuilt by update_index.py and should never be doctor-repaired.
-    vault_claude_md = vault_common.VAULT_ROOT / "CLAUDE.md"
+    vault_claude_md = _vault_path / "CLAUDE.md"
     target_notes = [
         p for p in target_notes if p != vault_claude_md and p.name != "MANIFEST.md"
     ]
@@ -2253,11 +2309,11 @@ def main() -> None:
         skipped_by_state = 0
 
     # Build note map once for wikilink resolution
-    all_notes = list(vault_common.all_vault_notes())
+    all_notes = list(vault_common.all_vault_notes(_vault_path))
     note_map = build_note_map(all_notes)
 
     # ── Prefix cluster detection and fixing ──────────────────────────────────
-    clusters = find_prefix_clusters(all_notes)
+    clusters = find_prefix_clusters(all_notes, _vault_path)
     if clusters and not args.dry_run:
         # Filter out generic-word false positives using Claude
         clusters = _filter_clusters_with_claude(
@@ -2271,11 +2327,11 @@ def main() -> None:
             f"({total_cluster_notes} note(s) to reorganize):\n"
         )
         for cluster_folder, prefix, cluster_notes, base_note in clusters:
-            folder_rel = cluster_folder.relative_to(vault_common.VAULT_ROOT)
+            folder_rel = cluster_folder.relative_to(_vault_path)
             kind = "exact-stem" if base_note is not None else "first-word"
             print(f"  {folder_rel}/{prefix}/  ({len(cluster_notes)} notes, {kind})")
             for note in sorted(cluster_notes):
-                note_rel = note.relative_to(vault_common.VAULT_ROOT)
+                note_rel = note.relative_to(_vault_path)
                 if note is base_note:
                     new_name = note.name  # base note keeps its filename
                 elif note.stem.startswith(f"{prefix}-"):
@@ -2292,17 +2348,18 @@ def main() -> None:
                     cluster_folder, prefix, cluster_notes, all_notes, base_note
                 )
                 for old_path, new_path in moves:
-                    old_rel = old_path.relative_to(vault_common.VAULT_ROOT)
-                    new_rel = new_path.relative_to(vault_common.VAULT_ROOT)
+                    old_rel = old_path.relative_to(_vault_path)
+                    new_rel = new_path.relative_to(_vault_path)
                     print(f"  {old_rel}  →  {new_rel}")
                     cluster_repaired += 1
             if cluster_repaired:
                 vault_common.git_commit_vault(
                     f"refactor(vault): reorganize {cluster_repaired} note(s) into prefix subfolders",
+                    vault=_vault_path,
                 )
                 print()
                 # Refresh after moves
-                all_notes = list(vault_common.all_vault_notes())
+                all_notes = list(vault_common.all_vault_notes(_vault_path))
                 note_map = build_note_map(all_notes)
                 all_filtered = [p for p in all_notes if p != vault_claude_md]
                 if not explicit and not args.no_state:
@@ -2323,7 +2380,7 @@ def main() -> None:
     # Scan — also record clean notes in state
     issues_by_note: dict[Path, list[Issue]] = {}
     for note in target_notes:
-        note_issues = check_note(note, note_map)
+        note_issues = check_note(note, note_map, _vault_path)
         if args.errors_only:
             note_issues = [i for i in note_issues if i.severity == "error"]
         key = _rel(note)
@@ -2340,7 +2397,7 @@ def main() -> None:
     if not issues_by_note:
         print("✓ No issues found.")
         if not args.dry_run:
-            save_state(state)
+            save_state(state, _vault_path)
         return
 
     # Summarise
@@ -2356,7 +2413,7 @@ def main() -> None:
     )
 
     for note_path, note_issues in sorted(issues_by_note.items()):
-        rel = note_path.relative_to(vault_common.VAULT_ROOT)
+        rel = note_path.relative_to(_vault_path)
         print(f"  {rel}")
         for issue in note_issues:
             icon = "✗" if issue.severity == "error" else "⚠"
@@ -2386,7 +2443,7 @@ def main() -> None:
 
     if not repair_candidates:
         print("No repairable issues (flat daily notes require manual fixes).")
-        save_state(state)
+        save_state(state, _vault_path)
         return
 
     if not args.fix_frontmatter:
@@ -2394,7 +2451,7 @@ def main() -> None:
             f"{len(repair_candidates)} note(s) have repairable issues.\n"
             f"Run with --fix-frontmatter to repair them via Claude ({args.model})."
         )
-        save_state(state)
+        save_state(state, _vault_path)
         return
 
     # Apply repairs
@@ -2421,6 +2478,7 @@ def main() -> None:
                 args.timeout,
                 note_map,
                 args.fix_headings,
+                _vault_path,
             ): note_path
             for note_path, note_issues in batch
         }
@@ -2436,7 +2494,7 @@ def main() -> None:
             else:
                 failed += 1
 
-    save_state(state)
+    save_state(state, _vault_path)
     leftover = len(repair_candidates) - limit
     print(
         f"\nDone: {repaired} repaired, {failed} failed, {leftover} not yet processed."
