@@ -1,10 +1,10 @@
+// app/api/graph/rebuild/route.ts
 import { NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import path from 'path'
+import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 
 export async function POST() {
-  // build_graph.py lives at {repo_root}/scripts/build_graph.py
-  // The visualizer runs from {repo_root}/visualizer/, so repo root is one level up
   const repoRoot = path.join(process.cwd(), '..')
   const scriptPath = path.join(repoRoot, 'scripts', 'build_graph.py')
 
@@ -19,9 +19,13 @@ export async function POST() {
 
     proc.on('close', code => {
       if (code === 0) {
+        vaultBroadcast.emit('graph:rebuilt')
         resolve(NextResponse.json({ ok: true }))
       } else {
-        resolve(NextResponse.json({ error: `build_graph.py exited ${code}`, detail: stderr }, { status: 500 }))
+        resolve(NextResponse.json(
+          { error: `build_graph.py exited ${code}`, detail: stderr },
+          { status: 500 }
+        ))
       }
     })
 
