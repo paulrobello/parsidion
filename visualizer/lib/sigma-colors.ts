@@ -37,12 +37,14 @@ export type NodeSizeMode = 'uniform' | 'incoming_links' | 'betweenness' | 'recen
 export function getSemanticEdgeColor(
   weight: number,
   kind: 'wiki' | 'semantic',
-  mode: EdgeColorMode
+  mode: EdgeColorMode,
+  threshold = 0.7
 ): string {
   if (kind === 'wiki') return 'rgba(123,97,255,0.35)'
   if (mode === 'binary') return `rgba(150,150,160,${Math.min(0.45, weight * 0.5)})`
-  // gradient: blue (220°) → red (0°) for weight in [0.7, 1.0], as hex for WebGL
-  const t = Math.max(0, Math.min(1, (weight - 0.7) / 0.3))
+  // gradient: blue (220°) → red (0°) mapped over [threshold, 1.0], as hex for WebGL
+  const range = Math.max(0.01, 1 - threshold)
+  const t = Math.max(0, Math.min(1, (weight - threshold) / range))
   const hue = 220 * (1 - t)
   return hslToHex(hue, 80, 55)
 }

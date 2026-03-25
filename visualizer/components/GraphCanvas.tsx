@@ -374,12 +374,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       const kind = graph.getEdgeAttribute(e, 'kind') as 'wiki' | 'semantic'
       if (kind === 'wiki') return
       const baseWeight = graph.getEdgeAttribute(e, 'baseWeight') as number
-      const col = getSemanticEdgeColor(baseWeight, kind, edgeColorMode)
+      const col = getSemanticEdgeColor(baseWeight, kind, edgeColorMode, thresholdRef.current)
       graph.setEdgeAttribute(e, 'color', col)
       graph.setEdgeAttribute(e, 'originalColor', col)
     })
     sigma.refresh()
-  }, [edgeColorMode])
+  }, [edgeColorMode, threshold])
 
   useEffect(() => {
     isRunningRef.current = isLayoutRunning
@@ -503,7 +503,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
       for (const edge of edges) {
         if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-        const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current)
+        const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current, thresholdRef.current)
         try {
           graph.addEdge(edge.s, edge.t, {
             weight: edge.w * ewi, baseWeight: edge.w, color: col,
