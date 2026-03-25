@@ -204,7 +204,7 @@ export default function Home() {
   const neighborhoodCenter = state.graphScope === 'local' ? state.activeTab : null
 
   return (
-    <main style={{
+    <main suppressHydrationWarning style={{
       position: 'fixed', inset: 0,
       background: 'radial-gradient(ellipse at 50% 50%, #0C0F1E 0%, #060608 70%)',
       display: 'flex', flexDirection: 'column',
