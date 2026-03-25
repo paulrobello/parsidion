@@ -776,7 +776,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     const edges = filterEdges(data.edges, graphSource, threshold)
     for (const edge of edges) {
       if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-      const col = edge.kind === 'wiki' ? 'rgba(123,97,255,0.35)' : `rgba(150,150,160,${Math.min(0.45, edge.w * 0.5)})`
+      const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current)
       try {
         graph.addEdge(edge.s, edge.t, {
           weight: edge.w * ewi, baseWeight: edge.w, color: col,
