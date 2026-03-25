@@ -51,6 +51,23 @@ interface Props {
 // At slowDown=5 → ~6s
 const COOL_FACTOR = 0.002
 
+const RECENCY_SIZE_MIN = 2
+const RECENCY_SIZE_MAX = 12
+
+/** Normalize node sizes by recency across a set of mtimes so the full range is always used. */
+function buildRecencySizeMap(mtimes: { id: string; mtime: number }[]): Map<string, number> {
+  if (mtimes.length === 0) return new Map()
+  const now = Date.now() / 1000
+  const ages = mtimes.map(n => now - n.mtime)
+  const minAge = Math.min(...ages)
+  const maxAge = Math.max(...ages)
+  const range = Math.max(0.001, maxAge - minAge)
+  return new Map(mtimes.map((n, i) => {
+    const t = (ages[i] - minAge) / range // 0 = newest, 1 = oldest
+    return [n.id, RECENCY_SIZE_MIN + (1 - t) * (RECENCY_SIZE_MAX - RECENCY_SIZE_MIN)]
+  }))
+}
+
 function pruneEdges(edges: GraphEdge[], k: number): GraphEdge[] {
   const perNode = new Map<string, GraphEdge[]>()
   for (const e of edges) {
@@ -346,7 +363,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     // Skip while betweenness is still computing — the computation effect will re-trigger this
     if (nodeSizeMode === 'betweenness' && nodeSizeMap === null) return
     const nodeDataMap = new Map(d.nodes.map(n => [n.id, n]))
-    ;(graph.nodes() as string[]).forEach((nodeId: string) => {
+    const graphNodeIds = graph.nodes() as string[]
+    const recencyMap = nodeSizeMode === 'recency'
+      ? buildRecencySizeMap(graphNodeIds.map(id => ({ id, mtime: nodeDataMap.get(id)?.mtime ?? 0 })))
+      : null
+    graphNodeIds.forEach((nodeId: string) => {
       const nd = nodeDataMap.get(nodeId)
       if (!nd) return
       let size: number
@@ -355,8 +376,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       } else if (nodeSizeMode === 'betweenness') {
         size = nodeSizeMap?.get(nodeId) ?? getNodeSize(nd.incoming_links)
       } else if (nodeSizeMode === 'recency') {
-        const ageDays = (Date.now() / 1000 - nd.mtime) / 86400
-        size = Math.max(2, 10 - Math.log(ageDays + 1) * 1.5)
+        size = recencyMap!.get(nodeId) ?? RECENCY_SIZE_MIN
       } else {
         size = getNodeSize(nd.incoming_links)
       }
@@ -452,6 +472,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
       visibleNodeList.sort((a, b) => (adjacency.get(b.id)?.size ?? 0) - (adjacency.get(a.id)?.size ?? 0))
 
+      const initRecencyMap = nodeSizeModeRef.current === 'recency'
+        ? buildRecencySizeMap(visibleNodeList.map(n => ({ id: n.id, mtime: n.mtime })))
+        : null
+
       const JITTER = 1.8
       const placed = new Map<string, { x: number; y: number }>()
 
@@ -483,8 +507,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         } else if (nsMode === 'betweenness' && nsMap) {
           nodeSize = nsMap.get(node.id) ?? getNodeSize(node.incoming_links)
         } else if (nsMode === 'recency') {
-          const ageDays = (Date.now() / 1000 - node.mtime) / 86400
-          nodeSize = Math.max(2, 10 - Math.log(ageDays + 1) * 1.5)
+          nodeSize = initRecencyMap?.get(node.id) ?? RECENCY_SIZE_MIN
         } else {
           nodeSize = getNodeSize(node.incoming_links)
         }
