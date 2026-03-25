@@ -3,7 +3,8 @@
 import { useEffect, useRef, useCallback, useMemo, useState, forwardRef, useImperativeHandle } from 'react'
 import type { GraphData, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
-import { getNodeColor, getNodeSize } from '@/lib/sigma-colors'
+import { getNodeColor, getNodeSize, getSemanticEdgeColor } from '@/lib/sigma-colors'
+import type { EdgeColorMode } from '@/lib/sigma-colors'
 
 export interface GraphCanvasHandle {
   flyToNode: (stem: string) => void
@@ -21,6 +22,7 @@ interface Props {
   labelsOnHoverOnly: boolean
   showOverlayEdges: boolean
   filterNodesBySimilarity: boolean
+  edgeColorMode: EdgeColorMode
   selectedNode: string | null
   onNodeClick: (stem: string, newTab: boolean) => void
   onBackgroundClick: () => void
@@ -47,7 +49,7 @@ const COOL_FACTOR = 0.002
 
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
   {
-    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, selectedNode,
+    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, selectedNode,
     onNodeClick, onBackgroundClick, onOpenHistory,
     scalingRatio, gravity, slowDown, edgeWeightInfluence, startTemperature, stopThreshold, isLayoutRunning, onLayoutStop, onLayoutRestart,
     neighborhoodCenter, neighborhoodHops,
@@ -81,6 +83,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const filteredNodesRef = useRef<Set<string>>(new Set())
   const filterNodesBySimilarityRef = useRef(false)
   const thresholdRef = useRef(threshold)
+  const edgeColorModeRef = useRef(edgeColorMode)
   const graphSourceRef = useRef(graphSource)
   const dataRef = useRef(data)
   const hoveredNodeRef = useRef<string | null>(null)
@@ -240,6 +243,23 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     reheat()
   }, [startTemperature, reheat])
   useEffect(() => { stopThresholdRef.current = stopThreshold }, [stopThreshold])
+  useEffect(() => { edgeColorModeRef.current = edgeColorMode }, [edgeColorMode])
+
+  useEffect(() => {
+    const graph = graphRef.current
+    const sigma = sigmaRef.current
+    if (!graph || !sigma) return
+    ;(graph.edges() as string[]).forEach((e: string) => {
+      if (graph.getEdgeAttribute(e, 'overlay')) return
+      const kind = graph.getEdgeAttribute(e, 'kind') as 'wiki' | 'semantic'
+      if (kind === 'wiki') return
+      const baseWeight = graph.getEdgeAttribute(e, 'baseWeight') as number
+      const col = getSemanticEdgeColor(baseWeight, kind, edgeColorMode)
+      graph.setEdgeAttribute(e, 'color', col)
+      graph.setEdgeAttribute(e, 'originalColor', col)
+    })
+    sigma.refresh()
+  }, [edgeColorMode])
 
   useEffect(() => {
     isRunningRef.current = isLayoutRunning
@@ -349,7 +369,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       const edges = filterEdges(data.edges, graphSource, threshold)
       for (const edge of edges) {
         if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-        const col = edge.kind === 'wiki' ? 'rgba(123,97,255,0.35)' : `rgba(150,150,160,${Math.min(0.45, edge.w * 0.5)})`
+        const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current)
         try {
           graph.addEdge(edge.s, edge.t, {
             weight: edge.w * ewi, baseWeight: edge.w, color: col,

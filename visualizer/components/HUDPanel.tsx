@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type { GraphSource } from '@/lib/graph'
 import { TYPE_COLORS } from '@/lib/sigma-colors'
+import type { EdgeColorMode } from '@/lib/sigma-colors'
 import { TemperatureBar } from './TemperatureBar'
 import type { GraphCanvasHandle } from './GraphCanvas'
 
@@ -69,6 +70,8 @@ interface Props {
   onToggleLayout: () => void
   onResetSimSettings: () => void
   canvasRef: React.RefObject<GraphCanvasHandle | null>
+  edgeColorMode: EdgeColorMode
+  onEdgeColorModeChange: (mode: EdgeColorMode) => void
 }
 
 export function HUDPanel({
@@ -89,6 +92,7 @@ export function HUDPanel({
   stopThreshold, onStopThresholdChange,
   isLayoutRunning, onToggleLayout, onResetSimSettings,
   canvasRef,
+  edgeColorMode, onEdgeColorModeChange,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [pos, setPos] = useState({ x: 16, y: 58 })
@@ -212,6 +216,32 @@ export function HUDPanel({
                 <div style={{ color: '#6B7A99', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
               </div>
             ))}
+          </div>
+
+          {/* Edge Color */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 5 }}>
+              <span style={{ color: '#6B7A99', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>Edge Color</span>
+              <Tip text="Binary: semantic edges use opacity. Gradient: blue (weak) → red (strong) by similarity score." />
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['binary', 'gradient'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => onEdgeColorModeChange(m)}
+                  style={{
+                    flex: 1, padding: '4px 0', borderRadius: 4, border: '1px solid',
+                    borderColor: edgeColorMode === m ? '#00FFC8' : 'rgba(255,255,255,0.08)',
+                    background: edgeColorMode === m ? 'rgba(0,255,200,0.12)' : 'transparent',
+                    color: edgeColorMode === m ? '#00FFC8' : '#6B7A99',
+                    cursor: 'pointer', fontSize: 10, fontFamily: 'Oxanium, sans-serif',
+                    textTransform: 'capitalize', transition: 'all 0.15s',
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Threshold */}

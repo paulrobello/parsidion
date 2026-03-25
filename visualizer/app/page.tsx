@@ -366,6 +366,7 @@ export default function Home() {
                       labelsOnHoverOnly={state.labelsOnHoverOnly}
                       showOverlayEdges={state.showOverlayEdges}
                       filterNodesBySimilarity={state.filterNodesBySimilarity}
+                      edgeColorMode={state.edgeColorMode}
                       selectedNode={state.selectedNode}
                       onNodeClick={handleGraphNodeClick}
                       onBackgroundClick={() => state.setSelectedNode(null)}
@@ -420,6 +421,8 @@ export default function Home() {
                       onToggleLayout={() => state.setIsLayoutRunning(r => !r)}
                       onResetSimSettings={state.resetSimSettings}
                       canvasRef={graphCanvasRef}
+                      edgeColorMode={state.edgeColorMode}
+                      onEdgeColorModeChange={state.setEdgeColorMode}
                     />
                   </div>
                 </>

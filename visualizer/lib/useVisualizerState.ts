@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef } from 'react'
 import { useLocalStorage } from '@/lib/useLocalStorage'
 import type { GraphData, GraphSource, NoteNode } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
-import { TYPE_COLORS } from '@/lib/sigma-colors'
+import { TYPE_COLORS, EdgeColorMode } from '@/lib/sigma-colors'
 
 const SIM_DEFAULTS = {
   scalingRatio: 10,
@@ -266,6 +266,7 @@ export function useVisualizerState(graphData: GraphData | null) {
   const [stopThreshold, setStopThreshold] = useLocalStorage('vv:stopThreshold', SIM_DEFAULTS.stopThreshold)
   const [isLayoutRunning, setIsLayoutRunning] = useState(true)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [edgeColorMode, setEdgeColorMode] = useLocalStorage<EdgeColorMode>('vv:edgeColorMode', 'binary')
 
   const handleToggleType = useCallback((type: string) => {
     setActiveTypes(prev => {
@@ -342,6 +343,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     stopThreshold, setStopThreshold,
     isLayoutRunning, setIsLayoutRunning,
     selectedNode, setSelectedNode,
+    edgeColorMode, setEdgeColorMode,
     resetSimSettings,
     stats,
     SIM_DEFAULTS,
