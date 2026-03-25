@@ -74,6 +74,14 @@ function computeBetweenness(nodes: string[], wikiAdj: Map<string, string[]>): Ma
   return result
 }
 
+export interface GraphStats {
+  avgDegree: number
+  maxDegree: number
+  topHubs: Array<{ id: string; title: string; degree: number }>
+  density: number
+  componentCount: number
+}
+
 export function useVisualizerState(graphData: GraphData | null) {
   // --- Vault selection ---
   const [selectedVault, setSelectedVaultInternal] = useLocalStorage<string | null>('vv:selectedVault', null)
@@ -403,6 +411,73 @@ export function useVisualizerState(graphData: GraphData | null) {
     return { nodeCount: visibleNodes.size, edgeCount: edges.length, avgScore: avg }
   }, [graphData, threshold, graphSource, activeTypes, showDaily, filterNodesBySimilarity])
 
+  const graphStats = useMemo<GraphStats | null>(() => {
+    if (!graphData) return null
+
+    // Same visibility logic as stats — scoped to same visible node set
+    const qualifying = (filterNodesBySimilarity && graphSource === 'wiki')
+      ? new Set(graphData.edges.filter(e => e.kind === 'semantic' && e.w >= threshold).flatMap(e => [e.s, e.t]))
+      : null
+    const visibleNodes = new Set(
+      graphData.nodes
+        .filter(n => (showDaily || n.folder !== 'Daily') && activeTypes.has(n.type) && (!qualifying || qualifying.has(n.id)))
+        .map(n => n.id)
+    )
+
+    // Degree from wiki edges (undirected), both endpoints visible
+    const degree = new Map<string, number>()
+    for (const n of visibleNodes) degree.set(n, 0)
+    let wikiEdgeCount = 0
+    for (const e of graphData.edges) {
+      if (e.kind !== 'wiki') continue
+      if (!visibleNodes.has(e.s) || !visibleNodes.has(e.t)) continue
+      degree.set(e.s, (degree.get(e.s) ?? 0) + 1)
+      degree.set(e.t, (degree.get(e.t) ?? 0) + 1)
+      wikiEdgeCount++
+    }
+
+    const n = visibleNodes.size
+    const degrees = [...degree.values()]
+    const total = degrees.reduce((s, d) => s + d, 0)
+    const avgDegree = n > 0 ? total / n : 0
+    const maxDegree = n > 0 ? Math.max(...degrees) : 0
+    const density = n > 1 ? wikiEdgeCount / (n * (n - 1) / 2) : 0
+
+    // Top 5 hubs
+    const nodeIdToTitle = new Map(graphData.nodes.map(nd => [nd.id, nd.title]))
+    const topHubs = [...degree.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, deg]) => ({ id, title: nodeIdToTitle.get(id) ?? id, degree: deg }))
+
+    // Connected components via BFS on wiki adjacency within visibleNodes
+    const wikiAdj = new Map<string, string[]>()
+    for (const nd of visibleNodes) wikiAdj.set(nd, [])
+    for (const e of graphData.edges) {
+      if (e.kind !== 'wiki') continue
+      if (!visibleNodes.has(e.s) || !visibleNodes.has(e.t)) continue
+      wikiAdj.get(e.s)!.push(e.t)
+      wikiAdj.get(e.t)!.push(e.s)
+    }
+    const visited = new Set<string>()
+    let componentCount = 0
+    for (const start of visibleNodes) {
+      if (visited.has(start)) continue
+      componentCount++
+      const queue = [start]
+      while (queue.length > 0) {
+        const curr = queue.shift()!
+        if (visited.has(curr)) continue
+        visited.add(curr)
+        for (const nb of (wikiAdj.get(curr) ?? [])) {
+          if (!visited.has(nb)) queue.push(nb)
+        }
+      }
+    }
+
+    return { avgDegree, maxDegree, topHubs, density, componentCount }
+  }, [graphData, threshold, graphSource, activeTypes, showDaily, filterNodesBySimilarity])
+
   return {
     // Vault state
     selectedVault, setSelectedVault,
@@ -440,6 +515,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     nodeSizeComputing,
     resetSimSettings,
     stats,
+    graphStats,
     SIM_DEFAULTS,
   }
 }

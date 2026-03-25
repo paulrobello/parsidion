@@ -435,6 +435,7 @@ export default function Home() {
                       nodeSizeMode={state.nodeSizeMode}
                       onNodeSizeModeChange={state.setNodeSizeMode}
                       nodeSizeComputing={state.nodeSizeComputing}
+                      graphStats={state.graphStats}
                     />
                   </div>
                 </>
