@@ -267,6 +267,9 @@ export function useVisualizerState(graphData: GraphData | null) {
   const [isLayoutRunning, setIsLayoutRunning] = useState(true)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [edgeColorMode, setEdgeColorMode] = useLocalStorage<EdgeColorMode>('vv:edgeColorMode', 'binary')
+  const [edgePruning, setEdgePruning] = useLocalStorage('vv:edgePruning', false)
+  const [edgePruningK, setEdgePruningK] = useLocalStorage('vv:edgePruningK', 8)
+  const toggleEdgePruning = useCallback(() => setEdgePruning(s => !s), [setEdgePruning])
 
   const handleToggleType = useCallback((type: string) => {
     setActiveTypes(prev => {
@@ -344,6 +347,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     isLayoutRunning, setIsLayoutRunning,
     selectedNode, setSelectedNode,
     edgeColorMode, setEdgeColorMode,
+    edgePruning, toggleEdgePruning, edgePruningK, setEdgePruningK,
     resetSimSettings,
     stats,
     SIM_DEFAULTS,

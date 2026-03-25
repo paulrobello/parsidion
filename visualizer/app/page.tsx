@@ -367,6 +367,8 @@ export default function Home() {
                       showOverlayEdges={state.showOverlayEdges}
                       filterNodesBySimilarity={state.filterNodesBySimilarity}
                       edgeColorMode={state.edgeColorMode}
+                      edgePruning={state.edgePruning}
+                      edgePruningK={state.edgePruningK}
                       selectedNode={state.selectedNode}
                       onNodeClick={handleGraphNodeClick}
                       onBackgroundClick={() => state.setSelectedNode(null)}
@@ -423,6 +425,11 @@ export default function Home() {
                       canvasRef={graphCanvasRef}
                       edgeColorMode={state.edgeColorMode}
                       onEdgeColorModeChange={state.setEdgeColorMode}
+                      edgePruning={state.edgePruning}
+                      onToggleEdgePruning={state.toggleEdgePruning}
+                      edgePruningK={state.edgePruningK}
+                      onEdgePruningKChange={state.setEdgePruningK}
+                      totalEdgeCount={graphData?.meta.edge_count ?? 0}
                     />
                   </div>
                 </>

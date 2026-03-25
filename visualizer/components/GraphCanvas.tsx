@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useMemo, useState, forwardRef, useImperativeHandle } from 'react'
-import type { GraphData, GraphSource } from '@/lib/graph'
+import type { GraphData, GraphEdge, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
 import { getNodeColor, getNodeSize, getSemanticEdgeColor } from '@/lib/sigma-colors'
 import type { EdgeColorMode } from '@/lib/sigma-colors'
@@ -23,6 +23,8 @@ interface Props {
   showOverlayEdges: boolean
   filterNodesBySimilarity: boolean
   edgeColorMode: EdgeColorMode
+  edgePruning: boolean
+  edgePruningK: number
   selectedNode: string | null
   onNodeClick: (stem: string, newTab: boolean) => void
   onBackgroundClick: () => void
@@ -47,9 +49,25 @@ interface Props {
 // At slowDown=5 → ~6s
 const COOL_FACTOR = 0.002
 
+function pruneEdges(edges: GraphEdge[], k: number): GraphEdge[] {
+  const perNode = new Map<string, GraphEdge[]>()
+  for (const e of edges) {
+    if (!perNode.has(e.s)) perNode.set(e.s, [])
+    if (!perNode.has(e.t)) perNode.set(e.t, [])
+    perNode.get(e.s)!.push(e)
+    perNode.get(e.t)!.push(e)
+  }
+  const kept = new Set<GraphEdge>()
+  for (const [, nodeEdges] of perNode) {
+    nodeEdges.sort((a, b) => b.w - a.w)
+    nodeEdges.slice(0, k).forEach(e => kept.add(e))
+  }
+  return edges.filter(e => kept.has(e))
+}
+
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
   {
-    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, selectedNode,
+    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, edgePruning, edgePruningK, selectedNode,
     onNodeClick, onBackgroundClick, onOpenHistory,
     scalingRatio, gravity, slowDown, edgeWeightInfluence, startTemperature, stopThreshold, isLayoutRunning, onLayoutStop, onLayoutRestart,
     neighborhoodCenter, neighborhoodHops,
@@ -86,6 +104,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const edgeColorModeRef = useRef(edgeColorMode)
   const graphSourceRef = useRef(graphSource)
   const dataRef = useRef(data)
+  const edgePruningRef = useRef(edgePruning)
+  const edgePruningKRef = useRef(edgePruningK)
   const hoveredNodeRef = useRef<string | null>(null)
   const highlightedNodesRef = useRef<Set<string>>(new Set())
   const highlightedEdgesRef = useRef<Set<string>>(new Set())
@@ -244,6 +264,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   }, [startTemperature, reheat])
   useEffect(() => { stopThresholdRef.current = stopThreshold }, [stopThreshold])
   useEffect(() => { edgeColorModeRef.current = edgeColorMode }, [edgeColorMode])
+  useEffect(() => { edgePruningRef.current = edgePruning }, [edgePruning])
+  useEffect(() => { edgePruningKRef.current = edgePruningK }, [edgePruningK])
 
   useEffect(() => {
     const graph = graphRef.current
@@ -366,7 +388,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       }
 
       const ewi = edgeWeightInfluenceRef.current
-      const edges = filterEdges(data.edges, graphSource, threshold)
+      let edges = filterEdges(data.edges, graphSource, threshold)
+      if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
       for (const edge of edges) {
         if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
         const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current)
@@ -773,7 +796,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     graph.clearEdges()
     const visibleNodes = new Set(graph.nodes() as string[])
     const ewi = edgeWeightInfluenceRef.current
-    const edges = filterEdges(data.edges, graphSource, threshold)
+    let edges = filterEdges(data.edges, graphSource, threshold)
+    if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
     for (const edge of edges) {
       if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
       const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current)
@@ -804,7 +828,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     highlightedEdgesRef.current = new Set()
     sigmaRef.current.refresh()
     reheat()
-  }, [threshold, graphSource, data, reheat])
+  // Note: edgePruning/edgePruningK are in the dep array intentionally — unlike edgeWeightInfluence
+  // (which updates weights on existing edges and therefore only needs a ref), pruning requires a
+  // full edge rebuild via graph.clearEdges(). The effect must re-run when pruning toggles or K
+  // changes, so these must be real deps rather than ref-only values.
+  }, [threshold, graphSource, data, reheat, edgePruning, edgePruningK])
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
