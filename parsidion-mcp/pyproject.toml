@@ -7,6 +7,12 @@ dependencies = [
     "parsidion-cc[search]",
 ]
 
+[tool.uv]
+constraint-dependencies = [
+    # requests 2.32.x has an insecure temp-file reuse vulnerability (CVE-2024-47081); fixed in 2.33.0
+    "requests>=2.33.0",
+]
+
 [tool.uv.sources]
 parsidion-cc = { path = "../", editable = true }
 
