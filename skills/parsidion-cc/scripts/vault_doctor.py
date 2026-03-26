@@ -2372,7 +2372,11 @@ def main() -> None:
                 # Refresh after moves
                 all_notes = list(vault_common.all_vault_notes(_vault_path))
                 note_map = build_note_map(all_notes)
-                all_filtered = [p for p in all_notes if p != vault_claude_md and p.name != "MANIFEST.md"]
+                all_filtered = [
+                    p
+                    for p in all_notes
+                    if p != vault_claude_md and p.name != "MANIFEST.md"
+                ]
                 if not explicit and not args.no_state:
                     target_notes = [
                         p for p in all_filtered if not should_skip(_rel(p), state)
