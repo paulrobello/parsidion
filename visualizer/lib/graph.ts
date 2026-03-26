@@ -42,8 +42,9 @@ export function filterEdges(
   })
 }
 
-export async function loadGraphData(): Promise<GraphData> {
-  const res = await fetch('/graph.json')
+export async function loadGraphData(vault?: string | null): Promise<GraphData> {
+  const url = vault ? `/api/graph?vault=${encodeURIComponent(vault)}` : '/api/graph'
+  const res = await fetch(url)
   if (!res.ok) throw new Error('Failed to load graph.json')
   return res.json()
 }

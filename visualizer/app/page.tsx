@@ -42,19 +42,21 @@ export default function Home() {
   // Needed when multiple notes share the same stem (e.g. MANIFEST.md in every folder).
   const [selectedVaultPath, setSelectedVaultPath] = useState<string | null>(null)
 
+  // Initialize state before the load effect so selectedVault is available immediately
+  const state = useVisualizerState(graphData)
+
   useEffect(() => {
     localStorage.removeItem('vv:isLayoutRunning')
     if (!localStorage.getItem('vv:threshold_v2')) {
       localStorage.removeItem('vv:threshold')
       localStorage.setItem('vv:threshold_v2', '1')
     }
-    loadGraphData()
+    loadGraphData(state.selectedVault)
       .then(setGraphData)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const state = useVisualizerState(graphData)
 
   const handleNoteModified = useCallback((notePath: string) => {
     const stem = notePath.replace(/\.md$/, '').split('/').pop() ?? notePath
@@ -66,12 +68,12 @@ export default function Home() {
 
   const handleGraphRebuilt = useCallback(async () => {
     try {
-      const fresh = await fetch(`/graph.json?t=${Date.now()}`).then(r => r.json()) as GraphData
+      const fresh = await loadGraphData(state.selectedVault)
       setGraphData(fresh)
     } catch (err) {
-      console.warn('[page] graph.json refetch failed:', err)
+      console.warn('[page] graph refetch failed:', err)
     }
-  }, [])
+  }, [state.selectedVault])
 
   const { fileTree, wsStatus, totalFiles } = useVaultFiles({
     onNoteModified: handleNoteModified,
@@ -134,6 +136,18 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Reload graph when the user switches vaults (skip the very first render — initial load handles it)
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return }
+    setLoading(true)
+    setError(null)
+    loadGraphData(state.selectedVault)
+      .then(setGraphData)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [state.selectedVault])
+
   const handleSearchSelect = useCallback((stem: string, newTab: boolean) => {
     state.openNote(stem, newTab)
     if (state.viewMode === 'graph') {
@@ -184,9 +198,10 @@ export default function Home() {
   const handleCreate = useCallback(async (notePath: string, content: string, stem: string) => {
     await state.createNote(notePath, content)
     setShowNewNote(false)
-    // Rebuild graph.json then reload it
-    await fetch('/api/graph/rebuild', { method: 'POST' })
-    const fresh = await fetch(`/graph.json?t=${Date.now()}`).then(r => r.json()) as GraphData
+    // Rebuild graph.json in vault then reload it
+    const vaultParam = state.selectedVault ? `?vault=${encodeURIComponent(state.selectedVault)}` : ''
+    await fetch(`/api/graph/rebuild${vaultParam}`, { method: 'POST' })
+    const fresh = await loadGraphData(state.selectedVault)
     setGraphData(fresh)
     setPendingOpenStem(stem)
   }, [state])

@@ -42,3 +42,6 @@ next-env.d.ts
 
 # compiled server output
 /dist
+
+# graph data lives in the vault, not the repo
+/public/graph.json

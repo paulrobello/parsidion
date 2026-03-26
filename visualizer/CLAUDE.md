@@ -22,7 +22,7 @@ bun run kill                 # kills port 3999
 
 ## Data Source
 
-The visualizer reads **`public/graph.json`** — a pre-built snapshot of the vault graph. Rebuild it after vault changes:
+The visualizer reads **`{vault}/graph.json`** — a pre-built snapshot of each vault's knowledge graph, stored inside the vault directory itself (not in `public/`). Each vault has its own `graph.json`. Rebuild it after vault changes:
 
 ```bash
 # From the repo root (recommended — also rebuilds the index):
@@ -31,6 +31,8 @@ uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebu
 # Include Daily notes in the graph:
 uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph --graph-include-daily
 ```
+
+`graph.json` is gitignored in the vault (rebuilt locally, not synced across machines).
 
 
 ## Architecture

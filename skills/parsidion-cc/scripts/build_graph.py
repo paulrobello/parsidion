@@ -25,15 +25,6 @@ import numpy as np
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
-    # Default output: visualizer/public/graph.json relative to repo root
-    # Walk up from script location to find the git root (works regardless of install depth)
-    _here = Path(__file__).resolve()
-    repo_root = next(
-        (p for p in [_here, *_here.parents] if (p / ".git").exists()),
-        _here.parent.parent.parent,  # fallback: skills/parsidion-cc/scripts -> repo root
-    )
-    default_output = repo_root / "visualizer" / "public" / "graph.json"
-
     parser = argparse.ArgumentParser(
         description="Pre-compute vault note similarity and output graph.json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -61,9 +52,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=default_output,
+        default=None,
         metavar="PATH",
-        help=f"Output path for graph.json (default: {default_output})",
+        help="Output path for graph.json (default: graph.json inside the vault root)",
     )
     parser.add_argument(
         "--vault",
@@ -321,7 +312,7 @@ def main() -> None:
     }
 
     # Ensure output directory exists
-    output_path = args.output
+    output_path = args.output if args.output is not None else vault_root / "graph.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print("Writing graph.json...", file=sys.stderr)

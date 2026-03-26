@@ -1452,7 +1452,7 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
         dry_run: If True, print actions without writing.
     """
     gitignore = vault_root / ".gitignore"
-    entries = ["embeddings.db", "pending_summaries.jsonl", "hook_events.log"]
+    entries = ["embeddings.db", "pending_summaries.jsonl", "hook_events.log", "graph.json"]
 
     if gitignore.exists():
         content = gitignore.read_text(encoding="utf-8")
