@@ -17,7 +17,7 @@ import os
 import re
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -302,7 +302,7 @@ def main() -> None:
     # Build output
     graph = {
         "meta": {
-            "generated": datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "note_count": len(nodes),
             "edge_count": total_edges,
             "min_semantic_threshold": args.min_threshold,
