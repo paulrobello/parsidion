@@ -85,6 +85,7 @@ exclude = [
     "parsidion-mcp",
     ".worktrees",
     ".venv",
+    "skills/parsidion-cc/scripts/build_graph.py",
 ]
 
 [tool.ty.environment]

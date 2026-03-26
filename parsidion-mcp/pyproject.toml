@@ -16,6 +16,10 @@ constraint-dependencies = [
 [tool.uv.sources]
 parsidion-cc = { path = "../", editable = true }
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project.scripts]
 parsidion-mcp = "parsidion_mcp.server:main"
 
