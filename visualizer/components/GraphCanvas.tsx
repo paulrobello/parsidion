@@ -567,7 +567,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         const pn = pathNodesRef.current
         if (pn.size > 0 && pn.has(node)) {
           const showLabel = labelsOnHoverOnlyRef.current ? node === hoveredNodeRef.current : true
-          return { ...data, color: HIGHLIGHT_COLOR, zIndex: 10, label: showLabel ? data.label : '' }
+          return { ...data, color: HIGHLIGHT_COLOR, zIndex: 10, label: showLabel ? data.label : '', forceLabel: showLabel, highlighted: showLabel }
         }
         if (pathSourceRef.current === node) {
           return { ...data, color: HIGHLIGHT_COLOR, zIndex: 5 }
@@ -596,6 +596,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           ? (isHovered || (hn.size > 0 && hn.has(node)))
           : (hn.size === 0 || isHovered || hn.has(node))
         const label = showLabel ? data.label : ''
+        // forceLabel bypasses sigma's label-density grid so hovered/highlighted
+        // nodes always render their label. highlighted tells sigma to include
+        // the node in its hover-layer rendering (renderHighlightedNodes).
+        const forceLabel = showLabel && (isHovered || (hn.size > 0 && hn.has(node)))
         if (!isHighlighted && !isHovered) {
           return { ...data, label, color: CANVAS_BACKGROUND, size: data.size * 0.6, zIndex: 0 }
         }
@@ -603,10 +607,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           const hopDist = nh.distances.get(node)
           if (hopDist === nh.maxHop) {
             const dimColor = (data.originalColor || data.color) + '66'
-            return { ...data, label, color: dimColor, size: data.size * 0.8 }
+            return { ...data, label, color: dimColor, size: data.size * 0.8, forceLabel, highlighted: forceLabel }
           }
         }
-        return { ...data, label }
+        return { ...data, label, forceLabel, highlighted: forceLabel }
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -667,14 +671,48 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           const size: number = settings.labelSize ?? 11
           const font: string = settings.labelFont ?? 'sans-serif'
           context.font = `700 ${size}px ${font}`
-          const x = data.x + data.size + 3
-          const y = data.y + size / 4
-          context.lineJoin = 'round'
-          context.lineWidth = 3
-          context.strokeStyle = 'rgba(3, 4, 10, 0.95)'
-          context.strokeText(data.label, x, y)
+          const PADDING = 4
+          const textWidth = context.measureText(data.label).width
+          const boxWidth = Math.round(textWidth + PADDING * 2 + 4)
+          const boxHeight = Math.round(size + PADDING * 2)
+          const radius = Math.max(data.size, size / 2) + PADDING
+          const bx = data.x + radius
+          const by = data.y - boxHeight / 2
+          const r = 4
+
+          // Background pill
+          context.fillStyle = 'rgba(10, 14, 28, 0.94)'
+          context.shadowOffsetX = 0
+          context.shadowOffsetY = 2
+          context.shadowBlur = 10
+          context.shadowColor = 'rgba(0, 0, 0, 0.7)'
+          context.beginPath()
+          context.moveTo(bx + r, by)
+          context.lineTo(bx + boxWidth - r, by)
+          context.arcTo(bx + boxWidth, by, bx + boxWidth, by + r, r)
+          context.lineTo(bx + boxWidth, by + boxHeight - r)
+          context.arcTo(bx + boxWidth, by + boxHeight, bx + boxWidth - r, by + boxHeight, r)
+          context.lineTo(bx + r, by + boxHeight)
+          context.arcTo(bx, by + boxHeight, bx, by + boxHeight - r, r)
+          context.lineTo(bx, by + r)
+          context.arcTo(bx, by, bx + r, by, r)
+          context.closePath()
+          context.fill()
+          context.shadowBlur = 0
+          context.strokeStyle = 'rgba(249, 115, 22, 0.5)'
+          context.lineWidth = 1
+          context.stroke()
+
+          // Highlight ring
+          context.beginPath()
+          context.arc(data.x, data.y, data.size + 3, 0, Math.PI * 2)
+          context.strokeStyle = '#f97316'
+          context.lineWidth = 2
+          context.stroke()
+
+          // Label text
           context.fillStyle = '#f97316'
-          context.fillText(data.label, x, y)
+          context.fillText(data.label, bx + PADDING + 2, data.y + size / 4)
         },
       })
 
@@ -682,19 +720,23 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       graphRef.current = graph
 
       sigma.on('enterNode', ({ node }: { node: string }) => {
+        if (isDraggingRef.current) return
         hoveredNodeRef.current = node
         if (containerRef.current) containerRef.current.style.cursor = 'grab'
-        sigma.refresh()
+        // No sigma.refresh() here — sigma's own scheduleHighlightedNodesRender()
+        // handles the hover label via defaultDrawNodeHover. A full refresh of
+        // 1500+ nodes on every mouse enter/leave freezes the browser.
       })
       sigma.on('leaveNode', () => {
+        if (isDraggingRef.current) return
         hoveredNodeRef.current = null
         if (containerRef.current && !isDraggingRef.current) containerRef.current.style.cursor = ''
-        sigma.refresh()
       })
       sigma.on('downNode', ({ node }: { node: string }) => {
         isDraggingRef.current = true
         draggedNodeRef.current = node
         dragHasMovedRef.current = false
+        hoveredNodeRef.current = null
         if (containerRef.current) containerRef.current.style.cursor = 'grabbing'
         isRunningRef.current = true
         if (!rafRef.current && layoutLoopRef.current) {
@@ -721,9 +763,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         isDraggingRef.current = false
         draggedNodeRef.current = null
         dragPositionRef.current = null
-        if (containerRef.current) {
-          containerRef.current.style.cursor = hoveredNodeRef.current ? 'grab' : ''
-        }
+        hoveredNodeRef.current = null
+        if (containerRef.current) containerRef.current.style.cursor = ''
         // Restart async FA2 worker and reheat so graph settles from new positions
         reheat()
       })
