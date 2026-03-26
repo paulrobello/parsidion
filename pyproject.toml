@@ -91,6 +91,12 @@ extra-paths = [
     "skills/parsidion-cc/scripts",
 ]
 
+[tool.uv]
+constraint-dependencies = [
+    # requests 2.32.x has an insecure temp-file reuse vulnerability (CVE-2024-47081); fixed in 2.33.0
+    "requests>=2.33.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
