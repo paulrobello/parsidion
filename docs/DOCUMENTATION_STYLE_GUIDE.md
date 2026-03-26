@@ -1,6 +1,6 @@
 # Documentation Style Guide
 
-This guide establishes standards and best practices for creating and maintaining documentation in the Parsidion CC project. It ensures consistency, clarity, and professionalism across all technical documentation.
+This guide establishes standards and best practices for creating and maintaining documentation in the Par Terminal Emulator project. It ensures consistency, clarity, and professionalism across all technical documentation.
 
 ## Table of Contents
 - [Quick Reference](#quick-reference)
@@ -232,7 +232,7 @@ graph TD
 
 **Bad examples:**
 - ❌ "See `src/terminal.rs:816`" - line numbers change with code edits
-- ❌ "Located at `/Users/username/Repos/my-project/Cargo.toml:3`" - overly specific and fragile
+- ❌ "Located at `/Users/probello/Repos/par-term-emu-rust/Cargo.toml:3`" - overly specific and fragile
 - ❌ "The fix is in `terminal.rs` lines 100-150" - ranges become outdated quickly
 
 **Exception**: Line numbers may be included in:
