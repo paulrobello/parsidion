@@ -13,11 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`--enable-embeddings` installer flag** — interactive prompt and CLI flag to enable/disable semantic search embeddings (`embeddings.enabled` in `config.yaml`); defaults to yes in interactive mode
 - **`configure_embeddings()` function** in `install.py` — writes `embeddings.enabled` to vault `config.yaml`
+- **`summarizer.rebuild_graph` config key** — when `true`, the summarizer automatically rebuilds `graph.json` after indexing (same as `--rebuild-graph` CLI flag, but persisted in `config.yaml`)
+- **`summarizer.graph_include_daily` config key** — include Daily notes in graph rebuild (same as `--graph-include-daily` CLI flag)
 
 ### Changed
 
 - **AI-powered note selection prompt** now defaults to **yes** (was no) — most users benefit from AI-powered context injection
 - **Embeddings status** shown in the installation plan summary
+- **`summarize_sessions.py`** — `--rebuild-graph` and `--graph-include-daily` now resolve from config.yaml when CLI flags are not passed (precedence: CLI flag > config > default false)
 
 ## [0.5.0] - 2026-03-25
 

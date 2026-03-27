@@ -1293,6 +1293,13 @@ def main() -> None:
         _DEFAULT_CLUSTER_MODEL,
     )
 
+    rebuild_graph: bool = args.rebuild_graph or vault_common.get_config(
+        "summarizer", "rebuild_graph", False
+    )
+    graph_include_daily: bool = args.graph_include_daily or vault_common.get_config(
+        "summarizer", "graph_include_daily", False
+    )
+
     # Resolve vault
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
@@ -1368,8 +1375,8 @@ def main() -> None:
         if successful_entries:
             rebuild_index(
                 vault_path,
-                rebuild_graph=args.rebuild_graph,
-                graph_include_daily=args.graph_include_daily,
+                rebuild_graph=rebuild_graph,
+                graph_include_daily=graph_include_daily,
             )
             # SEC-002: sanitize project names to prevent embedded newlines in commit messages
             projects = {

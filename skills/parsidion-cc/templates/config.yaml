@@ -43,6 +43,8 @@ summarizer:
   persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization; used when a transcript exceeds max_cleaned_chars
   dedup_threshold: 0.80                    # Cosine similarity threshold for near-duplicate detection (0.0-1.0); set to 1.0 to disable
+  rebuild_graph: false                     # Rebuild visualizer graph.json after indexing (same as --rebuild-graph CLI flag)
+  graph_include_daily: false               # Include Daily notes in graph rebuild (same as --graph-include-daily CLI flag)
 
 # Embeddings / semantic search (build_embeddings.py, vault_search.py)
 embeddings:
