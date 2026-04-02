@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Project explorer agent** model upgraded from Sonnet to Opus for deeper analysis
+- **README** — added Changelog section with link to CHANGELOG.md
+
 ## [0.5.2] - 2026-03-30
 
 ### Fixed

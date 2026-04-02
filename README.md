@@ -31,6 +31,7 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 - [FAQ](#faq)
 - [Contributing](#contributing)
 - [License](#license)
+- [Changelog](#changelog)
 - [Related Documentation](#related-documentation)
 
 ## Prerequisites
@@ -786,6 +787,10 @@ uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migr
 ```
 
 See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubleshooting.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

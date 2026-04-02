@@ -7,7 +7,7 @@ description: >
   "save project to vault", "catalog project features", "document project features".
   Do NOT trigger for general code reading, debugging, or feature implementation —
   only when the explicit goal is vault documentation of a project.
-model: sonnet
+model: opus
 color: green
 ---
 
