@@ -11,6 +11,10 @@ dependencies = [
 constraint-dependencies = [
     # requests 2.32.x has an insecure temp-file reuse vulnerability (CVE-2024-47081); fixed in 2.33.0
     "requests>=2.33.0",
+    # GHSA-mj87-hwqh-73pj / CVE-2026-40347
+    "python-multipart>=0.0.26",
+    # GHSA-whj4-6x5x-4v2j / CVE-2026-40192
+    "pillow>=12.2.0",
 ]
 
 [tool.uv.sources]
@@ -26,7 +30,7 @@ parsidion-mcp = "parsidion_mcp.server:main"
 # ARC-017: Dev dependency versions aligned with root pyproject.toml
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=9.0.3",
     "pytest-timeout>=2.4.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.6",
