@@ -96,6 +96,11 @@ python skills/parsidion-cc/scripts/session_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
+# Test session_stop_hook with a pi transcript path
+python skills/parsidion-cc/scripts/session_stop_hook.py <<'EOF'
+{"cwd": "/path/to/project", "transcript_path": "/Users/you/.pi/agent/sessions/--path--/session.jsonl"}
+EOF
+
 # Test pre_compact_hook
 python skills/parsidion-cc/scripts/pre_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
@@ -114,6 +119,11 @@ EOF
 # Test subagent_stop_hook (requires a real agent_transcript_path)
 python skills/parsidion-cc/scripts/subagent_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "agent_transcript_path": "/path/to/agent.jsonl", "agent_id": "abc-123", "agent_type": "Explore"}
+EOF
+
+# Test subagent_stop_hook with a pi subagent transcript
+python skills/parsidion-cc/scripts/subagent_stop_hook.py <<'EOF'
+{"cwd": "/path/to/project", "agent_transcript_path": "/Users/you/.pi/agent/sessions/--path--/subagent-xyz.jsonl", "agent_id": "xyz", "agent_type": "Explore"}
 EOF
 ```
 

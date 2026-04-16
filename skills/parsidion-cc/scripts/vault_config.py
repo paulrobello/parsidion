@@ -285,6 +285,18 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "min_score": (float, int),
         "top_k": (int,),
     },
+    "anthropic_env": {
+        "ANTHROPIC_API_KEY": (str, type(None)),
+        "ANTHROPIC_AUTH_TOKEN": (str, type(None)),
+        "ANTHROPIC_BASE_URL": (str, type(None)),
+        "ANTHROPIC_CUSTOM_HEADERS": (str, type(None)),
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": (str, type(None)),
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": (str, type(None)),
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": (str, type(None)),
+        "API_TIMEOUT_MS": (int, str, type(None)),
+        "HTTPS_PROXY": (str, type(None)),
+        "HTTP_PROXY": (str, type(None)),
+    },
     "git": {
         "auto_commit": (bool,),
     },

@@ -18,3 +18,5 @@ MEMORY_REPORT.md
 build/
 ideas.md
 .DS_Store
+.pi/extensions/discord-relay/state.json
+docs/superpowers/

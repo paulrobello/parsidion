@@ -95,10 +95,14 @@ from vault_hooks import (  # noqa: F401
     TRANSCRIPT_CATEGORIES,
     TRANSCRIPT_CATEGORY_LABELS,
     _SAFE_ENV_KEYS,
+    allowed_transcript_roots,
+    apply_configured_env_defaults,
     detect_categories,
     env_without_claudecode,
     extract_text_from_content,
     get_project_name,
+    is_allowed_transcript_path,
+    is_pi_transcript_path,
     is_process_running,
     parse_transcript_lines,
     write_hook_event,
@@ -137,6 +141,7 @@ __all__: list[str] = [
     "resolve_vault",
     "resolve_templates_dir",
     # Environment helpers
+    "apply_configured_env_defaults",
     "env_without_claudecode",
     # Frontmatter and content parsing
     "parse_frontmatter",
@@ -166,6 +171,9 @@ __all__: list[str] = [
     "funlock",
     # Transcript helpers
     "extract_text_from_content",
+    "allowed_transcript_roots",
+    "is_allowed_transcript_path",
+    "is_pi_transcript_path",
     "read_last_n_lines",
     # Transcript analysis and queuing (shared by session_stop and subagent_stop hooks)
     "TRANSCRIPT_CATEGORIES",

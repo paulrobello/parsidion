@@ -2190,6 +2190,7 @@ def main() -> None:
     # Resolve vault path
     global _vault_path
     _vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_common.apply_configured_env_defaults(vault=_vault_path)
 
     # QA-001/QA-003: Restore VAULT_ROOT on exit to prevent cross-contamination
     original_vault_root = vault_common.VAULT_ROOT

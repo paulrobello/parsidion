@@ -240,6 +240,11 @@ Confirm to the user when the rebuild is complete.
 The stop hook queues session transcript paths when it detects learnable content.
 Run the summarizer on demand to generate structured vault notes.
 
+Supported transcript locations:
+- Claude Code: `~/.claude/projects/**/*.jsonl`
+- pi (global): `~/.pi/agent/sessions/**/*.jsonl`
+- pi (project-local): `<project>/.pi/agent-sessions/**/*.jsonl`
+
 ### Running the Summarizer
 
 **From a terminal outside Claude Code** (normal usage):
@@ -441,10 +446,12 @@ session_stop_hook:
   ai_model: null           # Model for AI classification (null = disabled)
   ai_timeout: 25           # AI call timeout in seconds
   auto_summarize: true     # Auto-launch summarizer when pending entries exist
+  transcript_tail_lines: 200      # Lines to inspect by default
+  pi_transcript_tail_lines: 1000  # Deeper fallback tail for pi transcripts when needed
 
 subagent_stop_hook:
   enabled: true            # Set false to disable subagent transcript capture entirely
-  min_messages: 3          # Minimum assistant message count; filters trivial subagents
+  min_messages: 3          # Minimum assistant message count (pi transcripts default to 1 when unset)
   excluded_agents: "vault-explorer,research-agent"  # Never capture these
 
 pre_compact_hook:

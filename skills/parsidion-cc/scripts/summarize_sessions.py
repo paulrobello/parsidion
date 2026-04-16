@@ -198,13 +198,23 @@ def preprocess_transcript(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        msg_type = entry.get("type", "")
-        if msg_type not in ("user", "assistant"):
-            continue
+        role: str | None = None
+        content: object = None
 
-        message = entry.get("message", entry)
-        content = message.get("content")
-        if not content:
+        message = entry.get("message")
+        if isinstance(message, dict):
+            role_raw = message.get("role")
+            if isinstance(role_raw, str):
+                role = role_raw
+            content = message.get("content")
+
+        if role is None:
+            msg_type = entry.get("type")
+            if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
+                role = msg_type
+                content = entry.get("content")
+
+        if role not in {"user", "assistant"} or not content:
             continue
 
         # Extract text blocks only
@@ -215,12 +225,12 @@ def preprocess_transcript(
             for block in content:
                 if not isinstance(block, dict):
                     continue
-                # For user messages, skip tool_result blocks
-                # For assistant messages, skip tool_use blocks
+                # For user messages, skip tool result blocks.
+                # For assistant messages, skip tool call/use blocks.
                 block_type = block.get("type", "")
-                if msg_type == "user" and block_type == "tool_result":
+                if role == "user" and block_type in {"tool_result", "toolResult"}:
                     continue
-                if msg_type == "assistant" and block_type == "tool_use":
+                if role == "assistant" and block_type in {"tool_use", "toolCall"}:
                     continue
                 if block_type == "text":
                     t = block.get("text", "")
@@ -233,7 +243,7 @@ def preprocess_transcript(
         if not text:
             continue
 
-        label = "Human" if msg_type == "user" else "Assistant"
+        label = "Human" if role == "user" else "Assistant"
         pairs.append(f"{label}: {text}")
 
     cleaned = "\n\n".join(pairs)
@@ -1302,6 +1312,7 @@ def main() -> None:
 
     # Resolve vault
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_common.apply_configured_env_defaults(vault=vault_path)
 
     # Optionally run vault_doctor first (--fix-all: frontmatter, tags, subfolders)
     if args.run_doctor:

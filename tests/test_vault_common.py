@@ -6,6 +6,7 @@ extract_text_from_content, read_last_n_lines, and flock_exclusive/funlock.
 These tests use only stdlib + pytest and do not require a live vault.
 """
 
+import os
 from pathlib import Path
 
 import vault_common
@@ -223,6 +224,116 @@ class TestParseConfigYaml:
         assert result["top_key"] == "top_value"
         assert result["section"]["nested_key"] == "nested_value"
         assert result["another_top"] == 42
+
+    def test_anthropic_env_section_with_glm_values(self) -> None:
+        text = (
+            "anthropic_env:\n"
+            "  ANTHROPIC_AUTH_TOKEN: token-123\n"
+            "  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic\n"
+            "  API_TIMEOUT_MS: 3000000\n"
+            "  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1\n"
+            "  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1\n"
+            "  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO\n"
+        )
+        result = vault_common._parse_config_yaml(text)
+        section = result["anthropic_env"]
+        assert isinstance(section, dict)
+        assert section["ANTHROPIC_AUTH_TOKEN"] == "token-123"
+        assert section["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
+        assert section["API_TIMEOUT_MS"] == 3000000
+        assert section["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "GLM-5.1"
+        assert section["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "GLM-5.1"
+        assert section["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "GLM-5-TURBO"
+
+
+# ---------------------------------------------------------------------------
+# configured Anthropic env helpers
+# ---------------------------------------------------------------------------
+
+
+class TestConfiguredAnthropicEnv:
+    """Tests for config-backed Anthropic env resolution."""
+
+    def test_env_without_claudecode_uses_vault_config_values_when_missing(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        config = tmp_path / "config.yaml"
+        config.write_text(
+            "anthropic_env:\n"
+            "  ANTHROPIC_AUTH_TOKEN: cfg-token\n"
+            "  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic\n"
+            "  API_TIMEOUT_MS: 3000000\n"
+            "  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1\n"
+            "  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1\n"
+            "  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
+        for name in (
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "API_TIMEOUT_MS",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        vault_common._resolve_vault_cached.cache_clear()
+        vault_common._clear_config_cache()
+
+        env = vault_common.env_without_claudecode()
+
+        assert env["ANTHROPIC_AUTH_TOKEN"] == "cfg-token"
+        assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
+        assert env["API_TIMEOUT_MS"] == "3000000"
+        assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "GLM-5.1"
+        assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "GLM-5.1"
+        assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "GLM-5-TURBO"
+
+    def test_env_without_claudecode_prefers_real_env_over_vault_config(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        config = tmp_path / "config.yaml"
+        config.write_text(
+            "anthropic_env:\n"
+            "  ANTHROPIC_AUTH_TOKEN: cfg-token\n"
+            "  ANTHROPIC_BASE_URL: https://config.example/anthropic\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
+        vault_common._resolve_vault_cached.cache_clear()
+        vault_common._clear_config_cache()
+
+        env = vault_common.env_without_claudecode()
+
+        assert env["ANTHROPIC_AUTH_TOKEN"] == "env-token"
+        assert env["ANTHROPIC_BASE_URL"] == "https://env.example/anthropic"
+
+    def test_apply_configured_env_defaults_sets_process_env_for_sdk_usage(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        config = tmp_path / "config.yaml"
+        config.write_text(
+            "anthropic_env:\n"
+            "  ANTHROPIC_AUTH_TOKEN: cfg-token\n"
+            "  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic\n"
+            "  API_TIMEOUT_MS: 3000000\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+        monkeypatch.delenv("API_TIMEOUT_MS", raising=False)
+        vault_common._resolve_vault_cached.cache_clear()
+        vault_common._clear_config_cache()
+
+        vault_common.apply_configured_env_defaults()
+
+        assert os.environ["ANTHROPIC_AUTH_TOKEN"] == "cfg-token"
+        assert os.environ["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
+        assert os.environ["API_TIMEOUT_MS"] == "3000000"
 
 
 # ---------------------------------------------------------------------------

@@ -91,6 +91,63 @@ class TestDetectCategories:
 
 
 # ---------------------------------------------------------------------------
+# parse_transcript_lines
+# ---------------------------------------------------------------------------
+
+
+class TestParseTranscriptLines:
+    """Tests for vault_common.parse_transcript_lines."""
+
+    def test_parses_claude_assistant_entry(self) -> None:
+        line = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Root cause was X."}],
+                },
+            }
+        )
+        result = vault_common.parse_transcript_lines([line])
+        assert result == ["Root cause was X."]
+
+    def test_parses_pi_assistant_message_entry(self) -> None:
+        line = json.dumps(
+            {
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Found that docs require Y."}],
+                },
+            }
+        )
+        result = vault_common.parse_transcript_lines([line])
+        assert result == ["Found that docs require Y."]
+
+    def test_ignores_non_assistant_entries(self) -> None:
+        user_line = json.dumps(
+            {
+                "type": "message",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "Please fix this."}],
+                },
+            }
+        )
+        tool_line = json.dumps(
+            {
+                "type": "message",
+                "message": {
+                    "role": "toolResult",
+                    "content": [{"type": "text", "text": "tool output"}],
+                },
+            }
+        )
+        result = vault_common.parse_transcript_lines([user_line, tool_line])
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
 # append_to_pending
 # ---------------------------------------------------------------------------
 

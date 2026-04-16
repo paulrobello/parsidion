@@ -641,6 +641,7 @@ def main() -> None:
 
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_common.apply_configured_env_defaults(vault=vault_path)
 
     # QA-001: Replace module-level VAULT_ROOT with try/finally restore pattern
     original_vault_root = vault_common.VAULT_ROOT

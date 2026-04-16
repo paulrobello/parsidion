@@ -140,6 +140,97 @@ class TestSessionStopHookIntegration:
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
 
+    def test_pi_transcript_under_home_dot_pi_is_processed(self, tmp_path: Path) -> None:
+        """pi session transcripts under ~/.pi should be accepted and queued."""
+        transcript = (
+            tmp_path / ".pi" / "agent" / "sessions" / "proj" / "pi-session.jsonl"
+        )
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        assistant_msg = json.dumps(
+            {
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Root cause was a missing environment variable.",
+                        }
+                    ],
+                },
+            }
+        )
+        transcript.write_text(assistant_msg + "\n", encoding="utf-8")
+
+        result = _run_hook(
+            "session_stop_hook.py",
+            {"cwd": str(tmp_path), "transcript_path": str(transcript)},
+            tmp_path,
+            extra_env={"HOME": str(tmp_path)},
+        )
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+        pending = tmp_path / "pending_summaries.jsonl"
+        assert pending.exists()
+        entry = json.loads(pending.read_text(encoding="utf-8").strip())
+        assert entry["transcript_path"] == str(transcript)
+        assert "error_fix" in entry["categories"]
+
+    def test_pi_transcript_uses_deeper_tail_fallback(self, tmp_path: Path) -> None:
+        """When default tail misses assistant text, pi fallback tail should recover it."""
+        transcript = (
+            tmp_path / ".pi" / "agent" / "sessions" / "proj" / "pi-deep-tail.jsonl"
+        )
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = [
+            json.dumps(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Root cause was a bad cache key in metadata.",
+                            }
+                        ],
+                    },
+                }
+            )
+        ]
+        # Add enough trailing user noise so the default 200-line tail misses the
+        # assistant text above, requiring the pi fallback tail.
+        for i in range(260):
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": f"noise-{i}"}],
+                        },
+                    }
+                )
+            )
+        transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        result = _run_hook(
+            "session_stop_hook.py",
+            {"cwd": str(tmp_path), "transcript_path": str(transcript)},
+            tmp_path,
+            extra_env={"HOME": str(tmp_path)},
+        )
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+        pending = tmp_path / "pending_summaries.jsonl"
+        assert pending.exists()
+        entry = json.loads(pending.read_text(encoding="utf-8").strip())
+        assert entry["transcript_path"] == str(transcript)
+        assert "error_fix" in entry["categories"]
+
 
 # ---------------------------------------------------------------------------
 # pre_compact_hook
@@ -374,3 +465,136 @@ class TestSubagentStopHookIntegration:
         )
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
+
+    def test_pi_subagent_transcript_under_home_dot_pi_is_processed(
+        self, tmp_path: Path
+    ) -> None:
+        """pi subagent transcripts under ~/.pi should be accepted and queued."""
+        transcript = (
+            tmp_path
+            / ".pi"
+            / "agent"
+            / "sessions"
+            / "proj"
+            / "subagent-vault-explorer-1.jsonl"
+        )
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = [
+            json.dumps(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Root cause was a stale cache key.",
+                            }
+                        ],
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "According to docs, invalidation is required.",
+                            }
+                        ],
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "This pattern prevents repeat failures.",
+                            }
+                        ],
+                    },
+                }
+            ),
+        ]
+        transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        result = _run_hook(
+            "subagent_stop_hook.py",
+            {
+                "cwd": str(tmp_path),
+                "agent_transcript_path": str(transcript),
+                "agent_id": "pi-agent-123",
+                "agent_type": "Explore",
+            },
+            tmp_path,
+            extra_env={"HOME": str(tmp_path)},
+        )
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+        pending = tmp_path / "pending_summaries.jsonl"
+        assert pending.exists()
+        entry = json.loads(pending.read_text(encoding="utf-8").strip())
+        assert entry["source"] == "subagent"
+        assert entry["session_id"] == "pi-agent-123"
+        assert entry["transcript_path"] == str(transcript)
+
+    def test_pi_subagent_single_message_is_allowed_by_default(
+        self, tmp_path: Path
+    ) -> None:
+        """pi subagents usually emit one final assistant message; that should queue."""
+        transcript = (
+            tmp_path
+            / ".pi"
+            / "agent"
+            / "sessions"
+            / "proj"
+            / "subagent-single-message.jsonl"
+        )
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Root cause was a missing lock around state updates.",
+                            }
+                        ],
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = _run_hook(
+            "subagent_stop_hook.py",
+            {
+                "cwd": str(tmp_path),
+                "agent_transcript_path": str(transcript),
+                "agent_id": "pi-agent-single",
+                "agent_type": "Explore",
+            },
+            tmp_path,
+            extra_env={"HOME": str(tmp_path)},
+        )
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+        pending = tmp_path / "pending_summaries.jsonl"
+        assert pending.exists()
+        entry = json.loads(pending.read_text(encoding="utf-8").strip())
+        assert entry["session_id"] == "pi-agent-single"
+        assert entry["transcript_path"] == str(transcript)

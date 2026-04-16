@@ -236,10 +236,29 @@ def migrate_pending_paths(dry_run: bool = False, vault: Path | None = None) -> i
         stored_path = Path(stored)
         if stored_path.exists():
             continue
-        candidate = stored_path.parent / f"agent-{stored_path.stem}.jsonl"
-        if candidate.exists():
+
+        candidates: list[Path] = []
+
+        # Claude Code fallback: old entries lacked the "agent-" prefix.
+        candidates.append(stored_path.parent / f"agent-{stored_path.stem}.jsonl")
+
+        # pi fallback: support both historical location spellings.
+        stored_str = str(stored_path)
+        if "/.pi/agent/sessions/" in stored_str:
+            candidates.append(
+                Path(stored_str.replace("/.pi/agent/sessions/", "/.pi/agent-sessions/"))
+            )
+        if "/.pi/agent-sessions/" in stored_str:
+            candidates.append(
+                Path(stored_str.replace("/.pi/agent-sessions/", "/.pi/agent/sessions/"))
+            )
+
+        repaired = next(
+            (candidate for candidate in candidates if candidate.exists()), None
+        )
+        if repaired is not None:
             if not dry_run:
-                entry["transcript_path"] = str(candidate)
+                entry["transcript_path"] = str(repaired)
             fixed += 1
     if fixed and not dry_run:
         tmp = pending_path.with_suffix(".jsonl.tmp")

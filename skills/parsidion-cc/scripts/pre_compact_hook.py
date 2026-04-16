@@ -16,13 +16,17 @@ from pathlib import Path
 
 import vault_common
 
-# Tool names and the input fields that contain file paths
+# Tool names and the input fields that contain file paths.
+# Keys are lowercase to support both Claude Code (Read/Write/Edit) and
+# pi tool names (read/write/edit/grep/find/ls).
 _FILE_TOOLS: dict[str, list[str]] = {
-    "Read": ["file_path"],
-    "Write": ["file_path"],
-    "Edit": ["file_path"],
-    "NotebookEdit": ["notebook_path"],
-    "Grep": ["path"],
+    "read": ["file_path", "path"],
+    "write": ["file_path", "path"],
+    "edit": ["file_path", "path"],
+    "notebookedit": ["notebook_path", "path"],
+    "grep": ["path"],
+    "find": ["path"],
+    "ls": ["path"],
 }
 
 
@@ -55,11 +59,24 @@ def extract_user_task(lines: list[str]) -> str:
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if entry.get("type") != "user":
-            continue
+        message = entry.get("message")
+        content: object = None
+        role: str | None = None
 
-        message = entry.get("message", entry)
-        content = message.get("content")
+        if isinstance(message, dict):
+            role_raw = message.get("role")
+            if isinstance(role_raw, str):
+                role = role_raw
+            content = message.get("content")
+
+        if role is None:
+            msg_type = entry.get("type")
+            if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
+                role = msg_type
+                content = entry.get("content")
+
+        if role != "user":
+            continue
 
         # Plain string content
         if isinstance(content, str):
@@ -81,15 +98,14 @@ def extract_user_task(lines: list[str]) -> str:
     return "Unknown task"
 
 
-def extract_file_paths(lines: list[str]) -> list[str]:
-    """Extract file paths from tool_use blocks in recent assistant messages.
+def extract_file_paths(lines: list[str], cwd: str | None = None) -> list[str]:
+    """Extract file paths from assistant tool call blocks.
 
-    Parses assistant message content for tool_use blocks from known file
-    tools (Read, Write, Edit, etc.) and extracts their path inputs directly,
-    avoiding false positives from regex matching over raw JSON.
+    Supports both Claude Code ``tool_use`` blocks and pi ``toolCall`` blocks.
 
     Args:
         lines: Raw JSONL lines from the transcript.
+        cwd: Optional working directory used to resolve relative paths.
 
     Returns:
         A deduplicated list of file paths found (max 15).
@@ -106,29 +122,67 @@ def extract_file_paths(lines: list[str]) -> list[str]:
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if entry.get("type") != "assistant":
-            continue
+        message = entry.get("message")
+        content: object = None
+        role: str | None = None
 
-        message = entry.get("message", entry)
-        content = message.get("content")
-        if not isinstance(content, list):
+        if isinstance(message, dict):
+            role_raw = message.get("role")
+            if isinstance(role_raw, str):
+                role = role_raw
+            content = message.get("content")
+
+        if role is None:
+            msg_type = entry.get("type")
+            if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
+                role = msg_type
+                top_level_content = entry.get("content")
+                if top_level_content is not None:
+                    content = top_level_content
+
+        if role != "assistant" or not isinstance(content, list):
             continue
 
         for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_use":
+            if not isinstance(block, dict):
                 continue
-            tool_name = block.get("name", "")
-            input_data = block.get("input", {})
+
+            block_type = block.get("type")
+            tool_name = ""
+            input_data: object = {}
+
+            if block_type == "tool_use":
+                name_raw = block.get("name", "")
+                if isinstance(name_raw, str):
+                    tool_name = name_raw.lower()
+                input_data = block.get("input", {})
+            elif block_type == "toolCall":
+                name_raw = block.get("name", "")
+                if isinstance(name_raw, str):
+                    tool_name = name_raw.lower()
+                input_data = block.get("arguments", {})
+            else:
+                continue
+
             if not isinstance(input_data, dict):
                 continue
+
             for field in _FILE_TOOLS.get(tool_name, []):
                 path_val = input_data.get(field, "")
-                if isinstance(path_val, str) and os.path.isabs(path_val):
-                    if path_val not in seen:
-                        seen.add(path_val)
-                        paths.append(path_val)
-                        if len(paths) >= 15:
-                            return paths
+                if not isinstance(path_val, str) or not path_val.strip():
+                    continue
+
+                normalized = path_val.strip()
+                if not os.path.isabs(normalized):
+                    if not cwd:
+                        continue
+                    normalized = str((Path(cwd) / normalized).resolve())
+
+                if normalized not in seen:
+                    seen.add(normalized)
+                    paths.append(normalized)
+                    if len(paths) >= 15:
+                        return paths
 
     return paths
 
@@ -318,7 +372,7 @@ def main() -> None:
             if transcript_path.is_file():
                 raw_lines: list[str] = read_last_n_lines(transcript_path, lines)
                 task_summary = extract_user_task(raw_lines)
-                recent_files = extract_file_paths(raw_lines)
+                recent_files = extract_file_paths(raw_lines, cwd=cwd)
 
         append_snapshot_to_daily(
             project, task_summary, recent_files, cwd=cwd, vault_path=vault_path

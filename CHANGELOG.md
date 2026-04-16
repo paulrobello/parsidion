@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **pi transcript compatibility across hook pipeline** — `session_stop_hook.py`, `subagent_stop_hook.py`, `summarize_sessions.py`, `pre_compact_hook.py`, and `vault_review.py` now parse both Claude Code JSONL (`type: "assistant" | "user"`) and pi JSONL (`type: "message"` with `message.role`).
+- **Config knobs for pi tail parsing** — `session_stop_hook.transcript_tail_lines` (default 200) and `session_stop_hook.pi_transcript_tail_lines` (default 1000) allow deeper fallback parsing for noisy pi tails.
+- **`scripts/install-pi-extension` helper** — installs `extensions/pi/parsidion-vault/parsidion-vault.ts` into `~/.pi/agent/extensions` (copy mode by default, `--symlink` for dev mode).
+
+### Changed
+
+- **Transcript path allowlist** — stop hooks now accept transcript paths under `~/.claude/`, `~/.pi/`, and `<cwd>/.pi/`.
+- **Subagent minimum-message behavior** — `subagent_stop_hook` uses a pi-friendly default floor of 1 assistant message when `min_messages` is unset for pi transcript paths.
+- **Documentation updates** — README, SKILL.md, CONTRIBUTING.md, and ARCHITECTURE.md now document pi transcript support, accepted roots, and new config keys.
+
 ## [0.5.3] - 2026-04-09
 
 ### Fixed

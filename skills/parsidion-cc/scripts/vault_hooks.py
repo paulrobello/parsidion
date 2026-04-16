@@ -15,18 +15,22 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from vault_config import get_config
+from vault_config import get_config, load_config
 from vault_fs import flock_exclusive, funlock
 from vault_path import resolve_vault
 
 __all__: list[str] = [
     # Environment helpers
+    "apply_configured_env_defaults",
     "env_without_claudecode",
     "_SAFE_ENV_KEYS",
     # Hook event logging
     "write_hook_event",
     # Transcript helpers
     "extract_text_from_content",
+    "allowed_transcript_roots",
+    "is_allowed_transcript_path",
+    "is_pi_transcript_path",
     # Project detection
     "get_project_name",
     # Process utilities
@@ -154,12 +158,76 @@ _SAFE_ENV_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Config-backed env values that may be set under ``anthropic_env`` in the vault
+# config. These mirror real environment variable names so users can copy values
+# directly from external env-based configs such as ``~/.claude/glm-settings.json``.
+_CONFIGURABLE_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_CUSTOM_HEADERS",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "API_TIMEOUT_MS",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+    }
+)
 
-def env_without_claudecode() -> dict[str, str]:
+
+def _coerce_env_value(value: object) -> str | None:
+    """Convert a config value into a process env string.
+
+    Empty strings and explicit ``null`` values are treated as unset.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value if value.strip() else None
+    return str(value)
+
+
+def _configured_env_defaults(vault: Path | None = None) -> dict[str, str]:
+    """Return supported env defaults from ``vault/config.yaml``.
+
+    Environment variables are represented in config under the ``anthropic_env``
+    section using their real env var names as keys.
+    """
+    config = load_config(vault=vault)
+    section = config.get("anthropic_env")
+    if not isinstance(section, dict):
+        return {}
+
+    resolved: dict[str, str] = {}
+    for key in _CONFIGURABLE_ENV_KEYS:
+        if key not in section:
+            continue
+        value = _coerce_env_value(section[key])
+        if value is not None:
+            resolved[key] = value
+    return resolved
+
+
+def apply_configured_env_defaults(vault: Path | None = None) -> None:
+    """Populate missing process env vars from ``vault/config.yaml``.
+
+    Existing environment variables always win over config values.
+    Call this before SDK-based Claude usage that reads from ``os.environ``
+    directly instead of an explicit ``env=`` subprocess mapping.
+    """
+    for key, value in _configured_env_defaults(vault=vault).items():
+        os.environ.setdefault(key, value)
+
+
+def env_without_claudecode(vault: Path | None = None) -> dict[str, str]:
     """Return a filtered copy of the current environment for child processes.
 
     Only includes variables listed in ``_SAFE_ENV_KEYS``, which avoids leaking
     secrets or triggering the Claude nesting guard (``CLAUDECODE``).
+    Missing supported Anthropic-compatible variables are filled from the vault
+    config's ``anthropic_env`` section when present.
 
     Always injects ``PARSIDION_INTERNAL=1`` so that hook scripts invoked by the
     resulting ``claude -p`` session can detect and skip internal sessions.
@@ -168,6 +236,8 @@ def env_without_claudecode() -> dict[str, str]:
         A dict suitable for passing as ``env=`` to ``subprocess.run`` / ``Popen``.
     """
     env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
+    for key, value in _configured_env_defaults(vault=vault).items():
+        env.setdefault(key, value)
     env["PARSIDION_INTERNAL"] = "1"
     return env
 
@@ -177,14 +247,14 @@ def env_without_claudecode() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def extract_text_from_content(content: str | list[dict]) -> str:
+def extract_text_from_content(content: object) -> str:
     """Extract plain text from a transcript message content field.
 
     Content can be a plain string or an array of content blocks (each with
     a ``type`` and ``text`` field for text blocks).
 
     Args:
-        content: The message content -- either a string or list of blocks.
+        content: The message content -- typically a string or list of blocks.
 
     Returns:
         Concatenated text from all text blocks.
@@ -200,6 +270,85 @@ def extract_text_from_content(content: str | list[dict]) -> str:
                     parts.append(text)
         return "\n".join(parts)
     return ""
+
+
+def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
+    """Return allowed root directories for transcript files.
+
+    Supports both Claude Code and pi transcript locations:
+
+    - ``~/.claude/`` (Claude Code transcripts)
+    - ``~/.pi/`` (pi global transcripts, e.g. ``~/.pi/agent/sessions``)
+    - ``<cwd>/.pi/`` (project-local pi transcripts, e.g. ``.pi/agent-sessions``)
+
+    Args:
+        cwd: Optional working directory for project-local ``.pi`` roots.
+
+    Returns:
+        De-duplicated list of resolved root paths.
+    """
+    roots: list[Path] = [Path.home() / ".claude", Path.home() / ".pi"]
+
+    if cwd:
+        try:
+            roots.append(Path(cwd).resolve() / ".pi")
+        except OSError:
+            pass
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        key = str(resolved)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(resolved)
+
+    return deduped
+
+
+def is_allowed_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool:
+    """Return True when *transcript_path* is inside an allowed transcript root."""
+    try:
+        resolved = transcript_path.resolve()
+    except OSError:
+        return False
+
+    for root in allowed_transcript_roots(cwd=cwd):
+        try:
+            if resolved.is_relative_to(root):
+                return True
+        except ValueError:
+            continue
+
+    return False
+
+
+def is_pi_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool:
+    """Return True when *transcript_path* belongs to a pi transcript root."""
+    try:
+        resolved = transcript_path.resolve()
+    except OSError:
+        return False
+
+    roots: list[Path] = [Path.home() / ".pi"]
+    if cwd:
+        try:
+            roots.append(Path(cwd).resolve() / ".pi")
+        except OSError:
+            pass
+
+    for root in roots:
+        try:
+            if resolved.is_relative_to(root.resolve()):
+                return True
+        except (ValueError, OSError):
+            continue
+
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +466,9 @@ TRANSCRIPT_CATEGORY_LABELS: dict[str, str] = {
 def parse_transcript_lines(lines: list[str]) -> list[str]:
     """Parse JSONL transcript lines and extract assistant message text.
 
+    Supports both Claude Code transcript events (``type: assistant``) and
+    pi transcript events (``type: message`` with ``message.role=assistant``).
+
     Args:
         lines: Raw JSONL lines from the transcript file.
 
@@ -333,12 +485,23 @@ def parse_transcript_lines(lines: list[str]) -> list[str]:
         except (json.JSONDecodeError, ValueError):
             continue
 
-        if entry.get("type") != "assistant":
-            continue
+        role: str | None = None
+        content: object = None
 
-        message = entry.get("message", entry)
-        content = message.get("content")
-        if content is None:
+        message = entry.get("message")
+        if isinstance(message, dict):
+            role_raw = message.get("role")
+            if isinstance(role_raw, str):
+                role = role_raw
+            content = message.get("content")
+
+        if role is None:
+            msg_type = entry.get("type")
+            if isinstance(msg_type, str) and msg_type in {"assistant", "user"}:
+                role = msg_type
+                content = entry.get("content")
+
+        if role != "assistant" or content is None:
             continue
 
         text = extract_text_from_content(content)

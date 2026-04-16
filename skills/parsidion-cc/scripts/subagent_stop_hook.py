@@ -16,6 +16,8 @@ Differences from session_stop_hook.py:
 - Respects ``subagent_stop_hook.enabled`` config (default: true)
 - Respects ``subagent_stop_hook.min_messages`` config (default: 3) to filter
   trivial subagents with only one or two assistant turns
+- Uses a pi-friendly default floor of 1 assistant message for transcripts
+  under ``~/.pi`` / ``<cwd>/.pi`` (override via ``min_messages`` config)
 - Respects ``subagent_stop_hook.excluded_agents`` config — comma-separated list
   of agent types to skip (default: "vault-explorer,research-agent")
 """
@@ -32,6 +34,8 @@ import vault_common
 
 _LOG_PREFIX = "[subagent_stop_hook]"
 _DEFAULT_EXCLUDED_AGENTS = {"vault-explorer", "research-agent"}
+_DEFAULT_MIN_MESSAGES = 3
+_DEFAULT_MIN_MESSAGES_PI = 1
 
 
 def _get_excluded_agents() -> set[str]:
@@ -144,11 +148,15 @@ def main() -> None:
             sys.stdout.write("{}")
             return
 
-        # SEC-004: Validate transcript path is under ~/.claude/
-        _claude_dir = Path.home() / ".claude"
-        if not agent_transcript.resolve().is_relative_to(_claude_dir.resolve()):
+        # SEC-004: Validate transcript path is under an allowed root
+        # (Claude Code ~/.claude, pi ~/.pi, or cwd/.pi).
+        if not vault_common.is_allowed_transcript_path(agent_transcript, cwd=cwd):
+            roots = ", ".join(
+                str(p) for p in vault_common.allowed_transcript_roots(cwd=cwd)
+            )
             print(
-                f"{_LOG_PREFIX} skipping: transcript outside ~/.claude/: {agent_transcript}",
+                f"{_LOG_PREFIX} skipping: transcript outside allowed roots "
+                f"({roots}): {agent_transcript}",
                 file=sys.stderr,
             )
             sys.stdout.write("{}")
@@ -178,8 +186,15 @@ def main() -> None:
 
         assistant_texts = vault_common.parse_transcript_lines(all_lines)
 
+        min_messages_default = (
+            _DEFAULT_MIN_MESSAGES_PI
+            if vault_common.is_pi_transcript_path(agent_transcript, cwd=cwd)
+            else _DEFAULT_MIN_MESSAGES
+        )
         min_messages: int = int(
-            vault_common.get_config("subagent_stop_hook", "min_messages", 3)
+            vault_common.get_config(
+                "subagent_stop_hook", "min_messages", min_messages_default
+            )
         )
         if len(assistant_texts) < min_messages:
             print(

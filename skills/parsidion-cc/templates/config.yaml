@@ -21,11 +21,13 @@ session_stop_hook:
   ai_timeout: 25           # AI call timeout in seconds
   auto_summarize: true     # Auto-launch summarizer when pending entries exist
   auto_summarize_after: 1  # Queue threshold to trigger auto-summarizer (0 = always, 1 = default)
+  transcript_tail_lines: 200      # Lines to inspect by default
+  pi_transcript_tail_lines: 1000  # Deeper fallback tail for pi transcripts when no assistant text is found
 
 # Subagent stop hook (subagent_stop_hook.py)
 subagent_stop_hook:
   enabled: true            # Set false to disable subagent transcript capture entirely
-  min_messages: 3          # Minimum assistant message count; filters trivial subagents
+  min_messages: 3          # Minimum assistant message count (pi transcripts default to 1 when unset)
   # Agent types to skip — these run constantly as vault system internals.
   # Value is a comma-separated string (config parser limitation).
   excluded_agents: "vault-explorer,research-agent"
@@ -56,6 +58,22 @@ embeddings:
 # Git integration
 git:
   auto_commit: true        # Auto-commit vault changes after writes
+
+# Anthropic-compatible transport/env settings (optional)
+# These keys mirror real env var names so you can copy values directly from
+# env-based configs such as ~/.claude/glm-settings.json.
+# Precedence: real environment variable > this config section.
+anthropic_env:
+  ANTHROPIC_API_KEY: null
+  ANTHROPIC_AUTH_TOKEN: null
+  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+  ANTHROPIC_CUSTOM_HEADERS: null
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO
+  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1
+  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1
+  API_TIMEOUT_MS: 3000000
+  HTTPS_PROXY: null
+  HTTP_PROXY: null
 
 # Default model IDs — override once here instead of editing each script
 defaults:

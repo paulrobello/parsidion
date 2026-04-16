@@ -112,8 +112,7 @@ def _resolve_transcript_path(entry: dict) -> Path | None:
     """Return the best available Path for an entry's transcript.
 
     Tries the stored ``transcript_path`` first, then applies known fallbacks
-    for older entries where the path was stored without the ``agent-`` prefix
-    that Claude Code uses for subagent transcript filenames.
+    for older Claude Code and pi transcript path variants.
 
     Args:
         entry: Pending summary entry dict.
@@ -127,11 +126,27 @@ def _resolve_transcript_path(entry: dict) -> Path | None:
     path = Path(raw)
     if path.exists():
         return path
-    # Fallback: Claude Code stores subagent transcripts as agent-<id>.jsonl but
-    # older hook versions stored the path without the "agent-" prefix.
-    candidate = path.parent / f"agent-{path.stem}.jsonl"
-    if candidate.exists():
-        return candidate
+
+    candidates: list[Path] = []
+
+    # Claude Code fallback: older entries omitted the "agent-" prefix.
+    candidates.append(path.parent / f"agent-{path.stem}.jsonl")
+
+    # pi fallback: support both historical location spellings.
+    raw_str = str(path)
+    if "/.pi/agent/sessions/" in raw_str:
+        candidates.append(
+            Path(raw_str.replace("/.pi/agent/sessions/", "/.pi/agent-sessions/"))
+        )
+    if "/.pi/agent-sessions/" in raw_str:
+        candidates.append(
+            Path(raw_str.replace("/.pi/agent-sessions/", "/.pi/agent/sessions/"))
+        )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
     return None
 
 
@@ -155,8 +170,8 @@ def _read_transcript_excerpt(
             f"Transcript not found: {raw or '(no path)'}",
             "",
             "This can happen when:",
-            "  • Claude Code cleaned up old transcripts",
-            "  • The entry was queued before a bug fix (re-queue by running a new session)",
+            "  • The agent runtime cleaned up old transcripts",
+            "  • The entry was queued before a path-handling fix (re-queue by running a new session)",
         ]
 
     lines: list[str] = []
@@ -171,14 +186,31 @@ def _read_transcript_excerpt(
                 except json.JSONDecodeError:
                     continue
                 # Extract human-readable text from transcript events.
-                # Subagent transcripts nest content under obj["message"]["content"];
-                # session transcripts use obj["content"] directly.
+                # Supports Claude Code events (type=user/assistant) and
+                # pi events (type=message with message.role=user/assistant).
                 if isinstance(obj, dict):
+                    role: str | None = None
+                    raw_content: object = ""
+
                     msg = obj.get("message")
                     if isinstance(msg, dict):
+                        role_raw = msg.get("role")
+                        if isinstance(role_raw, str):
+                            role = role_raw
                         raw_content = msg.get("content", "")
-                    else:
-                        raw_content = obj.get("content", "")
+
+                    if role is None:
+                        msg_type = obj.get("type")
+                        if isinstance(msg_type, str) and msg_type in {
+                            "user",
+                            "assistant",
+                        }:
+                            role = msg_type
+                            raw_content = obj.get("content", "")
+
+                    if role not in {"user", "assistant"}:
+                        continue
+
                     text = vault_common.extract_text_from_content(raw_content)
                     if text:
                         for sub in text.splitlines():

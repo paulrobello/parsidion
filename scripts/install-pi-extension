@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Install the parsidion-vault pi extension from this repo into ~/.pi/agent/extensions.
+#
+# Usage:
+#   ./scripts/install-pi-extension [--symlink] [--no-doc] [--extension-dir DIR]
+#
+# Options:
+#   --symlink            Install as symlinks instead of copying files
+#   --no-doc             Skip installing parsidion-vault.md
+#   --extension-dir DIR  Target pi extension directory (default: ~/.pi/agent/extensions)
+#   --help, -h           Show this help
+#
+# Examples:
+#   ./scripts/install-pi-extension
+#   ./scripts/install-pi-extension --symlink
+#   ./scripts/install-pi-extension --extension-dir ~/.pi/agent/extensions
+
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    awk '
+        NR == 1 { next }
+        /^#/ { sub(/^# ?/, ""); print; next }
+        { exit }
+    ' "$0"
+    exit 0
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC_DIR="$REPO_ROOT/extensions/pi/parsidion-vault"
+SRC_TS="$SRC_DIR/parsidion-vault.ts"
+SRC_MD="$SRC_DIR/parsidion-vault.md"
+
+MODE="copy"
+INSTALL_DOC="yes"
+EXT_DIR="${HOME}/.pi/agent/extensions"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --symlink)
+            MODE="symlink"
+            shift
+            ;;
+        --copy)
+            MODE="copy"
+            shift
+            ;;
+        --no-doc)
+            INSTALL_DOC="no"
+            shift
+            ;;
+        --extension-dir)
+            if [[ $# -lt 2 ]]; then
+                echo "error: --extension-dir requires a value" >&2
+                exit 1
+            fi
+            EXT_DIR="$2"
+            shift 2
+            ;;
+        *)
+            echo "error: unknown option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ ! -f "$SRC_TS" ]]; then
+    echo "error: missing source file: $SRC_TS" >&2
+    exit 1
+fi
+
+mkdir -p "$EXT_DIR"
+DST_TS="$EXT_DIR/parsidion-vault.ts"
+DST_MD="$EXT_DIR/parsidion-vault.md"
+
+if [[ "$MODE" == "symlink" ]]; then
+    ln -sfn "$SRC_TS" "$DST_TS"
+    if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
+        ln -sfn "$SRC_MD" "$DST_MD"
+    fi
+else
+    cp "$SRC_TS" "$DST_TS"
+    if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
+        cp "$SRC_MD" "$DST_MD"
+    fi
+fi
+
+echo "Installed parsidion-vault extension:"
+echo "  mode:          $MODE"
+echo "  ts:            $DST_TS"
+if [[ "$INSTALL_DOC" == "yes" ]]; then
+    if [[ -f "$DST_MD" || -L "$DST_MD" ]]; then
+        echo "  doc:           $DST_MD"
+    fi
+fi
+
+echo
+echo "If script resolution ever fails in /parsidion-vault status, set one of:"
+echo "  export PARSIDION_CC_SCRIPTS_DIR=\"$REPO_ROOT/skills/parsidion-cc/scripts\""
+echo "  export PARSIDION_CC_DIR=\"$REPO_ROOT\""
+echo
+echo "Then in pi run:"
+echo "  /reload"
+echo "  /parsidion-vault"
