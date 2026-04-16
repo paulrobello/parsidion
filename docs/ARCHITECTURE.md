@@ -233,7 +233,11 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Four Python scripts execute at different points in the Claude Code session lifecycle. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args).
+Four Python scripts execute at different points in the Claude Code session lifecycle (and can also be driven from pi via adapter extensions). All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args).
+
+Transcript compatibility:
+- Claude Code JSONL (`type: "assistant" | "user"`)
+- pi JSONL (`type: "message"` with `message.role: "assistant" | "user"`)
 
 #### SessionStart Hook
 
@@ -300,21 +304,24 @@ Registered under the `SessionEnd` hook event — fires once when the session ter
 | `ai_timeout` | `25` | AI call timeout in seconds |
 | `auto_summarize` | `true` | Auto-launch summarizer when pending entries exist |
 | `auto_summarize_after` | `1` | Queue threshold to trigger auto-summarizer (0 = always) |
+| `transcript_tail_lines` | `200` | Default transcript tail lines to parse |
+| `pi_transcript_tail_lines` | `1000` | Fallback pi tail lines when default tail contains no assistant text |
 
 **Behavior:**
-1. Reads the last 200 lines of the JSONL transcript
-2. Extracts assistant message text
-3. Resolves AI model: CLI `--ai` → `session_stop_hook.ai_model` config → `null` (disabled)
-4. Runs keyword-based heuristics to detect four categories:
+1. Reads a configurable transcript tail (`transcript_tail_lines`, default `200`)
+2. Extracts assistant message text (Claude and pi JSONL formats)
+3. If no assistant text is found and the transcript is under a pi root (`~/.pi` or `<cwd>/.pi`), retries with `pi_transcript_tail_lines` (default `1000`)
+4. Resolves AI model: CLI `--ai` → `session_stop_hook.ai_model` config → `null` (disabled)
+5. Runs keyword-based heuristics to detect four categories:
    - **Error fixes** (keywords: "fixed", "root cause", "the fix", etc.)
    - **Research findings** (keywords: "found that", "documentation says", etc.)
    - **Patterns** (keywords: "pattern", "best practice", "architecture", etc.)
    - **Config/setup** (keywords: "configured", "installed", "set up", etc.)
-5. Appends a session summary to today's daily note under `## Sessions`
-6. Queues sessions with significant learnings (error_fix, research, or pattern categories) to `pending_summaries.jsonl` for AI-powered summarization. Uses `vault_common.flock_exclusive` (backed by `fcntl.flock` on macOS/Linux; no-op fallback on Windows) for safe concurrent access; deduplicates by `session_id`.
-7. Calls `git_commit_vault` to commit the updated daily note to the vault git repository (respects `git.auto_commit` config)
-8. Auto-launches `summarize_sessions.py` as a detached background process if there are pending entries in the queue and `session_stop_hook.auto_summarize` is `true` (default)
-9. Uses an environment variable guard (`CLAUDE_VAULT_STOP_ACTIVE`) to prevent recursive invocation
+6. Appends a session summary to today's daily note under `## Sessions`
+7. Queues sessions with significant learnings (error_fix, research, or pattern categories) to `pending_summaries.jsonl` for AI-powered summarization. Uses `vault_common.flock_exclusive` (backed by `fcntl.flock` on macOS/Linux; no-op fallback on Windows) for safe concurrent access; deduplicates by `session_id`.
+8. Calls `git_commit_vault` to commit the updated daily note to the vault git repository (respects `git.auto_commit` config)
+9. Auto-launches `summarize_sessions.py` as a detached background process if there are pending entries in the queue and `session_stop_hook.auto_summarize` is `true` (default)
+10. Uses an environment variable guard (`CLAUDE_VAULT_STOP_ACTIVE`) to prevent recursive invocation
 
 **AI-powered mode (`--ai [MODEL]`):**
 
@@ -371,14 +378,14 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 | Key | Default | Description |
 |-----|---------|-------------|
 | `enabled` | `true` | Set `false` to disable subagent transcript capture entirely |
-| `min_messages` | `3` | Minimum assistant message count; filters trivial subagents |
+| `min_messages` | `3` | Minimum assistant message count; for pi transcripts the unset default is `1` |
 | `excluded_agents` | `"vault-explorer,research-agent"` | Comma-separated agent types to skip |
 
 **Behavior:**
 1. Checks `subagent_stop_hook.enabled` config (default `true`); exits immediately if disabled
 2. Checks `agent_type` against the `excluded_agents` list — skips `vault-explorer` and `research-agent` by default to prevent recursive capture of vault system internals
 3. Reads **all** lines of the subagent's `agent_transcript_path` (subagent sessions are short)
-4. Skips subagents with fewer than `min_messages` assistant turns (filters trivial one-shot agents)
+4. Skips subagents with fewer than `min_messages` assistant turns (for pi transcripts, the unset default floor is 1)
 5. Runs the same keyword heuristics as SessionEnd to detect significant categories
 6. Uses `agent_id` as the deduplication key (via a synthetic path stem) when available
 7. Queues to `pending_summaries.jsonl` with `source: "subagent"` and `agent_type` metadata
@@ -631,6 +638,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `load_config()` | Load and cache `config.yaml` from `VAULT_ROOT` |
 | `get_config()` | Look up a config value by section/key with fallback default |
 | `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset (for nested `claude -p` calls); `_SAFE_ENV_KEYS` allowlist forwards `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so proxy/org/Bedrock configurations reach subprocesses |
+| `apply_configured_env_defaults()` | Populate missing Anthropic-compatible runtime env vars from `~/ClaudeVault/config.yaml` `anthropic_env`; real environment variables still win |
 | `flock_exclusive()` | Acquire an exclusive file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `flock_shared()` | Acquire a shared file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `funlock()` | Release a file lock |
@@ -653,7 +661,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `TRANSCRIPT_CATEGORIES` | Keyword lists for four learning categories (error_fix, research, pattern, config_setup) |
 | `TRANSCRIPT_CATEGORY_LABELS` | Human-readable labels for category keys |
 
-**Configuration system:** `load_config()` reads `~/ClaudeVault/config.yaml` on first call and caches the result for the process lifetime. The file is parsed by `_parse_config_yaml()`, a stdlib-only YAML parser that handles one level of nesting (section headers with nested key-value pairs). `_strip_inline_comment()` handles trailing `# comment` syntax. `get_config(section, key, default)` provides the lookup API used by all hooks and the summarizer.
+**Configuration system:** `load_config()` reads `~/ClaudeVault/config.yaml` on first call and caches the result for the process lifetime. The file is parsed by `_parse_config_yaml()`, a stdlib-only YAML parser that handles one level of nesting (section headers with nested key-value pairs). `_strip_inline_comment()` handles trailing `# comment` syntax. `get_config(section, key, default)` provides the lookup API used by all hooks and the summarizer. Anthropic-compatible transport settings can also be defined in `anthropic_env` using their real env var names (for example `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `API_TIMEOUT_MS`), with precedence **environment > `anthropic_env` > default behavior**.
 
 **Design decisions:**
 - No external dependencies (stdlib only) for maximum portability in hook contexts
@@ -968,7 +976,7 @@ The vault at `~/ClaudeVault/` is plain markdown — no Obsidian required. If you
 
 ## Configuration
 
-All hooks and the summarizer support a centralized configuration file at `~/ClaudeVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation.
+All hooks and the summarizer support a centralized configuration file at `~/ClaudeVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. The pi adapter extension may inspect `anthropic_env` for `/parsidion-vault` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
 
 **Precedence:** script defaults → `config.yaml` → CLI arguments.
 
@@ -990,10 +998,12 @@ session_stop_hook:   # session_stop_hook.py
   ai_timeout: 25     # AI call timeout in seconds
   auto_summarize: true  # Auto-launch summarizer when pending entries exist
   auto_summarize_after: 1  # Queue threshold to trigger auto-summarizer (0 = always)
+  transcript_tail_lines: 200      # Default tail lines to parse
+  pi_transcript_tail_lines: 1000  # Fallback pi tail when default tail has no assistant text
 
 subagent_stop_hook:  # subagent_stop_hook.py
   enabled: true      # Set false to disable subagent transcript capture
-  min_messages: 3    # Minimum assistant turns before queuing
+  min_messages: 3    # Minimum assistant turns before queuing (pi default is 1 when unset)
   excluded_agents: "vault-explorer,research-agent"  # comma-separated skip list
 
 pre_compact_hook:    # pre_compact_hook.py

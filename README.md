@@ -136,8 +136,8 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 | `vault_common.py` | Shared library (frontmatter parsing, search, path utilities, config loader, git commit, `build_compact_index()`) |
 | `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via `claude -p`; `--debug` logs injected context to `$TMPDIR` |
-| `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked) |
-| `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents` |
+| `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
+| `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents`; accepts Claude and pi transcript paths |
 | `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`); checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
 | `pre_compact_hook.py` | PreCompact hook -- snapshots working state before compaction |
 | `post_compact_hook.py` | PostCompact hook -- reads today's daily note, finds the last `## Pre-Compact Snapshot`, and returns it as `additionalContext` to restore context after compaction |
@@ -251,6 +251,15 @@ A shell script that previews what vault context would be injected at session sta
 ./scripts/show-context ~/Repos/myproject  # Preview context for a specific project
 ```
 
+### pi Extension Installer (`scripts/install-pi-extension`)
+
+Helper script to install the `parsidion-vault` pi extension into `~/.pi/agent/extensions`.
+
+```bash
+./scripts/install-pi-extension            # copy mode (default)
+./scripts/install-pi-extension --symlink  # dev mode, keeps files linked to this repo
+```
+
 ### Hooks (`~/.claude/settings.json`)
 
 All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#configuration)).
@@ -262,6 +271,99 @@ All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#co
 | PreCompact | `pre_compact_hook.py` | 10 s | `pre_compact_hook` | Configurable transcript lines |
 | PostCompact | `post_compact_hook.py` | 10 s | — | Reads last Pre-Compact Snapshot from today's daily note and returns it as `additionalContext` |
 | SubagentStop | `subagent_stop_hook.py` | async | `subagent_stop_hook` | Non-blocking; skips agents listed in `excluded_agents` |
+
+Transcript compatibility for stop hooks:
+- Claude Code JSONL (`type: "assistant" | "user"`)
+- pi JSONL (`type: "message"` + `message.role`)
+- Accepted roots: `~/.claude/`, `~/.pi/`, and `<cwd>/.pi/`
+
+### pi Extension Install (`parsidion-vault`)
+
+The pi adapter extension source is included at:
+
+- `extensions/pi/parsidion-vault/parsidion-vault.ts`
+- `extensions/pi/parsidion-vault/parsidion-vault.md`
+
+Install it globally for pi (recommended helper):
+
+```bash
+./scripts/install-pi-extension
+```
+
+For live development (so extension updates track this repo automatically):
+
+```bash
+./scripts/install-pi-extension --symlink
+```
+
+Manual install (without helper):
+
+```bash
+mkdir -p ~/.pi/agent/extensions
+cp extensions/pi/parsidion-vault/parsidion-vault.ts ~/.pi/agent/extensions/parsidion-vault.ts
+```
+
+If script discovery fails, set one of:
+
+```bash
+export PARSIDION_CC_SCRIPTS_DIR="$HOME/Repos/parsidion-cc/skills/parsidion-cc/scripts"
+# or
+export PARSIDION_CC_DIR="$HOME/Repos/parsidion-cc"
+```
+
+Then in pi:
+
+```text
+/reload
+/parsidion-vault
+```
+
+`/parsidion-vault` shows:
+- resolved script directory
+- transcript/session details
+- effective Anthropic / GLM config status
+
+For Anthropic / GLM-compatible settings, status precedence is:
+1. real environment variable
+2. `~/ClaudeVault/config.yaml` `anthropic_env`
+3. unset
+
+Secret values such as `ANTHROPIC_AUTH_TOKEN` are masked in status output. Python hook scripts remain authoritative for runtime behavior; the pi extension only reports effective status.
+
+### pi Integration Quickstart (Validation)
+
+From the `parsidion-cc` repo root, run these smoke tests:
+
+```bash
+# 1) SessionEnd hook against a pi transcript path
+TEST_TXT="$HOME/.pi/agent/sessions/--tmp--/pi-session-test.jsonl"
+mkdir -p "$(dirname "$TEST_TXT")"
+printf '%s\n' \
+  '{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Root cause was a missing lock."}]}}' \
+  > "$TEST_TXT"
+TMP_VAULT=$(mktemp -d)
+printf '%s' "{\"cwd\":\"$PWD\",\"transcript_path\":\"$TEST_TXT\"}" \
+  | CLAUDE_VAULT="$TMP_VAULT" uv run --no-project skills/parsidion-cc/scripts/session_stop_hook.py
+
+# 2) SubagentStop hook against a pi subagent transcript path
+printf '%s' "{\"cwd\":\"$PWD\",\"agent_transcript_path\":\"$TEST_TXT\",\"agent_id\":\"pi-smoke-1\",\"agent_type\":\"Explore\"}" \
+  | CLAUDE_VAULT="$TMP_VAULT" uv run --no-project skills/parsidion-cc/scripts/subagent_stop_hook.py
+
+# 3) Summarizer dry-run on explicit pi transcript entry
+SESSIONS_FILE=$(mktemp)
+printf '%s\n' "{\"session_id\":\"pi-smoke-summarizer\",\"transcript_path\":\"$TEST_TXT\",\"project\":\"mypi\",\"categories\":[\"error_fix\"],\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"source\":\"subagent\",\"agent_type\":\"Explore\"}" > "$SESSIONS_FILE"
+env -u CLAUDECODE uv run --no-project skills/parsidion-cc/scripts/summarize_sessions.py \
+  --sessions "$SESSIONS_FILE" --vault "$TMP_VAULT" --dry-run
+
+# cleanup
+rm -f "$TEST_TXT" "$SESSIONS_FILE"
+rm -rf "$TMP_VAULT"
+```
+
+Expected behavior:
+- hooks return `{}` and do not reject pi transcript paths
+- `pending_summaries.jsonl` is created in `TMP_VAULT` when categories are significant
+- summarizer prints a `[dry-run] Would write:` note path (proves transcript parsing worked)
 
 ## Vault Visualizer
 
@@ -356,6 +458,16 @@ cp ~/.claude/skills/parsidion-cc/templates/config.yaml ~/ClaudeVault/config.yaml
 > **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
 > `claude-haiku-4-5-20251001`, `BAAI/bge-small-en-v1.5`) are the hardcoded script defaults.
 > Override any of them via the corresponding key in `~/ClaudeVault/config.yaml`.
+>
+> **Anthropic-compatible transport settings:** You can also define `ANTHROPIC_*`
+> and `API_TIMEOUT_MS` values in `config.yaml` under `anthropic_env:` using the
+> real env var names as keys. This is useful for GLM/Z.AI-compatible setups.
+> Precedence for those values is: **real environment variable > `anthropic_env`
+> in `config.yaml` > script default behavior**.
+>
+> The pi `/parsidion-vault` command reports the effective source for these values
+> (`env`, `vault config`, or `unset`) and masks secret previews, but Python hook
+> scripts remain the runtime source of truth.
 
 ```yaml
 session_start_hook:
@@ -373,10 +485,12 @@ session_stop_hook:
   ai_timeout: 25           # AI call timeout in seconds
   auto_summarize: true     # Auto-launch summarizer when pending entries exist
   auto_summarize_after: 1  # Queue size threshold before auto-launching summarizer
+  transcript_tail_lines: 200      # Lines inspected by default
+  pi_transcript_tail_lines: 1000  # Deeper fallback tail for pi transcripts when the default tail has no assistant text
 
 subagent_stop_hook:
   enabled: true            # Enable/disable subagent transcript capture
-  min_messages: 3          # Minimum messages before capturing transcript
+  min_messages: 3          # Minimum assistant messages before capture (pi transcripts default to 1 when unset)
   excluded_agents: "vault-explorer,research-agent"  # Never capture these
 
 pre_compact_hook:
@@ -390,6 +504,16 @@ summarizer:
   persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
   dedup_threshold: 0.80    # Cosine similarity above which a near-duplicate note is detected and skipped
+
+anthropic_env:
+  ANTHROPIC_API_KEY: null
+  ANTHROPIC_AUTH_TOKEN: null
+  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+  ANTHROPIC_CUSTOM_HEADERS: null
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO
+  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1
+  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1
+  API_TIMEOUT_MS: 3000000
 
 defaults:
   haiku_model: claude-haiku-4-5-20251001   # Centralized haiku model ID used across hooks
