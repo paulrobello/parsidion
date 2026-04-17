@@ -9,8 +9,8 @@ import {
 describe("maskSecret", () => {
 	it("masks long tokens while preserving a short fingerprint", () => {
 		expect(
-			maskSecret("bcb9d50552cb4f8bb5238fb0d964a730.Uqq8O00r6ap215Rl"),
-		).toBe("bcb9…15Rl");
+			maskSecret("placeholder-anthropic-auth-token-1234"),
+		).toBe("plac…1234");
 	});
 
 	it("returns generic masked text for short secrets", () => {
@@ -98,13 +98,13 @@ describe("buildAnthropicStatus", () => {
 			{},
 			[
 				"anthropic_env:",
-				"  ANTHROPIC_AUTH_TOKEN: bcb9d50552cb4f8bb5238fb0d964a730.Uqq8O00r6ap215Rl",
+				"  ANTHROPIC_AUTH_TOKEN: placeholder-anthropic-auth-token-1234",
 			].join("\n"),
 		);
 
 		const item = status.items.find((entry) => entry.key === "ANTHROPIC_AUTH_TOKEN");
 		expect(item?.source).toBe("vault config");
-		expect(item?.valuePreview).toBe("bcb9…15Rl");
+		expect(item?.valuePreview).toBe("plac…1234");
 		expect(item?.isSecret).toBe(true);
 	});
 
