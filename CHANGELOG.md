@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-04-19
+
+### Changed
+
+- **Project Explorer Cleanup** — updated `project-explorer` agent to clean up outdated information in the vault for the project being explored (updates or deletes if no longer applicable) instead of strictly appending only.
+
 ## [0.5.5] - 2026-04-17
 
 ### Added

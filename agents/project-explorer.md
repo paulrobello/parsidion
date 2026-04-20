@@ -28,7 +28,7 @@ uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_search.py "proje
 Also dispatch the `vault-explorer` agent with `"project {name} architecture features"`.
 
 - If a project folder already exists at `~/ClaudeVault/Projects/{project-slug}/`: read existing notes,
-  identify gaps, and only add/update — never delete existing content. Also check for orphaned flat
+  identify gaps, and update them. Look for outdated info in the vault for the project being explored and clean it up (update or remove if no longer applicable). Also check for orphaned flat
   files in `~/ClaudeVault/Projects/` prefixed with the project slug and move them into the folder.
 - If no notes exist: proceed to full analysis.
 

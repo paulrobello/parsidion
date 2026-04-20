@@ -566,7 +566,7 @@ A Claude Code agent definition (runs on Sonnet) that deeply analyzes a software 
 **Scope:** Read-only analysis followed by vault writes. Does not modify project source files. Writes exclusively to `~/ClaudeVault/Projects/` and `~/ClaudeVault/Patterns/`.
 
 **Workflow (9 steps):**
-1. **Vault check** — semantic search + dispatches `vault-explorer` with `"project {name} architecture features"`; if notes exist, reads them and fills gaps only (never deletes)
+1. **Vault check** — semantic search + dispatches `vault-explorer` with `"project {name} architecture features"`; if notes exist, reads them, fills gaps, and cleans up outdated info (updates or deletes)
 2. **Metadata discovery** — reads `README.md`, `CLAUDE.md`, `pyproject.toml`/`Cargo.toml`/`package.json`/`go.mod`, and `Makefile` to extract project name, language, frameworks, key deps, and entry points
 3. **Architecture exploration** — Glob + Read to map top-level directory structure, identify key modules and their responsibilities, locate main entry points, note distinctive structural choices
 4. **Feature extraction** — identifies 3–8 reusable features via README sections, `{binary} --help`, module filenames, and Makefile targets; for each: what it does, which files implement it, why it's reusable
