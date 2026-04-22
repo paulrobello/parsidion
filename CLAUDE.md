@@ -32,6 +32,7 @@ uv run install.py                    # interactive
 uv run install.py --force --yes      # non-interactive reinstall
 uv run install.py --dry-run          # preview only
 uv run install.py --uninstall        # remove skill, agent, hooks, and launchd plist / cron job
+uv run install.py --uninstall-hooks  # remove only managed hook registrations from settings.json
 
 # Schedule nightly auto-summarization (launchd on macOS, cron on Linux)
 uv run install.py --schedule-summarizer

@@ -11,17 +11,18 @@ Usage:
     python install.py [options]
 
 Options:
-    --vault PATH        Vault path (skips interactive prompt)
-    --claude-dir PATH   Target ~/.claude directory (default: ~/.claude)
-    --dry-run, -n       Preview actions without making changes
-    --verbose, -v       Show detailed output
-    --force, -f         Overwrite existing skill files
-    --yes, -y           Skip all confirmation prompts; uses ~/ClaudeVault as the
-                        vault path unless --vault PATH is also supplied
-    --skip-hooks        Do not modify settings.json
-    --skip-agent        Do not install any agents
-    --uninstall         Remove installed skill, agent, and hooks
-    --enable-ai         Enable AI-powered note selection (writes ai_model to config.yaml, sets 30s timeout)
+    --vault PATH           Vault path (skips interactive prompt)
+    --claude-dir PATH      Target ~/.claude directory (default: ~/.claude)
+    --dry-run, -n          Preview actions without making changes
+    --verbose, -v          Show detailed output
+    --force, -f            Overwrite existing skill files
+    --yes, -y              Skip all confirmation prompts; uses ~/ClaudeVault as the
+                           vault path unless --vault PATH is also supplied
+    --skip-hooks           Do not modify settings.json
+    --skip-agent           Do not install any agents
+    --uninstall            Remove installed skill, agent, hooks, and related assets
+    --uninstall-hooks      Remove only installed hook registrations from settings.json
+    --enable-ai            Enable AI-powered note selection (writes ai_model to config.yaml, sets 30s timeout)
     --install-tools     Install vault-search, vault-new, and vault-stats as global CLI commands
     --schedule-summarizer  Install nightly cron/launchd job to auto-run summarize_sessions.py
     --summarizer-hour N    Hour of day (0-23) for the scheduled summarizer (default: 3)
@@ -1117,13 +1118,73 @@ def rebuild_index(
 # ---------------------------------------------------------------------------
 
 
+def remove_installed_hooks(
+    claude_dir: Path,
+    settings_file: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Remove only Parsidion CC-managed hook registrations from settings.json.
+
+    Returns True when at least one managed hook registration was found.
+    """
+    if not settings_file.exists():
+        _warn(f"settings.json not found: {settings_file}")
+        return False
+
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read settings.json: {exc}")
+        return False
+
+    hooks_section: dict = settings.get("hooks", {})
+    changed = False
+
+    for event, _script_name in _HOOK_SCRIPTS.items():
+        command = _hook_command(claude_dir, event)
+        event_hooks: list[dict] = hooks_section.get(event, [])
+        filtered = [
+            entry for entry in event_hooks if not _hook_already_registered([entry], command)
+        ]
+        if len(filtered) < len(event_hooks):
+            _step(f"Remove hook {bold(event)}", dry_run=dry_run)
+            if not dry_run:
+                if filtered:
+                    hooks_section[event] = filtered
+                elif event in hooks_section:
+                    del hooks_section[event]
+            changed = True
+
+    if changed and not dry_run:
+        try:
+            settings_file.write_text(
+                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+            )
+            _ok(f"Updated {settings_file}")
+        except OSError as exc:
+            _err(f"Could not write {settings_file}: {exc}")
+    elif not changed:
+        _warn("No Parsidion CC hook registrations found.")
+
+    return changed
+
+
 def uninstall(
     claude_dir: Path,
     settings_file: Path,
     dry_run: bool = False,
     yes: bool = False,
+    hooks_only: bool = False,
 ) -> None:
-    """Remove installed skill, agent, and hook registrations."""
+    """Remove installed Parsidion CC assets or only managed hooks."""
+    if hooks_only:
+        print(bold("\nRemoving Parsidion CC hooks..."))
+        remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+        if not dry_run:
+            print()
+            _ok("Hook uninstall complete.")
+        return
+
     print(bold("\nUninstalling Parsidion CC..."))
 
     skill_dir = claude_dir / "skills" / "parsidion-cc"
@@ -1155,40 +1216,7 @@ def uninstall(
                         script_dest.unlink()
 
     # Remove hook registrations
-    if settings_file.exists():
-        try:
-            settings = json.loads(settings_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            _warn(f"Could not read settings.json: {exc}")
-            return
-
-        hooks_section: dict = settings.get("hooks", {})
-        changed = False
-
-        for event, _script_name in _HOOK_SCRIPTS.items():
-            command = _hook_command(claude_dir, event)
-            event_hooks: list[dict] = hooks_section.get(event, [])
-            filtered = [
-                entry
-                for entry in event_hooks
-                if not _hook_already_registered([entry], command)
-            ]
-            if len(filtered) < len(event_hooks):
-                _step(f"Remove hook {bold(event)}", dry_run=dry_run)
-                if not dry_run:
-                    hooks_section[event] = filtered
-                    if not hooks_section[event]:
-                        del hooks_section[event]
-                changed = True
-
-        if changed and not dry_run:
-            try:
-                settings_file.write_text(
-                    json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-                )
-                _ok(f"Updated {settings_file}")
-            except OSError as exc:
-                _err(f"Could not write {settings_file}: {exc}")
+    remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
 
     # Remove CLAUDE-VAULT.md and its @import from CLAUDE.md
     claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
@@ -2043,7 +2071,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--uninstall",
         action="store_true",
-        help="Remove installed skill, agents, and hooks",
+        help="Remove installed skill, agents, hooks, and related assets",
+    )
+    parser.add_argument(
+        "--uninstall-hooks",
+        action="store_true",
+        help="Remove only installed hook registrations from settings.json",
     )
     parser.add_argument(
         "--enable-ai",
@@ -2141,7 +2174,7 @@ def main() -> None:
     """Entry point for the Parsidion CC installer.
 
     Dispatches to either ``uninstall()`` or ``install()`` based on the
-    ``--uninstall`` flag. Prompts for confirmation before uninstalling unless
+    uninstall flags. Prompts for confirmation before uninstalling unless
     ``--yes`` or ``--dry-run`` is set. Exits with the return code from the
     chosen operation (0 = success, non-zero = error).
     """
@@ -2149,15 +2182,36 @@ def main() -> None:
     claude_dir = Path(args.claude_dir).expanduser().resolve()
     settings_file = claude_dir / "settings.json"
 
-    if args.uninstall:
+    if args.uninstall and args.uninstall_hooks:
+        _err("Choose only one uninstall mode: --uninstall or --uninstall-hooks")
+        sys.exit(2)
+
+    if args.uninstall or args.uninstall_hooks:
         if not args.yes and not args.dry_run:
             print()
-            print(bold("Parsidion CC Uninstaller"))
+            print(
+                bold(
+                    "Parsidion CC Hook Uninstaller"
+                    if args.uninstall_hooks
+                    else "Parsidion CC Uninstaller"
+                )
+            )
             print(f"  {dim('Claude dir:')} {claude_dir}")
-            if not _confirm("Proceed with uninstall?", default=False):
+            prompt = (
+                "Proceed with hook uninstall?"
+                if args.uninstall_hooks
+                else "Proceed with uninstall?"
+            )
+            if not _confirm(prompt, default=False):
                 print(dim("Aborted."))
                 sys.exit(0)
-        uninstall(claude_dir, settings_file, dry_run=args.dry_run, yes=args.yes)
+        uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=args.dry_run,
+            yes=args.yes,
+            hooks_only=args.uninstall_hooks,
+        )
         sys.exit(0)
 
     sys.exit(install(args))

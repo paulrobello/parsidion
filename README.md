@@ -112,6 +112,7 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--graph-include-daily` | Include Daily folder notes in the nightly graph rebuild (use with `--rebuild-graph`) |
 | `--create-vaults-config` | Create `~/.claude/vaults.yaml` for multi-vault support (see [Multi-Vault Support](#multi-vault-support)) |
 | `--uninstall` | Remove installed skill, agents, hook registrations, and launchd plist / cron job |
+| `--uninstall-hooks` | Remove only installed hook registrations from `settings.json` |
 
 During interactive installation, the installer prompts for three optional features:
 
@@ -828,9 +829,14 @@ python ~/.claude/skills/parsidion-cc/scripts/check_graph_coverage.py --json
 uv run install.py --force --yes
 ```
 
-**Uninstall:**
+**Uninstall everything installed by the installer:**
 ```bash
 uv run install.py --uninstall
+```
+
+**Uninstall only hook registrations:**
+```bash
+uv run install.py --uninstall-hooks
 ```
 
 ## Troubleshooting
