@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parsidion CC installer.
+"""Parsidion installer.
 
 Installs the Claude Vault skill, hooks, and research agent into ~/.claude/.
 Prompts interactively for the Obsidian vault location and customizes the
@@ -1186,7 +1186,7 @@ def remove_installed_hooks(
     settings_file: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Remove only Parsidion CC-managed hook registrations from settings.json.
+    """Remove only Parsidion-managed hook registrations from settings.json.
 
     Returns True when at least one managed hook registration was found.
     """
@@ -1322,7 +1322,7 @@ def uninstall(
     yes: bool = False,
     hooks_only: bool = False,
 ) -> None:
-    """Remove installed Parsidion CC assets or only managed hooks."""
+    """Remove installed Parsidion assets or only managed hooks."""
     if hooks_only:
         print(bold("\nRemoving Parsidion hooks..."))
         remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
@@ -2340,7 +2340,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Entry point for the Parsidion CC installer.
+    """Entry point for the Parsidion installer.
 
     Dispatches to either ``uninstall()`` or ``install()`` based on the
     uninstall flags. Prompts for confirmation before uninstalling unless

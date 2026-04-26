@@ -9,6 +9,10 @@ from pathlib import Path
 import install
 
 
+LEGACY_PROJECT_NAME = "parsidion" + "-cc"
+LEGACY_SKILL_SCRIPT = f"~/.claude/skills/{LEGACY_PROJECT_NAME}/scripts/session_start_hook.py"
+
+
 class TestParseArgs:
     """Tests for installer CLI argument parsing."""
 
@@ -192,13 +196,8 @@ class TestLegacyCleanup:
         monkeypatch.setenv("HOME", str(tmp_path))
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
-        legacy_command = (
-            "uv run --no-project "
-            "~/.claude/skills/parsidion-cc/scripts/session_start_hook.py"
-        )
-        unrelated_wrapper_command = (
-            "echo ~/.claude/skills/parsidion-cc/scripts/session_start_hook.py"
-        )
+        legacy_command = f"uv run --no-project {LEGACY_SKILL_SCRIPT}"
+        unrelated_wrapper_command = f"echo {LEGACY_SKILL_SCRIPT}"
         new_command = install._hook_command(claude_dir, "SessionStart")
         settings = {
             "theme": "dark",
@@ -294,7 +293,7 @@ class TestLegacyCleanup:
         settings_file = claude_dir / "settings.json"
         legacy_command = (
             "uv run --no-project "
-            f"{claude_dir.as_posix()}/skills/parsidion-cc/scripts/session_start_hook.py"
+            f"{claude_dir.as_posix()}/skills/{LEGACY_PROJECT_NAME}/scripts/session_start_hook.py"
         )
         unrelated_wrapper_command = f"echo {legacy_command}"
         settings = {
@@ -351,7 +350,7 @@ class TestLegacyCleanup:
     def test_cleanup_legacy_assets_removes_old_skill_dir(self, tmp_path: Path) -> None:
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
-        legacy_skill = claude_dir / "skills" / "parsidion-cc"
+        legacy_skill = claude_dir / "skills" / LEGACY_PROJECT_NAME
         legacy_skill.mkdir(parents=True)
         (legacy_skill / "SENTINEL.txt").write_text("legacy\n", encoding="utf-8")
         settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -370,7 +369,7 @@ class TestLegacyCleanup:
     def test_cleanup_legacy_assets_dry_run_does_not_delete(self, tmp_path: Path) -> None:
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
-        legacy_skill = claude_dir / "skills" / "parsidion-cc"
+        legacy_skill = claude_dir / "skills" / LEGACY_PROJECT_NAME
         legacy_skill.mkdir(parents=True)
         settings_file.parent.mkdir(parents=True, exist_ok=True)
         settings_file.write_text(
@@ -383,7 +382,7 @@ class TestLegacyCleanup:
                                 "hooks": [
                                     {
                                         "type": "command",
-                                        "command": "uv run --no-project ~/.claude/skills/parsidion-cc/scripts/session_start_hook.py",
+                                        "command": f"uv run --no-project {LEGACY_SKILL_SCRIPT}",
                                         "timeout": 10000,
                                     }
                                 ],
