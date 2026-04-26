@@ -840,15 +840,10 @@ def create_templates_symlink(
 # ---------------------------------------------------------------------------
 
 
-def _hook_command(claude_dir: Path, event: str) -> str:
-    """Return the hook command string for a given event.
-
-    Uses ~ notation so the path is portable across user accounts.
-    Shell scripts (.sh) are invoked directly; Python scripts are run via
-    ``uv run --no-project`` to ensure the correct Python interpreter.
-    """
+def _managed_hook_command(claude_dir: Path, skill_name: str, event: str) -> str:
+    """Return the managed hook command string for a skill and event."""
     script = _HOOK_SCRIPTS[event]
-    script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
+    script_path = claude_dir / "skills" / skill_name / "scripts" / script
     # Replace home dir with ~ for portability; use forward slashes so the
     # command works on both Unix and Windows (Claude Code and uv handle ~ expansion).
     try:
@@ -862,6 +857,33 @@ def _hook_command(claude_dir: Path, event: str) -> str:
     return f"uv run --no-project {rel_str}"
 
 
+def _hook_command(claude_dir: Path, event: str) -> str:
+    """Return the hook command string for a given event.
+
+    Uses ~ notation so the path is portable across user accounts.
+    Shell scripts (.sh) are invoked directly; Python scripts are run via
+    ``uv run --no-project`` to ensure the correct Python interpreter.
+    """
+    return _managed_hook_command(claude_dir, SKILL_NAME, event)
+
+
+def _legacy_hook_command(claude_dir: Path, event: str) -> str:
+    """Return the legacy managed hook command string for a given event."""
+    return _managed_hook_command(claude_dir, LEGACY_SKILL_NAME, event)
+
+
+def _normalize_hook_command(command: str) -> str:
+    """Return *command* normalized for exact hook command comparisons."""
+    return command.replace("\\", "/").strip()
+
+
+def _is_legacy_managed_hook_command(command: str, claude_dir: Path, event: str) -> bool:
+    """Return True when *command* is an exact managed parsidion-cc legacy hook."""
+    return _normalize_hook_command(command) == _normalize_hook_command(
+        _legacy_hook_command(claude_dir, event)
+    )
+
+
 def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
     """Return True if any entry in hooks_list already has this command."""
     for entry in hooks_list:
@@ -869,6 +891,41 @@ def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
             if hook.get("command", "") == command:
                 return True
     return False
+
+
+def _filter_hook_entries(
+    event_hooks: list[dict],
+    predicate,
+) -> tuple[list[dict], bool]:
+    """Remove hook handlers matching *predicate* while preserving unrelated hooks.
+
+    Empty hook entries are removed. Returns the filtered entries and whether
+    anything changed.
+    """
+    filtered_entries: list[dict] = []
+    changed = False
+
+    for entry in event_hooks:
+        hooks = entry.get("hooks", [])
+        if not isinstance(hooks, list):
+            filtered_entries.append(entry)
+            continue
+
+        kept_hooks = []
+        for hook in hooks:
+            if isinstance(hook, dict) and predicate(hook):
+                changed = True
+                continue
+            kept_hooks.append(hook)
+
+        if kept_hooks:
+            new_entry = dict(entry)
+            new_entry["hooks"] = kept_hooks
+            filtered_entries.append(new_entry)
+        else:
+            changed = True
+
+    return filtered_entries, changed
 
 
 def enable_ai_mode(
@@ -1149,19 +1206,17 @@ def remove_installed_hooks(
     for event, _script_name in _HOOK_SCRIPTS.items():
         command = _hook_command(claude_dir, event)
         event_hooks: list[dict] = hooks_section.get(event, [])
-        filtered = [
-            entry
-            for entry in event_hooks
-            if not _hook_already_registered([entry], command)
-        ]
-        if len(filtered) < len(event_hooks):
+        filtered, event_changed = _filter_hook_entries(
+            event_hooks,
+            lambda hook, command=command: hook.get("command", "") == command,
+        )
+        if event_changed:
             _step(f"Remove hook {bold(event)}", dry_run=dry_run)
-            if not dry_run:
-                if filtered:
-                    hooks_section[event] = filtered
-                elif event in hooks_section:
-                    del hooks_section[event]
             changed = True
+            if filtered:
+                hooks_section[event] = filtered
+            elif event in hooks_section:
+                del hooks_section[event]
 
     if changed and not dry_run:
         try:
@@ -1177,6 +1232,89 @@ def remove_installed_hooks(
     return changed
 
 
+def remove_legacy_hooks(
+    claude_dir: Path,
+    settings_file: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Remove managed legacy parsidion-cc hook registrations from settings.json."""
+    if not settings_file.exists():
+        return False
+
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read settings.json for legacy cleanup: {exc}")
+        return False
+
+    hooks_section: dict = settings.get("hooks", {})
+    changed = False
+
+    for event, _script_name in _HOOK_SCRIPTS.items():
+        event_hooks: list[dict] = hooks_section.get(event, [])
+        filtered, event_changed = _filter_hook_entries(
+            event_hooks,
+            lambda hook, event=event: _is_legacy_managed_hook_command(
+                str(hook.get("command", "")), claude_dir, event
+            ),
+        )
+        if event_changed:
+            _step(f"Remove legacy hook {bold(event)}", dry_run=dry_run)
+            changed = True
+            if filtered:
+                hooks_section[event] = filtered
+            elif event in hooks_section:
+                del hooks_section[event]
+
+    if changed and not dry_run:
+        try:
+            settings_file.write_text(
+                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+            )
+            _ok(f"Updated {settings_file}")
+        except OSError as exc:
+            _err(f"Could not write {settings_file}: {exc}")
+
+    return changed
+
+
+def cleanup_legacy_assets(
+    claude_dir: Path,
+    settings_file: Path,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> bool:
+    """Remove managed legacy parsidion-cc hooks and installed skill assets.
+
+    This preserves user vault contents and unrelated Claude settings.
+    """
+    changed = False
+
+    if remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run):
+        changed = True
+
+    legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
+    if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
+        _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
+        changed = True
+        if not dry_run:
+            try:
+                if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
+                    legacy_skill_dir.unlink()
+                else:
+                    shutil.rmtree(legacy_skill_dir)
+            except OSError as exc:
+                _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
+    else:
+        _print(
+            dim(f"  No legacy skill found at {legacy_skill_dir}"),
+            verbose_only=True,
+            verbose=verbose,
+        )
+
+    return changed
+
+
 def uninstall(
     claude_dir: Path,
     settings_file: Path,
@@ -1188,6 +1326,7 @@ def uninstall(
     if hooks_only:
         print(bold("\nRemoving Parsidion hooks..."))
         remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+        remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
         if not dry_run:
             print()
             _ok("Hook uninstall complete.")
@@ -1197,12 +1336,27 @@ def uninstall(
 
     skill_dir = claude_dir / "skills" / SKILL_NAME
 
-    if skill_dir.exists():
+    if skill_dir.exists() or skill_dir.is_symlink():
         _step(f"Remove skill directory: {skill_dir}", dry_run=dry_run)
         if not dry_run:
-            shutil.rmtree(skill_dir)
+            if skill_dir.is_symlink() or skill_dir.is_file():
+                skill_dir.unlink()
+            else:
+                shutil.rmtree(skill_dir)
     else:
         _warn(f"Skill directory not found: {skill_dir}")
+
+    legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
+    if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
+        _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
+        if not dry_run:
+            try:
+                if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
+                    legacy_skill_dir.unlink()
+                else:
+                    shutil.rmtree(legacy_skill_dir)
+            except OSError as exc:
+                _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
 
     for agent_src in AGENT_SRCS:
         agent_dest = claude_dir / "agents" / agent_src.name
@@ -1225,6 +1379,7 @@ def uninstall(
 
     # Remove hook registrations
     remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+    remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
 
     # Remove CLAUDE-VAULT.md and its @import from CLAUDE.md
     claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
@@ -1922,8 +2077,14 @@ def install(args: argparse.Namespace) -> int:
         vault_root, templates_src, dry_run=dry_run, verbose=verbose
     )
 
-    # 7. Register hooks
+    # 7. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
     if not args.skip_hooks:
+        cleanup_legacy_assets(
+            claude_dir,
+            settings_file,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
         merge_hooks(claude_dir, settings_file, dry_run=dry_run, verbose=verbose)
 
     # 7b. Enable AI mode if requested
