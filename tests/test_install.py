@@ -128,3 +128,169 @@ class TestUninstallHooksOnly:
         assert skill_dir.exists()
         assert claude_vault_md.exists()
         assert agent_file.exists()
+
+
+class TestParsidionRenamePaths:
+    """Tests for the hard rename from parsidion-cc to parsidion."""
+
+    def test_hook_command_uses_parsidion_skill_path(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+
+        command = install._hook_command(claude_dir, "SessionStart")
+
+        assert "skills/parsidion/scripts/session_start_hook.py" in command
+        assert "parsidion-cc" not in command
+
+    def test_install_skill_uses_parsidion_destination(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        vault_root = tmp_path / "ClaudeVault"
+
+        dest = install.install_skill(
+            claude_dir,
+            vault_root,
+            dry_run=True,
+            force=True,
+            verbose=False,
+        )
+
+        assert dest == claude_dir / "skills" / "parsidion"
+
+
+class TestLegacyCleanup:
+    """Tests for automatic cleanup of managed parsidion-cc assets."""
+
+    def test_cleanup_legacy_hooks_removes_old_commands_only(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        legacy_command = (
+            "uv run --no-project "
+            "~/.claude/skills/parsidion-cc/scripts/session_start_hook.py"
+        )
+        new_command = install._hook_command(claude_dir, "SessionStart")
+        settings = {
+            "theme": "dark",
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": legacy_command,
+                                "timeout": 10000,
+                            }
+                        ],
+                    },
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "echo keep-me",
+                                "timeout": 1000,
+                            }
+                        ],
+                    },
+                ],
+                "SessionEnd": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": new_command,
+                                "timeout": 10000,
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+
+        changed = install.cleanup_legacy_assets(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            verbose=False,
+        )
+
+        assert changed is True
+        updated = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert updated["theme"] == "dark"
+        session_start = updated["hooks"]["SessionStart"]
+        assert session_start == [
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "echo keep-me",
+                        "timeout": 1000,
+                    }
+                ],
+            }
+        ]
+        assert updated["hooks"]["SessionEnd"] == settings["hooks"]["SessionEnd"]
+
+    def test_cleanup_legacy_assets_removes_old_skill_dir(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        legacy_skill = claude_dir / "skills" / "parsidion-cc"
+        legacy_skill.mkdir(parents=True)
+        (legacy_skill / "SENTINEL.txt").write_text("legacy\n", encoding="utf-8")
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file.write_text('{"hooks": {}}\n', encoding="utf-8")
+
+        changed = install.cleanup_legacy_assets(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            verbose=False,
+        )
+
+        assert changed is True
+        assert not legacy_skill.exists()
+
+    def test_cleanup_legacy_assets_dry_run_does_not_delete(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        legacy_skill = claude_dir / "skills" / "parsidion-cc"
+        legacy_skill.mkdir(parents=True)
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "uv run --no-project ~/.claude/skills/parsidion-cc/scripts/session_start_hook.py",
+                                        "timeout": 10000,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        changed = install.cleanup_legacy_assets(
+            claude_dir,
+            settings_file,
+            dry_run=True,
+            verbose=False,
+        )
+
+        assert changed is True
+        assert legacy_skill.exists()
+        updated = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert "parsidion-cc" in updated["hooks"]["SessionStart"][0]["hooks"][0]["command"]
