@@ -147,6 +147,44 @@ class TestInternalHookDisable:
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
 
+    def test_session_stop_wrapper_skips_internal_sessions(self, tmp_path: Path) -> None:
+        script_path = _SCRIPTS_DIR / "session_stop_wrapper.sh"
+        transcript = tmp_path / "claude-session.jsonl"
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "role": "assistant",
+                        "content": "Root cause was a missing import.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        env = {
+            **os.environ,
+            "CLAUDE_VAULT": str(tmp_path),
+            "CLAUDE_VAULT_STOP_ACTIVE": "",
+            "PARSIDION_INTERNAL": "1",
+        }
+
+        result = subprocess.run(
+            [str(script_path)],
+            input=json.dumps(
+                {"cwd": str(tmp_path), "transcript_path": str(transcript)}
+            ),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+        assert not (tmp_path / "pending_summaries.jsonl").exists()
+
     def test_stop_hooks_skip_internal_sessions_with_valid_transcripts(
         self, tmp_path: Path
     ) -> None:
