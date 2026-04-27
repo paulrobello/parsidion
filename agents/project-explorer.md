@@ -22,7 +22,7 @@ You write permanent, searchable vault notes — not temporary summaries.
 Before writing anything, check for existing notes on this project:
 
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_search.py "project {name}" -j 2>/dev/null
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_search.py "project {name}" -j 2>/dev/null
 ```
 
 Also dispatch the `vault-explorer` agent with `"project {name} architecture features"`.
@@ -191,7 +191,7 @@ include the most distinctive architectural choice even if it is project-specific
 After all notes are written:
 
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 Report the exit code. If non-zero, surface the error message.

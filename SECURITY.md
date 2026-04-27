@@ -1,6 +1,6 @@
 # Security Policy
 
-Security policy, scope statement, and vulnerability disclosure process for Parsidion CC.
+Security policy, scope statement, and vulnerability disclosure process for Parsidion.
 
 ## Table of Contents
 
@@ -14,11 +14,11 @@ Security policy, scope statement, and vulnerability disclosure process for Parsi
 
 ## Overview
 
-Parsidion CC installs hook scripts that execute during every Claude Code lifecycle event
-(SessionStart, SessionEnd, PreCompact, SubagentStop). These scripts run with the same
-privileges as the user's Claude Code process and have read/write access to the Obsidian
-vault and the Claude configuration directory. This makes the hook execution surface
-security-sensitive.
+Parsidion currently installs a Claude Code adapter with hook scripts that execute during every
+Claude Code lifecycle event (SessionStart, SessionEnd, PreCompact, SubagentStop), and will add
+additional runtime adapters over time. The current adapter runs with the same privileges as the
+user's Claude Code process and has read/write access to the markdown vault and the Claude
+configuration directory (`~/.claude/`). This makes the hook execution surface security-sensitive.
 
 ## Scope
 
@@ -26,12 +26,12 @@ The following components are in scope for security reports:
 
 | Component | Location | Risk surface |
 |-----------|----------|--------------|
-| Hook scripts | `skills/parsidion-cc/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh` | Executed on every Claude Code lifecycle event |
-| Shared library | `skills/parsidion-cc/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
+| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh` | Executed on every Claude Code lifecycle event |
+| Shared library | `skills/parsidion/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
 | Installer | `install.py` | Writes to `~/.claude/settings.json`; copies files into the user's Claude config directory |
-| Session summarizer | `skills/parsidion-cc/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
-| Vault index | `skills/parsidion-cc/scripts/update_index.py` | Reads all vault notes; writes SQLite database |
-| Semantic search | `skills/parsidion-cc/scripts/vault_search.py`, `build_embeddings.py` | Reads SQLite database; returns paths for injection into session context |
+| Session summarizer | `skills/parsidion/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
+| Vault index | `skills/parsidion/scripts/update_index.py` | Reads all vault notes; writes SQLite database |
+| Semantic search | `skills/parsidion/scripts/vault_search.py`, `build_embeddings.py` | Reads SQLite database; returns paths for injection into session context |
 
 ## Stdlib-Only Hook Constraint
 
@@ -68,7 +68,7 @@ To report a vulnerability, email **probello@gmail.com** with:
 4. The potential impact (what an attacker could achieve)
 5. Any proposed fix or mitigation (optional but appreciated)
 
-Use the subject line: `[SECURITY] Parsidion CC — <brief description>`
+Use the subject line: `[SECURITY] Parsidion — <brief description>`
 
 ## What to Expect
 

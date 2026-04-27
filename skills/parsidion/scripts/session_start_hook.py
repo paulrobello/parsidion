@@ -28,7 +28,7 @@ _DEFAULT_AI_MODEL: str = vault_common.get_config(
 )
 _DEFAULT_AI_TIMEOUT = 25  # seconds; hook timeout in settings.json should be >= 30000ms
 _DEFAULT_MAX_CHARS = 4000
-_DEBUG_FILE = vault_common.secure_log_dir() / "parsidion-cc-session-start-debug.log"
+_DEBUG_FILE = vault_common.secure_log_dir() / "parsidion-session-start-debug.log"
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
@@ -745,7 +745,7 @@ def _write_debug_log(
         pass  # debug logging is best-effort
 
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-cc-hook-errors.log"
+_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
 
 
 def _log_hook_error(hook_name: str) -> None:

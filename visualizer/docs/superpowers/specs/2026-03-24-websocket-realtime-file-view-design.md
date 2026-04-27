@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-24
 **Status:** Approved
-**Scope:** `visualizer/` — Next.js app inside parsidion-cc
+**Scope:** `visualizer/` — Next.js app inside parsidion
 
 ---
 

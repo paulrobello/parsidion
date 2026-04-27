@@ -18,7 +18,7 @@ Metadata mode — provide one or more filter flags (no positional query):
     vault_search.py --tag python --limit 10
     vault_search.py --folder Patterns
     vault_search.py --type debugging
-    vault_search.py --project parsidion-cc
+    vault_search.py --project parsidion
     vault_search.py --recent-days 7
     vault_search.py --tag rust --folder Patterns --text
 
@@ -594,7 +594,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="vault-search",
         description=(
-            "Search Claude Vault notes by meaning (semantic) or by metadata filters.\n\n"
+            "Search Parsidion vault notes by meaning (semantic) or by metadata filters.\n\n"
             "Semantic mode: provide a QUERY string.\n"
             "Metadata mode: provide one or more filter flags (--tag, --folder, etc.).\n\n"
             "Environment variables (VAULT_SEARCH_*):\n"

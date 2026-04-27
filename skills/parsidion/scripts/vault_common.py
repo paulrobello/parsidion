@@ -1,4 +1,4 @@
-"""Shared utility library for the Claude Vault knowledge management system.
+"""Shared utility library for the Parsidion vault knowledge management system.
 
 Provides functions for parsing frontmatter, searching notes, building context
 blocks, and managing the vault directory structure. Uses only Python stdlib.

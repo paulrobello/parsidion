@@ -97,8 +97,8 @@ fi
 
 echo
 echo "If script resolution ever fails in /parsidion-vault status, set one of:"
-echo "  export PARSIDION_CC_SCRIPTS_DIR=\"$REPO_ROOT/skills/parsidion-cc/scripts\""
-echo "  export PARSIDION_CC_DIR=\"$REPO_ROOT\""
+echo "  export PARSIDION_SCRIPTS_DIR=\"$REPO_ROOT/skills/parsidion/scripts\""
+echo "  export PARSIDION_DIR=\"$REPO_ROOT\""
 echo
 echo "Then in pi run:"
 echo "  /reload"

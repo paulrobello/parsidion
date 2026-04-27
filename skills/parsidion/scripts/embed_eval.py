@@ -8,7 +8,7 @@
 #   "pyyaml>=6.0",
 # ]
 # ///
-"""Embedding evaluation harness for Claude Vault.
+"""Embedding evaluation harness for Parsidion vault.
 
 Compares embedding models x chunking strategies using Claude-generated
 ground-truth queries. Reports Recall@1/5/10, MRR, and speed in a Rich table,
@@ -77,7 +77,7 @@ from embed_eval_run import run_evaluation  # noqa: E402
 def main() -> None:
     """Parse CLI arguments and run the eval pipeline."""
     parser = argparse.ArgumentParser(
-        description="Embedding evaluation harness for Claude Vault.",
+        description="Embedding evaluation harness for Parsidion vault.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

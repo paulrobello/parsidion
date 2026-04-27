@@ -4,7 +4,7 @@ Global pi extension that bridges pi lifecycle events to the existing Parsidion P
 
 ## Installation
 
-From the `parsidion-cc` repo root:
+From the `parsidion` repo root:
 
 ```bash
 # Recommended helper
@@ -26,10 +26,10 @@ If the extension cannot find Parsidion scripts automatically, set one of:
 
 ```bash
 # Option A: point directly at the scripts folder
-export PARSIDION_CC_SCRIPTS_DIR="$HOME/Repos/parsidion-cc/skills/parsidion-cc/scripts"
+export PARSIDION_SCRIPTS_DIR="$HOME/Repos/parsidion/skills/parsidion/scripts"
 
-# Option B: point at the repo root (extension appends skills/parsidion-cc/scripts)
-export PARSIDION_CC_DIR="$HOME/Repos/parsidion-cc"
+# Option B: point at the repo root (extension appends skills/parsidion/scripts)
+export PARSIDION_DIR="$HOME/Repos/parsidion"
 ```
 
 Then in pi:
@@ -85,11 +85,11 @@ That message is also what gets inserted into the model context, so what you see 
 
 The extension looks for Parsidion scripts in this order:
 
-1. `PARSIDION_CC_SCRIPTS_DIR`
-2. `PARSIDION_CC_DIR/skills/parsidion-cc/scripts`
-3. `../parsidion-cc/skills/parsidion-cc/scripts`
-4. `../parsidion-cc/scripts`
-5. `~/.claude/skills/parsidion-cc/scripts`
+1. `PARSIDION_SCRIPTS_DIR`
+2. `PARSIDION_DIR/skills/parsidion/scripts`
+3. `../parsidion/skills/parsidion/scripts`
+4. `../parsidion/scripts`
+5. `~/.claude/skills/parsidion/scripts`
 
 ## Commands
 

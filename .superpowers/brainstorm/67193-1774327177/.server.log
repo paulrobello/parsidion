@@ -1,8 +1,8 @@
-{"type":"server-started","port":58648,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58648","screen_dir":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/67193-1774327177"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/67193-1774327177/diff-placement.html"}
+{"type":"server-started","port":58648,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58648","screen_dir":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/67193-1774327177"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/67193-1774327177/diff-placement.html"}
 {"source":"user-event","type":"click","text":"note-title.md\n          HISTORY\n        \n        \n          \n            COMMITS\n            ● 2h ago\n            ○ yesterday\n            ○ 3 days\n          \n          \n            DIFF\n            - old text\n            + new text\n              unchanged\n          \n        \n      \n    \n    \n      B — Split-screen mode (replaces ReadingPane)\n      Clicking \"History\" replaces the reading pane with a two-column view: commits on the left, diff on the right. A back button returns to the note.","choice":"b","id":null,"timestamp":1774327250348}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/67193-1774327177/waiting-1.html"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/67193-1774327177/history-view-mockup.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/67193-1774327177/waiting-1.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/67193-1774327177/history-view-mockup.html"}
 {"source":"user-event","type":"click","text":"✓\n    \n      Approve this layout\n      Looks good — proceed to write the spec","choice":"approve","id":null,"timestamp":1774327595166}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/67193-1774327177/waiting-2.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/67193-1774327177/waiting-2.html"}
 {"type":"server-stopped","reason":"idle timeout"}

@@ -1,10 +1,10 @@
-# Show HN: Parsidion CC – Persistent memory for Claude Code via a markdown vault
+# Show HN: Parsidion – Persistent memory for Claude Code via a markdown vault
 
-**URL:** https://github.com/paulrobello/parsidion-cc
+**URL:** https://github.com/paulrobello/parsidion
 
 ---
 
-Claude Code forgets everything between sessions. Its built-in memory is a flat file that loses nuance fast. Parsidion CC replaces it with a structured markdown vault at `~/ClaudeVault/` -- plain markdown with YAML frontmatter, cross-linked with bidirectional wikilinks. Works with Obsidian, any text editor, or the included web viewer.
+Claude Code forgets everything between sessions. Its built-in memory is a flat file that loses nuance fast. Parsidion replaces it with a structured markdown vault at `~/ClaudeVault/` -- plain markdown with YAML frontmatter, cross-linked with bidirectional wikilinks. Works with Obsidian, any text editor, or the included web viewer.
 
 ## How it works
 
@@ -32,7 +32,7 @@ Next.js app with two modes. **Read mode**: GFM rendering, clickable wikilinks, t
 ## Install
 
 ```bash
-git clone https://github.com/paulrobello/parsidion-cc.git && cd parsidion-cc
+git clone https://github.com/paulrobello/parsidion.git && cd parsidion
 uv run install.py
 ```
 

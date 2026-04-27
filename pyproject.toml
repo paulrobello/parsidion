@@ -1,5 +1,5 @@
 [project]
-name = "parsidion-cc"
+name = "parsidion"
 version = "0.5.6"
 requires-python = ">=3.13"
 dependencies = []
@@ -11,7 +11,7 @@ search = [
     "pillow>=12.2.0",
 ]
 tools = [
-    "parsidion-cc[search]",
+    "parsidion[search]",
     "rich>=13.0",
 ]
 eval = [
@@ -50,13 +50,13 @@ py-modules = [
 ]
 
 [tool.setuptools.package-dir]
-"" = "skills/parsidion-cc/scripts"
+"" = "skills/parsidion/scripts"
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
 ]
-addopts = "-v --cov=skills/parsidion-cc/scripts --cov-report=term-missing"
+addopts = "-v --cov=skills/parsidion/scripts --cov-report=term-missing"
 timeout = 10
 
 [tool.ruff]
@@ -79,18 +79,18 @@ ignore = [
 
 [tool.pyright]
 extraPaths = [
-    "skills/parsidion-cc/scripts",
+    "skills/parsidion/scripts",
 ]
 exclude = [
     "parsidion-mcp",
     ".worktrees",
     ".venv",
-    "skills/parsidion-cc/scripts/build_graph.py",
+    "skills/parsidion/scripts/build_graph.py",
 ]
 
 [tool.ty.environment]
 extra-paths = [
-    "skills/parsidion-cc/scripts",
+    "skills/parsidion/scripts",
 ]
 
 [tool.uv]

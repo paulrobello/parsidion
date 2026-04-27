@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 _SCRIPTS_DIR = (
-    Path(__file__).resolve().parent.parent / "skills" / "parsidion-cc" / "scripts"
+    Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "scripts"
 )
 
 

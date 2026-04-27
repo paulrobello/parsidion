@@ -68,7 +68,7 @@ For each pair in a batch, the subagent must:
 
 After **all** subagents complete, run:
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 ## Guidelines

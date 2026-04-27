@@ -22,8 +22,8 @@ export interface NamedVault {
 export function getVaultsConfigPath(): string {
   const xdg = process.env.XDG_CONFIG_HOME
   const configDir = xdg
-    ? path.join(xdg, 'parsidion-cc')
-    : path.join(process.env.HOME || '~', '.config', 'parsidion-cc')
+    ? path.join(xdg, 'parsidion')
+    : path.join(process.env.HOME || '~', '.config', 'parsidion')
   return path.join(configDir, 'vaults.yaml')
 }
 

@@ -261,14 +261,14 @@ function resolveTranscriptPathForHook(ctx: ExtensionContext, suffix?: string): s
 }
 
 function candidateScriptDirs(cwd: string): string[] {
-	const envScriptDir = process.env.PARSIDION_CC_SCRIPTS_DIR;
-	const envRepoDir = process.env.PARSIDION_CC_DIR;
+	const envScriptDir = process.env.PARSIDION_SCRIPTS_DIR;
+	const envRepoDir = process.env.PARSIDION_DIR;
 	const dirs = [
 		envScriptDir,
-		envRepoDir ? path.join(envRepoDir, "skills", "parsidion-cc", "scripts") : undefined,
-		path.resolve(cwd, "../parsidion-cc/skills/parsidion-cc/scripts"),
-		path.resolve(cwd, "../parsidion-cc/scripts"),
-		path.join(os.homedir(), ".claude", "skills", "parsidion-cc", "scripts"),
+		envRepoDir ? path.join(envRepoDir, "skills", "parsidion", "scripts") : undefined,
+		path.resolve(cwd, "../parsidion/skills/parsidion/scripts"),
+		path.resolve(cwd, "../parsidion/scripts"),
+		path.join(os.homedir(), ".claude", "skills", "parsidion", "scripts"),
 	];
 	return dirs.filter((dir): dir is string => Boolean(dir));
 }

@@ -76,7 +76,7 @@ git push -u origin main
 ```bash
 # Clone the vault, then install skills and hooks
 git clone git@github.com:youruser/claude-vault.git ~/ClaudeVault
-cd ~/path/to/parsidion-cc
+cd ~/path/to/parsidion
 uv run install.py --force --yes
 ```
 
@@ -143,7 +143,7 @@ graph LR
    changed, updating the `note_embeddings` table for semantic search
 
 **Idempotency:** running the installer again does not duplicate the hook.  The
-hook is identified by a marker comment (`# parsidion-cc post-merge hook`).
+hook is identified by a marker comment (`# parsidion post-merge hook`).
 
 **Safety:** if a pre-existing `post-merge` hook is found that was not created
 by the installer, it is left untouched with a warning.
@@ -210,11 +210,11 @@ migration once on each machine:
 
 ```bash
 # Dry-run: see what would be renamed
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py \
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py \
     --migrate-daily-notes --daily-username alice
 
 # Apply:
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py \
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py \
     --migrate-daily-notes --daily-username alice --execute
 ```
 
@@ -270,8 +270,8 @@ uv run install.py --force --yes
 
 **Fix:** manually rebuild:
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --incremental
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental
 ```
 
 ### Corrupted embeddings.db
@@ -281,8 +281,8 @@ uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --incremental
 **Fix:** delete and rebuild:
 ```bash
 rm ~/ClaudeVault/embeddings.db
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 ---

@@ -6,7 +6,7 @@
 #   "sqlite-vec>=0.1.6,<1.0",
 # ]
 # ///
-"""Build (or update) the semantic search index for Claude Vault.
+"""Build (or update) the semantic search index for Parsidion vault.
 
 Creates ~/ClaudeVault/embeddings.db with cosine-similarity vectors for every
 vault note. Uses BAAI/bge-small-en-v1.5 (384-dim, ~67 MB ONNX, CPU-only).
@@ -345,7 +345,7 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
 def main() -> None:
     """Parse CLI args and run full rebuild or incremental update."""
     parser = argparse.ArgumentParser(
-        description="Build or update the Claude Vault semantic search index.",
+        description="Build or update the Parsidion vault semantic search index.",
     )
     parser.add_argument(
         "--vault",

@@ -313,25 +313,25 @@ em { font-style: italic; color: var(--text-muted); }
       <div class="dot yellow"></div>
       <div class="dot green"></div>
     </div>
-    <div class="terminal-title">claude-code — parsidion-cc</div>
+    <div class="terminal-title">claude-code — parsidion</div>
   </div>
   <div class="terminal-body">
 
     <!-- ── Slide 1: Introduction ── -->
     <div class="slide active">
       <div class="slide-title">Building the Vault Explorer Agent</div>
-      <div class="slide-subtitle">parsidion-cc · Claude Code Build Session · 2026-03-13</div>
+      <div class="slide-subtitle">parsidion · Claude Code Build Session · 2026-03-13</div>
 
       <div class="prompt-line" style="margin-top:4px;">
         <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-path">~/Repos/parsidion</span>
         <span class="prompt-symbol">$</span>
         <span class="prompt-cmd">claude</span>
       </div>
 
       <div class="claude-response">
         ✦ Welcome to Claude Code!<br>
-        <span class="hl-cyan">claude-sonnet-4-6</span> · parsidion-cc
+        <span class="hl-cyan">claude-sonnet-4-6</span> · parsidion
       </div>
 
       <div class="section-label">What we're building</div>
@@ -355,7 +355,7 @@ em { font-style: italic; color: var(--text-muted); }
       <div class="slide-title">The Implementation Plan</div>
       <div class="prompt-line">
         <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-path">~/Repos/parsidion</span>
         <span class="prompt-symbol">$</span>
         <span class="prompt-cmd">execute plan docs/superpowers/plans/2026-03-13-vault-explorer-agent.md</span>
       </div>
@@ -369,7 +369,7 @@ em { font-style: italic; color: var(--text-muted); }
       <div class="checklist">
         <div class="check-item"><span class="ck">✓</span><span>Task 1 — Create <span class="hl-cyan">agents/vault-explorer.md</span></span></div>
         <div class="check-item"><span class="ck">✓</span><span>Task 2 — Update <span class="hl-purple">CLAUDE-VAULT.md</span> guidance</span></div>
-        <div class="check-item"><span class="ck">✓</span><span>Task 3 — Update <span class="hl-purple">skills/parsidion-cc/SKILL.md</span></span></div>
+        <div class="check-item"><span class="ck">✓</span><span>Task 3 — Update <span class="hl-purple">skills/parsidion/SKILL.md</span></span></div>
         <div class="check-item"><span class="ck">✓</span><span>Task 4 — Refactor <span class="hl-yellow">install.py</span> for multi-agent</span></div>
         <div class="check-item"><span class="ck">✓</span><span>Task 5 — Sync to <span class="hl-green">~/.claude/</span></span></div>
       </div>
@@ -461,7 +461,7 @@ Research           →  Research/ → all folders</div>
       </div>
 
       <div class="section-label">Step 1 command</div>
-      <div class="code-block"><span class="fn">uv run</span> --no-project ~/.claude/skills/parsidion-cc/scripts/<span class="str">vault_search.py</span> <span class="str">"QUERY"</span> --json 2>/dev/null
+      <div class="code-block"><span class="fn">uv run</span> --no-project ~/.claude/skills/parsidion/scripts/<span class="str">vault_search.py</span> <span class="str">"QUERY"</span> --json 2>/dev/null
 <span class="cm"># → [{"score": 0.87, "path": "/Users/probello/ClaudeVault/Patterns/...", ...}, ...]</span>
 <span class="cm"># If ≥ 3 results with score ≥ 0.35 → use paths, skip to step 6</span>
 <span class="cm"># If DB absent or &lt; 3 results → fall through to metadata search (step 2)</span></div>
@@ -499,7 +499,7 @@ Research           →  Research/ → all folders</div>
 "patterns for X"     → --folder Patterns
 "recent work"        → --recent-days 7
 "python tag"         → --tag python
-"parsidion project"  → --project parsidion-cc</div>
+"parsidion project"  → --project parsidion</div>
 
       <div class="tags" style="margin-top:6px;">
         <span class="tag purple">note_index table</span>
@@ -601,7 +601,7 @@ a single-pass review would have missed.</div>
       <div class="prompt-line">
         <span class="prompt">claude</span>
         <span class="prompt-symbol">→</span>
-        <span class="prompt-cmd">Edit skills/parsidion-cc/SKILL.md — 4 section replacements</span>
+        <span class="prompt-cmd">Edit skills/parsidion/SKILL.md — 4 section replacements</span>
       </div>
 
       <div class="section-label">Four sections updated</div>
@@ -718,9 +718,9 @@ All 61 vault_common.py tests pass — install.py changes have no regressions.</d
         <span class="prompt-cmd">uv run install.py --force --yes</span>
       </div>
 
-      <div class="output" style="font-size:11.5px;">Parsidion CC Installer
+      <div class="output" style="font-size:11.5px;">Parsidion Installer
 
-  + Install skill: parsidion-cc → ~/.claude/skills/parsidion-cc
+  + Install skill: parsidion → ~/.claude/skills/parsidion
   + Patch vault_common.py: VAULT_ROOT=/Users/probello/ClaudeVault
   <span style="color:var(--green)">+ Install agent: research-agent.md → ~/.claude/agents/</span>
   <span style="color:var(--cyan)">+ Install agent: vault-explorer.md → ~/.claude/agents/</span>
@@ -754,7 +754,7 @@ $ grep -c "vault-explorer" ~/.claude/CLAUDE-VAULT.md
 <span style="color:var(--text-muted)">48496c7</span> docs(spec): fix all review issues in vault-explorer agent spec
 <span style="color:var(--text-muted)">d5d6c91</span> docs(spec): vault-explorer agent design spec</div>
 
-      <div class="output success">To github.com:paulrobello/parsidion-cc.git
+      <div class="output success">To github.com:paulrobello/parsidion.git
    afb47e9..90dccb0  main -> main  ✓</div>
 
       <div class="tags">
@@ -769,7 +769,7 @@ $ grep -c "vault-explorer" ~/.claude/CLAUDE-VAULT.md
       <div class="slide-title">Docs Sync: ARCHITECTURE.md</div>
       <div class="prompt-line">
         <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-path">~/Repos/parsidion</span>
         <span class="prompt-symbol">$</span>
         <span class="prompt-cmd">update docs and slideshow</span>
       </div>
@@ -806,7 +806,7 @@ $ grep -c "vault-explorer" ~/.claude/CLAUDE-VAULT.md
           <div class="section-label">Modified files</div>
           <ul class="feature-list" style="font-size:12px;">
             <li><span class="hl-yellow">CLAUDE-VAULT.md</span></li>
-            <li><span class="hl-yellow">skills/parsidion-cc/SKILL.md</span></li>
+            <li><span class="hl-yellow">skills/parsidion/SKILL.md</span></li>
             <li><span class="hl-yellow">install.py</span></li>
             <li><span class="hl-yellow">docs/ARCHITECTURE.md</span></li>
             <li><span class="hl-yellow">vault_common.py</span> — DB-first find_*</li>

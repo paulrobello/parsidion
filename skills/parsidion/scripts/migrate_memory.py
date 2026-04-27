@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migrate ~/.claude/memory/ contents (built-in auto memory) to the Claude Vault.
+"""Migrate ~/.claude/memory/ contents (built-in auto memory) to the Parsidion vault.
 
 **One-time migration utility** -- this script is intended to be run once during
 initial vault setup to import pre-existing Claude Code memory files.  It is not

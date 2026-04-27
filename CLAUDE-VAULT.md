@@ -1,7 +1,7 @@
 # ClaudeVault — Always-On Guidance
 
 > This file is loaded every session. The rules here are unconditional — they fire
-> regardless of whether the parsidion-cc skill is explicitly invoked.
+> regardless of whether the parsidion skill is explicitly invoked.
 
 ## The Vault-First Rule
 
@@ -61,7 +61,7 @@ of subfolder is allowed — never nest subfolders within subfolders.
 
 After any note reorganization (create, rename, move, delete) rebuild the index:
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 ## Saving Solutions
@@ -81,7 +81,7 @@ After solving a non-obvious problem or implementing a reusable pattern, save it:
 
 Then rebuild the index:
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 Every unsaved solution is a missed opportunity for every future session.

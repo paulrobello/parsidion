@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parsidion CC installer.
+"""Parsidion installer.
 
 Installs the Claude Vault skill, hooks, and research agent into ~/.claude/.
 Prompts interactively for the Obsidian vault location and customizes the
@@ -86,8 +86,14 @@ def dim(t: str) -> str:
 # Source layout (relative to this script)
 # ---------------------------------------------------------------------------
 
+PROJECT_NAME = "parsidion"
+LEGACY_PROJECT_NAME = "parsidion-cc"
+SKILL_NAME = PROJECT_NAME
+LEGACY_SKILL_NAME = LEGACY_PROJECT_NAME
+
 REPO_ROOT: Path = Path(__file__).parent.resolve()
-SKILL_SRC: Path = REPO_ROOT / "skills" / "parsidion-cc"
+SKILL_SRC: Path = REPO_ROOT / "skills" / SKILL_NAME
+LEGACY_SKILL_SRC: Path = REPO_ROOT / "skills" / LEGACY_SKILL_NAME
 AGENT_SRCS: list[Path] = [
     REPO_ROOT / "agents" / "research-agent.md",
     REPO_ROOT / "agents" / "vault-explorer.md",
@@ -350,7 +356,7 @@ def install_skill(
     dry_run: bool = False,
     verbose: bool = False,
 ) -> Path:
-    """Install skill to ~/.claude/skills/parsidion-cc/.
+    """Install skill to ~/.claude/skills/parsidion/.
 
     On Unix/macOS: creates a directory symlink so edits to the repo are
     immediately live without reinstalling.
@@ -364,7 +370,7 @@ def install_skill(
 
     Returns the installed skill path.
     """
-    dest = claude_dir / "skills" / "parsidion-cc"
+    dest = claude_dir / "skills" / SKILL_NAME
     use_symlink = sys.platform != "win32" or _can_symlink(dest)
 
     # ── Fast-path: symlink already correct ────────────────────────────────────
@@ -395,6 +401,7 @@ def install_skill(
             )
 
     if not dry_run:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         # Remove whatever is currently there
         if dest.is_symlink() or dest.is_file():
             dest.unlink()
@@ -509,7 +516,7 @@ def install_cli_tools(
 
 _LAUNCHD_PLIST_LABEL = "com.parsidion.summarize-sessions"
 _LAUNCHD_PLIST_NAME = f"{_LAUNCHD_PLIST_LABEL}.plist"
-_CRON_MARKER = "# parsidion-cc: nightly summarizer"
+_CRON_MARKER = "# parsidion: nightly summarizer"
 
 
 def _build_launchd_plist(
@@ -560,9 +567,9 @@ def _build_launchd_plist(
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>{Path.home() / ".claude" / "logs" / "parsidion-cc-summarizer.log"}</string>
+    <string>{Path.home() / ".claude" / "logs" / "parsidion-summarizer.log"}</string>
     <key>StandardErrorPath</key>
-    <string>{Path.home() / ".claude" / "logs" / "parsidion-cc-summarizer.log"}</string>
+    <string>{Path.home() / ".claude" / "logs" / "parsidion-summarizer.log"}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
@@ -597,7 +604,7 @@ def schedule_summarizer(
         graph_include_daily: When True, also add ``--graph-include-daily``
             (only meaningful when ``rebuild_graph`` is True).
     """
-    scripts_dir = claude_dir / "skills" / "parsidion-cc" / "scripts"
+    scripts_dir = claude_dir / "skills" / SKILL_NAME / "scripts"
     script_path = scripts_dir / "summarize_sessions.py"
 
     # Ensure the secure log directory exists for scheduled output
@@ -720,7 +727,7 @@ def _schedule_summarizer_cron(
         extra += " --rebuild-graph"
     if graph_include_daily:
         extra += " --graph-include-daily"
-    _cron_log = Path.home() / ".claude" / "logs" / "parsidion-cc-summarizer.log"
+    _cron_log = Path.home() / ".claude" / "logs" / "parsidion-summarizer.log"
     cron_line = (
         f"0 {hour} * * * {uv_path} run --no-project {script_path} --run-doctor{extra}"
         f" >> {_cron_log} 2>&1  {_CRON_MARKER}"
@@ -738,7 +745,7 @@ def _schedule_summarizer_cron(
             text=True,
         )
         existing = result.stdout if result.returncode == 0 else ""
-        # Remove any existing parsidion-cc summarizer entry
+        # Remove any existing parsidion summarizer entry
         lines = [ln for ln in existing.splitlines() if _CRON_MARKER not in ln]
         lines.append(cron_line)
         new_crontab = "\n".join(lines) + "\n"
@@ -834,15 +841,10 @@ def create_templates_symlink(
 # ---------------------------------------------------------------------------
 
 
-def _hook_command(claude_dir: Path, event: str) -> str:
-    """Return the hook command string for a given event.
-
-    Uses ~ notation so the path is portable across user accounts.
-    Shell scripts (.sh) are invoked directly; Python scripts are run via
-    ``uv run --no-project`` to ensure the correct Python interpreter.
-    """
+def _managed_hook_command(claude_dir: Path, skill_name: str, event: str) -> str:
+    """Return the managed hook command string for a skill and event."""
     script = _HOOK_SCRIPTS[event]
-    script_path = claude_dir / "skills" / "parsidion-cc" / "scripts" / script
+    script_path = claude_dir / "skills" / skill_name / "scripts" / script
     # Replace home dir with ~ for portability; use forward slashes so the
     # command works on both Unix and Windows (Claude Code and uv handle ~ expansion).
     try:
@@ -856,6 +858,33 @@ def _hook_command(claude_dir: Path, event: str) -> str:
     return f"uv run --no-project {rel_str}"
 
 
+def _hook_command(claude_dir: Path, event: str) -> str:
+    """Return the hook command string for a given event.
+
+    Uses ~ notation so the path is portable across user accounts.
+    Shell scripts (.sh) are invoked directly; Python scripts are run via
+    ``uv run --no-project`` to ensure the correct Python interpreter.
+    """
+    return _managed_hook_command(claude_dir, SKILL_NAME, event)
+
+
+def _legacy_hook_command(claude_dir: Path, event: str) -> str:
+    """Return the legacy managed hook command string for a given event."""
+    return _managed_hook_command(claude_dir, LEGACY_SKILL_NAME, event)
+
+
+def _normalize_hook_command(command: str) -> str:
+    """Return *command* normalized for exact hook command comparisons."""
+    return command.replace("\\", "/").strip()
+
+
+def _is_legacy_managed_hook_command(command: str, claude_dir: Path, event: str) -> bool:
+    """Return True when *command* is an exact managed parsidion-cc legacy hook."""
+    return _normalize_hook_command(command) == _normalize_hook_command(
+        _legacy_hook_command(claude_dir, event)
+    )
+
+
 def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
     """Return True if any entry in hooks_list already has this command."""
     for entry in hooks_list:
@@ -863,6 +892,41 @@ def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
             if hook.get("command", "") == command:
                 return True
     return False
+
+
+def _filter_hook_entries(
+    event_hooks: list[dict],
+    predicate,
+) -> tuple[list[dict], bool]:
+    """Remove hook handlers matching *predicate* while preserving unrelated hooks.
+
+    Empty hook entries are removed. Returns the filtered entries and whether
+    anything changed.
+    """
+    filtered_entries: list[dict] = []
+    changed = False
+
+    for entry in event_hooks:
+        hooks = entry.get("hooks", [])
+        if not isinstance(hooks, list):
+            filtered_entries.append(entry)
+            continue
+
+        kept_hooks = []
+        for hook in hooks:
+            if isinstance(hook, dict) and predicate(hook):
+                changed = True
+                continue
+            kept_hooks.append(hook)
+
+        if kept_hooks:
+            new_entry = dict(entry)
+            new_entry["hooks"] = kept_hooks
+            filtered_entries.append(new_entry)
+        else:
+            changed = True
+
+    return filtered_entries, changed
 
 
 def enable_ai_mode(
@@ -1083,7 +1147,7 @@ def rebuild_index(
     dry_run: bool = False,
 ) -> None:
     """Run update_index.py to rebuild ~/ClaudeVault/CLAUDE.md."""
-    script = claude_dir / "skills" / "parsidion-cc" / "scripts" / "update_index.py"
+    script = claude_dir / "skills" / SKILL_NAME / "scripts" / "update_index.py"
     if not script.exists():
         _warn(f"update_index.py not found at {script} — skipping index rebuild")
         return
@@ -1123,7 +1187,7 @@ def remove_installed_hooks(
     settings_file: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Remove only Parsidion CC-managed hook registrations from settings.json.
+    """Remove only Parsidion-managed hook registrations from settings.json.
 
     Returns True when at least one managed hook registration was found.
     """
@@ -1143,19 +1207,17 @@ def remove_installed_hooks(
     for event, _script_name in _HOOK_SCRIPTS.items():
         command = _hook_command(claude_dir, event)
         event_hooks: list[dict] = hooks_section.get(event, [])
-        filtered = [
-            entry
-            for entry in event_hooks
-            if not _hook_already_registered([entry], command)
-        ]
-        if len(filtered) < len(event_hooks):
+        filtered, event_changed = _filter_hook_entries(
+            event_hooks,
+            lambda hook, command=command: hook.get("command", "") == command,
+        )
+        if event_changed:
             _step(f"Remove hook {bold(event)}", dry_run=dry_run)
-            if not dry_run:
-                if filtered:
-                    hooks_section[event] = filtered
-                elif event in hooks_section:
-                    del hooks_section[event]
             changed = True
+            if filtered:
+                hooks_section[event] = filtered
+            elif event in hooks_section:
+                del hooks_section[event]
 
     if changed and not dry_run:
         try:
@@ -1166,7 +1228,90 @@ def remove_installed_hooks(
         except OSError as exc:
             _err(f"Could not write {settings_file}: {exc}")
     elif not changed:
-        _warn("No Parsidion CC hook registrations found.")
+        _warn("No Parsidion hook registrations found.")
+
+    return changed
+
+
+def remove_legacy_hooks(
+    claude_dir: Path,
+    settings_file: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Remove managed legacy parsidion-cc hook registrations from settings.json."""
+    if not settings_file.exists():
+        return False
+
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read settings.json for legacy cleanup: {exc}")
+        return False
+
+    hooks_section: dict = settings.get("hooks", {})
+    changed = False
+
+    for event, _script_name in _HOOK_SCRIPTS.items():
+        event_hooks: list[dict] = hooks_section.get(event, [])
+        filtered, event_changed = _filter_hook_entries(
+            event_hooks,
+            lambda hook, event=event: _is_legacy_managed_hook_command(
+                str(hook.get("command", "")), claude_dir, event
+            ),
+        )
+        if event_changed:
+            _step(f"Remove legacy hook {bold(event)}", dry_run=dry_run)
+            changed = True
+            if filtered:
+                hooks_section[event] = filtered
+            elif event in hooks_section:
+                del hooks_section[event]
+
+    if changed and not dry_run:
+        try:
+            settings_file.write_text(
+                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+            )
+            _ok(f"Updated {settings_file}")
+        except OSError as exc:
+            _err(f"Could not write {settings_file}: {exc}")
+
+    return changed
+
+
+def cleanup_legacy_assets(
+    claude_dir: Path,
+    settings_file: Path,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> bool:
+    """Remove managed legacy parsidion-cc hooks and installed skill assets.
+
+    This preserves user vault contents and unrelated Claude settings.
+    """
+    changed = False
+
+    if remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run):
+        changed = True
+
+    legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
+    if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
+        _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
+        changed = True
+        if not dry_run:
+            try:
+                if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
+                    legacy_skill_dir.unlink()
+                else:
+                    shutil.rmtree(legacy_skill_dir)
+            except OSError as exc:
+                _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
+    else:
+        _print(
+            dim(f"  No legacy skill found at {legacy_skill_dir}"),
+            verbose_only=True,
+            verbose=verbose,
+        )
 
     return changed
 
@@ -1178,25 +1323,41 @@ def uninstall(
     yes: bool = False,
     hooks_only: bool = False,
 ) -> None:
-    """Remove installed Parsidion CC assets or only managed hooks."""
+    """Remove installed Parsidion assets or only managed hooks."""
     if hooks_only:
-        print(bold("\nRemoving Parsidion CC hooks..."))
+        print(bold("\nRemoving Parsidion hooks..."))
         remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+        remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
         if not dry_run:
             print()
             _ok("Hook uninstall complete.")
         return
 
-    print(bold("\nUninstalling Parsidion CC..."))
+    print(bold("\nUninstalling Parsidion..."))
 
-    skill_dir = claude_dir / "skills" / "parsidion-cc"
+    skill_dir = claude_dir / "skills" / SKILL_NAME
 
-    if skill_dir.exists():
+    if skill_dir.exists() or skill_dir.is_symlink():
         _step(f"Remove skill directory: {skill_dir}", dry_run=dry_run)
         if not dry_run:
-            shutil.rmtree(skill_dir)
+            if skill_dir.is_symlink() or skill_dir.is_file():
+                skill_dir.unlink()
+            else:
+                shutil.rmtree(skill_dir)
     else:
         _warn(f"Skill directory not found: {skill_dir}")
+
+    legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
+    if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
+        _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
+        if not dry_run:
+            try:
+                if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
+                    legacy_skill_dir.unlink()
+                else:
+                    shutil.rmtree(legacy_skill_dir)
+            except OSError as exc:
+                _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
 
     for agent_src in AGENT_SRCS:
         agent_dest = claude_dir / "agents" / agent_src.name
@@ -1219,6 +1380,7 @@ def uninstall(
 
     # Remove hook registrations
     remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+    remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
 
     # Remove CLAUDE-VAULT.md and its @import from CLAUDE.md
     claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
@@ -1253,7 +1415,7 @@ def uninstall(
     unschedule_summarizer(dry_run=dry_run)
 
     # Optionally remove vaults.yaml (named vaults config)
-    vaults_config = Path.home() / ".config" / "parsidion-cc" / "vaults.yaml"
+    vaults_config = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
     if vaults_config.exists():
         if yes or _confirm(f"Remove {vaults_config}?", default=False):
             _step(f"Remove {vaults_config}", dry_run=dry_run)
@@ -1273,7 +1435,7 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
     """Remove the nightly summarizer cron job or launchd plist if present.
 
     On macOS: unloads and deletes the launchd plist from ``~/Library/LaunchAgents/``.
-    On Linux/other: removes the parsidion-cc line from the user's crontab.
+    On Linux/other: removes the parsidion line from the user's crontab.
     Silent no-op when no scheduler entry is found.
 
     Args:
@@ -1309,8 +1471,8 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
                 return  # No crontab
             existing = result.stdout
             if _CRON_MARKER not in existing:
-                return  # No parsidion-cc entry
-            _step("Remove parsidion-cc line from crontab", dry_run=dry_run)
+                return  # No parsidion entry
+            _step("Remove parsidion line from crontab", dry_run=dry_run)
             if dry_run:
                 return
             lines = [ln for ln in existing.splitlines() if _CRON_MARKER not in ln]
@@ -1502,21 +1664,21 @@ def configure_embeddings(
 def create_vaults_config(dry_run: bool = False) -> None:
     """Create vaults.yaml template with example configuration.
 
-    Creates ``~/.config/parsidion-cc/vaults.yaml`` with commented examples for
+    Creates ``~/.config/parsidion/vaults.yaml`` with commented examples for
     named vault configuration. This enables users to reference vaults by name
     via ``--vault NAME`` or ``CLAUDE_VAULT=NAME``.
 
     Args:
         dry_run: If True, print what would be done without writing.
     """
-    config_dir = Path.home() / ".config" / "parsidion-cc"
+    config_dir = Path.home() / ".config" / PROJECT_NAME
     config_path = config_dir / "vaults.yaml"
 
     if config_path.exists():
         print(f"  ℹ {config_path} already exists, skipping")
         return
 
-    content = """# Named vaults for parsidion-cc
+    content = """# Named vaults for parsidion
 # Use with: vault-search --vault NAME or CLAUDE_VAULT=NAME
 
 vaults:
@@ -1612,17 +1774,17 @@ def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
 
 
 # Marker comment used to identify our post-merge hook.
-_POST_MERGE_MARKER = "# parsidion-cc post-merge hook"
+_POST_MERGE_MARKER = "# parsidion post-merge hook"
 
 _POST_MERGE_HOOK_TEMPLATE = """\
 #!/bin/bash
 {marker} — rebuilds vault index and embeddings after pull
 set -e
-echo "[parsidion-cc] Rebuilding vault index..."
+echo "[parsidion] Rebuilding vault index..."
 uv run --no-project {scripts_dir}/update_index.py
-echo "[parsidion-cc] Updating embeddings (incremental)..."
+echo "[parsidion] Updating embeddings (incremental)..."
 uv run {scripts_dir}/build_embeddings.py --incremental
-echo "[parsidion-cc] Post-merge sync complete."
+echo "[parsidion] Post-merge sync complete."
 """
 
 
@@ -1653,7 +1815,7 @@ def install_vault_post_merge_hook(
     hook_path = hooks_dir / "post-merge"
 
     # Build portable ~ path to scripts dir.
-    scripts_dir = claude_dir / "skills" / "parsidion-cc" / "scripts"
+    scripts_dir = claude_dir / "skills" / SKILL_NAME / "scripts"
     try:
         rel = scripts_dir.relative_to(Path.home())
         scripts_rel = f"~/{rel.as_posix()}"
@@ -1687,7 +1849,7 @@ def remove_vault_post_merge_hook(
     vault_root: Path,
     dry_run: bool = False,
 ) -> None:
-    """Remove the parsidion-cc post-merge hook from the vault if present.
+    """Remove the parsidion post-merge hook from the vault if present.
 
     Only deletes the hook if it was created by this installer (identified
     by the marker comment).  Leaves custom user hooks untouched.
@@ -1745,8 +1907,8 @@ def install(args: argparse.Namespace) -> int:
     verbose: bool = args.verbose
 
     print()
-    print(bold("Parsidion CC Installer"))
-    print(dim("Skills, hooks, and knowledge vault for Claude Code"))
+    print(bold("Parsidion Installer"))
+    print(dim("Skills, hooks, and knowledge vault for coding agents"))
     print()
 
     # --- Determine vault path ---
@@ -1864,7 +2026,7 @@ def install(args: argparse.Namespace) -> int:
     print(f"  {dim('Embeddings   :')} {'enabled' if enable_embeddings else 'disabled'}")
     print(f"  {dim('Vault username:')} {vault_username or '(auto: $USER)'}")
     print(f"  {dim('Settings     :')} {settings_file}")
-    print(f"  {dim('Install skill:')} {claude_dir / 'skills' / 'parsidion-cc'}")
+    print(f"  {dim('Install skill:')} {claude_dir / 'skills' / SKILL_NAME}")
     if not args.skip_agent:
         for agent_src in AGENT_SRCS:
             print(f"  {dim('Install agent:')} {claude_dir / 'agents' / agent_src.name}")
@@ -1911,13 +2073,19 @@ def install(args: argparse.Namespace) -> int:
     create_vault_dirs(vault_root, dry_run=dry_run)
 
     # 6. Create Templates symlink
-    templates_src = claude_dir / "skills" / "parsidion-cc" / "templates"
+    templates_src = claude_dir / "skills" / SKILL_NAME / "templates"
     create_templates_symlink(
         vault_root, templates_src, dry_run=dry_run, verbose=verbose
     )
 
-    # 7. Register hooks
+    # 7. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
     if not args.skip_hooks:
+        cleanup_legacy_assets(
+            claude_dir,
+            settings_file,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
         merge_hooks(claude_dir, settings_file, dry_run=dry_run, verbose=verbose)
 
     # 7b. Enable AI mode if requested
@@ -1973,11 +2141,11 @@ def install(args: argparse.Namespace) -> int:
         print(f"  1. Open {vault_root} in Obsidian as a vault")
         print("  2. Restart Claude Code to activate hooks")
         print(
-            f"  3. Run: {cyan('uv run ~/.claude/skills/parsidion-cc/scripts/update_index.py')}"
+            f"  3. Run: {cyan('uv run ~/.claude/skills/parsidion/scripts/update_index.py')}"
         )
         print("         to rebuild the vault index at any time")
         print(
-            f"  4. Run: {cyan('uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py')}"
+            f"  4. Run: {cyan('uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py')}"
         )
         print("         to build the semantic search index (~30s on first run)")
         if not install_tools:
@@ -2016,7 +2184,7 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="install.py",
-        description="Install Parsidion CC skills, hooks, and Claude Vault.",
+        description="Install Parsidion skills, hooks, and vault tooling.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
     )
@@ -2161,7 +2329,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--create-vaults-config",
         action="store_true",
-        help="Create ~/.config/parsidion-cc/vaults.yaml template",
+        help="Create ~/.config/parsidion/vaults.yaml template",
     )
     parser.add_argument(
         "--help",
@@ -2173,7 +2341,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Entry point for the Parsidion CC installer.
+    """Entry point for the Parsidion installer.
 
     Dispatches to either ``uninstall()`` or ``install()`` based on the
     uninstall flags. Prompts for confirmation before uninstalling unless
@@ -2193,9 +2361,9 @@ def main() -> None:
             print()
             print(
                 bold(
-                    "Parsidion CC Hook Uninstaller"
+                    "Parsidion Hook Uninstaller"
                     if args.uninstall_hooks
-                    else "Parsidion CC Uninstaller"
+                    else "Parsidion Uninstaller"
                 )
             )
             print(f"  {dim('Claude dir:')} {claude_dir}")

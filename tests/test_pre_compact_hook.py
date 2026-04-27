@@ -15,7 +15,7 @@ from pathlib import Path
 import importlib.util
 
 _SCRIPTS_DIR = (
-    Path(__file__).resolve().parent.parent / "skills" / "parsidion-cc" / "scripts"
+    Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "scripts"
 )
 _spec = importlib.util.spec_from_file_location(
     "pre_compact_hook", _SCRIPTS_DIR / "pre_compact_hook.py"

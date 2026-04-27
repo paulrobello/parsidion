@@ -42,7 +42,7 @@ None (config file created on demand)
 ## Task 1: Add Vault Resolver to vault_common.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_common.py`
+- Modify: `skills/parsidion/scripts/vault_common.py`
 
 - [ ] **Step 1: Add imports and exception class**
 
@@ -69,15 +69,15 @@ Add after `VaultConfigError` class:
 def get_vaults_config_path() -> Path:
     """Return path to vaults.yaml configuration file.
 
-    Uses XDG config home with fallback to ~/.parsidion-cc/.
+    Uses XDG config home with fallback to ~/.parsidion/.
 
     Returns:
         Path to vaults.yaml (file may not exist).
     """
-    xdg_path = xdg_config_home() / "parsidion-cc" / "vaults.yaml"
-    if xdg_path.parent.exists() or not (Path.home() / ".parsidion-cc").exists():
+    xdg_path = xdg_config_home() / "parsidion" / "vaults.yaml"
+    if xdg_path.parent.exists() or not (Path.home() / ".parsidion").exists():
         return xdg_path
-    return Path.home() / ".parsidion-cc" / "vaults.yaml"
+    return Path.home() / ".parsidion" / "vaults.yaml"
 ```
 
 - [ ] **Step 3: Add list_named_vaults function**
@@ -230,7 +230,7 @@ Expected: `OK`
 - [ ] **Step 8: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/vault_common.py
+git add skills/parsidion/scripts/vault_common.py
 git commit -m "feat(vault): add resolve_vault() and named vaults support"
 ```
 
@@ -239,8 +239,8 @@ git commit -m "feat(vault): add resolve_vault() and named vaults support"
 ## Task 2: Update vault_common.py Functions to Accept vault Parameter
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_common.py`
-- Modify: `skills/parsidion-cc/scripts/vault_links.py` (functions that use VAULT_ROOT)
+- Modify: `skills/parsidion/scripts/vault_common.py`
+- Modify: `skills/parsidion/scripts/vault_links.py` (functions that use VAULT_ROOT)
 
 - [ ] **Step 1: Update get_embeddings_db_path**
 
@@ -433,7 +433,7 @@ python -c "from skills.parsidion_cc.scripts import vault_common; print('OK')"
 - [ ] **Step 15: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/vault_common.py
+git add skills/parsidion/scripts/vault_common.py
 git commit -m "refactor(vault): add vault parameter to core functions"
 ```
 
@@ -442,7 +442,7 @@ git commit -m "refactor(vault): add vault parameter to core functions"
 ## Task 3: Update vault_search.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_search.py`
+- Modify: `skills/parsidion/scripts/vault_search.py`
 
 - [ ] **Step 1: Add --vault argument to parser**
 
@@ -484,7 +484,7 @@ Expected: Shows `-V, --vault PATH|NAME`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/vault_search.py
+git add skills/parsidion/scripts/vault_search.py
 git commit -m "feat(vault-search): add --vault flag for multi-vault support"
 ```
 
@@ -493,7 +493,7 @@ git commit -m "feat(vault-search): add --vault flag for multi-vault support"
 ## Task 4: Update vault_stats.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_stats.py`
+- Modify: `skills/parsidion/scripts/vault_stats.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -533,7 +533,7 @@ vault-stats --help | grep -A2 "\-V"
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/vault_stats.py
+git add skills/parsidion/scripts/vault_stats.py
 git commit -m "feat(vault-stats): add --vault flag for multi-vault support"
 ```
 
@@ -542,7 +542,7 @@ git commit -m "feat(vault-stats): add --vault flag for multi-vault support"
 ## Task 5: Update vault_new.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_new.py`
+- Modify: `skills/parsidion/scripts/vault_new.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -561,7 +561,7 @@ vault_common.ensure_vault_dirs(vault_path)
 ## Task 6: Update vault_doctor.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_doctor.py`
+- Modify: `skills/parsidion/scripts/vault_doctor.py`
 
 This file has more VAULT_ROOT references (~25). Systematic update required.
 
@@ -585,7 +585,7 @@ Use sed or manual replacement for:
 ## Task 7: Update vault_review.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_review.py`
+- Modify: `skills/parsidion/scripts/vault_review.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -598,7 +598,7 @@ Use sed or manual replacement for:
 ## Task 8: Update vault_export.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_export.py`
+- Modify: `skills/parsidion/scripts/vault_export.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -611,7 +611,7 @@ Use sed or manual replacement for:
 ## Task 9: Update vault_merge.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_merge.py`
+- Modify: `skills/parsidion/scripts/vault_merge.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -624,7 +624,7 @@ Use sed or manual replacement for:
 ## Task 10: Update update_index.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/update_index.py`
+- Modify: `skills/parsidion/scripts/update_index.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -637,7 +637,7 @@ Use sed or manual replacement for:
 ## Task 11: Update build_embeddings.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/build_embeddings.py`
+- Modify: `skills/parsidion/scripts/build_embeddings.py`
 
 - [ ] **Step 1: Add --vault argument**
 
@@ -650,7 +650,7 @@ Use sed or manual replacement for:
 ## Task 12: Update summarize_sessions.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/summarize_sessions.py`
+- Modify: `skills/parsidion/scripts/summarize_sessions.py`
 
 Note: This is a PEP 723 script with inline dependencies.
 
@@ -673,7 +673,7 @@ pending_path = vault_path / "pending_summaries.jsonl"
 ## Task 13: Update session_start_hook.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/session_start_hook.py`
+- Modify: `skills/parsidion/scripts/session_start_hook.py`
 
 - [ ] **Step 1: Resolve vault from input cwd**
 
@@ -715,7 +715,7 @@ vault_common.write_hook_event(
 ## Task 14: Update session_stop_hook.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/session_stop_hook.py`
+- Modify: `skills/parsidion/scripts/session_stop_hook.py`
 
 - [ ] **Step 1: Resolve vault from input cwd**
 
@@ -728,7 +728,7 @@ vault_common.write_hook_event(
 ## Task 15: Update pre_compact_hook.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/pre_compact_hook.py`
+- Modify: `skills/parsidion/scripts/pre_compact_hook.py`
 
 - [ ] **Step 1: Resolve vault from input cwd**
 
@@ -741,7 +741,7 @@ vault_common.write_hook_event(
 ## Task 16: Update post_compact_hook.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/post_compact_hook.py`
+- Modify: `skills/parsidion/scripts/post_compact_hook.py`
 
 - [ ] **Step 1: Resolve vault from input cwd**
 
@@ -754,7 +754,7 @@ vault_common.write_hook_event(
 ## Task 17: Update subagent_stop_hook.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/subagent_stop_hook.py`
+- Modify: `skills/parsidion/scripts/subagent_stop_hook.py`
 
 - [ ] **Step 1: Resolve vault from input cwd**
 
@@ -775,7 +775,7 @@ vault_common.write_hook_event(
     parser.add_argument(
         "--create-vaults-config",
         action="store_true",
-        help="Create ~/.config/parsidion-cc/vaults.yaml template",
+        help="Create ~/.config/parsidion/vaults.yaml template",
     )
 ```
 
@@ -787,14 +787,14 @@ def create_vaults_config(dry_run: bool = False) -> None:
     from pathlib import Path
     import os
 
-    config_dir = Path.home() / ".config" / "parsidion-cc"
+    config_dir = Path.home() / ".config" / "parsidion"
     config_path = config_dir / "vaults.yaml"
 
     if config_path.exists():
         print(f"  ℹ {config_path} already exists, skipping")
         return
 
-    content = '''# Named vaults for parsidion-cc
+    content = '''# Named vaults for parsidion
 # Use with: vault-search --vault NAME or CLAUDE_VAULT=NAME
 
 vaults:
@@ -830,7 +830,7 @@ Add to install steps (after installing hooks):
 Add to uninstall function (with confirmation):
 
 ```python
-    vaults_config = Path.home() / ".config" / "parsidion-cc" / "vaults.yaml"
+    vaults_config = Path.home() / ".config" / "parsidion" / "vaults.yaml"
     if vaults_config.exists():
         if args.yes or input(f"Remove {vaults_config}? [y/N] ").lower() == "y":
             vaults_config.unlink()
@@ -845,7 +845,7 @@ Add to description or epilog:
     epilog = """
 ...
 Multi-vault support:
-  --create-vaults-config    Create ~/.config/parsidion-cc/vaults.yaml template
+  --create-vaults-config    Create ~/.config/parsidion/vaults.yaml template
   Set CLAUDE_VAULT env var or use --vault flag on CLIs to switch vaults
 """
 ```
@@ -896,9 +896,9 @@ git commit -m "docs: mark enhancement #18 multi-vault as implemented"
 - [ ] **Step 1: Run ruff format and check**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
-uv run ruff format skills/parsidion-cc/scripts/
-uv run ruff check skills/parsidion-cc/scripts/
+cd /Users/probello/Repos/parsidion
+uv run ruff format skills/parsidion/scripts/
+uv run ruff check skills/parsidion/scripts/
 ```
 
 - [ ] **Step 2: Test resolve_vault with env var**
@@ -906,7 +906,7 @@ uv run ruff check skills/parsidion-cc/scripts/
 ```bash
 CLAUDE_VAULT=/tmp/test-vault python -c "
 import sys
-sys.path.insert(0, 'skills/parsidion-cc/scripts')
+sys.path.insert(0, 'skills/parsidion/scripts')
 from vault_common import resolve_vault
 print(resolve_vault())
 "

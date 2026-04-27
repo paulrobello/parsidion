@@ -116,7 +116,7 @@ def _build_note_content(
 def main() -> None:
     """Entry point: parse arguments and create a new vault note."""
     parser = argparse.ArgumentParser(
-        description="Scaffold a new Claude Vault note with correct frontmatter.",
+        description="Scaffold a new Parsidion vault note with correct frontmatter.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

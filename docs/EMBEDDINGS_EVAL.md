@@ -58,7 +58,7 @@ note for a given query against this specific vault?**
 - In-memory sqlite-vec index per combo — no persistent database required during evaluation
 - Rich terminal table for quick comparison; JSON + HTML for sharing and archiving
 
-**Script location:** `~/.claude/skills/parsidion-cc/scripts/embed_eval.py`
+**Script location:** `~/.claude/skills/parsidion/scripts/embed_eval.py`
 
 > **📝 Note:** `embed_eval.py` is a PEP 723 script with inline dependency declarations. Always
 > invoke it with `uv run` so dependencies are installed automatically into an isolated environment.
@@ -157,10 +157,10 @@ flowchart TD
 
 ```bash
 # Full pipeline: generate queries then evaluate (default settings, ~10-15 min)
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py
 
 # Re-run evaluation with cached queries (fast, no Claude API calls)
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --eval
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval
 ```
 
 The first run:
@@ -242,13 +242,13 @@ is skipped and the existing file is loaded directly. This lets you:
 Force regeneration at any time with:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --generate
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --generate
 ```
 
 Use `--queries-file` to point to a different YAML file:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py \
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py \
   --eval --queries-file ~/my-custom-queries.yaml
 ```
 
@@ -466,7 +466,7 @@ and a results array:
 Use `--output` to override the auto-timestamped default path:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py \
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py \
   --output ~/Desktop/my_eval_run
 # Writes: ~/Desktop/my_eval_run.json + ~/Desktop/my_eval_run.html
 ```
@@ -572,7 +572,7 @@ The harness automatically limits each model to `cpu_count // workers` ONNX threa
 Before a full evaluation, validate the harness with a minimal run:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py \
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py \
   --notes 20 --queries-per-note 2 \
   --models "BAAI/bge-small-en-v1.5" \
   --chunking "whole" --top-k 5
@@ -686,10 +686,10 @@ If paragraph chunking consistently outperforms whole-note across your vault, con
 
 ```bash
 # Use --eval to skip Phase 1 entirely if a queries file already exists
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --eval
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval
 
 # Reduce the sample size to finish faster
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --notes 30
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --notes 30
 ```
 
 ### Import error on first run
@@ -702,7 +702,7 @@ dependency declarations were not processed.
 **Fix:** Always use `uv run`:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py
 ```
 
 ### Memory pressure during evaluation
@@ -714,7 +714,7 @@ uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py
 **Fix:** Reduce `--workers` to serialize model loading:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --eval --workers 1
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval --workers 1
 ```
 
 ### Recall@K is unexpectedly low
@@ -729,7 +729,7 @@ generated.
 
 ```bash
 # Regenerate ground truth from the current vault state
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --generate --notes 50
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --generate --notes 50
 
 # Inspect the queries file to verify quality
 # Open ~/ClaudeVault/embed_eval_queries.yaml and review a few entries
@@ -748,7 +748,7 @@ between runs also shift the index.
 **Fix:** Always set `--seed` for reproducible comparisons:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --eval --seed 42
+uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval --seed 42
 ```
 
 ---
@@ -761,4 +761,4 @@ uv run ~/.claude/skills/parsidion-cc/scripts/embed_eval.py --eval --seed 42
   vault structure, and session summarizer
 - [CLAUDE.md](../CLAUDE.md) — vault note conventions, frontmatter schema, and subfolder rules
 - `~/ClaudeVault/config.yaml` — live configuration file (copy from `templates/config.yaml`)
-- `~/.claude/skills/parsidion-cc/templates/config.yaml` — reference config with all defaults
+- `~/.claude/skills/parsidion/templates/config.yaml` — reference config with all defaults

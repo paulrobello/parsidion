@@ -1010,8 +1010,8 @@ wheels = [
 ]
 
 [[package]]
-name = "parsidion-cc"
-version = "0.5.4"
+name = "parsidion"
+version = "0.5.6"
 source = { editable = "../" }
 
 [package.optional-dependencies]
@@ -1025,7 +1025,7 @@ search = [
 requires-dist = [
     { name = "fastembed", marker = "extra == 'eval'", specifier = ">=0.6.0,<1.0" },
     { name = "fastembed", marker = "extra == 'search'", specifier = ">=0.6.0,<1.0" },
-    { name = "parsidion-cc", extras = ["search"], marker = "extra == 'tools'" },
+    { name = "parsidion", extras = ["search"], marker = "extra == 'tools'" },
     { name = "pillow", marker = "extra == 'eval'", specifier = ">=12.2.0" },
     { name = "pillow", marker = "extra == 'search'", specifier = ">=12.2.0" },
     { name = "pyyaml", marker = "extra == 'eval'", specifier = ">=6.0" },
@@ -1038,6 +1038,7 @@ provides-extras = ["search", "tools", "eval"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyright", specifier = ">=1.1.408" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
@@ -1052,7 +1053,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
-    { name = "parsidion-cc", extra = ["search"] },
+    { name = "parsidion", extra = ["search"] },
 ]
 
 [package.dev-dependencies]
@@ -1067,7 +1068,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.0" },
-    { name = "parsidion-cc", extras = ["search"], editable = "../" },
+    { name = "parsidion", extras = ["search"], editable = "../" },
 ]
 
 [package.metadata.requires-dev]

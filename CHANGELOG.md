@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Rebranded the project from `parsidion-cc` to `parsidion`. New installs use `~/.claude/skills/parsidion/`, package metadata uses `parsidion`, and docs now describe Parsidion as an agent-agnostic memory/vault layer for coding assistants.
+
+### Migration
+
+- The installer now automatically removes managed legacy `parsidion-cc` hook registrations and the old `~/.claude/skills/parsidion-cc/` skill directory or symlink before registering new `parsidion` hooks. User vault contents under `~/ClaudeVault/` are preserved.
+
 ## [0.5.6] - 2026-04-19
 
 ### Changed

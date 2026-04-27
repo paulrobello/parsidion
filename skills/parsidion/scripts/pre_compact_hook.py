@@ -300,7 +300,7 @@ def append_snapshot_to_daily(
 
 _DEFAULT_LINES = 200
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-cc-hook-errors.log"
+_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
 
 
 def _log_hook_error(hook_name: str) -> None:

@@ -313,25 +313,25 @@ em { font-style: italic; color: var(--text-muted); }
       <div class="dot yellow"></div>
       <div class="dot green"></div>
     </div>
-    <div class="terminal-title">claude-code — parsidion-cc</div>
+    <div class="terminal-title">claude-code — parsidion</div>
   </div>
   <div class="terminal-body">
 
     <!-- ── Slide 1: Introduction ── -->
     <div class="slide active">
       <div class="slide-title">Building the Project Explorer Agent</div>
-      <div class="slide-subtitle">parsidion-cc · Claude Code Build Session · 2026-03-16</div>
+      <div class="slide-subtitle">parsidion · Claude Code Build Session · 2026-03-16</div>
 
       <div class="prompt-line" style="margin-top:4px;">
         <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-path">~/Repos/parsidion</span>
         <span class="prompt-symbol">$</span>
         <span class="prompt-cmd">claude</span>
       </div>
 
       <div class="claude-response">
         ✦ Welcome to Claude Code!<br>
-        <span class="hl-cyan">claude-sonnet-4-6</span> · parsidion-cc
+        <span class="hl-cyan">claude-sonnet-4-6</span> · parsidion
       </div>
 
       <div class="section-label">What we're building</div>
@@ -379,7 +379,7 @@ em { font-style: italic; color: var(--text-muted); }
       <div class="slide-title">The Implementation Plan</div>
       <div class="prompt-line">
         <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-path">~/Repos/parsidion</span>
         <span class="prompt-symbol">$</span>
         <span class="prompt-cmd">implement plan: project-explorer agent</span>
       </div>
@@ -456,7 +456,7 @@ update_index.py, and vault-explorer agent. Zero new dependencies.</div>
       <div class="slide-title">Steps 1–2: Vault Check + Metadata</div>
 
       <div class="section-label">Step 1 — vault check before writing anything</div>
-      <div class="code-block"><span class="fn">uv run</span> --no-project ~/.claude/skills/parsidion-cc/scripts/<span class="str">vault_search.py</span> \
+      <div class="code-block"><span class="fn">uv run</span> --no-project ~/.claude/skills/parsidion/scripts/<span class="str">vault_search.py</span> \
   <span class="str">"project {name}"</span> -j 2>/dev/null
 
 <span class="cm"># Also dispatch vault-explorer: "project {name} architecture features"</span>
@@ -584,7 +584,7 @@ or (2) a vault note for this exact pattern already exists — add a related link
       <div class="slide-title">Steps 8–9: Index + Summary Report</div>
 
       <div class="section-label">Step 8 — rebuild vault index</div>
-      <div class="code-block"><span class="fn">uv run</span> --no-project ~/.claude/skills/parsidion-cc/scripts/<span class="str">update_index.py</span>
+      <div class="code-block"><span class="fn">uv run</span> --no-project ~/.claude/skills/parsidion/scripts/<span class="str">update_index.py</span>
 <span class="cm"># Makes all new notes searchable via vault-search immediately</span>
 <span class="cm"># Reports exit code — surfaces errors rather than silently failing</span></div>
 

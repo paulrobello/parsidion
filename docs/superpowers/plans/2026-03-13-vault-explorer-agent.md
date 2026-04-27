@@ -39,7 +39,7 @@ description: >
   "what do we know about X", any vault search request.
 
   Do NOT trigger for vault writes, index rebuilds, or summarization — those
-  belong to the research-documentation-agent and parsidion-cc skill.
+  belong to the research-documentation-agent and parsidion skill.
 model: haiku
 color: purple
 ---
@@ -256,13 +256,13 @@ git commit -m "docs(vault): replace direct Grep guidance with vault-explorer age
 ### Task 3: Replace Grep-based guidance in SKILL.md
 
 **Files:**
-- Modify: `skills/parsidion-cc/SKILL.md`
+- Modify: `skills/parsidion/SKILL.md`
 
 **Background:** `SKILL.md` has a different structure than `CLAUDE-VAULT.md`. The sections to update are: (a) "Debugging: Search Before You Diagnose" — contains `grep` shell examples; (b) "Implementation: Check for Prior Art" — contains `grep` shell examples; (c) "Efficient Vault Search" table; (d) "The Vault-First Loop" flowchart code block. The Grep examples in SKILL.md use shell `grep` syntax (not the Grep tool syntax used in CLAUDE-VAULT.md).
 
 - [ ] **Step 1: Replace the Debugging section**
 
-Locate the section `### Debugging: Search Before You Diagnose` in `skills/parsidion-cc/SKILL.md`. The current steps 2-3 contain:
+Locate the section `### Debugging: Search Before You Diagnose` in `skills/parsidion/SKILL.md`. The current steps 2-3 contain:
 
 ```markdown
 2. **Search `Debugging/`** first:
@@ -364,7 +364,7 @@ Error or implementation question
 
 - [ ] **Step 5: Verify the file reads coherently end-to-end**
 
-Read the full `skills/parsidion-cc/SKILL.md` and confirm:
+Read the full `skills/parsidion/SKILL.md` and confirm:
 - No remaining `grep` shell examples in the Debugging/Implementation sections
 - No remaining "Prefer the Grep tool" instructions in the Efficient Vault Search section
 - The Vault-First Loop flowchart references the vault-explorer agent
@@ -373,7 +373,7 @@ Read the full `skills/parsidion-cc/SKILL.md` and confirm:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add skills/parsidion-cc/SKILL.md
+git add skills/parsidion/SKILL.md
 git commit -m "docs(skill): replace direct Grep guidance with vault-explorer agent dispatch"
 ```
 
@@ -618,7 +618,7 @@ Nothing to commit — this task only writes to `~/.claude/` (not tracked in this
 
 - [ ] `agents/vault-explorer.md` exists with `model: haiku`, `color: purple`
 - [ ] `CLAUDE-VAULT.md` has no `Grep:` instructions in Debugging/Implementation/Search sections
-- [ ] `skills/parsidion-cc/SKILL.md` has no `grep` shell examples in those sections
+- [ ] `skills/parsidion/SKILL.md` has no `grep` shell examples in those sections
 - [ ] `install.py` uses `AGENT_SRCS: list[Path]` and `install_agents()`
 - [ ] `uv run install.py --dry-run --yes` shows both agents
 - [ ] `uv run pytest tests/ -v` passes

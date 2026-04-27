@@ -1,4 +1,4 @@
-"""parsidion-mcp: FastMCP server exposing Claude Vault to Claude Desktop."""
+"""parsidion-mcp: FastMCP server exposing Parsidion vault to Claude Desktop."""
 
 from fastmcp import FastMCP
 

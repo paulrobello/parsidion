@@ -54,7 +54,7 @@ def _get_excluded_agents() -> set[str]:
     return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
 
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-cc-hook-errors.log"
+_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
 
 
 def _log_hook_error(hook_name: str) -> None:
@@ -99,7 +99,7 @@ def main() -> None:
             sys.stdout.write("{}")
             return
 
-        # Skip sessions launched internally by parsidion-cc tools
+        # Skip sessions launched internally by parsidion tools
         if os.environ.get("PARSIDION_INTERNAL"):
             print(
                 f"{_LOG_PREFIX} skipping: internal parsidion session",

@@ -1,4 +1,4 @@
-"""Shared backlink helpers for Claude Vault note cross-referencing.
+"""Shared backlink helpers for Parsidion vault note cross-referencing.
 
 This module provides utilities for finding related vault notes (by tag overlap
 or semantic similarity) and injecting bidirectional wikilinks into note

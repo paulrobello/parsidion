@@ -1,4 +1,4 @@
-# Parsidion CC Architecture
+# Parsidion Architecture
 
 A Claude Code customization toolkit that replaces built-in auto memory with a markdown vault-based knowledge management system, augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
 
@@ -7,7 +7,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with a ma
 - [System Architecture](#system-architecture)
 - [Component Details](#component-details)
   - [CLAUDE-VAULT.md — Always-On Guidance](#claude-vaultmd--always-on-guidance)
-  - [Claude Vault Skill](#claude-vault-skill)
+  - [Parsidion vault Skill](#claude-vault-skill)
   - [Hook Scripts](#hook-scripts)
   - [SubagentStop Hook](#subagent-stop-hook)
   - [Session Summarizer](#session-summarizer)
@@ -68,9 +68,9 @@ graph TB
         Hooks[Hook System]
     end
 
-    subgraph "Parsidion CC"
+    subgraph "Parsidion"
         CVG[CLAUDE-VAULT.md]
-        Skill[Claude Vault Skill]
+        Skill[Parsidion vault Skill]
         Agent[Research Agent]
         VE[Vault Explorer Agent]
         PE[Project Explorer Agent]
@@ -205,7 +205,7 @@ graph TB
 
 **Location:** `CLAUDE-VAULT.md` (repo root) → installed to `~/.claude/CLAUDE-VAULT.md`
 
-An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-VAULT.md` import appended to `~/.claude/CLAUDE.md` by the installer. Unlike the parsidion-cc skill (which requires explicit invocation), this file fires on every session with no trigger needed.
+An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-VAULT.md` import appended to `~/.claude/CLAUDE.md` by the installer. Unlike the parsidion skill (which requires explicit invocation), this file fires on every session with no trigger needed.
 
 **What it enforces:**
 
@@ -216,9 +216,9 @@ An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-
 
 **Install behavior:** `install.py` copies `CLAUDE-VAULT.md` to `~/.claude/` and idempotently appends `@CLAUDE-VAULT.md` to `~/.claude/CLAUDE.md` if the line is not already present. Uninstall removes the file and strips the import line.
 
-### Claude Vault Skill
+### Parsidion vault Skill
 
-**Location:** `skills/parsidion-cc/SKILL.md`
+**Location:** `skills/parsidion/SKILL.md`
 
 The skill definition loaded into Claude Code's context. Establishes the philosophy, conventions, and anti-patterns for vault usage. It is not executable code -- it is a prompt artifact that shapes how Claude interacts with the vault.
 
@@ -241,7 +241,7 @@ Transcript compatibility:
 
 #### SessionStart Hook
 
-**Script:** `skills/parsidion-cc/scripts/session_start_hook.py`
+**Script:** `skills/parsidion/scripts/session_start_hook.py`
 
 Fires when a Claude Code session begins. Loads relevant vault context into the conversation so Claude has prior knowledge available immediately.
 
@@ -267,7 +267,7 @@ Fires when a Claude Code session begins. Loads relevant vault context into the c
 4. Gathers recent notes (modified within last `recent_days` days, configurable)
 5. Deduplicates and builds context: **compact mode** (default) injects one line per note — `[[stem]] (folder) — \`tags\``; **verbose mode** (`--verbose` or `verbose_mode: true`) injects full note summaries via `build_context_block()`
 6. Returns the context as `additionalContext` in the hook output
-7. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/parsidion-cc-session-start-debug.log`
+7. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/parsidion-session-start-debug.log`
 
 **AI-powered mode (`--ai [MODEL]`):**
 
@@ -285,14 +285,14 @@ Default model: `claude-haiku-4-5-20251001`. Override with `--ai claude-sonnet-4-
 
 ```json
 {
-  "command": "uv run --no-project ~/.claude/skills/parsidion-cc/scripts/session_start_hook.py --ai",
+  "command": "uv run --no-project ~/.claude/skills/parsidion/scripts/session_start_hook.py --ai",
   "timeout": 30000
 }
 ```
 
 #### SessionEnd Hook
 
-**Script:** `skills/parsidion-cc/scripts/session_stop_hook.py`
+**Script:** `skills/parsidion/scripts/session_stop_hook.py`
 
 Registered under the `SessionEnd` hook event — fires once when the session terminates (unlike `Stop`, which fires after every agent turn). Analyzes the session transcript to detect learnable content and persists it to the vault.
 
@@ -336,7 +336,7 @@ Default model: `claude-haiku-4-5-20251001`. Override with `--ai <model-id>` or `
 
 #### PreCompact Hook
 
-**Script:** `skills/parsidion-cc/scripts/pre_compact_hook.py`
+**Script:** `skills/parsidion/scripts/pre_compact_hook.py`
 
 Fires before Claude Code compacts the conversation context. Snapshots the current working state so it survives compaction.
 
@@ -357,7 +357,7 @@ Fires before Claude Code compacts the conversation context. Snapshots the curren
 
 #### PostCompact Hook
 
-**Script:** `skills/parsidion-cc/scripts/post_compact_hook.py`
+**Script:** `skills/parsidion/scripts/post_compact_hook.py`
 
 Fires after Claude Code compacts the conversation context. Restores the pre-compaction working state so Claude can resume the session without manually re-reading files.
 
@@ -369,7 +369,7 @@ Fires after Claude Code compacts the conversation context. Restores the pre-comp
 
 #### SubagentStop Hook
 
-**Script:** `skills/parsidion-cc/scripts/subagent_stop_hook.py`
+**Script:** `skills/parsidion/scripts/subagent_stop_hook.py`
 
 Fires (asynchronously, with `async: true`) when any subagent spawned via the `Agent` tool completes. Reads the subagent's own transcript (`agent_transcript_path`) to detect learnable content and queues it to `pending_summaries.jsonl` for the same AI summarization pipeline used by the SessionEnd hook.
 
@@ -397,7 +397,7 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 
 ### Session Summarizer
 
-**Location:** `skills/parsidion-cc/scripts/summarize_sessions.py`
+**Location:** `skills/parsidion/scripts/summarize_sessions.py`
 
 An on-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using Claude AI.
 
@@ -429,7 +429,7 @@ An on-demand PEP 723 script (requires `claude-agent-sdk`, `anyio`) that processe
 
 ### Vault Doctor
 
-**Location:** `skills/parsidion-cc/scripts/vault_doctor.py`
+**Location:** `skills/parsidion/scripts/vault_doctor.py`
 
 An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via `claude -p` (haiku model by default).
 
@@ -497,7 +497,7 @@ The vault health summary (clean count, pending repair, needs review, manual fix)
 
 ### Graph Coverage Checker
 
-**Location:** `skills/parsidion-cc/scripts/check_graph_coverage.py`
+**Location:** `skills/parsidion/scripts/check_graph_coverage.py`
 
 A utility script that audits vault tags against the Obsidian graph color groups in `.obsidian/graph.json`.
 
@@ -518,7 +518,7 @@ A Claude Code agent definition (runs on Sonnet) that conducts technical research
 1. Dispatches `vault-explorer` agent with the research topic to check for existing knowledge — proceeds to web research only for gaps not covered by existing notes
 2. Uses NotebookLM (if available) for deep synthesis of source material
 3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
-4. Fetches raw HTML via `agentchrome page html`, pipes through `~/.claude/skills/parsidion-cc/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
+4. Fetches raw HTML via `agentchrome page html`, pipes through `~/.claude/skills/parsidion/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
 5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/MCPL.md`) was also requested
 6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
 7. Runs `update_index.py` after saving vault notes
@@ -607,7 +607,7 @@ A Claude Code agent definition (runs on Haiku) that scans `~/ClaudeVault/` for n
 
 ### Vault Common Library
 
-**Location:** `skills/parsidion-cc/scripts/vault_common.py`
+**Location:** `skills/parsidion/scripts/vault_common.py`
 
 The shared utility library used by all hook scripts and the index generator. Uses only Python stdlib (no third-party dependencies).
 
@@ -670,7 +670,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 
 ### Index Generator
 
-**Location:** `skills/parsidion-cc/scripts/update_index.py`
+**Location:** `skills/parsidion/scripts/update_index.py`
 
 Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID singleton guard (`~/ClaudeVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
 
@@ -682,7 +682,7 @@ Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID s
 
 ### Metadata Query (vault-search filter mode)
 
-**Location:** `skills/parsidion-cc/scripts/vault_search.py` (unified CLI)
+**Location:** `skills/parsidion/scripts/vault_search.py` (unified CLI)
 
 `vault-search` operates in four modes depending on arguments:
 
@@ -743,7 +743,7 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 
 ### Vault Links Library
 
-**Location:** `skills/parsidion-cc/scripts/vault_links.py`
+**Location:** `skills/parsidion/scripts/vault_links.py`
 
 A shared stdlib-only module that encapsulates all backlink operations. Refactored out of `summarize_sessions.py` so the same logic is available to `parsidion-mcp` without code duplication.
 
@@ -762,7 +762,7 @@ A shared stdlib-only module that encapsulates all backlink operations. Refactore
 
 #### vault-new
 
-**Location:** `skills/parsidion-cc/scripts/vault_new.py` · Global command: `vault-new` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/vault_new.py` · Global command: `vault-new` (after `--install-tools`)
 
 Scaffolds a new vault note from the appropriate template, pre-populating frontmatter fields. Eliminates the need to manually copy templates and fill in boilerplate.
 
@@ -780,7 +780,7 @@ Scaffolds a new vault note from the appropriate template, pre-populating frontma
 
 #### vault-stats
 
-**Location:** `skills/parsidion-cc/scripts/vault_stats.py` · Global command: `vault-stats` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/vault_stats.py` · Global command: `vault-stats` (after `--install-tools`)
 
 Analytics CLI for vault health and activity. All modes output to stdout; Rich formatting is used when available.
 
@@ -805,7 +805,7 @@ Analytics CLI for vault health and activity. All modes output to stdout; Rich fo
 
 #### vault-export
 
-**Location:** `skills/parsidion-cc/scripts/vault_export.py` · Global command: `vault-export` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/vault_export.py` · Global command: `vault-export` (after `--install-tools`)
 
 Exports vault notes to different formats. Uses the `note_index` DB when available; falls back to a file walk.
 
@@ -827,7 +827,7 @@ Exports vault notes to different formats. Uses the `note_index` DB when availabl
 
 #### vault-merge
 
-**Location:** `skills/parsidion-cc/scripts/vault_merge.py` · Global command: `vault-merge` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/vault_merge.py` · Global command: `vault-merge` (after `--install-tools`)
 
 Merges two vault notes into one. Accepts either absolute paths or stem names (case-insensitive search across the vault).
 
@@ -841,7 +841,7 @@ Scans all vault notes for near-duplicate pairs using embedding similarity. Repor
 
 #### vault-review
 
-**Location:** `skills/parsidion-cc/scripts/vault_review.py` · Global command: `vault-review` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/vault_review.py` · Global command: `vault-review` (after `--install-tools`)
 
 Curses TUI for reviewing entries in `pending_summaries.jsonl` before they are processed by the summarizer.
 
@@ -867,9 +867,9 @@ Curses TUI for reviewing entries in `pending_summaries.jsonl` before they are pr
 
 ### Trigger Evaluation
 
-**Location:** `skills/parsidion-cc/scripts/run_trigger_eval.py`, `skills/parsidion-cc/scripts/run_trigger_eval.sh` (macOS/Linux), `skills/parsidion-cc/scripts/run_trigger_eval.bat` (Windows)
+**Location:** `skills/parsidion/scripts/run_trigger_eval.py`, `skills/parsidion/scripts/run_trigger_eval.sh` (macOS/Linux), `skills/parsidion/scripts/run_trigger_eval.bat` (Windows)
 
-A standalone eval harness that measures how accurately Claude invokes the skill based on its SKILL.md description. Uses a "skill-selection simulation" approach: presents Claude with the skill description alongside distractor skills and asks whether it would invoke `parsidion-cc` for each test query.
+A standalone eval harness that measures how accurately Claude invokes the skill based on its SKILL.md description. Uses a "skill-selection simulation" approach: presents Claude with the skill description alongside distractor skills and asks whether it would invoke `parsidion` for each test query.
 
 **How it works:**
 1. Parses the `name` and `description` from SKILL.md frontmatter
@@ -877,7 +877,7 @@ A standalone eval harness that measures how accurately Claude invokes the skill 
 3. Each query runs 3 times for statistical reliability (60 total API calls)
 4. Uses 6 parallel workers via `ProcessPoolExecutor`
 5. Computes precision, recall, accuracy, and per-query pass rates
-6. Writes results to `~/.claude/skills/parsidion-cc/eval_results.json`
+6. Writes results to `~/.claude/skills/parsidion/eval_results.json`
 
 **Important:** Must be run from a **separate terminal** (not inside Claude Code) because `claude -p` cannot be nested inside an active session. The shell wrappers `run_trigger_eval.sh` (macOS/Linux) and `run_trigger_eval.bat` (Windows) handle unsetting the `CLAUDECODE` environment variable.
 
@@ -902,7 +902,7 @@ Requires `jq` to be installed. The script invokes `session_start_hook.py` with a
 
 ### Vault Visualizer
 
-**Location:** `visualizer/` (Next.js app) · `skills/parsidion-cc/scripts/build_graph.py` (graph data builder)
+**Location:** `visualizer/` (Next.js app) · `skills/parsidion/scripts/build_graph.py` (graph data builder)
 
 An interactive browser-based interface for reading and navigating vault notes through dual-mode viewing. Documented in detail in [VISUALIZER.md](VISUALIZER.md).
 
@@ -916,16 +916,16 @@ An interactive browser-based interface for reading and navigating vault notes th
 
 ```bash
 # 1. Build embeddings (if not already built)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py
 
 # 2. Build graph.json from embeddings.db
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_graph.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py
 
 # 3. Run the dev server
 cd visualizer && bun dev
 ```
 
-`skills/parsidion-cc/scripts/build_graph.py` is a PEP 723 script (depends on `numpy`). It reads `embeddings.db`, computes pairwise cosine similarity between note vectors, extracts wikilink edges from `related` frontmatter fields, and writes `graph.json` into the vault root (e.g. `~/ClaudeVault/graph.json`). Each vault owns its own `graph.json`; the file is gitignored in the vault (rebuilt locally, not synced). The visualizer serves it via the `GET /api/graph?vault=` API route.
+`skills/parsidion/scripts/build_graph.py` is a PEP 723 script (depends on `numpy`). It reads `embeddings.db`, computes pairwise cosine similarity between note vectors, extracts wikilink edges from `related` frontmatter fields, and writes `graph.json` into the vault root (e.g. `~/ClaudeVault/graph.json`). Each vault owns its own `graph.json`; the file is gitignored in the vault (rebuilt locally, not synced). The visualizer serves it via the `GET /api/graph?vault=` API route.
 
 The `update_index.py` indexer and `summarize_sessions.py` summarizer both accept a `--rebuild-graph` flag to rebuild `graph.json` after each vault write. The nightly scheduler can also be configured with `--rebuild-graph` to keep the graph current automatically.
 
@@ -1149,10 +1149,10 @@ sequenceDiagram
 
 ## File Layout
 
-### Source Repository (parsidion-cc)
+### Source Repository (parsidion)
 
 ```
-parsidion-cc/
+parsidion/
 ├── README.md
 ├── install.py                       # Installer: symlinks skills/agents/hooks to ~/.claude/ (copies on Windows)
 ├── CLAUDE-VAULT.md                  # Always-on vault-first guidance (installed to ~/.claude/)
@@ -1184,7 +1184,7 @@ parsidion-cc/
 │   ├── test_session_stop_hook.py
 │   ├── test_pre_compact_hook.py
 │   └── test_hook_integration.py
-└── skills/parsidion-cc/
+└── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
     │   ├── vault_common.py          # Shared library (includes ensure_note_index_schema, query_note_index, build_compact_index)
@@ -1237,7 +1237,7 @@ parsidion-cc/
 │   ├── vault-explorer.md                # Read-only vault search agent (Haiku)
 │   ├── project-explorer.md              # Project analysis + vault pattern capture (Sonnet)
 │   └── vault-deduplicator.md            # Near-duplicate note scanner and merger (Haiku)
-└── skills/parsidion-cc/
+└── skills/parsidion/
     ├── SKILL.md
     ├── eval_results.json            # Trigger eval results
     ├── scripts/
@@ -1268,7 +1268,7 @@ parsidion-cc/
 │   └── MANIFEST.md
 ├── History/
 │   └── MANIFEST.md
-└── Templates/ -> ~/.claude/skills/parsidion-cc/templates/
+└── Templates/ -> ~/.claude/skills/parsidion/templates/
 ```
 
 ## Vault Note Lifecycle
@@ -1311,7 +1311,7 @@ The graph view uses domain-based color groups configured in `.obsidian/graph.jso
 
 | Priority | Category | Color | Hex | Tags |
 |----------|----------|-------|-----|------|
-| 1 | Projects | Cyan | `#00BCD4` | synknot, fractal-flythroughs, parvitar, parsistant, termflix, parvault, cctmux, parsidion-cc |
+| 1 | Projects | Cyan | `#00BCD4` | synknot, fractal-flythroughs, parvitar, parsistant, termflix, parvault, cctmux, parsidion |
 | 2 | Debugging | Red/Orange | `#FF5722` | debugging |
 | 3 | Patterns | Green | `#4CAF50` | memory, migration, sync |
 | 4 | Research | Purple | `#9C27B0` | research, e2b, qdrant, pkm-apps-comparison |
@@ -1333,4 +1333,4 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [MCPL.md](MCPL.md) - MCP Launchpad integration and usage
 - [VAULT_SYNC.md](VAULT_SYNC.md) - Multi-machine vault sync: git-based setup and conflict handling
 - [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) - Documentation formatting standards
-- [SKILL.md](../skills/parsidion-cc/SKILL.md) - Vault philosophy, conventions, and anti-patterns
+- [SKILL.md](../skills/parsidion/SKILL.md) - Vault philosophy, conventions, and anti-patterns

@@ -7,7 +7,7 @@ A fast native Rust CLI that lets AI coding agents control a Chrome or Chromium b
 - [Why AgentChrome](#why-agentchrome)
 - [Installation](#installation)
 - [Key Capabilities](#key-capabilities)
-- [Usage in Parsidion CC](#usage-in-parsidion-cc)
+- [Usage in Parsidion](#usage-in-parsidion)
 - [Common Commands](#common-commands)
 - [Troubleshooting](#troubleshooting)
 - [Related Documentation](#related-documentation)
@@ -27,7 +27,7 @@ A fast native Rust CLI that lets AI coding agents control a Chrome or Chromium b
 
 ## Why AgentChrome
 
-The research agent and other web-fetching workflows in Parsidion CC use `agentchrome dom get-html` as their primary page-retrieval method, piped through `html-to-md.py` to produce clean, noise-free markdown for LLM consumption.
+The research agent and other web-fetching workflows in Parsidion use `agentchrome dom get-html` as their primary page-retrieval method, piped through `html-to-md.py` to produce clean, noise-free markdown for LLM consumption.
 
 ```mermaid
 graph LR
@@ -114,7 +114,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Man pages** | Display man pages for agentchrome commands (`man`) |
 | **Shell completions** | Generate shell completion scripts (`completions`) |
 
-## Usage in Parsidion CC
+## Usage in Parsidion
 
 ### Research Agent Page Fetching
 
@@ -128,7 +128,7 @@ agentchrome connect --launch --headless
 agentchrome navigate "https://example.com/docs" --wait-until networkidle
 
 # Fetch raw HTML and convert to clean markdown
-agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
+agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
 ```
 
 Then read `/tmp/page-content.md` for the cleaned content.
@@ -158,7 +158,7 @@ agentchrome page snapshot
 ```bash
 # Navigate then fetch and convert to markdown
 agentchrome navigate https://docs.example.com/api
-agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py - --url https://docs.example.com/api
+agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url https://docs.example.com/api
 ```
 
 The `--url` flag is optional but improves link resolution in the markdown output.

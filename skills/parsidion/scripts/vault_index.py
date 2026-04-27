@@ -629,7 +629,7 @@ def build_compact_index(
     """Build a compact one-line-per-note index: title [tags] (folder).
 
     Much smaller than build_context_block -- use when vault is large or
-    token budget is tight. Full note content is available via the parsidion-cc skill.
+    token budget is tight. Full note content is available via the parsidion skill.
 
     QA-005: Queries note_index DB first (title, tags, folder already indexed);
     falls back to file reads only when DB is absent.
@@ -677,7 +677,7 @@ def build_compact_index(
         if total > max_chars:
             lines.append(
                 f"- ... ({len(notes) - len(lines)} more notes, "
-                "use parsidion-cc skill to browse)"
+                "use parsidion skill to browse)"
             )
             break
         lines.append(entry)
@@ -687,6 +687,6 @@ def build_compact_index(
 
     header = (
         "**Available vault notes** (compact index — "
-        "use `parsidion-cc` skill to load full content):\n"
+        "use `parsidion` skill to load full content):\n"
     )
     return header + "\n".join(lines)

@@ -1,4 +1,4 @@
-"""Path resolution, validation, and directory constants for the Claude Vault.
+"""Path resolution, validation, and directory constants for the Parsidion vault.
 
 Handles vault resolution (multi-vault support), template directory lookup,
 embeddings DB path, secure log directories, and log rotation.
@@ -44,8 +44,8 @@ __all__: list[str] = [
 # Kept as module-level constants for backward compatibility with external callers
 # (e.g. parsidion-mcp, tests) that read vault_common.VAULT_ROOT.
 VAULT_ROOT: Path = Path.home() / "ClaudeVault"
-TEMPLATES_DIR: Path = Path.home() / ".claude" / "skills" / "parsidion-cc" / "templates"
-SCRIPTS_DIR: Path = Path.home() / ".claude" / "skills" / "parsidion-cc" / "scripts"
+TEMPLATES_DIR: Path = Path.home() / ".claude" / "skills" / "parsidion" / "templates"
+SCRIPTS_DIR: Path = Path.home() / ".claude" / "skills" / "parsidion" / "scripts"
 
 VAULT_DIRS: list[str] = [
     "Daily",
@@ -114,22 +114,23 @@ class VaultConfigError(Exception):
 def get_vaults_config_path() -> Path:
     """Return the path to the vaults configuration file.
 
-    Uses XDG config home with fallback to ~/.parsidion-cc/ for legacy support.
+    Uses XDG config home with fallback to legacy pre-rebrand locations.
 
     Returns:
         Path to vaults.yaml configuration file.
     """
     xdg_config = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_config:
-        config_dir = Path(xdg_config) / "parsidion-cc"
-    else:
-        config_dir = Path.home() / ".config" / "parsidion-cc"
+    config_base = Path(xdg_config) if xdg_config else Path.home() / ".config"
+    config_dir = config_base / "parsidion"
 
-    # Fallback to legacy location if XDG dir doesn't exist
+    # Fallback to legacy pre-rebrand locations if the new XDG dir does not exist.
     if not config_dir.exists():
-        legacy_dir = Path.home() / ".parsidion-cc"
-        if legacy_dir.exists():
-            config_dir = legacy_dir
+        legacy_name = "parsidion" + "-cc"
+        legacy_candidates = [config_base / legacy_name, Path.home() / f".{legacy_name}"]
+        for legacy_dir in legacy_candidates:
+            if legacy_dir.exists():
+                config_dir = legacy_dir
+                break
 
     return config_dir / "vaults.yaml"
 
@@ -346,7 +347,7 @@ def resolve_templates_dir() -> Path:
     1. CLAUDE_TEMPLATES_DIR environment variable
     2. Sibling ``templates/`` directory next to this script (works for both
        the repo source layout and the installed skill location)
-    3. Default ``~/.claude/skills/parsidion-cc/templates``
+    3. Default ``~/.claude/skills/parsidion/templates``
 
     Returns:
         Absolute Path to the templates directory.

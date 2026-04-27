@@ -369,7 +369,7 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
       <div class="dot yellow"></div>
       <div class="dot green"></div>
     </div>
-    <div class="terminal-title">claude-code — parsidion-cc</div>
+    <div class="terminal-title">claude-code — parsidion</div>
   </div>
   <div class="terminal-body">
 
@@ -382,14 +382,14 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
 
       <div class="prompt-line">
         <span class="prompt">user</span>
-        <span class="prompt-path">~/Repos/parsidion-cc</span>
+        <span class="prompt-path">~/Repos/parsidion</span>
         <span class="prompt-symbol">$</span>
         <span class="prompt-cmd">claude</span>
       </div>
 
       <div class="claude-response" style="padding:0; overflow:hidden;">
         <div style="background:rgba(6,182,212,0.10); border-bottom:1px solid rgba(6,182,212,0.25); padding:10px 16px; font-size:13px; font-weight:600; letter-spacing:0.05em;">
-          Claude Code &nbsp;<span style="color:var(--text-muted);">—</span>&nbsp; <span style="color:var(--cyan);">parsidion-cc</span>
+          Claude Code &nbsp;<span style="color:var(--text-muted);">—</span>&nbsp; <span style="color:var(--cyan);">parsidion</span>
         </div>
         <div style="padding:12px 16px; font-size:12.5px; line-height:1.65;">
           <span class="gr">✓</span> Vault context loaded &nbsp;<span class="mu">·</span>&nbsp; 1,531 notes indexed
@@ -429,7 +429,7 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
       <div class="prompt-line" style="margin-top:4px;">
         <span class="prompt">claude</span>
         <span class="prompt-symbol">→</span>
-        <span class="prompt-cmd">grep -r "update_index" skills/parsidion-cc/scripts/vault_merge.py</span>
+        <span class="prompt-cmd">grep -r "update_index" skills/parsidion/scripts/vault_merge.py</span>
       </div>
 
       <div class="output" style="color:var(--red)">No matches found</div>
@@ -437,7 +437,7 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
       <div class="claude-response">
         <span class="re">No</span> — <span class="cy">vault-merge</span> does <strong>not</strong> trigger a re-index after merging.<br>
         You'd need to run it manually:<br><br>
-        <span class="gr">$</span> uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py<br><br>
+        <span class="gr">$</span> uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py<br><br>
         Want me to add an automatic re-index call at the end of a successful merge?
       </div>
 
@@ -470,7 +470,7 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
       <div class="code-block"><span class="kw">def</span> <span class="fn">_rebuild_index</span>() -> <span class="fn">None</span>:
     index_script = <span class="fn">Path</span>(__file__).parent / <span class="st">"update_index.py"</span>
     <span class="kw">if not</span> index_script.exists():
-        index_script = <span class="fn">Path</span>.home() / <span class="st">".claude/skills/parsidion-cc/scripts/update_index.py"</span>
+        index_script = <span class="fn">Path</span>.home() / <span class="st">".claude/skills/parsidion/scripts/update_index.py"</span>
     subprocess.<span class="fn">run</span>([<span class="st">"uv"</span>, <span class="st">"run"</span>, <span class="fn">str</span>(index_script)], check=<span class="kw">True</span>, ...)</div>
 
       <div class="section-label">3 — add flag + call after git commit</div>
@@ -481,7 +481,7 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
 <span class="kw">if not</span> args.no_index:
     <span class="fn">_rebuild_index</span>()</div>
 
-      <div class="output success">✓ vault_merge.py updated  ·  synced to ~/.claude/skills/parsidion-cc/scripts/</div>
+      <div class="output success">✓ vault_merge.py updated  ·  synced to ~/.claude/skills/parsidion/scripts/</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════ -->
@@ -550,7 +550,7 @@ ai-service-client: 3 variants
 tmux-click-jitter: 3 variants
   1028 + base → then base + tmux/
 
-parsidion-cc-arch: 3 variants
+parsidion-arch: 3 variants
   0806 + base → then Patterns/ + Projects/</div>
         </div>
         <div>
@@ -672,15 +672,15 @@ parsidion-cc-arch: 3 variants
       </div>
       <div class="result-row">
         <div class="result-icon">🔗</div>
-        <div class="result-note"><span class="gr">Agent 4</span> — tmux chain + parsidion-cc arch chain</div>
+        <div class="result-note"><span class="gr">Agent 4</span> — tmux chain + parsidion arch chain</div>
         <div class="result-reason"><span class="gr">3 merged</span> · 1 skipped (tmux/ note missing)</div>
       </div>
 
       <div class="output" style="margin-top:4px; font-size:11.5px;">Agent 4 detail:
   Pair 14: tmux-click-jitter-1028 → tmux-click-jitter  <span class="gr">✓ merged</span>
   Pair 11: tmux-click-jitter (Debugging/) ↔ click-jitter (tmux/)  <span class="re">⚠ note missing</span>
-  Pair 16: parsidion-cc-arch-0806 → parsidion-cc-arch              <span class="gr">✓ merged</span>
-  Pair 32: parsidion-cc-arch-gap (Patterns/) → parsidion-cc-arch   <span class="gr">✓ merged</span></div>
+  Pair 16: parsidion-arch-0806 → parsidion-arch              <span class="gr">✓ merged</span>
+  Pair 32: parsidion-arch-gap (Patterns/) → parsidion-arch   <span class="gr">✓ merged</span></div>
 
       <div class="tags" style="margin-top:auto;">
         <span class="tag success">15 merged so far</span>
@@ -786,7 +786,7 @@ Agent 7 chain detail:
       <div class="prompt-line">
         <span class="prompt">claude</span>
         <span class="prompt-symbol">→</span>
-        <span class="prompt-cmd">uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py</span>
+        <span class="prompt-cmd">uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py</span>
       </div>
 
       <div class="output success">Updated CLAUDE.md: 1531 notes indexed, 490 tags; 8 MANIFEST.md file(s) generated
@@ -904,8 +904,8 @@ Changes to commit:
   <span class="gr">M</span>  docs/EMBEDDINGS_EVAL.md
   <span class="gr">M</span>  docs/MCP.md
   <span class="gr">M</span>  docs/MCPL.md
-  <span class="gr">M</span>  skills/parsidion-cc/SKILL.md
-  <span class="gr">M</span>  skills/parsidion-cc/scripts/vault_merge.py
+  <span class="gr">M</span>  skills/parsidion/SKILL.md
+  <span class="gr">M</span>  skills/parsidion/scripts/vault_merge.py
   <span class="gr">A</span>  agents/vault-deduplicator.md
 
  9 files changed, 232 insertions(+), 13 deletions(-)</div>

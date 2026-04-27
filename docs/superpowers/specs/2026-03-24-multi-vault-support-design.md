@@ -6,7 +6,7 @@
 
 ## Overview
 
-Add multi-vault support to parsidion-cc, allowing users to maintain separate vaults for different contexts (personal vs work) and team collaboration. Users select vaults via `--vault` flag, `CLAUDE_VAULT` environment variable, or project-local configuration.
+Add multi-vault support to parsidion, allowing users to maintain separate vaults for different contexts (personal vs work) and team collaboration. Users select vaults via `--vault` flag, `CLAUDE_VAULT` environment variable, or project-local configuration.
 
 ## Use Cases
 
@@ -49,7 +49,7 @@ def resolve_vault(
 
 ### Named Vaults Configuration
 
-**File:** `~/.config/parsidion-cc/vaults.yaml`
+**File:** `~/.config/parsidion/vaults.yaml`
 
 ```yaml
 # Named vaults for quick reference via --vault NAME or CLAUDE_VAULT=NAME
@@ -68,8 +68,8 @@ vaults:
 - Invalid name → `VaultConfigError` with available names listed
 
 **Config discovery:**
-- Primary: `$XDG_CONFIG_HOME/parsidion-cc/vaults.yaml`
-- Fallback: `~/.parsidion-cc/vaults.yaml`
+- Primary: `$XDG_CONFIG_HOME/parsidion/vaults.yaml`
+- Fallback: `~/.parsidion/vaults.yaml`
 
 ### Project-Local Vault Pointer
 
@@ -252,10 +252,10 @@ def git_commit_vault(message: str, vault: Path | None = None, paths: list[Path] 
 | `install.py` | ~15 |
 
 **Installer changes:**
-- Add `--create-vaults-config` flag to scaffold `~/.config/parsidion-cc/vaults.yaml`
+- Add `--create-vaults-config` flag to scaffold `~/.config/parsidion/vaults.yaml`
 - Update `--uninstall` to remove `vaults.yaml` (with confirmation)
 - Add help text documenting multi-vault feature
-- Ensure `~/.config/parsidion-cc/` directory is created during install
+- Ensure `~/.config/parsidion/` directory is created during install
 
 ### Hooks
 

@@ -1,7 +1,7 @@
 # pi Anthropic Config Status Design
 
 **Date:** 2026-04-16
-**Project:** parsidion-cc
+**Project:** parsidion
 **Status:** Proposed
 
 ## Summary
@@ -92,8 +92,8 @@ Have the extension resolve config and explicitly inject env vars for all child P
 ### Runtime authority
 
 Python remains authoritative for runtime configuration:
-- `skills/parsidion-cc/scripts/vault_hooks.py`
-- `skills/parsidion-cc/scripts/vault_common.py`
+- `skills/parsidion/scripts/vault_hooks.py`
+- `skills/parsidion/scripts/vault_common.py`
 - Python scripts that call `apply_configured_env_defaults()` or `env_without_claudecode()`
 
 ### pi status authority

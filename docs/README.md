@@ -11,7 +11,7 @@ Navigation guide for all documentation in the `docs/` directory.
 
 ## Overview
 
-This directory contains technical documentation for Parsidion CC. Each file is described
+This directory contains technical documentation for Parsidion. Each file is described
 below with its intended audience and purpose.
 
 ## Documents

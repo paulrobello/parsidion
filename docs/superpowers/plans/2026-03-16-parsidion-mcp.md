@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `parsidion-mcp`, an MCP server exposing Claude Vault operations (search, read, write, context, index rebuild, doctor) to Claude Desktop via FastMCP.
+**Goal:** Build `parsidion-mcp`, an MCP server exposing Parsidion vault operations (search, read, write, context, index rebuild, doctor) to Claude Desktop via FastMCP.
 
-**Architecture:** Independent Python package in `parsidion-cc/parsidion-mcp/`. Tool logic lives in focused modules under `tools/`; `server.py` wires them into a FastMCP instance. Heavy operations (rebuild_index, vault_doctor) delegate to existing scripts via subprocess; vault_read/write/context/search use `vault_common` and `vault_search` directly via editable path dependency.
+**Architecture:** Independent Python package in `parsidion/parsidion-mcp/`. Tool logic lives in focused modules under `tools/`; `server.py` wires them into a FastMCP instance. Heavy operations (rebuild_index, vault_doctor) delegate to existing scripts via subprocess; vault_read/write/context/search use `vault_common` and `vault_search` directly via editable path dependency.
 
 **Tech Stack:** Python 3.13, FastMCP 2.x, vault_common (stdlib), vault_search (fastembed + sqlite-vec), pytest, ruff, pyright.
 
@@ -39,11 +39,11 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.0",
-    "parsidion-cc[search]",
+    "parsidion[search]",
 ]
 
 [tool.uv.sources]
-parsidion-cc = { path = "../", editable = true }
+parsidion = { path = "../", editable = true }
 
 [project.scripts]
 parsidion-mcp = "parsidion_mcp.server:main"
@@ -104,7 +104,7 @@ checkall: fmt lint typecheck test
 
 `parsidion-mcp/src/parsidion_mcp/__init__.py`:
 ```python
-"""parsidion-mcp: MCP server exposing Claude Vault to Claude Desktop."""
+"""parsidion-mcp: MCP server exposing Parsidion vault to Claude Desktop."""
 ```
 
 `parsidion-mcp/src/parsidion_mcp/tools/__init__.py`:
@@ -743,7 +743,7 @@ def _build_compact_index(notes: list[Path], max_chars: int = 4000) -> str:
         if total > max_chars:
             remaining = len(notes) - len(lines)
             lines.append(
-                f"- ... ({remaining} more notes, use parsidion-cc skill to browse)"
+                f"- ... ({remaining} more notes, use parsidion skill to browse)"
             )
             break
         lines.append(entry)
@@ -753,7 +753,7 @@ def _build_compact_index(notes: list[Path], max_chars: int = 4000) -> str:
 
     header = (
         "**Available vault notes** (compact index — "
-        "use `parsidion-cc` skill to load full content):\n"
+        "use `parsidion` skill to load full content):\n"
     )
     return header + "\n".join(lines)
 
@@ -982,7 +982,7 @@ import vault_common
 # TEMPLATES_DIR is always <skill_root>/templates/.
 # Scripts are one level up: <skill_root>/scripts/.
 # This invariant holds because the installer only patches VAULT_ROOT and
-# TEMPLATES_DIR always points into ~/.claude/skills/parsidion-cc/.
+# TEMPLATES_DIR always points into ~/.claude/skills/parsidion/.
 SCRIPTS_DIR: Path = vault_common.TEMPLATES_DIR.parent / "scripts"
 
 
@@ -1118,7 +1118,7 @@ Expected: `ImportError` — `parsidion_mcp.server` doesn't exist.
 
 `parsidion-mcp/src/parsidion_mcp/server.py`:
 ```python
-"""parsidion-mcp: FastMCP server exposing Claude Vault to Claude Desktop."""
+"""parsidion-mcp: FastMCP server exposing Parsidion vault to Claude Desktop."""
 
 from fastmcp import FastMCP
 

@@ -1,18 +1,18 @@
-# Parsidion CC
+# Parsidion
 
-[![CI](https://github.com/paulrobello/parsidion-cc/actions/workflows/ci.yml/badge.svg)](https://github.com/paulrobello/parsidion-cc/actions/workflows/ci.yml)
+[![CI](https://github.com/paulrobello/parsidion/actions/workflows/ci.yml/badge.svg)](https://github.com/paulrobello/parsidion/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-blue.svg)
 
-A second brain for Claude Code -- a markdown knowledge vault that gives Claude persistent memory, cross-session context, and a searchable store of everything it learns. [Obsidian](https://obsidian.md/) is **not required** -- it is an optional viewer for graph visualization and browsing.
+A second brain for coding agents -- a markdown knowledge vault that gives AI coding assistants persistent memory, cross-session context, and a searchable store of everything they learn. [Obsidian](https://obsidian.md/) is **not required** -- it is an optional viewer for graph visualization and browsing.
 
-Parsidion CC replaces Claude Code's built-in auto memory with a richly organized markdown vault. Session lifecycle hooks automatically capture learnings, load relevant context at startup, and snapshot working state before compaction. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
+Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-![Parsidion CC Architecture](https://raw.githubusercontent.com/paulrobello/parsidion-cc/main/parsidion-cc-architecture.png)
+![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
-> [View the interactive architecture slideshow](https://paulrobello.github.io/parsidion-cc/vault-architecture-slideshow.html) for a detailed walkthrough of every component.
+> [View the interactive architecture slideshow](https://paulrobello.github.io/parsidion/vault-architecture-slideshow.html) for a detailed walkthrough of every component.
 >
-> **Build session slideshows:** [Vault Explorer Agent](https://paulrobello.github.io/parsidion-cc/vault-explorer-slideshow.html) · [Research Documentation Agent](https://paulrobello.github.io/parsidion-cc/research-agent-slideshow.html) · [Project Explorer Agent](https://paulrobello.github.io/parsidion-cc/project-explorer-slideshow.html) · [Vault Deduplicator](https://paulrobello.github.io/parsidion-cc/vault-deduplicator-slideshow.html)
+> **Build session slideshows:** [Vault Explorer Agent](https://paulrobello.github.io/parsidion/vault-explorer-slideshow.html) · [Research Documentation Agent](https://paulrobello.github.io/parsidion/research-agent-slideshow.html) · [Project Explorer Agent](https://paulrobello.github.io/parsidion/project-explorer-slideshow.html) · [Vault Deduplicator](https://paulrobello.github.io/parsidion/vault-deduplicator-slideshow.html)
 
 ## Table of Contents
 
@@ -50,8 +50,8 @@ Parsidion CC replaces Claude Code's built-in auto memory with a richly organized
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/paulrobello/parsidion-cc.git
-   cd parsidion-cc
+   git clone https://github.com/paulrobello/parsidion.git
+   cd parsidion
    ```
 
 2. **Run the installer:**
@@ -124,7 +124,7 @@ After installation, restart Claude Code to activate hooks. Optionally, open the 
 
 ## Components
 
-### Claude Vault (`~/.claude/skills/parsidion-cc/`)
+### Parsidion vault (`~/.claude/skills/parsidion/`)
 
 A markdown vault-based knowledge management system that replaces Claude Code's built-in auto memory with a richly organized, searchable, cross-linked knowledge base at `~/ClaudeVault/`. The vault is plain markdown -- [Obsidian](https://obsidian.md/) can be used to visualize the graph and browse notes but is not required.
 
@@ -188,7 +188,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 
 | Priority | Category | Color | RGB (decimal) | Tags |
 |----------|----------|-------|---------------|------|
-| 1 | Projects | Cyan `#00BCD4` | 48340 | synknot, fractal-flythroughs, parvitar, parsistant, termflix, parvault, cctmux, parsidion-cc |
+| 1 | Projects | Cyan `#00BCD4` | 48340 | synknot, fractal-flythroughs, parvitar, parsistant, termflix, parvault, cctmux, parsidion |
 | 2 | Debugging | Red/Orange `#FF5722` | 16733986 | debugging |
 | 3 | Patterns | Green `#4CAF50` | 5025616 | memory, migration, sync |
 | 4 | Research | Purple `#9C27B0` | 10233776 | research, e2b, qdrant, pkm-apps-comparison |
@@ -197,7 +197,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 | 7 | Terminal | Teal `#009688` | 38536 | terminal, par-term, par-term-emu-core-rust |
 | 8 | Graphics / 3D | Pink `#E91E63` | 15277667 | wgpu, sdf, sdf-terrain, voxel, fractals, mandel, vrm, avatar, face-tracking |
 
-The parsidion-cc skill includes a sub-workflow for updating these groups -- add tags to existing groups or create new ones when new projects or topics are introduced. RGB colors are stored as decimal integers (e.g., `int("FF5722", 16)` -> `16733986`).
+The parsidion skill includes a sub-workflow for updating these groups -- add tags to existing groups or create new ones when new projects or topics are introduced. RGB colors are stored as decimal integers (e.g., `int("FF5722", 16)` -> `16733986`).
 
 ### CLAUDE-VAULT.md (`~/.claude/CLAUDE-VAULT.md`)
 
@@ -233,14 +233,14 @@ Technical research agent that searches the vault first, conducts web research, a
 
 A Haiku-powered agent that scans the vault for near-duplicate note pairs via `vault-merge --scan`, batches them into parallel subagents for evaluation and merging with `--no-index`, and runs one final index rebuild. See [CHANGELOG.md](CHANGELOG.md) for details.
 
-### HTML to Markdown (`skills/parsidion-cc/scripts/html-to-md.py`)
+### HTML to Markdown (`skills/parsidion/scripts/html-to-md.py`)
 
-A PEP 723 standalone script (installed to `~/.claude/skills/parsidion-cc/scripts/html-to-md.py`) that converts HTML to clean, noise-free markdown optimized for LLM consumption. Strips navigation, banners, cookie notices, and script/style noise while preserving code fences with language annotations. Used by the research agent to clean `agentchrome` page output.
+A PEP 723 standalone script (installed to `~/.claude/skills/parsidion/scripts/html-to-md.py`) that converts HTML to clean, noise-free markdown optimized for LLM consumption. Strips navigation, banners, cookie notices, and script/style noise while preserving code fences with language annotations. Used by the research agent to clean `agentchrome` page output.
 
 ```bash
-uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py page.html          # file → stdout
-uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py - < page.html      # stdin → stdout
-agentchrome page html | uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py - --url https://example.com
+uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py page.html          # file → stdout
+uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - < page.html      # stdin → stdout
+agentchrome page html | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url https://example.com
 ```
 
 ### Context Preview (`scripts/show-context`)
@@ -307,9 +307,9 @@ cp extensions/pi/parsidion-vault/parsidion-vault.ts ~/.pi/agent/extensions/parsi
 If script discovery fails, set one of:
 
 ```bash
-export PARSIDION_CC_SCRIPTS_DIR="$HOME/Repos/parsidion-cc/skills/parsidion-cc/scripts"
+export PARSIDION_SCRIPTS_DIR="$HOME/Repos/parsidion/skills/parsidion/scripts"
 # or
-export PARSIDION_CC_DIR="$HOME/Repos/parsidion-cc"
+export PARSIDION_DIR="$HOME/Repos/parsidion"
 ```
 
 Then in pi:
@@ -333,7 +333,7 @@ Secret values such as `ANTHROPIC_AUTH_TOKEN` are masked in status output. Python
 
 ### pi Integration Quickstart (Validation)
 
-From the `parsidion-cc` repo root, run these smoke tests:
+From the `parsidion` repo root, run these smoke tests:
 
 ```bash
 # 1) SessionEnd hook against a pi transcript path
@@ -344,16 +344,16 @@ printf '%s\n' \
   > "$TEST_TXT"
 TMP_VAULT=$(mktemp -d)
 printf '%s' "{\"cwd\":\"$PWD\",\"transcript_path\":\"$TEST_TXT\"}" \
-  | CLAUDE_VAULT="$TMP_VAULT" uv run --no-project skills/parsidion-cc/scripts/session_stop_hook.py
+  | CLAUDE_VAULT="$TMP_VAULT" uv run --no-project skills/parsidion/scripts/session_stop_hook.py
 
 # 2) SubagentStop hook against a pi subagent transcript path
 printf '%s' "{\"cwd\":\"$PWD\",\"agent_transcript_path\":\"$TEST_TXT\",\"agent_id\":\"pi-smoke-1\",\"agent_type\":\"Explore\"}" \
-  | CLAUDE_VAULT="$TMP_VAULT" uv run --no-project skills/parsidion-cc/scripts/subagent_stop_hook.py
+  | CLAUDE_VAULT="$TMP_VAULT" uv run --no-project skills/parsidion/scripts/subagent_stop_hook.py
 
 # 3) Summarizer dry-run on explicit pi transcript entry
 SESSIONS_FILE=$(mktemp)
 printf '%s\n' "{\"session_id\":\"pi-smoke-summarizer\",\"transcript_path\":\"$TEST_TXT\",\"project\":\"mypi\",\"categories\":[\"error_fix\"],\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"source\":\"subagent\",\"agent_type\":\"Explore\"}" > "$SESSIONS_FILE"
-env -u CLAUDECODE uv run --no-project skills/parsidion-cc/scripts/summarize_sessions.py \
+env -u CLAUDECODE uv run --no-project skills/parsidion/scripts/summarize_sessions.py \
   --sessions "$SESSIONS_FILE" --vault "$TMP_VAULT" --dry-run
 
 # cleanup
@@ -384,9 +384,9 @@ An interactive web application for exploring and navigating the vault through du
 - Graph HUD panel: semantic threshold slider, node-type filters, physics controls, live stats
 - Pre-computed `graph.json` from vault embeddings — no live queries during navigation
 
-![Vault Visualizer - Read Mode](https://raw.githubusercontent.com/paulrobello/parsidion-cc/main/screenshot-vault-read.png)
+![Vault Visualizer - Read Mode](https://raw.githubusercontent.com/paulrobello/parsidion/main/screenshot-vault-read.png)
 
-![Vault Visualizer - Graph Mode](https://raw.githubusercontent.com/paulrobello/parsidion-cc/main/screenshot-vault-graph.png)
+![Vault Visualizer - Graph Mode](https://raw.githubusercontent.com/paulrobello/parsidion/main/screenshot-vault-graph.png)
 
 **Running the visualizer:**
 
@@ -407,13 +407,13 @@ make start-visualizer    # serve on port 3999
 make stop-visualizer     # stop
 ```
 
-> **📝 Note:** Requires vault embeddings to be built first: `uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py`
+> **📝 Note:** Requires vault embeddings to be built first: `uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py`
 
 See [docs/VISUALIZER.md](docs/VISUALIZER.md) for the full architecture, data model, graph engine details, and configuration reference.
 
 ## parsidion-mcp (Claude Desktop)
 
-An optional MCP server that exposes Claude Vault operations to **Claude Desktop** (and any other MCP-compatible client) over stdio. It lives in the `parsidion-mcp/` subdirectory and is installed independently from the main skill.
+An optional MCP server that exposes Parsidion vault operations to **Claude Desktop** (and any other MCP-compatible client) over stdio. It lives in the `parsidion-mcp/` subdirectory and is installed independently from the main skill.
 
 **Six tools:**
 
@@ -453,7 +453,7 @@ All hooks and the summarizer read `~/ClaudeVault/config.yaml`. Precedence: **def
 
 Copy the template to get started:
 ```bash
-cp ~/.claude/skills/parsidion-cc/templates/config.yaml ~/ClaudeVault/config.yaml
+cp ~/.claude/skills/parsidion/templates/config.yaml ~/ClaudeVault/config.yaml
 ```
 
 > **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
@@ -539,7 +539,7 @@ adaptive_context:
 
 ## Multi-Vault Support
 
-Parsidion CC supports multiple isolated vaults with per-vault configuration. This enables:
+Parsidion supports multiple isolated vaults with per-vault configuration. This enables:
 
 - **Separate work/personal vaults** — keep client work isolated from personal notes
 - **Project-specific vaults** — each codebase can have its own knowledge base
@@ -639,12 +639,12 @@ If no `.git` directory is present, all git operations are silent no-ops.
 ```
 ~/.claude/
   CLAUDE.md                          # Global Claude Code instructions (@imports CLAUDE-VAULT.md)
-  CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion-cc)
+  CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion)
   settings.json                      # Hooks, permissions, plugins
   agents/
     research-agent.md  # Research agent (vault-integrated)
     vault-explorer.md                # Read-only Haiku vault search agent (7-step)
-  skills/parsidion-cc/
+  skills/parsidion/
     SKILL.md                         # Vault skill definition
     scripts/                         # Hook scripts, utilities, and html-to-md.py
     templates/                       # Note templates + config.yaml reference
@@ -659,12 +659,12 @@ If no `.git` directory is present, all git operations are silent no-ops.
 
 **Rebuild vault index:**
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 **Build or rebuild semantic search embeddings:**
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 **Search vault from the CLI:**
@@ -679,7 +679,7 @@ vault-search "hook patterns" -n 5 -r                  # top 5, rich output
 vault-search -f Patterns -T python                    # short options
 vault-search --folder Patterns --tag python           # long options (also valid)
 vault-search -d 7                                     # modified in last 7 days
-vault-search -p parsidion-cc -k debugging             # by project and type
+vault-search -p parsidion -k debugging             # by project and type
 
 # Full-text body search
 vault-search --grep "dedup_threshold"                 # case-insensitive body search
@@ -707,7 +707,7 @@ VAULT_SEARCH_MIN_SCORE=0.5 VAULT_SEARCH_TOP=5 vault-search "query"
 
 Precedence: **CLI flag > env var > config.yaml > built-in default**
 
-> **📝 Note:** `vault-search` requires `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root) to register it as a global command. Without this, use `uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_search.py` instead.
+> **📝 Note:** `vault-search` requires `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root) to register it as a global command. Without this, use `uv run --no-project ~/.claude/skills/parsidion/scripts/vault_search.py` instead.
 
 **Scaffold a new vault note:**
 ```bash
@@ -760,44 +760,44 @@ vault-merge                        # AI-assisted: detect and merge near-duplicat
 **Summarize queued sessions** (generates structured vault notes via Claude Agent SDK):
 ```bash
 # Process all pending sessions (run from a terminal, not inside Claude Code)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
 
 # If running from inside a Claude Code session, unset CLAUDECODE to allow nesting:
-env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
 
 # Preview without writing
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py --dry-run
+uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --dry-run
 
 # Process an explicit file (e.g. to test a single entry)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py --sessions /path/to/file.jsonl
+uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --sessions /path/to/file.jsonl
 ```
 
 **Run vault doctor** (scan for issues and repair via Claude haiku):
 ```bash
 # Scan and report only
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --dry-run
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --dry-run
 
 # Repair repairable issues (must unset CLAUDECODE to allow nested claude calls)
-env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix --limit 20
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix --limit 20
 
 # Errors only; skip warnings
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --errors-only --dry-run
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --errors-only --dry-run
 
 # Ignore state file, rescan everything
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --no-state --dry-run
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --no-state --dry-run
 
 # Detect 3+ prefix clusters and show candidates for subfolder migration
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-subfolders
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders
 
 # Preview + execute: move files and update all wikilinks
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-subfolders --execute
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders --execute
 ```
 
 The doctor is singleton-guarded -- it stores its PID in `doctor_state.json` and exits if another instance is already running. Before scanning it auto-commits any uncommitted vault files whose mtime is ≥ 15 minutes old. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
 
 **Run trigger eval** (from a separate terminal, not inside Claude Code):
 ```bash
-bash ~/.claude/skills/parsidion-cc/scripts/run_trigger_eval.sh
+bash ~/.claude/skills/parsidion/scripts/run_trigger_eval.sh
 ```
 
 **Preview session start context:**
@@ -809,19 +809,19 @@ bash ~/.claude/skills/parsidion-cc/scripts/run_trigger_eval.sh
 **Search vault programmatically:**
 ```python
 import sys
-sys.path.insert(0, str(Path.home() / ".claude/skills/parsidion-cc/scripts"))
+sys.path.insert(0, str(Path.home() / ".claude/skills/parsidion/scripts"))
 from vault_common import find_notes_by_tag, find_notes_by_project
 ```
 
 **Audit graph color group coverage** (find uncovered vault tags, spot stale group entries):
 ```bash
-python ~/.claude/skills/parsidion-cc/scripts/check_graph_coverage.py
+python ~/.claude/skills/parsidion/scripts/check_graph_coverage.py
 
 # Only show tags used 2+ times
-python ~/.claude/skills/parsidion-cc/scripts/check_graph_coverage.py --threshold 2
+python ~/.claude/skills/parsidion/scripts/check_graph_coverage.py --threshold 2
 
 # JSON output for scripting
-python ~/.claude/skills/parsidion-cc/scripts/check_graph_coverage.py --json
+python ~/.claude/skills/parsidion/scripts/check_graph_coverage.py --json
 ```
 
 **Reinstall after source changes:**
@@ -866,7 +866,7 @@ uv run install.py --uninstall-hooks
 - Update `settings.json` to set the hook timeout to `30000` ms:
   ```json
   {
-    "command": "uv run --no-project ~/.claude/skills/parsidion-cc/scripts/session_start_hook.py --ai",
+    "command": "uv run --no-project ~/.claude/skills/parsidion/scripts/session_start_hook.py --ai",
     "timeout": 30000
   }
   ```
@@ -875,19 +875,19 @@ uv run install.py --uninstall-hooks
 ### Summarizer fails to run
 
 - The summarizer cannot run inside an active Claude Code session. Run from a separate terminal.
-- If running from inside Claude Code, unset the guard variable: `env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py`
+- If running from inside Claude Code, unset the guard variable: `env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py`
 - Check that `pending_summaries.jsonl` exists and has entries.
 
 ### `vault-search` command not found
 
-- Run `uv run install.py --force --yes --install-tools` to register the global command, or manually: `cd /path/to/parsidion-cc && uv tool install --editable ".[tools]"`
+- Run `uv run install.py --force --yes --install-tools` to register the global command, or manually: `cd /path/to/parsidion && uv tool install --editable ".[tools]"`
 - Ensure `~/.local/bin/` is on your PATH (Linux/macOS) or `%APPDATA%\Python\Scripts` (Windows).
 
 ## FAQ
 
 ### Will this use extra API tokens?
 
-Parsidion CC is designed to minimize token usage. The lifecycle hooks (`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`) are **pure Python scripts** that run locally -- they read transcripts, parse frontmatter, and write files without calling any AI model. The only places that use API tokens are:
+Parsidion is designed to minimize token usage. The lifecycle hooks (`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`) are **pure Python scripts** that run locally -- they read transcripts, parse frontmatter, and write files without calling any AI model. The only places that use API tokens are:
 
 - **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically) and uses **Sonnet** to generate vault notes from queued transcripts. This is the only component that uses a large model. Long transcripts are pre-chunked and summarized by **Haiku** first to reduce cost.
 - **AI-powered note selection** (optional `--ai` flag on `SessionStart`) -- uses **Haiku** to intelligently pick which vault notes to inject. Disabled by default.
@@ -913,7 +913,7 @@ To share:
 
 If you have an existing vault with legacy `DD.md` daily notes, migrate them once:
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-daily-notes --execute
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-daily-notes --execute
 ```
 
 See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubleshooting.

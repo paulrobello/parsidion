@@ -14,13 +14,13 @@
 
 | File | Action | Responsibility |
 |---|---|---|
-| `skills/parsidion-cc/scripts/vault_common.py` | Modify | Add `_CATEGORIES`, `_CATEGORY_LABELS`, `parse_transcript_lines()`, `detect_categories()`, `append_to_pending()` |
-| `skills/parsidion-cc/scripts/session_stop_hook.py` | Modify | Remove moved functions, import from `vault_common` |
-| `skills/parsidion-cc/scripts/subagent_stop_hook.py` | **Create** | New `SubagentStop` hook script |
+| `skills/parsidion/scripts/vault_common.py` | Modify | Add `_CATEGORIES`, `_CATEGORY_LABELS`, `parse_transcript_lines()`, `detect_categories()`, `append_to_pending()` |
+| `skills/parsidion/scripts/session_stop_hook.py` | Modify | Remove moved functions, import from `vault_common` |
+| `skills/parsidion/scripts/subagent_stop_hook.py` | **Create** | New `SubagentStop` hook script |
 | `install.py` | Modify | Add `SubagentStop` to `_HOOK_SCRIPTS`; add `_HOOK_OPTIONS` for `async: true`; update `merge_hooks` |
-| `skills/parsidion-cc/templates/config.yaml` | Modify | Add `subagent_stop_hook` section |
+| `skills/parsidion/templates/config.yaml` | Modify | Add `subagent_stop_hook` section |
 | `~/.claude/settings.json` | Auto (via install.py) | Register `SubagentStop` hook |
-| Installed scripts | Auto (via install.py) | Sync new/changed scripts to `~/.claude/skills/parsidion-cc/scripts/` |
+| Installed scripts | Auto (via install.py) | Sync new/changed scripts to `~/.claude/skills/parsidion/scripts/` |
 
 ---
 
@@ -29,7 +29,7 @@
 ### Task 1: Add shared transcript functions to vault_common.py
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/vault_common.py`
+- Modify: `skills/parsidion/scripts/vault_common.py`
 
 - [ ] **Step 1: Add `_CATEGORIES`, `_CATEGORY_LABELS` constants and `parse_transcript_lines`, `detect_categories`, `append_to_pending` to `vault_common.py`**
 
@@ -239,15 +239,15 @@ def append_to_pending(
 - [ ] **Step 2: Verify vault_common.py is syntactically valid**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
-python3 -c "import sys; sys.path.insert(0, 'skills/parsidion-cc/scripts'); import vault_common; print('OK')"
+cd /Users/probello/Repos/parsidion
+python3 -c "import sys; sys.path.insert(0, 'skills/parsidion/scripts'); import vault_common; print('OK')"
 ```
 Expected: `OK`
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/vault_common.py
+git add skills/parsidion/scripts/vault_common.py
 git commit -m "feat(vault_common): add shared transcript analysis and append_to_pending functions"
 ```
 
@@ -256,7 +256,7 @@ git commit -m "feat(vault_common): add shared transcript analysis and append_to_
 ### Task 2: Update session_stop_hook.py to import from vault_common
 
 **Files:**
-- Modify: `skills/parsidion-cc/scripts/session_stop_hook.py`
+- Modify: `skills/parsidion/scripts/session_stop_hook.py`
 
 - [ ] **Step 1: Remove `_CATEGORIES`, `_CATEGORY_LABELS`, `parse_transcript_lines`, `detect_categories`, `append_to_pending` from `session_stop_hook.py` and replace with imports from `vault_common`**
 
@@ -277,24 +277,24 @@ Also update `_CATEGORY_LABELS` references in `append_session_to_daily` to use th
 - [ ] **Step 2: Verify session_stop_hook.py is syntactically valid**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
-python3 -c "import sys; sys.path.insert(0, 'skills/parsidion-cc/scripts'); import session_stop_hook; print('OK')"
+cd /Users/probello/Repos/parsidion
+python3 -c "import sys; sys.path.insert(0, 'skills/parsidion/scripts'); import session_stop_hook; print('OK')"
 ```
 Expected: `OK`
 
 - [ ] **Step 3: Smoke-test with synthetic input**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
+cd /Users/probello/Repos/parsidion
 echo '{"transcript_path": "/nonexistent/path.jsonl", "cwd": "/tmp"}' \
-  | python3 skills/parsidion-cc/scripts/session_stop_hook.py 2>/dev/null
+  | python3 skills/parsidion/scripts/session_stop_hook.py 2>/dev/null
 ```
 Expected: `{}` (graceful exit on missing transcript)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/session_stop_hook.py
+git add skills/parsidion/scripts/session_stop_hook.py
 git commit -m "refactor(session_stop_hook): import shared transcript functions from vault_common"
 ```
 
@@ -305,7 +305,7 @@ git commit -m "refactor(session_stop_hook): import shared transcript functions f
 ### Task 3: Create subagent_stop_hook.py
 
 **Files:**
-- Create: `skills/parsidion-cc/scripts/subagent_stop_hook.py`
+- Create: `skills/parsidion/scripts/subagent_stop_hook.py`
 
 - [ ] **Step 1: Write the script**
 
@@ -462,24 +462,24 @@ if __name__ == "__main__":
 - [ ] **Step 2: Verify syntax**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
-python3 -c "import sys; sys.path.insert(0, 'skills/parsidion-cc/scripts'); import subagent_stop_hook; print('OK')"
+cd /Users/probello/Repos/parsidion
+python3 -c "import sys; sys.path.insert(0, 'skills/parsidion/scripts'); import subagent_stop_hook; print('OK')"
 ```
 Expected: `OK`
 
 - [ ] **Step 3: Smoke-test with synthetic SubagentStop input**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
+cd /Users/probello/Repos/parsidion
 echo '{"agent_transcript_path": "/nonexistent/agent.jsonl", "agent_id": "test-123", "agent_type": "Explore", "cwd": "/tmp"}' \
-  | python3 skills/parsidion-cc/scripts/subagent_stop_hook.py 2>/dev/null
+  | python3 skills/parsidion/scripts/subagent_stop_hook.py 2>/dev/null
 ```
 Expected: `{}` (graceful exit on missing transcript)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add skills/parsidion-cc/scripts/subagent_stop_hook.py
+git add skills/parsidion/scripts/subagent_stop_hook.py
 git commit -m "feat(subagent_stop_hook): new SubagentStop hook captures subagent learnings"
 ```
 
@@ -530,7 +530,7 @@ Inside the `for event, script_name in _HOOK_SCRIPTS.items():` loop in `merge_hoo
 - [ ] **Step 3: Verify install.py is syntactically valid**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
+cd /Users/probello/Repos/parsidion
 python3 -c "import install; print('OK')"
 ```
 Expected: `OK`
@@ -547,7 +547,7 @@ git commit -m "feat(install): register SubagentStop hook with async:true"
 ### Task 5: Add subagent_stop_hook section to config template
 
 **Files:**
-- Modify: `skills/parsidion-cc/templates/config.yaml`
+- Modify: `skills/parsidion/templates/config.yaml`
 
 - [ ] **Step 1: Add config section after `session_stop_hook` section**
 
@@ -565,7 +565,7 @@ subagent_stop_hook:
 - [ ] **Step 2: Commit**
 
 ```bash
-git add skills/parsidion-cc/templates/config.yaml
+git add skills/parsidion/templates/config.yaml
 git commit -m "feat(config): add subagent_stop_hook config section"
 ```
 
@@ -579,7 +579,7 @@ git commit -m "feat(config): add subagent_stop_hook config section"
 - [ ] **Step 1: Run the installer to sync scripts and register the hook**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
+cd /Users/probello/Repos/parsidion
 uv run install.py --force --yes
 ```
 Expected output includes: `Register hook SubagentStop` and `Updated ~/.claude/settings.json`
@@ -599,7 +599,7 @@ Expected: entry with `async: true` and the `subagent_stop_hook.py` command
 - [ ] **Step 3: Verify installed script exists**
 
 ```bash
-ls ~/.claude/skills/parsidion-cc/scripts/subagent_stop_hook.py
+ls ~/.claude/skills/parsidion/scripts/subagent_stop_hook.py
 ```
 Expected: file present
 
@@ -607,20 +607,20 @@ Expected: file present
 
 ```bash
 echo '{"agent_transcript_path": "/nonexistent/x.jsonl", "agent_id": "abc", "agent_type": "Explore", "cwd": "/tmp"}' \
-  | uv run --no-project ~/.claude/skills/parsidion-cc/scripts/subagent_stop_hook.py
+  | uv run --no-project ~/.claude/skills/parsidion/scripts/subagent_stop_hook.py
 ```
 Expected: `{}`
 
 - [ ] **Step 5: Rebuild vault index**
 
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 - [ ] **Step 6: Final commit**
 
 ```bash
-cd /Users/probello/Repos/parsidion-cc
+cd /Users/probello/Repos/parsidion
 git add .
 git commit -m "chore: post-install sync confirmation"
 ```

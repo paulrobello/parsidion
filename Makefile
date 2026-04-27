@@ -21,7 +21,7 @@ checkall: fmt lint typecheck test
 
 # Build (no-op for this project — it is managed configuration, not a compiled artifact)
 build:
-	@echo "parsidion-cc is a configuration toolkit — no build step required."
+	@echo "parsidion is a configuration toolkit — no build step required."
 
 # Clean generated artifacts
 clean:
@@ -34,10 +34,10 @@ install:
 
 ## Vault Visualizer
 graph:
-	uv run skills/parsidion-cc/scripts/build_graph.py
+	uv run skills/parsidion/scripts/build_graph.py
 
 graph-with-daily:
-	uv run skills/parsidion-cc/scripts/build_graph.py --include-daily
+	uv run skills/parsidion/scripts/build_graph.py --include-daily
 
 visualizer:
 	cd visualizer && bun dev

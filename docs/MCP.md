@@ -1,6 +1,6 @@
 # parsidion-mcp
 
-A FastMCP-based MCP server that exposes the Claude Vault knowledge management system to Claude Desktop and any MCP-capable client, enabling vault read, write, search, and maintenance operations from within AI assistant conversations.
+A FastMCP-based MCP server that exposes the Parsidion vault knowledge management system to Claude Desktop and any MCP-capable client, enabling vault read, write, search, and maintenance operations from within AI assistant conversations.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ A FastMCP-based MCP server that exposes the Claude Vault knowledge management sy
 
 ## Overview
 
-`parsidion-mcp` solves the problem of Claude Desktop agents being unable to directly access the Claude Vault. The Claude Vault accumulates project knowledge, debugging solutions, architectural decisions, and reusable patterns across sessions — but Claude Desktop has no native mechanism to read or write those notes.
+`parsidion-mcp` solves the problem of Claude Desktop agents being unable to directly access the Parsidion vault. The Parsidion vault accumulates project knowledge, debugging solutions, architectural decisions, and reusable patterns across sessions — but Claude Desktop has no native mechanism to read or write those notes.
 
 `parsidion-mcp` bridges this gap by running as a local stdio MCP server. It wraps `vault_common` (the vault's shared library) and `vault_search` (the semantic and metadata search engine) behind six MCP tools, giving Claude Desktop the same vault access that Claude Code hook scripts enjoy.
 
@@ -51,7 +51,7 @@ graph TD
     MCP["parsidion-mcp\n(FastMCP / stdio)"]
     VaultSearch["vault_search\n(semantic + metadata)"]
     VaultCommon["vault_common\n(shared library)"]
-    ScriptsDir["~/.claude/skills/parsidion-cc/scripts/"]
+    ScriptsDir["~/.claude/skills/parsidion/scripts/"]
     UpdateIndex["update_index.py\n(subprocess)"]
     VaultDoctor["vault_doctor.py\n(subprocess)"]
     EmbeddingsDB["embeddings.db\n(SQLite + sqlite-vec)"]
@@ -107,7 +107,7 @@ graph TD
 
 The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
 
-Script paths for `rebuild_index` and `vault_doctor` are derived from `vault_common.TEMPLATES_DIR` — a constant patched by the installer that always resolves to `~/.claude/skills/parsidion-cc/templates/`. The scripts directory is one level up: `TEMPLATES_DIR.parent / "scripts"`. This invariant holds regardless of custom vault path configuration.
+Script paths for `rebuild_index` and `vault_doctor` are derived from `vault_common.TEMPLATES_DIR` — a constant patched by the installer that always resolves to `~/.claude/skills/parsidion/templates/`. The scripts directory is one level up: `TEMPLATES_DIR.parent / "scripts"`. This invariant holds regardless of custom vault path configuration.
 
 ## Installation
 
@@ -115,15 +115,15 @@ Script paths for `rebuild_index` and `vault_doctor` are derived from `vault_comm
 
 - Python 3.13 or later
 - `uv` (the package manager — install from [docs.astral.sh/uv](https://docs.astral.sh/uv))
-- `parsidion-cc` installed as an editable package with the `[search]` extra (this brings in `vault_common`, `vault_search`, `fastembed`, and `sqlite-vec`)
+- `parsidion` installed as an editable package with the `[search]` extra (this brings in `vault_common`, `vault_search`, `fastembed`, and `sqlite-vec`)
 
-> **📝 Note:** Both `parsidion-cc` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion-cc`.
+> **📝 Note:** Both `parsidion` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion`.
 
 ### Install from Repository
 
 ```bash
-# Step 1 — Install parsidion-cc[search] editably (skip if already done)
-cd parsidion-cc/
+# Step 1 — Install parsidion[search] editably (skip if already done)
+cd parsidion/
 uv tool install --editable ".[tools]"
 
 # Step 2 — Install the MCP server
@@ -430,7 +430,7 @@ parsidion-mcp/
             └── ops.py        # rebuild_index, vault_doctor
 ```
 
-The `parsidion-cc[search]` editable path dependency (declared in `pyproject.toml` under `[tool.uv.sources]`) makes `vault_common` and `vault_search` directly importable — no `sys.path` manipulation is required in the server code.
+The `parsidion[search]` editable path dependency (declared in `pyproject.toml` under `[tool.uv.sources]`) makes `vault_common` and `vault_search` directly importable — no `sys.path` manipulation is required in the server code.
 
 ## Related Documentation
 

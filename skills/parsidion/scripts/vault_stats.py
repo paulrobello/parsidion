@@ -5,7 +5,7 @@
 #   "rich>=13.0",
 # ]
 # ///
-"""vault-stats — analytics over the Claude Vault note_index database.
+"""vault-stats — analytics over the Parsidion vault note_index database.
 
 Modes (mutually exclusive; default is --summary):
     --summary              Count notes by folder and type
@@ -21,7 +21,7 @@ Modes (mutually exclusive; default is --summary):
     --weekly               Generate/preview weekly rollup note for current ISO week
     --monthly              Generate/preview monthly rollup note for current month
     --timeline N           Bar chart of notes created per day for last N days (default: 30)
-    --summarizer-progress  Show current summarizer progress from /tmp
+    --summarizer-progress  Show current summarizer progress from ~/.claude/logs
 
 All modes read from ~/ClaudeVault/embeddings.db (note_index table).
 Falls back to a plain-text walk when the DB is absent.
@@ -376,7 +376,7 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
 
     # --- header ---
     _CONSOLE.print()
-    _CONSOLE.rule("[bold cyan]Claude Vault Dashboard[/bold cyan]")
+    _CONSOLE.rule("[bold cyan]Parsidion vault Dashboard[/bold cyan]")
     _CONSOLE.print(
         f"\n  [bold white]{total}[/bold white] notes  ·  "
         f"[yellow]{stale_count}[/yellow] stale  ·  "
@@ -1037,13 +1037,13 @@ def run_timeline(
 
 
 def run_summarizer_progress() -> None:
-    """Print current summarizer progress from ~/.claude/logs/parsidion-cc-summarizer-progress.json.
+    """Print current summarizer progress from ~/.claude/logs/parsidion-summarizer-progress.json.
 
     Shows: total, processed, written, skipped, errors, current.
     If the file is absent, reports that no summarizer is currently running.
     """
     progress_path = (
-        Path.home() / ".claude" / "logs" / "parsidion-cc-summarizer-progress.json"
+        Path.home() / ".claude" / "logs" / "parsidion-summarizer-progress.json"
     )
     if not progress_path.exists():
         _CONSOLE.print("[dim]No summarizer currently running.[/dim]")

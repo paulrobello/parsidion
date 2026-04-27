@@ -11,7 +11,7 @@ description: >
   "what do we know about X", any vault search request.
 
   Do NOT trigger for vault writes, index rebuilds, or summarization — those
-  belong to the research-agent and parsidion-cc skill.
+  belong to the research-agent and parsidion skill.
 model: haiku
 color: purple
 ---
@@ -27,7 +27,7 @@ you find, and return it in the standard format below.
 1. **Semantic search (if available):** Run vault_search.py with the full
    natural-language query as a single Bash call:
    ```bash
-   uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_search.py "QUERY" -j 2>/dev/null
+   uv run --no-project ~/.claude/skills/parsidion/scripts/vault_search.py "QUERY" -j 2>/dev/null
    ```
    - If the command returns **3 or more results** with `score ≥ 0.35`, use
      those `path` values as your candidates and **skip to step 6**.

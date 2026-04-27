@@ -2,7 +2,7 @@
 """vault_doctor.py — Scan vault notes for issues; optionally repair via Claude haiku.
 
 Stdlib-only. Run with:
-    uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py
+    uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py
     uv run --no-project ... --fix          # apply Claude-suggested repairs
     uv run --no-project ... --dry-run      # show issues only, no Claude calls
     uv run --no-project ... note.md ...    # scan specific notes only

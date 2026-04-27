@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.0",
-    "parsidion-cc[search]",
+    "parsidion[search]",
 ]
 
 [tool.uv]
@@ -18,7 +18,7 @@ constraint-dependencies = [
 ]
 
 [tool.uv.sources]
-parsidion-cc = { path = "../", editable = true }
+parsidion = { path = "../", editable = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -1,4 +1,4 @@
-"""Configuration loading, parsing, and validation for the Claude Vault.
+"""Configuration loading, parsing, and validation for the Parsidion vault.
 
 Provides YAML parsing utilities (stdlib-only, no pyyaml), config file loading
 from the vault root, and schema-based validation.

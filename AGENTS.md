@@ -1,6 +1,6 @@
 # Agents
 
-Parsidion CC ships two subagents that Claude Code dispatches automatically during sessions.
+Parsidion ships subagents that coding-agent runtimes can dispatch during sessions.
 
 | Agent | Model | Purpose |
 |-------|-------|---------|

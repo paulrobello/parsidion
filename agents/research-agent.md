@@ -12,7 +12,7 @@ You are an elite technical research agent specializing in gathering, synthesizin
 1. **Research Existing Documentation**: First run semantic search, then dispatch vault-explorer for remaining gaps.
    - If `~/ClaudeVault/embeddings.db` exists, run semantic search first:
      ```bash
-     uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "YOUR QUERY" --top 10
+     uv run ~/.claude/skills/parsidion/scripts/vault_search.py "YOUR QUERY" --top 10
      ```
      Read any notes with score > 0.5 directly. These are highly relevant matches.
    - Dispatch the `vault-explorer` agent with the research topic as a natural language query for any remaining gaps. Review the returned `## Answer` section:
@@ -50,7 +50,7 @@ You are an elite technical research agent specializing in gathering, synthesizin
    - Focus on practical, actionable information relevant to development
 
 4. **Web Content Extraction** — use the agentchrome CLI to fetch raw HTML, then pipe
-   it through `~/.claude/skills/parsidion-cc/scripts/html-to-md.py` to get clean,
+   it through `~/.claude/skills/parsidion/scripts/html-to-md.py` to get clean,
    noise-free markdown. Run `agentchrome examples` to see self-documented usage examples.
    Standard pattern:
    ```bash
@@ -59,7 +59,7 @@ You are an elite technical research agent specializing in gathering, synthesizin
 
    # Navigate to each URL, get raw HTML, and convert to clean markdown
    agentchrome navigate "https://example.com/docs" --wait-until networkidle
-   agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
+   agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
    ```
    Then read `/tmp/page-content.md` for the cleaned content.
 
@@ -75,7 +75,7 @@ You are an elite technical research agent specializing in gathering, synthesizin
    **Fallback**: If `agentchrome connect` exits non-zero, fetch raw HTML via curl or
    the built-in Claude Code Web Fetch tool and pipe it through html-to-md.py:
    ```bash
-   curl -sL "https://example.com/docs" | uv run --script ~/.claude/skills/parsidion-cc/scripts/html-to-md.py - --url "https://example.com/docs"
+   curl -sL "https://example.com/docs" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url "https://example.com/docs"
    ```
 
    Extract code examples, API references, and implementation patterns. Preserve
@@ -101,7 +101,7 @@ You are an elite technical research agent specializing in gathering, synthesizin
    - **Also save** to `docs/research/` in the current project if that directory exists
      and no other project destination was specified
    - Use kebab-case filenames without date suffixes (e.g., `webgl-ray-marching.md`)
-   - After saving vault notes, run: `uv run ~/.claude/skills/parsidion-cc/scripts/update_index.py`
+   - After saving vault notes, run: `uv run ~/.claude/skills/parsidion/scripts/update_index.py`
    - Follow documentation style guidelines (see below)
 
 7. **Style Guide Compliance**:
@@ -241,7 +241,7 @@ related: ["[[related-note-title]]"]
 
 - Use kebab-case filenames without date suffixes: `webgl-ray-marching-techniques.md` (date goes in frontmatter)
 - Save to the appropriate `~/ClaudeVault/` subfolder based on content type
-- The vault index at `~/ClaudeVault/CLAUDE.md` is auto-generated - run `uv run ~/.claude/skills/parsidion-cc/scripts/update_index.py` after adding notes
+- The vault index at `~/ClaudeVault/CLAUDE.md` is auto-generated - run `uv run ~/.claude/skills/parsidion/scripts/update_index.py` after adding notes
 - **Search before create**: Always check if a note on the topic already exists in the vault. Update existing notes rather than creating duplicates
 - Use `[[wikilinks]]` in the `related` frontmatter field and body text to cross-reference other vault notes
 - For project-local research, also save to `docs/research/` if the directory exists
@@ -297,7 +297,7 @@ related: ["[[related-note-title]]"]
 ## Output Requirements
 
 1. **Primary Output**: Clean, well-structured markdown files saved to `~/ClaudeVault/` (appropriate subfolder) with YAML frontmatter. Also saved to `docs/research/` if it exists in the current project.
-2. **Vault Index**: After saving all notes, run `uv run ~/.claude/skills/parsidion-cc/scripts/update_index.py` to rebuild the vault index.
+2. **Vault Index**: After saving all notes, run `uv run ~/.claude/skills/parsidion/scripts/update_index.py` to rebuild the vault index.
 3. **Summary Report**: After research, provide a brief summary of:
    - Topics researched
    - Files created/updated

@@ -214,7 +214,7 @@ def generate_html_report(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Embedding Eval — Claude Vault</title>
+  <title>Embedding Eval — Parsidion vault</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     :root {{
@@ -373,7 +373,7 @@ def generate_html_report(
 <body>
 
 <header>
-  <h1>Embedding Evaluation — Claude Vault</h1>
+  <h1>Embedding Evaluation — Parsidion vault</h1>
   <div class="subtitle">Model x Chunking benchmark using Claude-generated ground truth</div>
   <div class="meta-pills">
     <span class="meta-pill">Generated <strong>{generated_at[:19]}</strong></span>

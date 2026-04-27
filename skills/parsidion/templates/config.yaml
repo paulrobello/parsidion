@@ -1,4 +1,4 @@
-# Claude Vault Configuration
+# Parsidion vault Configuration
 #
 # Place at ~/ClaudeVault/config.yaml
 # Values here override script defaults. CLI arguments override these values.

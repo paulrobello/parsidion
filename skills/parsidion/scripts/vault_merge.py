@@ -534,7 +534,7 @@ def _rebuild_index() -> None:
             Path.home()
             / ".claude"
             / "skills"
-            / "parsidion-cc"
+            / "parsidion"
             / "scripts"
             / "update_index.py"
         )

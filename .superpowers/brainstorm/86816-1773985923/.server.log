@@ -1,14 +1,14 @@
-{"type":"server-started","port":64394,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:64394","screen_dir":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/overview.html"}
-{"source":"user-event","type":"click","text":"B\n      \n        Inside parsidion-cc repo\n        A visualizer/ subdirectory in this repo. Co-located with the Python scripts that generate the graph data.\n        One repo · Easy to update together · make visualizer","choice":"subdir","id":null,"timestamp":1773986096088}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/renderer.html"}
+{"type":"server-started","port":64394,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:64394","screen_dir":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/overview.html"}
+{"source":"user-event","type":"click","text":"B\n      \n        Inside parsidion repo\n        A visualizer/ subdirectory in this repo. Co-located with the Python scripts that generate the graph data.\n        One repo · Easy to update together · make visualizer","choice":"subdir","id":null,"timestamp":1773986096088}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/renderer.html"}
 {"source":"user-event","type":"click","text":"B\n    \n      Sigma.js + WebGL\n      Purpose-built graph library with WebGL renderer. Handles 10k–100k nodes. Native click/hover, built-in zoom, label rendering. Used by Obsidian's graph view internally.\n      \n        ProsWebGL = GPU acceleratedBuilt-in node interactionObsidian-proven at this scale\n        ConsExtra dependencyLess D3 flexibility","choice":"sigma","id":null,"timestamp":1773986223381}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/node-encoding.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/node-encoding.html"}
 {"source":"user-event","type":"click","text":"C2\n        \n          By Note Type\n          pattern / debugging / research / project / daily / tool / language / framework — 8 types, 8 colors","choice":"color-type","id":null,"timestamp":1773986335414}
 {"source":"user-event","type":"click","text":"S1\n        \n          Incoming Links\n          Bigger = more notes reference this one. Hub notes emerge visually — like PageRank for your vault.","choice":"size-links","id":null,"timestamp":1773986343140}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/note-viewer.html"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/controls.html"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/neighborhood.html"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/waiting.html"}
-{"type":"screen-added","file":"/Users/probello/Repos/parsidion-cc/.superpowers/brainstorm/86816-1773985923/design-layout.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/note-viewer.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/controls.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/neighborhood.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/waiting.html"}
+{"type":"screen-added","file":"/Users/probello/Repos/parsidion/.superpowers/brainstorm/86816-1773985923/design-layout.html"}
 {"type":"server-stopped","reason":"idle timeout"}

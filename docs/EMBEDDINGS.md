@@ -1,6 +1,6 @@
 # Local Vector Embeddings
 
-Semantic search for the Claude Vault — find relevant notes by meaning rather than by keyword,
+Semantic search for the Parsidion vault — find relevant notes by meaning rather than by keyword,
 using the `fastembed` library with a CPU-only embedding model that runs entirely on your machine.
 
 ## Table of Contents
@@ -175,29 +175,29 @@ Metadata queries use `vault_search.py` with filter flags and no positional query
 
 ```bash
 # All notes in the Patterns folder
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py --folder Patterns
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py -f Patterns   # short form
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py --folder Patterns
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -f Patterns   # short form
 
 # Notes tagged "python" modified in the last 7 days
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py --tag python --recent-days 7
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py -T python -d 7  # short form
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py --tag python --recent-days 7
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -T python -d 7  # short form
 
 # Notes by type (debugging, pattern, research, etc.)
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py --type debugging
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py -k debugging    # short form
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py --type debugging
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -k debugging    # short form
 
 # Human-readable text output
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py --project parsidion-cc --text
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py -p parsidion-cc -t
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py --project parsidion --text
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -p parsidion -t
 
 # Rich-colorized output
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py -f Debugging -r
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -f Debugging -r
 ```
 
 ### Querying via Python
 
 ```python
-import sys; sys.path.insert(0, '~/.claude/skills/parsidion-cc/scripts')
+import sys; sys.path.insert(0, '~/.claude/skills/parsidion/scripts')
 import vault_common
 
 # DB-first: returns None if DB absent (signal to fall back to file walk)
@@ -229,10 +229,10 @@ debugging notes tagged sqlite from the last week".
 
 ```bash
 # Step 1 — build the full index (first run downloads the model, ~67 MB)
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 
 # Step 2 — run your first search
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "sqlite vector search" --top 5
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "sqlite vector search" --top 5
 ```
 
 The first run takes roughly 30 seconds (model download + encoding all notes). Subsequent full
@@ -251,7 +251,7 @@ only changed notes are re-encoded.
 A full rebuild encodes every note in the vault and replaces the database:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 Use a full rebuild after bulk note reorganizations, subfolder moves, or when you want to ensure
@@ -263,7 +263,7 @@ An incremental update compares each note's `mtime` against the stored value and 
 notes that are new or modified:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --incremental
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental
 ```
 
 This is the recommended mode for routine use. It is safe to run after every vault-writing session
@@ -274,13 +274,13 @@ without incurring the cost of a full rebuild.
 Preview which notes would be (re-)encoded without writing anything to disk:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --dry-run
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --dry-run
 ```
 
 Combine with `--incremental` to preview what an incremental update would touch:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --incremental --dry-run
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental --dry-run
 ```
 
 ### Model Selection
@@ -289,7 +289,7 @@ The default model is `BAAI/bge-small-en-v1.5`. Override it via config (see
 [Configuration Reference](#configuration-reference)) or by passing `--model`:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --model BAAI/bge-small-en-v1.5
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --model BAAI/bge-small-en-v1.5
 ```
 
 > **Note:** Switching models invalidates all stored vectors — the cosine similarity scores
@@ -306,7 +306,7 @@ uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py --model BAAI/bg
 The basic search command returns a ranked list of matching notes:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "sqlite vector search" -n 5
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "sqlite vector search" -n 5
 ```
 
 Each result line shows the similarity score, note stem, title, folder, tags, and absolute path.
@@ -360,8 +360,8 @@ The JSON output format is the one consumed by hook integrations. Each element co
 Use `--min-score` / `-s` to exclude results below a similarity threshold:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "qdrant embeddings" --min-score 0.4
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "qdrant embeddings" -s 0.4
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "qdrant embeddings" --min-score 0.4
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "qdrant embeddings" -s 0.4
 ```
 
 The global default minimum score is controlled by `embeddings.min_score` in `config.yaml`.
@@ -379,8 +379,8 @@ Use `--top N` / `-n N` to control how many results are returned (default is set 
 config, which defaults to `10`):
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "fastapi middleware" --top 3
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "fastapi middleware" -n 3
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "fastapi middleware" --top 3
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "fastapi middleware" -n 3
 ```
 
 ### Environment Variables
@@ -484,7 +484,7 @@ lookup sequence.
 When `embeddings.db` exists, Step 1 of the agent now runs:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "QUERY" --top 10
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "QUERY" --top 10
 ```
 
 Notes returned with a score above `0.5` are read directly by the agent without invoking the
@@ -511,7 +511,7 @@ a few seconds for a handful of new notes.
 The automatic rebuild is skipped silently when `embeddings.db` does not yet exist. To create
 the database for the first time, run `build_embeddings.py` manually (see [Quick Start](#quick-start)).
 
-Background rebuild output is redirected to `/tmp/parsidion-cc-embed.log`. Check this file when
+Background rebuild output is redirected to `/tmp/parsidion-embed.log`. Check this file when
 embeddings appear stale after an expected rebuild.
 
 **Triggers that indirectly kick off an incremental rebuild:**
@@ -577,7 +577,7 @@ After running `install.py`, complete setup with:
 # Steps 1–3: existing setup (create vault, copy config, initialize git)
 
 # Step 4: build the embedding index
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 The index only needs to be built once. After that, the session start hook and summarizer maintain
@@ -621,7 +621,7 @@ session start hook silently loads fewer notes than expected.
 **Fix:**
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 ### Slow first run
@@ -645,10 +645,10 @@ significantly faster.
 
 ```bash
 # Rebuild the full index to ensure all notes are current
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 
 # Raise the minimum score threshold for a single search
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "my query" --min-score 0.5
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "my query" --min-score 0.5
 ```
 
 For sparse notes, adding a one-paragraph summary to the note body significantly improves recall.
@@ -669,7 +669,7 @@ warning.
 **Fix:** You can also force a full rebuild manually:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 ### fastembed or sqlite-vec missing
@@ -683,8 +683,8 @@ uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
 **Fix:** Always use `uv run` to invoke these scripts:
 
 ```bash
-uv run ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
-uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "query"
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py "query"
 ```
 
 ---
@@ -695,4 +695,4 @@ uv run ~/.claude/skills/parsidion-cc/scripts/vault_search.py "query"
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) — evaluation harness for benchmarking embedding models and chunking strategies against your vault
 - [CLAUDE.md](../CLAUDE.md) — vault note conventions, frontmatter schema, and subfolder rules
 - `~/ClaudeVault/config.yaml` — live configuration file (copy from `templates/config.yaml` to get started)
-- `~/.claude/skills/parsidion-cc/templates/config.yaml` — reference config with all defaults and comments
+- `~/.claude/skills/parsidion/templates/config.yaml` — reference config with all defaults and comments

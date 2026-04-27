@@ -1,4 +1,4 @@
-# Parsidion CC Enhancement Roadmap (Completed)
+# Parsidion Enhancement Roadmap (Completed)
 
 This roadmap was fully implemented on 2026-03-24. All 19 enhancements have been shipped.
 

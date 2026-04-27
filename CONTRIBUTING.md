@@ -1,6 +1,6 @@
-# Contributing to Parsidion CC
+# Contributing to Parsidion
 
-Thank you for your interest in contributing to Parsidion CC. This guide covers the development setup, coding constraints, testing workflow, and PR expectations.
+Thank you for your interest in contributing to Parsidion. This guide covers the development setup, coding constraints, testing workflow, and PR expectations.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
@@ -21,8 +21,8 @@ Thank you for your interest in contributing to Parsidion CC. This guide covers t
 
 1. **Fork and clone the repository:**
    ```bash
-   git clone https://github.com/<your-username>/parsidion-cc.git
-   cd parsidion-cc
+   git clone https://github.com/<your-username>/parsidion.git
+   cd parsidion
    ```
 
 2. **Install dev dependencies:**
@@ -50,7 +50,7 @@ Thank you for your interest in contributing to Parsidion CC. This guide covers t
 
 ### stdlib-only rule
 
-Any script under `skills/parsidion-cc/scripts/` **must use Python stdlib exclusively**, except the four PEP 723 scripts (`summarize_sessions.py`, `build_embeddings.py`, `vault_search.py`, `vault_new.py`) which declare their own inline dependencies. `install.py` at the repo root follows the same stdlib-only constraint. No `pip install`, no `uv add`. The `pyproject.toml` intentionally has no runtime dependencies.
+Any script under `skills/parsidion/scripts/` **must use Python stdlib exclusively**, except the four PEP 723 scripts (`summarize_sessions.py`, `build_embeddings.py`, `vault_search.py`, `vault_new.py`) which declare their own inline dependencies. `install.py` at the repo root follows the same stdlib-only constraint. No `pip install`, no `uv add`. The `pyproject.toml` intentionally has no runtime dependencies.
 
 **Why:** Hook scripts run inside Claude Code's lifecycle events. Adding third-party dependencies would break the zero-dependency guarantee and complicate installation.
 
@@ -79,7 +79,7 @@ Use modern Python type annotations throughout:
 
    For a single-file quick sync:
    ```bash
-   cp skills/parsidion-cc/scripts/vault_common.py ~/.claude/skills/parsidion-cc/scripts/vault_common.py
+   cp skills/parsidion/scripts/vault_common.py ~/.claude/skills/parsidion/scripts/vault_common.py
    ```
 
 3. **Run quality checks before committing:**
@@ -94,42 +94,42 @@ Hooks communicate via JSON on stdin/stdout. Use heredocs to avoid shell quoting 
 
 ```bash
 # Test session_start_hook
-python skills/parsidion-cc/scripts/session_start_hook.py <<'EOF'
+python skills/parsidion/scripts/session_start_hook.py <<'EOF'
 {"cwd": "/Users/yourname/Repos/myproject"}
 EOF
 
 # Test session_stop_hook (requires a real transcript path)
-python skills/parsidion-cc/scripts/session_stop_hook.py <<'EOF'
+python skills/parsidion/scripts/session_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
 # Test session_stop_hook with a pi transcript path
-python skills/parsidion-cc/scripts/session_stop_hook.py <<'EOF'
+python skills/parsidion/scripts/session_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/Users/you/.pi/agent/sessions/--path--/session.jsonl"}
 EOF
 
 # Test pre_compact_hook
-python skills/parsidion-cc/scripts/pre_compact_hook.py <<'EOF'
+python skills/parsidion/scripts/pre_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
 # Test session_stop_wrapper (outputs {} immediately, spawns Python hook detached)
-bash skills/parsidion-cc/scripts/session_stop_wrapper.sh <<'EOF'
+bash skills/parsidion/scripts/session_stop_wrapper.sh <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
 # Test post_compact_hook (reads last Pre-Compact Snapshot from today's daily note)
-python skills/parsidion-cc/scripts/post_compact_hook.py <<'EOF'
+python skills/parsidion/scripts/post_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
 # Test subagent_stop_hook (requires a real agent_transcript_path)
-python skills/parsidion-cc/scripts/subagent_stop_hook.py <<'EOF'
+python skills/parsidion/scripts/subagent_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "agent_transcript_path": "/path/to/agent.jsonl", "agent_id": "abc-123", "agent_type": "Explore"}
 EOF
 
 # Test subagent_stop_hook with a pi subagent transcript
-python skills/parsidion-cc/scripts/subagent_stop_hook.py <<'EOF'
+python skills/parsidion/scripts/subagent_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "agent_transcript_path": "/Users/you/.pi/agent/sessions/--path--/subagent-xyz.jsonl", "agent_id": "xyz", "agent_type": "Explore"}
 EOF
 ```

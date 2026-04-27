@@ -413,7 +413,7 @@ The visualizer supports multiple isolated vaults, allowing you to switch between
 
 **Setup**
 
-Create a vaults configuration file at `~/.config/parsidion-cc/vaults.yaml`:
+Create a vaults configuration file at `~/.config/parsidion/vaults.yaml`:
 
 ```yaml
 vaults:
@@ -493,19 +493,19 @@ The `graph.json` file is a pre-computed snapshot of vault relationships stored i
 
 1. Vault must have embeddings built:
    ```bash
-   uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_embeddings.py
+   uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py
    ```
 
 2. Run the graph builder:
    ```bash
    make graph                        # Include Daily notes (default)
-   uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_graph.py --no-daily  # Exclude Daily folder notes
+   uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py --no-daily  # Exclude Daily folder notes
    ```
 
 ### Graph Builder Options
 
 ```bash
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/build_graph.py [OPTIONS]
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py [OPTIONS]
 
 Options:
   --no-daily             Exclude Daily folder notes (included by default)
@@ -806,7 +806,7 @@ All graph controls and UI layout are persisted to `localStorage` using the `vv:`
 ## File Structure
 
 ```
-parsidion-cc/
+parsidion/
 ├── visualizer/                       # Next.js app root
 │   ├── server.ts                     # Custom server: Next.js + WebSocket + chokidar (multi-vault)
 │   ├── app/

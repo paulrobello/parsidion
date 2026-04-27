@@ -3,7 +3,7 @@
 # requires-python = ">=3.13"
 # dependencies = ["claude-agent-sdk>=0.0.10,<1.0", "anyio>=4.0.0,<5.0"]
 # ///
-"""On-demand AI-powered session summarizer for Claude Vault.
+"""On-demand AI-powered session summarizer for Parsidion vault.
 
 Reads pending_summaries.jsonl, processes transcripts via Claude Agent SDK,
 and writes structured vault notes to the appropriate vault folders.
@@ -57,7 +57,7 @@ _DEFAULT_MODEL: str = vault_common.get_config(
 _STALE = "__STALE__"
 
 # Progress tracking (#13)
-_PROGRESS_FILE = vault_common.secure_log_dir() / "parsidion-cc-summarizer-progress.json"
+_PROGRESS_FILE = vault_common.secure_log_dir() / "parsidion-summarizer-progress.json"
 
 
 def _write_progress(
@@ -1186,7 +1186,7 @@ def rebuild_index(
             Path.home()
             / ".claude"
             / "skills"
-            / "parsidion-cc"
+            / "parsidion"
             / "scripts"
             / "update_index.py"
         )
@@ -1219,7 +1219,7 @@ def rebuild_index(
 def main() -> None:
     """Parse arguments and run the summarizer."""
     parser = argparse.ArgumentParser(
-        description="AI-powered session summarizer for Claude Vault",
+        description="AI-powered session summarizer for Parsidion vault",
     )
     parser.add_argument(
         "--sessions",

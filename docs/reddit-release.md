@@ -1,11 +1,11 @@
-# Parsidion CC -- Persistent Memory for Claude Code via a Markdown Vault
+# Parsidion -- Persistent Memory for Claude Code via a Markdown Vault
 
 
 ---
 
 Claude Code's built-in memory is... fine. It stores flat key-value style notes in `~/.claude/memory/` and forgets context between sessions pretty aggressively. If you've ever had Claude re-solve a problem it already solved last week, or watched it ignore a pattern you established three sessions ago, you know the pain.
 
-I built **Parsidion CC** to fix that. It replaces Claude Code's auto memory with a full markdown knowledge vault (`~/ClaudeVault/`) that persists across every session, every project, and is searchable by both Claude and you.
+I built **Parsidion** to fix that. It replaces Claude Code's auto memory with a full markdown knowledge vault (`~/ClaudeVault/`) that persists across every session, every project, and is searchable by both Claude and you.
 
 ## What it actually does
 
@@ -75,8 +75,8 @@ There's an optional MCP server (`parsidion-mcp/`) that exposes vault operations 
 ## Install
 
 ```bash
-git clone https://github.com/paulrobello/parsidion-cc.git
-cd parsidion-cc
+git clone https://github.com/paulrobello/parsidion.git
+cd parsidion
 uv run install.py
 ```
 
@@ -99,7 +99,7 @@ uv run install.py --schedule-summarizer
 
 I've been using this daily for a few weeks now across multiple projects. The difference is noticeable -- Claude stops re-solving problems it already solved, picks up patterns from other projects, and the vault becomes genuinely useful as a searchable knowledge base over time.
 
-**GitHub:** https://github.com/paulrobello/parsidion-cc
+**GitHub:** https://github.com/paulrobello/parsidion
 **License:** MIT | **Python 3.13+** | **Requires:** Claude Code + uv
 
 Happy to answer questions or take feedback. Issues and PRs welcome on GitHub.

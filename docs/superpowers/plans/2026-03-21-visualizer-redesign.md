@@ -89,7 +89,7 @@ export interface NoteNode {
 
 - [ ] **Step 3: Rebuild graph.json and verify**
 
-Run: `cd /Users/probello/Repos/parsidion-cc && uv run --no-project scripts/build_graph.py --include-daily`
+Run: `cd /Users/probello/Repos/parsidion && uv run --no-project scripts/build_graph.py --include-daily`
 
 Verify: `python3 -c "import json; d=json.load(open('visualizer/public/graph.json')); n=d['nodes'][0]; print(n.get('path','MISSING'))"`
 
@@ -397,7 +397,7 @@ export function useVisualizerState(graphData: GraphData | null) {
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bunx tsc --noEmit`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bunx tsc --noEmit`
 
 Expected: No errors related to `useVisualizerState.ts`.
 
@@ -635,7 +635,7 @@ function NoteItem({ note, isActive, indent, onSelect }: {
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bunx tsc --noEmit`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bunx tsc --noEmit`
 
 - [ ] **Step 3: Commit**
 
@@ -1440,7 +1440,7 @@ useEffect(() => {
 
 - [ ] **Step 6: Verify compilation**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bunx tsc --noEmit`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bunx tsc --noEmit`
 
 - [ ] **Step 7: Commit**
 
@@ -1734,7 +1734,7 @@ export default function Home() {
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bunx tsc --noEmit`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bunx tsc --noEmit`
 
 Fix any type errors.
 
@@ -1797,19 +1797,19 @@ rm visualizer/components/NotePanel.tsx visualizer/components/SearchBox.tsx
 
 Search for lingering imports of NotePanel or SearchBox:
 
-Run: `cd /Users/probello/Repos/parsidion-cc && grep -rn "NotePanel\|SearchBox" visualizer/ --include="*.tsx" --include="*.ts"`
+Run: `cd /Users/probello/Repos/parsidion && grep -rn "NotePanel\|SearchBox" visualizer/ --include="*.tsx" --include="*.ts"`
 
 Fix any remaining references.
 
 - [ ] **Step 3: Run full build**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bun run build`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bun run build`
 
 Expected: Build succeeds with no errors.
 
 - [ ] **Step 4: Run dev server and manual test**
 
-Run: `cd /Users/probello/Repos/parsidion-cc && make visualizer`
+Run: `cd /Users/probello/Repos/parsidion && make visualizer`
 
 Open http://localhost:3999 and verify:
 - Sidebar shows file tree with folders
@@ -1845,13 +1845,13 @@ git commit -m "feat(visualizer): complete Obsidian-style layout redesign
 
 - [ ] **Step 1: Run typecheck**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bunx tsc --noEmit`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bunx tsc --noEmit`
 
 Fix any errors.
 
 - [ ] **Step 2: Run lint**
 
-Run: `cd /Users/probello/Repos/parsidion-cc/visualizer && bun run lint`
+Run: `cd /Users/probello/Repos/parsidion/visualizer && bun run lint`
 
 Fix any lint issues.
 

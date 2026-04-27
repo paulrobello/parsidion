@@ -226,7 +226,7 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
         pass
 
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-cc-hook-errors.log"
+_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
 
 
 def _update_adaptive_scores(project: str, all_lines: list[str]) -> None:
@@ -317,7 +317,7 @@ def main() -> None:
             )
             sys.stdout.write("{}")
             return
-        # Skip sessions launched internally by parsidion-cc tools (vault_doctor,
+        # Skip sessions launched internally by parsidion tools (vault_doctor,
         # summarizer, etc.) — they set PARSIDION_INTERNAL=1 via env_without_claudecode()
         if os.environ.get("PARSIDION_INTERNAL"):
             print(

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import vault_common
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-cc-hook-errors.log"
+_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
 _SNAPSHOT_HEADING = "## Pre-Compact Snapshot"
 
 

@@ -1,6 +1,6 @@
 # parsidion-mcp Design Spec
 
-This document specifies the architecture and implementation of `parsidion-mcp`, a FastMCP-based MCP server that exposes the Claude Vault knowledge management system to Claude Desktop and other MCP-capable clients.
+This document specifies the architecture and implementation of `parsidion-mcp`, a FastMCP-based MCP server that exposes the Parsidion vault knowledge management system to Claude Desktop and other MCP-capable clients.
 
 ## Table of Contents
 
@@ -26,16 +26,16 @@ This document specifies the architecture and implementation of `parsidion-mcp`, 
 **Date:** 2026-03-16
 **Status:** Implemented
 
-`parsidion-mcp` is a FastMCP-based MCP server that exposes the Claude Vault knowledge management system to Claude Desktop (and any other MCP-capable client). It lives at `parsidion-cc/parsidion-mcp/` as an independent Python package.
+`parsidion-mcp` is a FastMCP-based MCP server that exposes the Parsidion vault knowledge management system to Claude Desktop (and any other MCP-capable client). It lives at `parsidion/parsidion-mcp/` as an independent Python package.
 
 ## Deployment Model
 
-This is a **local-only deployment**. Both `parsidion-mcp` and its `parsidion-cc[search]` dependency must be installed as editable packages (`uv tool install --editable`). Non-editable installs are not supported due to the `py-modules` layout of `parsidion-cc` (see `pyproject.toml` comment). All installation instructions assume local development use.
+This is a **local-only deployment**. Both `parsidion-mcp` and its `parsidion[search]` dependency must be installed as editable packages (`uv tool install --editable`). Non-editable installs are not supported due to the `py-modules` layout of `parsidion` (see `pyproject.toml` comment). All installation instructions assume local development use.
 
 ## Package Structure
 
 ```
-parsidion-cc/
+parsidion/
 └── parsidion-mcp/
     ├── pyproject.toml
     └── src/
@@ -58,11 +58,11 @@ name = "parsidion-mcp"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.0",
-    "parsidion-cc[search]",
+    "parsidion[search]",
 ]
 
 [tool.uv.sources]
-parsidion-cc = { path = "../", editable = true }
+parsidion = { path = "../", editable = true }
 
 [project.scripts]
 parsidion-mcp = "parsidion_mcp.server:main"
@@ -77,7 +77,7 @@ dev = [
 ]
 ```
 
-The `parsidion-cc[search]` dependency brings in `vault_common`, `vault_search`, `fastembed`, and `sqlite-vec`. **First-run note:** on the first `vault_search` call, `fastembed` downloads the `BAAI/bge-small-en-v1.5` ONNX model (~67 MB) and caches it. This can take 30-60 seconds. Subsequent calls are fast. The tool returns an informative message if this initial download is still in progress.
+The `parsidion[search]` dependency brings in `vault_common`, `vault_search`, `fastembed`, and `sqlite-vec`. **First-run note:** on the first `vault_search` call, `fastembed` downloads the `BAAI/bge-small-en-v1.5` ONNX model (~67 MB) and caches it. This can take 30-60 seconds. Subsequent calls are fast. The tool returns an informative message if this initial download is still in progress.
 
 ## Tools
 
@@ -167,17 +167,17 @@ Scans vault notes for structural issues; optionally repairs them via Claude haik
 
 ### Importing vault_common / vault_search
 
-The `parsidion-cc[search]` editable path dependency makes `vault_common` and `vault_search` directly importable - no `sys.path` manipulation needed in the MCP server.
+The `parsidion[search]` editable path dependency makes `vault_common` and `vault_search` directly importable - no `sys.path` manipulation needed in the MCP server.
 
 ### Finding scripts for subprocess calls
 
 ```python
 import vault_common
 
-# TEMPLATES_DIR is always ~/.claude/skills/parsidion-cc/templates/
+# TEMPLATES_DIR is always ~/.claude/skills/parsidion/templates/
 # (patched by the installer but its parent is always the skill root).
 # SCRIPTS_DIR is a stable structural invariant: TEMPLATES_DIR.parent / "scripts"
-# == ~/.claude/skills/parsidion-cc/scripts/
+# == ~/.claude/skills/parsidion/scripts/
 SCRIPTS_DIR = vault_common.TEMPLATES_DIR.parent / "scripts"
 ```
 
@@ -261,8 +261,8 @@ Tools: `pytest`, `pytest-timeout`, `pytest-cov`, `ruff`, `pyright`.
 Both packages must be editable installs:
 
 ```bash
-# 1. Ensure parsidion-cc[search] is installed editably (may already be done)
-cd parsidion-cc/
+# 1. Ensure parsidion[search] is installed editably (may already be done)
+cd parsidion/
 uv tool install --editable ".[tools]"
 
 # 2. Install the MCP server
@@ -293,7 +293,7 @@ Use the full absolute path (output of `which parsidion-mcp`) rather than a bare 
 
 ## Related Documentation
 
-- [CLAUDE.md](../../CLAUDE.md) - Project instructions for parsidion-cc
+- [CLAUDE.md](../../CLAUDE.md) - Project instructions for parsidion
 - [Vault Configuration](../../CLAUDE.md#vault-configuration) - Configuration options
-- [vault_common.py](../../skills/parsidion-cc/scripts/vault_common.py) - Core vault utilities
-- [vault_search.py](../../skills/parsidion-cc/scripts/vault_search.py) - Search implementation
+- [vault_common.py](../../skills/parsidion/scripts/vault_common.py) - Core vault utilities
+- [vault_search.py](../../skills/parsidion/scripts/vault_search.py) - Search implementation

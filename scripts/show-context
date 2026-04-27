@@ -21,6 +21,6 @@ FOLDER="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-python "$REPO_ROOT/skills/parsidion-cc/scripts/session_start_hook.py" <<EOF | jq -r '.hookSpecificOutput.additionalContext'
+python "$REPO_ROOT/skills/parsidion/scripts/session_start_hook.py" <<EOF | jq -r '.hookSpecificOutput.additionalContext'
 {"cwd": "$FOLDER"}
 EOF

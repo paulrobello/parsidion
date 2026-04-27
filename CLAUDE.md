@@ -1,19 +1,19 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding assistants when working with code in this repository.
 
-## What This Repo Is
+## Project Overview
 
-parsidion-cc is a Claude Code customization toolkit — the **source repository** for skills, agents, and hook scripts that get installed into `~/.claude/`. It is not a runnable application; it is managed configuration and scripts.
+Parsidion is the source repository for an agent-agnostic markdown knowledge vault: skills, agents, hook scripts, search/index tools, and visualizer/MCP integrations that give coding agents persistent memory. Claude Code remains the primary installed adapter today, but the core vault tooling is runtime-agnostic.
 
 ## Installed vs Source Paths
 
 | Component | Source (this repo) | Installed to |
 |---|---|---|
 | Installer | `install.py` | run in-place (`uv run install.py`) |
-| Claude Vault skill | `skills/parsidion-cc/` | `~/.claude/skills/parsidion-cc/` |
+| Parsidion vault skill | `skills/parsidion/` | `~/.claude/skills/parsidion/` |
 | Research agent | `agents/research-agent.md` | `~/.claude/agents/` |
-| Hook scripts | `skills/parsidion-cc/scripts/` | referenced from `~/.claude/settings.json` |
+| Hook scripts | `skills/parsidion/scripts/` | referenced from `~/.claude/settings.json` |
 | Vault | (generated) | `~/ClaudeVault/` (or custom path) |
 
 Use `install.py` to sync changes from this repo to the installed locations. After editing source files, run:
@@ -48,20 +48,20 @@ uv run install.py --install-tools    # runs uv tool install --editable ".[tools]
 uv tool install --editable ".[tools]"
 
 # Rebuild the vault index (after creating/renaming/deleting notes)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 
 # Rebuild index AND regenerate visualizer graph.json in one pass
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph
 
 # Also include Daily notes in the graph
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph --graph-include-daily
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph --graph-include-daily
 
 # Summarize queued sessions (from a terminal outside Claude Code)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py --dry-run
+uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --dry-run
 
 # Summarize from inside a Claude Code session (unset CLAUDECODE to allow nesting)
-env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion-cc/scripts/summarize_sessions.py
+env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
 
 # Search vault notes (after uv tool install --editable ".[tools]")
 vault-search "hook patterns" -n 5            # semantic, top 5
@@ -106,25 +106,25 @@ vault-export --pdf ~/vault.pdf     # PDF via pandoc
 vault-merge                        # AI-assisted note merging with backlink updates
 
 # Vault doctor — individual fix modes
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-tags           # detect duplicate tags (dry-run)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-tags --execute # apply tag merges
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-subfolders           # detect prefix clusters (dry-run)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-subfolders --execute # apply moves
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-frontmatter    # repair frontmatter via Claude
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --no-fix-headings --fix-frontmatter  # repair frontmatter without heading promotion
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-tags           # detect duplicate tags (dry-run)
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-tags --execute # apply tag merges
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders           # detect prefix clusters (dry-run)
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders --execute # apply moves
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-frontmatter    # repair frontmatter via Claude
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --no-fix-headings --fix-frontmatter  # repair frontmatter without heading promotion
 
 # Vault doctor — migrate legacy un-namespaced daily notes to DD-{username}.md (team use)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-daily-notes                            # dry-run
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-daily-notes --execute                 # apply (uses vault.username from config, then $USER)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --migrate-daily-notes --daily-username alice --execute  # explicit username
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-daily-notes                            # dry-run
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-daily-notes --execute                 # apply (uses vault.username from config, then $USER)
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-daily-notes --daily-username alice --execute  # explicit username
 
 # Vault doctor — fix everything in one pass (used by nightly cron)
 # Note: --fix-headings is enabled by default (promotes ## to # when no # heading exists)
 # Note: --fix-all includes --migrate-daily-notes (uses vault.username / $USER)
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/vault_doctor.py --fix-all
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
 
 # Run the skill trigger accuracy eval (MUST be from a separate terminal, not inside Claude Code)
-bash ~/.claude/skills/parsidion-cc/scripts/run_trigger_eval.sh
+bash ~/.claude/skills/parsidion/scripts/run_trigger_eval.sh
 ```
 
 The trigger eval and summarizer cannot run nested inside a Claude Code session because they
@@ -157,11 +157,11 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full multi-machine setup gu
 All hook and summarizer options can be set in `~/ClaudeVault/config.yaml`. Precedence:
 **defaults → config.yaml → CLI args** (last one wins).
 
-A template with all options and their defaults is at `skills/parsidion-cc/templates/config.yaml`.
+A template with all options and their defaults is at `skills/parsidion/templates/config.yaml`.
 Copy it to the vault root to get started:
 
 ```bash
-cp ~/.claude/skills/parsidion-cc/templates/config.yaml ~/ClaudeVault/config.yaml
+cp ~/.claude/skills/parsidion/templates/config.yaml ~/ClaudeVault/config.yaml
 ```
 
 Config sections:
@@ -194,44 +194,44 @@ uv run install.py --force --yes
 For a single-file quick sync (faster than full reinstall):
 ```bash
 # Example: after editing vault_common.py
-cp skills/parsidion-cc/scripts/vault_common.py ~/.claude/skills/parsidion-cc/scripts/vault_common.py
+cp skills/parsidion/scripts/vault_common.py ~/.claude/skills/parsidion/scripts/vault_common.py
 
 # After editing SKILL.md
-cp skills/parsidion-cc/SKILL.md ~/.claude/skills/parsidion-cc/SKILL.md
+cp skills/parsidion/SKILL.md ~/.claude/skills/parsidion/SKILL.md
 
 # After editing the research agent
 cp agents/research-agent.md ~/.claude/agents/research-agent.md
 
 # After editing subagent_stop_hook.py
-cp skills/parsidion-cc/scripts/subagent_stop_hook.py ~/.claude/skills/parsidion-cc/scripts/subagent_stop_hook.py
+cp skills/parsidion/scripts/subagent_stop_hook.py ~/.claude/skills/parsidion/scripts/subagent_stop_hook.py
 ```
 
 **Testing hooks manually** — hooks communicate via JSON on stdin/stdout.
 Use heredoc to avoid shell quoting issues with JSON:
 ```bash
 # Test session_start_hook
-python skills/parsidion-cc/scripts/session_start_hook.py <<'EOF'
+python skills/parsidion/scripts/session_start_hook.py <<'EOF'
 {"cwd": "/Users/yourname/Repos/myproject"}
 EOF
 
 # Test session_stop_wrapper (the registered SessionEnd hook)
-bash skills/parsidion-cc/scripts/session_stop_wrapper.sh <<'EOF'
+bash skills/parsidion/scripts/session_stop_wrapper.sh <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 # Background work logs to /tmp/session_stop_hook.log
 
 # Test session_stop_hook directly (requires a real transcript path)
-python skills/parsidion-cc/scripts/session_stop_hook.py <<'EOF'
+python skills/parsidion/scripts/session_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
 # Test pre_compact_hook
-python skills/parsidion-cc/scripts/pre_compact_hook.py <<'EOF'
+python skills/parsidion/scripts/pre_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
 # Test subagent_stop_hook (provide a real agent_transcript_path)
-python skills/parsidion-cc/scripts/subagent_stop_hook.py <<'EOF'
+python skills/parsidion/scripts/subagent_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "agent_transcript_path": "/path/to/agent.jsonl", "agent_id": "abc-123", "agent_type": "Explore"}
 EOF
 ```
@@ -250,7 +250,7 @@ EOF
 | `make typecheck` | `uv run pyright .` | Type-check Python |
 | `make test` | `uv run pytest tests/` | Run test suite |
 | `make checkall` | fmt + lint + typecheck + test | Full quality gate |
-| `make graph` | `uv run skills/parsidion-cc/scripts/build_graph.py` | Rebuild `graph.json` (excludes Daily notes) |
+| `make graph` | `uv run skills/parsidion/scripts/build_graph.py` | Rebuild `graph.json` (excludes Daily notes) |
 | `make graph-with-daily` | same + `--include-daily` | Rebuild `graph.json` including Daily notes |
 | `make visualizer` | `cd visualizer && bun dev` | Start visualizer dev server on port 3999 |
 | `make build-visualizer` | `cd visualizer && bun run build` | Build visualizer for production |
@@ -277,7 +277,7 @@ The system has ten components:
 
 5. **`vault_links.py`** — Shared stdlib-only module for backlink operations. Extracted from `summarize_sessions.py` and used by both the summarizer and `parsidion-mcp`. Key functions: `find_related_by_tags()` (tag-overlap candidates), `find_related_by_semantic()` (embedding-based candidates), `inject_related_links()` (add wikilinks to a note's `related` field), `add_backlinks_to_existing()` (bidirectional backlink injection after a new note is written).
 
-6. **`vault_stats.py`** — Analytics CLI installed globally as `vault-stats`. Original modes: `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags`, `--dashboard`. New modes: `--pending` (pending queue status with source breakdown and estimated token cost), `--graph` (knowledge graph metrics: average degree, hub notes, isolated clusters, orphans, citation chains), `--hooks N` (last N events from `hook_events.log`), `--weekly` (generate weekly rollup note from daily notes), `--monthly` (monthly rollup), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (read `/tmp/parsidion-cc-summarizer-progress.json` for live feedback from a running `summarize_sessions.py`).
+6. **`vault_stats.py`** — Analytics CLI installed globally as `vault-stats`. Original modes: `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags`, `--dashboard`. New modes: `--pending` (pending queue status with source breakdown and estimated token cost), `--graph` (knowledge graph metrics: average degree, hub notes, isolated clusters, orphans, citation chains), `--hooks N` (last N events from `hook_events.log`), `--weekly` (generate weekly rollup note from daily notes), `--monthly` (monthly rollup), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (read `~/.claude/logs/parsidion-summarizer-progress.json` for live feedback from a running `summarize_sessions.py`).
 
 7. **`vault_review.py`** — Interactive TUI (`vault-review` global command) for inspecting and approving/rejecting pending sessions before AI summarization. Sessions approved here are processed first when `summarize_sessions.py --approved-only` is used.
 
@@ -308,12 +308,12 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 - No orphan notes — every note must link to at least one other note via `related`
 - Search before create — update existing notes rather than creating duplicates
 - **Tag brevity**: prefer short singular kebab-case tags — e.g. `voxel` not `voxel-engine`, `hook` not `hooks`, `fractal` not `fractals`. **Never use underscores** in tags or the `project` field — convert repo names like `par_ai_core` to `par-ai-core`. Use a longer form only when the short form would be genuinely ambiguous.
-- `Templates/` is a symlink to `skills/parsidion-cc/templates/` — never edit template files directly from the vault side
+- `Templates/` is a symlink to `skills/parsidion/templates/` — never edit template files directly from the vault side
 - **Subfolder rule**: when 3 or more notes share a common subject prefix, move them into a subfolder named after that subject. Drop the redundant prefix from filenames inside the subfolder. Only one level of subfolder is allowed — never nest subfolders within subfolders. Update all wikilinks and run `update_index.py` after reorganizing.
 
 ## Skill SKILL.md Structure
 
-`skills/parsidion-cc/SKILL.md` has YAML frontmatter with `name` and `description` fields. The description is what Claude Code uses for automatic skill invocation — it was iteratively optimized using `run_trigger_eval.py`. When modifying the description, run the trigger eval to measure impact on precision/recall.
+`skills/parsidion/SKILL.md` has YAML frontmatter with `name` and `description` fields. The description is what Claude Code uses for automatic skill invocation — it was iteratively optimized using `run_trigger_eval.py`. When modifying the description, run the trigger eval to measure impact on precision/recall.
 
 ## Research Agent
 
@@ -326,12 +326,12 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 ## Key File Paths in Code
 
 - `VAULT_ROOT` = `~/ClaudeVault/` (module-level constant in `vault_common.py`, patched by installer for custom vault paths)
-- `TEMPLATES_DIR` = `~/.claude/skills/parsidion-cc/templates/` (module-level constant in `vault_common.py`, patched by installer)
+- `TEMPLATES_DIR` = `~/.claude/skills/parsidion/templates/` (module-level constant in `vault_common.py`, patched by installer)
 - `pending_summaries.jsonl` = `~/ClaudeVault/pending_summaries.jsonl` — queue of sessions awaiting AI summarization. Each line: `{"session_id": "...", "transcript_path": "...", "project": "...", "categories": [...], "timestamp": "..."}`. Deduplicated by `session_id`.
 - `embeddings.db` = `~/ClaudeVault/embeddings.db` — SQLite database with two tables: `note_embeddings` (384-dim float32 vectors built by `build_embeddings.py`) and `note_index` (per-note metadata built by `update_index.py`). Queried by `vault_search.py` (both modes) and `vault_common.query_note_index()`. All callers fall back gracefully when absent.
 - `EXCLUDE_DIRS` = set of folder names skipped by the indexer and vault traversal (defined in `vault_common.py`). Currently: `.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`.
 - `hook_events.log` = `~/ClaudeVault/hook_events.log` — structured JSON log of hook executions. Each line: `{"hook": "SessionStart", "ts": "...", "project": "...", "notes_injected": 5, "chars": 2800, "duration_ms": 320}`. Rotated at `event_log.max_lines` (default 10,000). Written by `vault_common.write_hook_event()`. Read by `vault-stats --hooks N`.
-- Summarizer progress file: `/tmp/parsidion-cc-summarizer-progress.json` — written by `summarize_sessions.py` during a run; read by `vault-stats --summarizer-progress`.
+- Summarizer progress file: `~/.claude/logs/parsidion-summarizer-progress.json` — written by `summarize_sessions.py` during a run; read by `vault-stats --summarizer-progress`.
 - Hook registration: `~/.claude/settings.json`
-- Trigger eval results: `~/.claude/skills/parsidion-cc/eval_results.json`
+- Trigger eval results: `~/.claude/skills/parsidion/eval_results.json`
 - Installer: `install.py` (repo root)

@@ -1,6 +1,6 @@
 # Documentation Style Guide
 
-This guide establishes standards and best practices for creating and maintaining documentation in the Parsidion CC project. It ensures consistency, clarity, and professionalism across all technical documentation.
+This guide establishes standards and best practices for creating and maintaining documentation in the Parsidion project. It ensures consistency, clarity, and professionalism across all technical documentation.
 
 ## Table of Contents
 - [Quick Reference](#quick-reference)

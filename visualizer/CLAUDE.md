@@ -26,10 +26,10 @@ The visualizer reads **`{vault}/graph.json`** — a pre-built snapshot of each v
 
 ```bash
 # From the repo root (recommended — also rebuilds the index):
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph
 
 # Include Daily notes in the graph:
-uv run --no-project ~/.claude/skills/parsidion-cc/scripts/update_index.py --rebuild-graph --graph-include-daily
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph --graph-include-daily
 ```
 
 `graph.json` is gitignored in the vault (rebuilt locally, not synced across machines).
