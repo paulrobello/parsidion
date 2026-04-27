@@ -44,12 +44,103 @@ class TestParseArgs:
             == "claude"
         )
 
-    def test_resolve_runtime_defaults_to_both_for_interactive(self, monkeypatch) -> None:
+    def test_resolve_runtime_defaults_to_both_for_interactive(
+        self, monkeypatch
+    ) -> None:
         monkeypatch.setattr(install, "_ask", lambda prompt, default="": "")
 
         assert (
             install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
             == "both"
+        )
+
+
+class TestCodexHooks:
+    def test_merge_codex_hooks_creates_hooks_json(self, tmp_path: Path) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+
+        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+
+        hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+        assert "SessionStart" in hooks["hooks"]
+        assert "Stop" in hooks["hooks"]
+        commands = [
+            hook["command"]
+            for group in hooks["hooks"].values()
+            for entry in group
+            for hook in entry["hooks"]
+        ]
+        assert any("codex_session_start_hook.py" in command for command in commands)
+        assert any("codex_stop_hook.py" in command for command in commands)
+
+    def test_merge_codex_hooks_preserves_existing_hooks_and_is_idempotent(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+        hooks_file = codex_home / "hooks.json"
+        hooks_file.parent.mkdir(parents=True)
+        hooks_file.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {"type": "command", "command": "echo existing"}
+                                ],
+                            }
+                        ]
+                    }
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+
+        hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
+        handlers = hooks["hooks"]["SessionStart"]
+        commands = [hook["command"] for entry in handlers for hook in entry["hooks"]]
+        assert commands.count("echo existing") == 1
+        assert (
+            sum("codex_session_start_hook.py" in command for command in commands) == 1
+        )
+
+    def test_remove_codex_hooks_only_removes_managed_commands(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        hooks_file = codex_home / "hooks.json"
+        hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
+        hooks["hooks"].setdefault("Stop", []).append(
+            {"matcher": "", "hooks": [{"type": "command", "command": "echo user"}]}
+        )
+        hooks_file.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
+
+        changed = install.remove_codex_hooks(codex_home, claude_dir, dry_run=False)
+
+        updated = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert changed is True
+        assert updated["hooks"]["Stop"] == [
+            {"matcher": "", "hooks": [{"type": "command", "command": "echo user"}]}
+        ]
+
+    def test_enable_codex_hooks_config_creates_features_section(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+
+        install.enable_codex_hooks_config(codex_home, dry_run=False, yes=True)
+
+        assert (codex_home / "config.toml").read_text(encoding="utf-8") == (
+            "[features]\ncodex_hooks = true\n"
         )
 
 

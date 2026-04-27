@@ -119,6 +119,11 @@ _HOOK_OPTIONS: dict[str, dict] = {
     "SubagentStop": {"async": True},
 }
 
+_CODEX_HOOK_SCRIPTS: dict[str, str] = {
+    "SessionStart": "codex_session_start_hook.py",
+    "Stop": "codex_stop_hook.py",
+}
+
 _RUNTIME_CHOICES = ("claude", "codex", "both", "none")
 
 
@@ -903,6 +908,230 @@ def _hook_command(claude_dir: Path, event: str) -> str:
     ``uv run --no-project`` to ensure the correct Python interpreter.
     """
     return _managed_hook_command(claude_dir, SKILL_NAME, event)
+
+
+def _managed_codex_hook_command(claude_dir: Path, event: str) -> str:
+    """Return the managed Codex hook command string for a Codex event."""
+    script = _CODEX_HOOK_SCRIPTS[event]
+    script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
+    try:
+        rel = script_path.relative_to(Path.home())
+        script_display = f"~/{rel.as_posix()}"
+    except ValueError:
+        script_display = script_path.as_posix()
+    return f"uv run --no-project {script_display}"
+
+
+def _codex_hooks_file(codex_home: Path) -> Path:
+    """Return the Codex hooks.json path."""
+    return codex_home / "hooks.json"
+
+
+def _read_codex_hooks(hooks_file: Path) -> dict | None:
+    """Read Codex hooks JSON, returning None when existing data is unsafe to edit."""
+    if not hooks_file.exists():
+        return {"hooks": {}}
+    try:
+        hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read {hooks_file}: {exc}; skipping Codex hook update")
+        return None
+    if not isinstance(hooks, dict):
+        _warn(f"{hooks_file} is not a JSON object; skipping Codex hook update")
+        return None
+    hooks_section = hooks.setdefault("hooks", {})
+    if not isinstance(hooks_section, dict):
+        _warn(f"{hooks_file} has non-object hooks section; skipping Codex hook update")
+        return None
+    return hooks
+
+
+def merge_codex_hooks(
+    codex_home: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> None:
+    """Merge Parsidion-managed Codex hooks into CODEX_HOME/hooks.json."""
+    hooks_file = _codex_hooks_file(codex_home)
+    hooks = _read_codex_hooks(hooks_file)
+    if hooks is None:
+        return
+
+    hooks_section: dict = hooks["hooks"]
+    added: list[str] = []
+    skipped: list[str] = []
+
+    for event in _CODEX_HOOK_SCRIPTS:
+        command = _managed_codex_hook_command(claude_dir, event)
+        event_hooks = hooks_section.setdefault(event, [])
+        if not isinstance(event_hooks, list):
+            _warn(f"Codex hook event {event} is not a list; skipping")
+            continue
+        if _hook_already_registered(event_hooks, command):
+            _print(
+                dim(f"  Codex hook {event} already registered"),
+                verbose_only=True,
+                verbose=verbose,
+            )
+            skipped.append(event)
+            continue
+
+        new_entry = {
+            "matcher": "",
+            "hooks": [{"type": "command", "command": command, "timeout": 10000}],
+        }
+        _step(f"Register Codex hook {bold(event)}: {dim(command)}", dry_run=dry_run)
+        if not dry_run:
+            event_hooks.append(new_entry)
+        added.append(event)
+
+    if dry_run:
+        return
+
+    if added:
+        try:
+            hooks_file.parent.mkdir(parents=True, exist_ok=True)
+            hooks_file.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
+            _ok(f"Updated {hooks_file}")
+        except OSError as exc:
+            _err(f"Could not write {hooks_file}: {exc}")
+    elif skipped:
+        _ok("All Codex hooks already registered")
+
+
+def remove_codex_hooks(
+    codex_home: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Remove only Parsidion-managed Codex hook commands from hooks.json."""
+    hooks_file = _codex_hooks_file(codex_home)
+    hooks = _read_codex_hooks(hooks_file)
+    if hooks is None:
+        return False
+    if not hooks_file.exists():
+        _warn(f"Codex hooks.json not found: {hooks_file}")
+        return False
+
+    hooks_section: dict = hooks["hooks"]
+    changed = False
+    for event in _CODEX_HOOK_SCRIPTS:
+        command = _managed_codex_hook_command(claude_dir, event)
+        event_hooks = hooks_section.get(event, [])
+        if not isinstance(event_hooks, list):
+            continue
+        filtered, event_changed = _filter_hook_entries(
+            event_hooks,
+            lambda hook, command=command: hook.get("command", "") == command,
+        )
+        if event_changed:
+            _step(f"Remove Codex hook {bold(event)}", dry_run=dry_run)
+            changed = True
+            if filtered:
+                hooks_section[event] = filtered
+            elif event in hooks_section:
+                del hooks_section[event]
+
+    if changed and not dry_run:
+        try:
+            hooks_file.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
+            _ok(f"Updated {hooks_file}")
+        except OSError as exc:
+            _err(f"Could not write {hooks_file}: {exc}")
+    elif not changed:
+        _warn("No Parsidion Codex hook registrations found.")
+
+    return changed
+
+
+def _set_codex_hooks_in_features_section(content: str, *, yes: bool) -> str | None:
+    """Return updated Codex config text, or None when no safe edit is available."""
+    lines = content.splitlines()
+    if not lines:
+        return "[features]\ncodex_hooks = true\n"
+
+    features_start: int | None = None
+    features_end = len(lines)
+    section_re = re.compile(r"^\s*\[([^\]]+)]\s*(?:#.*)?$")
+    for index, line in enumerate(lines):
+        match = section_re.match(line)
+        if not match:
+            continue
+        section_name = match.group(1).strip()
+        if section_name == "features":
+            features_start = index
+            features_end = len(lines)
+            for end_index in range(index + 1, len(lines)):
+                if section_re.match(lines[end_index]):
+                    features_end = end_index
+                    break
+            break
+
+    if features_start is None:
+        suffix = "" if content.endswith("\n") else "\n"
+        return content + suffix + "\n[features]\ncodex_hooks = true\n"
+
+    codex_hooks_re = re.compile(
+        r"^(\s*codex_hooks\s*=\s*)(true|false)(\s*(?:#.*)?)$", re.IGNORECASE
+    )
+    codex_hooks_key_re = re.compile(r"^\s*codex_hooks\s*=")
+    for index in range(features_start + 1, features_end):
+        match = codex_hooks_re.match(lines[index])
+        if not match:
+            if codex_hooks_key_re.match(lines[index]):
+                _warn("Ambiguous codex_hooks setting; leaving Codex config unchanged")
+                return None
+            continue
+        value = match.group(2).lower()
+        if value == "true":
+            return content
+        if not yes and not _confirm(
+            "Enable codex_hooks in Codex config?", default=True
+        ):
+            _warn("Codex hooks are disabled; add `codex_hooks = true` manually")
+            return None
+        lines[index] = f"{match.group(1)}true{match.group(3)}"
+        return "\n".join(lines) + "\n"
+
+    insert_at = features_end
+    lines.insert(insert_at, "codex_hooks = true")
+    return "\n".join(lines) + "\n"
+
+
+def enable_codex_hooks_config(
+    codex_home: Path,
+    dry_run: bool = False,
+    yes: bool = False,
+) -> None:
+    """Ensure CODEX_HOME/config.toml enables native Codex hooks."""
+    config_file = codex_home / "config.toml"
+    if config_file.exists():
+        try:
+            content = config_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            _warn(f"Could not read {config_file}: {exc}")
+            return
+    else:
+        content = ""
+
+    updated = _set_codex_hooks_in_features_section(content, yes=yes)
+    if updated is None:
+        _warn("Add this manually to Codex config:\n[features]\ncodex_hooks = true")
+        return
+    if updated == content:
+        _ok("Codex hooks already enabled")
+        return
+
+    _step(f"Enable Codex hooks in {config_file}", dry_run=dry_run)
+    if dry_run:
+        return
+    try:
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text(updated, encoding="utf-8")
+        _ok(f"Updated {config_file}")
+    except OSError as exc:
+        _err(f"Could not write {config_file}: {exc}")
 
 
 def _legacy_hook_command(claude_dir: Path, event: str) -> str:
