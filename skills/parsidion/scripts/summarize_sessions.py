@@ -55,7 +55,7 @@ async def _run_summarizer_prompt(
     model_tier: ai_backend.ModelTier,
     purpose: str,
     timeout: int | float | None,
-    vault: Path | None,
+    vault: Path,
 ) -> str | None:
     """Run a summarizer prompt through the configured AI backend."""
 
@@ -867,7 +867,7 @@ def _find_dedup_candidates(
 
 async def summarize_one(
     entry: dict[str, object],
-    model: str,
+    model: str | None,
     dry_run: bool,
     semaphore: anyio.Semaphore,
     existing_tags: list[str],
@@ -886,7 +886,7 @@ async def summarize_one(
         dry_run: If True, print without writing.
         semaphore: Concurrency limiter.
         existing_tags: All tags currently in the vault.
-        persist: If True, allow the SDK to persist the session to disk.
+        persist: Backwards-compatible no-op accepted from legacy CLI usage.
         vault: Path to the vault directory.
         tail_lines: Number of transcript lines to read.
         max_cleaned_chars: Maximum characters after cleaning.
@@ -901,6 +901,8 @@ async def summarize_one(
         skip decision, or error.  written_path is ``_STALE`` when the
         transcript file no longer exists (entry should be purged).
     """
+    del persist
+
     async with semaphore:
         transcript_path_str = str(entry.get("transcript_path", ""))
         project = str(entry.get("project", "unknown"))
@@ -947,8 +949,8 @@ async def summarize_one(
                 prompt,
                 model=model,
                 model_tier="large",
-                purpose="session-summary",
-                timeout=None,
+                purpose="summarizer-note",
+                timeout=vault_common.get_config("summarizer", "ai_timeout", None),
                 vault=vault,
             )
         except Exception as e:  # noqa: BLE001
@@ -1034,7 +1036,7 @@ async def summarize_one(
 
 async def run_all(
     entries: list[dict[str, object]],
-    model: str,
+    model: str | None,
     dry_run: bool,
     persist: bool,
     vault: Path,
@@ -1049,7 +1051,7 @@ async def run_all(
         entries: List of pending entries.
         model: Model ID.
         dry_run: If True, print without writing.
-        persist: If True, allow SDK session persistence.
+        persist: Backwards-compatible no-op accepted from legacy CLI usage.
         vault: Path to the vault directory.
         max_parallel: Maximum concurrent summarization tasks.
         tail_lines: Transcript tail lines per entry.
@@ -1258,7 +1260,7 @@ def main() -> None:
         "--persist",
         action="store_true",
         default=None,
-        help="Enable SDK session persistence (default: off). Use when debugging to inspect saved sessions.",
+        help="Accepted for backwards compatibility; currently unused.",
     )
     parser.add_argument(
         "--run-doctor",

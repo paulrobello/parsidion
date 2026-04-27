@@ -219,7 +219,84 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
     assert {call["model"] for call in calls} == {None}
 
 
-def test_summarize_one_uses_backend_skip_decision_when_prompt_runner_is_patched(
+def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"assistant","message":{"content":"fixed bug"}}\n',
+        encoding="utf-8",
+    )
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    calls: list[dict[str, object]] = []
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+        calls.append({"prompt": prompt, **kwargs})
+        return (
+            "---\n"
+            "date: 2026-04-27\n"
+            "type: debugging\n"
+            "tags:\n"
+            "  - debugging\n"
+            "confidence: high\n"
+            "---\n"
+            "# Test Note\n\nUseful note."
+        )
+
+    def fake_get_config(section: str, key: str, default: object = None) -> object:
+        if (section, key, default) == ("summarizer", "ai_timeout", None):
+            return 77
+        if (section, key) == ("summarizer", "dedup_threshold"):
+            return default
+        raise AssertionError((section, key, default))
+
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+    )
+    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(
+        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+    )
+
+    entry = {
+        "transcript_path": str(transcript_path),
+        "project": "parsidion",
+        "categories": ["error_fix"],
+        "session_id": "session-1234",
+    }
+
+    result_entry, written = asyncio.run(
+        summarize_sessions.summarize_one(
+            entry,
+            None,
+            True,
+            summarize_sessions.anyio.Semaphore(1),
+            ["debugging"],
+            False,
+            vault,
+            cluster_model=None,
+        )
+    )
+
+    assert result_entry == entry
+    assert written is None
+    assert len(calls) == 1
+    assert calls[0]["model"] is None
+    assert calls[0]["model_tier"] == "large"
+    assert calls[0]["purpose"] == "summarizer-note"
+    assert calls[0]["timeout"] == 77
+    assert calls[0]["vault"] == vault
+
+
+def test_summarize_one_preserves_skip_write_gate(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
@@ -229,12 +306,20 @@ def test_summarize_one_uses_backend_skip_decision_when_prompt_runner_is_patched(
         '{"type":"assistant","content":"Ran checks and found nothing reusable"}\n',
         encoding="utf-8",
     )
+    vault = tmp_path / "vault"
+    vault.mkdir()
     calls: list[dict[str, object]] = []
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
 
     async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
         calls.append({"prompt": prompt, **kwargs})
         return '{"decision": "skip", "reason": "routine transient session"}'
 
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+    )
     monkeypatch.setattr(
         summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
@@ -251,11 +336,12 @@ def test_summarize_one_uses_backend_skip_decision_when_prompt_runner_is_patched(
                 "session_id": "session-1234",
             },
             "summary-model",
-            True,
+            False,
             summarize_sessions.anyio.Semaphore(1),
             ["testing"],
             False,
-            tmp_path / "vault",
+            vault,
+            cluster_model=None,
         )
 
     entry, written = asyncio.run(run())
@@ -265,3 +351,66 @@ def test_summarize_one_uses_backend_skip_decision_when_prompt_runner_is_patched(
     assert len(calls) == 1
     assert calls[0]["model"] == "summary-model"
     assert "session-1234" in str(calls[0]["prompt"])
+
+
+def test_summarize_one_preserves_dry_run_markdown_note_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"assistant","message":{"content":"fixed bug"}}\n',
+        encoding="utf-8",
+    )
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+        return (
+            "---\n"
+            "date: 2026-04-27\n"
+            "type: debugging\n"
+            "tags:\n"
+            "  - debugging\n"
+            "confidence: high\n"
+            "---\n"
+            "# Test Note\n\nUseful note."
+        )
+
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+    )
+
+    _entry, written = asyncio.run(
+        summarize_sessions.summarize_one(
+            {
+                "transcript_path": str(transcript_path),
+                "project": "parsidion",
+                "categories": ["testing"],
+                "session_id": "session-1234",
+            },
+            "summary-model",
+            True,
+            summarize_sessions.anyio.Semaphore(1),
+            ["testing"],
+            False,
+            vault,
+            cluster_model=None,
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert written is None
+    assert "[dry-run] Would write:" in captured.out
+    assert "Debugging/test-note.md" in captured.out
