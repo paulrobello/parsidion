@@ -13,6 +13,14 @@
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 REAL_HOOK="$SCRIPTS_DIR/session_stop_hook.py"
 
+# Parsidion-launched CLI agents set PARSIDION_INTERNAL=1. Acknowledge and skip
+# immediately so internal sessions do not enqueue more summarization work or
+# spawn detached hook processes.
+if [ -n "${PARSIDION_INTERNAL:-}" ]; then
+  printf '{}'
+  exit 0
+fi
+
 # SEC-003: restrict temp file permissions to owner-only (mode 0600) by setting
 # umask 077 before mktemp so no other user on the system can read cwd/transcript
 # paths written to the file.
