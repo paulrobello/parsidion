@@ -1,19 +1,18 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["claude-agent-sdk>=0.0.10,<1.0", "anyio>=4.0.0,<5.0"]
+# dependencies = ["anyio>=4.0.0,<5.0"]
 # ///
 """On-demand AI-powered session summarizer for Parsidion vault.
 
-Reads pending_summaries.jsonl, processes transcripts via Claude Agent SDK,
+Reads pending_summaries.jsonl, processes transcripts via the configured AI backend,
 and writes structured vault notes to the appropriate vault folders.
 
 Usage:
     uv run summarize_sessions.py [--sessions FILE] [--dry-run] [--model MODEL] [--persist]
 
 ARC-015: Concurrency model rationale
-This script uses ``anyio`` + ``anyio.create_task_group`` for async concurrency
-because it already depends on ``claude-agent-sdk`` (which is built on anyio).
+This script uses ``anyio`` + ``anyio.create_task_group`` for async concurrency.
 Structured concurrency guarantees from task groups (exception propagation,
 automatic cancellation) are more robust than ``ThreadPoolExecutor`` futures.
 
@@ -32,13 +31,15 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import AsyncIterator
 from datetime import date, datetime
+from functools import partial
 from pathlib import Path
 from typing import cast
 
 import anyio  # type: ignore[import-untyped]
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query  # type: ignore[import-untyped]
 
+import ai_backend
 import vault_common
 import vault_links
 
@@ -46,6 +47,52 @@ import vault_links
 _flock_exclusive = vault_common.flock_exclusive
 _flock_shared = vault_common.flock_shared
 _funlock = vault_common.funlock
+
+
+class ClaudeAgentOptions:
+    """Temporary compatibility stub for unmigrated summarizer call sites."""
+
+    def __init__(self, **_: object) -> None:
+        raise RuntimeError("summarizer prompt call site has not been migrated")
+
+
+class ResultMessage:
+    """Temporary compatibility stub for unmigrated summarizer call sites."""
+
+    result: str
+
+
+async def query(*, prompt: str, options: ClaudeAgentOptions) -> AsyncIterator[object]:
+    """Temporary compatibility stub for unmigrated summarizer call sites."""
+
+    del prompt, options
+    raise RuntimeError("summarizer prompt call site has not been migrated")
+    yield ResultMessage()
+
+
+async def _run_summarizer_prompt(
+    prompt: str,
+    *,
+    model: str | None,
+    model_tier: ai_backend.ModelTier,
+    purpose: str,
+    timeout: int | float | None,
+    vault: Path | None,
+) -> str | None:
+    """Run a summarizer prompt through the configured AI backend."""
+
+    result = await anyio.to_thread.run_sync(
+        partial(
+            ai_backend.run_ai_prompt,
+            prompt,
+            model=model,
+            model_tier=model_tier,
+            purpose=purpose,
+            timeout=timeout,
+            vault=vault,
+        )
+    )
+    return cast(str | None, result)
 
 
 _DEFAULT_MODEL: str = vault_common.get_config(

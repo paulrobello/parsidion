@@ -315,12 +315,12 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "lines": (int,),
     },
     "summarizer": {
-        "model": (str,),
+        "model": (str, type(None)),
         "max_parallel": (int,),
         "transcript_tail_lines": (int,),
         "max_cleaned_chars": (int,),
         "persist": (bool,),
-        "cluster_model": (str,),
+        "cluster_model": (str, type(None)),
         "dedup_threshold": (float, int),
     },
     "embeddings": {
