@@ -112,8 +112,8 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
     ]
 
 
-def test_summarize_chunk_returns_backend_output_when_prompt_runner_is_patched(
-    monkeypatch: pytest.MonkeyPatch,
+def test_summarize_chunk_uses_small_tier_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     calls: list[dict[str, object]] = []
@@ -122,20 +122,101 @@ def test_summarize_chunk_returns_backend_output_when_prompt_runner_is_patched(
         calls.append({"prompt": prompt, **kwargs})
         return "backend summary"
 
+    def fake_get_config(section: str, key: str, default: object = None) -> object:
+        assert (section, key, default) == ("summarizer", "ai_timeout", None)
+        return 42
+
     monkeypatch.setattr(
         summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
+    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
 
     result = asyncio.run(
         summarize_sessions._summarize_chunk(
-            "chunk body", 2, 3, "chunk-model", {"no-session-persistence": None}
+            "chunk body", 2, 3, model=None, vault=tmp_path
         )
     )
 
     assert result == "backend summary"
     assert len(calls) == 1
     assert "portion (2/3)" in str(calls[0]["prompt"])
-    assert calls[0]["model"] == "chunk-model"
+    assert calls[0]["model"] is None
+    assert calls[0]["model_tier"] == "small"
+    assert calls[0]["purpose"] == "summarizer-chunk"
+    assert calls[0]["timeout"] == 42
+    assert calls[0]["vault"] == tmp_path
+
+
+def test_summarize_chunk_falls_back_to_first_500_chars_on_backend_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    chunk_text = "x" * 600
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+    )
+
+    result = asyncio.run(
+        summarize_sessions._summarize_chunk(
+            chunk_text, 1, 1, model="chunk-model", vault=tmp_path
+        )
+    )
+
+    assert result == chunk_text[:500]
+
+
+def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    calls: list[dict[str, object]] = []
+
+    def fake_preprocess_transcript(
+        transcript_path_str: str, tail_lines: int, max_chars: int
+    ) -> str:
+        return "line\n" * 10
+
+    async def fake_summarize_chunk(
+        chunk_text: str,
+        chunk_num: int,
+        total_chunks: int,
+        model: str | None,
+        vault: Path,
+    ) -> str:
+        calls.append(
+            {
+                "chunk_text": chunk_text,
+                "chunk_num": chunk_num,
+                "total_chunks": total_chunks,
+                "model": model,
+                "vault": vault,
+            }
+        )
+        return f"summary {chunk_num}"
+
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript", fake_preprocess_transcript
+    )
+    monkeypatch.setattr(summarize_sessions, "_summarize_chunk", fake_summarize_chunk)
+
+    result = asyncio.run(
+        summarize_sessions.preprocess_transcript_hierarchical(
+            "session.jsonl",
+            tail_lines=400,
+            max_cleaned_chars=12,
+            cluster_model=None,
+            vault=tmp_path,
+        )
+    )
+
+    assert result.startswith("[Hierarchical summary from ")
+    assert calls
+    assert {call["vault"] for call in calls} == {tmp_path}
+    assert {call["model"] for call in calls} == {None}
 
 
 def test_summarize_one_uses_backend_skip_decision_when_prompt_runner_is_patched(

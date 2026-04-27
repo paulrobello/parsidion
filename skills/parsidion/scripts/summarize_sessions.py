@@ -647,8 +647,8 @@ async def _summarize_chunk(
     chunk_text: str,
     chunk_num: int,
     total_chunks: int,
-    model: str,
-    extra: dict[str, str | None],
+    model: str | None,
+    vault: Path,
 ) -> str:
     """Summarize one chunk of a long transcript using a cheaper model.
 
@@ -657,7 +657,7 @@ async def _summarize_chunk(
         chunk_num: 1-based index of this chunk.
         total_chunks: Total number of chunks.
         model: Model ID to use for summarization.
-        extra: Legacy prompt options retained for call-site compatibility.
+        vault: Vault path used for backend configuration and execution context.
 
     Returns:
         A summary string (3-5 sentences). Falls back to a truncated version of
@@ -669,15 +669,14 @@ async def _summarize_chunk(
         "and solutions found. Focus on what would be useful to remember in future "
         f"sessions.\n\nTranscript:\n{chunk_text}"
     )
-    del extra
     try:
         result_text = await _run_summarizer_prompt(
             prompt,
             model=model,
             model_tier="small",
-            purpose="session-summary-chunk",
-            timeout=None,
-            vault=None,
+            purpose="summarizer-chunk",
+            timeout=vault_common.get_config("summarizer", "ai_timeout", None),
+            vault=vault,
         )
     except Exception:  # noqa: BLE001
         result_text = None
@@ -692,8 +691,8 @@ async def preprocess_transcript_hierarchical(
     transcript_path_str: str,
     tail_lines: int,
     max_cleaned_chars: int,
-    cluster_model: str,
-    extra: dict[str, str | None],
+    cluster_model: str | None,
+    vault: Path,
 ) -> str:
     """Pre-process a transcript, using hierarchical summarization for long ones.
 
@@ -707,7 +706,7 @@ async def preprocess_transcript_hierarchical(
         tail_lines: Number of trailing transcript lines to read.
         max_cleaned_chars: Maximum characters threshold.
         cluster_model: Model ID to use for chunk summarization.
-        extra: Extra args forwarded to the Agent SDK.
+        vault: Vault path used for chunk summarization backend calls.
 
     Returns:
         Cleaned dialogue string, or hierarchical summary string for long sessions.
@@ -739,7 +738,7 @@ async def preprocess_transcript_hierarchical(
 
     summaries: list[str] = []
     for i, chunk in enumerate(chunks):
-        summary = await _summarize_chunk(chunk, i + 1, total, cluster_model, extra)
+        summary = await _summarize_chunk(chunk, i + 1, total, cluster_model, vault)
         summaries.append(summary)
 
     header = f"[Hierarchical summary from {total} transcript segments]"
@@ -876,7 +875,7 @@ async def summarize_one(
     vault: Path,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
-    cluster_model: str = _DEFAULT_CLUSTER_MODEL,
+    cluster_model: str | None = _DEFAULT_CLUSTER_MODEL,
     vault_notes: list[Path] | None = None,
 ) -> tuple[dict[str, object], Path | str | None]:
     """Summarize one pending session entry.
@@ -909,10 +908,6 @@ async def summarize_one(
         categories = [str(c) for c in (raw_cats if isinstance(raw_cats, list) else [])]
         session_id = str(entry.get("session_id") or Path(transcript_path_str).stem)
 
-        extra: dict[str, str | None] = (
-            {} if persist else {"no-session-persistence": None}
-        )
-
         # Check for missing transcript before expensive preprocessing.
         # Subagent transcripts are ephemeral — Claude Code may rename or
         # delete them between hook fire time and summarizer run.  Mark
@@ -925,7 +920,7 @@ async def summarize_one(
             return entry, _STALE
 
         cleaned = await preprocess_transcript_hierarchical(
-            transcript_path_str, tail_lines, max_cleaned_chars, cluster_model, extra
+            transcript_path_str, tail_lines, max_cleaned_chars, cluster_model, vault
         )
         if not cleaned:
             print(
@@ -1046,7 +1041,7 @@ async def run_all(
     max_parallel: int = _DEFAULT_MAX_PARALLEL,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
-    cluster_model: str = _DEFAULT_CLUSTER_MODEL,
+    cluster_model: str | None = _DEFAULT_CLUSTER_MODEL,
 ) -> list[tuple[dict[str, object], Path | str | None]]:
     """Run all summarization tasks in parallel.
 
