@@ -94,7 +94,6 @@ def main() -> None:
                 transcript_path,
                 project,
                 categories,
-                force=True,
                 vault=vault_path,
             )
 

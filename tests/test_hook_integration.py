@@ -296,6 +296,52 @@ class TestCodexHookIntegration:
         assert pending.exists()
         assert "rollout-test" in pending.read_text(encoding="utf-8")
 
+    def test_codex_stop_config_setup_only_updates_daily_without_pending(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        transcript = codex_home / "sessions" / "2026" / "04" / "27" / "config-only.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "configured the setting",
+                            }
+                        ],
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = _run_hook(
+            "codex_stop_hook.py",
+            {
+                "cwd": str(tmp_path),
+                "hook_event_name": "Stop",
+                "transcript_path": str(transcript),
+            },
+            tmp_path,
+            extra_env={"CODEX_HOME": str(codex_home)},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+        daily_notes = list((tmp_path / "Daily").glob("**/*.md"))
+        assert len(daily_notes) == 1
+        daily_text = daily_notes[0].read_text(encoding="utf-8")
+        assert f"Session: {tmp_path.name}" in daily_text
+        assert "configured the setting" in daily_text
+        assert not (tmp_path / "pending_summaries.jsonl").exists()
+
 
 # ---------------------------------------------------------------------------
 # pre_compact_hook
