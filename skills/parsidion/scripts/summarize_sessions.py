@@ -181,20 +181,20 @@ def read_pending(pending_path: Path) -> list[dict[str, object]]:
 def preprocess_transcript(
     transcript_path_str: str,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
-    max_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
+    max_chars: int | None = _DEFAULT_MAX_CLEANED_CHARS,
 ) -> str:
     """Pre-process a transcript JSONL file into a cleaned human/assistant dialogue.
 
     Reads last N lines, keeps only human and assistant text blocks,
-    strips tool calls and tool results, and truncates to a character limit.
+    strips tool calls and tool results, and optionally truncates to a character limit.
 
     Args:
         transcript_path_str: String path to the transcript JSONL file.
         tail_lines: Number of trailing transcript lines to read.
-        max_chars: Maximum output characters.
+        max_chars: Maximum output characters, or ``None`` to return all cleaned text.
 
     Returns:
-        Cleaned dialogue string, truncated to *max_chars*.
+        Cleaned dialogue string, truncated to *max_chars* when provided.
     """
     transcript_path = Path(transcript_path_str)
     if not transcript_path.is_file():
@@ -265,6 +265,8 @@ def preprocess_transcript(
         pairs.append(f"{label}: {text}")
 
     cleaned = "\n\n".join(pairs)
+    if max_chars is None:
+        return cleaned
     return cleaned[:max_chars]
 
 
@@ -704,7 +706,7 @@ async def preprocess_transcript_hierarchical(
     Returns:
         Cleaned dialogue string, or hierarchical summary string for long sessions.
     """
-    cleaned = preprocess_transcript(transcript_path_str, tail_lines, max_cleaned_chars)
+    cleaned = preprocess_transcript(transcript_path_str, tail_lines, None)
     if len(cleaned) <= max_cleaned_chars:
         return cleaned
 

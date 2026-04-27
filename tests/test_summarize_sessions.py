@@ -178,7 +178,7 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
     calls: list[dict[str, object]] = []
 
     def fake_preprocess_transcript(
-        transcript_path_str: str, tail_lines: int, max_chars: int
+        transcript_path_str: str, tail_lines: int, max_chars: int | None
     ) -> str:
         return "line\n" * 10
 
@@ -219,6 +219,60 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
     assert calls
     assert {call["vault"] for call in calls} == {tmp_path}
     assert {call["model"] for call in calls} == {None}
+
+
+def test_preprocess_transcript_hierarchical_chunks_real_oversized_transcripts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        "\n".join(
+            [
+                '{"type":"user","content":"' + ("u" * 120) + '"}',
+                '{"type":"assistant","content":"' + ("a" * 120) + '"}',
+                '{"type":"user","content":"' + ("v" * 120) + '"}',
+                '{"type":"assistant","content":"' + ("b" * 120) + '"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+
+    async def fake_summarize_chunk(
+        chunk_text: str,
+        chunk_num: int,
+        total_chunks: int,
+        model: str | None,
+        vault: Path,
+    ) -> str:
+        calls.append(
+            {
+                "chunk_text": chunk_text,
+                "chunk_num": chunk_num,
+                "total_chunks": total_chunks,
+                "model": model,
+                "vault": vault,
+            }
+        )
+        return f"summary {chunk_num}"
+
+    monkeypatch.setattr(summarize_sessions, "_summarize_chunk", fake_summarize_chunk)
+
+    result = asyncio.run(
+        summarize_sessions.preprocess_transcript_hierarchical(
+            str(transcript_path),
+            tail_lines=400,
+            max_cleaned_chars=100,
+            cluster_model=None,
+            vault=tmp_path,
+        )
+    )
+
+    assert result.startswith("[Hierarchical summary from ")
+    assert len(calls) > 1
+    assert {call["vault"] for call in calls} == {tmp_path}
 
 
 def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
