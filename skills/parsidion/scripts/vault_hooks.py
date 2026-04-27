@@ -543,7 +543,11 @@ def parse_codex_transcript_lines(lines: list[str]) -> list[str]:
         except (json.JSONDecodeError, TypeError):
             continue
 
-        item = record.get("item") if isinstance(record, dict) else None
+        item = None
+        if isinstance(record, dict):
+            item = record.get("payload")
+            if not isinstance(item, dict):
+                item = record.get("item")
         if not isinstance(item, dict):
             continue
         if item.get("type") != "message" or item.get("role") != "assistant":

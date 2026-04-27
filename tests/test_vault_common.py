@@ -554,14 +554,25 @@ class TestCodexTranscriptHelpers:
 
     def test_parse_codex_transcript_lines_extracts_assistant_text(self) -> None:
         lines = [
-            '{"type":"response_item","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed the parser bug"}]}}',
-            '{"type":"response_item","item":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}',
+            '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed the parser bug"}]}}',
+            '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}',
             '{"type":"unknown","value":1}',
             "not json",
         ]
 
         assert vault_common.parse_codex_transcript_lines(lines) == [
             "Fixed the parser bug"
+        ]
+
+    def test_parse_codex_transcript_lines_keeps_item_format_compatibility(
+        self,
+    ) -> None:
+        lines = [
+            '{"type":"response_item","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Legacy item format"}]}}',
+        ]
+
+        assert vault_common.parse_codex_transcript_lines(lines) == [
+            "Legacy item format"
         ]
 
 
