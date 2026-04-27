@@ -1154,8 +1154,13 @@ def _is_legacy_managed_hook_command(command: str, claude_dir: Path, event: str) 
 def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
     """Return True if any entry in hooks_list already has this command."""
     for entry in hooks_list:
-        for hook in entry.get("hooks", []):
-            if hook.get("command", "") == command:
+        if not isinstance(entry, dict):
+            continue
+        hooks = entry.get("hooks", [])
+        if not isinstance(hooks, list):
+            continue
+        for hook in hooks:
+            if isinstance(hook, dict) and hook.get("command", "") == command:
                 return True
     return False
 
@@ -1173,6 +1178,9 @@ def _filter_hook_entries(
     changed = False
 
     for entry in event_hooks:
+        if not isinstance(entry, dict):
+            filtered_entries.append(entry)
+            continue
         hooks = entry.get("hooks", [])
         if not isinstance(hooks, list):
             filtered_entries.append(entry)

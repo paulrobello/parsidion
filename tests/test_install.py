@@ -111,6 +111,86 @@ class TestCodexHooks:
             sum("codex_session_start_hook.py" in command for command in commands) == 1
         )
 
+    def test_merge_codex_hooks_preserves_malformed_event_entries(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+        hooks_file = codex_home / "hooks.json"
+        hooks_file.parent.mkdir(parents=True)
+        hooks_file.write_text(
+            json.dumps({"hooks": {"SessionStart": ["bad"]}}) + "\n",
+            encoding="utf-8",
+        )
+
+        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+
+        hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
+        handlers = hooks["hooks"]["SessionStart"]
+        assert "bad" in handlers
+        commands = [
+            hook["command"]
+            for entry in handlers
+            if isinstance(entry, dict)
+            for hook in entry["hooks"]
+        ]
+        assert any("codex_session_start_hook.py" in command for command in commands)
+
+    def test_remove_codex_hooks_preserves_malformed_mixed_entries(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+        hooks_file = codex_home / "hooks.json"
+        managed_command = install._managed_codex_hook_command(claude_dir, "Stop")
+        malformed_entry = "bad"
+        non_list_hooks_entry = {"matcher": "keep", "hooks": "bad"}
+        user_entry = {
+            "matcher": "",
+            "hooks": [{"type": "command", "command": "echo user"}],
+        }
+        hooks_file.parent.mkdir(parents=True)
+        hooks_file.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            malformed_entry,
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {"type": "command", "command": managed_command},
+                                    {"type": "command", "command": "echo keep"},
+                                ],
+                            },
+                            non_list_hooks_entry,
+                            user_entry,
+                        ]
+                    }
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        changed = install.remove_codex_hooks(codex_home, claude_dir, dry_run=False)
+
+        hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
+        handlers = hooks["hooks"]["Stop"]
+        assert changed is True
+        assert malformed_entry in handlers
+        assert non_list_hooks_entry in handlers
+        assert user_entry in handlers
+        commands = [
+            hook["command"]
+            for entry in handlers
+            if isinstance(entry, dict) and isinstance(entry.get("hooks"), list)
+            for hook in entry["hooks"]
+            if isinstance(hook, dict)
+        ]
+        assert managed_command not in commands
+        assert "echo keep" in commands
+
     def test_remove_codex_hooks_only_removes_managed_commands(
         self, tmp_path: Path
     ) -> None:
