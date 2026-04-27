@@ -34,7 +34,7 @@ import sys
 from datetime import date, datetime
 from functools import partial
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import anyio  # type: ignore[import-untyped]
 
@@ -59,7 +59,8 @@ async def _run_summarizer_prompt(
 ) -> str | None:
     """Run a summarizer prompt through the configured AI backend."""
 
-    result = await anyio.to_thread.run_sync(
+    to_thread = cast(Any, vars(anyio)["to_thread"])
+    result = await to_thread.run_sync(
         partial(
             ai_backend.run_ai_prompt,
             prompt,
