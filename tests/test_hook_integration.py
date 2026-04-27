@@ -256,9 +256,7 @@ class TestCodexHookIntegration:
         parsed = json.loads(result.stdout)
         assert isinstance(parsed, dict)
 
-    def test_codex_stop_missing_transcript_exits_cleanly(
-        self, tmp_path: Path
-    ) -> None:
+    def test_codex_stop_missing_transcript_exits_cleanly(self, tmp_path: Path) -> None:
         result = _run_hook(
             "codex_stop_hook.py",
             {"cwd": str(tmp_path), "hook_event_name": "Stop", "transcript_path": None},
@@ -272,7 +270,9 @@ class TestCodexHookIntegration:
         self, tmp_path: Path
     ) -> None:
         codex_home = tmp_path / ".codex"
-        transcript = codex_home / "sessions" / "2026" / "04" / "27" / "rollout-test.jsonl"
+        transcript = (
+            codex_home / "sessions" / "2026" / "04" / "27" / "rollout-test.jsonl"
+        )
         transcript.parent.mkdir(parents=True)
         transcript.write_text(
             '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed a pytest failure by updating the parser test."}]}}\n',
@@ -300,7 +300,9 @@ class TestCodexHookIntegration:
         self, tmp_path: Path
     ) -> None:
         codex_home = tmp_path / ".codex"
-        transcript = codex_home / "sessions" / "2026" / "04" / "27" / "config-only.jsonl"
+        transcript = (
+            codex_home / "sessions" / "2026" / "04" / "27" / "config-only.jsonl"
+        )
         transcript.parent.mkdir(parents=True)
         transcript.write_text(
             json.dumps(
