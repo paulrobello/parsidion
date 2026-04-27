@@ -39,7 +39,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **Python 3.13+**
 - **[uv](https://docs.astral.sh/uv/)** -- Python package runner and manager
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
-- **Claude Code** -- the CLI this toolkit extends
+- **Claude Code and/or Codex CLI** -- runtime integration target(s) selected during install
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
 - **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server; used by the research agent as a fallback search gateway (see [docs/MCPL.md](docs/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
@@ -58,11 +58,11 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
    ```bash
    uv run install.py
    ```
-   This installs the vault skill, research agent, vault-explorer agent, session hooks, and always-on vault guidance into `~/.claude/`.
+   The installer prompts for runtime integrations. Depending on your selection, it may configure Claude Code assets under `~/.claude/` and Codex CLI hooks under `~/.codex/`.
 
-3. **Restart Claude Code** to activate the hooks.
+3. **Restart the selected runtime(s)** to activate the hooks.
 
-That's it. Claude Code now has persistent memory backed by a markdown vault at `~/ClaudeVault/`. Optionally, open that directory in [Obsidian](https://obsidian.md/) to browse notes and explore the knowledge graph.
+That's it. Your selected runtime integration(s) now have persistent memory backed by a markdown vault at `~/ClaudeVault/`. Optionally, open that directory in [Obsidian](https://obsidian.md/) to browse notes and explore the knowledge graph.
 
 ## Installation
 
@@ -141,7 +141,7 @@ During interactive installation, the installer prompts for three optional featur
 2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml` and sets the SessionStart hook timeout to 30 s, enabling claude-haiku to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`).
 3. **"Enable embeddings?"** (default: yes) — writes `embeddings.enabled = true` to `config.yaml`, enabling the vector index used by `vault-search` semantic mode and `session_start_hook` with `use_embeddings`. Requires ~67 MB model download on first run. Use `--enable-embeddings` to enable this non-interactively (e.g. with `--yes`).
 
-After installation, restart Claude Code to activate hooks. Optionally, open the vault path in Obsidian for graph visualization and note browsing -- this is not required for the system to work.
+After installation, restart the selected runtime(s) to activate hooks. Optionally, open the vault path in Obsidian for graph visualization and note browsing -- this is not required for the system to work.
 
 ## Components
 
@@ -864,10 +864,10 @@ uv run install.py --uninstall-hooks
 
 ### Hooks not firing
 
-- Verify hooks are registered in `~/.claude/settings.json`. Look for `hooks` entries pointing to the hook scripts.
-- Re-run `uv run install.py --force --yes` to re-register hooks.
-- Check that the script paths in `settings.json` are correct and the files exist at those paths.
-- Restart Claude Code after any settings.json change.
+- Verify hooks are registered in the selected runtime config: `~/.claude/settings.json` for Claude Code or `~/.codex/hooks.json` for Codex CLI. Look for entries pointing to the hook scripts.
+- Re-run `uv run install.py --force --yes --runtime both` (or your selected `--runtime`) to re-register hooks.
+- Check that the script paths in the runtime hook config are correct and the files exist at those paths.
+- Restart the selected runtime after any hook config change.
 
 ### Vault not created
 

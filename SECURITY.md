@@ -28,7 +28,7 @@ The following components are in scope for security reports:
 
 | Component | Location | Risk surface |
 |-----------|----------|--------------|
-| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh` | Executed on every Claude Code lifecycle event |
+| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py` | Executed on Claude Code lifecycle events and Codex SessionStart/Stop hooks |
 | Shared library | `skills/parsidion/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
 | Installer | `install.py` | Writes to `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.codex/config.toml`; copies files into the user's Claude config directory |
 | Session summarizer | `skills/parsidion/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
