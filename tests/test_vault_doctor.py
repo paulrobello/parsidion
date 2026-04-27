@@ -43,6 +43,37 @@ def _write_note(vault: Path, rel_path: str, content: str) -> Path:
     return full
 
 
+def test_repair_note_uses_small_tier_backend(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+    note = _write_note(vault, "Patterns/broken.md", "# Broken\n")
+    issue = vault_doctor.Issue(
+        path=note,
+        severity="error",
+        code="MISSING_FRONTMATTER",
+        message="Missing frontmatter",
+    )
+
+    def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+        calls.append({"prompt": prompt, **kwargs})
+        return "---\ntitle: Fixed\ntags: [test]\n---\n# Fixed\n"
+
+    monkeypatch.setattr(vault_doctor.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
+
+    result, status = vault_doctor.repair_note(
+        note, [issue], model=None, timeout=10, vault_path=vault
+    )
+
+    assert result == "---\ntitle: Fixed\ntags: [test]\n---\n# Fixed"
+    assert status == "fixed"
+    assert calls[0]["model"] is None
+    assert calls[0]["model_tier"] == "small"
+    assert calls[0]["timeout"] == 10
+    assert calls[0]["purpose"] == "vault-doctor"
+    assert calls[0]["vault"] == vault
+
+
 # ---------------------------------------------------------------------------
 # Issue dataclass
 # ---------------------------------------------------------------------------

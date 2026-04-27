@@ -12,18 +12,18 @@ Writes results to:
 """
 
 import json
-import subprocess
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+import ai_backend
 import vault_common
 
 SKILL_DIR = Path.home() / ".claude" / "skills" / "parsidion"
 RESULTS_FILE = SKILL_DIR / "eval_results.json"
-MODEL = "claude-sonnet-4-6"
+MODEL_LABEL = "backend-default-small"
 
 RUNS_PER_QUERY = 3
 NUM_WORKERS = 6
@@ -188,20 +188,19 @@ def run_single_query(
     """Run a single query and return whether the model would trigger the skill."""
     prompt = build_eval_prompt(query, skill_name, skill_description)
 
-    try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--model", MODEL, "--no-session-persistence"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=vault_common.env_without_claudecode(),
-        )
-        response = result.stdout.strip().upper()
-        # Check for YES anywhere in the response (model might add explanation)
-        return "YES" in response and "NO" not in response.split("YES")[0]
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError) as e:
-        print(f"  Warning: query failed: {e}", file=sys.stderr)
+    response = ai_backend.run_ai_prompt(
+        prompt,
+        model=None,
+        model_tier="small",
+        timeout=30,
+        purpose="trigger-eval",
+    )
+    if not response:
+        print("  Warning: query failed", file=sys.stderr)
         return False
+    response = response.strip().upper()
+    # Check for YES anywhere in the response (model might add explanation)
+    return "YES" in response and "NO" not in response.split("YES")[0]
 
 
 def main() -> None:
@@ -210,7 +209,7 @@ def main() -> None:
 
     print(f"Skill: {skill_name}")
     print(f"Description: {skill_description[:100]}...")
-    print(f"Model: {MODEL}")
+    print(f"Model: {MODEL_LABEL}")
     print(
         f"Queries: {len(EVAL_QUERIES)} x {RUNS_PER_QUERY} runs = {len(EVAL_QUERIES) * RUNS_PER_QUERY} total"
     )
@@ -297,7 +296,7 @@ def main() -> None:
     output = {
         "skill_name": skill_name,
         "description": skill_description,
-        "model": MODEL,
+        "model": MODEL_LABEL,
         "runs_per_query": RUNS_PER_QUERY,
         "eval_method": "skill-selection-simulation",
         "elapsed_seconds": round(elapsed, 1),
