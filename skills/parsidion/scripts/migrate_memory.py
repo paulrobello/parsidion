@@ -525,7 +525,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Migrate ~/.claude/memory/ contents (built-in auto memory) "
-            "to ~/ClaudeVault/ with section parsing and classification."
+            "to the resolved vault with section parsing and classification."
         ),
     )
     parser.add_argument(

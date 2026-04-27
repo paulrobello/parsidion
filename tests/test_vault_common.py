@@ -657,6 +657,51 @@ class TestGeminiTranscriptHelpers:
 
 
 # ---------------------------------------------------------------------------
+# vault default path resolution
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_vault_defaults_to_parsidion_vault_for_new_installs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_VAULT", raising=False)
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    assert vault_common.resolve_vault() == home / "ParsidionVault"
+
+
+def test_resolve_vault_uses_legacy_claude_vault_when_it_already_exists(
+    monkeypatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    legacy = home / "ClaudeVault"
+    legacy.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_VAULT", raising=False)
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    assert vault_common.resolve_vault() == legacy
+
+
+def test_resolve_vault_prefers_parsidion_vault_when_both_defaults_exist(
+    monkeypatch, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    current = home / "ParsidionVault"
+    legacy = home / "ClaudeVault"
+    current.mkdir(parents=True)
+    legacy.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_VAULT", raising=False)
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    assert vault_common.resolve_vault() == current
+
+
+# ---------------------------------------------------------------------------
 # validate_vault_path (from install.py)
 # ---------------------------------------------------------------------------
 

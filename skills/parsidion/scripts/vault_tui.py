@@ -238,7 +238,7 @@ def main() -> None:
         "-V",
         metavar="PATH|NAME",
         default=None,
-        help="Vault path or named vault (default: ~/ClaudeVault)",
+        help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
     args = parser.parse_args()
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())

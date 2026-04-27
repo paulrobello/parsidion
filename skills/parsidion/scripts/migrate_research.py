@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migrate ~/Repos/research/ contents to ~/ClaudeVault/ with proper organization.
+"""Migrate ~/Repos/research/ contents to the resolved vault with proper organization.
 
 **One-time migration utility** -- this script is intended to be run once during
 initial vault setup to import pre-existing research notes.  It is not part of
@@ -708,7 +708,7 @@ def main() -> None:
     global RESEARCH_ROOT
 
     parser = argparse.ArgumentParser(
-        description="Migrate a research directory to ~/ClaudeVault/ with frontmatter and organization.",
+        description="Migrate a research directory to the resolved vault with frontmatter and organization.",
     )
     parser.add_argument(
         "research_path",

@@ -613,7 +613,7 @@ def main() -> None:
         "-V",
         metavar="PATH|NAME",
         default=None,
-        help="Vault path or named vault (default: ~/ClaudeVault)",
+        help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
 
     # Positional — optional; triggers semantic mode when present

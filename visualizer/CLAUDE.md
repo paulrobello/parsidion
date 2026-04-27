@@ -2,7 +2,7 @@
 
 # Parsidion Visualizer
 
-Next.js + sigma.js knowledge graph visualizer for Parsidion vaults. Renders vault notes as an interactive force-directed graph, with node sizing by recency/connections and live search/filter. The default vault directory is still `~/ClaudeVault`, but the UI is runtime-agnostic: Claude, Codex, Gemini, pi, and manually-created notes all flow through the same vault files and graph snapshot.
+Next.js + sigma.js knowledge graph visualizer for Parsidion vaults. Renders vault notes as an interactive force-directed graph, with node sizing by recency/connections and live search/filter. The default vault directory is `~/ParsidionVault` for new installs, with automatic fallback to an existing legacy `~/ClaudeVault`; the UI is runtime-agnostic: Claude, Codex, Gemini, pi, and manually-created notes all flow through the same vault files and graph snapshot.
 
 ## Dev Workflow
 

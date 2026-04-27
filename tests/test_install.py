@@ -370,6 +370,38 @@ class TestGeminiHooks:
         assert not any("gemini_session_" in command for command in commands)
 
 
+class TestDefaultVaultPath:
+    """Tests for installer default vault path selection."""
+
+    def test_default_vault_path_uses_parsidion_vault_for_new_installs(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+
+        assert install._default_vault_path(home) == home / "ParsidionVault"
+
+    def test_default_vault_path_uses_legacy_claude_vault_when_present(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        legacy = home / "ClaudeVault"
+        legacy.mkdir(parents=True)
+
+        assert install._default_vault_path(home) == legacy
+
+    def test_default_vault_path_prefers_parsidion_vault_when_both_exist(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        current = home / "ParsidionVault"
+        legacy = home / "ClaudeVault"
+        current.mkdir(parents=True)
+        legacy.mkdir()
+
+        assert install._default_vault_path(home) == current
+
+
 class TestRuntimeFlow:
     """Tests for installer runtime selection flow."""
 

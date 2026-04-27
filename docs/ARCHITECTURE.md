@@ -57,7 +57,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with a ma
 - `uv` for script execution
 - [Obsidian](https://obsidian.md/) for vault browsing and graph view (optional; not required for any core functionality)
 
-**Configuration:** All hooks and the summarizer read `~/ClaudeVault/config.yaml` for tuneable settings. A reference config with all defaults is shipped as `templates/config.yaml`. Precedence: script defaults → config.yaml → CLI arguments.
+**Configuration:** All hooks and the summarizer read `~/ParsidionVault/config.yaml` for tuneable settings. A reference config with all defaults is shipped as `templates/config.yaml`. Precedence: script defaults → config.yaml → CLI arguments.
 
 ## System Architecture
 
@@ -91,7 +91,7 @@ graph TB
         MCP[parsidion-mcp]
     end
 
-    subgraph "Obsidian Vault ~/ClaudeVault/"
+    subgraph "Obsidian Vault ~/ParsidionVault/"
         Config[config.yaml]
         Index[CLAUDE.md Index]
         Pending[pending_summaries.jsonl]
@@ -209,7 +209,7 @@ An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-
 
 **What it enforces:**
 
-- **Vault-first debugging:** Before diagnosing any error, extract the key signal (exception class, package name, distinctive message phrase) and search `~/ClaudeVault/Debugging/` via Grep. Widen to `Frameworks/`, `Languages/`, `Projects/` if not found. Apply documented fixes when matched; save new solutions when not.
+- **Vault-first debugging:** Before diagnosing any error, extract the key signal (exception class, package name, distinctive message phrase) and search `~/ParsidionVault/Debugging/` via Grep. Widen to `Frameworks/`, `Languages/`, `Projects/` if not found. Apply documented fixes when matched; save new solutions when not.
 - **Prior-art check:** Before writing non-trivial code, search `Patterns/`, `Frameworks/`, `Languages/`, and `Projects/` for existing implementations. Reuse and adapt proven code from other projects rather than writing from scratch.
 - **Vault organization:** Enforces the subfolder rule (3+ notes sharing a prefix → move to a named subfolder; one level only) and reminds when to rebuild the index.
 - **Saving solutions:** Specifies target folders by solution type (bug fix → `Debugging/`, reusable pattern → `Patterns/`, framework fix → `Frameworks/`, architectural decision → `Projects/<project>/`).
@@ -233,7 +233,7 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop` wrappers; Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
+Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop` wrappers; Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
 
 Transcript compatibility:
 - Claude Code JSONL (`type: "assistant" | "user"`)
@@ -461,7 +461,7 @@ Daily notes are exempt from `confidence`, `related`, and orphan checks.
 
 Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` is wiped for moved notes, and the vault index is rebuilt. Requires `PREFIX_CLUSTER_MIN = 3` notes per cluster (configurable in source).
 
-**State file:** `~/ClaudeVault/doctor_state.json` tracks per-note status across runs and the running doctor's PID:
+**State file:** `~/ParsidionVault/doctor_state.json` tracks per-note status across runs and the running doctor's PID:
 - `pid` — PID of the currently-running doctor; cleared on exit (singleton guard)
 - `ok` — no issues; skipped for 7 days before re-checking
 - `fixed` — Claude repaired it; re-checked on next run
@@ -543,7 +543,7 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
 **Workflow (7 steps):**
 1. **Semantic search** — runs `vault_search.py` with the full query; if 3+ results with score ≥ 0.35, skips to step 6
 2. **Metadata search** — infers filters from the query (`--folder`, `--type`, `--tag`, `--project`, `--recent-days`) and runs `vault-search` with those flags; if 3+ results, skips to step 6; gracefully handles absent DB
-3. **Orient** — reads `~/ClaudeVault/CLAUDE.md` to understand available content and folder structure
+3. **Orient** — reads `~/ParsidionVault/CLAUDE.md` to understand available content and folder structure
 4. **Extract signals** — identifies key search terms (exception class, package name, feature keyword)
 5. **Search by priority folder** — Grep search across folders in priority order by query type:
 
@@ -569,7 +569,7 @@ A Claude Code agent definition (runs on Sonnet) that deeply analyzes a software 
 
 **Trigger phrases:** "explore project", "analyze project", "document this project", "save project to vault", "catalog project features", "document project features".
 
-**Scope:** Read-only analysis followed by vault writes. Does not modify project source files. Writes exclusively to `~/ClaudeVault/Projects/` and `~/ClaudeVault/Patterns/`.
+**Scope:** Read-only analysis followed by vault writes. Does not modify project source files. Writes exclusively to `~/ParsidionVault/Projects/` and `~/ParsidionVault/Patterns/`.
 
 **Workflow (9 steps):**
 1. **Vault check** — semantic search + dispatches `vault-explorer` with `"project {name} architecture features"`; if notes exist, reads them, fills gaps, and cleans up outdated info (updates or deletes)
@@ -577,8 +577,8 @@ A Claude Code agent definition (runs on Sonnet) that deeply analyzes a software 
 3. **Architecture exploration** — Glob + Read to map top-level directory structure, identify key modules and their responsibilities, locate main entry points, note distinctive structural choices
 4. **Feature extraction** — identifies 3–8 reusable features via README sections, `{binary} --help`, module filenames, and Makefile targets; for each: what it does, which files implement it, why it's reusable
 5. **Pattern identification** — looks for project-level patterns: config handling, error handling, logging, design patterns (plugin, event-driven, strategy), testing approach, CLI conventions
-6. **Write overview note** → `~/ClaudeVault/Projects/{project-slug}-overview.md` (creates or updates): summary, tech stack, 2-level architecture tree, features with wikilinks, key conventions
-7. **Write feature pattern notes** → `~/ClaudeVault/Patterns/{feature-slug}.md` for each reusable feature (minimum 3): summary, implementation with file:line refs, replication steps, key learnings
+6. **Write overview note** → `~/ParsidionVault/Projects/{project-slug}-overview.md` (creates or updates): summary, tech stack, 2-level architecture tree, features with wikilinks, key conventions
+7. **Write feature pattern notes** → `~/ParsidionVault/Patterns/{feature-slug}.md` for each reusable feature (minimum 3): summary, implementation with file:line refs, replication steps, key learnings
 8. **Rebuild index** — runs `update_index.py` so all new notes are immediately searchable via `vault-search`
 9. **Summary report** — paths created/updated, skipped features with reasons, index status
 
@@ -595,7 +595,7 @@ A Claude Code agent definition (runs on Sonnet) that deeply analyzes a software 
 
 **Location:** `agents/vault-deduplicator.md`
 
-A Claude Code agent definition (runs on Haiku) that scans `~/ClaudeVault/` for near-duplicate note pairs, evaluates each pair, merges confirmed duplicates, and rebuilds the vault index when done.
+A Claude Code agent definition (runs on Haiku) that scans `~/ParsidionVault/` for near-duplicate note pairs, evaluates each pair, merges confirmed duplicates, and rebuilds the vault index when done.
 
 **Trigger phrases:** "deduplicate the vault", "find duplicate notes", "merge duplicate vault notes", "clean up vault duplicates", "vault has duplicates", "run vault-merge --scan", any request to find or consolidate near-duplicate notes.
 
@@ -644,7 +644,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `load_config()` | Load and cache `config.yaml` from `VAULT_ROOT` |
 | `get_config()` | Look up a config value by section/key with fallback default |
 | `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset and `PARSIDION_INTERNAL=1` set for Parsidion-launched CLI agents; `_SAFE_ENV_KEYS` allowlist forwards `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so proxy/org/Bedrock configurations reach subprocesses |
-| `apply_configured_env_defaults()` | Populate missing Anthropic-compatible runtime env vars from `~/ClaudeVault/config.yaml` `anthropic_env`; real environment variables still win |
+| `apply_configured_env_defaults()` | Populate missing Anthropic-compatible runtime env vars from `~/ParsidionVault/config.yaml` `anthropic_env`; real environment variables still win |
 | `flock_exclusive()` | Acquire an exclusive file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `flock_shared()` | Acquire a shared file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `funlock()` | Release a file lock |
@@ -667,7 +667,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `TRANSCRIPT_CATEGORIES` | Keyword lists for four learning categories (error_fix, research, pattern, config_setup) |
 | `TRANSCRIPT_CATEGORY_LABELS` | Human-readable labels for category keys |
 
-**Configuration system:** `load_config()` reads `~/ClaudeVault/config.yaml` on first call and caches the result for the process lifetime. The file is parsed by `_parse_config_yaml()`, a stdlib-only YAML parser that handles one level of nesting (section headers with nested key-value pairs). `_strip_inline_comment()` handles trailing `# comment` syntax. `get_config(section, key, default)` provides the lookup API used by all hooks and the summarizer. Anthropic-compatible transport settings can also be defined in `anthropic_env` using their real env var names (for example `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `API_TIMEOUT_MS`), with precedence **environment > `anthropic_env` > default behavior**.
+**Configuration system:** `load_config()` reads `~/ParsidionVault/config.yaml` on first call and caches the result for the process lifetime. The file is parsed by `_parse_config_yaml()`, a stdlib-only YAML parser that handles one level of nesting (section headers with nested key-value pairs). `_strip_inline_comment()` handles trailing `# comment` syntax. `get_config(section, key, default)` provides the lookup API used by all hooks and the summarizer. Anthropic-compatible transport settings can also be defined in `anthropic_env` using their real env var names (for example `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `API_TIMEOUT_MS`), with precedence **environment > `anthropic_env` > default behavior**.
 
 **Design decisions:**
 - No external dependencies (stdlib only) for maximum portability in hook contexts
@@ -678,7 +678,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 
 **Location:** `skills/parsidion/scripts/update_index.py`
 
-Rebuilds `~/ClaudeVault/CLAUDE.md` by scanning all vault notes. Includes a PID singleton guard (`~/ClaudeVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
+Rebuilds `~/ParsidionVault/CLAUDE.md` by scanning all vault notes. Includes a PID singleton guard (`~/ParsidionVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
 
 **Output:**
 - Root `CLAUDE.md` with sections: **Quick Stats** (note count, last updated, vault health, stale count), **Tag Cloud** (frequency-sorted), **Recent Activity** (last 7 days, max 20), **Folders** (per-folder listings with wikilinks and summaries)
@@ -931,7 +931,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py
 cd visualizer && bun dev
 ```
 
-`skills/parsidion/scripts/build_graph.py` is a PEP 723 script (depends on `numpy`). It reads `embeddings.db`, computes pairwise cosine similarity between note vectors, extracts wikilink edges from `related` frontmatter fields, and writes `graph.json` into the vault root (e.g. `~/ClaudeVault/graph.json`). Each vault owns its own `graph.json`; the file is gitignored in the vault (rebuilt locally, not synced). The visualizer serves it via the `GET /api/graph?vault=` API route.
+`skills/parsidion/scripts/build_graph.py` is a PEP 723 script (depends on `numpy`). It reads `embeddings.db`, computes pairwise cosine similarity between note vectors, extracts wikilink edges from `related` frontmatter fields, and writes `graph.json` into the vault root (e.g. `~/ParsidionVault/graph.json`). Each vault owns its own `graph.json`; the file is gitignored in the vault (rebuilt locally, not synced). The visualizer serves it via the `GET /api/graph?vault=` API route.
 
 The `update_index.py` indexer and `summarize_sessions.py` summarizer both accept a `--rebuild-graph` flag to rebuild `graph.json` after each vault write. The nightly scheduler can also be configured with `--rebuild-graph` to keep the graph current automatically.
 
@@ -964,7 +964,7 @@ uv tool install --editable .
 
 ### Obsidian Integration
 
-The vault at `~/ClaudeVault/` is plain markdown — no Obsidian required. If you open it in [Obsidian](https://obsidian.md/), you get graph view, search, and wikilink navigation, but all core functionality (hooks, search, summarizer) works without it.
+The default vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrading) is plain markdown — no Obsidian required. If you open it in [Obsidian](https://obsidian.md/), you get graph view, search, and wikilink navigation, but all core functionality (hooks, search, summarizer) works without it.
 
 **Templates:** The `Templates/` directory is a symlink to the skill's `templates/` folder, making 8 note templates and the reference `config.yaml` available:
 
@@ -982,7 +982,7 @@ The vault at `~/ClaudeVault/` is plain markdown — no Obsidian required. If you
 
 ## Configuration
 
-All hooks and the summarizer support a centralized configuration file at `~/ClaudeVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. The pi adapter extension may inspect `anthropic_env` for `/parsidion-vault` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
+All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. The pi adapter extension may inspect `anthropic_env` for `/parsidion-vault` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
 
 **Precedence:** script defaults → `config.yaml` → CLI arguments.
 
@@ -1039,7 +1039,7 @@ git:
 
 event_log:           # all hooks — structured JSON event log
   enabled: true      # Write hook events to hook_events.log
-  path: null         # Override log path (null = ~/ClaudeVault/hook_events.log)
+  path: null         # Override log path (null = ~/ParsidionVault/hook_events.log)
 
 adaptive_context:    # session_start_hook.py — derank notes never referenced by Claude
   enabled: false     # Track per-note usefulness; derank unreferenced notes over time
@@ -1061,7 +1061,7 @@ vault:               # Vault identity — used for per-user daily note filenames
 sequenceDiagram
     participant CC as Claude Code
     participant SSH as SessionStart Hook
-    participant V as Vault (~/ClaudeVault/)
+    participant V as Vault (~/ParsidionVault/)
     participant STH as SessionEnd Hook
     participant ASH as SubagentStop Hook
     participant PCH as PreCompact Hook
@@ -1253,7 +1253,7 @@ parsidion/
     ├── scripts/
     └── templates/
 
-~/ClaudeVault/                       # Markdown vault (open in Obsidian for graph view — optional)
+~/ParsidionVault/                       # Markdown vault (open in Obsidian for graph view — optional)
 ├── .obsidian/
 │   └── graph.json                   # Graph view color config
 ├── config.yaml                      # User config (copied from templates/config.yaml)

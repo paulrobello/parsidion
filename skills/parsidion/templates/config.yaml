@@ -1,6 +1,6 @@
 # Parsidion vault Configuration
 #
-# Place at ~/ClaudeVault/config.yaml
+# Place at ~/ParsidionVault/config.yaml (or legacy ~/ClaudeVault/config.yaml if upgrading)
 # Values here override script defaults. CLI arguments override these values.
 # Precedence: defaults → config.yaml → CLI args
 
@@ -110,7 +110,7 @@ defaults:
 # Hook event log (session_start_hook.py, session_stop_hook.py, subagent_stop_hook.py)
 event_log:
   enabled: true            # Write structured JSON events to hook_events.log (#1)
-  path: null               # Override log path (null = ~/ClaudeVault/hook_events.log)
+  path: null               # Override log path (null = <resolved vault>/hook_events.log)
 
 # Adaptive context tracking (#17) — derank notes never referenced by Claude
 adaptive_context:

@@ -6,11 +6,12 @@ description: >
   Trigger signals: "have we hit/seen this before", "what do we know about X",
   "check our notes", "check if [project] has this", "prior art", "save this to
   the vault", "don't forget", "remember this", "capture this", or any mention of
-  "the vault" or "ClaudeVault".
+  "the vault", "ParsidionVault", or "ClaudeVault".
 
-  This skill owns ~/ClaudeVault/ — a persistent Obsidian knowledge base surviving
-  across all coding sessions, storing debugging solutions, reusable patterns, and
-  cross-project context.
+  This skill owns a persistent Obsidian knowledge base (new installs default to
+  ~/ParsidionVault/; legacy ~/ClaudeVault/ vaults are reused automatically)
+  surviving across all coding sessions, storing debugging solutions, reusable
+  patterns, and cross-project context.
 
   Core use cases: (1) retrieving whether a problem or pattern was solved before,
   (2) checking other projects for existing implementations, (3) saving new
@@ -23,7 +24,7 @@ description: >
 
 # Parsidion vault - Knowledge Management System
 
-> A richly organized Obsidian vault at `~/ClaudeVault/` that replaces built-in auto memory with structured, searchable, cross-linked knowledge.
+> A richly organized Obsidian vault (default `~/ParsidionVault/`, with legacy `~/ClaudeVault/` fallback) that replaces built-in auto memory with structured, searchable, cross-linked knowledge.
 
 ## Philosophy
 
@@ -82,7 +83,7 @@ Saving after a successful solve is as important as searching before. Every unsav
 ## Vault Structure
 
 ```
-~/ClaudeVault/
+~/ParsidionVault/        # Or legacy ~/ClaudeVault/ when upgrading
 ├── CLAUDE.md            # Auto-generated index (rebuilt by update_index.py)
 ├── config.yaml          # Optional — hook/summarizer settings (see Configuration)
 ├── Daily/               # Session summaries (Daily/YYYY-MM/DD.md)
@@ -209,7 +210,7 @@ Do not create notes for:
 
 ### Hooks
 
-All hooks read `~/ClaudeVault/config.yaml` for settings. CLI args override config values.
+All hooks read `<resolved vault>/config.yaml` for settings. CLI args override config values.
 
 Claude Code installs the full hook set below. Codex runtime hooks are session lifecycle only: native Codex `SessionStart` and `Stop` hooks registered in `~/.codex/hooks.json` when `codex_hooks = true` is enabled in `~/.codex/config.toml`. Gemini runtime hooks are also lifecycle only: `SessionStart` and `SessionEnd` commands registered in `~/.gemini/settings.json` via `--runtime gemini` or `--runtime all`. Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend; Gemini has no native subagent lifecycle capture in this first pass.
 
@@ -403,7 +404,7 @@ Before scanning, the doctor runs `git status --porcelain` on the vault and commi
 
 ### State tracking
 
-The doctor writes `~/ClaudeVault/doctor_state.json` to avoid reprocessing notes unnecessarily:
+The doctor writes `<resolved vault>/doctor_state.json` to avoid reprocessing notes unnecessarily:
 
 | Status | Meaning | Next run behaviour |
 |---|---|---|
@@ -420,21 +421,21 @@ Run `update_index.py` after repairs — it reads `doctor_state.json` and adds a 
 
 ## Configuration
 
-All hooks and the summarizer read `~/ClaudeVault/config.yaml` for settings.
+All hooks and the summarizer read `<resolved vault>/config.yaml` for settings.
 Precedence: **hardcoded defaults → config.yaml → CLI args** (last one wins).
 
 A template with all options lives at `~/.claude/skills/parsidion/templates/config.yaml`.
 Copy it to the vault root to get started:
 
 ```bash
-cp ~/.claude/skills/parsidion/templates/config.yaml ~/ClaudeVault/config.yaml
+cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 ```
 
 ### Config Sections
 
 > **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
 > `claude-haiku-4-5-20251001`, `gpt-5.5`, `BAAI/bge-small-en-v1.5`) are the hardcoded defaults.
-> They can be changed via the corresponding keys in `~/ClaudeVault/config.yaml` without
+> They can be changed via the corresponding keys in `<resolved vault>/config.yaml` without
 > modifying any scripts. See the template at
 > `~/.claude/skills/parsidion/templates/config.yaml` for all available keys.
 
@@ -577,7 +578,7 @@ to check. If unavailable, the vault workflow is completely unaffected.
 
 ## Graph Color Groups
 
-The Obsidian graph at `~/ClaudeVault/.obsidian/graph.json` uses color groups to visually categorize nodes by tag.
+The Obsidian graph at `<resolved vault>/.obsidian/graph.json` uses color groups to visually categorize nodes by tag.
 
 ### Current Color Groups
 
@@ -603,7 +604,7 @@ Update `graph.json` when:
 
 ### How to Update
 
-1. Read `~/ClaudeVault/.obsidian/graph.json`
+1. Read `<resolved vault>/.obsidian/graph.json`
 2. Locate the matching `colorGroups` entry by its query pattern
 3. To **add a tag to an existing group**: append `OR tag:#newtag` to the query string
 4. To **create a new group**: append a new object to the `colorGroups` array:
@@ -646,7 +647,7 @@ Run this workflow after batch summarizations, vault doctor runs, or whenever the
 1. **Merge duplicate tags first** — run `vault_doctor.py --fix-tags --execute` to merge plural/singular, hyphen/underscore, and collapsed duplicates. This reduces tag sprawl before colorizing.
 2. **Rebuild the index** — run `update_index.py` so the tag cloud reflects the current state.
 3. **Audit coverage** — run `check_graph_coverage.py --threshold 2` to see which tags are uncovered and what groups they should belong to.
-4. **Update `graph.json`** — read `~/ClaudeVault/.obsidian/graph.json`, add uncovered tags to the appropriate `colorGroups` entry by appending `OR tag:#newtag` to the query string.
+4. **Update `graph.json`** — read `<resolved vault>/.obsidian/graph.json`, add uncovered tags to the appropriate `colorGroups` entry by appending `OR tag:#newtag` to the query string.
 5. **Verify** — re-run the audit to confirm coverage is ≥ 90%. Obsidian picks up `graph.json` changes automatically.
 
 The `--json` output from `check_graph_coverage.py` includes a `stats` object with `total_vault_tags`, `covered`, `uncovered`, and `stale` counts for scripting.

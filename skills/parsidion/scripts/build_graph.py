@@ -61,9 +61,20 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Override VAULT_ROOT (default: $VAULT_ROOT env var or ~/ClaudeVault)",
+        help=(
+            "Override VAULT_ROOT (default: $VAULT_ROOT env var, ~/ParsidionVault, "
+            "or legacy ~/ClaudeVault if it exists)"
+        ),
     )
     return parser.parse_args()
+
+
+def _default_vault_root() -> Path:
+    current = Path.home() / "ParsidionVault"
+    legacy = Path.home() / "ClaudeVault"
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
 
 
 def get_vault_root(args: argparse.Namespace) -> Path:
@@ -73,7 +84,7 @@ def get_vault_root(args: argparse.Namespace) -> Path:
     env_vault = os.environ.get("VAULT_ROOT", "")
     if env_vault:
         return Path(env_vault).expanduser().resolve()
-    return Path("~/ClaudeVault").expanduser().resolve()
+    return _default_vault_root().resolve()
 
 
 def load_note_metadata(conn: sqlite3.Connection, include_daily: bool) -> list[dict]:

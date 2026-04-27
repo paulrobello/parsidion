@@ -37,7 +37,9 @@ from vault_config import (  # noqa: F401
 
 # vault_path: path resolution, constants, secure logging
 from vault_path import (  # noqa: F401
+    DEFAULT_VAULT_NAME,
     EMBEDDINGS_DB_FILENAME,
+    LEGACY_DEFAULT_VAULT_NAME,
     SCRIPTS_DIR,
     TEMPLATES_DIR,
     VAULT_ROOT,
@@ -45,6 +47,7 @@ from vault_path import (  # noqa: F401
     _VAULT_FORBIDDEN_PREFIXES,
     _resolve_vault_cached,
     _validate_vault_path,
+    default_vault_root,
     get_embeddings_db_path,
     get_vaults_config_path,
     list_named_vaults,

@@ -23,7 +23,7 @@ Modes (mutually exclusive; default is --summary):
     --timeline N           Bar chart of notes created per day for last N days (default: 30)
     --summarizer-progress  Show current summarizer progress from ~/.claude/logs
 
-All modes read from ~/ClaudeVault/embeddings.db (note_index table).
+All modes read from the resolved vault's embeddings.db (note_index table).
 Falls back to a plain-text walk when the DB is absent.
 """
 
@@ -1127,7 +1127,7 @@ def main() -> None:
         "-V",
         metavar="PATH|NAME",
         default=None,
-        help="Vault path or named vault (default: ~/ClaudeVault)",
+        help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(

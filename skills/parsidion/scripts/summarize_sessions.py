@@ -78,6 +78,10 @@ async def _run_summarizer_prompt(
 # Stale entries are purged from the pending queue (they can never succeed).
 _STALE = "__STALE__"
 
+# Sentinel: returned as written_path when the write-gate decides a session is
+# transient. Skipped entries are also purged so they are not reprocessed forever.
+_SKIPPED = "__SKIPPED__"
+
 # Progress tracking (#13)
 _PROGRESS_FILE = vault_common.secure_log_dir() / "parsidion-summarizer-progress.json"
 
@@ -974,7 +978,7 @@ async def summarize_one(
                         reason = decision.get("reason", "no reason given")
                         short_id = str(entry.get("session_id", "?"))[:8]
                         print(f"  [write-gate] Skipping session {short_id}: {reason}")
-                        return entry, None
+                        return entry, _SKIPPED
                     if decision.get("decision") == "merge":
                         # The backend chose to merge into an existing note
                         target_wikilink = str(decision.get("target", ""))
@@ -1283,7 +1287,7 @@ def main() -> None:
         "-V",
         metavar="PATH|NAME",
         default=None,
-        help="Vault path or named vault (default: ~/ClaudeVault)",
+        help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
     args = parser.parse_args()
 
@@ -1381,29 +1385,29 @@ def main() -> None:
     )
 
     # Categorise results: written notes, stale (missing transcript), write-gate
-    # skips, and hard failures.  Stale entries are purged from the queue since
-    # the transcript can never be recovered.
+    # skips, and hard failures. Stale entries are purged from the queue since
+    # the transcript can never be recovered; write-gate skips are purged because
+    # the backend already decided they are transient and retrying would loop.
     successful_entries: list[dict[str, object]] = []
     stale_entries: list[dict[str, object]] = []
+    skipped_entries: list[dict[str, object]] = []
     failed_count = 0
     for entry, written_path in results:
         if written_path == _STALE:
             stale_entries.append(entry)
+        elif written_path == _SKIPPED:
+            skipped_entries.append(entry)
         elif written_path is not None:
             print(f"  Written: {written_path}")
             successful_entries.append(entry)
         elif not args.dry_run:
-            # write-gate skips already printed their own "[write-gate]" line;
-            # count everything else as a failure for the summary line.
             failed_count += 1
 
-    skipped_count = (
-        len(entries) - len(successful_entries) - len(stale_entries) - failed_count
-    )
+    skipped_count = len(skipped_entries)
 
     if not args.dry_run:
-        # Remove processed + stale entries from pending file
-        removable = successful_entries + stale_entries
+        # Remove processed, stale, and write-gate skipped entries from pending file
+        removable = successful_entries + stale_entries + skipped_entries
         if not args.sessions and removable:
             remove_processed(source_path, removable)
 

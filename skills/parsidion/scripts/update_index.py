@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild the ~/ClaudeVault/CLAUDE.md index file.
+"""Rebuild the resolved vault's CLAUDE.md index file.
 
 Walks the vault tree, parses frontmatter from all notes, and generates a
 comprehensive index with tag cloud, recent activity, and per-folder listings.

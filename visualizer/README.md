@@ -2,7 +2,7 @@
 
 Interactive web UI for browsing a Parsidion vault as both a file tree and a knowledge graph. It renders vault notes from `graph.json`, supports live file updates over WebSocket, and lets you read, edit, diff, and create markdown notes without leaving the browser.
 
-The default vault path is still `~/ClaudeVault`, but the UI is runtime-agnostic: notes captured from Claude Code, Codex CLI, Gemini CLI, pi, or manual editing all appear through the same vault files and graph snapshot.
+The default vault path is `~/ParsidionVault` for new installs, with automatic fallback to an existing legacy `~/ClaudeVault`; the UI is runtime-agnostic: notes captured from Claude Code, Codex CLI, Gemini CLI, pi, or manual editing all appear through the same vault files and graph snapshot.
 
 ## Getting Started
 

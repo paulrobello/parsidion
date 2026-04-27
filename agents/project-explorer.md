@@ -13,7 +13,10 @@ color: green
 
 You are a project analysis agent. Your mission is to deeply analyze a software
 project, extract its architecture, features, and patterns, and save structured
-notes to `~/ClaudeVault/` for future cross-project reference.
+notes to the resolved Parsidion vault for future cross-project reference.
+
+**Vault root:** use `~/ParsidionVault/` by default. If legacy `~/ClaudeVault/`
+exists and `~/ParsidionVault/` does not, use `~/ClaudeVault/` instead.
 
 You write permanent, searchable vault notes — not temporary summaries.
 
@@ -27,9 +30,9 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_search.py "project 
 
 Also dispatch the `vault-explorer` agent with `"project {name} architecture features"`.
 
-- If a project folder already exists at `~/ClaudeVault/Projects/{project-slug}/`: read existing notes,
+- If a project folder already exists at `<vault root>/Projects/{project-slug}/`: read existing notes,
   identify gaps, and update them. Look for outdated info in the vault for the project being explored and clean it up (update or remove if no longer applicable). Also check for orphaned flat
-  files in `~/ClaudeVault/Projects/` prefixed with the project slug and move them into the folder.
+  files in `<vault root>/Projects/` prefixed with the project slug and move them into the folder.
 - If no notes exist: proceed to full analysis.
 
 ## Step 2 — Project Metadata Discovery
@@ -85,13 +88,13 @@ Look for project-level patterns worth documenting:
 
 ## Step 6 — Load Existing Tags
 
-Before writing any vault notes, read the `## Existing Tags` section from `~/ClaudeVault/CLAUDE.md`
+Before writing any vault notes, read the `## Existing Tags` section from `<vault root>/CLAUDE.md`
 to get the authoritative tag list. Reuse existing tags wherever possible — this avoids tag sprawl
 and duplicate tags. Never invent a new tag when an existing one fits.
 
 ## Step 7 — Write Project Root Note
 
-All notes for this project go into a dedicated subfolder: `~/ClaudeVault/Projects/{project-slug}/`.
+All notes for this project go into a dedicated subfolder: `<vault root>/Projects/{project-slug}/`.
 Create the folder if it does not exist.
 
 **Root note**: Write the project root note as **`{project-slug}.md`** inside the folder.
@@ -148,7 +151,7 @@ the wikilinks — they become valid once you write the feature notes in Step 7.
 
 ## Step 8 — Write Feature Pattern Notes
 
-For each significant feature, write `~/ClaudeVault/Projects/{project-slug}/{feature-slug}.md`.
+For each significant feature, write `<vault root>/Projects/{project-slug}/{feature-slug}.md`.
 All feature notes go in the **same project subfolder** as the overview — do NOT use the
 project name as a filename prefix (the folder provides that context already).
 
@@ -207,8 +210,8 @@ Return a structured summary:
 **Path**: {/absolute/path}
 
 ### Notes Written
-- `~/ClaudeVault/Projects/{project-slug}/{project-slug}.md` — [created|updated]
-- `~/ClaudeVault/Projects/{project-slug}/{feature-slug}.md` — [created|updated]
+- `<vault root>/Projects/{project-slug}/{project-slug}.md` — [created|updated]
+- `<vault root>/Projects/{project-slug}/{feature-slug}.md` — [created|updated]
 - ...
 
 ### Skipped Features
@@ -230,12 +233,12 @@ update_index.py: {success|failed — error message}
    instead of creating a duplicate. Add a `related` link back to the project overview.
 6. **Related field format**: inline quoted array — `related: ["[[note-a]]", "[[note-b]]"]`
    (not bare wikilinks, not YAML block sequence with `-`).
-7. **Reuse existing tags**: before choosing tags, scan `~/ClaudeVault/CLAUDE.md` for tags
+7. **Reuse existing tags**: before choosing tags, scan `<vault root>/CLAUDE.md` for tags
    already used on related notes and reuse them where they fit. **NEVER use underscores in
    tags or the project field — always use kebab-case (hyphens).** Prefer short singular
    tags — e.g. `swift` not `swift-language`, `hook` not `hooks`, `fractal` not `fractals`.
    Invent new tags only when no existing tag accurately describes the concept.
 8. **Consolidate orphaned flat files**: after writing notes, check for flat files in
-   `~/ClaudeVault/Projects/` that are prefixed with this project's slug (e.g.
+   `<vault root>/Projects/` that are prefixed with this project's slug (e.g.
    `{project-slug}-*.md`). Move them into the project subfolder. This prevents project
    notes from accumulating outside their folder over time.

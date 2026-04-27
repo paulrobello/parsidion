@@ -21,9 +21,21 @@ export interface NamedVault {
  */
 export function getVaultsConfigPath(): string {
   const xdg = process.env.XDG_CONFIG_HOME
-  const configDir = xdg
-    ? path.join(xdg, 'parsidion')
-    : path.join(process.env.HOME || '~', '.config', 'parsidion')
+  const home = process.env.HOME || '~'
+  const configBase = xdg || path.join(home, '.config')
+  let configDir = path.join(configBase, 'parsidion')
+
+  if (!fs.existsSync(configDir)) {
+    const legacyCandidates = [
+      path.join(configBase, 'parsidion-cc'),
+      path.join(home, '.parsidion-cc'),
+    ]
+    const legacyDir = legacyCandidates.find(candidate => fs.existsSync(candidate))
+    if (legacyDir) {
+      configDir = legacyDir
+    }
+  }
+
   return path.join(configDir, 'vaults.yaml')
 }
 
@@ -96,14 +108,13 @@ export function listNamedVaults(): NamedVault[] {
  * Resolution order:
  * 1. Named vault from vaults.yaml
  * 2. Treat as path directly
- * 3. Default vault (VAULT_ROOT env or ~/ClaudeVault)
+ * 3. Default vault (VAULT_ROOT env, ~/ParsidionVault, or legacy ~/ClaudeVault)
  */
 export function resolveVault(vaultName?: string | null): string {
   const home = process.env.HOME || '~'
-  const defaultVault = process.env.VAULT_ROOT || path.join(home, 'ClaudeVault')
 
   if (!vaultName) {
-    return defaultVault
+    return getDefaultVault()
   }
 
   // Try as named vault first
@@ -126,5 +137,15 @@ export function resolveVault(vaultName?: string | null): string {
  */
 export function getDefaultVault(): string {
   const home = process.env.HOME || '~'
-  return process.env.VAULT_ROOT || path.join(home, 'ClaudeVault')
+
+  if (process.env.VAULT_ROOT) {
+    return process.env.VAULT_ROOT
+  }
+
+  const current = path.join(home, 'ParsidionVault')
+  const legacy = path.join(home, 'ClaudeVault')
+  if (fs.existsSync(legacy) && !fs.existsSync(current)) {
+    return legacy
+  }
+  return current
 }

@@ -16,8 +16,9 @@ Options:
     --dry-run, -n          Preview actions without making changes
     --verbose, -v          Show detailed output
     --force, -f            Overwrite existing skill files
-    --yes, -y              Skip all confirmation prompts; uses ~/ClaudeVault as the
-                           vault path unless --vault PATH is also supplied
+    --yes, -y              Skip all confirmation prompts; uses ~/ParsidionVault as
+                           the vault path unless legacy ~/ClaudeVault exists or
+                           --vault PATH is also supplied
     --skip-hooks           Do not modify settings.json
     --skip-agent           Do not install any agents
     --uninstall            Remove installed skill, agent, hooks, and related assets
@@ -90,6 +91,8 @@ PROJECT_NAME = "parsidion"
 LEGACY_PROJECT_NAME = "parsidion-cc"
 SKILL_NAME = PROJECT_NAME
 LEGACY_SKILL_NAME = LEGACY_PROJECT_NAME
+DEFAULT_VAULT_NAME = "ParsidionVault"
+LEGACY_DEFAULT_VAULT_NAME = "ClaudeVault"
 
 REPO_ROOT: Path = Path(__file__).parent.resolve()
 SKILL_SRC: Path = REPO_ROOT / "skills" / SKILL_NAME
@@ -330,6 +333,17 @@ def _ok(msg: str) -> None:
 # Vault path validation
 # ---------------------------------------------------------------------------
 
+
+def _default_vault_path(home: Path | None = None) -> Path:
+    """Return the default vault path while preserving legacy installs."""
+    root = home or Path.home()
+    current = root / DEFAULT_VAULT_NAME
+    legacy = root / LEGACY_DEFAULT_VAULT_NAME
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
+
+
 _FORBIDDEN_PREFIXES: tuple[str, ...] = (
     str(Path.home() / ".claude"),
     # Unix system directories
@@ -377,7 +391,7 @@ def prompt_vault_path(default: Path) -> Path:
     print(bold("Obsidian Vault Location"))
     print(
         dim(
-            "This is where Claude Vault will store your knowledge notes.\n"
+            "This is where Parsidion will store your knowledge notes.\n"
             "It can be an existing Obsidian vault or a new directory."
         )
     )
@@ -1599,7 +1613,7 @@ def rebuild_index(
     claude_dir: Path,
     dry_run: bool = False,
 ) -> None:
-    """Run update_index.py to rebuild ~/ClaudeVault/CLAUDE.md."""
+    """Run update_index.py to rebuild the resolved vault's CLAUDE.md."""
     script = claude_dir / "skills" / SKILL_NAME / "scripts" / "update_index.py"
     if not script.exists():
         _warn(f"update_index.py not found at {script} — skipping index rebuild")
@@ -1924,7 +1938,7 @@ def uninstall(
 
     if not dry_run:
         print()
-        _ok("Uninstall complete. Your vault at ~/ClaudeVault/ was not removed.")
+        _ok("Uninstall complete. Your resolved vault directory was not removed.")
 
 
 def unschedule_summarizer(dry_run: bool = False) -> None:
@@ -2178,7 +2192,8 @@ def create_vaults_config(dry_run: bool = False) -> None:
 # Use with: vault-search --vault NAME or CLAUDE_VAULT=NAME
 
 vaults:
-  # personal: ~/ClaudeVault
+  # personal: ~/ParsidionVault
+  # legacy: ~/ClaudeVault
   # work: ~/WorkVault
   # team: ~/team-vault
 
@@ -2370,10 +2385,10 @@ def remove_vault_post_merge_hook(
 def _resolve_vault_root_for_uninstall() -> Path:
     """Best-effort vault root resolution for uninstall (no args available).
 
-    Checks ``~/ClaudeVault/config.yaml`` first, then falls back to the
-    default ``~/ClaudeVault``.
+    Checks the default vault's ``config.yaml`` first, then falls back to the
+    default path (``~/ParsidionVault`` or legacy ``~/ClaudeVault`` if present).
     """
-    default = Path.home() / "ClaudeVault"
+    default = _default_vault_path()
     config = default / "config.yaml"
     if not config.exists():
         return default
@@ -2417,7 +2432,7 @@ def install(args: argparse.Namespace) -> int:
             _err(f"Vault path is not a directory: {vault_root}")
             return 2
     else:
-        default_vault = Path.home() / "ClaudeVault"
+        default_vault = _default_vault_path()
         if args.yes:
             vault_root = default_vault
         else:
@@ -2777,8 +2792,8 @@ def parse_args() -> argparse.Namespace:
         "-y",
         action="store_true",
         help=(
-            "Skip all confirmation prompts. Uses ~/ClaudeVault as the vault "
-            "path unless --vault PATH is also supplied. "
+            "Skip all confirmation prompts. Uses ~/ParsidionVault as the vault "
+            "path unless legacy ~/ClaudeVault exists or --vault PATH is supplied. "
             "Combine with --vault for fully non-interactive installs to a "
             "custom path: uv run install.py --yes --vault /path/to/vault"
         ),

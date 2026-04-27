@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No notable changes yet.
+### Changed
+
+- **Default vault path** — new installs now default to `~/ParsidionVault`; existing `~/ClaudeVault` installs are detected and continue to be used unless `~/ParsidionVault` also exists or `--vault` is provided.
+
+### Fixed
+
+- **Summarizer write-gate queue cleanup** — sessions skipped by the write-gate are now treated as processed and removed from `pending_summaries.jsonl` instead of being retried forever.
 
 ## [0.6.0] - 2026-04-27
 

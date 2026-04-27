@@ -403,7 +403,7 @@ def test_summarize_one_preserves_skip_write_gate(
     entry, written = asyncio.run(run())
 
     assert entry["session_id"] == "session-1234"
-    assert written is None
+    assert written == summarize_sessions._SKIPPED
     assert len(calls) == 1
     assert calls[0]["model"] == "summary-model"
     assert "session-1234" in str(calls[0]["prompt"])
@@ -561,6 +561,82 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
     assert observed["model"] is None
     assert observed["cluster_model"] is None
     assert "backend large default" in captured.out
+
+
+def test_main_removes_write_gate_skips_from_default_pending_queue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    pending = vault / "pending_summaries.jsonl"
+    pending.write_text("{}\n", encoding="utf-8")
+    entry = {
+        "session_id": "skip-session",
+        "transcript_path": str(tmp_path / "t.jsonl"),
+        "project": "p",
+        "categories": ["research"],
+    }
+    removed: list[dict[str, object]] = []
+
+    def fake_get_config(section: str, key: str, default: object = None) -> object:
+        return default
+
+    def fake_read_pending(path: Path) -> list[dict[str, object]]:
+        assert path == pending
+        return [entry]
+
+    async def fake_run_all(
+        entries: list[dict[str, object]],
+        model: str | None,
+        dry_run: bool,
+        persist: bool,
+        vault_path: Path,
+        max_parallel: int,
+        tail_lines: int,
+        max_cleaned_chars: int,
+        cluster_model: str | None,
+    ) -> list[tuple[dict[str, object], Path | str | None]]:
+        return [(entries[0], summarize_sessions._SKIPPED)]
+
+    def fake_remove_processed(
+        pending_path: Path, processed_entries: list[dict[str, object]]
+    ) -> None:
+        assert pending_path == pending
+        removed.extend(processed_entries)
+
+    def fake_anyio_run(
+        func: Callable[..., Coroutine[Any, Any, object]], *args: object
+    ) -> object:
+        return asyncio.run(func(*args))
+
+    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(
+        summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
+    )
+    monkeypatch.setattr(
+        summarize_sessions.vault_common,
+        "apply_configured_env_defaults",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(summarize_sessions, "read_pending", fake_read_pending)
+    monkeypatch.setattr(summarize_sessions, "run_all", fake_run_all)
+    monkeypatch.setattr(summarize_sessions, "remove_processed", fake_remove_processed)
+    monkeypatch.setattr(summarize_sessions.anyio, "run", fake_anyio_run, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["summarize_sessions.py", "--vault", str(vault)],
+    )
+
+    summarize_sessions.main()
+
+    captured = capsys.readouterr()
+    assert removed == [entry]
+    assert "1 skipped by write-gate" in captured.out
+    assert "failed" not in captured.out
 
 
 def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default(

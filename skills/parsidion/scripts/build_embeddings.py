@@ -8,7 +8,7 @@
 # ///
 """Build (or update) the semantic search index for Parsidion vault.
 
-Creates ~/ClaudeVault/embeddings.db with cosine-similarity vectors for every
+Creates <resolved vault>/embeddings.db with cosine-similarity vectors for every
 vault note. Uses BAAI/bge-small-en-v1.5 (384-dim, ~67 MB ONNX, CPU-only).
 
 Usage:

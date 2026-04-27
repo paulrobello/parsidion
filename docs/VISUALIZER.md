@@ -457,7 +457,7 @@ All API routes accept an optional `vault` query parameter:
 
 When no `vaults.yaml` exists or only one vault is configured:
 - Vault selector is hidden in the toolbar
-- All operations use the default vault (`~/ClaudeVault` or `VAULT_ROOT`)
+- All operations use the default vault (`~/ParsidionVault`, legacy `~/ClaudeVault` if it exists, or `VAULT_ROOT`)
 
 ## Running the Visualizer
 

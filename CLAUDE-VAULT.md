@@ -1,4 +1,4 @@
-# ClaudeVault — Always-On Guidance
+# ParsidionVault — Always-On Guidance
 
 > This file is loaded every session. The rules here are unconditional — they fire
 > regardless of whether the parsidion skill is explicitly invoked.
@@ -7,9 +7,10 @@
 
 **Before debugging, before web search, before writing new code — check the vault.**
 
-The vault at `~/ClaudeVault/` accumulates solutions, patterns, and decisions across
-every project and session. Checking it first saves time and avoids re-solving
-problems that have already been solved.
+The vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrading)
+accumulates solutions, patterns, and decisions across every project and session.
+Checking it first saves time and avoids re-solving problems that have already
+been solved.
 
 ## Debugging: Search Before You Diagnose
 
@@ -70,14 +71,14 @@ After solving a non-obvious problem or implementing a reusable pattern, save it:
 
 | What you solved | Save to |
 |---|---|
-| Error / bug fix | `~/ClaudeVault/Debugging/` |
-| Reusable code pattern | `~/ClaudeVault/Patterns/` |
-| Framework-specific fix | `~/ClaudeVault/Frameworks/` |
-| Language-specific knowledge | `~/ClaudeVault/Languages/` |
-| CLI tool or package notes | `~/ClaudeVault/Tools/` |
-| External research findings | `~/ClaudeVault/Research/` |
-| General knowledge, concepts, reference material | `~/ClaudeVault/Knowledge/` |
-| Architectural decision | `~/ClaudeVault/Projects/<project>/` |
+| Error / bug fix | `<resolved vault>/Debugging/` |
+| Reusable code pattern | `<resolved vault>/Patterns/` |
+| Framework-specific fix | `<resolved vault>/Frameworks/` |
+| Language-specific knowledge | `<resolved vault>/Languages/` |
+| CLI tool or package notes | `<resolved vault>/Tools/` |
+| External research findings | `<resolved vault>/Research/` |
+| General knowledge, concepts, reference material | `<resolved vault>/Knowledge/` |
+| Architectural decision | `<resolved vault>/Projects/<project>/` |
 
 Then rebuild the index:
 ```bash

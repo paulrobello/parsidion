@@ -112,7 +112,7 @@ class Issue:
 
 
 # ---------------------------------------------------------------------------
-# State file  (~ClaudeVault/doctor_state.json)
+# State file  (<resolved vault>/doctor_state.json)
 # ---------------------------------------------------------------------------
 # Schema:
 # {
@@ -2047,7 +2047,7 @@ def main() -> None:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Path to vault root (default: ~/ClaudeVault or VAULT_ROOT env)",
+        help="Path to vault root (default: VAULT_ROOT env, ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
     parser.add_argument(
         "--fix-frontmatter",

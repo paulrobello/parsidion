@@ -4,7 +4,7 @@
 Registered under the SubagentStop hook with ``async: true`` so it runs in the
 background and never blocks the subagent. Reads the subagent's own transcript
 (``agent_transcript_path``), detects learnable content using keyword heuristics,
-and queues the transcript to ``~/ClaudeVault/pending_summaries.jsonl`` for
+and queues the transcript to ``<resolved vault>/pending_summaries.jsonl`` for
 AI-powered summarisation by ``summarize_sessions.py``.
 
 Differences from session_stop_hook.py:

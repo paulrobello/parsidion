@@ -62,7 +62,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 
 3. **Restart the selected runtime(s)** to activate the hooks.
 
-That's it. Your selected runtime integration(s) now have persistent memory backed by a markdown vault at `~/ClaudeVault/`. Optionally, open that directory in [Obsidian](https://obsidian.md/) to browse notes and explore the knowledge graph.
+That's it. Your selected runtime integration(s) now have persistent memory backed by a markdown vault. New installs default to `~/ParsidionVault/`; existing `~/ClaudeVault/` installs are detected and reused automatically. Optionally, open that directory in [Obsidian](https://obsidian.md/) to browse notes and explore the knowledge graph.
 
 ## Installation
 
@@ -70,7 +70,7 @@ That's it. Your selected runtime integration(s) now have persistent memory backe
 # Interactive install (prompts for vault location)
 uv run install.py
 
-# Non-interactive with default vault (~/ClaudeVault)
+# Non-interactive with default vault (~/ParsidionVault, or legacy ~/ClaudeVault if present)
 uv run install.py --force --yes
 
 # Non-interactive with custom vault path
@@ -103,7 +103,7 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--dry-run / -n` | Preview all actions, no changes made |
 | `--verbose / -v` | Show detailed output |
 | `--force / -f` | Overwrite existing skill files without prompting |
-| `--yes / -y` | Skip all confirmation prompts; uses `~/ClaudeVault` if `--vault` not given |
+| `--yes / -y` | Skip all confirmation prompts; uses `~/ParsidionVault` if `--vault` not given, or legacy `~/ClaudeVault` when it already exists |
 | `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/settings.json`) |
 | `--skip-agent` | Do not install any agents |
 | `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml`, uses the configured prompt AI backend, and sets SessionStart timeout to 30 s |
@@ -154,7 +154,7 @@ After installation, restart the selected runtime(s) to activate hooks. Optionall
 
 ### Parsidion vault (`~/.claude/skills/parsidion/`)
 
-A markdown vault-based knowledge management system that replaces Claude Code's built-in auto memory with a richly organized, searchable, cross-linked knowledge base at `~/ClaudeVault/`. The vault is plain markdown -- [Obsidian](https://obsidian.md/) can be used to visualize the graph and browse notes but is not required.
+A markdown vault-based knowledge management system that replaces flat runtime memory with a richly organized, searchable, cross-linked knowledge base. New installs use `~/ParsidionVault/`; legacy `~/ClaudeVault/` vaults are reused automatically. The vault is plain markdown -- [Obsidian](https://obsidian.md/) can be used to visualize the graph and browse notes but is not required.
 
 **Auto-triggering:** The skill includes YAML frontmatter with a description that enables automatic invocation when users mention saving knowledge, checking notes, or persisting findings across sessions.
 
@@ -179,7 +179,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 | `vault_review.py` | Interactive TUI for inspecting and approving/rejecting pending sessions before AI summarization; available as `vault-review` global command |
 | `vault_export.py` | Export vault to HTML static site, filtered zip, or PDF via pandoc; available as `vault-export` global command |
 | `vault_merge.py` | Backend-aware AI-assisted merging of near-duplicate notes with automatic backlink updates; `--scan` finds near-duplicate pairs via embedding similarity; `--no-index` skips per-merge index rebuild for batch workflows; available as `vault-merge` global command |
-| `update_index.py` | Rebuilds `~/ClaudeVault/CLAUDE.md` index and populates the `note_index` SQLite table; includes tag cloud and vault health from `doctor_state.json` |
+| `update_index.py` | Rebuilds the resolved vault's `CLAUDE.md` index and populates the `note_index` SQLite table; includes tag cloud and vault health from `doctor_state.json` |
 | `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); auto-repairs broken wikilinks via exact stem match or `vault-search` semantic lookup (Python-only, no prompt AI call); repairs other issues via the configured prompt AI backend with semantic candidates from `vault-search`; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
 | `html-to-md.py` | PEP 723 standalone script -- converts HTML to clean, noise-free markdown optimized for LLM consumption; used by the research agent |
@@ -194,7 +194,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 
 **Vault structure:**
 ```
-~/ClaudeVault/
+~/ParsidionVault/            # Or legacy ~/ClaudeVault/ when upgrading
   CLAUDE.md                  # Auto-generated index (includes tag cloud + Existing Tags list)
   config.yaml                # Optional -- hook/summarizer settings (see Configuration)
   pending_summaries.jsonl    # Queue of sessions awaiting AI summarization
@@ -214,7 +214,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
   Templates/                 # Symlink to skill templates
 ```
 
-**Graph view color groups** (configured in `~/ClaudeVault/.obsidian/graph.json`, first-match-wins):
+**Graph view color groups** (configured in `<resolved vault>/.obsidian/graph.json`, first-match-wins):
 
 | Priority | Category | Color | RGB (decimal) | Tags |
 |----------|----------|-------|---------------|------|
@@ -234,8 +234,8 @@ The parsidion skill includes a sub-workflow for updating these groups -- add tag
 An always-on guidance file loaded every Claude Code session via `@CLAUDE-VAULT.md` in `~/.claude/CLAUDE.md`. It enforces the **vault-first rule** unconditionally -- no explicit invocation needed.
 
 **What it enforces:**
-- **Debugging:** Search `~/ClaudeVault/Debugging/` before diagnosing any error. Extract the key signal (exception class, package name, distinctive phrase) and Grep the vault first. If found, apply the documented fix. If not, diagnose then save the solution.
-- **Implementation:** Search `~/ClaudeVault/Patterns/`, `Frameworks/`, `Languages/`, and `Projects/` before writing non-trivial code. Reuse proven implementations from prior projects rather than writing from scratch.
+- **Debugging:** Search `<resolved vault>/Debugging/` before diagnosing any error. Extract the key signal (exception class, package name, distinctive phrase) and Grep the vault first. If found, apply the documented fix. If not, diagnose then save the solution.
+- **Implementation:** Search `<resolved vault>/Patterns/`, `Frameworks/`, `Languages/`, and `Projects/` before writing non-trivial code. Reuse proven implementations from prior projects rather than writing from scratch.
 - **Saving solutions:** After solving a non-obvious problem, save it to the appropriate vault folder and rebuild the index.
 
 The installer copies `CLAUDE-VAULT.md` from the repo root to `~/.claude/` and ensures the `@CLAUDE-VAULT.md` import line exists in `~/.claude/CLAUDE.md`. Uninstall removes both.
@@ -247,7 +247,7 @@ A Haiku-powered read-only subagent that isolates vault lookups from the main ses
 **7-step search procedure:**
 1. **Semantic search** -- `vault-search "QUERY" --json`; ≥3 results with score ≥ 0.35 → done
 2. **Metadata search** -- `vault-search --tag/--folder/--type/--project/--recent-days` with inferred filters; ≥3 results → done
-3. **Orient** -- reads `~/ClaudeVault/CLAUDE.md` index
+3. **Orient** -- reads the resolved vault's `CLAUDE.md` index
 4. **Extract signals** -- exception class, package name, or keyword
 5. **Search by priority folder** -- Grep by query type table
 6. **Rank & read** -- top 5 by semantic score, then folder priority
@@ -293,7 +293,7 @@ Helper script to install the `parsidion-vault` pi extension into `~/.pi/agent/ex
 
 ### Hooks (`~/.claude/settings.json`)
 
-All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#configuration)).
+All hooks read `<resolved vault>/config.yaml` for settings (see [Configuration](#configuration)).
 
 | Hook Event | Script | Timeout | Config section | Notes |
 |------------|--------|---------|----------------|-------|
@@ -357,7 +357,7 @@ Then in pi:
 
 For Anthropic / GLM-compatible settings, status precedence is:
 1. real environment variable
-2. `~/ClaudeVault/config.yaml` `anthropic_env`
+2. `<resolved vault>/config.yaml` `anthropic_env`
 3. unset
 
 Secret values such as `ANTHROPIC_AUTH_TOKEN` are masked in status output. Python hook scripts remain authoritative for runtime behavior; the pi extension only reports effective status.
@@ -480,16 +480,16 @@ Replace the path with the output of `which parsidion-mcp`. See [docs/MCP.md](doc
 
 ## Configuration
 
-All hooks and the summarizer read `~/ClaudeVault/config.yaml`. Precedence: **defaults -> config.yaml -> CLI args** (last one wins).
+All hooks and the summarizer read `<resolved vault>/config.yaml`. Precedence: **defaults -> config.yaml -> CLI args** (last one wins).
 
 Copy the template to get started:
 ```bash
-cp ~/.claude/skills/parsidion/templates/config.yaml ~/ClaudeVault/config.yaml
+cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 ```
 
 > **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
 > `claude-haiku-4-5-20251001`, `BAAI/bge-small-en-v1.5`) are the hardcoded script defaults.
-> Override any of them via the corresponding key in `~/ClaudeVault/config.yaml`.
+> Override any of them via the corresponding key in `<resolved vault>/config.yaml`.
 >
 > **Anthropic-compatible transport settings:** You can also define `ANTHROPIC_*`
 > and `API_TIMEOUT_MS` values in `config.yaml` under `anthropic_env:` using the
@@ -609,16 +609,13 @@ Use `--create-vaults-config` to generate a vaults configuration file:
 uv run install.py --create-vaults-config
 ```
 
-This creates `~/.claude/vaults.yaml`:
+This creates `~/.config/parsidion/vaults.yaml`:
 
 ```yaml
 vaults:
-  default:
-    path: ~/ClaudeVault
-  work:
-    path: ~/WorkVault
-  personal:
-    path: ~/PersonalVault
+  default: ~/ParsidionVault
+  work: ~/WorkVault
+  personal: ~/PersonalVault
 ```
 
 ### Using Multiple Vaults
@@ -670,19 +667,19 @@ All session hooks support multi-vault via the vaults config:
 
 ### Default Vault Resolution
 
-When `--vault` is not specified, tools use this resolution order:
+When no explicit vault is specified, tools use this resolution order:
 
-1. `--vault NAME` CLI flag (highest priority)
-2. `VAULT_DEFAULT` environment variable
-3. `default` vault in `~/.claude/vaults.yaml`
-4. `~/ClaudeVault` (fallback if no config exists)
+1. `--vault PATH_OR_NAME` CLI flag (path or name from `~/.config/parsidion/vaults.yaml`)
+2. Project-local `.claude/vault` file (path or configured name)
+3. `CLAUDE_VAULT` environment variable (path or configured name)
+4. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
 
 ## Vault Git Integration
 
-The vault supports optional git version control. When `~/ClaudeVault/.git` exists, scripts automatically stage and commit changes after every write (daily notes, index rebuilds, session notes). Controlled by `git.auto_commit` in config.
+The vault supports optional git version control. When `<resolved vault>/.git` exists, scripts automatically stage and commit changes after every write (daily notes, index rebuilds, session notes). Controlled by `git.auto_commit` in config.
 
 ```bash
-cd ~/ClaudeVault
+cd ~/ParsidionVault
 git init
 echo ".obsidian/" > .gitignore
 git add -A && git commit -m "chore(vault): initial commit"
@@ -705,7 +702,7 @@ If no `.git` directory is present, all git operations are silent no-ops.
     scripts/                         # Hook scripts, utilities, and html-to-md.py
     templates/                       # Note templates + config.yaml reference
 
-~/ClaudeVault/                       # Markdown vault (knowledge base; open in Obsidian for graph view)
+~/ParsidionVault/                    # Markdown vault (knowledge base; open in Obsidian for graph view)
   config.yaml                        # Optional hook/summarizer settings
   embeddings.db                      # Semantic search DB (note_embeddings + note_index tables)
   hook_events.log                    # Structured JSON log of hook executions
@@ -907,9 +904,9 @@ uv run install.py --uninstall-hooks
 
 ### Vault not created
 
-- The vault directory (`~/ClaudeVault/` by default) is created automatically by the SessionStart hook on first run.
+- The vault directory (`~/ParsidionVault/` by default, or legacy `~/ClaudeVault/` if present) is created automatically by the SessionStart hook on first run.
 - If it was not created, check that the hook is firing (see above).
-- You can create it manually: `mkdir -p ~/ClaudeVault` and then run the installer.
+- You can create it manually: `mkdir -p ~/ParsidionVault` and then run the installer.
 
 ### `uv` not found
 
@@ -927,7 +924,7 @@ uv run install.py --uninstall-hooks
     "timeout": 30000
   }
   ```
-- If timeouts persist, increase `ai_timeout` in `~/ClaudeVault/config.yaml`.
+- If timeouts persist, increase `ai_timeout` in `<resolved vault>/config.yaml`.
 
 ### Summarizer fails to run
 
@@ -966,7 +963,7 @@ Daily notes are stored as `Daily/YYYY-MM/DD-{username}.md` so multiple team memb
 To share:
 
 1. Run the installer on each machine: `uv run install.py --force --yes` (prompts for username interactively, or pass `--vault-username alice`)
-2. Push to a private remote: `cd ~/ClaudeVault && git remote add origin <url> && git push -u origin main`
+2. Push to a private remote: `cd ~/ParsidionVault && git remote add origin <url> && git push -u origin main`
 3. On other machines: clone the vault, then run the installer
 
 If you have an existing vault with legacy `DD.md` daily notes, migrate them once:

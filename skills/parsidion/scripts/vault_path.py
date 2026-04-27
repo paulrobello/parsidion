@@ -17,6 +17,8 @@ from pathlib import Path
 __all__: list[str] = [
     # Constants
     "VAULT_ROOT",
+    "DEFAULT_VAULT_NAME",
+    "LEGACY_DEFAULT_VAULT_NAME",
     "TEMPLATES_DIR",
     "SCRIPTS_DIR",
     "VAULT_DIRS",
@@ -30,6 +32,7 @@ __all__: list[str] = [
     "get_vaults_config_path",
     "list_named_vaults",
     "resolve_vault",
+    "default_vault_root",
     "resolve_templates_dir",
     "get_embeddings_db_path",
     # Internal (re-exported for backward compat)
@@ -43,7 +46,26 @@ __all__: list[str] = [
 # resolve_vault() or resolve_templates_dir() instead of using these directly.
 # Kept as module-level constants for backward compatibility with external callers
 # (e.g. parsidion-mcp, tests) that read vault_common.VAULT_ROOT.
-VAULT_ROOT: Path = Path.home() / "ClaudeVault"
+DEFAULT_VAULT_NAME = "ParsidionVault"
+LEGACY_DEFAULT_VAULT_NAME = "ClaudeVault"
+
+
+def default_vault_root(home: Path | None = None) -> Path:
+    """Return the default vault path, preserving legacy installs.
+
+    New installs default to ``~/ParsidionVault``. If a user already has a
+    legacy ``~/ClaudeVault`` and has not created ``~/ParsidionVault``, keep
+    using the legacy path so upgrades do not silently create a second vault.
+    """
+    root = home or Path.home()
+    current = root / DEFAULT_VAULT_NAME
+    legacy = root / LEGACY_DEFAULT_VAULT_NAME
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
+
+
+VAULT_ROOT: Path = default_vault_root()
 TEMPLATES_DIR: Path = Path.home() / ".claude" / "skills" / "parsidion" / "templates"
 SCRIPTS_DIR: Path = Path.home() / ".claude" / "skills" / "parsidion" / "scripts"
 
@@ -274,7 +296,7 @@ def resolve_vault(
     1. explicit flag (path or vault name)
     2. cwd/.claude/vault file (project-local vault)
     3. CLAUDE_VAULT environment variable
-    4. Default ~/ClaudeVault
+    4. Default ~/ParsidionVault, or legacy ~/ClaudeVault if it already exists
 
     Args:
         explicit: Optional explicit vault reference (name or path).
@@ -333,11 +355,14 @@ def _resolve_vault_cached(
     # 4. Default vault
     # ARC-005: Check vault_common's VAULT_ROOT first so that
     # monkeypatch.setattr(vault_common, "VAULT_ROOT", ...) in tests
-    # propagates correctly through the re-export facade.
+    # propagates correctly through the re-export facade. When unpatched, compute
+    # the default dynamically so HOME changes and legacy detection are respected.
     vc = sys.modules.get("vault_common")
     if vc is not None:
-        return getattr(vc, "VAULT_ROOT", VAULT_ROOT)
-    return VAULT_ROOT
+        vc_root = getattr(vc, "VAULT_ROOT", VAULT_ROOT)
+        if Path(vc_root) != VAULT_ROOT:
+            return Path(vc_root)
+    return default_vault_root()
 
 
 def resolve_templates_dir() -> Path:
