@@ -88,12 +88,19 @@ class TestResolveAiBackend:
 
         assert ai_backend.resolve_ai_backend(vault=vault) == "claude-cli"
 
-    def test_auto_defaults_to_claude_when_ambiguous(
+    def test_auto_prefers_codex_runtime_hint_over_claudecode(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: auto\n")
         monkeypatch.setenv("CODEX_SANDBOX", "read-only")
         monkeypatch.setenv("CLAUDECODE", "1")
+
+        assert ai_backend.resolve_ai_backend(vault=vault) == "codex-cli"
+
+    def test_auto_defaults_to_claude_when_no_strong_hints(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: auto\n")
 
         assert ai_backend.resolve_ai_backend(vault=vault) == "claude-cli"
 

@@ -71,7 +71,7 @@ def resolve_ai_backend(vault: Path | None = None) -> AiBackend:
     """Resolve the configured prompt AI backend.
 
     Explicit ``ai.backend`` values win. ``auto`` inspects runtime hints and
-    defaults to Claude when hints conflict or are absent.
+    prefers strong Codex runtime hints before the Claude fallback.
     """
     configured = _configured_backend(vault=vault)
     if configured in {"claude-cli", "codex-cli", "none"}:
@@ -85,12 +85,10 @@ def resolve_ai_backend(vault: Path | None = None) -> AiBackend:
     if runtime_hint == "claude":
         return "claude-cli"
 
-    has_codex_hint = bool(
-        os.environ.get("CODEX_SANDBOX") or os.environ.get("CODEX_SESSION_ID")
-    )
-    has_claude_hint = bool(os.environ.get("CLAUDECODE"))
-    if has_codex_hint and not has_claude_hint:
+    if os.environ.get("CODEX_SANDBOX") or os.environ.get("CODEX_SESSION_ID"):
         return "codex-cli"
+    if os.environ.get("CLAUDECODE"):
+        return "claude-cli"
     return "claude-cli"
 
 
