@@ -1,25 +1,15 @@
 ---
 name: parsidion
 description: >
-  ALWAYS invoke first — before any coding or debugging action — when the query
-  references accumulated past knowledge or future session persistence.
-  Trigger signals: "have we hit/seen this before", "what do we know about X",
-  "check our notes", "check if [project] has this", "prior art", "save this to
-  the vault", "don't forget", "remember this", "capture this", or any mention of
-  "the vault", "ParsidionVault", or "ClaudeVault".
-
-  This skill owns a persistent Obsidian knowledge base (new installs default to
-  ~/ParsidionVault/; legacy ~/ClaudeVault/ vaults are reused automatically)
-  surviving across all coding sessions, storing debugging solutions, reusable
-  patterns, and cross-project context.
-
-  Core use cases: (1) retrieving whether a problem or pattern was solved before,
-  (2) checking other projects for existing implementations, (3) saving new
-  discoveries for future sessions, (4) vault admin tasks like rebuilding the index,
-  running the session summarizer, or configuring vault hooks and settings.
-
-  Do NOT invoke for pure coding/debugging queries with zero reference to past
-  sessions or future memory.
+  Use first when a request references past knowledge or future memory: "have we
+  seen this before", "what do we know", "check notes", "prior art", "save to
+  the vault", "remember this", "don't forget", "capture this", "the vault",
+  "ParsidionVault", or "ClaudeVault". Parsidion owns the persistent markdown
+  vault (default ~/ParsidionVault, legacy ~/ClaudeVault fallback) for debugging
+  fixes, reusable patterns, research, and cross-project context. Use it to search
+  existing knowledge, save new discoveries, rebuild the index, run the session
+  summarizer, or configure vault hooks. Do not invoke for pure coding/debugging
+  with no memory, notes, or persistence angle.
 ---
 
 # Parsidion vault - Knowledge Management System
