@@ -39,7 +39,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **Python 3.13+**
 - **[uv](https://docs.astral.sh/uv/)** -- Python package runner and manager
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
-- **Claude Code and/or Codex CLI** -- runtime integration target(s) selected during install
+- **Claude Code, Codex CLI, and/or Gemini CLI** -- runtime integration target(s) selected during install
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
 - **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server; used by the research agent as a fallback search gateway (see [docs/MCPL.md](docs/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
@@ -58,7 +58,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
    ```bash
    uv run install.py
    ```
-   The installer prompts for runtime integrations. Depending on your selection, it may configure Claude Code assets under `~/.claude/` and Codex CLI hooks under `~/.codex/`.
+   The installer prompts for runtime integrations. Depending on your selection, it may configure Claude Code assets under `~/.claude/`, Codex CLI hooks under `~/.codex/`, and Gemini CLI hooks under `~/.gemini/settings.json`.
 
 3. **Restart the selected runtime(s)** to activate the hooks.
 
@@ -98,12 +98,13 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--vault PATH` | Vault path (skips interactive prompt) |
 | `--claude-dir PATH` | Target Claude config dir (default: `~/.claude`) |
 | `--codex-home PATH` | Target Codex home for hooks/config (default: `$CODEX_HOME` or `~/.codex`) |
-| `--runtime {claude,codex,both,none}` | Runtime integration target; interactive installs default to `both`, while `--yes` defaults to `claude` for backwards compatibility |
+| `--gemini-home PATH` | Target Gemini home for hook settings (default: `~/.gemini`) |
+| `--runtime {claude,codex,gemini,both,all,none}` | Runtime integration target; interactive installs default to `both` (Claude + Codex), while `--yes` defaults to `claude` for backwards compatibility |
 | `--dry-run / -n` | Preview all actions, no changes made |
 | `--verbose / -v` | Show detailed output |
 | `--force / -f` | Overwrite existing skill files without prompting |
 | `--yes / -y` | Skip all confirmation prompts; uses `~/ClaudeVault` if `--vault` not given |
-| `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json` or `~/.codex/hooks.json`) |
+| `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/settings.json`) |
 | `--skip-agent` | Do not install any agents |
 | `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml`, uses the configured prompt AI backend, and sets SessionStart timeout to 30 s |
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
@@ -114,7 +115,7 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--graph-include-daily` | Include Daily folder notes in the nightly graph rebuild (use with `--rebuild-graph`) |
 | `--create-vaults-config` | Create `~/.claude/vaults.yaml` for multi-vault support (see [Multi-Vault Support](#multi-vault-support)) |
 | `--uninstall` | Remove installed skill, agents, hook registrations, and launchd plist / cron job |
-| `--uninstall-hooks` | Remove only installed hook registrations from runtime hook files (`~/.claude/settings.json` or `~/.codex/hooks.json`) |
+| `--uninstall-hooks` | Remove only installed hook registrations from runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/settings.json`) |
 
 ### Runtime integrations
 
@@ -122,7 +123,9 @@ Interactive installs ask which runtime integrations to configure:
 
 - `claude` — Claude Code skill, agents, and hooks under `~/.claude`
 - `codex` — Codex CLI hooks under `~/.codex`
-- `both` — both Claude Code and Codex CLI integrations
+- `gemini` — Gemini CLI `SessionStart` and `SessionEnd` hooks under `~/.gemini/settings.json`
+- `both` — Claude Code and Codex CLI integrations
+- `all` — Claude Code, Codex CLI, and Gemini CLI integrations
 - `none` — shared vault tooling only; do not register runtime hooks
 
 Non-interactive installs keep the historical Claude-only default unless you pass `--runtime` explicitly:
@@ -131,9 +134,13 @@ Non-interactive installs keep the historical Claude-only default unless you pass
 uv run install.py --yes --runtime claude
 uv run install.py --yes --runtime both
 uv run install.py --yes --runtime codex
+uv run install.py --yes --runtime gemini
+uv run install.py --yes --runtime all
 ```
 
 Codex integration uses native Codex hooks for session lifecycle events and requires `codex_hooks = true` in `~/.codex/config.toml`. Parsidion can enable this during install and registers hooks in `~/.codex/hooks.json`. Parsidion does not manage Codex auth or copy `~/.codex/auth.json`.
+
+Gemini runtime hooks are separate from prompt AI backend selection. `--runtime gemini` or `--runtime all` registers Gemini CLI `SessionStart` and `SessionEnd` commands in `~/.gemini/settings.json`; it does not add a Gemini prompt AI backend. Gemini has no native subagent lifecycle hook in this first pass, so subagent-style capture remains Claude/pi-specific.
 
 During interactive installation, the installer prompts for three optional features:
 
@@ -159,6 +166,8 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 | `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via the configured prompt AI backend (`claude -p` or `codex exec`); `--debug` logs injected context to `$TMPDIR` |
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
+| `gemini_session_start_hook.py` | Gemini SessionStart hook -- wraps the same context builder for Gemini CLI runtime integration |
+| `gemini_session_end_hook.py` | Gemini SessionEnd hook -- parses Gemini transcripts and queues learnable sessions from `~/.gemini/...` or `<project>/.gemini/...` |
 | `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents`; accepts Claude and pi transcript paths |
 | `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions via the configured prompt AI backend (`claude -p` or `codex exec`); uses `anyio` for concurrency and checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
 | `pre_compact_hook.py` | PreCompact hook -- snapshots working state before compaction |
@@ -297,7 +306,8 @@ All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#co
 Transcript compatibility for stop hooks:
 - Claude Code JSONL (`type: "assistant" | "user"`)
 - pi JSONL (`type: "message"` + `message.role`)
-- Accepted roots: `~/.claude/`, `~/.pi/`, and `<cwd>/.pi/`
+- Gemini JSONL model output records (`role: "model"`, `message.role: "model"`, or `llm_response.candidates[].content.parts`)
+- Accepted roots: `~/.claude/`, `~/.pi/`, `<cwd>/.pi/`, `~/.codex/sessions/`, `~/.gemini/`, and `<cwd>/.gemini/`
 
 ### pi Extension Install (`parsidion-vault`)
 
@@ -889,8 +899,8 @@ uv run install.py --uninstall-hooks
 
 ### Hooks not firing
 
-- Verify hooks are registered in the selected runtime config: `~/.claude/settings.json` for Claude Code or `~/.codex/hooks.json` for Codex CLI. Look for entries pointing to the hook scripts.
-- Re-run `uv run install.py --force --yes --runtime both` (or your selected `--runtime`) to re-register hooks.
+- Verify hooks are registered in the selected runtime config: `~/.claude/settings.json` for Claude Code, `~/.codex/hooks.json` for Codex CLI, or `~/.gemini/settings.json` for Gemini CLI. Look for entries pointing to the hook scripts.
+- Re-run `uv run install.py --force --yes --runtime all` (or your selected `--runtime`) to re-register hooks.
 - Check that the script paths in the runtime hook config are correct and the files exist at those paths.
 - Restart the selected runtime after any hook config change.
 

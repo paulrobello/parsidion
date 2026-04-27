@@ -211,7 +211,7 @@ Do not create notes for:
 
 All hooks read `~/ClaudeVault/config.yaml` for settings. CLI args override config values.
 
-Claude Code installs the full hook set below. Codex runtime hooks are session lifecycle only: native Codex `SessionStart` and `Stop` hooks registered in `~/.codex/hooks.json` when `codex_hooks = true` is enabled in `~/.codex/config.toml`. Codex integration does not provide full Claude hook parity (no PreCompact, PostCompact, SubagentStop, or tool hooks in this phase).
+Claude Code installs the full hook set below. Codex runtime hooks are session lifecycle only: native Codex `SessionStart` and `Stop` hooks registered in `~/.codex/hooks.json` when `codex_hooks = true` is enabled in `~/.codex/config.toml`. Gemini runtime hooks are also lifecycle only: `SessionStart` and `SessionEnd` commands registered in `~/.gemini/settings.json` via `--runtime gemini` or `--runtime all`. Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend; Gemini has no native subagent lifecycle capture in this first pass.
 
 | Hook | Behavior | Config section |
 |---|---|---|
@@ -245,6 +245,7 @@ Run the summarizer on demand to generate structured vault notes.
 Supported transcript locations:
 - Claude Code: `~/.claude/projects/**/*.jsonl`
 - Codex CLI: `~/.codex/sessions/**/*.jsonl`
+- Gemini CLI: `~/.gemini/**/*.jsonl` and `<project>/.gemini/**/*.jsonl`
 - pi (global): `~/.pi/agent/sessions/**/*.jsonl`
 - pi (project-local): `<project>/.pi/agent-sessions/**/*.jsonl`
 
@@ -498,7 +499,7 @@ git:
 ```
 
 - `auto` prefers the active runtime when detectable and falls back to Claude CLI when ambiguous.
-- Codex backend uses `codex exec` with default ephemeral/read-only/skip-git-repo-check/output-last-message prompt calls and the normal Codex CLI auth path; Parsidion does not manage Codex auth files such as `~/.codex/auth.json`. This is not OpenAI API-key provider support.
+- Codex backend uses `codex exec` with default ephemeral/read-only/skip-git-repo-check/output-last-message prompt calls and the normal Codex CLI auth path; Parsidion does not manage Codex auth files such as `~/.codex/auth.json`. This is not OpenAI API-key provider support. Gemini runtime hooks do not imply `ai.backend: gemini`; no Gemini prompt backend is provided yet.
 - `summarize_sessions.py` also uses the configured prompt AI backend. Claude uses `claude -p`, Codex uses `codex exec`, and no Claude Agent SDK or Codex SDK is required for this path.
 
 ### Programmatic Access

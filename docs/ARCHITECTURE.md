@@ -233,17 +233,21 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Four Python scripts execute at different points in the Claude Code session lifecycle (and can also be driven from pi via adapter extensions). All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args).
+Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop` wrappers; Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ClaudeVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
 
 Transcript compatibility:
 - Claude Code JSONL (`type: "assistant" | "user"`)
+- Codex JSONL under `~/.codex/sessions/`
+- Gemini JSONL under `~/.gemini/` or `<cwd>/.gemini/`
 - pi JSONL (`type: "message"` with `message.role: "assistant" | "user"`)
 
 #### SessionStart Hook
 
 **Script:** `skills/parsidion/scripts/session_start_hook.py`
 
-Fires when a Claude Code session begins. Loads relevant vault context into the conversation so Claude has prior knowledge available immediately.
+**Runtime wrappers:** `codex_session_start_hook.py` and `gemini_session_start_hook.py` set runtime hints and reuse the same context builder for Codex and Gemini `SessionStart` events.
+
+Fires when a Claude Code, Codex, or Gemini session begins. Loads relevant vault context into the conversation so the assistant has prior knowledge available immediately.
 
 **CLI flags:** `--ai [MODEL]`, `--max-chars N`, `--verbose`, `--debug`
 
@@ -294,7 +298,9 @@ Default model: `claude-haiku-4-5-20251001`. Override with `--ai claude-sonnet-4-
 
 **Script:** `skills/parsidion/scripts/session_stop_hook.py`
 
-Registered under the `SessionEnd` hook event — fires once when the session terminates (unlike `Stop`, which fires after every agent turn). Analyzes the session transcript to detect learnable content and persists it to the vault.
+**Runtime wrappers:** `codex_stop_hook.py` handles Codex `Stop`; `gemini_session_end_hook.py` handles Gemini `SessionEnd` and parses Gemini model transcript records.
+
+Registered under the Claude `SessionEnd` hook event — fires once when the session terminates (unlike `Stop`, which fires after every agent turn). Runtime-specific wrappers apply equivalent lifecycle handling for Codex and Gemini. Analyzes the session transcript to detect learnable content and persists it to the vault.
 
 **Configurable options** (section `session_stop_hook` in `config.yaml`):
 
@@ -310,7 +316,7 @@ Registered under the `SessionEnd` hook event — fires once when the session ter
 **Behavior:**
 1. Reads a configurable transcript tail (`transcript_tail_lines`, default `200`)
 2. Extracts assistant message text (Claude and pi JSONL formats)
-3. If no assistant text is found and the transcript is under a pi root (`~/.pi` or `<cwd>/.pi`), retries with `pi_transcript_tail_lines` (default `1000`)
+3. If no assistant text is found and the transcript is under a pi root (`~/.pi` or `<cwd>/.pi`), retries with `pi_transcript_tail_lines` (default `1000`). Gemini transcript parsing extracts model text from direct `role: "model"` records, message wrappers, content arrays, and `llm_response.candidates[].content.parts`.
 4. Resolves AI model: CLI `--ai` → `session_stop_hook.ai_model` config → `null` (disabled)
 5. Runs keyword-based heuristics to detect four categories:
    - **Error fixes** (keywords: "fixed", "root cause", "the fix", etc.)
@@ -321,7 +327,7 @@ Registered under the `SessionEnd` hook event — fires once when the session ter
 7. Queues sessions with significant learnings (error_fix, research, or pattern categories) to `pending_summaries.jsonl` for AI-powered summarization. Uses `vault_common.flock_exclusive` (backed by `fcntl.flock` on macOS/Linux; no-op fallback on Windows) for safe concurrent access; deduplicates by `session_id`.
 8. Calls `git_commit_vault` to commit the updated daily note to the vault git repository (respects `git.auto_commit` config)
 9. Auto-launches `summarize_sessions.py` as a detached background process if there are pending entries in the queue and `session_stop_hook.auto_summarize` is `true` (default)
-10. Uses an environment variable guard (`CLAUDE_VAULT_STOP_ACTIVE`) to prevent recursive invocation
+10. Uses environment variable guards (`CLAUDE_VAULT_STOP_ACTIVE` and `PARSIDION_INTERNAL=1`) to prevent recursive invocation from Parsidion-launched CLI agents
 
 **AI-powered mode (`--ai [MODEL]`):**
 
@@ -399,7 +405,7 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 
 **Location:** `skills/parsidion/scripts/summarize_sessions.py`
 
-An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. Claude-backed runs use `claude -p`; Codex-backed runs use `codex exec`. No Claude Agent SDK or Codex SDK is required for this path.
+An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. Claude-backed runs use `claude -p`; Codex-backed runs use `codex exec`. Gemini runtime hooks can queue transcripts, but there is no Gemini prompt backend yet. No Claude Agent SDK or Codex SDK is required for this path.
 
 **CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`
 
@@ -637,7 +643,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `git_commit_vault()` | Stage and commit vault changes; respects `git.auto_commit` config |
 | `load_config()` | Load and cache `config.yaml` from `VAULT_ROOT` |
 | `get_config()` | Look up a config value by section/key with fallback default |
-| `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset (for nested `claude -p` calls); `_SAFE_ENV_KEYS` allowlist forwards `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so proxy/org/Bedrock configurations reach subprocesses |
+| `env_without_claudecode()` | Return `os.environ` copy with `CLAUDECODE` unset and `PARSIDION_INTERNAL=1` set for Parsidion-launched CLI agents; `_SAFE_ENV_KEYS` allowlist forwards `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so proxy/org/Bedrock configurations reach subprocesses |
 | `apply_configured_env_defaults()` | Populate missing Anthropic-compatible runtime env vars from `~/ClaudeVault/config.yaml` `anthropic_env`; real environment variables still win |
 | `flock_exclusive()` | Acquire an exclusive file lock (`fcntl.flock` on POSIX; no-op on Windows) |
 | `flock_shared()` | Acquire a shared file lock (`fcntl.flock` on POSIX; no-op on Windows) |
@@ -1199,6 +1205,10 @@ parsidion/
     │   ├── session_start_hook.py    # SessionStart hook
     │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
     │   ├── session_stop_hook.py     # SessionEnd hook (queues to pending_summaries.jsonl)
+    │   ├── codex_session_start_hook.py # Codex SessionStart wrapper
+    │   ├── codex_stop_hook.py       # Codex Stop wrapper
+    │   ├── gemini_session_start_hook.py # Gemini SessionStart wrapper
+    │   ├── gemini_session_end_hook.py # Gemini SessionEnd wrapper
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)
     │   ├── pre_compact_hook.py      # PreCompact hook
     │   ├── post_compact_hook.py     # PostCompact hook (restores Pre-Compact Snapshot as additionalContext)
