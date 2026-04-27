@@ -10,14 +10,13 @@
 # ///
 """Phase 1: Ground-truth query generation for the embedding eval harness.
 
-Samples vault notes and uses Claude to generate search queries that serve
-as the ground-truth evaluation dataset.
+Samples vault notes and uses the configured prompt AI backend to generate
+search queries that serve as the ground-truth evaluation dataset.
 """
 
 import json
 import random
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,6 +34,7 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
+import ai_backend  # noqa: E402
 import vault_common  # noqa: E402
 from embed_eval_common import (  # noqa: E402
     CLAUDE_TIMEOUT,
@@ -45,26 +45,19 @@ from embed_eval_common import (  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Claude helper
+# AI helper
 # ---------------------------------------------------------------------------
 
 
-def _call_claude(prompt: str, timeout: int = CLAUDE_TIMEOUT) -> str | None:
-    """Call `claude -p` with CLAUDECODE unset. Returns stdout or None."""
-    env = vault_common.env_without_claudecode()
-    try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--no-session-persistence"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
+def _call_ai(prompt: str, timeout: int = CLAUDE_TIMEOUT) -> str | None:
+    """Run an eval-generation prompt through the configured AI backend."""
+    return ai_backend.run_ai_prompt(
+        prompt,
+        model=None,
+        model_tier="small",
+        timeout=timeout,
+        purpose="embed-eval-generate",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +69,7 @@ def generate_queries_for_note(
     note_path: Path,
     queries_per_note: int,
 ) -> list[str]:
-    """Ask Claude to generate *queries_per_note* search queries for the note."""
+    """Ask the configured prompt AI backend to generate search queries for the note."""
     try:
         content = note_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -104,7 +97,7 @@ def generate_queries_for_note(
         f"Content snippet:\n{body[:800]}\n"
     )
 
-    raw = _call_claude(prompt)
+    raw = _call_ai(prompt)
     if not raw:
         return []
 
@@ -144,7 +137,7 @@ def generate_ground_truth(
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("Generating queries via Claude", total=len(sample))
+        task = progress.add_task("Generating queries via prompt AI", total=len(sample))
         for note_path in sample:
             queries = generate_queries_for_note(note_path, queries_per_note)
             if queries:

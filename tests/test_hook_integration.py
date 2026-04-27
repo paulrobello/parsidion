@@ -10,6 +10,8 @@ CLAUDE_VAULT_STOP_ACTIVE is unset to allow the hooks to run (otherwise
 session_stop_hook and subagent_stop_hook skip themselves).
 """
 
+import importlib
+import io
 import json
 import os
 import subprocess
@@ -240,6 +242,49 @@ class TestSessionStopHookIntegration:
 @pytest.mark.timeout(15)
 class TestCodexHookIntegration:
     """Integration tests for Codex hook wrapper scripts."""
+
+    def test_codex_session_start_sets_runtime_hint_and_restores_previous_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if str(_SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+        codex_session_start_hook = importlib.import_module("codex_session_start_hook")
+        seen_runtime: list[str | None] = []
+
+        def fake_build_session_context(
+            cwd: str,
+            *,
+            ai_model: str | None,
+            max_chars: int,
+            verbose_mode: bool,
+        ) -> tuple[str, int]:
+            seen_runtime.append(os.environ.get("PARSIDION_RUNTIME"))
+            assert ai_model is None
+            return (f"context for {cwd}", 1)
+
+        monkeypatch.setattr(
+            codex_session_start_hook,
+            "build_session_context",
+            fake_build_session_context,
+        )
+        monkeypatch.setattr(
+            codex_session_start_hook.sys,
+            "stdin",
+            io.StringIO(json.dumps({"cwd": str(tmp_path)})),
+        )
+        stdout = io.StringIO()
+        monkeypatch.setattr(codex_session_start_hook.sys, "stdout", stdout)
+        monkeypatch.setenv("PARSIDION_RUNTIME", "existing-runtime")
+
+        codex_session_start_hook.main()
+
+        assert seen_runtime == ["codex"]
+        assert os.environ["PARSIDION_RUNTIME"] == "existing-runtime"
+        parsed = json.loads(stdout.getvalue())
+        assert (
+            parsed["hookSpecificOutput"]["additionalContext"]
+            == f"context for {tmp_path}"
+        )
 
     def test_codex_session_start_stdout_is_valid_json(self, tmp_path: Path) -> None:
         result = _run_hook(

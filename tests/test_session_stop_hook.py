@@ -8,12 +8,187 @@ These tests import vault_common directly (the canonical implementation) and
 use tmp_path for all file I/O to avoid touching the real vault.
 """
 
+import io
 import json
+import subprocess
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import session_stop_hook
 import vault_common
+
+
+# ---------------------------------------------------------------------------
+# AI classification
+# ---------------------------------------------------------------------------
+
+
+def _write_codex_config(vault: Path) -> None:
+    vault.mkdir(parents=True, exist_ok=True)
+    (vault / "config.yaml").write_text(
+        "ai:\n"
+        "  backend: codex-cli\n"
+        "session_stop_hook:\n"
+        "  ai_model: null\n"
+        "  ai_timeout: 5\n"
+        "  auto_summarize: false\n"
+        "  transcript_tail_lines: 200\n",
+        encoding="utf-8",
+    )
+
+
+def _run_session_stop_main_for_codex(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    argv: list[str],
+) -> list[list[str]]:
+    vault = tmp_path / "vault"
+    project = tmp_path / "project"
+    transcript = project / ".pi" / "transcript.jsonl"
+    project.mkdir(parents=True)
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I researched Codex CLI defaults and found the model behavior.",
+                        }
+                    ],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_codex_config(vault)
+
+    session_stop_hook.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    session_stop_hook.vault_common._clear_config_cache()
+    monkeypatch.setenv("CLAUDE_VAULT", str(vault))
+    monkeypatch.delenv("CLAUDE_VAULT_STOP_ACTIVE", raising=False)
+    monkeypatch.delenv("PARSIDION_INTERNAL", raising=False)
+    monkeypatch.setattr(
+        session_stop_hook.vault_common,
+        "is_allowed_transcript_path",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        session_stop_hook.vault_common, "ensure_vault_dirs", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        session_stop_hook, "append_session_to_daily", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        session_stop_hook, "append_to_pending", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        session_stop_hook.vault_common,
+        "git_commit_vault",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        session_stop_hook, "_launch_summarizer_if_pending", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        session_stop_hook.vault_common, "write_hook_event", lambda **_kwargs: None
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        output_path = Path(cmd[cmd.index("--output-last-message") + 1])
+        output_path.write_text(
+            '{"should_queue": true, "categories": ["research"], "summary": "Codex defaults."}',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(
+        session_stop_hook.ai_backend, "_run_prompt_subprocess", fake_run
+    )
+    monkeypatch.setattr(sys, "argv", ["session_stop_hook.py", *argv])
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({"cwd": str(project), "transcript_path": str(transcript)})
+        ),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    session_stop_hook.main()
+    assert calls
+    return calls
+
+
+def test_main_no_arg_ai_uses_codex_backend_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls = _run_session_stop_main_for_codex(monkeypatch, tmp_path, ["--ai"])
+
+    cmd = calls[0]
+    assert cmd[cmd.index("--model") + 1] == "gpt-5.5"
+    assert "claude-haiku-4-5-20251001" not in cmd
+
+
+def test_main_explicit_ai_model_overrides_codex_backend_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls = _run_session_stop_main_for_codex(
+        monkeypatch, tmp_path, ["--ai", "custom-codex-model"]
+    )
+
+    cmd = calls[0]
+    assert cmd[cmd.index("--model") + 1] == "custom-codex-model"
+
+
+def test_classify_session_with_ai_uses_small_tier_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+        calls.append({"prompt": prompt, **kwargs})
+        return '{"should_queue": true, "categories": ["research"], "summary": "Found docs."}'
+
+    monkeypatch.setattr(
+        session_stop_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+    )
+    monkeypatch.setattr(
+        session_stop_hook.vault_common,
+        "get_config",
+        lambda section, key, default=None: (
+            9 if (section, key) == ("session_stop_hook", "ai_timeout") else default
+        ),
+    )
+
+    result = session_stop_hook._classify_session_with_ai(
+        ["I researched the Codex CLI non-interactive mode and found codex exec."],
+        "parsidion",
+        None,
+    )
+
+    assert result == {
+        "should_queue": True,
+        "categories": ["research"],
+        "summary": "Found docs.",
+    }
+    assert calls
+    assert calls[0]["model"] is None
+    assert calls[0]["model_tier"] == "small"
+    assert calls[0]["timeout"] == 9
+    assert calls[0]["purpose"] == "session-stop-classification"
 
 
 # ---------------------------------------------------------------------------

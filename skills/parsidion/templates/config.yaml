@@ -4,6 +4,27 @@
 # Values here override script defaults. CLI arguments override these values.
 # Precedence: defaults → config.yaml → CLI args
 
+# Prompt AI backend used by hooks and helper scripts
+ai:
+  backend: auto            # auto | claude-cli | codex-cli | none
+
+# Backend-specific model defaults used when CLI --ai is passed without MODEL
+ai_models:
+  claude:
+    small: claude-haiku-4-5-20251001
+    large: claude-sonnet-4-6
+  codex:
+    small: gpt-5.5
+    large: gpt-5.5
+
+# Codex CLI backend execution options
+codex_cli:
+  command: codex           # Codex executable name/path
+  timeout: 60              # Codex exec timeout in seconds
+  sandbox: read-only       # Sandbox mode for codex exec (null to omit)
+  ephemeral: true          # Pass --ephemeral to avoid session persistence
+  skip_git_repo_check: true # Pass --skip-git-repo-check for vault/project paths
+
 # Session start hook (session_start_hook.py)
 session_start_hook:
   ai_model: null           # Model for AI note selection (null = disabled)

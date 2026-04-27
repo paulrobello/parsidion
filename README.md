@@ -105,7 +105,7 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--yes / -y` | Skip all confirmation prompts; uses `~/ClaudeVault` if `--vault` not given |
 | `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json` or `~/.codex/hooks.json`) |
 | `--skip-agent` | Do not install any agents |
-| `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml` and sets SessionStart timeout to 30 s |
+| `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml`, uses the configured prompt AI backend, and sets SessionStart timeout to 30 s |
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
 | `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, and `vault-merge` as global CLI commands via `uv tool install` |
 | `--schedule-summarizer` | Generate a launchd plist (macOS) or cron job (Linux) for nightly auto-summarization |
@@ -138,7 +138,7 @@ Codex integration uses native Codex hooks for session lifecycle events and requi
 During interactive installation, the installer prompts for three optional features:
 
 1. **"Install CLI tools?"** (default: yes) — runs `uv tool install --editable ".[tools]"` to register `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, and `vault-merge` as global commands. Use `--install-tools` to enable this non-interactively (e.g. with `--yes`).
-2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml` and sets the SessionStart hook timeout to 30 s, enabling claude-haiku to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`).
+2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml` and sets the SessionStart hook timeout to 30 s, enabling the configured prompt AI backend to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`).
 3. **"Enable embeddings?"** (default: yes) — writes `embeddings.enabled = true` to `config.yaml`, enabling the vector index used by `vault-search` semantic mode and `session_start_hook` with `use_embeddings`. Requires ~67 MB model download on first run. Use `--enable-embeddings` to enable this non-interactively (e.g. with `--yes`).
 
 After installation, restart the selected runtime(s) to activate hooks. Optionally, open the vault path in Obsidian for graph visualization and note browsing -- this is not required for the system to work.
@@ -157,7 +157,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 |--------|---------|
 | `vault_common.py` | Shared library (frontmatter parsing, search, path utilities, config loader, git commit, `build_compact_index()`) |
 | `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
-| `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via `claude -p`; `--debug` logs injected context to `$TMPDIR` |
+| `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via the configured prompt AI backend (`claude -p` or `codex exec`); `--debug` logs injected context to `$TMPDIR` |
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
 | `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents`; accepts Claude and pi transcript paths |
 | `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`); checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
@@ -169,12 +169,12 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 | `vault_stats.py` | Analytics CLI for vault health and activity -- modes: `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags` (tag cloud), `--pending` (pending queue status), `--graph` (knowledge graph metrics), `--hooks N` (last N hook events), `--weekly` (weekly rollup note), `--monthly` (monthly rollup note), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (live summarizer status), `--dashboard` (all modes combined); available as `vault-stats` global command with `--install-tools` |
 | `vault_review.py` | Interactive TUI for inspecting and approving/rejecting pending sessions before AI summarization; available as `vault-review` global command |
 | `vault_export.py` | Export vault to HTML static site, filtered zip, or PDF via pandoc; available as `vault-export` global command |
-| `vault_merge.py` | AI-assisted merging of near-duplicate notes with automatic backlink updates; `--scan` finds near-duplicate pairs via embedding similarity; `--no-index` skips per-merge index rebuild for batch workflows; available as `vault-merge` global command |
+| `vault_merge.py` | Backend-aware AI-assisted merging of near-duplicate notes with automatic backlink updates; `--scan` finds near-duplicate pairs via embedding similarity; `--no-index` skips per-merge index rebuild for batch workflows; available as `vault-merge` global command |
 | `update_index.py` | Rebuilds `~/ClaudeVault/CLAUDE.md` index and populates the `note_index` SQLite table; includes tag cloud and vault health from `doctor_state.json` |
-| `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); auto-repairs broken wikilinks via exact stem match or `vault-search` semantic lookup (Python-only, no Claude call); repairs other issues via Claude haiku with semantic candidates from `vault-search`; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
+| `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); auto-repairs broken wikilinks via exact stem match or `vault-search` semantic lookup (Python-only, no prompt AI call); repairs other issues via the configured prompt AI backend with semantic candidates from `vault-search`; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
 | `html-to-md.py` | PEP 723 standalone script -- converts HTML to clean, noise-free markdown optimized for LLM consumption; used by the research agent |
-| `embed_eval.py` | Embedding evaluation harness -- benchmarks model and chunking strategy combinations against Claude-generated ground-truth queries; outputs Rich table, JSON results, and interactive HTML report (see [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md)) |
+| `embed_eval.py` | Embedding evaluation harness -- benchmarks model and chunking strategy combinations against AI-generated ground-truth queries; outputs Rich table, JSON results, and interactive HTML report (see [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md)) |
 | `run_trigger_eval.py` | Trigger accuracy eval (skill-selection simulation) |
 | `run_trigger_eval.sh` | Shell wrapper for running eval from a separate terminal (macOS/Linux) |
 | `run_trigger_eval.bat` | Batch wrapper for running eval from a separate terminal (Windows) |
@@ -288,7 +288,7 @@ All hooks read `~/ClaudeVault/config.yaml` for settings (see [Configuration](#co
 
 | Hook Event | Script | Timeout | Config section | Notes |
 |------------|--------|---------|----------------|-------|
-| SessionStart | `session_start_hook.py` | 10 s (30 s with `--ai`) | `session_start_hook` | `--ai [MODEL]` or `session_start_hook.ai_model` enables AI selection |
+| SessionStart | `session_start_hook.py` | 10 s (30 s with `--ai`) | `session_start_hook` | `--ai [MODEL]` or `session_start_hook.ai_model` enables selection through the configured prompt AI backend |
 | SessionEnd | `session_stop_wrapper.sh` → `session_stop_hook.py` | 10 s | `session_stop_hook` | Shell wrapper outputs `{}` immediately; Python script runs detached via `nohup` |
 | PreCompact | `pre_compact_hook.py` | 10 s | `pre_compact_hook` | Configurable transcript lines |
 | PostCompact | `post_compact_hook.py` | 10 s | — | Reads last Pre-Compact Snapshot from today's daily note and returns it as `additionalContext` |
@@ -527,6 +527,24 @@ summarizer:
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
   dedup_threshold: 0.80    # Cosine similarity above which a near-duplicate note is detected and skipped
 
+ai:
+  backend: auto          # auto | claude-cli | codex-cli | none
+
+ai_models:
+  claude:
+    small: claude-haiku-4-5-20251001
+    large: claude-sonnet-4-6
+  codex:
+    small: gpt-5.5
+    large: gpt-5.5
+
+codex_cli:
+  command: codex
+  timeout: 60
+  sandbox: read-only
+  ephemeral: true
+  skip_git_repo_check: true
+
 anthropic_env:
   ANTHROPIC_API_KEY: null
   ANTHROPIC_AUTH_TOKEN: null
@@ -557,6 +575,12 @@ adaptive_context:
   enabled: false           # Track which injected notes were referenced; derank unused ones
   decay_days: 30           # Half-life in days for deranking unreferenced notes
 ```
+
+`ai.backend` controls prompt-style AI helpers used by session-start selection, session-stop classification, vault doctor repairs, vault merge synthesis, and eval utilities. `auto` prefers the active runtime when Parsidion can detect it: Codex runtime hints use `codex exec`, Claude runtime hints use `claude -p`, and ambiguous environments keep the historical Claude CLI behavior.
+
+Codex mode uses the Codex CLI and its normal authentication path. Parsidion does not read, copy, or manage `~/.codex/auth.json`, and this is not OpenAI API-key provider support. Prompt-style Codex calls default to `codex exec --ephemeral --sandbox read-only --skip-git-repo-check` and write/read the final answer via `--output-last-message`.
+
+`summarize_sessions.py` still uses `claude-agent-sdk` in this release; Codex support for SDK-backed summarization is planned as a separate follow-up.
 
 ## Multi-Vault Support
 
@@ -778,7 +802,7 @@ vault-export --pdf ~/vault.pdf     # export via pandoc to PDF
 vault-merge                        # AI-assisted: detect and merge near-duplicate notes, update backlinks
 ```
 
-**Summarize queued sessions** (generates structured vault notes via Claude Agent SDK):
+**Summarize queued sessions** (generates structured vault notes via `claude-agent-sdk`; Codex SDK-backed summarization is not included in this release):
 ```bash
 # Process all pending sessions (run from a terminal, not inside Claude Code)
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
@@ -793,12 +817,13 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --d
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --sessions /path/to/file.jsonl
 ```
 
-**Run vault doctor** (scan for issues and repair via Claude haiku):
+**Run vault doctor** (scan for issues and repair via the configured prompt AI backend):
 ```bash
 # Scan and report only
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --dry-run
 
-# Repair repairable issues (must unset CLAUDECODE to allow nested claude calls)
+# Repair repairable issues. For Claude CLI backend inside Claude Code, unset CLAUDECODE;
+# Codex backend uses codex exec plus an internal recursion guard.
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix --limit 20
 
 # Errors only; skip warnings
@@ -883,7 +908,7 @@ uv run install.py --uninstall-hooks
 
 ### Timeout errors with `--ai` flag
 
-- The `--ai` flag on session start/stop hooks requires a longer timeout (30 seconds) because it calls `claude -p` for AI-powered note selection.
+- The `--ai` flag on session start/stop hooks requires a longer timeout (30 seconds) because it calls the configured prompt AI backend for AI-powered note selection. Claude backend uses `claude -p`; Codex backend uses `codex exec` with an internal recursion guard.
 - Update `settings.json` to set the hook timeout to `30000` ms:
   ```json
   {
@@ -895,8 +920,9 @@ uv run install.py --uninstall-hooks
 
 ### Summarizer fails to run
 
-- The summarizer cannot run inside an active Claude Code session. Run from a separate terminal.
+- The summarizer still uses `claude-agent-sdk` in this release and cannot run inside an active Claude Code session. Run from a separate terminal.
 - If running from inside Claude Code, unset the guard variable: `env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py`
+- Codex support for SDK-backed summarization is planned separately; `ai.backend: codex-cli` affects prompt-style helper calls, not `summarize_sessions.py`.
 - Check that `pending_summaries.jsonl` exists and has entries.
 
 ### `vault-search` command not found
@@ -910,9 +936,9 @@ uv run install.py --uninstall-hooks
 
 Parsidion is designed to minimize token usage. The lifecycle hooks (`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`) are **pure Python scripts** that run locally -- they read transcripts, parse frontmatter, and write files without calling any AI model. The only places that use API tokens are:
 
-- **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically) and uses **Sonnet** to generate vault notes from queued transcripts. This is the only component that uses a large model. Long transcripts are pre-chunked and summarized by **Haiku** first to reduce cost.
-- **AI-powered note selection** (optional `--ai` flag on `SessionStart`) -- uses **Haiku** to intelligently pick which vault notes to inject. Disabled by default.
-- **Semantic dedup** during summarization -- uses **Haiku** to compare candidate notes against existing vault content before writing.
+- **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically), still uses `claude-agent-sdk`, and uses **Sonnet** to generate vault notes from queued transcripts. This is the only component that uses a large model in the SDK-backed summarizer path. Long transcripts are pre-chunked and summarized by **Haiku** first to reduce cost.
+- **AI-powered note selection** (optional `--ai` flag on `SessionStart`) -- uses the configured prompt AI backend's small model to intelligently pick which vault notes to inject. Disabled by default.
+- **Semantic dedup** during summarization -- uses **Haiku** via `claude-agent-sdk` to compare candidate notes against existing vault content before writing.
 
 Everything else -- indexing, embedding, searching, hook execution, daily notes, git commits -- is local Python with zero API calls.
 

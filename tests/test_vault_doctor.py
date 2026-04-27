@@ -6,6 +6,7 @@ prefix cluster detection, and migration logic using tmp_path fixtures.
 
 from datetime import date
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -41,6 +42,105 @@ def _write_note(vault: Path, rel_path: str, content: str) -> Path:
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(content, encoding="utf-8")
     return full
+
+
+def test_repair_note_uses_small_tier_backend(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+    note = _write_note(vault, "Patterns/broken.md", "# Broken\n")
+    issue = vault_doctor.Issue(
+        path=note,
+        severity="error",
+        code="MISSING_FRONTMATTER",
+        message="Missing frontmatter",
+    )
+
+    def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+        calls.append({"prompt": prompt, **kwargs})
+        return "---\ntitle: Fixed\ntags: [test]\n---\n# Fixed\n"
+
+    monkeypatch.setattr(vault_doctor.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
+
+    result, status = vault_doctor.repair_note(
+        note, [issue], model=None, timeout=10, vault_path=vault
+    )
+
+    assert result == "---\ntitle: Fixed\ntags: [test]\n---\n# Fixed"
+    assert status == "fixed"
+    assert calls[0]["model"] is None
+    assert calls[0]["model_tier"] == "small"
+    assert calls[0]["timeout"] == 10
+    assert calls[0]["purpose"] == "vault-doctor"
+    assert calls[0]["vault"] == vault
+    assert calls[0]["raise_on_timeout"] is True
+
+
+def test_repair_note_preserves_ai_timeout_status(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+    note = _write_note(vault, "Patterns/timeout.md", "# Timeout\n")
+    issue = vault_doctor.Issue(
+        path=note,
+        severity="error",
+        code="MISSING_FRONTMATTER",
+        message="Missing frontmatter",
+    )
+
+    def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+        calls.append({"prompt": prompt, **kwargs})
+        raise vault_doctor.ai_backend.AiBackendTimeout("timed out")
+
+    monkeypatch.setattr(vault_doctor.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
+
+    result, status = vault_doctor.repair_note(
+        note, [issue], model=None, timeout=10, vault_path=vault
+    )
+
+    assert result is None
+    assert status == "timeout"
+    assert calls[0]["raise_on_timeout"] is True
+
+
+def test_repair_one_promotes_second_ai_timeout_to_needs_review(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    note = _write_note(vault, "Patterns/timeout.md", "# Timeout\n")
+    issue = vault_doctor.Issue(
+        path=note,
+        severity="error",
+        code="MISSING_FRONTMATTER",
+        message="Missing frontmatter",
+    )
+    state = {
+        "notes": {
+            "Patterns/timeout.md": {
+                "status": "timeout",
+                "last_checked": "2026-01-01",
+                "issues": ["MISSING_FRONTMATTER"],
+            }
+        }
+    }
+
+    def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+        raise vault_doctor.ai_backend.AiBackendTimeout("timed out")
+
+    monkeypatch.setattr(vault_doctor.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
+
+    repaired = vault_doctor._repair_one(
+        note,
+        [issue],
+        None,
+        state,
+        "2026-04-27",
+        threading.Lock(),
+        timeout=10,
+        vault_path=vault,
+    )
+
+    assert repaired is False
+    assert state["notes"]["Patterns/timeout.md"]["status"] == "needs_review"
 
 
 # ---------------------------------------------------------------------------

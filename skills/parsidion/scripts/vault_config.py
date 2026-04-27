@@ -118,16 +118,21 @@ def _strip_inline_comment(value: str) -> str:
 
 
 def _parse_config_yaml(text: str) -> dict[str, Any]:
-    """Parse a simple YAML config with at most one level of nesting.
+    """Parse a simple YAML config with limited nesting.
 
-    Handles top-level scalars and single-level section dicts::
+    Handles top-level scalars, section dicts, and one additional mapping level
+    for config sections such as ``ai_models.codex.small``::
 
         top_key: value
         section:
           nested_key: value
+          nested_section:
+            leaf_key: value
     """
     result: dict[str, Any] = {}
     current_section: str | None = None
+    current_nested_key: str | None = None
+    current_nested_indent = 0
 
     for line in text.splitlines():
         stripped = line.strip()
@@ -157,16 +162,39 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
             if not value_str:
                 # Section header -- start collecting nested keys
                 current_section = key
+                current_nested_key = None
+                current_nested_indent = 0
                 result[key] = {}
             else:
                 value_str = _strip_inline_comment(value_str)
                 result[key] = _parse_scalar(value_str)
                 current_section = None
+                current_nested_key = None
+                current_nested_indent = 0
         elif current_section is not None and indent > 0:
             value_str = _strip_inline_comment(value_str)
             section = result.get(current_section)
-            if isinstance(section, dict):
+            if not isinstance(section, dict):
+                continue
+
+            if (
+                current_nested_key is not None
+                and indent > current_nested_indent
+                and isinstance(section.get(current_nested_key), dict)
+            ):
+                nested = section[current_nested_key]
+                if isinstance(nested, dict):
+                    nested[key] = _parse_scalar(value_str)
+                continue
+
+            if not value_str:
+                section[key] = {}
+                current_nested_key = key
+                current_nested_indent = indent
+            else:
                 section[key] = _parse_scalar(value_str)
+                current_nested_key = None
+                current_nested_indent = 0
         elif indent > 0:
             # Indented line outside any section -- likely a typo
             print(
@@ -246,6 +274,20 @@ def get_config(section: str, key: str, default: Any = None) -> Any:
 
 # Schema: section -> key -> expected Python type(s)
 _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
+    "ai": {
+        "backend": (str,),
+    },
+    "ai_models": {
+        "claude": (dict,),
+        "codex": (dict,),
+    },
+    "codex_cli": {
+        "command": (str,),
+        "timeout": (int, float),
+        "sandbox": (str, type(None)),
+        "ephemeral": (bool,),
+        "skip_git_repo_check": (bool,),
+    },
     "session_start_hook": {
         "ai_model": (str, type(None)),
         "ai_cooldown_seconds": (int, float),

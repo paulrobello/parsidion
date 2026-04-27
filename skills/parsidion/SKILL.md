@@ -215,7 +215,7 @@ Claude Code installs the full hook set below. Codex runtime hooks are session li
 
 | Hook | Behavior | Config section |
 |---|---|---|
-| **SessionStart** | Loads relevant vault notes as a **compact one-line-per-note index** (title + tags) by default — minimal token usage. `--verbose` flag or `verbose_mode: true` config switches to full note summaries. Optional AI selection via `--ai [MODEL]` or `session_start_hook.ai_model` config. | `session_start_hook` |
+| **SessionStart** | Loads relevant vault notes as a **compact one-line-per-note index** (title + tags) by default — minimal token usage. `--verbose` flag or `verbose_mode: true` config switches to full note summaries. Optional AI selection via `--ai [MODEL]` or `session_start_hook.ai_model` uses the configured prompt AI backend. | `session_start_hook` |
 | **SessionEnd** | Captures learnings from the session transcript (fires once at session end); auto-launches the summarizer when pending entries exist | `session_stop_hook` |
 | **PreCompact** | Snapshots current working state so context survives compaction | `pre_compact_hook` |
 
@@ -277,7 +277,7 @@ env -u CLAUDECODE uv run ~/.claude/skills/parsidion/scripts/summarize_sessions.p
 | `--model MODEL` | Override model (default: `claude-sonnet-4-6`) | `summarizer.model` |
 | `--persist` | Enable SDK session persistence (default off; use for debugging) | `summarizer.persist` |
 
-Uses the Claude Agent SDK — no API key needed, runs via your Max subscription.
+Uses `claude-agent-sdk` — no API key needed, runs via your Max subscription. `summarize_sessions.py` remains Claude Agent SDK-backed in this release; Codex support for SDK-backed summarization is planned separately.
 Processes up to 5 sessions in parallel (configurable via `summarizer.max_parallel`).
 Rebuilds the vault index automatically when done.
 Sessions from today whose generated note type is `daily` are skipped (today's daily note
@@ -307,7 +307,7 @@ rather than requiring manual maintenance.
 
 ## Vault Merge
 
-`vault-merge` is a global CLI command for AI-assisted note merging. It detects near-duplicate notes, merges their content via Claude haiku, and updates all bidirectional backlinks.
+`vault-merge` is a global CLI command for backend-aware AI-assisted note merging. It detects near-duplicate notes, merges their content via the configured prompt AI backend, and updates all bidirectional backlinks.
 
 ### Usage
 
@@ -334,7 +334,7 @@ vault-merge NOTE_A NOTE_B --no-index --execute
 
 ## Vault Doctor
 
-`vault_doctor.py` scans all vault notes for structural issues and repairs them via Claude haiku.
+`vault_doctor.py` scans all vault notes for structural issues and repairs repairable issues via the configured prompt AI backend.
 
 ### Issues detected
 
@@ -362,7 +362,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --dry-run
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
 
 # Individual fix modes:
-# Repair frontmatter issues via Claude haiku (3 parallel workers by default)
+# Repair frontmatter issues via the configured prompt AI backend (3 parallel workers by default)
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-frontmatter
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-frontmatter --jobs 5 --timeout 180
 
@@ -381,13 +381,15 @@ env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_d
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --errors-only --dry-run
 ```
 
+For Claude CLI backend calls launched from inside Claude Code, unset `CLAUDECODE` as shown above. Codex backend calls use `codex exec` with an internal recursion guard.
+
 `--fix-all` is equivalent to `--fix-frontmatter --fix-tags --migrate-subfolders --execute`. The nightly cron via `summarize_sessions.py --run-doctor` uses `--fix-all`.
 
-Repairs run in parallel (`--jobs N`, default 3). Each `claude -p` subprocess is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved. The per-call timeout (`--timeout SECS`) defaults to 120s — increase it when running many parallel workers to avoid spurious timeouts.
+Repairs run in parallel (`--jobs N`, default 3). Each prompt AI subprocess (`claude -p` or `codex exec`) is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved. The per-call timeout (`--timeout SECS`) defaults to 120s — increase it when running many parallel workers to avoid spurious timeouts.
 
-Repairable codes (Claude can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
-Auto-repairable without Claude (Python-only): `BROKEN_WIKILINK` (exact/semantic match), `DUPLICATE_TAG` (merge via `--fix-tags`), `HEADING_MISMATCH` (promotes first `##` to `#`; enabled by default, disable with `--no-fix-headings`).
-Auto-repairable via Python + Claude filter: `PREFIX_CLUSTER` — candidates are detected by Python, then Claude haiku filters out generic-word false positives (e.g. 'fixing', 'missing'), keeping only specific subject names (project, library, OS, tool). Files are then moved and wikilinks patched by Python.
+Repairable codes (prompt AI backend can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
+Auto-repairable without prompt AI (Python-only): `BROKEN_WIKILINK` (exact/semantic match), `DUPLICATE_TAG` (merge via `--fix-tags`), `HEADING_MISMATCH` (promotes first `##` to `#`; enabled by default, disable with `--no-fix-headings`).
+Auto-repairable via Python + prompt AI filter: `PREFIX_CLUSTER` — candidates are detected by Python, then the configured small model filters out generic-word false positives (e.g. 'fixing', 'missing'), keeping only specific subject names (project, library, OS, tool). Files are then moved and wikilinks patched by Python.
 Not auto-repairable (require manual fix): `FLAT_DAILY`.
 
 ### Singleton guard
@@ -405,9 +407,9 @@ The doctor writes `~/ClaudeVault/doctor_state.json` to avoid reprocessing notes 
 | Status | Meaning | Next run behaviour |
 |---|---|---|
 | `ok` | No issues found | Skipped for 7 days |
-| `fixed` | Claude repaired it | Re-checked to confirm |
-| `failed` | Claude returned no output | Retried |
-| `timeout` | `claude -p` timed out once | Retried once more |
+| `fixed` | Prompt AI backend repaired it | Re-checked to confirm |
+| `failed` | Prompt AI backend returned no output | Retried |
+| `timeout` | Prompt AI backend timed out once | Retried once more |
 | `needs_review` | Timed out on retry | Skipped — user must fix manually |
 | `skipped` | Only non-repairable issues | Skipped indefinitely |
 
@@ -430,7 +432,7 @@ cp ~/.claude/skills/parsidion/templates/config.yaml ~/ClaudeVault/config.yaml
 ### Config Sections
 
 > **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
-> `claude-haiku-4-5-20251001`, `BAAI/bge-small-en-v1.5`) are the hardcoded defaults.
+> `claude-haiku-4-5-20251001`, `gpt-5.5`, `BAAI/bge-small-en-v1.5`) are the hardcoded defaults.
 > They can be changed via the corresponding keys in `~/ClaudeVault/config.yaml` without
 > modifying any scripts. See the template at
 > `~/.claude/skills/parsidion/templates/config.yaml` for all available keys.
@@ -468,6 +470,24 @@ summarizer:
   persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
 
+ai:
+  backend: auto            # auto | claude-cli | codex-cli | none
+
+ai_models:
+  claude:
+    small: claude-haiku-4-5-20251001
+    large: claude-sonnet-4-6
+  codex:
+    small: gpt-5.5
+    large: gpt-5.5
+
+codex_cli:
+  command: codex
+  timeout: 60
+  sandbox: read-only
+  ephemeral: true
+  skip_git_repo_check: true
+
 embeddings:
   model: BAAI/bge-small-en-v1.5  # fastembed model ID; ~67 MB ONNX model, cached after first run
   min_score: 0.45                 # Minimum cosine similarity for search results
@@ -476,6 +496,9 @@ embeddings:
 git:
   auto_commit: true        # Auto-commit vault changes after writes
 ```
+
+- `auto` prefers the active runtime when detectable and falls back to Claude CLI when ambiguous.
+- Codex backend uses `codex exec` with default ephemeral/read-only/skip-git-repo-check/output-last-message prompt calls and the normal Codex CLI auth path; Parsidion does not manage Codex auth files such as `~/.codex/auth.json`. This is not OpenAI API-key provider support. `summarize_sessions.py` remains Claude Agent SDK-backed for now.
 
 ### Programmatic Access
 

@@ -23,11 +23,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import ai_backend
 import vault_common
+import vault_config
 
-_DEFAULT_AI_MODEL: str = vault_common.get_config(
-    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
-)
 _DEFAULT_AI_TIMEOUT: int = 60
 
 
@@ -36,12 +35,37 @@ _DEFAULT_AI_TIMEOUT: int = 60
 # ---------------------------------------------------------------------------
 
 
+def _configured_merge_model(vault_path: Path | None = None) -> str | None:
+    """Return an explicitly configured merge model, if any."""
+    config = vault_config.load_config(vault=vault_path)
+    summarizer = config.get("summarizer")
+    if not isinstance(summarizer, dict) or "merge_model" not in summarizer:
+        return None
+    model = summarizer["merge_model"]
+    if isinstance(model, str) and model.strip():
+        return model.strip()
+    return None
+
+
+def _configured_merge_timeout(vault_path: Path | None = None) -> int | float:
+    """Return the configured merge timeout or the backend-neutral default."""
+    config = vault_config.load_config(vault=vault_path)
+    summarizer = config.get("summarizer")
+    if isinstance(summarizer, dict):
+        timeout = summarizer.get("merge_timeout")
+        if isinstance(timeout, bool):
+            return _DEFAULT_AI_TIMEOUT
+        if isinstance(timeout, (int, float)):
+            return timeout
+    return _DEFAULT_AI_TIMEOUT
+
+
 def _ai_merge_bodies(
     path_a: Path, path_b: Path, title: str, vault_path: Path | None = None
 ) -> str | None:
-    """Use claude to intelligently merge two note bodies into one.
+    """Use the configured prompt AI backend to intelligently merge two note bodies.
 
-    Passes file paths to Claude so it can read the notes directly, avoiding
+    Passes file paths to the backend so it can read the notes directly, avoiding
     prompt bloat and character limits.
 
     Args:
@@ -74,35 +98,21 @@ def _ai_merge_bodies(
         "first heading"
     )
 
-    model = vault_common.get_config("summarizer", "merge_model", _DEFAULT_AI_MODEL)
-    timeout = vault_common.get_config(
-        "summarizer", "merge_timeout", _DEFAULT_AI_TIMEOUT
+    merged = ai_backend.run_ai_prompt(
+        prompt,
+        model=_configured_merge_model(vault_path),
+        model_tier="large",
+        timeout=_configured_merge_timeout(vault_path),
+        purpose="vault-merge",
+        vault=vault_path,
     )
-
-    try:
-        result = subprocess.run(
-            [
-                "claude",
-                "-p",
-                prompt,
-                "--model",
-                model,
-                "--no-session-persistence",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=vault_common.env_without_claudecode(),
-        )
-        if result.returncode != 0:
-            return None
-        merged = result.stdout.strip()
-        # Sanity check: AI output should be non-trivial
-        if len(merged) < 50:
-            return None
-        return merged
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+    if not merged:
         return None
+
+    # Sanity check: AI output should be non-trivial
+    if len(merged) < 50:
+        return None
+    return merged
 
 
 # ---------------------------------------------------------------------------

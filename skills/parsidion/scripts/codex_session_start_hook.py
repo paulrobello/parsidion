@@ -10,6 +10,7 @@ never blocks Codex startup.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -39,12 +40,20 @@ def main() -> None:
                 "session_start_hook", "max_chars", _DEFAULT_MAX_CHARS
             )
         )
-        context, _notes_injected = build_session_context(
-            cwd,
-            ai_model=None,
-            max_chars=max_chars,
-            verbose_mode=False,
-        )
+        old_runtime = os.environ.get("PARSIDION_RUNTIME")
+        os.environ["PARSIDION_RUNTIME"] = "codex"
+        try:
+            context, _notes_injected = build_session_context(
+                cwd,
+                ai_model=None,
+                max_chars=max_chars,
+                verbose_mode=False,
+            )
+        finally:
+            if old_runtime is None:
+                os.environ.pop("PARSIDION_RUNTIME", None)
+            else:
+                os.environ["PARSIDION_RUNTIME"] = old_runtime
         sys.stdout.write(
             json.dumps(
                 {

@@ -28,7 +28,7 @@ is absent.
 # ARC-015: Concurrency model rationale
 # vault_doctor.py uses ``concurrent.futures.ThreadPoolExecutor`` because it is
 # a stdlib-only script.  ``ThreadPoolExecutor`` is sufficient here: the work is
-# I/O-bound (subprocess calls to ``claude -p`` + file reads/writes) and Python's
+# I/O-bound (prompt AI helper subprocesses + file reads/writes) and Python's
 # GIL does not prevent I/O parallelism.  Adding ``anyio`` or ``asyncio`` would
 # require a dependency change that violates the stdlib-only constraint.
 #
@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+import ai_backend
 import vault_common
 
 # ---------------------------------------------------------------------------
@@ -88,9 +89,7 @@ REPAIRABLE_CODES = frozenset(
         "HEADING_MISMATCH",
     }
 )
-DEFAULT_MODEL: str = vault_common.get_config(
-    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
-)
+DEFAULT_MODEL: str | None = None
 AI_TIMEOUT = 120  # seconds
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
 STALE_COMMIT_MINUTES = 15  # auto-commit uncommitted files older than this
@@ -128,9 +127,9 @@ class Issue:
 #   }
 # }
 # "ok"           — no issues found; skip for STATE_STALE_DAYS before re-checking
-# "fixed"        — Claude repaired it; re-check next run to confirm
-# "failed"       — Claude returned no output; retry next run
-# "timeout"      — claude -p timed out once; retry ONE more time
+# "fixed"        — prompt AI repaired it; re-check next run to confirm
+# "failed"       — prompt AI returned no output; retry next run
+# "timeout"      — prompt AI timed out once; retry ONE more time
 # "needs_review" — timed out on retry; skip and flag for user intervention
 # "skipped"      — only non-repairable issues; skip indefinitely (manual fix needed)
 # ---------------------------------------------------------------------------
@@ -432,10 +431,10 @@ def find_prefix_clusters(
 
 def _filter_clusters_with_claude(
     clusters: list[tuple[Path, str, list[Path], Path | None]],
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     timeout: int = AI_TIMEOUT,
 ) -> list[tuple[Path, str, list[Path], Path | None]]:
-    """Use Claude to discard first-word clusters whose prefix is a generic English word.
+    """Use prompt AI to discard first-word clusters whose prefix is a generic English word.
 
     Exact-stem clusters (base_note is not None) are always kept — the relationship
     is unambiguous.  Only first-word clusters (base_note is None) are evaluated.
@@ -481,18 +480,17 @@ def _filter_clusters_with_claude(
     )
 
     try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--model", model, "--no-session-persistence"],
-            capture_output=True,
-            text=True,
+        output = ai_backend.run_ai_prompt(
+            prompt,
+            model=model,
+            model_tier="small",
             timeout=timeout,
-            env=vault_common.env_without_claudecode(),
+            purpose="vault-doctor",
         )
-        if result.returncode != 0:
+        if not output:
             return clusters  # fallback
 
-        output = result.stdout.strip()
-        m = re.search(r"\[.*?\]", output, re.DOTALL)
+        m = re.search(r"\[.*?\]", output.strip(), re.DOTALL)
         if not m:
             return clusters
 
@@ -505,7 +503,7 @@ def _filter_clusters_with_claude(
         )
         return result_clusters
 
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError, ValueError):
+    except (json.JSONDecodeError, ValueError):
         return clusters  # fallback: keep all
 
 
@@ -1147,11 +1145,11 @@ def _auto_fix_headings(path: Path) -> bool:
 def repair_note(
     path: Path,
     issues: list[Issue],
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     timeout: int = AI_TIMEOUT,
     vault_path: Path | None = None,
 ) -> tuple[str | None, str]:
-    """Call Claude *model* to fix *issues* in *path*.
+    """Call the configured prompt AI backend to fix *issues* in *path*.
 
     Returns (fixed_content_or_None, status) where status is one of
     "fixed", "failed", or "timeout".
@@ -1199,27 +1197,25 @@ Current note:
 ---END---"""
 
     try:
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--model", model, "--no-session-persistence"],
-            capture_output=True,
-            text=True,
+        output = ai_backend.run_ai_prompt(
+            prompt,
+            model=model,
+            model_tier="small",
             timeout=timeout,
-            env=vault_common.env_without_claudecode(),
+            purpose="vault-doctor",
+            vault=vault_path,
+            raise_on_timeout=True,
         )
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            # Strip accidental markdown fences if Claude added them
-            output = re.sub(r"^```[a-z]*\n?", "", output)
-            output = re.sub(r"\n?```$", "", output)
-            if output:
-                return output, "fixed"
-        return None, "failed"
-    except subprocess.TimeoutExpired:
-        print("  (timeout)", flush=True)
+    except ai_backend.AiBackendTimeout:
         return None, "timeout"
-    except FileNotFoundError:
-        print("  (claude CLI not found)", flush=True)
-        return None, "failed"
+    if output:
+        output = output.strip()
+        # Strip accidental markdown fences if the backend added them
+        output = re.sub(r"^```[a-z]*\n?", "", output)
+        output = re.sub(r"\n?```$", "", output)
+        if output:
+            return output, "fixed"
+    return None, "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -1230,7 +1226,7 @@ Current note:
 def _repair_one(
     note_path: Path,
     note_issues: list[Issue],
-    model: str,
+    model: str | None,
     state: dict,
     today_str: str,
     lock: threading.Lock,
@@ -2081,9 +2077,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
+        default=None,
         metavar="MODEL",
-        help=f"Claude model for repairs (default: {DEFAULT_MODEL})",
+        help="AI model for repairs (default: backend-specific small model)",
     )
     parser.add_argument(
         "--limit",
@@ -2328,7 +2324,7 @@ def main() -> None:
     # ── Prefix cluster detection and fixing ──────────────────────────────────
     clusters = find_prefix_clusters(all_notes, _vault_path)
     if clusters and not args.dry_run:
-        # Filter out generic-word false positives using Claude
+        # Filter out generic-word false positives using the configured prompt AI backend
         clusters = _filter_clusters_with_claude(
             clusters, model=args.model, timeout=args.timeout
         )
@@ -2466,7 +2462,7 @@ def main() -> None:
     if not args.fix_frontmatter:
         print(
             f"{len(repair_candidates)} note(s) have repairable issues.\n"
-            f"Run with --fix-frontmatter to repair them via Claude ({args.model})."
+            "Run with --fix-frontmatter to repair them via the configured prompt AI backend."
         )
         save_state(state, _vault_path)
         return
@@ -2479,7 +2475,7 @@ def main() -> None:
     lock = threading.Lock()
 
     print(
-        f"Repairing up to {limit} note(s) via {args.model} ({jobs} parallel job(s), {args.timeout}s timeout)…\n"
+        f"Repairing up to {limit} note(s) via prompt AI ({jobs} parallel job(s), {args.timeout}s timeout)…\n"
     )
     batch = repair_candidates[:limit]
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
