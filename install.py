@@ -1596,12 +1596,26 @@ def uninstall(
     dry_run: bool = False,
     yes: bool = False,
     hooks_only: bool = False,
+    runtime: str = "claude",
+    codex_home: Path | None = None,
 ) -> None:
     """Remove installed Parsidion assets or only managed hooks."""
+    codex_home = (
+        codex_home
+        or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser().resolve()
+    )
+    uninstall_claude_runtime = runtime in ("claude", "both")
+    uninstall_codex_runtime = runtime in ("codex", "both")
+
     if hooks_only:
         print(bold("\nRemoving Parsidion hooks..."))
-        remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
-        remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
+        if runtime == "none":
+            _warn("Runtime selection is none; no runtime hooks will be removed.")
+        if uninstall_claude_runtime:
+            remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+            remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
+        if uninstall_codex_runtime:
+            remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
         if not dry_run:
             print()
             _ok("Hook uninstall complete.")
@@ -1609,77 +1623,86 @@ def uninstall(
 
     print(bold("\nUninstalling Parsidion..."))
 
-    skill_dir = claude_dir / "skills" / SKILL_NAME
+    if uninstall_claude_runtime:
+        skill_dir = claude_dir / "skills" / SKILL_NAME
 
-    if skill_dir.exists() or skill_dir.is_symlink():
-        _step(f"Remove skill directory: {skill_dir}", dry_run=dry_run)
-        if not dry_run:
-            if skill_dir.is_symlink() or skill_dir.is_file():
-                skill_dir.unlink()
-            else:
-                shutil.rmtree(skill_dir)
-    else:
-        _warn(f"Skill directory not found: {skill_dir}")
-
-    legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
-    if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
-        _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
-        if not dry_run:
-            try:
-                if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
-                    legacy_skill_dir.unlink()
+        if skill_dir.exists() or skill_dir.is_symlink():
+            _step(f"Remove skill directory: {skill_dir}", dry_run=dry_run)
+            if not dry_run:
+                if skill_dir.is_symlink() or skill_dir.is_file():
+                    skill_dir.unlink()
                 else:
-                    shutil.rmtree(legacy_skill_dir)
-            except OSError as exc:
-                _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
-
-    for agent_src in AGENT_SRCS:
-        agent_dest = claude_dir / "agents" / agent_src.name
-        if agent_dest.exists():
-            _step(f"Remove agent: {agent_dest}", dry_run=dry_run)
-            if not dry_run:
-                agent_dest.unlink()
+                    shutil.rmtree(skill_dir)
         else:
-            _warn(f"Agent not found: {agent_dest}")
+            _warn(f"Skill directory not found: {skill_dir}")
 
-    scripts_dir = claude_dir / "scripts"
-    if SCRIPTS_SRC.exists() and scripts_dir.exists():
-        for script in SCRIPTS_SRC.iterdir():
-            if script.is_file():
-                script_dest = scripts_dir / script.name
-                if script_dest.exists():
-                    _step(f"Remove script: {script_dest}", dry_run=dry_run)
-                    if not dry_run:
-                        script_dest.unlink()
-
-    # Remove hook registrations
-    remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
-    remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
-
-    # Remove CLAUDE-VAULT.md and its @import from CLAUDE.md
-    claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
-    if claude_vault_md.exists():
-        _step(f"Remove {claude_vault_md}", dry_run=dry_run)
-        if not dry_run:
-            claude_vault_md.unlink()
-    else:
-        _warn(f"CLAUDE-VAULT.md not found: {claude_vault_md}")
-
-    claude_md = claude_dir / "CLAUDE.md"
-    if claude_md.exists():
-        content = claude_md.read_text(encoding="utf-8")
-        if _CLAUDE_VAULT_MD_IMPORT in content:
-            _step(f"Remove @CLAUDE-VAULT.md import from {claude_md}", dry_run=dry_run)
+        legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
+        if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
+            _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
             if not dry_run:
-                cleaned = "\n".join(
-                    line
-                    for line in content.splitlines()
-                    if line.strip() != _CLAUDE_VAULT_MD_IMPORT
+                try:
+                    if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
+                        legacy_skill_dir.unlink()
+                    else:
+                        shutil.rmtree(legacy_skill_dir)
+                except OSError as exc:
+                    _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
+
+        for agent_src in AGENT_SRCS:
+            agent_dest = claude_dir / "agents" / agent_src.name
+            if agent_dest.exists():
+                _step(f"Remove agent: {agent_dest}", dry_run=dry_run)
+                if not dry_run:
+                    agent_dest.unlink()
+            else:
+                _warn(f"Agent not found: {agent_dest}")
+
+        scripts_dir = claude_dir / "scripts"
+        if SCRIPTS_SRC.exists() and scripts_dir.exists():
+            for script in SCRIPTS_SRC.iterdir():
+                if script.is_file():
+                    script_dest = scripts_dir / script.name
+                    if script_dest.exists():
+                        _step(f"Remove script: {script_dest}", dry_run=dry_run)
+                        if not dry_run:
+                            script_dest.unlink()
+
+    if uninstall_claude_runtime:
+        # Remove Claude hook registrations
+        remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+        remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
+
+        # Remove CLAUDE-VAULT.md and its @import from CLAUDE.md
+        claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
+        if claude_vault_md.exists():
+            _step(f"Remove {claude_vault_md}", dry_run=dry_run)
+            if not dry_run:
+                claude_vault_md.unlink()
+        else:
+            _warn(f"CLAUDE-VAULT.md not found: {claude_vault_md}")
+
+        claude_md = claude_dir / "CLAUDE.md"
+        if claude_md.exists():
+            content = claude_md.read_text(encoding="utf-8")
+            if _CLAUDE_VAULT_MD_IMPORT in content:
+                _step(
+                    f"Remove @CLAUDE-VAULT.md import from {claude_md}", dry_run=dry_run
                 )
-                # Preserve trailing newline
-                if content.endswith("\n"):
-                    cleaned += "\n"
-                claude_md.write_text(cleaned, encoding="utf-8")
+                if not dry_run:
+                    cleaned = "\n".join(
+                        line
+                        for line in content.splitlines()
+                        if line.strip() != _CLAUDE_VAULT_MD_IMPORT
+                    )
+                    # Preserve trailing newline
+                    if content.endswith("\n"):
+                        cleaned += "\n"
+                    claude_md.write_text(cleaned, encoding="utf-8")
+
+    if uninstall_codex_runtime:
+        remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
+    elif runtime == "none":
+        _warn("Runtime selection is none; no runtime hooks will be removed.")
 
     # Remove vault post-merge hook
     vault_root = _resolve_vault_root_for_uninstall()
@@ -2201,6 +2224,14 @@ def install(args: argparse.Namespace) -> int:
         else:
             vault_root = prompt_vault_path(default_vault)
 
+    runtime = resolve_runtime_choice(
+        args.runtime, yes=args.yes, interactive=not args.yes
+    )
+    codex_home: Path = Path(args.codex_home).expanduser().resolve()
+    install_claude_runtime = runtime in ("claude", "both")
+    install_codex_runtime = runtime in ("codex", "both")
+    install_runtime_hooks = runtime != "none" and not args.skip_hooks
+
     # --- CLI tools prompt ---
     install_tools: bool = args.install_tools
     if not args.yes and not install_tools:
@@ -2219,7 +2250,12 @@ def install(args: argparse.Namespace) -> int:
 
     # --- AI mode prompt ---
     enable_ai: bool = args.enable_ai
-    if not args.yes and not enable_ai and not args.skip_hooks:
+    if (
+        not args.yes
+        and not enable_ai
+        and install_claude_runtime
+        and not args.skip_hooks
+    ):
         print()
         print(bold("AI-Powered Note Selection (optional)"))
         print(
@@ -2285,7 +2321,10 @@ def install(args: argparse.Namespace) -> int:
 
     print()
     print(bold("Installation Plan"))
+    print(f"  {dim('Runtime     :')} {runtime}")
     print(f"  {dim('Claude dir   :')} {claude_dir}")
+    if install_codex_runtime:
+        print(f"  {dim('Codex home  :')} {codex_home}")
     print(f"  {dim('Vault path   :')} {vault_root}")
     if install_tools:
         print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
@@ -2299,17 +2338,25 @@ def install(args: argparse.Namespace) -> int:
         print(f"  {dim('AI mode      :')} enabled (SessionStart timeout → 30s)")
     print(f"  {dim('Embeddings   :')} {'enabled' if enable_embeddings else 'disabled'}")
     print(f"  {dim('Vault username:')} {vault_username or '(auto: $USER)'}")
-    print(f"  {dim('Settings     :')} {settings_file}")
+    if install_claude_runtime:
+        print(f"  {dim('Settings     :')} {settings_file}")
     print(f"  {dim('Install skill:')} {claude_dir / 'skills' / SKILL_NAME}")
-    if not args.skip_agent:
+    if install_claude_runtime and not args.skip_agent:
         for agent_src in AGENT_SRCS:
             print(f"  {dim('Install agent:')} {claude_dir / 'agents' / agent_src.name}")
-    if not args.skip_hooks:
-        print(f"  {dim('Register hooks:')} {', '.join(_HOOK_SCRIPTS.keys())}")
+    if install_runtime_hooks:
+        if install_claude_runtime:
+            print(f"  {dim('Claude hooks:')} {', '.join(_HOOK_SCRIPTS.keys())}")
+        if install_codex_runtime:
+            print(f"  {dim('Codex hooks :')} {', '.join(_CODEX_HOOK_SCRIPTS.keys())}")
+    else:
+        reason = "runtime none" if runtime == "none" else "--skip-hooks"
+        print(f"  {dim('Runtime hooks:')} skipped ({reason})")
     print(f"  {dim('Install scripts:')} {claude_dir / 'scripts'}/")
-    print(
-        f"  {dim('Install guidance:')} {claude_dir / 'CLAUDE-VAULT.md'} (@import into CLAUDE.md)"
-    )
+    if install_claude_runtime:
+        print(
+            f"  {dim('Install guidance:')} {claude_dir / 'CLAUDE-VAULT.md'} (@import into CLAUDE.md)"
+        )
     if dry_run:
         print(f"\n  {yellow('[DRY RUN — no changes will be made]')}")
 
@@ -2337,7 +2384,7 @@ def install(args: argparse.Namespace) -> int:
     )
 
     # 2. Install agents
-    if not args.skip_agent:
+    if install_claude_runtime and not args.skip_agent:
         install_agents(claude_dir, dry_run=dry_run)
 
     # 3. Install scripts
@@ -2353,7 +2400,7 @@ def install(args: argparse.Namespace) -> int:
     )
 
     # 7. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
-    if not args.skip_hooks:
+    if install_claude_runtime and not args.skip_hooks:
         cleanup_legacy_assets(
             claude_dir,
             settings_file,
@@ -2362,12 +2409,17 @@ def install(args: argparse.Namespace) -> int:
         )
         merge_hooks(claude_dir, settings_file, dry_run=dry_run, verbose=verbose)
 
+    if install_codex_runtime and not args.skip_hooks:
+        enable_codex_hooks_config(codex_home, dry_run=dry_run, yes=args.yes)
+        merge_codex_hooks(codex_home, claude_dir, dry_run=dry_run, verbose=verbose)
+
     # 7b. Enable AI mode if requested
-    if enable_ai and not args.skip_hooks:
+    if enable_ai and install_claude_runtime and not args.skip_hooks:
         enable_ai_mode(settings_file, vault_root, claude_dir, dry_run=dry_run)
 
     # 8. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
-    install_claude_vault_md(claude_dir, dry_run=dry_run, verbose=verbose)
+    if install_claude_runtime:
+        install_claude_vault_md(claude_dir, dry_run=dry_run, verbose=verbose)
 
     # 9. Rebuild vault index
     rebuild_index(claude_dir, dry_run=dry_run)
@@ -2646,6 +2698,12 @@ def main() -> None:
         sys.exit(2)
 
     if args.uninstall or args.uninstall_hooks:
+        runtime = resolve_runtime_choice(
+            args.runtime,
+            yes=args.yes,
+            interactive=not args.yes,
+        )
+        codex_home = Path(args.codex_home).expanduser().resolve()
         if not args.yes and not args.dry_run:
             print()
             print(
@@ -2655,7 +2713,10 @@ def main() -> None:
                     else "Parsidion Uninstaller"
                 )
             )
+            print(f"  {dim('Runtime   :')} {runtime}")
             print(f"  {dim('Claude dir:')} {claude_dir}")
+            if runtime in ("codex", "both"):
+                print(f"  {dim('Codex home:')} {codex_home}")
             prompt = (
                 "Proceed with hook uninstall?"
                 if args.uninstall_hooks
@@ -2670,6 +2731,8 @@ def main() -> None:
             dry_run=args.dry_run,
             yes=args.yes,
             hooks_only=args.uninstall_hooks,
+            runtime=runtime,
+            codex_home=codex_home,
         )
         sys.exit(0)
 
