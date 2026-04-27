@@ -45,7 +45,16 @@ def main() -> None:
             max_chars=max_chars,
             verbose_mode=False,
         )
-        sys.stdout.write(json.dumps({"additionalContext": context}))
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": context,
+                    }
+                }
+            )
+        )
     except Exception:  # noqa: BLE001 - hooks must not fail closed
         traceback.print_exc(file=sys.stderr)
         sys.stdout.write("{}")

@@ -254,7 +254,9 @@ class TestCodexHookIntegration:
 
         assert result.returncode == 0
         parsed = json.loads(result.stdout)
-        assert isinstance(parsed, dict)
+        hook_output = parsed["hookSpecificOutput"]
+        assert hook_output["hookEventName"] == "SessionStart"
+        assert "additionalContext" in hook_output
 
     def test_codex_stop_missing_transcript_exits_cleanly(self, tmp_path: Path) -> None:
         result = _run_hook(
