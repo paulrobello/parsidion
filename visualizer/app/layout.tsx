@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Vault Visualizer',
-  description: 'Knowledge graph explorer for your ClaudeVault',
+  title: 'Parsidion Visualizer',
+  description: 'Runtime-agnostic knowledge graph explorer for your Parsidion vault',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

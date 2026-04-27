@@ -1,8 +1,8 @@
 @AGENTS.md
 
-# Visualizer
+# Parsidion Visualizer
 
-Next.js + sigma.js knowledge graph visualizer for ClaudeVault. Renders vault notes as an interactive force-directed graph, with node sizing by recency/connections and live search/filter.
+Next.js + sigma.js knowledge graph visualizer for Parsidion vaults. Renders vault notes as an interactive force-directed graph, with node sizing by recency/connections and live search/filter. The default vault directory is still `~/ClaudeVault`, but the UI is runtime-agnostic: Claude, Codex, Gemini, pi, and manually-created notes all flow through the same vault files and graph snapshot.
 
 ## Dev Workflow
 
@@ -22,7 +22,7 @@ bun run kill                 # kills port 3999
 
 ## Data Source
 
-The visualizer reads **`{vault}/graph.json`** — a pre-built snapshot of each vault's knowledge graph, stored inside the vault directory itself (not in `public/`). Each vault has its own `graph.json`. Rebuild it after vault changes:
+The visualizer reads **`{vault}/graph.json`** — a pre-built snapshot of each Parsidion vault's knowledge graph, stored inside the vault directory itself (not in `public/`). Each vault has its own `graph.json`. Rebuild it after vault changes:
 
 ```bash
 # From the repo root (recommended — also rebuilds the index):
@@ -34,6 +34,9 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild
 
 `graph.json` is gitignored in the vault (rebuilt locally, not synced across machines).
 
+## Runtime/Agent Support
+
+No UI changes are required for new runtime hooks as long as they write normal Parsidion notes and pending summaries. Runtime-specific provenance filters are intentionally not present yet; add them only after notes have stable metadata such as `runtime: claude`, `runtime: codex`, or `runtime: gemini`.
 
 ## Architecture
 
@@ -41,7 +44,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild
 - **`app/`** — Next.js App Router pages
 - **`components/`** — React components; sigma.js canvas rendering lives here
 - **`lib/`** — graph layout utilities (graphology + ForceAtlas2)
-- **`public/graph.json`** — vault graph snapshot (nodes = notes, edges = wikilinks)
+- **`{vault}/graph.json`** — vault graph snapshot (nodes = notes, edges = wikilinks)
 
 ## Key Dependencies
 

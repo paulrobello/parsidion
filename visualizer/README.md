@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Parsidion Visualizer
+
+Interactive web UI for browsing a Parsidion vault as both a file tree and a knowledge graph. It renders vault notes from `graph.json`, supports live file updates over WebSocket, and lets you read, edit, diff, and create markdown notes without leaving the browser.
+
+The default vault path is still `~/ClaudeVault`, but the UI is runtime-agnostic: notes captured from Claude Code, Codex CLI, Gemini CLI, pi, or manual editing all appear through the same vault files and graph snapshot.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies from the visualizer directory:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
+```
+
+Start the development server on port 3999:
+
+```bash
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Or from the repository root:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+make visualizer
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open <http://localhost:3999> in your browser.
 
-## Learn More
+## Data Source
 
-To learn more about Next.js, take a look at the following resources:
+The visualizer reads each vault's local graph snapshot:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```text
+{vault}/graph.json
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Rebuild the graph after vault changes:
 
-## Deploy on Vercel
+```bash
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Include Daily notes when desired:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph --graph-include-daily
+```
+
+`graph.json` is gitignored in the vault and rebuilt locally.
+
+## Runtime Support
+
+No runtime-specific UI setup is required. Claude, Codex, Gemini, and pi integrations all write to the same Parsidion vault pipeline; the visualizer displays the resulting notes once the index/graph are rebuilt.
+
+Agent/runtime provenance filters are not implemented yet. If future notes include stable source metadata such as `runtime: codex` or `runtime: gemini`, the UI can add filters without changing the core vault browser.
+
+## Architecture
+
+- `server.ts` — custom Next.js dev server with WebSocket vault file watching.
+- `app/` — Next.js App Router pages and metadata.
+- `components/` — React UI components, including the sigma.js graph canvas.
+- `lib/` — graph loading, vault resolution, file APIs, and local UI state helpers.
+
+## Commands
+
+```bash
+bun dev        # Start the dev server
+bun run build  # Build Next.js and the custom server
+bun run lint   # Run ESLint
+bun run kill   # Kill the dev server on port 3999
+```
