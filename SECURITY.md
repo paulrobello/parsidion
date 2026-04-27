@@ -16,8 +16,8 @@ Security policy, scope statement, and vulnerability disclosure process for Parsi
 
 Parsidion installs runtime adapters with hook scripts that execute during coding-agent
 lifecycle events. The Claude Code adapter runs on Claude lifecycle events (SessionStart,
-SessionEnd, PreCompact, SubagentStop), and the Codex adapter registers native Codex
-session lifecycle hooks (SessionStart and Stop). These adapters run with the same
+SessionEnd, PreCompact, PostCompact, SubagentStop), and the Codex adapter registers native
+Codex session lifecycle hooks (SessionStart and Stop). These adapters run with the same
 privileges as the user's agent process and have read/write access to the markdown vault
 and their configuration directories (`~/.claude/` and `~/.codex/`). This makes the hook
 execution surface security-sensitive.
@@ -28,7 +28,7 @@ The following components are in scope for security reports:
 
 | Component | Location | Risk surface |
 |-----------|----------|--------------|
-| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py` | Executed on Claude Code lifecycle events and Codex SessionStart/Stop hooks |
+| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py` | Executed on Claude Code lifecycle events and Codex SessionStart/Stop hooks |
 | Shared library | `skills/parsidion/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
 | Installer | `install.py` | Writes to `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.codex/config.toml`; copies files into the user's Claude config directory |
 | Session summarizer | `skills/parsidion/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
@@ -38,9 +38,9 @@ The following components are in scope for security reports:
 ## Stdlib-Only Hook Constraint
 
 All hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`,
-`subagent_stop_hook.py`, `codex_session_start_hook.py`, `codex_stop_hook.py`,
-`vault_common.py`, `update_index.py`) use **Python standard library only**. No third-party
-packages are imported at runtime.
+`post_compact_hook.py`, `subagent_stop_hook.py`, `codex_session_start_hook.py`,
+`codex_stop_hook.py`, `vault_common.py`, `update_index.py`) use only the **Python standard
+library**. No third-party packages are imported at runtime.
 
 This constraint is intentional and security-relevant:
 
