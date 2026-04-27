@@ -13,7 +13,51 @@ from pathlib import Path
 
 import pytest
 
+import session_stop_hook
 import vault_common
+
+
+# ---------------------------------------------------------------------------
+# AI classification
+# ---------------------------------------------------------------------------
+
+
+def test_classify_session_with_ai_uses_small_tier_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+        calls.append({"prompt": prompt, **kwargs})
+        return '{"should_queue": true, "categories": ["research"], "summary": "Found docs."}'
+
+    monkeypatch.setattr(
+        session_stop_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+    )
+    monkeypatch.setattr(
+        session_stop_hook.vault_common,
+        "get_config",
+        lambda section, key, default=None: (
+            9 if (section, key) == ("session_stop_hook", "ai_timeout") else default
+        ),
+    )
+
+    result = session_stop_hook._classify_session_with_ai(
+        ["I researched the Codex CLI non-interactive mode and found codex exec."],
+        "parsidion",
+        None,
+    )
+
+    assert result == {
+        "should_queue": True,
+        "categories": ["research"],
+        "summary": "Found docs.",
+    }
+    assert calls
+    assert calls[0]["model"] is None
+    assert calls[0]["model_tier"] == "small"
+    assert calls[0]["timeout"] == 9
+    assert calls[0]["purpose"] == "session-stop-classification"
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import subprocess
 import sys
 from pathlib import Path
 
@@ -42,12 +41,14 @@ class TestAiSelectionSafety:
 
         called = False
 
-        def _fail_popen(*args: object, **kwargs: object) -> None:
+        def _fail_run_ai_prompt(*args: object, **kwargs: object) -> None:
             nonlocal called
             called = True
-            raise AssertionError("Popen should not run when the AI lock is busy")
+            raise AssertionError("AI backend should not run when the AI lock is busy")
 
-        monkeypatch.setattr(session_start_hook.subprocess, "Popen", _fail_popen)
+        monkeypatch.setattr(
+            session_start_hook.ai_backend, "run_ai_prompt", _fail_run_ai_prompt
+        )
 
         result = session_start_hook._select_context_with_ai(
             project_name="parsidion",
@@ -60,7 +61,7 @@ class TestAiSelectionSafety:
         assert result == ""
         assert called is False
 
-    def test_kills_process_group_on_ai_timeout(
+    def test_releases_lock_when_ai_backend_returns_no_output(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -94,36 +95,18 @@ class TestAiSelectionSafety:
             "read_note_summary",
             lambda path, max_lines=6: "Useful summary",
         )
+        calls: list[dict[str, object]] = []
+
+        def fake_run_ai_prompt(prompt: str, **kwargs: object) -> None:
+            calls.append({"prompt": prompt, **kwargs})
+            return None
+
+        monkeypatch.setattr(
+            session_start_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        )
 
         candidate = tmp_path / "note.md"
         candidate.write_text("ignored", encoding="utf-8")
-
-        class _FakeProc:
-            pid = 4321
-            returncode = None
-
-            def communicate(self, timeout: int) -> tuple[str, str]:
-                raise subprocess.TimeoutExpired(cmd="claude", timeout=timeout)
-
-            def wait(self) -> int:
-                return 0
-
-            def kill(self) -> None:
-                raise AssertionError("kill() should not be used when killpg succeeds")
-
-        monkeypatch.setattr(
-            session_start_hook.subprocess,
-            "Popen",
-            lambda *args, **kwargs: _FakeProc(),
-        )
-        monkeypatch.setattr(session_start_hook.os, "getpgid", lambda pid: pid)
-
-        killed: list[tuple[int, int]] = []
-        monkeypatch.setattr(
-            session_start_hook.os,
-            "killpg",
-            lambda pgid, sig: killed.append((pgid, sig)),
-        )
 
         result = session_start_hook._select_context_with_ai(
             project_name="parsidion",
@@ -134,7 +117,7 @@ class TestAiSelectionSafety:
         )
 
         assert result == ""
-        assert killed == [(4321, session_start_hook.signal.SIGKILL)]
+        assert calls[0]["timeout"] == 1
         assert released is True
 
     def test_skips_ai_when_cooldown_is_active(
@@ -161,12 +144,14 @@ class TestAiSelectionSafety:
 
         called = False
 
-        def _fail_popen(*args: object, **kwargs: object) -> None:
+        def _fail_run_ai_prompt(*args: object, **kwargs: object) -> None:
             nonlocal called
             called = True
-            raise AssertionError("Popen should not run while cooldown is active")
+            raise AssertionError("AI backend should not run while cooldown is active")
 
-        monkeypatch.setattr(session_start_hook.subprocess, "Popen", _fail_popen)
+        monkeypatch.setattr(
+            session_start_hook.ai_backend, "run_ai_prompt", _fail_run_ai_prompt
+        )
 
         result = session_start_hook._select_context_with_ai(
             project_name="parsidion",
@@ -178,6 +163,57 @@ class TestAiSelectionSafety:
 
         assert result == ""
         assert called is False
+
+    def test_select_context_with_ai_uses_small_tier_backend_and_writes_cooldown_stamp(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            session_start_hook.vault_common,
+            "get_config",
+            lambda section, key, default=None: (
+                False
+                if (section, key) == ("session_start_hook", "ai_single_flight")
+                else 7
+                if (section, key) == ("session_start_hook", "ai_timeout")
+                else default
+            ),
+        )
+        note = tmp_path / "Patterns" / "codex-exec.md"
+        note.parent.mkdir(parents=True)
+        note.write_text(
+            "---\ntags: [codex]\n---\n# Codex Exec\nUse codex exec for non-interactive prompts.\n",
+            encoding="utf-8",
+        )
+        calls: list[dict[str, object]] = []
+
+        def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+            calls.append({"prompt": prompt, **kwargs})
+            return "### Codex Exec\nUse codex exec for non-interactive prompts."
+
+        monkeypatch.setattr(
+            session_start_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        )
+
+        context = session_start_hook._select_context_with_ai(
+            "parsidion",
+            str(tmp_path),
+            [note],
+            None,
+            4000,
+            vault_path=tmp_path,
+        )
+
+        assert "Codex Exec" in context
+        assert calls
+        assert calls[0]["model"] is None
+        assert calls[0]["model_tier"] == "small"
+        assert calls[0]["timeout"] == 7
+        assert calls[0]["purpose"] == "session-start-selection"
+        assert calls[0]["cwd"] == str(tmp_path)
+        assert calls[0]["vault"] == tmp_path
+        assert (tmp_path / session_start_hook._AI_STAMP_FILENAME).exists()
 
     def test_writes_cooldown_stamp_after_success(
         self,
@@ -211,17 +247,11 @@ class TestAiSelectionSafety:
         candidate = tmp_path / "note.md"
         candidate.write_text("ignored", encoding="utf-8")
 
-        class _FakeProc:
-            pid = 4321
-            returncode = 0
-
-            def communicate(self, timeout: int) -> tuple[str, str]:
-                return ("### Note Title (path/to/note.md)\nKey point 1", "")
+        def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+            return "### Note Title (path/to/note.md)\nKey point 1"
 
         monkeypatch.setattr(
-            session_start_hook.subprocess,
-            "Popen",
-            lambda *args, **kwargs: _FakeProc(),
+            session_start_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
         )
 
         stamped: list[Path] = []

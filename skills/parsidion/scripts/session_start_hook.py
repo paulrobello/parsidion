@@ -21,6 +21,7 @@ from datetime import date, datetime
 from io import TextIOWrapper
 from pathlib import Path
 
+import ai_backend
 import vault_common
 
 _DEFAULT_AI_MODEL: str = vault_common.get_config(
@@ -182,7 +183,7 @@ def _select_context_with_ai(
     project_name: str,
     cwd: str,
     candidate_notes: list[Path],
-    model: str,
+    model: str | None,
     max_chars: int = _DEFAULT_MAX_CHARS,
     vault_path: Path | None = None,
 ) -> str:
@@ -265,35 +266,20 @@ def _select_context_with_ai(
             "Only include genuinely relevant notes. Output nothing but the formatted context blocks."
         )
 
-        proc = subprocess.Popen(
-            [
-                "claude",
-                "-p",
-                prompt,
-                "--model",
-                model,
-                "--no-session-persistence",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-            env=vault_common.env_without_claudecode(),
+        output = ai_backend.run_ai_prompt(
+            prompt,
+            model=model,
+            model_tier="small",
+            timeout=vault_common.get_config(
+                "session_start_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT
+            ),
+            cwd=cwd,
+            purpose="session-start-selection",
+            vault=vault_path,
         )
-        try:
-            stdout, _ = proc.communicate(
-                timeout=vault_common.get_config(
-                    "session_start_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT
-                )
-            )
-        except subprocess.TimeoutExpired:
-            _kill_process_group(proc)
-            return ""
-        if proc.returncode == 0:
-            output = stdout.strip()
-            if output:
-                _write_ai_cooldown_stamp(vault_path)
-                return output
+        if output:
+            _write_ai_cooldown_stamp(vault_path)
+            return output.strip()
     except (FileNotFoundError, OSError):
         pass
     finally:

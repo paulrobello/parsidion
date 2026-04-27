@@ -24,6 +24,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+import ai_backend
 import vault_common
 
 _DEFAULT_AI_MODEL: str = vault_common.get_config(
@@ -48,7 +49,7 @@ _CATEGORY_LABELS = vault_common.TRANSCRIPT_CATEGORY_LABELS
 def _classify_session_with_ai(
     assistant_texts: list[str],
     project: str,
-    model: str,
+    model: str | None,
 ) -> dict[str, object] | None:
     """Use claude haiku to classify session content and decide if it's worth queuing.
 
@@ -108,25 +109,19 @@ def _classify_session_with_ai(
     )
 
     try:
-        result = subprocess.run(
-            [
-                "claude",
-                "-p",
-                prompt,
-                "--model",
-                model,
-                "--no-session-persistence",
-            ],
-            capture_output=True,
-            text=True,
+        output = ai_backend.run_ai_prompt(
+            prompt,
+            model=model,
+            model_tier="small",
             timeout=vault_common.get_config(
                 "session_stop_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT
             ),
-            env=vault_common.env_without_claudecode(),
+            purpose="session-stop-classification",
         )
-        if result.returncode != 0:
+        if not output:
             return None
-        output = result.stdout.strip()
+
+        output = output.strip()
         if not output:
             return None
 
@@ -149,13 +144,7 @@ def _classify_session_with_ai(
             "categories": categories,
             "summary": summary,
         }
-    except (
-        subprocess.TimeoutExpired,
-        FileNotFoundError,
-        OSError,
-        json.JSONDecodeError,
-        ValueError,
-    ):
+    except (json.JSONDecodeError, ValueError):
         return None
 
 
