@@ -7,6 +7,7 @@ returns it as ``additionalContext`` so Claude can resume where it left off.
 """
 
 import json
+import os
 import sys
 import traceback
 from datetime import datetime
@@ -76,6 +77,10 @@ def extract_latest_snapshot(daily_content: str) -> str | None:
 
 def main() -> None:
     """Entry point: read daily note and inject latest snapshot as additionalContext."""
+    if os.environ.get("PARSIDION_INTERNAL"):
+        sys.stdout.write("{}")
+        return
+
     try:
         # Consume stdin (Claude Code always sends JSON; ignore contents here)
         raw_stdin = sys.stdin.read()

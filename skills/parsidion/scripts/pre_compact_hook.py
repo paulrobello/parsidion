@@ -327,6 +327,10 @@ def _log_hook_error(hook_name: str) -> None:
 
 def main() -> None:
     """Entry point: read session JSON from stdin, snapshot state to daily note."""
+    if os.environ.get("PARSIDION_INTERNAL"):
+        sys.stdout.write("{}")
+        return
+
     parser = argparse.ArgumentParser(
         description="Claude Code PreCompact hook — snapshots working state to daily note.",
     )

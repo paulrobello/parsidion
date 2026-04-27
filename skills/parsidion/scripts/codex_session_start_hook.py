@@ -31,6 +31,10 @@ def _read_payload() -> dict[str, object]:
 def main() -> None:
     """Build Codex additional context and write a JSON hook response."""
     try:
+        if os.environ.get("PARSIDION_INTERNAL"):
+            sys.stdout.write("{}")
+            return
+
         payload = _read_payload()
         cwd_value = payload.get("cwd")
         cwd = str(cwd_value) if cwd_value else str(Path.cwd())

@@ -63,6 +63,141 @@ def _run_hook(
 
 
 # ---------------------------------------------------------------------------
+# internal hook disable guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.timeout(15)
+class TestInternalHookDisable:
+    """Hooks must no-op for Parsidion-launched CLI agent sessions."""
+
+    def test_session_start_hook_skips_internal_sessions(self, tmp_path: Path) -> None:
+        result = _run_hook(
+            "session_start_hook.py",
+            {"cwd": str(tmp_path)},
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1"},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+    def test_codex_session_start_hook_skips_internal_sessions(
+        self, tmp_path: Path
+    ) -> None:
+        result = _run_hook(
+            "codex_session_start_hook.py",
+            {"cwd": str(tmp_path), "hook_event_name": "SessionStart"},
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1"},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+    def test_pre_compact_hook_skips_internal_sessions(self, tmp_path: Path) -> None:
+        transcript = tmp_path / "compact-session.jsonl"
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {
+                        "role": "user",
+                        "content": "Implement the new feature",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = _run_hook(
+            "pre_compact_hook.py",
+            {"cwd": str(tmp_path), "transcript_path": str(transcript)},
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1"},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+        assert not (tmp_path / "Daily").exists()
+
+    def test_post_compact_hook_skips_internal_sessions(self, tmp_path: Path) -> None:
+        from datetime import datetime
+
+        year_month = datetime.now().strftime("%Y-%m")
+        day = datetime.now().strftime("%d")
+        daily_dir = tmp_path / "Daily" / year_month
+        daily_dir.mkdir(parents=True, exist_ok=True)
+        daily_note = daily_dir / f"{day}.md"
+        daily_note.write_text(
+            "## Pre-Compact Snapshot (12:00)\n"
+            "- **Project**: myproject\n"
+            "- **Working on**: internal CLI task\n",
+            encoding="utf-8",
+        )
+
+        result = _run_hook(
+            "post_compact_hook.py",
+            {},
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1"},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+    def test_stop_hooks_skip_internal_sessions_with_valid_transcripts(
+        self, tmp_path: Path
+    ) -> None:
+        claude_transcript = tmp_path / "claude-session.jsonl"
+        claude_transcript.write_text(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Root cause was a missing import.",
+                            }
+                        ],
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        codex_home = tmp_path / ".codex"
+        codex_transcript = codex_home / "sessions" / "rollout-test.jsonl"
+        codex_transcript.parent.mkdir(parents=True)
+        codex_transcript.write_text(
+            '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed parser bug."}]}}\n',
+            encoding="utf-8",
+        )
+
+        session_result = _run_hook(
+            "session_stop_hook.py",
+            {"cwd": str(tmp_path), "transcript_path": str(claude_transcript)},
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1"},
+        )
+        codex_result = _run_hook(
+            "codex_stop_hook.py",
+            {"cwd": str(tmp_path), "transcript_path": str(codex_transcript)},
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1", "CODEX_HOME": str(codex_home)},
+        )
+
+        assert session_result.returncode == 0
+        assert codex_result.returncode == 0
+        assert json.loads(session_result.stdout) == {}
+        assert json.loads(codex_result.stdout) == {}
+        assert not (tmp_path / "pending_summaries.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
 # session_stop_hook
 # ---------------------------------------------------------------------------
 
