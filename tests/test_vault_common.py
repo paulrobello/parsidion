@@ -6,6 +6,7 @@ extract_text_from_content, read_last_n_lines, and flock_exclusive/funlock.
 These tests use only stdlib + pytest and do not require a live vault.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -573,6 +574,85 @@ class TestCodexTranscriptHelpers:
 
         assert vault_common.parse_codex_transcript_lines(lines) == [
             "Legacy item format"
+        ]
+
+
+class TestGeminiTranscriptHelpers:
+    def test_allowed_transcript_roots_includes_gemini_roots(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        project = tmp_path / "project"
+        home.mkdir()
+        project.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+
+        roots = vault_common.allowed_transcript_roots(cwd=str(project))
+
+        assert (home / ".gemini").resolve() in roots
+        assert (project / ".gemini").resolve() in roots
+
+    def test_is_gemini_transcript_path_accepts_user_and_project_roots(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        project = tmp_path / "project"
+        user_transcript = home / ".gemini" / "tmp" / "session.jsonl"
+        project_transcript = project / ".gemini" / "tmp" / "session.jsonl"
+        user_transcript.parent.mkdir(parents=True)
+        project_transcript.parent.mkdir(parents=True)
+        user_transcript.write_text("", encoding="utf-8")
+        project_transcript.write_text("", encoding="utf-8")
+        monkeypatch.setenv("HOME", str(home))
+
+        assert vault_common.is_gemini_transcript_path(user_transcript, cwd=str(project))
+        assert vault_common.is_gemini_transcript_path(
+            project_transcript, cwd=str(project)
+        )
+        assert vault_common.is_allowed_transcript_path(
+            user_transcript, cwd=str(project)
+        )
+        assert vault_common.is_allowed_transcript_path(
+            project_transcript, cwd=str(project)
+        )
+
+    def test_parse_gemini_transcript_lines_extracts_model_text(self) -> None:
+        lines = [
+            '{"role":"model","content":"Fixed the parser bug"}',
+            '{"role":"user","content":"hello"}',
+            '{"type":"assistant","content":[{"type":"text","text":"Root cause was config"}]}',
+            "not json",
+        ]
+
+        assert vault_common.parse_gemini_transcript_lines(lines) == [
+            "Fixed the parser bug",
+            "Root cause was config",
+        ]
+
+    def test_parse_gemini_transcript_lines_extracts_message_wrapper_and_llm_response(
+        self,
+    ) -> None:
+        lines = [
+            '{"message":{"role":"model","content":[{"type":"text","text":"Pattern was useful"}]}}',
+            json.dumps(
+                {
+                    "llm_response": {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "role": "model",
+                                    "parts": ["First part", {"text": "Second part"}],
+                                }
+                            }
+                        ]
+                    }
+                }
+            ),
+        ]
+
+        assert vault_common.parse_gemini_transcript_lines(lines) == [
+            "Pattern was useful",
+            "First part\nSecond part",
         ]
 
 

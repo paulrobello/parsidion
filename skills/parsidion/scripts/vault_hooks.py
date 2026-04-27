@@ -30,8 +30,10 @@ __all__: list[str] = [
     "extract_text_from_content",
     "allowed_transcript_roots",
     "codex_home",
+    "gemini_home",
     "is_allowed_transcript_path",
     "is_codex_transcript_path",
+    "is_gemini_transcript_path",
     "is_pi_transcript_path",
     # Project detection
     "get_project_name",
@@ -42,6 +44,7 @@ __all__: list[str] = [
     "TRANSCRIPT_CATEGORY_LABELS",
     "parse_transcript_lines",
     "parse_codex_transcript_lines",
+    "parse_gemini_transcript_lines",
     "detect_categories",
 ]
 
@@ -280,18 +283,25 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser().resolve()
 
 
+def gemini_home() -> Path:
+    """Return the configured Gemini CLI home directory."""
+    return Path(os.environ.get("GEMINI_HOME", "~/.gemini")).expanduser().resolve()
+
+
 def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
     """Return allowed root directories for transcript files.
 
-    Supports Claude Code, pi, and Codex transcript locations:
+    Supports Claude Code, pi, Codex, and Gemini transcript locations:
 
     - ``~/.claude/`` (Claude Code transcripts)
     - ``~/.pi/`` (pi global transcripts, e.g. ``~/.pi/agent/sessions``)
     - ``<cwd>/.pi/`` (project-local pi transcripts, e.g. ``.pi/agent-sessions``)
     - ``$CODEX_HOME/sessions`` or ``~/.codex/sessions`` (Codex transcripts)
+    - ``$GEMINI_HOME`` or ``~/.gemini`` (user Gemini transcripts)
+    - ``<cwd>/.gemini/`` (project-local Gemini transcripts)
 
     Args:
-        cwd: Optional working directory for project-local ``.pi`` roots.
+        cwd: Optional working directory for project-local ``.pi``/``.gemini`` roots.
 
     Returns:
         De-duplicated list of resolved root paths.
@@ -300,11 +310,14 @@ def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
         Path.home() / ".claude",
         Path.home() / ".pi",
         codex_home() / "sessions",
+        gemini_home(),
     ]
 
     if cwd:
         try:
-            roots.append(Path(cwd).resolve() / ".pi")
+            cwd_path = Path(cwd).resolve()
+            roots.append(cwd_path / ".pi")
+            roots.append(cwd_path / ".gemini")
         except OSError:
             pass
 
@@ -367,6 +380,31 @@ def is_pi_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool
     for root in roots:
         try:
             if resolved.is_relative_to(root.resolve()):
+                return True
+        except (ValueError, OSError):
+            continue
+
+    return False
+
+
+def is_gemini_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool:
+    """Return True when *transcript_path* belongs to a Gemini transcript root."""
+    try:
+        resolved = transcript_path.expanduser().resolve()
+    except OSError:
+        return False
+
+    roots: list[Path] = [gemini_home()]
+    if cwd:
+        try:
+            roots.append(Path(cwd).resolve() / ".gemini")
+        except OSError:
+            pass
+
+    for root in roots:
+        try:
+            root_resolved = root.resolve()
+            if resolved == root_resolved or resolved.is_relative_to(root_resolved):
                 return True
         except (ValueError, OSError):
             continue
@@ -571,6 +609,82 @@ def parse_codex_transcript_lines(lines: list[str]) -> list[str]:
                     chunks.append(text.strip())
         if chunks:
             texts.append("\n".join(chunks))
+
+    return texts
+
+
+def _extract_gemini_parts(parts: object) -> str:
+    """Extract text from Gemini ``parts`` arrays or string-like fields."""
+    if isinstance(parts, str):
+        return parts.strip()
+    if not isinstance(parts, list):
+        return ""
+
+    chunks: list[str] = []
+    for part in parts:
+        if isinstance(part, str) and part.strip():
+            chunks.append(part.strip())
+        elif isinstance(part, dict):
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                chunks.append(text.strip())
+    return "\n".join(chunks)
+
+
+def _extract_gemini_content(content: object) -> str:
+    """Extract assistant/model text from Gemini content shapes."""
+    text = extract_text_from_content(content).strip()
+    if text:
+        return text
+    return _extract_gemini_parts(content)
+
+
+def parse_gemini_transcript_lines(lines: list[str]) -> list[str]:
+    """Parse Gemini transcript JSONL lines and extract model/assistant text."""
+    texts: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+        if not isinstance(record, dict):
+            continue
+
+        message = record.get("message")
+        if isinstance(message, dict) and message.get("role") in {"model", "assistant"}:
+            text = _extract_gemini_content(message.get("content"))
+            if text:
+                texts.append(text)
+            continue
+
+        role = record.get("role")
+        record_type = record.get("type")
+        if role in {"model", "assistant"} or record_type in {"model", "assistant"}:
+            text = _extract_gemini_content(record.get("content"))
+            if text:
+                texts.append(text)
+            continue
+
+        llm_response = record.get("llm_response")
+        if not isinstance(llm_response, dict):
+            continue
+        candidates = llm_response.get("candidates")
+        if not isinstance(candidates, list):
+            continue
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content")
+            if not isinstance(content, dict):
+                continue
+            if content.get("role") not in {"model", "assistant", None}:
+                continue
+            text = _extract_gemini_parts(content.get("parts"))
+            if text:
+                texts.append(text)
 
     return texts
 
