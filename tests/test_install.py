@@ -38,9 +38,28 @@ class TestParseArgs:
         assert args.runtime == "both"
         assert args.codex_home == "~/CustomCodex"
 
+    def test_parse_args_supports_gemini_and_all_runtime(self, monkeypatch) -> None:
+        monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "gemini"])
+        args = install.parse_args()
+        assert args.runtime == "gemini"
+
+        monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "all"])
+        args = install.parse_args()
+        assert args.runtime == "all"
+
     def test_resolve_runtime_defaults_to_claude_for_yes(self) -> None:
         assert (
             install.resolve_runtime_choice(runtime=None, yes=True, interactive=False)
+            == "claude"
+        )
+
+    def test_resolve_runtime_keeps_yes_and_noninteractive_default_claude(self) -> None:
+        assert (
+            install.resolve_runtime_choice(runtime=None, yes=True, interactive=True)
+            == "claude"
+        )
+        assert (
+            install.resolve_runtime_choice(runtime=None, yes=False, interactive=False)
             == "claude"
         )
 
@@ -53,6 +72,29 @@ class TestParseArgs:
             install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
             == "both"
         )
+
+    def test_resolve_runtime_interactive_accepts_gemini_and_all(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(install, "_ask", lambda prompt, default="": "3")
+        assert (
+            install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
+            == "gemini"
+        )
+
+        monkeypatch.setattr(install, "_ask", lambda prompt, default="": "5")
+        assert (
+            install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
+            == "all"
+        )
+
+    def test_runtime_predicates_include_all_without_cross_wiring_gemini(self) -> None:
+        assert install._wants_claude_runtime("all") is True
+        assert install._wants_codex_runtime("all") is True
+        assert install._wants_gemini_runtime("all") is True
+        assert install._wants_gemini_runtime("gemini") is True
+        assert install._wants_claude_runtime("gemini") is False
+        assert install._wants_codex_runtime("gemini") is False
 
 
 class TestCodexHooks:
@@ -224,6 +266,110 @@ class TestCodexHooks:
         )
 
 
+class TestGeminiHooks:
+    def test_merge_gemini_hooks_creates_settings_json(self, tmp_path: Path) -> None:
+        gemini_home = tmp_path / ".gemini"
+        claude_dir = tmp_path / ".claude"
+
+        install.merge_gemini_hooks(
+            gemini_home, claude_dir, dry_run=False, verbose=False
+        )
+
+        settings = json.loads(
+            (gemini_home / "settings.json").read_text(encoding="utf-8")
+        )
+        assert "SessionStart" in settings["hooks"]
+        assert "SessionEnd" in settings["hooks"]
+        commands = [
+            hook["command"]
+            for group in settings["hooks"].values()
+            for entry in group
+            for hook in entry["hooks"]
+        ]
+        assert any("gemini_session_start_hook.py" in command for command in commands)
+        assert any("gemini_session_end_hook.py" in command for command in commands)
+
+    def test_merge_gemini_hooks_preserves_existing_settings_and_is_idempotent(
+        self, tmp_path: Path
+    ) -> None:
+        gemini_home = tmp_path / ".gemini"
+        claude_dir = tmp_path / ".claude"
+        settings_file = gemini_home / "settings.json"
+        settings_file.parent.mkdir(parents=True)
+        settings_file.write_text(
+            json.dumps(
+                {
+                    "theme": "dark",
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "startup",
+                                "hooks": [
+                                    {"type": "command", "command": "echo existing"}
+                                ],
+                            }
+                        ]
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        install.merge_gemini_hooks(
+            gemini_home, claude_dir, dry_run=False, verbose=False
+        )
+        install.merge_gemini_hooks(
+            gemini_home, claude_dir, dry_run=False, verbose=False
+        )
+
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert settings["theme"] == "dark"
+        commands = [
+            hook["command"]
+            for entry in settings["hooks"]["SessionStart"]
+            if isinstance(entry, dict)
+            for hook in entry.get("hooks", [])
+            if isinstance(hook, dict)
+        ]
+        assert commands.count("echo existing") == 1
+        assert (
+            sum("gemini_session_start_hook.py" in command for command in commands) == 1
+        )
+
+    def test_remove_gemini_hooks_only_removes_managed_commands(
+        self, tmp_path: Path
+    ) -> None:
+        gemini_home = tmp_path / ".gemini"
+        claude_dir = tmp_path / ".claude"
+        install.merge_gemini_hooks(
+            gemini_home, claude_dir, dry_run=False, verbose=False
+        )
+        settings_file = gemini_home / "settings.json"
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        settings["hooks"].setdefault("SessionEnd", []).append(
+            {"matcher": "*", "hooks": [{"type": "command", "command": "echo user"}]}
+        )
+        settings_file.write_text(
+            json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+        )
+
+        changed = install.remove_gemini_hooks(gemini_home, claude_dir, dry_run=False)
+
+        updated = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert changed is True
+        commands = [
+            hook["command"]
+            for entries in updated["hooks"].values()
+            for entry in entries
+            if isinstance(entry, dict)
+            for hook in entry.get("hooks", [])
+            if isinstance(hook, dict)
+        ]
+        assert "echo user" in commands
+        assert not any("gemini_session_" in command for command in commands)
+
+
 class TestRuntimeFlow:
     """Tests for installer runtime selection flow."""
 
@@ -343,6 +489,89 @@ class TestRuntimeFlow:
         assert "Codex hooks : SessionStart, Stop" in output
         assert not (codex_home / "hooks.json").exists()
 
+    def test_runtime_all_dry_run_install_prints_all_runtime_plans(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        vault = tmp_path / "ClaudeVault"
+        claude_dir = tmp_path / ".claude"
+        codex_home = tmp_path / ".codex"
+        gemini_home = tmp_path / ".gemini"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "all",
+                "--dry-run",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(claude_dir),
+                "--codex-home",
+                str(codex_home),
+                "--gemini-home",
+                str(gemini_home),
+            ],
+        )
+        args = install.parse_args()
+
+        result = install.install(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Runtime     : all" in output
+        assert f"Claude dir   : {claude_dir}" in output
+        assert f"Codex home  : {codex_home}" in output
+        assert f"Gemini home : {gemini_home}" in output
+        assert (
+            "Claude hooks: SessionStart, SessionEnd, PreCompact, PostCompact, SubagentStop"
+            in output
+        )
+        assert "Codex hooks : SessionStart, Stop" in output
+        assert "Gemini hooks: SessionStart, SessionEnd" in output
+        assert not (codex_home / "hooks.json").exists()
+        assert not (gemini_home / "settings.json").exists()
+
+    def test_runtime_gemini_dry_run_install_prints_gemini_plan(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        vault = tmp_path / "ClaudeVault"
+        claude_dir = tmp_path / ".claude"
+        gemini_home = tmp_path / ".gemini"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "gemini",
+                "--dry-run",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(claude_dir),
+                "--gemini-home",
+                str(gemini_home),
+            ],
+        )
+        args = install.parse_args()
+
+        result = install.install(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Runtime     : gemini" in output
+        assert f"Gemini home : {gemini_home}" in output
+        assert "Gemini hooks: SessionStart, SessionEnd" in output
+        assert "Claude hooks:" not in output
+        assert "Codex hooks :" not in output
+        assert not (gemini_home / "settings.json").exists()
+
     def test_uninstall_codex_runtime_removes_codex_hooks_only(
         self, tmp_path: Path
     ) -> None:
@@ -390,6 +619,38 @@ class TestRuntimeFlow:
         claude_settings = json.loads(settings_file.read_text(encoding="utf-8"))
         assert codex_hooks["hooks"] == {}
         assert "SessionStart" in claude_settings["hooks"]
+
+    def test_uninstall_gemini_runtime_removes_gemini_hooks_only(
+        self, tmp_path: Path
+    ) -> None:
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        codex_home = tmp_path / ".codex"
+        gemini_home = tmp_path / ".gemini"
+        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        install.merge_gemini_hooks(
+            gemini_home, claude_dir, dry_run=False, verbose=False
+        )
+        settings_file.parent.mkdir(parents=True)
+        settings_file.write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+        codex_before = (codex_home / "hooks.json").read_text(encoding="utf-8")
+
+        install.uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            yes=True,
+            hooks_only=True,
+            runtime="gemini",
+            codex_home=codex_home,
+            gemini_home=gemini_home,
+        )
+
+        gemini_settings = json.loads(
+            (gemini_home / "settings.json").read_text(encoding="utf-8")
+        )
+        assert gemini_settings["hooks"] == {}
+        assert (codex_home / "hooks.json").read_text(encoding="utf-8") == codex_before
 
     def test_uninstall_claude_runtime_leaves_codex_hooks(self, tmp_path: Path) -> None:
         claude_dir = tmp_path / ".claude"

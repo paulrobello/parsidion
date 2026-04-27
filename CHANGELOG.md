@@ -9,13 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Gemini runtime hooks** — Added installer support for Gemini CLI `SessionStart` and `SessionEnd` hooks, Gemini transcript parsing, and `--runtime gemini` / `--runtime all` runtime selection.
 - Added a Codex runtime adapter that registers native `~/.codex/hooks.json` SessionStart and Stop hooks and enables `codex_hooks = true` in `~/.codex/config.toml` when selected. Parsidion does not manage `~/.codex/auth.json`.
 - **Codex CLI AI backend for prompt-style scripts** — Parsidion can now route `claude -p`-style helper calls through `codex exec` with `ai.backend: codex-cli` or runtime-aware `auto` detection. Backend-specific model defaults prevent Claude model IDs from being passed to Codex; Codex small and large/synthesis tasks default to `gpt-5.5`.
 - **CLI-backed session summarizer** — `summarize_sessions.py` no longer depends on `claude-agent-sdk`; it now uses the configured prompt AI backend, enabling Codex summarization through `codex exec` with backend-aware small/large model defaults.
 
 ### Changed
 
-- Added installer runtime selection via `--runtime {claude,codex,both,none}` so users can install Claude hooks, Codex hooks, both, or shared vault tooling only.
+- Added installer runtime selection via `--runtime {claude,codex,gemini,both,all,none}` so users can install Claude hooks, Codex hooks, Gemini hooks, Claude+Codex, all runtimes, or shared vault tooling only.
 
 - Rebranded the project from `parsidion-cc` to `parsidion`. New installs use `~/.claude/skills/parsidion/`, package metadata uses `parsidion`, and docs now describe Parsidion as an agent-agnostic memory/vault layer for coding assistants.
 - Renamed the GitHub repository to `paulrobello/parsidion`; GitHub redirects from `paulrobello/parsidion-cc` remain available for legacy links.

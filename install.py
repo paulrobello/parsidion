@@ -124,7 +124,32 @@ _CODEX_HOOK_SCRIPTS: dict[str, str] = {
     "Stop": "codex_stop_hook.py",
 }
 
-_RUNTIME_CHOICES = ("claude", "codex", "both", "none")
+_GEMINI_HOOK_SCRIPTS: dict[str, str] = {
+    "SessionStart": "gemini_session_start_hook.py",
+    "SessionEnd": "gemini_session_end_hook.py",
+}
+
+_GEMINI_HOOK_NAMES: dict[str, str] = {
+    "SessionStart": "parsidion-session-start",
+    "SessionEnd": "parsidion-session-end",
+}
+
+_RUNTIME_CHOICES = ("claude", "codex", "gemini", "both", "all", "none")
+
+
+def _wants_claude_runtime(runtime: str) -> bool:
+    """Return True when Claude integration is included in *runtime*."""
+    return runtime in {"claude", "both", "all"}
+
+
+def _wants_codex_runtime(runtime: str) -> bool:
+    """Return True when Codex integration is included in *runtime*."""
+    return runtime in {"codex", "both", "all"}
+
+
+def _wants_gemini_runtime(runtime: str) -> bool:
+    """Return True when Gemini integration is included in *runtime*."""
+    return runtime in {"gemini", "all"}
 
 
 # ARC-003: Extract VAULT_DIRS from the canonical source (vault_common.py) at
@@ -268,18 +293,24 @@ def resolve_runtime_choice(
         dim(
             "  1. Claude only — ~/.claude settings, skills, agents, and hooks.\n"
             "  2. Codex only — ~/.codex hooks for SessionStart and Stop.\n"
-            "  3. Both Claude + Codex.\n"
-            "  4. Shared tooling only — no runtime hooks."
+            "  3. Gemini only — ~/.gemini settings hooks for SessionStart and SessionEnd.\n"
+            "  4. Claude + Codex.\n"
+            "  5. All runtimes — Claude + Codex + Gemini.\n"
+            "  6. Shared tooling only — no runtime hooks."
         )
     )
     answer = _ask("Install runtime integrations", default="both").strip().lower()
-    if answer in ("", "3", "both", "claude+codex", "claude + codex"):
+    if answer in ("", "4", "both", "claude+codex", "claude + codex"):
         return "both"
     if answer in ("1", "claude", "claude only"):
         return "claude"
     if answer in ("2", "codex", "codex only"):
         return "codex"
-    if answer in ("4", "none", "shared", "shared tooling only"):
+    if answer in ("3", "gemini", "gemini only"):
+        return "gemini"
+    if answer in ("5", "all", "all runtimes", "claude+codex+gemini"):
+        return "all"
+    if answer in ("6", "none", "shared", "shared tooling only"):
         return "none"
     _warn(f"Unknown runtime selection {answer!r}; defaulting to both")
     return "both"
@@ -922,9 +953,26 @@ def _managed_codex_hook_command(claude_dir: Path, event: str) -> str:
     return f"uv run --no-project {script_display}"
 
 
+def _managed_gemini_hook_command(claude_dir: Path, event: str) -> str:
+    """Return the managed Gemini hook command string for a Gemini event."""
+    script = _GEMINI_HOOK_SCRIPTS[event]
+    script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
+    try:
+        rel = script_path.relative_to(Path.home())
+        script_display = f"~/{rel.as_posix()}"
+    except ValueError:
+        script_display = script_path.as_posix()
+    return f"uv run --no-project {script_display}"
+
+
 def _codex_hooks_file(codex_home: Path) -> Path:
     """Return the Codex hooks.json path."""
     return codex_home / "hooks.json"
+
+
+def _gemini_settings_file(gemini_home: Path) -> Path:
+    """Return the Gemini settings.json path."""
+    return gemini_home / "settings.json"
 
 
 def _read_codex_hooks(hooks_file: Path) -> dict | None:
@@ -944,6 +992,27 @@ def _read_codex_hooks(hooks_file: Path) -> dict | None:
         _warn(f"{hooks_file} has non-object hooks section; skipping Codex hook update")
         return None
     return hooks
+
+
+def _read_gemini_settings(settings_file: Path) -> dict | None:
+    """Read Gemini settings JSON, returning None when existing data is unsafe to edit."""
+    if not settings_file.exists():
+        return {"hooks": {}}
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read {settings_file}: {exc}; skipping Gemini hook update")
+        return None
+    if not isinstance(settings, dict):
+        _warn(f"{settings_file} is not a JSON object; skipping Gemini hook update")
+        return None
+    hooks_section = settings.setdefault("hooks", {})
+    if not isinstance(hooks_section, dict):
+        _warn(
+            f"{settings_file} has non-object hooks section; skipping Gemini hook update"
+        )
+        return None
+    return settings
 
 
 def merge_codex_hooks(
@@ -1041,6 +1110,116 @@ def remove_codex_hooks(
             _err(f"Could not write {hooks_file}: {exc}")
     elif not changed:
         _warn("No Parsidion Codex hook registrations found.")
+
+    return changed
+
+
+def merge_gemini_hooks(
+    gemini_home: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> None:
+    """Merge Parsidion-managed Gemini hooks into GEMINI_HOME/settings.json."""
+    settings_file = _gemini_settings_file(gemini_home)
+    settings = _read_gemini_settings(settings_file)
+    if settings is None:
+        return
+
+    hooks_section: dict = settings["hooks"]
+    added: list[str] = []
+    skipped: list[str] = []
+
+    for event in _GEMINI_HOOK_SCRIPTS:
+        command = _managed_gemini_hook_command(claude_dir, event)
+        event_hooks = hooks_section.setdefault(event, [])
+        if not isinstance(event_hooks, list):
+            _warn(f"Gemini hook event {event} is not a list; skipping")
+            continue
+        if _hook_already_registered(event_hooks, command):
+            _print(
+                dim(f"  Gemini hook {event} already registered"),
+                verbose_only=True,
+                verbose=verbose,
+            )
+            skipped.append(event)
+            continue
+
+        new_entry = {
+            "matcher": "*",
+            "hooks": [
+                {
+                    "name": _GEMINI_HOOK_NAMES[event],
+                    "type": "command",
+                    "command": command,
+                    "timeout": 10000,
+                }
+            ],
+        }
+        _step(f"Register Gemini hook {bold(event)}: {dim(command)}", dry_run=dry_run)
+        if not dry_run:
+            event_hooks.append(new_entry)
+        added.append(event)
+
+    if dry_run:
+        return
+
+    if added:
+        try:
+            settings_file.parent.mkdir(parents=True, exist_ok=True)
+            settings_file.write_text(
+                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+            )
+            _ok(f"Updated {settings_file}")
+        except OSError as exc:
+            _err(f"Could not write {settings_file}: {exc}")
+    elif skipped:
+        _ok("All Gemini hooks already registered")
+
+
+def remove_gemini_hooks(
+    gemini_home: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Remove only Parsidion-managed Gemini hook commands from settings.json."""
+    settings_file = _gemini_settings_file(gemini_home)
+    settings = _read_gemini_settings(settings_file)
+    if settings is None:
+        return False
+    if not settings_file.exists():
+        _warn(f"Gemini settings.json not found: {settings_file}")
+        return False
+
+    hooks_section: dict = settings["hooks"]
+    changed = False
+    for event in _GEMINI_HOOK_SCRIPTS:
+        command = _managed_gemini_hook_command(claude_dir, event)
+        event_hooks = hooks_section.get(event, [])
+        if not isinstance(event_hooks, list):
+            continue
+        filtered, event_changed = _filter_hook_entries(
+            event_hooks,
+            lambda hook, command=command: hook.get("command", "") == command,
+        )
+        if event_changed:
+            _step(f"Remove Gemini hook {bold(event)}", dry_run=dry_run)
+            changed = True
+            if filtered:
+                hooks_section[event] = filtered
+            elif event in hooks_section:
+                del hooks_section[event]
+
+    if changed and not dry_run:
+        try:
+            settings_file.write_text(
+                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+            )
+            _ok(f"Updated {settings_file}")
+        except OSError as exc:
+            _err(f"Could not write {settings_file}: {exc}")
+    elif not changed:
+        _warn("No Parsidion Gemini hook registrations found.")
 
     return changed
 
@@ -1598,24 +1777,42 @@ def uninstall(
     hooks_only: bool = False,
     runtime: str = "claude",
     codex_home: Path | None = None,
+    gemini_home: Path | None = None,
 ) -> None:
     """Remove installed Parsidion assets or only managed hooks."""
     codex_home = (
         codex_home
         or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser().resolve()
     )
-    uninstall_claude_runtime = runtime in ("claude", "both")
-    uninstall_codex_runtime = runtime in ("codex", "both")
+    gemini_home = gemini_home or (Path.home() / ".gemini")
+    uninstall_claude_runtime = _wants_claude_runtime(runtime)
+    uninstall_codex_runtime = _wants_codex_runtime(runtime)
+    uninstall_gemini_runtime = _wants_gemini_runtime(runtime)
 
     if hooks_only:
         print(bold("\nRemoving Parsidion hooks..."))
         if runtime == "none":
             _warn("Runtime selection is none; no runtime hooks will be removed.")
+        removed_hooks = False
         if uninstall_claude_runtime:
-            remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
-            remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
+            removed_hooks = (
+                remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
+                or removed_hooks
+            )
+            removed_hooks = (
+                remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
+                or removed_hooks
+            )
         if uninstall_codex_runtime:
-            remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
+            removed_hooks = (
+                remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
+                or removed_hooks
+            )
+        if uninstall_gemini_runtime:
+            removed_hooks = (
+                remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
+                or removed_hooks
+            )
         if not dry_run:
             print()
             _ok("Hook uninstall complete.")
@@ -1703,6 +1900,8 @@ def uninstall(
         remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
     elif runtime == "none":
         _warn("Runtime selection is none; no runtime hooks will be removed.")
+    if uninstall_gemini_runtime:
+        remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
 
     # Remove vault post-merge hook
     vault_root = _resolve_vault_root_for_uninstall()
@@ -2228,8 +2427,10 @@ def install(args: argparse.Namespace) -> int:
         args.runtime, yes=args.yes, interactive=not args.yes
     )
     codex_home: Path = Path(args.codex_home).expanduser().resolve()
-    install_claude_runtime = runtime in ("claude", "both")
-    install_codex_runtime = runtime in ("codex", "both")
+    gemini_home: Path = Path(args.gemini_home).expanduser().resolve()
+    install_claude_runtime = _wants_claude_runtime(runtime)
+    install_codex_runtime = _wants_codex_runtime(runtime)
+    install_gemini_runtime = _wants_gemini_runtime(runtime)
     install_runtime_hooks = runtime != "none" and not args.skip_hooks
 
     # --- CLI tools prompt ---
@@ -2326,6 +2527,8 @@ def install(args: argparse.Namespace) -> int:
         print(f"  {dim('Claude dir   :')} {claude_dir}")
     if install_codex_runtime:
         print(f"  {dim('Codex home  :')} {codex_home}")
+    if install_gemini_runtime:
+        print(f"  {dim('Gemini home :')} {gemini_home}")
     print(f"  {dim('Vault path   :')} {vault_root}")
     if install_tools:
         print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
@@ -2350,6 +2553,8 @@ def install(args: argparse.Namespace) -> int:
             print(f"  {dim('Claude hooks:')} {', '.join(_HOOK_SCRIPTS.keys())}")
         if install_codex_runtime:
             print(f"  {dim('Codex hooks :')} {', '.join(_CODEX_HOOK_SCRIPTS.keys())}")
+        if install_gemini_runtime:
+            print(f"  {dim('Gemini hooks:')} {', '.join(_GEMINI_HOOK_SCRIPTS.keys())}")
     else:
         reason = "runtime none" if runtime == "none" else "--skip-hooks"
         print(f"  {dim('Runtime hooks:')} skipped ({reason})")
@@ -2413,6 +2618,9 @@ def install(args: argparse.Namespace) -> int:
     if install_codex_runtime and not args.skip_hooks:
         enable_codex_hooks_config(codex_home, dry_run=dry_run, yes=args.yes)
         merge_codex_hooks(codex_home, claude_dir, dry_run=dry_run, verbose=verbose)
+
+    if install_gemini_runtime and not args.skip_hooks:
+        merge_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run, verbose=verbose)
 
     # 7b. Enable AI mode if requested
     if enable_ai and install_claude_runtime and not args.skip_hooks:
@@ -2531,7 +2739,7 @@ def parse_args() -> argparse.Namespace:
         choices=_RUNTIME_CHOICES,
         default=None,
         help=(
-            "Runtime integration target: claude, codex, both, or none. "
+            "Runtime integration target: claude, codex, gemini, both, all, or none. "
             "Interactive default is both; --yes default is claude for backwards compatibility."
         ),
     )
@@ -2540,6 +2748,11 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         default=os.environ.get("CODEX_HOME", "~/.codex"),
         help="Codex home directory for hooks/config (default: $CODEX_HOME or ~/.codex)",
+    )
+    parser.add_argument(
+        "--gemini-home",
+        default="~/.gemini",
+        help="Gemini CLI home directory for hook settings (default: ~/.gemini)",
     )
     parser.add_argument(
         "--dry-run",
@@ -2705,6 +2918,7 @@ def main() -> None:
             interactive=not args.yes,
         )
         codex_home = Path(args.codex_home).expanduser().resolve()
+        gemini_home = Path(args.gemini_home).expanduser().resolve()
         if not args.yes and not args.dry_run:
             print()
             print(
@@ -2716,8 +2930,10 @@ def main() -> None:
             )
             print(f"  {dim('Runtime   :')} {runtime}")
             print(f"  {dim('Claude dir:')} {claude_dir}")
-            if runtime in ("codex", "both"):
+            if _wants_codex_runtime(runtime):
                 print(f"  {dim('Codex home:')} {codex_home}")
+            if _wants_gemini_runtime(runtime):
+                print(f"  {dim('Gemini home:')} {gemini_home}")
             prompt = (
                 "Proceed with hook uninstall?"
                 if args.uninstall_hooks
@@ -2734,6 +2950,7 @@ def main() -> None:
             hooks_only=args.uninstall_hooks,
             runtime=runtime,
             codex_home=codex_home,
+            gemini_home=gemini_home,
         )
         sys.exit(0)
 
