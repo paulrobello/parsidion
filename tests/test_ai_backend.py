@@ -426,7 +426,9 @@ class TestRunAiPrompt:
             def communicate(
                 self, timeout: int | float | None = None
             ) -> tuple[str, str]:
-                raise subprocess.TimeoutExpired(cmd=popen_calls[0][0], timeout=timeout)
+                raise subprocess.TimeoutExpired(
+                    cmd=popen_calls[0][0], timeout=float(timeout or 0)
+                )
 
             def wait(self, timeout: int | float | None = None) -> int:
                 if timeout is not None:
