@@ -160,7 +160,7 @@ A markdown vault-based knowledge management system that replaces Claude Code's b
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via the configured prompt AI backend (`claude -p` or `codex exec`); `--debug` logs injected context to `$TMPDIR` |
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
 | `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents`; accepts Claude and pi transcript paths |
-| `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions (PEP 723, uses `claude-agent-sdk`); checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
+| `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions via the configured prompt AI backend (`claude -p` or `codex exec`); uses `anyio` for concurrency and checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
 | `pre_compact_hook.py` | PreCompact hook -- snapshots working state before compaction |
 | `post_compact_hook.py` | PostCompact hook -- reads today's daily note, finds the last `## Pre-Compact Snapshot`, and returns it as `additionalContext` to restore context after compaction |
 | `build_embeddings.py` | Builds the semantic search embeddings database (`embeddings.db`) using fastembed and sqlite-vec |
@@ -519,12 +519,12 @@ pre_compact_hook:
   lines: 200               # Transcript lines to analyse
 
 summarizer:
-  model: claude-sonnet-4-6
+  model: null          # null = ai_models.<backend>.large
   max_parallel: 5          # Concurrent summarization tasks
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
-  persist: false           # SDK session persistence (for debugging)
-  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
+  persist: false           # Legacy no-op; retained for CLI compatibility
+  cluster_model: null  # null = ai_models.<backend>.small
   dedup_threshold: 0.80    # Cosine similarity above which a near-duplicate note is detected and skipped
 
 ai:
@@ -576,11 +576,11 @@ adaptive_context:
   decay_days: 30           # Half-life in days for deranking unreferenced notes
 ```
 
-`ai.backend` controls prompt-style AI helpers used by session-start selection, session-stop classification, vault doctor repairs, vault merge synthesis, and eval utilities. `auto` prefers the active runtime when Parsidion can detect it: Codex runtime hints use `codex exec`, Claude runtime hints use `claude -p`, and ambiguous environments keep the historical Claude CLI behavior.
+`ai.backend` controls prompt-style AI helpers used by session-start selection, session-stop classification, session summarization, vault doctor repairs, vault merge synthesis, and eval utilities. `auto` prefers the active runtime when Parsidion can detect it: Codex runtime hints use `codex exec`, Claude runtime hints use `claude -p`, and ambiguous environments keep the historical Claude CLI behavior.
 
 Codex mode uses the Codex CLI and its normal authentication path. Parsidion does not read, copy, or manage `~/.codex/auth.json`, and this is not OpenAI API-key provider support. Prompt-style Codex calls default to `codex exec --ephemeral --sandbox read-only --skip-git-repo-check` and write/read the final answer via `--output-last-message`.
 
-`summarize_sessions.py` still uses `claude-agent-sdk` in this release; Codex support for SDK-backed summarization is planned as a separate follow-up.
+`summarize_sessions.py` uses the configured prompt AI backend: Claude runs through `claude -p`, Codex runs through `codex exec`, and no Claude Agent SDK or Codex SDK is required for this path. Leave `summarizer.model` and `summarizer.cluster_model` as `null` to use backend-aware large/small defaults from `ai_models.<backend>`.
 
 ## Multi-Vault Support
 
@@ -802,7 +802,7 @@ vault-export --pdf ~/vault.pdf     # export via pandoc to PDF
 vault-merge                        # AI-assisted: detect and merge near-duplicate notes, update backlinks
 ```
 
-**Summarize queued sessions** (generates structured vault notes via `claude-agent-sdk`; Codex SDK-backed summarization is not included in this release):
+**Summarize queued sessions** (generates structured vault notes via the configured prompt AI backend: Claude uses `claude -p`, Codex uses `codex exec`; no Claude Agent SDK or Codex SDK required):
 ```bash
 # Process all pending sessions (run from a terminal, not inside Claude Code)
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
@@ -920,9 +920,9 @@ uv run install.py --uninstall-hooks
 
 ### Summarizer fails to run
 
-- The summarizer still uses `claude-agent-sdk` in this release and cannot run inside an active Claude Code session. Run from a separate terminal.
-- If running from inside Claude Code, unset the guard variable: `env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py`
-- Codex support for SDK-backed summarization is planned separately; `ai.backend: codex-cli` affects prompt-style helper calls, not `summarize_sessions.py`.
+- The summarizer uses the configured prompt AI backend. Claude backend calls run through `claude -p`; Codex backend calls run through `codex exec`.
+- No Claude Agent SDK or Codex SDK is required for the summarizer path.
+- If using the Claude CLI backend from inside Claude Code, unset the guard variable: `env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py`
 - Check that `pending_summaries.jsonl` exists and has entries.
 
 ### `vault-search` command not found
@@ -936,9 +936,9 @@ uv run install.py --uninstall-hooks
 
 Parsidion is designed to minimize token usage. The lifecycle hooks (`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`) are **pure Python scripts** that run locally -- they read transcripts, parse frontmatter, and write files without calling any AI model. The only places that use API tokens are:
 
-- **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically), still uses `claude-agent-sdk`, and uses **Sonnet** to generate vault notes from queued transcripts. This is the only component that uses a large model in the SDK-backed summarizer path. Long transcripts are pre-chunked and summarized by **Haiku** first to reduce cost.
+- **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically) via the configured prompt AI backend. By default it uses the backend large model (`ai_models.<backend>.large`) to generate vault notes from queued transcripts. Long transcripts are pre-chunked and summarized by the backend small model (`ai_models.<backend>.small`) first to reduce cost.
 - **AI-powered note selection** (optional `--ai` flag on `SessionStart`) -- uses the configured prompt AI backend's small model to intelligently pick which vault notes to inject. Disabled by default.
-- **Semantic dedup** during summarization -- uses **Haiku** via `claude-agent-sdk` to compare candidate notes against existing vault content before writing.
+- **Semantic dedup** during summarization -- uses local embeddings/search to compare candidate notes against existing vault content before writing.
 
 Everything else -- indexing, embedding, searching, hook execution, daily notes, git commits -- is local Python with zero API calls.
 

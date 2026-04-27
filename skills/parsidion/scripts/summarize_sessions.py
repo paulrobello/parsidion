@@ -73,10 +73,6 @@ async def _run_summarizer_prompt(
     return cast(str | None, result)
 
 
-_DEFAULT_MODEL: str = vault_common.get_config(
-    "defaults", "sonnet_model", "claude-sonnet-4-6"
-)
-
 # Sentinel: returned as written_path when the transcript file no longer exists.
 # Stale entries are purged from the pending queue (they can never succeed).
 _STALE = "__STALE__"
@@ -131,9 +127,6 @@ def _clear_progress() -> None:
         pass
 
 
-_DEFAULT_CLUSTER_MODEL: str = vault_common.get_config(
-    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
-)
 _DEFAULT_MAX_PARALLEL = 5
 _DEFAULT_TRANSCRIPT_TAIL_LINES = 400
 _DEFAULT_MAX_CLEANED_CHARS = 12_000
@@ -875,14 +868,14 @@ async def summarize_one(
     vault: Path,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
-    cluster_model: str | None = _DEFAULT_CLUSTER_MODEL,
+    cluster_model: str | None = None,
     vault_notes: list[Path] | None = None,
 ) -> tuple[dict[str, object], Path | str | None]:
     """Summarize one pending session entry.
 
     Args:
         entry: Pending entry dict with transcript_path, project, categories.
-        model: Model ID to use.
+        model: Model ID to use, or ``None`` for the backend large-model default.
         dry_run: If True, print without writing.
         semaphore: Concurrency limiter.
         existing_tags: All tags currently in the vault.
@@ -890,7 +883,8 @@ async def summarize_one(
         vault: Path to the vault directory.
         tail_lines: Number of transcript lines to read.
         max_cleaned_chars: Maximum characters after cleaning.
-        cluster_model: Model ID for hierarchical chunk summarization.
+        cluster_model: Model ID for hierarchical chunk summarization, or ``None``
+            for the backend small-model default.
         vault_notes: Pre-collected list of all vault note paths.  Passed
             through to backlink helpers to avoid redundant vault walks.
             When ``None``, each helper calls ``all_vault_notes()`` on its
@@ -1043,20 +1037,21 @@ async def run_all(
     max_parallel: int = _DEFAULT_MAX_PARALLEL,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
-    cluster_model: str | None = _DEFAULT_CLUSTER_MODEL,
+    cluster_model: str | None = None,
 ) -> list[tuple[dict[str, object], Path | str | None]]:
     """Run all summarization tasks in parallel.
 
     Args:
         entries: List of pending entries.
-        model: Model ID.
+        model: Model ID, or ``None`` for the backend large-model default.
         dry_run: If True, print without writing.
         persist: Backwards-compatible no-op accepted from legacy CLI usage.
         vault: Path to the vault directory.
         max_parallel: Maximum concurrent summarization tasks.
         tail_lines: Transcript tail lines per entry.
         max_cleaned_chars: Max cleaned chars per entry.
-        cluster_model: Model ID for hierarchical chunk summarization.
+        cluster_model: Model ID for hierarchical chunk summarization, or ``None``
+            for the backend small-model default.
 
     Returns:
         List of (entry, written_path) tuples.
@@ -1254,7 +1249,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help=f"Override model (default: {_DEFAULT_MODEL})",
+        help="Override large model (default: backend large default)",
     )
     parser.add_argument(
         "--persist",
@@ -1290,11 +1285,13 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve options: defaults → config → CLI args
-    model: str = (
-        args.model
-        if args.model is not None
-        else vault_common.get_config("summarizer", "model", _DEFAULT_MODEL)
-    )
+    configured_model = vault_common.get_config("summarizer", "model", None)
+    if args.model is not None:
+        model: str | None = args.model
+    elif isinstance(configured_model, str) and configured_model.strip():
+        model = configured_model
+    else:
+        model = None
     persist: bool = (
         args.persist
         if args.persist is not None
@@ -1315,10 +1312,16 @@ def main() -> None:
         "max_cleaned_chars",
         _DEFAULT_MAX_CLEANED_CHARS,
     )
-    cluster_model: str = vault_common.get_config(
+    configured_cluster_model = vault_common.get_config(
         "summarizer",
         "cluster_model",
-        _DEFAULT_CLUSTER_MODEL,
+        None,
+    )
+    cluster_model: str | None = (
+        configured_cluster_model
+        if isinstance(configured_cluster_model, str)
+        and configured_cluster_model.strip()
+        else None
     )
 
     rebuild_graph: bool = args.rebuild_graph or vault_common.get_config(
@@ -1353,7 +1356,8 @@ def main() -> None:
         print(f"No pending sessions in {source_path}")
         return
 
-    print(f"Processing {len(entries)} session(s) with model {model}...")
+    model_label = model or "backend large default"
+    print(f"Processing {len(entries)} session(s) with model {model_label}...")
     if args.dry_run:
         print("[dry-run mode — nothing will be written]")
 

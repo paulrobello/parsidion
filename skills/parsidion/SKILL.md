@@ -274,11 +274,11 @@ env -u CLAUDECODE uv run ~/.claude/skills/parsidion/scripts/summarize_sessions.p
 |---|---|---|
 | `--sessions FILE` | Process an explicit JSONL file instead of the default pending queue | — |
 | `--dry-run, -n` | Preview what would be written without creating notes | — |
-| `--model MODEL` | Override model (default: `claude-sonnet-4-6`) | `summarizer.model` |
-| `--persist` | Enable SDK session persistence (default off; use for debugging) | `summarizer.persist` |
+| `--model MODEL` | Explicit large-model override (default: backend large model) | `summarizer.model` |
+| `--persist` | Accepted for backwards compatibility; currently unused | `summarizer.persist` |
 
-Uses `claude-agent-sdk` — no API key needed, runs via your Max subscription. `summarize_sessions.py` remains Claude Agent SDK-backed in this release; Codex support for SDK-backed summarization is planned separately.
-Processes up to 5 sessions in parallel (configurable via `summarizer.max_parallel`).
+Uses the configured prompt AI backend: Claude runs through `claude -p`, Codex runs through `codex exec`, and no Claude Agent SDK or Codex SDK is required for this summarizer path.
+Processes up to 5 sessions in parallel with `anyio` (configurable via `summarizer.max_parallel`).
 Rebuilds the vault index automatically when done.
 Sessions from today whose generated note type is `daily` are skipped (today's daily note
 is still being built by the stop hook).
@@ -293,10 +293,10 @@ from failures in the output summary.
 ### Hierarchical Summarization
 
 For sessions whose cleaned transcript exceeds `max_cleaned_chars` (default 12,000), the
-summarizer splits the transcript into chunks and uses a faster model (`claude-haiku-4-5-20251001`
-by default, configurable via `summarizer.cluster_model`) to summarize each chunk first. The
-chunk summaries are then fed to the main Sonnet note generator. This preserves context from
-very long sessions that would otherwise be truncated.
+summarizer splits the transcript into chunks and uses the backend small model by default
+(configurable via `summarizer.cluster_model`) to summarize each chunk first. The chunk summaries
+are then fed to the main backend large-model note generator. This preserves context from very
+long sessions that would otherwise be truncated.
 
 ### Automated Backlinks
 
@@ -463,12 +463,12 @@ pre_compact_hook:
   lines: 200               # Transcript lines to analyse
 
 summarizer:
-  model: claude-sonnet-4-6
+  model: null          # null = ai_models.<backend>.large
   max_parallel: 5          # Concurrent summarization tasks
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
-  persist: false           # SDK session persistence (for debugging)
-  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization (default; override via config.yaml)
+  persist: false           # Legacy no-op; retained for CLI compatibility
+  cluster_model: null  # null = ai_models.<backend>.small
 
 ai:
   backend: auto            # auto | claude-cli | codex-cli | none
@@ -498,7 +498,8 @@ git:
 ```
 
 - `auto` prefers the active runtime when detectable and falls back to Claude CLI when ambiguous.
-- Codex backend uses `codex exec` with default ephemeral/read-only/skip-git-repo-check/output-last-message prompt calls and the normal Codex CLI auth path; Parsidion does not manage Codex auth files such as `~/.codex/auth.json`. This is not OpenAI API-key provider support. `summarize_sessions.py` remains Claude Agent SDK-backed for now.
+- Codex backend uses `codex exec` with default ephemeral/read-only/skip-git-repo-check/output-last-message prompt calls and the normal Codex CLI auth path; Parsidion does not manage Codex auth files such as `~/.codex/auth.json`. This is not OpenAI API-key provider support.
+- `summarize_sessions.py` also uses the configured prompt AI backend. Claude uses `claude -p`, Codex uses `codex exec`, and no Claude Agent SDK or Codex SDK is required for this path.
 
 ### Programmatic Access
 

@@ -4,7 +4,9 @@ import asyncio
 import importlib
 import sys
 import types
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -414,3 +416,172 @@ def test_summarize_one_preserves_dry_run_markdown_note_path(
     assert written is None
     assert "[dry-run] Would write:" in captured.out
     assert "Debugging/test-note.md" in captured.out
+
+
+def test_main_uses_backend_defaults_when_summarizer_models_are_null(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    sessions = tmp_path / "sessions.jsonl"
+    sessions.write_text("", encoding="utf-8")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    observed: dict[str, object] = {}
+
+    def fake_get_config(section: str, key: str, default: object = None) -> object:
+        if section == "summarizer" and key in {"model", "cluster_model"}:
+            assert default is None
+            return None
+        return default
+
+    def fake_read_pending(path: Path) -> list[dict[str, object]]:
+        assert path == sessions
+        return [
+            {
+                "session_id": "s",
+                "transcript_path": str(tmp_path / "t.jsonl"),
+                "project": "p",
+                "categories": ["research"],
+            }
+        ]
+
+    async def fake_run_all(
+        entries: list[dict[str, object]],
+        model: str | None,
+        dry_run: bool,
+        persist: bool,
+        vault_path: Path,
+        max_parallel: int,
+        tail_lines: int,
+        max_cleaned_chars: int,
+        cluster_model: str | None,
+    ) -> list[tuple[dict[str, object], Path | str | None]]:
+        observed.update(
+            {
+                "model": model,
+                "cluster_model": cluster_model,
+                "dry_run": dry_run,
+                "vault_path": vault_path,
+                "max_parallel": max_parallel,
+                "tail_lines": tail_lines,
+                "max_cleaned_chars": max_cleaned_chars,
+            }
+        )
+        return [(entries[0], None)]
+
+    def fake_anyio_run(
+        func: Callable[..., Coroutine[Any, Any, object]], *args: object
+    ) -> object:
+        return asyncio.run(func(*args))
+
+    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(
+        summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
+    )
+    monkeypatch.setattr(
+        summarize_sessions.vault_common,
+        "apply_configured_env_defaults",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(summarize_sessions, "read_pending", fake_read_pending)
+    monkeypatch.setattr(summarize_sessions, "run_all", fake_run_all)
+    monkeypatch.setattr(summarize_sessions.anyio, "run", fake_anyio_run, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "summarize_sessions.py",
+            "--sessions",
+            str(sessions),
+            "--vault",
+            str(vault),
+            "--dry-run",
+        ],
+    )
+
+    summarize_sessions.main()
+
+    captured = capsys.readouterr()
+    assert observed["model"] is None
+    assert observed["cluster_model"] is None
+    assert "backend large default" in captured.out
+
+
+def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    sessions = tmp_path / "sessions.jsonl"
+    sessions.write_text("", encoding="utf-8")
+    observed: dict[str, object] = {}
+
+    def fake_get_config(section: str, key: str, default: object = None) -> object:
+        if section == "summarizer" and key == "model":
+            return "configured-large-model"
+        if section == "summarizer" and key == "cluster_model":
+            assert default is None
+            return None
+        return default
+
+    def fake_read_pending(path: Path) -> list[dict[str, object]]:
+        return [
+            {
+                "session_id": "s",
+                "transcript_path": str(tmp_path / "t.jsonl"),
+                "project": "p",
+                "categories": ["research"],
+            }
+        ]
+
+    async def fake_run_all(
+        entries: list[dict[str, object]],
+        model: str | None,
+        dry_run: bool,
+        persist: bool,
+        vault_path: Path,
+        max_parallel: int,
+        tail_lines: int,
+        max_cleaned_chars: int,
+        cluster_model: str | None,
+    ) -> list[tuple[dict[str, object], Path | str | None]]:
+        observed["model"] = model
+        observed["cluster_model"] = cluster_model
+        return [(entries[0], None)]
+
+    def fake_anyio_run(
+        func: Callable[..., Coroutine[Any, Any, object]], *args: object
+    ) -> object:
+        return asyncio.run(func(*args))
+
+    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(
+        summarize_sessions.vault_common, "resolve_vault", lambda **_: tmp_path / "vault"
+    )
+    monkeypatch.setattr(
+        summarize_sessions.vault_common,
+        "apply_configured_env_defaults",
+        lambda **_: None,
+    )
+    monkeypatch.setattr(summarize_sessions, "read_pending", fake_read_pending)
+    monkeypatch.setattr(summarize_sessions, "run_all", fake_run_all)
+    monkeypatch.setattr(summarize_sessions.anyio, "run", fake_anyio_run, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "summarize_sessions.py",
+            "--sessions",
+            str(sessions),
+            "--dry-run",
+            "--model",
+            "cli-large-model",
+        ],
+    )
+
+    summarize_sessions.main()
+
+    assert observed["model"] == "cli-large-model"
+    assert observed["cluster_model"] is None

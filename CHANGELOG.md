@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a Codex runtime adapter that registers native `~/.codex/hooks.json` SessionStart and Stop hooks and enables `codex_hooks = true` in `~/.codex/config.toml` when selected. Parsidion does not manage `~/.codex/auth.json`.
 - **Codex CLI AI backend for prompt-style scripts** — Parsidion can now route `claude -p`-style helper calls through `codex exec` with `ai.backend: codex-cli` or runtime-aware `auto` detection. Backend-specific model defaults prevent Claude model IDs from being passed to Codex; Codex small and large/synthesis tasks default to `gpt-5.5`.
+- **CLI-backed session summarizer** — `summarize_sessions.py` no longer depends on `claude-agent-sdk`; it now uses the configured prompt AI backend, enabling Codex summarization through `codex exec` with backend-aware small/large model defaults.
 
 ### Changed
 

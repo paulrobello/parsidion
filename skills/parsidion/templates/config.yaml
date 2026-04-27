@@ -60,13 +60,15 @@ pre_compact_hook:
   lines: 200               # Transcript lines to analyse
 
 # Session summarizer (summarize_sessions.py)
+# Uses the configured prompt AI backend: Claude via `claude -p`, Codex via `codex exec`.
+# No Claude Agent SDK or Codex SDK is required for this path.
 summarizer:
-  model: claude-sonnet-4-6
+  model: null          # null = ai_models.<backend>.large
   max_parallel: 5          # Concurrent summarization tasks
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
-  persist: false           # SDK session persistence (for debugging)
-  cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization; used when a transcript exceeds max_cleaned_chars
+  persist: false           # Legacy no-op; retained for CLI compatibility
+  cluster_model: null  # null = ai_models.<backend>.small
   dedup_threshold: 0.80                    # Cosine similarity threshold for near-duplicate detection (0.0-1.0); set to 1.0 to disable
   rebuild_graph: false                     # Rebuild visualizer graph.json after indexing (same as --rebuild-graph CLI flag)
   graph_include_daily: false               # Include Daily notes in graph rebuild (same as --graph-include-daily CLI flag)
@@ -98,10 +100,11 @@ anthropic_env:
   HTTPS_PROXY: null
   HTTP_PROXY: null
 
-# Default model IDs — override once here instead of editing each script
+# Legacy Claude model IDs retained for hooks/backwards-compatible callers.
+# Prompt backend defaults live under ai_models.<backend>.
 defaults:
-  haiku_model: claude-haiku-4-5-20251001   # Used by session hooks, vault_doctor repair
-  sonnet_model: claude-sonnet-4-6          # Used by summarize_sessions.py
+  haiku_model: claude-haiku-4-5-20251001   # Used by legacy hook defaults
+  sonnet_model: claude-sonnet-4-6          # Used by legacy script defaults
 
 # Hook event log (session_start_hook.py, session_stop_hook.py, subagent_stop_hook.py)
 event_log:
