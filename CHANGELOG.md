@@ -60,9 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **pi transcript compatibility across hook pipeline** — `session_stop_hook.py`, `subagent_stop_hook.py`, `summarize_sessions.py`, `pre_compact_hook.py`, and `vault_review.py` now parse both Claude Code JSONL (`type: "assistant" | "user"`) and pi JSONL (`type: "message"` with `message.role`).
 - **Config knobs for pi tail parsing** — `session_stop_hook.transcript_tail_lines` (default 200) and `session_stop_hook.pi_transcript_tail_lines` (default 1000) allow deeper fallback parsing for noisy pi tails.
-- **`scripts/install-pi-extension` helper** — installs `extensions/pi/parsidion-vault/parsidion-vault.ts` into `~/.pi/agent/extensions` (copy mode by default, `--symlink` for dev mode).
+- **`scripts/install-pi-extension` helper** — installs `extensions/pi/parsidion/parsidion.ts` into `~/.pi/agent/extensions` (copy mode by default, `--symlink` for dev mode).
 - **Vault `anthropic_env` config support** — Parsidion can now source Anthropic-compatible transport and model env vars from `~/ClaudeVault/config.yaml`, including `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, and default model IDs.
-- **`/parsidion-vault` Anthropic status reporting** — the pi extension now reports effective Anthropic / GLM config state with per-key source labels (`env`, `vault config`, `unset`) and masked secret previews.
+- **`/parsidion` Anthropic status reporting** — the pi extension now reports effective Anthropic / GLM config state with per-key source labels (`env`, `vault config`, `unset`) and masked secret previews.
 
 ### Changed
 

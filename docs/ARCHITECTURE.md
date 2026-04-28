@@ -982,7 +982,7 @@ The default vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrad
 
 ## Configuration
 
-All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. The pi adapter extension may inspect `anthropic_env` for `/parsidion-vault` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
+All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. The pi adapter extension may inspect `anthropic_env` for `/parsidion` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
 
 **Precedence:** script defaults → `config.yaml` → CLI arguments.
 

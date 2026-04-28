@@ -23,7 +23,7 @@ import {
 	buildAnthropicStatus,
 	formatAnthropicStatusLines,
 	readVaultConfigText,
-} from "./status";
+} from "./lib/parsidion-status";
 
 type HookResult = {
 	stdout: string;
@@ -65,7 +65,7 @@ type ProcessedSubagentEntry = {
 	processedAt: number;
 };
 
-const EXTENSION_NAME = "parsidion-vault";
+const EXTENSION_NAME = "parsidion";
 const TRANSCRIPT_DIR = path.join(os.homedir(), ".claude", "pi-vault-hooks");
 const SCRIPT_REQUIRED_FILES: HookScriptName[] = [
 	"session_start_hook.py",
@@ -74,8 +74,8 @@ const SCRIPT_REQUIRED_FILES: HookScriptName[] = [
 	"post_compact_hook.py",
 	"subagent_stop_hook.py",
 ];
-const VAULT_CONTEXT_MESSAGE_TYPE = "parsidion-vault:context";
-const SUBAGENT_PROCESSED_ENTRY_TYPE = "parsidion-vault:subagent-processed";
+const VAULT_CONTEXT_MESSAGE_TYPE = "parsidion:context";
+const SUBAGENT_PROCESSED_ENTRY_TYPE = "parsidion:subagent-processed";
 const SUBAGENT_RESULT_MESSAGE_TYPE = "subagent:result";
 const HOOK_TIMEOUT_SESSION_START_MS = 12_000;
 const HOOK_TIMEOUT_PRE_COMPACT_MS = 8_000;
@@ -689,7 +689,7 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 		runSessionStopDetached(event, ctx);
 	});
 
-	pi.registerCommand("parsidion-vault", {
+	pi.registerCommand("parsidion", {
 		description: "Show parsidion vault hook integration status",
 		handler: async (_args, ctx) => {
 			const scriptDir = resolveScriptDir(ctx.cwd);

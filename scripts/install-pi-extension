@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Install the parsidion-vault pi extension from this repo into ~/.pi/agent/extensions.
+# Install the parsidion pi extension from this repo into ~/.pi/agent/extensions.
 #
 # Usage:
 #   ./scripts/install-pi-extension [--symlink] [--no-doc] [--extension-dir DIR]
 #
 # Options:
 #   --symlink            Install as symlinks instead of copying files
-#   --no-doc             Skip installing parsidion-vault.md
+#   --no-doc             Skip installing parsidion.md
 #   --extension-dir DIR  Target pi extension directory (default: ~/.pi/agent/extensions)
 #   --help, -h           Show this help
 #
@@ -28,9 +28,10 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_DIR="$REPO_ROOT/extensions/pi/parsidion-vault"
-SRC_TS="$SRC_DIR/parsidion-vault.ts"
-SRC_MD="$SRC_DIR/parsidion-vault.md"
+SRC_DIR="$REPO_ROOT/extensions/pi/parsidion"
+SRC_TS="$SRC_DIR/parsidion.ts"
+SRC_MD="$SRC_DIR/parsidion.md"
+SRC_STATUS="$SRC_DIR/lib/parsidion-status.ts"
 
 MODE="copy"
 INSTALL_DOC="yes"
@@ -70,23 +71,30 @@ if [[ ! -f "$SRC_TS" ]]; then
     exit 1
 fi
 
-mkdir -p "$EXT_DIR"
-DST_TS="$EXT_DIR/parsidion-vault.ts"
-DST_MD="$EXT_DIR/parsidion-vault.md"
+mkdir -p "$EXT_DIR" "$EXT_DIR/lib"
+DST_TS="$EXT_DIR/parsidion.ts"
+DST_MD="$EXT_DIR/parsidion.md"
+DST_STATUS="$EXT_DIR/lib/parsidion-status.ts"
 
 if [[ "$MODE" == "symlink" ]]; then
     ln -sfn "$SRC_TS" "$DST_TS"
     if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
         ln -sfn "$SRC_MD" "$DST_MD"
     fi
+    if [[ -f "$SRC_STATUS" ]]; then
+        ln -sfn "$SRC_STATUS" "$DST_STATUS"
+    fi
 else
     cp "$SRC_TS" "$DST_TS"
     if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
         cp "$SRC_MD" "$DST_MD"
     fi
+    if [[ -f "$SRC_STATUS" ]]; then
+        cp "$SRC_STATUS" "$DST_STATUS"
+    fi
 fi
 
-echo "Installed parsidion-vault extension:"
+echo "Installed parsidion extension:"
 echo "  mode:          $MODE"
 echo "  ts:            $DST_TS"
 if [[ "$INSTALL_DOC" == "yes" ]]; then
@@ -94,12 +102,15 @@ if [[ "$INSTALL_DOC" == "yes" ]]; then
         echo "  doc:           $DST_MD"
     fi
 fi
+if [[ -f "$DST_STATUS" || -L "$DST_STATUS" ]]; then
+    echo "  status helper: $DST_STATUS"
+fi
 
 echo
-echo "If script resolution ever fails in /parsidion-vault status, set one of:"
+echo "If script resolution ever fails in /parsidion status, set one of:"
 echo "  export PARSIDION_SCRIPTS_DIR=\"$REPO_ROOT/skills/parsidion/scripts\""
 echo "  export PARSIDION_DIR=\"$REPO_ROOT\""
 echo
 echo "Then in pi run:"
 echo "  /reload"
-echo "  /parsidion-vault"
+echo "  /parsidion"

@@ -8,11 +8,11 @@
 
 Add pi-facing visibility for Parsidion's Anthropic-compatible runtime configuration without duplicating Python runtime behavior.
 
-The existing Python hook scripts are now the source of truth for `anthropic_env` values defined in `~/ClaudeVault/config.yaml`. The pi extension should expose clear status about where those values are coming from, but should not reimplement or override Python config resolution. This keeps runtime behavior centralized while making `/parsidion-vault` materially more useful for debugging GLM/Z.AI-compatible setups.
+The existing Python hook scripts are now the source of truth for `anthropic_env` values defined in `~/ClaudeVault/config.yaml`. The pi extension should expose clear status about where those values are coming from, but should not reimplement or override Python config resolution. This keeps runtime behavior centralized while making `/parsidion` materially more useful for debugging GLM/Z.AI-compatible setups.
 
 ## Goals
 
-1. Show Anthropic-compatible config status in the pi extension's `/parsidion-vault` output.
+1. Show Anthropic-compatible config status in the pi extension's `/parsidion` output.
 2. Make it obvious whether each setting comes from:
    - the live process environment
    - vault config (`~/ClaudeVault/config.yaml` → `anthropic_env`)
@@ -51,7 +51,7 @@ The pi extension currently launches Parsidion Python scripts, but its status out
 
 ### Approach 1: Docs only
 
-Update documentation but leave `/parsidion-vault` unchanged.
+Update documentation but leave `/parsidion` unchanged.
 
 **Pros**
 - lowest implementation cost
@@ -61,7 +61,7 @@ Update documentation but leave `/parsidion-vault` unchanged.
 - poor observability
 - users still cannot easily tell whether env or vault config is active
 
-### Approach 2: Docs + `/parsidion-vault` status output (**Chosen**)
+### Approach 2: Docs + `/parsidion` status output (**Chosen**)
 
 Keep Python as runtime authority. Extend the pi extension status command to inspect available config sources and render a concise, masked summary.
 
@@ -109,7 +109,7 @@ It will not use those inspected values to alter runtime behavior.
 
 ### Extension status model
 
-Extend `/parsidion-vault` output with a new section, for example:
+Extend `/parsidion` output with a new section, for example:
 
 - `Anthropic config:`
   - `ANTHROPIC_AUTH_TOKEN: env (bcb9…15Rl)`
@@ -166,7 +166,7 @@ Per key:
 
 ### Affected extension command
 
-`/parsidion-vault` should continue showing:
+`/parsidion` should continue showing:
 - resolved script directory
 - synthetic transcript path
 - queued context chunks
@@ -200,10 +200,10 @@ The extension status path must be resilient:
 ## Files to Modify
 
 ### Primary implementation
-- `extensions/pi/parsidion-vault/parsidion-vault.ts`
+- `extensions/pi/parsidion/parsidion.ts`
 
 ### Extension docs
-- `extensions/pi/parsidion-vault/parsidion-vault.md`
+- `extensions/pi/parsidion/parsidion.md`
 
 ### Repository docs
 - `README.md`
@@ -238,7 +238,7 @@ Documentation should consistently explain:
    - real environment variable
    - vault `anthropic_env`
    - script default behavior
-3. pi extension `/parsidion-vault` reports effective status but does not override Python runtime resolution
+3. pi extension `/parsidion` reports effective status but does not override Python runtime resolution
 4. GLM/Z.AI-compatible example values are supported in `anthropic_env`
 
 ## Risks
@@ -254,7 +254,7 @@ Documentation should consistently explain:
 
 The design is complete when:
 
-1. `/parsidion-vault` shows Anthropic-compatible config status
+1. `/parsidion` shows Anthropic-compatible config status
 2. secret values are masked
 3. status clearly indicates `env`, `vault config`, or `unset`
 4. Python remains the runtime source of truth

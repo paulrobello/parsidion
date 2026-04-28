@@ -303,5 +303,5 @@ These decisions keep the first implementation plan bounded:
 
 - Provider abstraction and OpenAI support should be separate commits within the provider phase: first preserve Claude behavior behind the interface, then add OpenAI.
 - Codex hook installation should start with global user config under `~/.codex`; repo-local Codex hook config can be added later.
-- The `parsidion-vault` pi extension name remains unchanged for the rebrand unless a later design specifically broadens extension naming.
+- The `parsidion` pi extension name remains unchanged for the rebrand unless a later design specifically broadens extension naming.
 - GitHub repository and Pages URL changes are release tasks. The repository now uses `paulrobello/parsidion`; old `paulrobello/parsidion-cc` links are legacy redirects only.

@@ -1,4 +1,4 @@
-# parsidion-vault pi extension
+# parsidion pi extension
 
 Global pi extension that bridges pi lifecycle events to the existing Parsidion Python hook scripts.
 
@@ -18,8 +18,8 @@ Manual install (without helper):
 
 ```bash
 mkdir -p ~/.pi/agent/extensions
-cp extensions/pi/parsidion-vault/parsidion-vault.ts ~/.pi/agent/extensions/parsidion-vault.ts
-cp extensions/pi/parsidion-vault/parsidion-vault.md ~/.pi/agent/extensions/parsidion-vault.md
+cp extensions/pi/parsidion/parsidion.ts ~/.pi/agent/extensions/parsidion.ts
+cp extensions/pi/parsidion/parsidion.md ~/.pi/agent/extensions/parsidion.md
 ```
 
 If the extension cannot find Parsidion scripts automatically, set one of:
@@ -36,7 +36,7 @@ Then in pi:
 
 ```text
 /reload
-/parsidion-vault
+/parsidion
 ```
 
 You should see the resolved `scriptDir` in the status output.
@@ -76,7 +76,7 @@ Pi does not expose the same hook stdin/stdout contract as Claude Code, so this e
 
 When the vault injects context, the extension inserts a visible message in the session:
 
-- message type: `parsidion-vault:context`
+- message type: `parsidion:context`
 - title in UI: `Vault context injected`
 
 That message is also what gets inserted into the model context, so what you see is what the model receives.
@@ -93,7 +93,7 @@ The extension looks for Parsidion scripts in this order:
 
 ## Commands
 
-### `/parsidion-vault`
+### `/parsidion`
 
 Shows current integration status:
 
@@ -122,7 +122,7 @@ Precedence per key:
 3. unset
 
 Secret values such as `ANTHROPIC_AUTH_TOKEN` are masked in status output.
-The `/parsidion-vault` command is read-only status reporting; Python hook scripts remain the runtime source of truth.
+The `/parsidion` command is read-only status reporting; Python hook scripts remain the runtime source of truth.
 
 ## Notes
 

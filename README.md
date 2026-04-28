@@ -299,7 +299,7 @@ A shell script that previews what vault context would be injected at session sta
 
 ### pi Extension Installer (`scripts/install-pi-extension`)
 
-Helper script to install the `parsidion-vault` pi extension into `~/.pi/agent/extensions`.
+Helper script to install the `parsidion` pi extension into `~/.pi/agent/extensions`.
 
 ```bash
 ./scripts/install-pi-extension            # copy mode (default)
@@ -324,12 +324,12 @@ Transcript compatibility for stop hooks:
 - Gemini JSONL model output records (`role: "model"`, `message.role: "model"`, or `llm_response.candidates[].content.parts`)
 - Accepted roots: `~/.claude/`, `~/.pi/`, `<cwd>/.pi/`, `~/.codex/sessions/`, `~/.gemini/`, and `<cwd>/.gemini/`
 
-### pi Extension Install (`parsidion-vault`)
+### pi Extension Install (`parsidion`)
 
 The pi adapter extension source is included at:
 
-- `extensions/pi/parsidion-vault/parsidion-vault.ts`
-- `extensions/pi/parsidion-vault/parsidion-vault.md`
+- `extensions/pi/parsidion/parsidion.ts`
+- `extensions/pi/parsidion/parsidion.md`
 
 Install it globally for pi (recommended helper):
 
@@ -346,8 +346,10 @@ For live development (so extension updates track this repo automatically):
 Manual install (without helper):
 
 ```bash
-mkdir -p ~/.pi/agent/extensions
-cp extensions/pi/parsidion-vault/parsidion-vault.ts ~/.pi/agent/extensions/parsidion-vault.ts
+mkdir -p ~/.pi/agent/extensions/lib
+cp extensions/pi/parsidion/parsidion.ts ~/.pi/agent/extensions/parsidion.ts
+cp extensions/pi/parsidion/parsidion.md ~/.pi/agent/extensions/parsidion.md
+cp extensions/pi/parsidion/lib/parsidion-status.ts ~/.pi/agent/extensions/lib/parsidion-status.ts
 ```
 
 If script discovery fails, set one of:
@@ -362,10 +364,10 @@ Then in pi:
 
 ```text
 /reload
-/parsidion-vault
+/parsidion
 ```
 
-`/parsidion-vault` shows:
+`/parsidion` shows:
 - resolved script directory
 - transcript/session details
 - effective Anthropic / GLM config status
@@ -512,7 +514,7 @@ cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 > Precedence for those values is: **real environment variable > `anthropic_env`
 > in `config.yaml` > script default behavior**.
 >
-> The pi `/parsidion-vault` command reports the effective source for these values
+> The pi `/parsidion` command reports the effective source for these values
 > (`env`, `vault config`, or `unset`) and masks secret previews, but Python hook
 > scripts remain the runtime source of truth.
 

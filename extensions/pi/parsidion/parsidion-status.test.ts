@@ -4,7 +4,7 @@ import {
 	formatAnthropicStatusLines,
 	maskSecret,
 	parseAnthropicEnvSection,
-} from "./status";
+} from "./lib/parsidion-status";
 
 describe("maskSecret", () => {
 	it("masks long tokens while preserving a short fingerprint", () => {

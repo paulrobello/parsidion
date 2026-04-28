@@ -35,7 +35,7 @@ This plan does not cover:
 - `pyproject.toml` — package name, setuptools script path, test/coverage/typecheck paths.
 - `tests/test_install.py` — installer behavior tests for new paths and legacy cleanup.
 - `tests/test_session_start_hook.py`, `tests/test_pre_compact_hook.py`, `tests/test_hook_integration.py` — script import path updates.
-- `CLAUDE.md`, `AGENTS.md`, `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CLAUDE-VAULT.md`, `docs/**/*.md`, `skills/parsidion/SKILL.md`, `skills/parsidion/templates/config.yaml`, `extensions/pi/parsidion-vault/*.md`, `extensions/pi/parsidion-vault/*.ts`, `extensions/pi/parsidion-vault/*.test.ts` — rename docs and runtime references where not intentionally legacy.
+- `CLAUDE.md`, `AGENTS.md`, `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CLAUDE-VAULT.md`, `docs/**/*.md`, `skills/parsidion/SKILL.md`, `skills/parsidion/templates/config.yaml`, `extensions/pi/parsidion/*.md`, `extensions/pi/parsidion/*.ts`, `extensions/pi/parsidion/*.test.ts` — rename docs and runtime references where not intentionally legacy.
 - `CHANGELOG.md` — add a migration warning and allow historical `parsidion-cc` references to remain.
 
 ### Paths to rename
@@ -842,7 +842,7 @@ Replace executable path examples in these files from `~/.claude/skills/parsidion
 - `docs/EMBEDDINGS_EVAL.md`
 - `docs/VISUALIZER.md`
 - `docs/VAULT_SYNC.md`
-- `extensions/pi/parsidion-vault/parsidion-vault.md`
+- `extensions/pi/parsidion/parsidion.md`
 - `visualizer/CLAUDE.md`
 
 Use this mechanical replacement for path examples:
@@ -856,7 +856,7 @@ files = [
     Path('README.md'),
     Path('skills/parsidion/SKILL.md'),
     *Path('docs').glob('*.md'),
-    Path('extensions/pi/parsidion-vault/parsidion-vault.md'),
+    Path('extensions/pi/parsidion/parsidion.md'),
     Path('visualizer/CLAUDE.md'),
 ]
 for path in files:
@@ -916,12 +916,12 @@ In `SECURITY.md`, update the opening threat model to say Parsidion currently ins
 
 - [ ] **Step 7: Update TypeScript extension status labels that use the old name**
 
-In `extensions/pi/parsidion-vault/status.ts` and `status.test.ts`, keep `parsidion-vault` extension naming. Replace comments/user-facing text that says `Parsidion CC` or references `skills/parsidion-cc`; leave type names such as `AnthropicStatusKey` unchanged because they describe provider config, not project branding.
+In `extensions/pi/parsidion/status.ts` and `status.test.ts`, keep `parsidion` extension naming. Replace comments/user-facing text that says `Parsidion CC` or references `skills/parsidion-cc`; leave type names such as `AnthropicStatusKey` unchanged because they describe provider config, not project branding.
 
 Run:
 
 ```bash
-rg "parsidion-cc|Parsidion CC|skills/parsidion-cc" extensions/pi/parsidion-vault
+rg "parsidion-cc|Parsidion CC|skills/parsidion-cc" extensions/pi/parsidion
 ```
 
 Expected after edits: no matches unless a test explicitly validates legacy cleanup text.

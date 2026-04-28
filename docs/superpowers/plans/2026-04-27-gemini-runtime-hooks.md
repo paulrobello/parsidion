@@ -1273,8 +1273,8 @@ Expected: all pass.
 - [ ] **Step 4: Run installer dry-run smoke checks**
 
 ```bash
-uv run python install.py --yes --runtime gemini --dry-run --vault /tmp/parsidion-vault-smoke
-uv run python install.py --yes --runtime all --dry-run --vault /tmp/parsidion-vault-smoke
+uv run python install.py --yes --runtime gemini --dry-run --vault /tmp/parsidion-smoke
+uv run python install.py --yes --runtime all --dry-run --vault /tmp/parsidion-smoke
 ```
 
 Expected:
