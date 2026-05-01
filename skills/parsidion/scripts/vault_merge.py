@@ -522,20 +522,34 @@ def _scan_duplicates(
 
     print(f"Found {len(pairs)} near-duplicate pair(s) (threshold={threshold:.2f}):\n")
     for rank, (score, i, j) in enumerate(pairs, 1):
-        label_a = f"{folders[i] or "."}/{stems[i]}"
-        label_b = f"{folders[j] or "."}/{stems[j]}"
-        
+        label_a = f"{folders[i] or '.'}/{stems[i]}"
+        label_b = f"{folders[j] or '.'}/{stems[j]}"
+
         # ARC-011: Enhancement - session_id matching logic
         match_note = ""
         tags_a = [t.strip() for t in tags_list[i].split(",") if t.strip()]
         tags_b = [t.strip() for t in tags_list[j].split(",") if t.strip()]
-        
-        sid_a = next((t for t in tags_a if len(t) == 16 and all(c in "0123456789abcdef" for c in t.lower())), None)
-        sid_b = next((t for t in tags_b if len(t) == 16 and all(c in "0123456789abcdef" for c in t.lower())), None)
-        
+
+        sid_a = next(
+            (
+                t
+                for t in tags_a
+                if len(t) == 16 and all(c in "0123456789abcdef" for c in t.lower())
+            ),
+            None,
+        )
+        sid_b = next(
+            (
+                t
+                for t in tags_b
+                if len(t) == 16 and all(c in "0123456789abcdef" for c in t.lower())
+            ),
+            None,
+        )
+
         if sid_a and sid_b and sid_a == sid_b:
             match_note = f" [SAME SESSION: {sid_a}]"
-        
+
         print(f"  {rank:>3}.  [{score:.4f}]  {label_a}")
         print(f"              {label_b}{match_note}")
         print(f"         A: {titles[i]}")

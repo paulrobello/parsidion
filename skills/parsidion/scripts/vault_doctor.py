@@ -93,7 +93,9 @@ DEFAULT_MODEL: str | None = None
 AI_TIMEOUT = 120  # seconds
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
 STALE_COMMIT_MINUTES = 15
-SESSION_ID_PATTERN = re.compile(r"^[0-9a-f]{16}$")  # auto-commit uncommitted files older than this
+SESSION_ID_PATTERN = re.compile(
+    r"^[0-9a-f]{16}$"
+)  # auto-commit uncommitted files older than this
 PREFIX_CLUSTER_MIN = (
     3  # minimum flat notes sharing a prefix to trigger subfolder grouping
 )
@@ -1349,7 +1351,7 @@ def _collect_all_tags(notes: list[Path]) -> dict[str, int]:
 
 def _find_session_duplicates(notes: list[Path]) -> list[tuple[str, list[Path]]]:
     """Find groups of notes that share the same session_id in frontmatter.
-    
+
     Returns a list of (session_id, [paths]) for sessions with >1 note.
     """
     session_map: dict[str, list[Path]] = {}
@@ -1362,8 +1364,10 @@ def _find_session_duplicates(notes: list[Path]) -> list[tuple[str, list[Path]]]:
                 tags = fm.get("tags", [])
                 if isinstance(tags, str):
                     tags = [tags]
-                sid = next((t for t in tags if SESSION_ID_PATTERN.match(str(t).lower())), None)
-            
+                sid = next(
+                    (t for t in tags if SESSION_ID_PATTERN.match(str(t).lower())), None
+                )
+
             if sid:
                 sid_str = str(sid).lower()
                 if sid_str not in session_map:
@@ -1371,8 +1375,9 @@ def _find_session_duplicates(notes: list[Path]) -> list[tuple[str, list[Path]]]:
                 session_map[sid_str].append(path)
         except OSError:
             continue
-            
+
     return [(sid, paths) for sid, paths in session_map.items() if len(paths) > 1]
+
 
 def _find_tag_duplicates(
     tag_counts: dict[str, int],
@@ -1720,15 +1725,21 @@ def _normalize_underscores_in_frontmatter(
 
 
 def _run_reindex(vault_path: Path | None = None) -> None:
-    """Run update_index.py to rebuild the vault index.
-    """
+    """Run update_index.py to rebuild the vault index."""
     if vault_path is None:
         vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
-        
+
     script = Path(__file__).parent / "update_index.py"
     if not script.exists():
-        script = Path.home() / ".claude" / "skills" / "parsidion" / "scripts" / "update_index.py"
-        
+        script = (
+            Path.home()
+            / ".claude"
+            / "skills"
+            / "parsidion"
+            / "scripts"
+            / "update_index.py"
+        )
+
     if not script.exists():
         print("Warning: update_index.py not found, skipping re-index.", file=sys.stderr)
         return
@@ -1739,36 +1750,39 @@ def _run_reindex(vault_path: Path | None = None) -> None:
             ["uv", "run", "--no-project", str(script), "--vault", str(vault_path)],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
         print("Index rebuilt successfully.")
     except Exception as exc:
         print(f"Warning: update_index.py failed: {exc}", file=sys.stderr)
 
+
 def run_fix_sessions(vault_path: Path | None = None) -> None:
-    """Detect and report notes sharing the same session_id.
-    """
+    """Detect and report notes sharing the same session_id."""
     if vault_path is None:
         vault_path = _vault_path if _vault_path else vault_common.VAULT_ROOT
-        
+
     notes = vault_common.all_vault_notes(vault=vault_path)
     duplicates = _find_session_duplicates(notes)
-    
+
     if not duplicates:
         print("No duplicate session IDs found.")
         return
-        
+
     print(f"\nFound {len(duplicates)} session(s) with multiple notes:\n")
     for sid, paths in sorted(duplicates, key=lambda x: len(x[1]), reverse=True):
         print(f"  Session: {sid} ({len(paths)} notes)")
         for p in sorted(paths):
             print(f"    - {_rel(p, vault_path)}")
-        
+
         if len(paths) >= 2:
             print(f"    → vault-merge {paths[0].stem} {paths[1].stem}")
         print()
 
-def run_fix_tags(dry_run: bool = True, vault_path: Path | None = None, auto_reindex: bool = True) -> None:
+
+def run_fix_tags(
+    dry_run: bool = True, vault_path: Path | None = None, auto_reindex: bool = True
+) -> None:
     """Detect and merge duplicate tags across the vault.
 
     Finds duplicate tag pairs (plural/singular, hyphen/underscore,
@@ -1886,7 +1900,9 @@ def _find_redundant_prefixes(
     return pairs
 
 
-def run_strip_prefixes(dry_run: bool = True, vault_path: Path | None = None, auto_reindex: bool = True) -> None:
+def run_strip_prefixes(
+    dry_run: bool = True, vault_path: Path | None = None, auto_reindex: bool = True
+) -> None:
     """Strip redundant subfolder prefixes from note filenames.
 
     Renames files and updates all wikilinks vault-wide.
@@ -1958,7 +1974,7 @@ def run_strip_prefixes(dry_run: bool = True, vault_path: Path | None = None, aut
         f"Renamed {len(pairs)} file(s), patched wikilinks in {patched_notes} note(s)."
     )
     if auto_reindex:
-            _run_reindex(vault_path)
+        _run_reindex(vault_path)
 
 
 # ---------------------------------------------------------------------------
