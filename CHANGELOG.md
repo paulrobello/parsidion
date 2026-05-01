@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Session ID duplication diagnostic** — `vault-doctor.py` gained a new `--fix-sessions` mode that groups all vault notes by their `session_id` and identifies sessions that produced multiple distinct files. It provides a detailed report and suggests specific `vault-merge` commands for consolidation.
+- **Enhanced semantic scan with session context** — `vault-merge --scan` now retrieves note tags from the embeddings database and performs real-time `session_id` matching. High-confidence duplicates from the same session are explicitly flagged with `[SAME SESSION: <id>]` in the output.
+
 ### Changed
 
+- **Integrated session diagnostics and smart re-indexing** — `vault-doctor.py --fix-all` now automatically runs the `--fix-sessions` check alongside tag, subfolder, and daily note migrations. Re-indexing (`update_index.py`) has been centralized and optimized to run only once at the end of batched operations, or automatically after individual fixes, skipping entirely during dry-runs.
 - **Default vault path** — new installs now default to `~/ParsidionVault`; existing `~/ClaudeVault` installs are detected and continue to be used unless `~/ParsidionVault` also exists or `--vault` is provided.
 - **Vault migration command** — `install.py --migrate-vault` safely renames legacy `~/ClaudeVault` to `~/ParsidionVault` and leaves a compatibility symlink by default; `--dry-run` previews the migration and `--no-legacy-vault-symlink` skips the symlink.
 

@@ -108,6 +108,7 @@ vault-merge                        # AI-assisted note merging with backlink upda
 # Vault doctor — individual fix modes
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-tags           # detect duplicate tags (dry-run)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-tags --execute # apply tag merges
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-sessions       # detect multiple notes from same session
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders           # detect prefix clusters (dry-run)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders --execute # apply moves
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-frontmatter    # repair frontmatter via Claude

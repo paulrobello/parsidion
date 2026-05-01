@@ -472,7 +472,7 @@ An optional MCP server that exposes Parsidion vault operations to **Claude Deskt
 | `vault_write` | Create or overwrite a vault note |
 | `vault_context` | Return a session-start-style context block (compact index or verbose summaries) |
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
-| `vault_doctor` | Scan vault notes for structural issues; optionally repair them |
+| `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
 
 **Install:**
 
@@ -857,11 +857,17 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --errors-
 # Ignore state file, rescan everything
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --no-state --dry-run
 
+# Detect notes that share the same session_id and suggest consolidation
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-sessions
+
 # Detect 3+ prefix clusters and show candidates for subfolder migration
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders
 
 # Preview + execute: move files and update all wikilinks
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders --execute
+
+# Run all automated structural maintenance (tags, prefixes, sessions, legacy formats)
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
 ```
 
 The doctor is singleton-guarded -- it stores its PID in `doctor_state.json` and exits if another instance is already running. Before scanning it auto-commits any uncommitted vault files whose mtime is ≥ 15 minutes old. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
