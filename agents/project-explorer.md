@@ -54,6 +54,18 @@ Extract:
 
 ## Step 3 — Architecture Exploration
 
+**Graphify check**: First, check if `graphify-out/` exists in the project root.
+If it does, the project has a pre-built knowledge graph. Use it to accelerate exploration:
+
+1. Read `graphify-out/GRAPH_REPORT.md` for god nodes (high-centrality files) and community structure.
+2. If `graphify-out/wiki/index.md` exists, navigate it for a guided overview instead of scanning raw files.
+3. For cross-module relationship questions, run `graphify query "<question>"`, `graphify path "<A>" "<B>"`,
+   or `graphify explain "<concept>"` — these traverse the graph's EXTRACTED + INFERRED edges and are
+   far more efficient than grep for understanding how subsystems connect.
+4. After you finish exploring, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+If no `graphify-out/` directory exists, proceed with manual exploration.
+
 Use Glob + Read to map the project structure:
 
 1. List the top-level directory (one level deep) to identify major components.
