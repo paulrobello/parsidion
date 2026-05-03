@@ -172,11 +172,24 @@ def find_related_by_semantic(
     return links
 
 
+# Regex that matches the entire `related` field including block-style entries.
+# Matches:
+#   Inline:  related: ["[[a]]", "[[b]]"]
+#   Block:   related:\n  - "[[a]]"\n  - "[[b]]"
+# Also handles mixed inline+block (the corruption this fix prevents).
+_RELATED_FIELD_RE = re.compile(
+    r"^related:\s*(?:\[.*?\])?\s*$(?:\n^[ \t]+-[ \t].*$)*",
+    re.MULTILINE,
+)
+
+
 def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     """Merge new wikilinks into the ``related`` frontmatter field of a note.
 
-    Only modifies the ``related:`` line in frontmatter. Uses inline quoted
-    array format: ``related: ["[[a]]", "[[b]]"]``.
+    Replaces the entire ``related`` field (inline or block-style) with a clean
+    inline quoted array: ``related: ["[[a]]", "[[b]]"]``.
+
+    Self-referencing wikilinks (links back to the note itself) are filtered out.
 
     Args:
         note_path: Path to the note to update.
@@ -196,6 +209,11 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
 
     # Deduplicate existing + new, preserving order
     merged = list(dict.fromkeys(existing_strs + new_links))
+
+    # Remove self-references
+    self_ref = f"[[{note_path.stem}]]"
+    merged = [m for m in merged if m != self_ref]
+
     if merged == existing_strs:
         # Nothing new to add
         return
@@ -204,11 +222,9 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     quoted_items = ", ".join(f'"{lnk}"' for lnk in merged)
     new_related_line = f"related: [{quoted_items}]"
 
-    # Replace existing related: line, or insert before closing --- if absent
-    if re.search(r"^related:.*$", content, re.MULTILINE):
-        updated = re.sub(
-            r"^related:.*$", new_related_line, content, count=1, flags=re.MULTILINE
-        )
+    # Replace the entire related field (inline or block-style)
+    if _RELATED_FIELD_RE.search(content):
+        updated = _RELATED_FIELD_RE.sub(new_related_line, content, count=1)
     else:
         # Insert before the closing --- of frontmatter
         updated = content.replace("\n---\n", f"\n{new_related_line}\n---\n", 1)

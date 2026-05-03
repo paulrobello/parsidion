@@ -87,6 +87,7 @@ REPAIRABLE_CODES = frozenset(
         "ORPHAN_NOTE",
         "BROKEN_WIKILINK",
         "HEADING_MISMATCH",
+        "SELF_REF",
     }
 )
 DEFAULT_MODEL: str | None = None
@@ -856,6 +857,21 @@ def check_note(
                 )
             )
 
+    # Self-referencing wikilinks in related field (skip daily notes)
+    if not is_daily:
+        related = fm.get("related", [])
+        related_str = str(related)
+        self_ref_pattern = f"[[{path.stem}]]"
+        if self_ref_pattern in related_str:
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "SELF_REF",
+                    f"Self-referencing wikilink {self_ref_pattern} in 'related'",
+                )
+            )
+
     # Heading mismatch — first heading is ## but no # heading exists (skip daily notes)
     if not is_daily:
         body = vault_common.get_body(content)
@@ -1115,6 +1131,47 @@ def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
         return []
 
 
+def _auto_fix_self_refs(path: Path) -> bool:
+    """Remove self-referencing wikilinks from the ``related`` frontmatter field.
+
+    Returns True if the file was modified.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    stem = path.stem
+    self_ref = f"[[{stem}]]"
+    related_re = re.compile(r"^(related:\s*)(\[.*?\])\s*$", re.MULTILINE)
+    m = related_re.search(content)
+    if not m:
+        return False
+
+    prefix = m.group(1)
+    raw_list = m.group(2)
+    entries = re.findall(r'"(\[\[[^\]]+\]\])"', raw_list)
+    if not entries:
+        return False
+
+    filtered = [e for e in entries if e != self_ref]
+    if len(filtered) == len(entries):
+        return False
+
+    if filtered:
+        quoted = ", ".join(f'"{e}"' for e in filtered)
+        new_related_line = f"{prefix}[{quoted}]"
+    else:
+        new_related_line = f"{prefix}[]"
+
+    updated = related_re.sub(new_related_line, content)
+    if updated == content:
+        return False
+
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def _auto_fix_headings(path: Path) -> bool:
     """Promote the first ``## `` heading to ``# `` when no ``# `` heading exists.
 
@@ -1246,8 +1303,11 @@ def _repair_one(
     repairable = [i for i in note_issues if i.code in REPAIRABLE_CODES]
     broken = [i for i in repairable if i.code == "BROKEN_WIKILINK"]
     heading_issues = [i for i in repairable if i.code == "HEADING_MISMATCH"]
+    self_ref_issues = [i for i in repairable if i.code == "SELF_REF"]
     other = [
-        i for i in repairable if i.code not in ("BROKEN_WIKILINK", "HEADING_MISMATCH")
+        i
+        for i in repairable
+        if i.code not in ("BROKEN_WIKILINK", "HEADING_MISMATCH", "SELF_REF")
     ]
 
     with lock:
@@ -1260,6 +1320,14 @@ def _repair_one(
         if heading_fix_made:
             with lock:
                 print(f"  ✓ {rel}: promoted ## heading to #", flush=True)
+
+    # Step 0b: Python-based self-reference removal (no Claude needed)
+    self_ref_fix_made = False
+    if self_ref_issues:
+        self_ref_fix_made = _auto_fix_self_refs(note_path)
+        if self_ref_fix_made:
+            with lock:
+                print(f"  ✓ {rel}: removed self-referencing wikilink(s)", flush=True)
 
     # Step 1: Python-based broken-link repair (no Claude needed)
     link_fix_made = False
@@ -1291,19 +1359,23 @@ def _repair_one(
         fixed_content, repair_status = repair_note(note_path, other, model, timeout)
         if fixed_content:
             note_path.write_text(fixed_content + "\n", encoding="utf-8")
-    elif broken or heading_issues:
-        # Only broken wikilinks / heading fixes — no Claude call needed
-        repair_status = "fixed" if (link_fix_made or heading_fix_made) else "failed"
+    elif broken or heading_issues or self_ref_issues:
+        # Only broken wikilinks / heading / self-ref fixes — no Claude call needed
+        repair_status = (
+            "fixed"
+            if (link_fix_made or heading_fix_made or self_ref_fix_made)
+            else "failed"
+        )
 
     if fixed_content:
         icon = "✓"
-    elif (link_fix_made or heading_fix_made) and not other:
+    elif (link_fix_made or heading_fix_made or self_ref_fix_made) and not other:
         # Fixed by Python, no Claude needed
         icon = "✓"
     else:
         if repair_status == "timeout" and prev_status == "timeout":
             repair_status = "needs_review"
-        icon = "✗" if not link_fix_made else "~"
+        icon = "✗" if not (link_fix_made or self_ref_fix_made) else "~"
 
     with lock:
         msg = f"  {rel} ({len(repairable)} issue(s)) … {icon}"
@@ -1318,7 +1390,12 @@ def _repair_one(
             "issues": [i.code for i in repairable],
         }
 
-    return fixed_content is not None or link_fix_made or heading_fix_made
+    return (
+        fixed_content is not None
+        or link_fix_made
+        or heading_fix_made
+        or self_ref_fix_made
+    )
 
 
 # ---------------------------------------------------------------------------

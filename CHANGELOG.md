@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-05-03
+
+### Fixed
+
+- **Summarizer backlink injection YAML corruption** — `inject_related_links()` in `vault_links.py` used a single-line regex that only replaced the `related:` header, leaving dangling block-style entries that produced invalid YAML. Replaced with a multi-line regex that matches and replaces the entire `related` field (inline or block-style).
+- **Self-referencing wikilinks** — `inject_related_links()` now filters out self-referencing `[[note-stem]]` links before writing. Vault doctor detects remaining self-references as `SELF_REF` issues and auto-removes them via `_auto_fix_self_refs()`.
+
+### Changed
+
+- Added `SELF_REF` to vault doctor's repairable issue codes with automatic Python-based repair (no Claude prompt needed).
+
 ## [0.7.0] - 2026-05-01
 
 ### Added
