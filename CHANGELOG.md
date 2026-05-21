@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Temporal decay for semantic search scoring** — `vault_search.py` applies exponential decay to cosine similarity scores so newer notes rank higher. Controlled by three new config keys under `embeddings`: `decay_enabled` (default `true`), `decay_half_life_days` (default `90`), `decay_min_factor` (default `0.5`). A note at the half-life age retains ~75% of its raw score; very old notes asymptote to `min_factor`. Disable with `decay_enabled: false` in `config.yaml`.
+
 ## [0.7.1] - 2026-05-03
 
 ### Fixed

@@ -28,11 +28,13 @@ field (cosine similarity); metadata results set ``score`` to ``null``.
 
 import argparse
 import json
+import math
 import os
 import re
 import sqlite3
 import struct
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -85,6 +87,36 @@ def _pack_vector(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
+def _apply_decay(score: float, mtime: float, now: float) -> float:
+    """Apply temporal decay to a semantic search score.
+
+    Uses exponential decay: score * (min_factor + (1 - min_factor) * e^(-lambda * age_days))
+    where lambda = ln(2) / half_life_days.
+
+    Args:
+        score: Raw cosine similarity score.
+        mtime: File modification time (Unix timestamp).
+        now: Current Unix timestamp.
+
+    Returns:
+        Decay-adjusted score.
+    """
+    half_life: float = vault_common.get_config(
+        "embeddings",
+        "decay_half_life_days",
+        90.0,
+    )
+    min_factor: float = vault_common.get_config(
+        "embeddings",
+        "decay_min_factor",
+        0.5,
+    )
+    age_days = max(0.0, (now - mtime) / 86400.0)
+    lam = math.log(2) / half_life
+    decay = min_factor + (1.0 - min_factor) * math.exp(-lam * age_days)
+    return score * decay
+
+
 def search(
     query: str,
     top: int = 10,
@@ -120,12 +152,20 @@ def search(
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
 
+    decay_enabled: bool = vault_common.get_config(
+        "embeddings",
+        "decay_enabled",
+        True,
+    )
+    now = time.time() if decay_enabled else 0.0
+
     try:
         conn = _open_db_semantic(db_path)
         cursor = conn.execute(
             """
             SELECT stem, path, folder, title, tags,
-                   (1.0 - vec_distance_cosine(embedding, ?)) AS score
+                   (1.0 - vec_distance_cosine(embedding, ?)) AS score,
+                   mtime
             FROM note_embeddings
             ORDER BY score DESC
             LIMIT ?
@@ -138,7 +178,9 @@ def search(
         return []
 
     results: list[dict[str, object]] = []
-    for stem, path, folder, title, tags_str, score in rows:
+    for stem, path, folder, title, tags_str, score, mtime in rows:
+        if decay_enabled and mtime:
+            score = _apply_decay(score, mtime, now)
         if score < min_score:
             continue
         tags_raw: str = tags_str if isinstance(tags_str, str) else ""

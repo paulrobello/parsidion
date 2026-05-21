@@ -175,7 +175,7 @@ Config sections:
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `max_cleaned_chars`, `persist`, `cluster_model`, `dedup_threshold`, `rebuild_graph`, `graph_include_daily` | `summarize_sessions.py` |
 | `defaults` | `haiku_model`, `sonnet_model` | all scripts that call Claude |
-| `embeddings` | `model`, `min_score`, `top_k` | `build_embeddings.py`, `vault_search.py` |
+| `embeddings` | `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor` | `build_embeddings.py`, `vault_search.py` |
 | `git` | `auto_commit` | `vault_common.git_commit_vault()` |
 | `event_log` | `enabled`, `max_lines` | `vault_common.write_hook_event()` (all hooks) |
 | `adaptive_context` | `enabled`, `decay_days` | `session_start_hook.py`, `vault_common.py` |

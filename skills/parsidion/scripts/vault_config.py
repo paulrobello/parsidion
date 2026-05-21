@@ -329,6 +329,9 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "model": (str,),
         "min_score": (float, int),
         "top_k": (int,),
+        "decay_enabled": (bool,),
+        "decay_half_life_days": (float, int),
+        "decay_min_factor": (float, int),
     },
     "anthropic_env": {
         "ANTHROPIC_API_KEY": (str, type(None)),
