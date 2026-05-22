@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Temporal decay for semantic search scoring** — `vault_search.py` applies exponential decay to cosine similarity scores so newer notes rank higher. Controlled by three new config keys under `embeddings`: `decay_enabled` (default `true`), `decay_half_life_days` (default `90`), `decay_min_factor` (default `0.5`). A note at the half-life age retains ~75% of its raw score; very old notes asymptote to `min_factor`. Disable with `decay_enabled: false` in `config.yaml`.
 
+### Fixed
+
+- **Codex transcript parsing in summarizer** — `preprocess_transcript()` in `summarize_sessions.py` only understood Claude's JSONL format (`message.role` or top-level `type: "user"/"assistant"`). Codex wraps messages as `{"type": "response_item", "payload": {"type": "message", "role": "...", "content": [{"type": "input_text"/"output_text"}]}}`. Added a third extraction path for `response_item` entries and extended text block matching to handle `input_text`/`output_text` types. Previously all Codex sessions failed with "could not read transcript".
+
 ## [0.7.1] - 2026-05-03
 
 ### Fixed

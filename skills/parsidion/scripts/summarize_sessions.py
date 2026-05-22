@@ -237,6 +237,16 @@ def preprocess_transcript(
                 role = msg_type
                 content = entry.get("content")
 
+        # Codex format: type="response_item", payload.type="message",
+        # payload.role="user"/"assistant", payload.content=[{type:"input_text"/"output_text"}]
+        if role is None:
+            payload = entry.get("payload")
+            if isinstance(payload, dict) and payload.get("type") == "message":
+                role_raw = payload.get("role")
+                if isinstance(role_raw, str) and role_raw in {"user", "assistant"}:
+                    role = role_raw
+                    content = payload.get("content")
+
         if role not in {"user", "assistant"} or not content:
             continue
 
@@ -255,7 +265,7 @@ def preprocess_transcript(
                     continue
                 if role == "assistant" and block_type in {"tool_use", "toolCall"}:
                     continue
-                if block_type == "text":
+                if block_type in {"text", "input_text", "output_text"}:
                     t = block.get("text", "")
                     if isinstance(t, str) and t.strip():
                         parts.append(t.strip())
