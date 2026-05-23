@@ -1,6 +1,6 @@
 # Vault Visualizer
 
-An interactive web application for exploring and navigating a ClaudeVault knowledge base through dual-mode reading and graph visualization.
+An interactive web application for exploring and navigating a ParsidionVault knowledge base through dual-mode reading and graph visualization.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -29,11 +29,13 @@ An interactive web application for exploring and navigating a ClaudeVault knowle
 **Purpose:** Provide a browser-based interface for reading, navigating, and visually exploring the vault knowledge graph — combining a hierarchical file browser with force-directed graph visualization powered by semantic embeddings and explicit wikilinks.
 
 **Key Features:**
-- Dual-mode interface: Read (Markdown rendering) and Graph (force-directed visualization)
+- Dual-mode interface: Read (Markdown rendering) and Graph (force-directed visualization), toggled via a permanent Graph tab in the tab bar
 - **Version history viewer** — browse git commits for any note and compare any two with syntax-highlighted diffs
 - Multi-tab note browsing with persistent state
 - Unified search across titles, tags, and folders (⌘K)
 - Interactive graph with per-node neighborhood and full-vault views
+- Configurable node sizing (uniform, incoming links, betweenness centrality, recency) and edge coloring (binary opacity, gradient)
+- Edge density pruning for large graphs
 - Pre-built graph data from vault embeddings (no live queries)
 
 **Requirements:**
@@ -68,7 +70,7 @@ graph TB
         FilesAPI["/api/files"]
         HistAPI["/api/note/history"]
         DiffAPI["/api/note/diff"]
-        Vault[ClaudeVault Notes]
+        Vault[ParsidionVault Notes]
         Git[Git Repo]
     end
 
@@ -143,7 +145,7 @@ graph TD
     TabBar[TabBar.tsx]
     Search[UnifiedSearch.tsx]
     WsIndicator[WS Status Dot]
-    ViewToggle[ViewToggle.tsx]
+    VaultSel[VaultSelector.tsx]
     Sidebar[FileExplorer.tsx]
     ReadPane[ReadingPane.tsx]
     GraphCanvas[GraphCanvas.tsx]
@@ -161,7 +163,7 @@ graph TD
     Toolbar --> TabBar
     Toolbar --> Search
     Toolbar --> WsIndicator
-    Toolbar --> ViewToggle
+    Toolbar --> VaultSel
     Page --> Sidebar
     Page --> ReadPane
     Page --> GraphCanvas
@@ -184,7 +186,7 @@ graph TD
     style TabBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style Search fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style WsIndicator fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
-    style ViewToggle fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style VaultSel fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style TempBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style NewNote fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
     style Confirm fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
@@ -282,9 +284,9 @@ Interactive force-directed graph for exploring note relationships:
 | Element | Encoding |
 |---------|---------|
 | Node color | Note type (pattern, debugging, research, project, tool, language, framework, knowledge, daily) |
-| Node size | Incoming link count (logarithmic scale) |
+| Node size | Configurable: uniform, incoming link count (logarithmic), betweenness centrality, or recency (newer = larger) |
 | Wiki edge | Solid line — explicit wikilinks |
-| Semantic edge | Solid line — embedding similarity above threshold |
+| Semantic edge | Solid line — embedding similarity above threshold; color mode: binary (opacity) or gradient (blue to red) |
 
 **Interactions**
 - Click node → opens note in current tab and highlights selection
@@ -294,7 +296,7 @@ Interactive force-directed graph for exploring note relationships:
 
 #### HUD Panel
 
-Floating overlay in the bottom-left of the graph canvas.
+Floating overlay in the bottom-left of the graph canvas. Draggable via its title bar.
 
 **Display Controls**
 - Semantic similarity threshold (0.0–1.0)
@@ -305,6 +307,21 @@ Floating overlay in the bottom-left of the graph canvas.
 - Filter nodes by similarity toggle (show only nodes connected by semantic edges above threshold)
 - Hide isolated nodes toggle
 - Labels on hover only toggle
+
+**Edge Color Mode**
+- Binary — semantic edges use opacity-based gray; wiki edges use purple
+- Gradient — semantic edges colored blue (weak) to red (strong) by similarity score
+
+**Node Size Mode**
+- Uniform — equal size for all nodes
+- Links — sized by incoming wikilink count (logarithmic scale)
+- Centrality — sized by betweenness centrality (computed via BFS; disabled for graphs exceeding 500 nodes)
+- Recency — newer notes are larger, older notes are smaller
+
+**Edge Density** (shown only when graph has >2000 edges)
+- Toggle to enable per-node edge pruning
+- Max edges per node slider (3–20, default 8)
+- Keeps the K strongest connections per node to reduce visual clutter
 
 **Physics Controls**
 - Scaling ratio (node repulsion strength)
@@ -320,6 +337,7 @@ Floating overlay in the bottom-left of the graph canvas.
 - Visible node count
 - Visible edge count
 - Average semantic similarity score
+- Expandable detail panel: average degree, max degree, graph density, connected component count, top 5 hub nodes by degree
 
 **Temperature Bar**
 - Visual indicator of simulation energy (0 to 1.0)
@@ -372,13 +390,15 @@ Activated with **⌘K** — three modes selectable by prefix:
 |----------|--------|
 | ⌘K / Ctrl+K | Focus search input |
 | ⌘B / Ctrl+B | Toggle sidebar |
-| ⌘\ / Ctrl+\ | Toggle Read / Graph mode |
+| ⌘\ / Ctrl+\ | Switch to Graph mode |
 | ⌘E / Ctrl+E | Enter edit mode (when viewing a note) |
 | ⌘S / Ctrl+S | Save note (when editing) |
 | Esc | Close search dropdown, cancel edit, or deselect graph node |
 | ↑ ↓ (search) | Navigate results |
 | ⏎ (search) | Open selected result |
 | ⌘⏎ (search) | Open selected result in new tab |
+
+> **Note:** Switching back to Read mode is done by clicking a note tab in the tab bar; there is no dedicated keyboard shortcut for Read mode.
 
 ### Real-Time Vault Sync
 
@@ -457,7 +477,7 @@ All API routes accept an optional `vault` query parameter:
 
 When no `vaults.yaml` exists or only one vault is configured:
 - Vault selector is hidden in the toolbar
-- All operations use the default vault (`~/ParsidionVault`, legacy `~/ClaudeVault` if it exists, or `VAULT_ROOT`)
+- All operations use the default vault (`~/ParsidionVault`, legacy `~/ClaudeVault` if it exists and `~/ParsidionVault` does not, or `VAULT_ROOT` environment variable)
 
 ## Running the Visualizer
 
@@ -487,7 +507,7 @@ make stop-visualizer          # Kill the process on port 3999
 
 ## Building Graph Data
 
-The `graph.json` file is a pre-computed snapshot of vault relationships stored in the vault root (e.g. `~/ClaudeVault/graph.json`). Each vault has its own `graph.json`; the file is gitignored and rebuilt locally. Rebuild it whenever notes are added, removed, or embeddings are updated.
+The `graph.json` file is a pre-computed snapshot of vault relationships stored in the vault root (e.g. `~/ParsidionVault/graph.json`). Each vault has its own `graph.json`; the file is gitignored and rebuilt locally. Rebuild it whenever notes are added, removed, or embeddings are updated.
 
 ### Prerequisites
 
@@ -508,7 +528,8 @@ The `graph.json` file is a pre-computed snapshot of vault relationships stored i
 uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py [OPTIONS]
 
 Options:
-  --no-daily             Exclude Daily folder notes (included by default)
+  --include-daily        Include Daily folder notes (default; flag kept for backward compatibility)
+  --no-daily             Exclude Daily folder notes
   --min-threshold FLOAT  Minimum cosine similarity for semantic edges (default: 0.70)
   --output PATH          Output path for graph.json (default: {vault}/graph.json)
   --vault PATH           Custom vault root path
@@ -610,14 +631,15 @@ Returns the Markdown content for a note identified by its stem ID.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `stem` | string | Yes | Vault note stem (filename without extension) |
+| `stem` | string | Yes* | Vault note stem (*required if `path` not provided) |
 | `path` | string | No | Vault-relative path (for disambiguation when multiple notes share the same stem) |
+| `vault` | string | No | Vault name (from vaults.yaml) |
 
 **Response (200):** JSON `{ content: string, path: string }` — raw Markdown and vault-relative path
 
 **Response (404):** JSON error — note not found
 
-**`POST /api/note`** — Update (overwrite) an existing note.
+**`POST /api/note`** — Update (overwrite) an existing note. Accepts `vault` query parameter.
 Body: `{ stem: string, content: string, lastModified?: number }`
 - If `lastModified` is provided, server checks for conflicts (409 if note was modified externally)
 - Response (409): `{ conflict: true, serverContent: string }` — conflict detected
@@ -629,6 +651,19 @@ Body: `{ path: string, content: string }`. Returns 409 if the note already exist
 **`DELETE /api/note?stem=<stem>`** — Delete a note by stem.
 
 **`POST /api/graph/rebuild`** — Trigger a server-side `build_graph.py` run to regenerate `graph.json`. Broadcasts `graph:rebuilt` event to all connected WebSocket clients.
+
+**`GET /api/graph`** — Serve the vault's `graph.json` file.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200):** The `graph.json` file content (JSON).
+**Response (404):** `graph.json` not found in the vault.
+
+**`GET /api/vaults`** — List available vaults from `vaults.yaml`.
+
+**Response (200):** `{ vaults: VaultInfo[], defaultVault: string }` where each `VaultInfo` has `{ name, path, isDefault }`.
 
 **`GET /api/files`** — Returns the complete vault file tree.
 
@@ -723,8 +758,12 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 | `showDaily` | `false` | Show Daily folder notes |
 | `hideIsolated` | `false` | Hide unconnected nodes |
 | `labelsOnHoverOnly` | `false` | Only show labels on hover |
+| `edgeColorMode` | `'binary'` | Edge coloring: `binary` (opacity) or `gradient` (blue to red) |
+| `nodeSizeMode` | `'incoming_links'` | Node sizing: `uniform`, `incoming_links`, `betweenness`, or `recency` |
+| `edgePruning` | `false` | Enable per-node edge pruning for dense graphs |
+| `edgePruningK` | `8` | Max edges per node when pruning is enabled |
 | `scalingRatio` | `10` | Node repulsion multiplier |
-| `gravity` | `1` | Attraction to center |
+| `gravity` | `1` | Attraction to center (capped at 5) |
 | `slowDown` | `0.5` | Cooling rate |
 | `edgeWeightInfluence` | `2` | Edge attraction multiplier |
 | `startTemperature` | `0.8` | Initial simulation energy |
@@ -738,7 +777,10 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 | `nodeMap` | `Map<stem, NoteNode>` for O(1) lookup |
 | `stemLookup` | Wikilink resolution map (exact + fuzzy matching) |
 | `stats` | Visible node/edge counts and average semantic score |
+| `graphStats` | Detailed graph metrics: average degree, max degree, top 5 hub nodes, graph density, connected component count |
 | `selectedNode` | Currently highlighted graph node |
+| `nodeSizeMap` | Betweenness centrality values (only when `nodeSizeMode` is `'betweenness'`; `null` otherwise) |
+| `nodeSizeComputing` | Whether betweenness centrality is currently being computed |
 
 ## Graph Visualization Engine
 
@@ -793,7 +835,7 @@ For local (2-hop) view:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VAULT_ROOT` | `~/ClaudeVault` | Custom vault root path |
+| `VAULT_ROOT` | `~/ParsidionVault` (legacy: `~/ClaudeVault`) | Custom vault root path |
 
 ### Dev Server Port
 
@@ -821,31 +863,32 @@ parsidion/
 │   │   └── api/graph/rebuild/route.ts  # Trigger graph.json rebuild (POST)
 │   ├── components/
 │   │   ├── GraphCanvas.tsx           # Sigma.js WebGL renderer + node right-click menu
-│   │   ├── HUDPanel.tsx              # Graph controls overlay
+│   │   ├── HUDPanel.tsx              # Graph controls overlay (edge color, node size, density, physics)
 │   │   ├── FileExplorer.tsx          # Sidebar with folder tree + right-click context menu
 │   │   ├── ReadingPane.tsx           # Markdown renderer + HISTORY toolbar button
 │   │   ├── HistoryView.tsx           # Split-screen git history viewer
 │   │   ├── CommitList.tsx            # Scrollable commit list with FROM/TO selection
 │   │   ├── DiffViewer.tsx            # Diff renderer (unified / split / words modes)
-│   │   ├── Toolbar.tsx               # Top bar with tabs + vault selector + WS status
+│   │   ├── Toolbar.tsx               # Top bar with tabs + vault selector + WS status + new note
 │   │   ├── VaultSelector.tsx         # Multi-vault dropdown switcher
-│   │   ├── TabBar.tsx                # Scrollable tab strip
+│   │   ├── TabBar.tsx                # Scrollable tab strip with permanent Graph tab
 │   │   ├── UnifiedSearch.tsx         # ⌘K search input + dropdown
-│   │   ├── ViewToggle.tsx            # Read/Graph mode toggle button
 │   │   ├── TemperatureBar.tsx        # Simulation energy indicator
 │   │   ├── NewNoteDialog.tsx         # Dialog for creating new vault notes
 │   │   ├── ConfirmDialog.tsx         # Reusable confirmation prompt
 │   │   ├── ConflictDialog.tsx        # Edit conflict resolution (take theirs / keep mine / merge)
-│   │   └── FrontmatterEditor.tsx    # Structured YAML frontmatter editor
+│   │   ├── FrontmatterEditor.tsx    # Structured YAML frontmatter editor
+│   │   └── ViewToggle.tsx            # (unused) Legacy Read/Graph mode toggle — replaced by TabBar Graph tab
 │   ├── lib/
 │   │   ├── graph.ts                  # Data types and fetch helpers
-│   │   ├── useVisualizerState.ts     # Central state management hook (incl. vault + history)
+│   │   ├── useVisualizerState.ts     # Central state management hook (incl. vault, history, graph controls)
 │   │   ├── useVaultFiles.ts          # WebSocket hook for real-time vault sync
 │   │   ├── vaultFile.ts              # VaultFile type (shared client/server)
 │   │   ├── vaultResolver.ts          # Multi-vault path resolution (server-side)
 │   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side events
 │   │   ├── parseDiff.ts              # Client-side unified diff parser (DiffHunk, DiffLine)
-│   │   ├── sigma-colors.ts           # Note type → color mapping
+│   │   ├── parseDiff.test.ts         # Unit tests for parseDiff
+│   │   ├── sigma-colors.ts           # Note type → color mapping, edge coloring, node sizing constants
 │   │   ├── frontmatter.ts           # Frontmatter parse/serialize helpers
 │   │   └── useLocalStorage.ts        # localStorage persistence hook
 │   ├── public/

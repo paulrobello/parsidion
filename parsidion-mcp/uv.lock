@@ -1024,7 +1024,7 @@ wheels = [
 
 [[package]]
 name = "parsidion"
-version = "0.5.6"
+version = "0.7.1"
 source = { editable = "../" }
 
 [package.optional-dependencies]

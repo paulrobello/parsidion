@@ -107,7 +107,7 @@ graph TD
 
 The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
 
-Script paths for `rebuild_index` and `vault_doctor` are derived from `vault_common.TEMPLATES_DIR` — a constant patched by the installer that always resolves to `~/.claude/skills/parsidion/templates/`. The scripts directory is one level up: `TEMPLATES_DIR.parent / "scripts"`. This invariant holds regardless of custom vault path configuration.
+Script paths for `rebuild_index` and `vault_doctor` use `vault_common.SCRIPTS_DIR` — a constant defined in `vault_path.py` alongside `TEMPLATES_DIR`. Both resolve to `~/.claude/skills/parsidion/templates/` and `~/.claude/skills/parsidion/scripts/` respectively. `ops.py` imports `SCRIPTS_DIR` directly from `vault_common`. These paths hold regardless of custom vault path configuration.
 
 ## Installation
 
@@ -164,15 +164,18 @@ After saving the file, restart Claude Desktop for the change to take effect.
 
 ## Tools Reference
 
-All tools return plain strings. On failure, the string begins with `ERROR:` followed by a description. On success, the string contains the result content.
+All tools return plain strings on success. On failure, tools raise typed exceptions that FastMCP converts to `ToolError` responses visible to the MCP client. The exception messages describe the specific failure.
 
-| Error condition | Message |
-|---|---|
-| Path escapes vault root | `ERROR: path escapes vault root` |
-| Vault root directory missing | `ERROR: vault root not found at <path>` |
-| Embeddings DB missing (semantic search) | `ERROR: embeddings DB not found — run rebuild_index first` |
-| Subprocess timeout | `ERROR: command timed out after <N>s` |
-| Subprocess non-zero exit | `ERROR: <combined stdout+stderr from subprocess>` |
+| Error condition | Exception type | Message |
+|---|---|---|
+| Path escapes vault root | `VaultToolError` | `path escapes vault root` |
+| Vault root directory missing | `VaultToolError` | `vault root not found at <path>` |
+| Note not found | `VaultToolError` | `note not found at <path>` |
+| Content exceeds 10 MB | `VaultToolError` | `Content exceeds 10 MB limit` |
+| Non-.md file extension | `VaultToolError` | `Only .md files are allowed` |
+| Embeddings DB missing (semantic search) | `ValueError` | `embeddings DB not found -- run rebuild_index first` |
+| Subprocess timeout | `OpsToolError` | `command timed out after <N>s` |
+| Subprocess non-zero exit | `OpsToolError` | `<combined stdout+stderr from subprocess>` |
 
 ### vault_search
 
@@ -224,7 +227,7 @@ Reads a vault note by path and returns its full content including YAML frontmatt
 
 #### Return Value
 
-Full note content as a string, or an `ERROR:` string if the path escapes the vault root, the note does not exist, or an OS error occurs.
+Full note content as a string. Raises `VaultToolError` if the path escapes the vault root, the note does not exist, or an OS error occurs.
 
 #### Example
 
@@ -248,9 +251,14 @@ Creates or overwrites a vault note. Parent directories are created automatically
 
 The tool does not validate frontmatter. The caller is responsible for supplying valid frontmatter per vault conventions. Any structural issues are detectable via `vault_doctor` on the next scan.
 
+**Constraints:**
+
+- Content must not exceed 10 MB (enforced before any file system write)
+- Only `.md` file extensions are allowed
+
 #### Return Value
 
-`Written: <absolute_path>` on success, or an `ERROR:` string on failure.
+`Written: <absolute_path>` on success. Raises `VaultToolError` on failure (path escape, oversized content, non-.md extension, or OS error).
 
 #### Example
 
@@ -331,7 +339,7 @@ None.
 
 #### Return Value
 
-Combined stdout and stderr from `update_index.py` on success, or an `ERROR:` string on failure. Times out after 30 seconds.
+Combined stdout and stderr from `update_index.py` on success. Raises `OpsToolError` on failure or timeout (30 seconds).
 
 #### Example
 
@@ -354,11 +362,11 @@ Scans all vault notes for structural issues — missing frontmatter fields, inva
 | `errors_only` | `bool` | `False` | When `True`, suppress warnings and report errors only |
 | `limit` | `int \| None` | `None` | Maximum notes to repair (only relevant when `fix=True`) |
 
-The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
+The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`, `--vault`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
 
 #### Return Value
 
-Combined stdout and stderr from `vault_doctor.py` on success, or an `ERROR:` string on failure. Times out after 120 seconds.
+Combined stdout and stderr from `vault_doctor.py` on success. Raises `OpsToolError` on failure or timeout (120 seconds).
 
 #### Examples
 
@@ -380,7 +388,7 @@ vault_doctor(fix=True, errors_only=True)
 
 `parsidion-mcp` enforces two security boundaries.
 
-**Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against `vault_common.VAULT_ROOT` using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — is rejected immediately with `ERROR: path escapes vault root`. No file system access occurs for rejected paths.
+**Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against the vault root (obtained via `vault_common.resolve_vault()`) using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — raises `VaultToolError("path escapes vault root")` immediately. No file system access occurs for rejected paths.
 
 **No external network calls.** The server and all six tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py` and `vault_doctor.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — this is the same behaviour as running `vault_doctor.py` manually from the terminal).
 
@@ -399,7 +407,7 @@ The test suite covers:
 
 - **Unit tests** — each tool module tested with mocked `vault_common`, `vault_search`, and `subprocess.run`
 - **Subprocess tests** — `rebuild_index` and `vault_doctor` verified for correct flag construction across all parameter combinations
-- **Path safety tests** — traversal attempts in `vault_read` and `vault_write` confirmed to return the expected error string
+- **Path safety tests** — traversal attempts in `vault_read` and `vault_write` confirmed to raise the expected `VaultToolError`
 - **Integration smoke test** — reads one real note; automatically skipped when the vault is absent
 
 ### Checkall

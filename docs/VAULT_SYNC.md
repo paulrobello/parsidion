@@ -1,6 +1,6 @@
 # Multi-Machine Vault Sync
 
-Share a single ClaudeVault across multiple machines so that debugging solutions,
+Share a single ParsidionVault across multiple machines so that debugging solutions,
 patterns, and project context are available everywhere you work.
 
 This guide covers the recommended git-based sync strategy, post-merge automation,
@@ -53,7 +53,7 @@ rebuild the database locally on each machine.
 
 The installer automatically:
 - initializes the vault as a **git repository** (with `.gitignore` and initial commit)
-- adds `embeddings.db`, `pending_summaries.jsonl`, and `hook_events.log` to `.gitignore`
+- adds `embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`, and `graph.json` to `.gitignore`
 - installs a **post-merge hook** that rebuilds the index and embeddings after every pull
 
 If you already have a vault, re-running the installer adds git support without affecting
@@ -63,11 +63,15 @@ existing notes:
 uv run install.py --force --yes
 ```
 
+> **Note:** The default vault location is `~/ParsidionVault`. If you have a legacy
+> `~/ClaudeVault`, the installer detects it automatically and can migrate it via
+> `--migrate-vault`. A compatibility symlink keeps the old path working.
+
 ### 2. Push to a private remote
 
 ```bash
-cd ~/ClaudeVault
-git remote add origin git@github.com:youruser/claude-vault.git
+cd ~/ParsidionVault
+git remote add origin git@github.com:youruser/parsidion-vault.git
 git push -u origin main
 ```
 
@@ -75,7 +79,7 @@ git push -u origin main
 
 ```bash
 # Clone the vault, then install skills and hooks
-git clone git@github.com:youruser/claude-vault.git ~/ClaudeVault
+git clone git@github.com:youruser/parsidion-vault.git ~/ParsidionVault
 cd ~/path/to/parsidion
 uv run install.py --force --yes
 ```
@@ -83,8 +87,8 @@ uv run install.py --force --yes
 ### 4. Pull before each session, push after
 
 ```bash
-cd ~/ClaudeVault && git pull   # before starting Claude Code
-cd ~/ClaudeVault && git push   # after session ends (or automate via cron)
+cd ~/ParsidionVault && git pull   # before starting Claude Code
+cd ~/ParsidionVault && git push   # after session ends (or automate via cron)
 ```
 
 The post-merge hook fires automatically after `git pull`, rebuilding the local
@@ -103,6 +107,7 @@ database so semantic search works immediately.
 | `embeddings.db` | **No** | Binary SQLite — must be rebuilt locally |
 | `pending_summaries.jsonl` | **No** | Machine-local session queue, uses `fcntl.flock` |
 | `hook_events.log` | **No** | Machine-local structured log |
+| `graph.json` | **No** | Visualizer graph data — rebuilt by `build_graph.py` |
 | `.obsidian/` | **No** | Obsidian workspace state — machine-specific |
 
 The installer adds all "No" entries to `.gitignore` automatically.
@@ -128,11 +133,16 @@ graph LR
     Index --> Embed
     Embed --> Ready
 
-    style Pull fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style Hook fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Index fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style Embed fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style Ready fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    class Pull external
+    class Hook primary
+    class Index data
+    class Embed data
+    class Ready healthy
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef healthy fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
 ```
 
 **What the hook does:**
@@ -178,13 +188,18 @@ graph TB
     R -- "git pull" --> VA
     VA -- "post-merge hook" --> DA
 
-    style VA fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style VB fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style DA fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style DB fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style HA fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style HB fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style R fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    class VA healthy
+    class VB healthy
+    class DA data
+    class DB data
+    class HA neutral
+    class HB neutral
+    class R primary
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef healthy fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
 ```
 
 Each machine maintains its own `embeddings.db` — only markdown notes travel
@@ -256,7 +271,7 @@ machine.
 
 **Check:**
 ```bash
-ls -la ~/ClaudeVault/.git/hooks/post-merge
+ls -la ~/ParsidionVault/.git/hooks/post-merge
 ```
 
 The hook must be executable (`-rwxr-xr-x`).  If missing, re-run the installer:
@@ -280,7 +295,7 @@ uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental
 
 **Fix:** delete and rebuild:
 ```bash
-rm ~/ClaudeVault/embeddings.db
+rm ~/ParsidionVault/embeddings.db
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```

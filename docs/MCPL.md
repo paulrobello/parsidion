@@ -214,7 +214,7 @@ mcpl config files --reset       # Clear saved preferences; re-prompts on next ru
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCPL_CONNECTION_TIMEOUT` | `45` | MCP server connection/initialization timeout (seconds) |
-| `MCPL_RECONNECT_DELAY` | `5` | Delay before retrying a failed server connection (seconds) |
+| `MCPL_RECONNECT_DELAY` | `5` | Base delay before retrying a failed server connection (seconds); actual delay uses exponential backoff |
 | `MCPL_MAX_RECONNECT_ATTEMPTS` | `3` | Max reconnection attempts before giving up |
 
 #### Daemon Settings
@@ -233,6 +233,19 @@ mcpl config files --reset       # Clear saved preferences; re-prompts on next ru
 | `MCPL_IDLE_TIMEOUT` | `3600` | Daemon idle shutdown timeout (seconds; `0` disables) |
 | `MCPL_SESSION_ID` | (auto) | Override session ID for multi-session setups |
 | `MCPL_IDE_ANCHOR_CHECK_INTERVAL` | `10` | How often to check if IDE session is alive (seconds) |
+| `MCPL_PERSIST` | (unset) | Force daemon into persistent/IDE mode (any non-empty value) |
+
+#### Logging Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCPL_LOG_LEVEL` | `INFO` | Daemon log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+#### OAuth Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCPL_CLIENT_SECRET` | (none) | OAuth client secret (alternative to config file or stdin) |
 
 ---
 
@@ -306,7 +319,7 @@ mcpl verify
 mcpl verify -t 60    # Custom connection timeout per server (seconds)
 ```
 
-Each server is tested for connection and responsiveness. Failed servers are clearly identified. Use `-t, --timeout` to override the per-server connection timeout when servers are slow to initialize.
+Each server is tested for connection and responsiveness. Failed servers are clearly identified. Use `-t, --timeout` to override the per-server connection timeout (default: 30 seconds) when servers are slow to initialize.
 
 ### config
 
@@ -332,7 +345,7 @@ mcpl enable slow-server    # Re-enable it
 Manage the background session daemon.
 
 ```bash
-mcpl session status    # Show daemon PID, uptime, and connected servers
+mcpl session status    # Show daemon PID, running state, and connected servers
 mcpl session stop      # Gracefully stop the daemon (auto-restarts on next call)
 ```
 
@@ -341,15 +354,15 @@ mcpl session stop      # Gracefully stop the daemon (auto-restarts on next call)
 Manage OAuth 2.1 authentication for remote MCP servers that require it (e.g., Notion, Figma).
 
 ```bash
-mcpl auth login notion              # Open browser for OAuth authorization
-mcpl auth login figma --scope "read write"
-mcpl auth login custom --force      # Force re-authentication
+mcpl auth login notion                              # Open browser for OAuth authorization
+mcpl auth login figma --scope read --scope write    # Request multiple scopes (repeatable flag)
+mcpl auth login custom --force                      # Force re-authentication
 mcpl auth login custom --client-id my-id --client-secret-stdin  # Provide credentials non-interactively
-mcpl auth login notion --timeout 120  # Extend browser callback timeout (seconds)
-mcpl auth logout notion             # Remove stored token for one server
-mcpl auth logout --all              # Clear all stored tokens
-mcpl auth status                    # Show authentication status for all servers
-mcpl auth status notion             # Check a specific server
+mcpl auth login notion --timeout 120                # Extend browser callback timeout (seconds)
+mcpl auth logout notion                             # Remove stored token for one server
+mcpl auth logout --all                              # Clear all stored tokens
+mcpl auth status                                    # Show authentication status for all servers
+mcpl auth status notion                             # Check a specific server
 ```
 
 > **⚠️ Warning:** AI agents cannot complete OAuth flows — they require browser interaction. Authenticate all OAuth-protected servers manually before using them with an agent.
@@ -406,7 +419,8 @@ The daemon shuts itself down automatically in any of these conditions:
 | Environment | Shutdown Trigger |
 |-------------|-----------------|
 | Regular terminal | Parent terminal process exits |
-| VS Code / Claude Code | IDE session ends (detected via VS Code socket) |
+| VS Code | IDE session ends (detected via VS Code Git IPC socket) |
+| Claude Code | Idle timeout (Claude Code runs each command as a subprocess, so idle timeout applies) |
 | Any environment | Idle timeout (default: 1 hour of no activity) |
 | Manual | `mcpl session stop` |
 
@@ -521,6 +535,23 @@ Connect to remote MCP endpoints over HTTP (Streamable HTTP transport):
 | `type` | Yes | Must be `"http"` |
 | `url` | Yes | Full URL to the MCP endpoint |
 | `headers` | No | HTTP headers; supports `${VAR}` syntax |
+| `api_key` | No | Static API key for bearer token auth (alternative to OAuth); supports `${VAR}` syntax |
+
+Using `api_key` sends the value as a `Bearer` token in the `Authorization` header automatically:
+
+```json
+{
+  "mcpServers": {
+    "api-service": {
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "api_key": "${MY_API_KEY}"
+    }
+  }
+}
+```
+
+> **Note:** If both `api_key` and an explicit `Authorization` header are set, the explicit header takes precedence.
 
 ### SSE Transport Configuration
 

@@ -27,21 +27,25 @@ A fast native Rust CLI that lets AI coding agents control a Chrome or Chromium b
 
 ## Why AgentChrome
 
-The research agent and other web-fetching workflows in Parsidion use `agentchrome dom get-html` as their primary page-retrieval method, piped through `html-to-md.py` to produce clean, noise-free markdown for LLM consumption.
+The research agent and other web-fetching workflows in Parsidion use agentchrome to fetch and convert web pages into clean, noise-free markdown for LLM consumption. The built-in `agentchrome markdown` command handles conversion natively; the `dom get-html | html-to-md.py` pipeline remains available for custom post-processing.
 
 ```mermaid
 graph LR
     Agent[Research Agent]
+    MD[agentchrome markdown]
     AC[agentchrome dom get-html]
     H2M[html-to-md.py]
     Vault[Vault Note]
 
+    Agent --> MD
+    MD --> Vault
     Agent --> AC
     AC --> H2M
     H2M --> Vault
 
     style Agent fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style AC fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    style MD fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    style AC fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
     style H2M fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style Vault fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
 ```
@@ -97,17 +101,25 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 |---------|-------------|
 | **Page text extraction** | Extracts visible text from the rendered page (`page text`) |
 | **DOM HTML extraction** | Retrieves outer HTML of any element after JavaScript execution (`dom get-html`) |
+| **HTML to Markdown conversion** | Convert browser pages, files, stdin, or URLs to clean Markdown (`markdown`) |
 | **Accessibility tree snapshots** | Returns stable UIDs for reliable element targeting (`page snapshot`) |
+| **Element queries** | Find elements by text, CSS selector, or accessibility role (`page find`) |
 | **Screenshot capture** | Full-page, viewport, or element PNG/JPEG/WebP screenshots (`page screenshot`) |
-| **Form automation** | Fill, clear, and submit form fields by UID or CSS selector (`form fill`) |
+| **Form automation** | Fill, clear, upload files, and submit form fields by UID or CSS selector (`form fill/fill-many/clear/upload/submit`) |
+| **User interaction** | Click, hover, type, press keys, scroll, and drag-and-drop by UID or CSS selector (`interact click/hover/type/key/scroll/drag`) |
 | **JavaScript execution** | Run arbitrary JS in the page context (`js exec`) |
-| **Console monitoring** | Read browser console messages (`console read`) |
-| **Network monitoring** | Inspect requests and responses (`network list`) |
+| **Console monitoring** | Read or stream browser console messages (`console read/follow`) |
+| **Network monitoring** | Inspect and stream requests and responses (`network list/get/follow`) |
 | **Cookie management** | List, set, delete, and clear browser cookies (`cookie list/set/delete/clear`) |
 | **Tab management** | List, create, close, and activate tabs (`tabs list/create/close/activate`) |
-| **Device emulation** | Simulate mobile viewports and network conditions (`emulate set`) |
-| **Performance tracing** | Capture Core Web Vitals (`perf vitals`) |
+| **Device emulation** | Simulate mobile viewports and network conditions (`emulate set/reset/status`) |
+| **Performance tracing** | Capture Core Web Vitals, record traces, and analyze insights (`perf vitals/record/analyze`) |
+| **Lighthouse audits** | Run Google Lighthouse performance, accessibility, SEO, and best-practices audits (`audit lighthouse`) |
 | **Dialog handling** | Inspect and dismiss alerts, confirms, prompts (`dialog info/accept/dismiss`) |
+| **Media control** | List, play, pause, and seek HTML5 audio and video elements (`media list/play/pause/seek/seek-end`) |
+| **Pre-automation diagnostics** | Scan pages for iframes, overlays, shadow DOM, media gates, and framework quirks (`diagnose`) |
+| **Batch scripting** | Execute JSON batch scripts with conditionals and loops (`script run`) |
+| **Navigation history** | Navigate, go back, forward, and reload (`navigate/back/forward/reload`) |
 | **Skill management** | Install agentchrome skill files for AI coding tools (`skill install/list`) |
 | **Configuration** | Manage connection config via TOML config file (`config show/init/path`) |
 | **Capabilities manifest** | Output a machine-readable manifest of all CLI commands and flags (`capabilities`) |
@@ -118,7 +130,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 
 ### Research Agent Page Fetching
 
-The primary use case is fetching pages for the research agent. Connect once per session, then navigate and extract HTML:
+The primary use case is fetching pages for the research agent. Connect once per session, then navigate and extract content:
 
 ```bash
 # Connect once per research session (launch headless Chrome)
@@ -127,11 +139,14 @@ agentchrome connect --launch --headless
 # Navigate to a URL
 agentchrome navigate "https://example.com/docs" --wait-until networkidle
 
-# Fetch raw HTML and convert to clean markdown
+# Option A: Built-in markdown conversion (no external script needed)
+agentchrome markdown --plain
+
+# Option B: Raw HTML piped through html-to-md.py for more control
 agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
 ```
 
-Then read `/tmp/page-content.md` for the cleaned content.
+The built-in `agentchrome markdown` command handles HTML-to-Markdown conversion natively. For cases requiring custom post-processing (link stripping, image handling), the `dom get-html | html-to-md.py` pipeline remains available.
 
 The research agent (`~/.claude/agents/research-agent.md`) uses this pipeline automatically when agentchrome is available, falling back to `curl` otherwise.
 
@@ -144,16 +159,35 @@ agentchrome page text
 # Get raw HTML of the entire page
 agentchrome dom get-html "css:html"
 
+# Convert the current page to clean Markdown
+agentchrome markdown --plain
+
 # Save a screenshot (full page)
 agentchrome page screenshot --full-page --file screenshot.png
 
 # Get accessibility tree (structured element list with UIDs)
 agentchrome page snapshot
+
+# Diagnose a page for automation challenges (iframes, overlays, frameworks)
+agentchrome diagnose --current
 ```
 
-### Integration with html-to-md.py
+### Built-in Markdown Conversion vs html-to-md.py
 
-`html-to-md.py` is designed to work with agentchrome output:
+AgentChrome v1.62+ includes a built-in `agentchrome markdown` command that handles HTML-to-Markdown conversion natively:
+
+```bash
+# Built-in: convert the current browser page to Markdown
+agentchrome markdown --plain
+
+# Built-in: fetch and convert a URL without a browser session
+agentchrome markdown --url https://docs.example.com/api --plain
+
+# Built-in: convert HTML from stdin
+cat page.html | agentchrome markdown --stdin --base-url https://docs.example.com/api --plain
+```
+
+The `html-to-md.py` script remains available for cases requiring custom post-processing:
 
 ```bash
 # Navigate then fetch and convert to markdown
@@ -173,9 +207,26 @@ agentchrome connect --launch --headless
 # Check current connection status
 agentchrome connect --status
 
+# Disconnect and remove session file
+agentchrome connect --disconnect
+
 # Navigate to a URL (wait-until options: load, domcontentloaded, networkidle, none)
 agentchrome navigate https://example.com
 agentchrome navigate https://example.com --wait-until networkidle
+
+# Navigation history
+agentchrome navigate back
+agentchrome navigate forward
+agentchrome navigate reload
+
+# Convert the current page to clean Markdown
+agentchrome markdown --plain
+
+# Convert a URL to Markdown (no browser needed)
+agentchrome markdown --url https://example.com --plain
+
+# Convert HTML from stdin to Markdown
+cat page.html | agentchrome markdown --stdin --base-url https://example.com --plain
 
 # Extract visible text from the page
 agentchrome page text
@@ -189,6 +240,9 @@ agentchrome page screenshot --full-page --file screenshot.png
 # Take a screenshot of a specific element by UID
 agentchrome page screenshot --uid s3 --file element.png
 
+# Take a screenshot in JPEG format
+agentchrome page screenshot --format jpeg --quality 80 --file shot.jpg
+
 # Get accessibility tree (assigns UIDs to elements, e.g. s1, s2, s3)
 agentchrome page snapshot
 
@@ -196,12 +250,27 @@ agentchrome page snapshot
 agentchrome page find "Sign in"
 agentchrome page find --selector "button.submit"
 
+# Resize the viewport
+agentchrome page resize 1280x720
+
 # Interact with an element (requires UID from page snapshot)
 agentchrome interact click s5
 agentchrome interact type "hello world"
+agentchrome interact key Enter
+agentchrome interact hover s5
+agentchrome interact scroll --amount 500
 
 # Fill a form field
 agentchrome form fill s5 "hello@example.com"
+
+# Fill multiple form fields at once from JSON
+agentchrome form fill-many '{"s5": "hello@example.com", "s6": "John"}'
+
+# Upload a file to a file input element
+agentchrome form upload s7 /path/to/file.pdf
+
+# Submit a form programmatically
+agentchrome form submit s5
 
 # Execute JavaScript
 agentchrome js exec "document.title"
@@ -215,8 +284,17 @@ agentchrome tabs create https://example.com
 # Read browser console output
 agentchrome console read
 
+# Stream console messages in real time
+agentchrome console follow --timeout 5000
+
 # List recent network requests
 agentchrome network list
+
+# Get details of a specific network request
+agentchrome network get <request-id>
+
+# Stream network requests in real time
+agentchrome network follow --timeout 5000
 
 # List cookies for current page
 agentchrome cookie list
@@ -226,6 +304,25 @@ agentchrome cookie set session_id abc123 --domain example.com
 
 # Capture Core Web Vitals
 agentchrome perf vitals
+
+# Record a performance trace
+agentchrome perf record --duration 5000
+
+# Emulate a mobile device
+agentchrome emulate set --viewport 375x812 --user-agent "Mozilla/5.0 (iPhone)"
+
+# List media elements on the page
+agentchrome media list
+
+# Run a Lighthouse audit
+agentchrome audit lighthouse
+
+# Diagnose a page for automation challenges
+agentchrome diagnose https://example.com
+agentchrome diagnose --current
+
+# Run a batch script
+agentchrome script run script.json
 
 # Show built-in usage examples for all commands
 agentchrome examples
@@ -277,6 +374,7 @@ If agentchrome cannot connect to Chrome, ensure:
 - No firewall rule blocks localhost CDP connections
 - You are not running in a sandboxed environment that restricts browser access
 - Use `agentchrome connect --status` to check the current connection state
+- Use `agentchrome connect --disconnect` to clean up stale session files, then reconnect
 
 ## Related Documentation
 

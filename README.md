@@ -591,6 +591,9 @@ embeddings:
   model: BAAI/bge-small-en-v1.5  # fastembed model for semantic search
   min_score: 0.45          # Minimum cosine similarity threshold
   top_k: 10                # Maximum semantic search results
+  decay_enabled: true             # Apply temporal decay so newer notes score higher
+  decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
+  decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
 
 git:
   auto_commit: true        # Auto-commit vault changes after writes

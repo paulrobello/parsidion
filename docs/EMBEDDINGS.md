@@ -44,7 +44,8 @@ the query "database pool timeout" unless those exact words appear in it.
 The embeddings subsystem solves this by encoding each vault note into a 384-dimensional vector
 and storing those vectors in a local SQLite database (`embeddings.db`). At query time, the
 search script encodes the query with the same model and ranks notes by cosine similarity — no
-internet connection required.
+internet connection required. The vault defaults to `~/ParsidionVault/`, or the legacy
+`~/ClaudeVault/` if it already exists. All commands accept `--vault` to target a specific vault.
 
 **Key capabilities:**
 
@@ -52,21 +53,25 @@ internet connection required.
 - CPU-only: no GPU required; built on `fastembed` and `sqlite-vec`
 - Fast enough for ~10 K notes with a brute-force scan (no external vector database needed)
 - Incremental builds: re-embeds only notes whose `mtime` has changed
+- Temporal decay: newer notes score higher by default; configurable half-life and floor factor
 - Importable `search()` function for use by hooks and agents without spawning a subprocess loop
 - Graceful degradation: every integration silently falls back when `embeddings.db` is absent
+- Multi-vault support: `--vault` flag on all commands selects a named or path-based vault
 
 ---
 
 ## Architecture
 
+`vault_common.py` has been split into focused sub-modules (ARC-005): `vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, and `vault_adaptive`. The original module remains as a re-export facade so all existing `import vault_common` calls continue to work.
+
 `embeddings.db` is a single SQLite file that stores two tables:
 
 | Table | Populated by | Purpose |
 |-------|-------------|---------|
-| `note_embeddings` | `build_embeddings.py` | 384-dim float32 vectors for cosine similarity search |
-| `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, staleness) for indexed queries |
+| `note_embeddings` | `build_embeddings.py` | 384-dim float32 vectors with metadata (stem, path, folder, title, tags, mtime) for cosine similarity search |
+| `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, staleness, incoming links) for indexed queries |
 
-Both tables are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` hasn't run yet.
+Both tables are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` has not run yet.
 
 ```mermaid
 graph TB
@@ -131,14 +136,17 @@ graph TB
 
 **Data flow:**
 
-1. `build_embeddings.py` walks `~/ClaudeVault/`, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
+1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
-3. `vault_search.py` loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. It also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model.
+3. `vault_search.py` loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. When `decay_enabled` is `true` (the default), raw cosine scores are multiplied by an exponential decay factor based on note age, so newer notes rank higher. It also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model.
 4. `vault_common.query_note_index()` runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking.
 5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
-The `vault_common.py` module exposes `get_embeddings_db_path()` so every script resolves the
-database path consistently without hardcoding it.
+The `vault_common.py` module exposes `get_embeddings_db_path(vault=...)` so every script resolves
+the database path consistently without hardcoding it. The optional `vault` parameter supports
+multi-vault setups; when omitted, it falls back to `resolve_vault()` which checks the `--vault`
+flag, project-local `.claude/vault` file, `CLAUDE_VAULT` environment variable, and finally the
+default vault (`~/ParsidionVault/`, or legacy `~/ClaudeVault/` if it already exists).
 
 ---
 
@@ -235,6 +243,19 @@ uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 uv run ~/.claude/skills/parsidion/scripts/vault_search.py "sqlite vector search" --top 5
 ```
 
+If you have installed the tools globally (`uv tool install --editable ".[tools]"`), you can also
+use the shorter `vault-search` command:
+
+```bash
+vault-search "sqlite vector search" -n 5
+```
+
+Both commands accept `--vault` / `-V` to target a specific named or path-based vault:
+
+```bash
+vault-search "sqlite vector search" -n 5 --vault my-project-vault
+```
+
 The first run takes roughly 30 seconds (model download + encoding all notes). Subsequent full
 rebuilds are faster because the model is cached locally. Incremental updates are faster still —
 only changed notes are re-encoded.
@@ -252,6 +273,9 @@ A full rebuild encodes every note in the vault and replaces the database:
 
 ```bash
 uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
+
+# Target a specific vault
+uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --vault my-project-vault
 ```
 
 Use a full rebuild after bulk note reorganizations, subfolder moves, or when you want to ensure
@@ -369,6 +393,12 @@ The template sets it to `0.45`; when `config.yaml` is absent the built-in defaul
 The CLI flag overrides it for a single invocation. You can also set it via
 environment variable: `VAULT_SEARCH_MIN_SCORE=0.5 vault-search "query"`.
 
+> **Note:** When temporal decay is enabled (the default), scores are reduced for older notes.
+> A note with raw cosine similarity 0.70 that is 90 days old receives a decayed score of
+> approximately 0.53 (0.70 * 0.75, using the default half-life of 90 days and min factor of 0.5).
+> Adjust `decay_half_life_days` or `decay_min_factor` in config if older notes are being
+> filtered out too aggressively.
+
 > **Tip:** A score above `0.5` indicates strong topical overlap. Use `--min-score 0.5` when
 > you want only high-confidence matches. Use the default `0.45` when exploring a new topic where
 > the vault may have only tangentially related notes.
@@ -427,7 +457,9 @@ falling back to a file walk when the DB is absent.
 
 ### Interactive TUI Mode
 
-Use `--interactive` / `-i` to launch a curses-based real-time search interface:
+Use `--interactive` / `-i` to launch a curses-based real-time search interface (implemented in
+`vault_tui.py`, loaded lazily to avoid pulling in `curses` and `fastembed` for non-interactive
+modes):
 
 ```bash
 vault-search --interactive
@@ -511,8 +543,8 @@ a few seconds for a handful of new notes.
 The automatic rebuild is skipped silently when `embeddings.db` does not yet exist. To create
 the database for the first time, run `build_embeddings.py` manually (see [Quick Start](#quick-start)).
 
-Background rebuild output is redirected to `/tmp/parsidion-embed.log`. Check this file when
-embeddings appear stale after an expected rebuild.
+Background rebuild output is redirected to `~/.claude/logs/parsidion-embed.log`. Check this file
+when embeddings appear stale after an expected rebuild.
 
 **Triggers that indirectly kick off an incremental rebuild:**
 
@@ -526,7 +558,7 @@ embeddings appear stale after an expected rebuild.
 
 ## Configuration Reference
 
-All embeddings settings live under the `embeddings:` section in `~/ClaudeVault/config.yaml`.
+All embeddings settings live under the `embeddings:` section in `<vault>/config.yaml`.
 The `use_embeddings` flag for the session start hook lives under `session_start_hook:`.
 
 ```yaml
@@ -535,6 +567,9 @@ embeddings:
   model: BAAI/bge-small-en-v1.5
   min_score: 0.45
   top_k: 10
+  decay_enabled: true
+  decay_half_life_days: 90
+  decay_min_factor: 0.5
 
 session_start_hook:
   use_embeddings: true
@@ -546,6 +581,9 @@ session_start_hook:
 | `model` | `embeddings` | string | `BAAI/bge-small-en-v1.5` | fastembed model ID for the embedding model |
 | `min_score` | `embeddings` | float | `0.45` | Global minimum cosine similarity threshold; results below this are excluded |
 | `top_k` | `embeddings` | integer | `10` | Default number of results returned per search |
+| `decay_enabled` | `embeddings` | boolean | `true` | Apply temporal decay to semantic search scores so newer notes rank higher |
+| `decay_half_life_days` | `embeddings` | float | `90` | Days for a score to decay halfway to `decay_min_factor`; higher values mean slower decay |
+| `decay_min_factor` | `embeddings` | float | `0.5` | Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing entirely |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
 
 > **Note:** CLI flags override `config.yaml` values for a single invocation without modifying
@@ -558,7 +596,7 @@ session_start_hook:
 
 ### Gitignore
 
-`install.py` automatically adds `embeddings.db` to `~/ClaudeVault/.gitignore` during installation
+`install.py` automatically adds `embeddings.db` to `<vault>/.gitignore` during installation
 via `configure_vault_gitignore()`. This prevents the binary database file from being committed to
 vault git history. The file is reproducible from vault notes at any time by running a full rebuild.
 
@@ -694,5 +732,5 @@ uv run ~/.claude/skills/parsidion/scripts/vault_search.py "query"
 - [ARCHITECTURE.md](ARCHITECTURE.md) — full system architecture including hook lifecycle and vault structure
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) — evaluation harness for benchmarking embedding models and chunking strategies against your vault
 - [CLAUDE.md](../CLAUDE.md) — vault note conventions, frontmatter schema, and subfolder rules
-- `~/ClaudeVault/config.yaml` — live configuration file (copy from `templates/config.yaml` to get started)
+- `<vault>/config.yaml` — live configuration file (copy from `templates/config.yaml` to get started)
 - `~/.claude/skills/parsidion/templates/config.yaml` — reference config with all defaults and comments

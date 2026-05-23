@@ -10,7 +10,7 @@ interactive HTML report.
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Phase 1: Ground Truth Generation](#phase-1-ground-truth-generation)
-  - [How Claude Generates Queries](#how-claude-generates-queries)
+  - [How the AI Backend Generates Queries](#how-the-ai-backend-generates-queries)
   - [Ground Truth File Format](#ground-truth-file-format)
   - [Reusing Cached Queries](#reusing-cached-queries)
 - [Phase 2: Evaluation Matrix](#phase-2-evaluation-matrix)
@@ -52,16 +52,28 @@ note for a given query against this specific vault?**
 
 **Key capabilities:**
 
-- Two-phase pipeline: ground truth generation via Claude, then offline evaluation matrix
-- Ground-truth queries are saved to YAML and reused across runs — Claude is called only once
+- Two-phase pipeline: ground truth generation via the configured prompt AI backend (Claude CLI or
+  Codex CLI), then offline evaluation matrix
+- Ground-truth queries are saved to YAML and reused across runs — the AI backend is called only once
 - Parallel evaluation: one thread per model, all chunking strategies serially per thread
 - In-memory sqlite-vec index per combo — no persistent database required during evaluation
 - Rich terminal table for quick comparison; JSON + HTML for sharing and archiving
 
 **Script location:** `~/.claude/skills/parsidion/scripts/embed_eval.py`
 
-> **📝 Note:** `embed_eval.py` is a PEP 723 script with inline dependency declarations. Always
-> invoke it with `uv run` so dependencies are installed automatically into an isolated environment.
+The harness is split across four modules:
+
+| Module | Purpose |
+|---|---|
+| `embed_eval.py` | CLI entry point and orchestrator |
+| `embed_eval_common.py` | Shared types (`EvalItem`, `ComboResult`), constants, chunking utilities |
+| `embed_eval_generate.py` | Phase 1 — ground-truth query generation via the prompt AI backend |
+| `embed_eval_run.py` | Phase 2 — embedding + search evaluation against in-memory sqlite-vec |
+| `embed_eval_report.py` | Phase 3 — Rich terminal table, JSON output, HTML report with charts |
+
+> **📝 Note:** `embed_eval.py` and its sub-scripts are PEP 723 scripts with inline dependency
+> declarations. Always invoke with `uv run` so dependencies are installed automatically into an
+> isolated environment.
 
 ---
 
@@ -72,7 +84,7 @@ flowchart TD
     subgraph Phase1["Phase 1 — Ground Truth Generation"]
         VN[Vault Notes]
         SAMPLE[Sample N notes\nexcluding Daily]
-        CLAUDE[claude -p\nK queries per note]
+        CLAUDE[prompt AI backend\nK queries per note]
         YAML[(embed_eval_queries.yaml)]
 
         VN --> SAMPLE
@@ -143,9 +155,10 @@ flowchart TD
 
 **Data flow summary:**
 
-1. Phase 1 samples vault notes, calls `claude -p` once per note to generate varied natural-language
-   queries, and saves the result to `embed_eval_queries.yaml`. This file is reusable: subsequent
-   runs skip Phase 1 entirely unless `--generate` is passed.
+1. Phase 1 samples vault notes, calls the configured prompt AI backend (Claude CLI or Codex CLI)
+   once per note to generate varied natural-language queries, and saves the result to
+   `embed_eval_queries.yaml`. This file is reusable: subsequent runs skip Phase 1 entirely unless
+   `--generate` is passed.
 2. Phase 2 loads the YAML, spins up one thread per model via `ThreadPoolExecutor`, and runs all
    chunking strategies serially within each thread. Each (model, chunking) combination builds an
    in-memory sqlite-vec index, runs all ground-truth queries against it, and records retrieval
@@ -159,13 +172,13 @@ flowchart TD
 # Full pipeline: generate queries then evaluate (default settings, ~10-15 min)
 uv run ~/.claude/skills/parsidion/scripts/embed_eval.py
 
-# Re-run evaluation with cached queries (fast, no Claude API calls)
+# Re-run evaluation with cached queries (fast, no AI backend calls)
 uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval
 ```
 
 The first run:
 1. Samples 100 vault notes (excluding Daily notes)
-2. Calls `claude -p` once per note to generate 3 queries — approximately 5 minutes
+2. Calls the prompt AI backend once per note to generate 3 queries — approximately 5 minutes
 3. Saves queries to `~/ClaudeVault/embed_eval_queries.yaml`
 4. Runs the evaluation matrix across 3 models × 3 chunking strategies (9 combos) — approximately
    18 minutes with default settings (`--workers 1`, `--max-index-notes 200`). Omit `paragraph`
@@ -181,10 +194,11 @@ Results appear in the terminal as a Rich table and are saved as timestamped JSON
 
 ## Phase 1: Ground Truth Generation
 
-### How Claude Generates Queries
+### How the AI Backend Generates Queries
 
-For each sampled vault note, the harness calls `claude -p` with the note's title, tags, and body.
-Claude returns K natural-language search queries (default 3) that cover a range of specificity:
+For each sampled vault note, the harness calls the configured prompt AI backend (via
+`ai_backend.run_ai_prompt` with `model_tier="small"`) with the note's title, tags, and body.
+The backend returns K natural-language search queries (default 3) that cover a range of specificity:
 
 - **Broad queries** — describe the general topic without using exact terms from the note title
   (e.g., "how to handle database connection timeouts")
@@ -198,9 +212,9 @@ matches rather than capturing meaning.
 Daily notes are excluded from sampling because they record session activity rather than
 distilled knowledge, making them poor ground-truth candidates.
 
-> **⚠️ Warning:** Ground truth generation makes one Claude API call per note. For 100 notes at 3
-> queries each, expect approximately 300 API calls. Run with `--eval` on subsequent runs to avoid
-> repeated charges.
+> **⚠️ Warning:** Ground truth generation makes one AI backend call per note. For 100 notes at 3
+> queries each, expect approximately 100 backend calls. Run with `--eval` on subsequent runs to
+> avoid repeated charges.
 
 ### Ground Truth File Format
 
@@ -227,7 +241,7 @@ Each entry contains:
 |---|---|
 | `stem` | Filename without extension — used as the canonical note identifier during eval |
 | `path` | Absolute path to the note at generation time |
-| `queries` | List of natural-language search queries generated by Claude |
+| `queries` | List of natural-language search queries generated by the AI backend |
 
 ### Reusing Cached Queries
 
@@ -235,7 +249,7 @@ The YAML file persists across runs. When you invoke `embed_eval.py` without `--g
 is skipped and the existing file is loaded directly. This lets you:
 
 - Re-run the evaluation matrix with different models or chunking strategies without paying for
-  Claude API calls again
+  AI backend calls again
 - Share the query file with collaborators so they evaluate against the same ground truth
 - Version-control the query file to track how vault retrieval quality evolves over time
 
@@ -461,6 +475,9 @@ and a results array:
 | `metadata.top_k` | Recall@K cutoff used |
 | `metadata.workers` | Number of parallel worker threads used |
 | `results` | Array of per-combo metric objects |
+| `results[].index_time_s` | Wall-clock seconds to encode all notes/chunks for this combo |
+| `results[].query_time_s` | Wall-clock seconds to run all queries against the index |
+| `results[].queries_per_sec` | `total_queries / query_time_s` — retrieval throughput |
 | `results[].recall_at_{top_k}` | Dynamic key matching the `--top-k` value (e.g., `recall_at_5`) |
 
 Use `--output` to override the auto-timestamped default path:
@@ -490,7 +507,8 @@ to render the charts.
   - Index time bar chart (all combos)
   - Quality vs Speed scatter plot (MRR on Y-axis, Q/s on X-axis) — lets you identify the
     Pareto-optimal combo for your use case
-- **Full results table** — all metrics for every combo, pre-sorted by MRR descending
+- **Full results table** — all metrics for every combo, pre-sorted by MRR descending.
+  Columns: Rank, Model, Chunking, R@1, R@5, R@K, MRR, Idx Time, Q/s, Chunks, Queries
 
 ---
 
@@ -501,7 +519,7 @@ to render the charts.
 | `--generate` | off | Force regenerate ground truth even if the queries file already exists |
 | `--eval` | off | Run evaluation only — skip ground truth generation |
 | `--notes N` | `100` | Number of vault notes to sample for ground truth |
-| `--queries-per-note K` | `3` | Number of queries Claude generates per note |
+| `--queries-per-note K` | `3` | Number of queries the AI backend generates per note |
 | `--queries-file FILE` | `~/ClaudeVault/embed_eval_queries.yaml` | Path to read/write the YAML ground-truth file |
 | `--models M1,M2,...` | three defaults | Comma-separated list of fastembed model IDs to evaluate |
 | `--chunking C1,C2,...` | `whole,paragraph,sliding_512_128` | Comma-separated chunking strategies |
@@ -535,7 +553,7 @@ With the default `--max-index-notes 200` and `--workers 1`:
 
 | Phase | Approximate duration | Notes |
 |---|---|---|
-| Ground truth generation | ~3 s per note | Dominated by Claude API call latency; 100 notes ≈ 5 min |
+| Ground truth generation | ~3 s per note | Dominated by prompt AI backend call latency; 100 notes ≈ 5 min |
 | bge-small + whole | ~6 s | 200 notes × 384-dim |
 | bge-small + sliding_512_128 | ~48 s | 3654 chunks × 384-dim |
 | bge-small + paragraph | ~2.5 min | 7302 chunks × 384-dim |
@@ -680,7 +698,8 @@ If paragraph chunking consistently outperforms whole-note across your vault, con
 
 **Symptom:** Phase 1 takes much longer than 3 seconds per note, or appears to stall.
 
-**Cause:** The `claude -p` subprocess is waiting for a slow API response or hitting rate limits.
+**Cause:** The prompt AI backend subprocess (Claude CLI or Codex CLI) is waiting for a slow API
+response or hitting rate limits.
 
 **Fix:**
 
@@ -742,8 +761,8 @@ embeddings because there is little semantic content to encode.
 
 **Symptom:** Two runs with `--eval` and identical flags produce slightly different metric values.
 
-**Cause:** If `--seed` was not set, note sampling is non-deterministic. Notes added or modified
-between runs also shift the index.
+**Cause:** Notes added or modified between runs shift the index composition, even with the same
+seed. If `--seed` was explicitly changed between runs, note sampling will also differ.
 
 **Fix:** Always set `--seed` for reproducible comparisons:
 
