@@ -387,7 +387,7 @@ def find_prefix_clusters(
             continue
         if parts[0] == "Daily":
             continue
-        if parts[1] in ("MANIFEST.md", "CLAUDE.md"):
+        if parts[1] in ("MANIFEST.md", "CLAUDE.md", "TAGS.md"):
             continue
         by_folder.setdefault(note.parent, []).append(note)
 
@@ -622,7 +622,7 @@ def find_subfolder_candidates(
             continue
         if folder_name == "Daily":
             continue
-        if parts[1] in ("MANIFEST.md", "CLAUDE.md"):
+        if parts[1] in ("MANIFEST.md", "CLAUDE.md", "TAGS.md"):
             continue
         by_folder.setdefault(note.parent, []).append(note)
 

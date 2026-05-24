@@ -315,10 +315,11 @@ def read_project_names(vault_notes: list[Path] | None = None) -> set[str]:
 
 
 def read_existing_tags(vault: Path) -> list[str]:
-    """Read existing tags from the vault index CLAUDE.md.
+    """Read existing tags from the vault TAGS.md file.
 
     Parses the '## Existing Tags' section which contains a comma-separated
-    list of all tags currently in the vault.
+    list of all tags currently in the vault. Falls back to CLAUDE.md for
+    backwards compatibility with older vaults.
 
     Args:
         vault: Path to the vault directory.
@@ -326,18 +327,18 @@ def read_existing_tags(vault: Path) -> list[str]:
     Returns:
         Sorted list of existing tag strings, or empty list if unavailable.
     """
-    index_path = vault / "CLAUDE.md"
-    if not index_path.exists():
-        return []
-    try:
-        content = index_path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    match = re.search(r"^## Existing Tags\n(.+)$", content, re.MULTILINE)
-    if not match:
-        return []
-    tags_line = match.group(1).strip()
-    return [t.strip() for t in tags_line.split(",") if t.strip()]
+    for path in (vault / "TAGS.md", vault / "CLAUDE.md"):
+        if not path.exists():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = re.search(r"^## Existing Tags\n(.+)$", content, re.MULTILINE)
+        if match:
+            tags_line = match.group(1).strip()
+            return [t.strip() for t in tags_line.split(",") if t.strip()]
+    return []
 
 
 def build_prompt(

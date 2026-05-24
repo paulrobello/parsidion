@@ -74,7 +74,8 @@ Saving after a successful solve is as important as searching before. Every unsav
 
 ```
 ~/ParsidionVault/        # Or legacy ~/ClaudeVault/ when upgrading
-├── CLAUDE.md            # Auto-generated index (rebuilt by update_index.py)
+├── CLAUDE.md            # Auto-generated lean index (stats, conventions, recent activity, folder pointers)
+├── TAGS.md              # Auto-generated full tag cloud + tag list (for summarizer tag reuse)
 ├── config.yaml          # Optional — hook/summarizer settings (see Configuration)
 ├── Daily/               # Session summaries (Daily/YYYY-MM/DD.md)
 ├── Projects/            # Per-project context and decisions
@@ -222,7 +223,8 @@ uv run ~/.claude/skills/parsidion/scripts/update_index.py
 ```
 
 This scans all vault folders, reads frontmatter, and produces:
-- A structured root `CLAUDE.md` index with tag cloud, recent activity, and per-folder listings
+- A lean root `CLAUDE.md` index with quick stats, conventions, recent activity, top-20 tags, and folder counts with MANIFEST pointers
+- A `TAGS.md` file with the full tag cloud and machine-readable tag list (used by the summarizer to avoid duplicating tags)
 - **Per-folder `MANIFEST.md` files** — table-format indexes (Note | Tags | Summary) written inside each subfolder for quick orientation without loading the full root index
 - **Staleness markers** — notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in the index (surfaced for review, never auto-deleted)
 

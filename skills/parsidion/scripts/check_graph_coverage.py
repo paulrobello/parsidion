@@ -54,51 +54,52 @@ def load_graph_tags() -> dict[str, list[str]]:
 
 
 def load_vault_tag_counts() -> dict[str, int]:
-    """Parse tag counts from the ## Tag Cloud section of CLAUDE.md.
+    """Parse tag counts from the ## Tag Cloud section of TAGS.md.
+
+    Falls back to CLAUDE.md for older vaults.
 
     Returns:
         Dict mapping tag name to usage count.
     """
-    if not CLAUDE_MD.is_file():
-        print(
-            f"Error: {CLAUDE_MD} not found. Run update_index.py first.", file=sys.stderr
-        )
-        sys.exit(1)
+    tags_path = CLAUDE_MD.parent / "TAGS.md"
+    for path in (tags_path, CLAUDE_MD):
+        if not path.is_file():
+            continue
+        content = path.read_text(encoding="utf-8")
+        tag_cloud_match = re.search(r"## Tag Cloud\n(.*?)\n", content, re.DOTALL)
+        if tag_cloud_match:
+            tag_cloud_line = tag_cloud_match.group(1)
+            counts: dict[str, int] = {}
+            for tag, count_str in _TAG_CLOUD_RE.findall(tag_cloud_line):
+                counts[tag] = int(count_str)
+            return counts
 
-    content = CLAUDE_MD.read_text(encoding="utf-8")
-
-    # Find the Tag Cloud section
-    tag_cloud_match = re.search(r"## Tag Cloud\n(.*?)\n", content, re.DOTALL)
-    if not tag_cloud_match:
-        print("Error: '## Tag Cloud' section not found in CLAUDE.md", file=sys.stderr)
-        sys.exit(1)
-
-    tag_cloud_line = tag_cloud_match.group(1)
-    counts: dict[str, int] = {}
-    for tag, count_str in _TAG_CLOUD_RE.findall(tag_cloud_line):
-        counts[tag] = int(count_str)
-
-    return counts
+    print(
+        "Error: '## Tag Cloud' section not found in TAGS.md or CLAUDE.md. "
+        "Run update_index.py first.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def load_vault_tags() -> set[str]:
-    """Parse the ## Existing Tags section of CLAUDE.md for the authoritative tag list.
+    """Parse the ## Existing Tags section of TAGS.md for the authoritative tag list.
+
+    Falls back to CLAUDE.md for older vaults.
 
     Returns:
         Set of all tag names present in the vault.
     """
-    if not CLAUDE_MD.is_file():
-        return set()
-
-    content = CLAUDE_MD.read_text(encoding="utf-8")
-
-    # Find the Existing Tags section (single line, comma-separated)
-    match = re.search(r"## Existing Tags\n(.*?)(?:\n\n|\n##|$)", content, re.DOTALL)
-    if not match:
-        return set()
-
-    line = match.group(1).strip()
-    return {tag.strip() for tag in line.split(",") if tag.strip()}
+    tags_path = CLAUDE_MD.parent / "TAGS.md"
+    for path in (tags_path, CLAUDE_MD):
+        if not path.is_file():
+            continue
+        content = path.read_text(encoding="utf-8")
+        match = re.search(r"## Existing Tags\n(.*?)(?:\n\n|\n##|$)", content, re.DOTALL)
+        if match:
+            line = match.group(1).strip()
+            return {tag.strip() for tag in line.split(",") if tag.strip()}
+    return set()
 
 
 def main() -> None:

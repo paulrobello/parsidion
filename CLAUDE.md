@@ -139,7 +139,7 @@ stage and commit changes after every vault write:
 
 - `session_stop_wrapper.sh` / `session_stop_hook.py` — commits daily note + pending queue after each session end
 - `pre_compact_hook.py` — commits daily note after each pre-compact snapshot
-- `update_index.py` — commits `CLAUDE.md` + per-folder `MANIFEST.md` files after each index rebuild
+- `update_index.py` — commits `CLAUDE.md` + `TAGS.md` + per-folder `MANIFEST.md` files after each index rebuild
 - `summarize_sessions.py` — commits new notes + updated index after processing
 
 If no `.git` directory is present, all `git_commit_vault()` calls are silent no-ops.
@@ -286,7 +286,7 @@ The system has ten components:
 
 9. **`vault_merge.py`** — AI-assisted note merging tool (`vault-merge` global command). Detects near-duplicate notes, merges their content via Claude haiku, and updates all bidirectional backlinks.
 
-10. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated `CLAUDE.md` index at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `Templates/` (symlink to skill templates). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
+10. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
 
 ## Vault Note Conventions
 

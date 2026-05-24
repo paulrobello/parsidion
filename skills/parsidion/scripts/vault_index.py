@@ -394,7 +394,7 @@ def query_note_index(
 
 
 def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
-    """Walk the vault tree and return all .md files, excluding EXCLUDE_DIRS and CLAUDE.md.
+    """Walk the vault tree and return all .md files, excluding EXCLUDE_DIRS, CLAUDE.md, TAGS.md, and MANIFEST.md.
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
@@ -411,7 +411,9 @@ def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
         for fname in filenames:
             if not fname.endswith(".md"):
                 continue
-            if fname == "CLAUDE.md" and Path(dirpath) == vault:
+            if Path(dirpath) == vault and fname in ("CLAUDE.md", "TAGS.md"):
+                continue
+            if fname == "MANIFEST.md":
                 continue
             notes.append(Path(dirpath) / fname)
 
@@ -537,7 +539,7 @@ def read_note_summary(path: Path, max_lines: int = 5) -> str:
 
 
 def all_vault_notes(vault: Path | None = None) -> list[Path]:
-    """Return all ``.md`` files in the vault, excluding ``EXCLUDE_DIRS`` and ``CLAUDE.md``.
+    """Return all ``.md`` files in the vault, excluding ``EXCLUDE_DIRS``, ``CLAUDE.md``, ``TAGS.md``, and ``MANIFEST.md``.
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().

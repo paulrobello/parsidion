@@ -325,7 +325,8 @@ vault_context(recent_days=5, verbose=True)
 
 Rebuilds the vault index by running `update_index.py` as a subprocess. This regenerates:
 
-- `~/ClaudeVault/CLAUDE.md` — the root index
+- `~/ClaudeVault/CLAUDE.md` — the lean root index (stats, conventions, recent activity, folder pointers)
+- `~/ClaudeVault/TAGS.md` — full tag cloud and tag list (for summarizer tag reuse)
 - Per-folder `MANIFEST.md` files
 - The `note_index` table in `embeddings.db`
 
@@ -343,7 +344,7 @@ Combined stdout and stderr from `update_index.py` on success. Raises `OpsToolErr
 
 ```python
 rebuild_index()
-# Returns something like: "Indexed 142 notes. CLAUDE.md written."
+# Returns something like: "Updated CLAUDE.md: 142 notes indexed, 53 tags; TAGS.md written; 9 MANIFEST.md file(s) generated"
 ```
 
 ---

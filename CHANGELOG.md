@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-05-24
+
 ### Changed
 
+- **Lean vault index** — `CLAUDE.md` reduced from ~5,400 lines to ~60 lines. The per-folder note index is now only in `MANIFEST.md` files, and the full tag cloud lives in a separate `TAGS.md`. This dramatically reduces token usage for the vault-explorer agent (which uses smaller models).
+- **`TAGS.md` for summarizer tag reuse** — The full tag cloud and machine-readable tag list are written to `TAGS.md` instead of `CLAUDE.md`. The summarizer reads `TAGS.md` first, falling back to `CLAUDE.md` for older vaults.
 - **SessionEnd hook now runs async** — Claude Code exits immediately instead of waiting for the session stop hook to complete. The wrapper script's `nohup` detachment already ensured the Python hook keeps running after exit; `async: true` simply tells Claude Code not to block on it.
 - **Installer detects hook option changes** — Previously, if a hook was already registered but its options (e.g. `async`) needed updating, the installer silently skipped it. Now it patches existing hook entries in-place when options differ from `_HOOK_OPTIONS`.
 

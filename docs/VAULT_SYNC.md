@@ -102,7 +102,8 @@ database so semantic search works immediately.
 |-------------|-------|--------|
 | `*.md` notes (all folders) | Yes | Source of truth — markdown is merge-friendly |
 | `config.yaml` | Yes | Shared settings across machines (uses `~` paths) |
-| `CLAUDE.md` (vault root) | Yes | Auto-generated index — rebuilt by `update_index.py` |
+| `CLAUDE.md` (vault root) | Yes | Auto-generated lean index — rebuilt by `update_index.py` |
+| `TAGS.md` (vault root) | Yes | Auto-generated full tag cloud — rebuilt by `update_index.py` |
 | `**/MANIFEST.md` | Yes | Per-folder indexes — rebuilt by `update_index.py` |
 | `embeddings.db` | **No** | Binary SQLite — must be rebuilt locally |
 | `pending_summaries.jsonl` | **No** | Machine-local session queue, uses `fcntl.flock` |
@@ -148,7 +149,7 @@ graph LR
 **What the hook does:**
 
 1. `update_index.py` — rebuilds the `note_index` table in `embeddings.db` and
-   regenerates the root `CLAUDE.md` index and per-folder `MANIFEST.md` files
+   regenerates the root `CLAUDE.md` index, `TAGS.md`, and per-folder `MANIFEST.md` files
 2. `build_embeddings.py --incremental` — re-embeds only notes whose `mtime`
    changed, updating the `note_embeddings` table for semantic search
 

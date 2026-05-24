@@ -48,7 +48,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with a ma
 - Automated bidirectional backlinks injected after each new note write
 - Working state snapshots before context compaction; snapshot restored automatically after compaction via PostCompact hook
 - A dedicated research agent that saves findings to the vault
-- Auto-generated root index (`CLAUDE.md`) with tag cloud, staleness markers, and per-folder `MANIFEST.md` files
+- Auto-generated lean root index (`CLAUDE.md`) with quick stats, conventions, recent activity, and folder pointers; full tag cloud in `TAGS.md`; detailed per-folder `MANIFEST.md` files
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
 - Obsidian graph view with domain-based color grouping
 
@@ -549,7 +549,7 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
 **Workflow (7 steps):**
 1. **Semantic search** — runs `vault_search.py` with the full query; if 3+ results with score ≥ 0.35, skips to step 6
 2. **Metadata search** — infers filters from the query (`--folder`, `--type`, `--tag`, `--project`, `--recent-days`) and runs `vault-search` with those flags; if 3+ results, skips to step 6; gracefully handles absent DB
-3. **Orient** — reads `~/ParsidionVault/CLAUDE.md` to understand available content and folder structure
+3. **Orient** — reads `~/ParsidionVault/CLAUDE.md` for stats and folder pointers, then reads specific `MANIFEST.md` files for detailed note listings
 4. **Extract signals** — identifies key search terms (exception class, package name, feature keyword)
 5. **Search by priority folder** — Grep search across folders in priority order by query type:
 
@@ -685,11 +685,12 @@ The shared utility library used by all hook scripts and the index generator. Use
 
 **Location:** `skills/parsidion/scripts/update_index.py`
 
-Rebuilds `~/ParsidionVault/CLAUDE.md` by scanning all vault notes. Includes a PID singleton guard (`~/ParsidionVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
+Rebuilds `~/ParsidionVault/CLAUDE.md` and `TAGS.md` by scanning all vault notes. Includes a PID singleton guard (`~/ParsidionVault/index.pid`) that exits immediately if another instance is already running, preventing concurrent index rebuilds.
 
 **Output:**
-- Root `CLAUDE.md` with sections: **Quick Stats** (note count, last updated, vault health, stale count), **Tag Cloud** (frequency-sorted), **Recent Activity** (last 7 days, max 20), **Folders** (per-folder listings with wikilinks and summaries)
-- **Staleness markers:** notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in folder listings and the Quick Stats stale count. Notes are never auto-deleted — only surfaced for review.
+- Lean root `CLAUDE.md` with sections: **Quick Stats** (note count, last updated, vault health, stale count), **Top Tags** (top 20), **Recent Activity** (last 7 days, max 20), **Folders** (counts with MANIFEST pointers)
+- `TAGS.md` with full tag cloud (frequency-sorted) and machine-readable tag list (used by the summarizer to avoid duplicating tags)
+- **Staleness markers:** notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in MANIFEST listings and the Quick Stats stale count. Notes are never auto-deleted — only surfaced for review.
 - **Per-folder `MANIFEST.md` files:** a table-format index (Note | Tags | Summary) written inside each subfolder after every rebuild, allowing quick orientation within a domain without loading the full root index. Stale notes are marked with ⚠️.
 - **`note_index` DB upsert:** after writing `CLAUDE.md`, calls `_write_note_index_to_db()` to upsert all note metadata rows into `embeddings.db` and prune rows for deleted notes. No-op when `embeddings.db` does not yet exist; all DB errors are silently swallowed so a database failure never aborts the indexer.
 
@@ -1148,7 +1149,7 @@ sequenceDiagram
     WS-->>RA: Source content
     RA->>V: Always save vault note with frontmatter
     RA->>IDX: Rebuild vault index
-    IDX->>V: Write updated CLAUDE.md
+    IDX->>V: Write updated CLAUDE.md + TAGS.md
     Note over RA: If project doc requested,<br/>also save there (no frontmatter)
     RA-->>CC: Summary report
 ```
@@ -1176,7 +1177,7 @@ sequenceDiagram
     PE->>V: Write Projects/{slug}-overview.md
     PE->>V: Write Patterns/{feature-slug}.md (min 3)
     PE->>IDX: Rebuild vault index
-    IDX->>V: Write updated CLAUDE.md + MANIFEST.md files
+    IDX->>V: Write updated CLAUDE.md + TAGS.md + TAGS.md + MANIFEST.md files
     PE-->>CC: Summary report (notes created, skipped features)
 ```
 
@@ -1317,7 +1318,8 @@ parsidion/
 ├── .obsidian/
 │   └── graph.json                   # Graph view color config
 ├── config.yaml                      # User config (copied from templates/config.yaml)
-├── CLAUDE.md                        # Auto-generated root index (rebuilt by update_index.py)
+├── CLAUDE.md                        # Auto-generated lean index (stats, conventions, recent activity, folder pointers)
+├── TAGS.md                          # Auto-generated full tag cloud + tag list (for summarizer tag reuse)
 ├── embeddings.db                    # SQLite: note_embeddings (vectors) + note_index (metadata)
 ├── Daily/
 │   ├── MANIFEST.md                  # Auto-generated folder index (rebuilt by update_index.py)
