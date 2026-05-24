@@ -14,16 +14,16 @@
     "diff": "^9.0.0",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
-    "next": "16.2.4",
-    "react": "19.2.5",
-    "react-dom": "19.2.5",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "sigma": "^3.0.2",
-    "ws": "^8.20.0"
+    "sigma": "^3.0.3",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@eslint/compat": "^2.0.5",
+    "@eslint/compat": "^2.1.0",
     "@tailwindcss/postcss": "^4",
     "@types/diff": "^8.0.0",
     "@types/node": "^25",
@@ -31,9 +31,9 @@
     "@types/react-dom": "^19",
     "@types/ws": "^8.18.1",
     "eslint": "^10",
-    "eslint-config-next": "16.2.4",
+    "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.3",
     "typescript": "^6"
   },
   "ignoreScripts": [
