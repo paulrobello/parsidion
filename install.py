@@ -123,6 +123,7 @@ _HOOK_SCRIPTS: dict[str, str] = {
 # Keys match event names in _HOOK_SCRIPTS.
 _HOOK_OPTIONS: dict[str, dict] = {
     "SubagentStop": {"async": True},
+    "SessionEnd": {"async": True},
 }
 
 _CODEX_HOOK_SCRIPTS: dict[str, str] = {
@@ -1421,6 +1422,13 @@ def _is_legacy_managed_hook_command(command: str, claude_dir: Path, event: str) 
 
 def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
     """Return True if any entry in hooks_list already has this command."""
+    return _find_hook_handler(hooks_list, command) is not None
+
+
+def _find_hook_handler(
+    hooks_list: list[dict], command: str
+) -> dict | None:
+    """Return the hook handler dict matching *command*, or None."""
     for entry in hooks_list:
         if not isinstance(entry, dict):
             continue
@@ -1429,8 +1437,8 @@ def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
             continue
         for hook in hooks:
             if isinstance(hook, dict) and hook.get("command", "") == command:
-                return True
-    return False
+                return hook
+    return None
 
 
 def _filter_hook_entries(
@@ -1583,14 +1591,30 @@ def merge_hooks(
     for event, _script_name in _HOOK_SCRIPTS.items():
         command = _hook_command(claude_dir, event)
         event_hooks: list[dict] = hooks_section.setdefault(event, [])
+        desired_options = _HOOK_OPTIONS.get(event, {})
 
-        if _hook_already_registered(event_hooks, command):
-            _print(
-                dim(f"  Hook {event} already registered"),
-                verbose_only=True,
-                verbose=verbose,
+        # Check if hook exists and whether its options need updating
+        existing_handler = _find_hook_handler(event_hooks, command)
+        if existing_handler is not None:
+            needs_update = any(
+                existing_handler.get(k) != v for k, v in desired_options.items()
             )
-            skipped.append(event)
+            if not needs_update:
+                _print(
+                    dim(f"  Hook {event} already registered"),
+                    verbose_only=True,
+                    verbose=verbose,
+                )
+                skipped.append(event)
+                continue
+            # Patch the existing handler's options in place
+            _step(
+                f"Update hook {bold(event)} options: {dim(', '.join(f'{k}={v}' for k, v in desired_options.items()))}",
+                dry_run=dry_run,
+            )
+            if not dry_run:
+                existing_handler.update(desired_options)
+            added.append(event)
             continue
 
         hook_handler: dict = {
@@ -1598,8 +1622,7 @@ def merge_hooks(
             "command": command,
             "timeout": 10000,
         }
-        # Apply per-event options (e.g. async: true for SubagentStop)
-        hook_handler.update(_HOOK_OPTIONS.get(event, {}))
+        hook_handler.update(desired_options)
 
         new_entry: dict = {
             "matcher": "",
