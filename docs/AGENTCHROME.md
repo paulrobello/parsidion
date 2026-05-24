@@ -43,11 +43,16 @@ graph LR
     AC --> H2M
     H2M --> Vault
 
-    style Agent fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style MD fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style AC fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
-    style H2M fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style Vault fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    class Agent external
+    class MD primary
+    class AC primary
+    class H2M data
+    class Vault active
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
 ```
 
 Without AgentChrome, the research agent falls back to `curl` or the built-in Claude Code Web Fetch tool, piping the raw HTML through `html-to-md.py` — which works but skips JavaScript rendering. AgentChrome returns the fully rendered DOM after JavaScript execution, which is essential for single-page applications and documentation sites that rely on client-side rendering.
@@ -101,12 +106,19 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 |---------|-------------|
 | **Page text extraction** | Extracts visible text from the rendered page (`page text`) |
 | **DOM HTML extraction** | Retrieves outer HTML of any element after JavaScript execution (`dom get-html`) |
-| **HTML to Markdown conversion** | Convert browser pages, files, stdin, or URLs to clean Markdown (`markdown`) |
+| **HTML to Markdown conversion** | Convert browser pages, files, stdin, or URLs to clean Markdown with optional link stripping and image handling (`markdown`) |
 | **Accessibility tree snapshots** | Returns stable UIDs for reliable element targeting (`page snapshot`) |
 | **Element queries** | Find elements by text, CSS selector, or accessibility role (`page find`) |
+| **Element state inspection** | Query a single element's role, name, bounding box, and visibility by UID or CSS selector (`page element`) |
+| **Page wait conditions** | Wait for URL match, text appearance, selector match, network idle, or JS expression (`page wait`) |
+| **Frame inspection** | List all frames including iframes with index, URL, origin, and nesting depth (`page frames`) |
+| **Worker listing** | List service, shared, and dedicated workers associated with the page (`page workers`) |
+| **Hit testing** | Hit test at viewport coordinates to identify click targets and overlays (`page hittest`) |
+| **Page structure analysis** | Analyze page structure: iframes, frameworks, overlays, media, shadow DOM (`page analyze`) |
+| **Coordinate resolution** | Resolve a selector to frame-local and page-global coordinates (`page coords`) |
 | **Screenshot capture** | Full-page, viewport, or element PNG/JPEG/WebP screenshots (`page screenshot`) |
 | **Form automation** | Fill, clear, upload files, and submit form fields by UID or CSS selector (`form fill/fill-many/clear/upload/submit`) |
-| **User interaction** | Click, hover, type, press keys, scroll, and drag-and-drop by UID or CSS selector (`interact click/hover/type/key/scroll/drag`) |
+| **User interaction** | Click, hover, type, press keys, scroll, and drag-and-drop by UID or CSS selector (`interact click/click-at/hover/type/key/scroll/drag/drag-at`) |
 | **JavaScript execution** | Run arbitrary JS in the page context (`js exec`) |
 | **Console monitoring** | Read or stream browser console messages (`console read/follow`) |
 | **Network monitoring** | Inspect and stream requests and responses (`network list/get/follow`) |
@@ -253,12 +265,33 @@ agentchrome page find --selector "button.submit"
 # Resize the viewport
 agentchrome page resize 1280x720
 
+# Query a single element's state by UID or CSS selector
+agentchrome page element s3
+agentchrome page element "css:#submit-btn"
+
+# Wait for a condition on the page
+agentchrome page wait --url "*/login*"
+agentchrome page wait --text "Welcome"
+agentchrome page wait --selector ".loaded"
+
+# List all frames (including iframes)
+agentchrome page frames
+
+# List workers (service, shared, dedicated)
+agentchrome page workers
+
 # Interact with an element (requires UID from page snapshot)
 agentchrome interact click s5
 agentchrome interact type "hello world"
 agentchrome interact key Enter
 agentchrome interact hover s5
 agentchrome interact scroll --amount 500
+
+# Drag and drop elements by UID or CSS selector
+agentchrome interact drag s5 s10
+
+# Click at specific viewport coordinates
+agentchrome interact click-at 100,200
 
 # Fill a form field
 agentchrome form fill s5 "hello@example.com"

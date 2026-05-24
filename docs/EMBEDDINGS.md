@@ -94,7 +94,8 @@ graph TB
 
     subgraph "Search Layer"
         VS[vault_search.py\nSemantic + metadata search]
-        VC[vault_common.py\nquery_note_index]
+        VI[vault_index.py\nquery_note_index]
+        VC[vault_common.py\nRe-export facade]
     end
 
     subgraph "Consumers"
@@ -111,27 +112,31 @@ graph TB
     BE --> DB
     IDX --> DB
     DB --> VS
-    DB --> VC
+    DB --> VI
+    VI --> VC
     VS --> SSH
     VS --> SUM
     VS --> VE
     VC --> SSH
     VS --> CLI
 
-    style BE fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style IDX fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
-    style VS fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style VC fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style DB fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style MODEL fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style SSH fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style SUM fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style VE fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style CLI fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style N1 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style N2 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style N3 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style N4 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    class BE primary
+    class IDX primary
+    class VS primary
+    class VI data
+    class VC data
+    class DB database
+    class MODEL neutral
+    class SSH,SUM active
+    class VE,CLI external
+    class N1,N2,N3,N4 neutral
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
 ```
 
 **Data flow:**
@@ -139,10 +144,10 @@ graph TB
 1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
 3. `vault_search.py` loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. When `decay_enabled` is `true` (the default), raw cosine scores are multiplied by an exponential decay factor based on note age, so newer notes rank higher. It also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model.
-4. `vault_common.query_note_index()` runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking.
+4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking.
 5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
-The `vault_common.py` module exposes `get_embeddings_db_path(vault=...)` so every script resolves
+The `vault_common.py` re-export facade (backed by `vault_path.py`) exposes `get_embeddings_db_path(vault=...)` so every script resolves
 the database path consistently without hardcoding it. The optional `vault` parameter supports
 multi-vault setups; when omitted, it falls back to `resolve_vault()` which checks the `--vault`
 flag, project-local `.claude/vault` file, `CLAUDE_VAULT` environment variable, and finally the

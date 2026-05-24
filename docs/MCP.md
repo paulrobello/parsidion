@@ -88,21 +88,19 @@ graph TD
     MCP --- T5
     MCP --- T6
 
-    style Desktop fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style MCP fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style VaultSearch fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style VaultCommon fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style ScriptsDir fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style UpdateIndex fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style VaultDoctor fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style EmbeddingsDB fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style VaultRoot fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style T1 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style T2 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style T3 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style T4 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style T5 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style T6 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    class Desktop external
+    class MCP primary
+    class VaultSearch,VaultCommon data
+    class ScriptsDir,T1,T2,T3,T4,T5,T6 neutral
+    class UpdateIndex,VaultDoctor active
+    class EmbeddingsDB,VaultRoot database
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
 ```
 
 The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.

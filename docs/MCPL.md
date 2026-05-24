@@ -72,12 +72,17 @@ graph TD
     Daemon -->|HTTP| S2
     Daemon -->|OAuth 2.1| S3
 
-    style Agent fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style MCPL fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Daemon fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style S1 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style S2 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style S3 fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    class Agent external
+    class MCPL primary
+    class Daemon data
+    class S1,S2 active
+    class S3 storage
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef storage fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
 ```
 
 ---
@@ -100,11 +105,17 @@ graph LR
     Daemon -->|encrypted tokens| Cache
     CLI -->|--no-daemon bypass| Servers
 
-    style CLI fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Daemon fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style Config fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Servers fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style Cache fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    class CLI primary
+    class Daemon data
+    class Config neutral
+    class Servers active
+    class Cache storage
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef storage fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
 ```
 
 The daemon starts automatically on first `mcpl call` and maintains long-lived connections to all configured MCP servers. Subsequent calls reuse those connections, avoiding per-call startup latency. The daemon shuts itself down when idle, when the parent terminal exits, or when the IDE session ends.
@@ -177,14 +188,21 @@ graph TD
     Multi -->|No| Load
     Saved --> Load
 
-    style P1 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style P2 fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style P3 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style P4 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Excl fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
-    style Multi fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style Saved fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
-    style Load fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    class P1 active
+    class P2 data
+    class P3,P4 neutral
+    class Excl error
+    class Multi warning
+    class Saved storage
+    class Load success
+
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef error fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
+    classDef warning fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    classDef storage fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    classDef success fill:#2e7d32,stroke:#66bb6a,stroke-width:2px,color:#ffffff
 ```
 
 You can also override discovery entirely with an environment variable:
@@ -471,16 +489,25 @@ flowchart TD
     Error -->|No| Done
     Verify --> Retry
 
-    style Need fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style Search fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Found fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style Inspect fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style Complex fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style Call fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style Error fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
-    style Verify fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Retry fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
-    style Done fill:#2e7d32,stroke:#66bb6a,stroke-width:2px,color:#ffffff
+    class Need external
+    class Search primary
+    class Found,Complex warning
+    class Inspect data
+    class Call active
+    class Error error
+    class Verify neutral
+    class Retry storage
+    class Done success
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef success fill:#2e7d32,stroke:#66bb6a,stroke-width:2px,color:#ffffff
+    classDef error fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
+    classDef warning fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef storage fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
 ```
 
 Example agent session:

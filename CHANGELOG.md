@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SessionEnd hook now runs async** — Claude Code exits immediately instead of waiting for the session stop hook to complete. The wrapper script's `nohup` detachment already ensured the Python hook keeps running after exit; `async: true` simply tells Claude Code not to block on it.
 - **Installer detects hook option changes** — Previously, if a hook was already registered but its options (e.g. `async`) needed updating, the installer silently skipped it. Now it patches existing hook entries in-place when options differ from `_HOOK_OPTIONS`.
 
+## [0.7.3] - 2026-05-24
+
+### Changed
+
+- **`--rebuild-graph` defaults to on** — The nightly summarizer scheduler (`--schedule-summarizer`) now includes `--rebuild-graph` by default so `graph.json` is regenerated each night. Add `--no-rebuild-graph` to opt out.
+- **Installer adds `.obsidian/` to vault `.gitignore`** — `configure_vault_gitignore()` now includes `.obsidian/` alongside the existing machine-local entries, preventing Obsidian workspace state from being accidentally committed.
+
+### Fixed
+
+- **README `--summarizer-hour` default** — Corrected from 2 to 3, matching the actual default in `install.py`.
+- **Documentation sync** — Updated ARCHITECTURE.md (7 missing config keys, `anthropic_env` section), AGENTCHROME.md (6 new CLI capabilities), EMBEDDINGS.md (ARC-005 diagram), MCP.md and MCPL.md (Mermaid style-guide compliance), and README.md (installation examples, options table).
+
 ## [0.7.2] - 2026-05-23
 
 ### Added

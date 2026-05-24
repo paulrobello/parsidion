@@ -87,11 +87,13 @@ uv run install.py --force --yes --install-tools
 
 # Schedule nightly auto-summarization (launchd on macOS, cron on Linux)
 uv run install.py --schedule-summarizer
-uv run install.py --schedule-summarizer --summarizer-hour 3   # run at 3 AM instead of default
+uv run install.py --schedule-summarizer --summarizer-hour 3   # run at 3 AM (default)
 
-# Also rebuild visualizer graph.json each night (after indexing)
-uv run install.py --schedule-summarizer --rebuild-graph
-uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
+# Graph rebuild is enabled by default. To also include Daily notes:
+uv run install.py --schedule-summarizer --graph-include-daily
+
+# To disable graph rebuild:
+uv run install.py --schedule-summarizer --no-rebuild-graph
 ```
 
 **Options:**
@@ -113,8 +115,9 @@ uv run install.py --schedule-summarizer --rebuild-graph --graph-include-daily
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
 | `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, and `vault-merge` as global CLI commands via `uv tool install` |
 | `--schedule-summarizer` | Generate a launchd plist (macOS) or cron job (Linux) for nightly auto-summarization |
-| `--summarizer-hour N` | Hour (0-23) for the scheduled summarizer job (default: 2) |
-| `--rebuild-graph` | Add `--rebuild-graph` to the scheduled command so `graph.json` is regenerated each night (use with `--schedule-summarizer`) |
+| `--summarizer-hour N` | Hour (0-23) for the scheduled summarizer job (default: 3) |
+| `--rebuild-graph` | Add `--rebuild-graph` to the scheduled command so `graph.json` is regenerated each night (default: on; use with `--schedule-summarizer`) |
+| `--no-rebuild-graph` | Disable graph rebuild in the scheduled summarizer |
 | `--graph-include-daily` | Include Daily folder notes in the nightly graph rebuild (use with `--rebuild-graph`) |
 | `--create-vaults-config` | Create `~/.config/parsidion/vaults.yaml` for multi-vault support (see [Multi-Vault Support](#multi-vault-support)) |
 | `--migrate-vault` | Rename legacy `~/ClaudeVault` to `~/ParsidionVault` and leave `~/ClaudeVault` as a compatibility symlink |
@@ -1001,7 +1004,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.7.0** (session diagnostics, smart re-indexing, and default vault migration). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.7.3** (nightly graph rebuild by default, doc sync, installer fixes). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

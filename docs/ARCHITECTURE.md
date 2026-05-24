@@ -260,6 +260,8 @@ Fires when a Claude Code, Codex, or Gemini session begins. Loads relevant vault 
 | `ai_model` | `null` (disabled) | Model for AI note selection |
 | `max_chars` | `4000` | Maximum characters for injected context |
 | `ai_timeout` | `25` | AI call timeout in seconds |
+| `ai_cooldown_seconds` | `30` | Skip nested `claude -p` if AI SessionStart ran recently for this vault |
+| `ai_single_flight` | `true` | Allow only one nested `claude -p` SessionStart selector per vault at a time |
 | `recent_days` | `3` | Days to look back for recent notes |
 | `debug` | `false` | Append injected context + metadata to debug log in `$TMPDIR` |
 | `verbose_mode` | `false` | When true, inject full note summaries; default is compact one-line index |
@@ -415,13 +417,15 @@ An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summa
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `model` | `null` | Explicit large-model override; `null` uses `ai_models.<backend>.large` |
+| `model` | `claude-sonnet-4-6` | Explicit large-model override; defaults to `defaults.sonnet_model` |
 | `max_parallel` | `5` | Concurrent summarization tasks |
 | `transcript_tail_lines` | `400` | Transcript lines to read per entry |
 | `max_cleaned_chars` | `12000` | Maximum characters after cleaning |
 | `persist` | `false` | Accepted for backwards compatibility; CLI backends control persistence via backend config |
-| `cluster_model` | `null` | Explicit chunk-model override; `null` uses `ai_models.<backend>.small` |
+| `cluster_model` | `claude-haiku-4-5-20251001` | Chunk-model for hierarchical summarization; defaults to `defaults.haiku_model` |
 | `dedup_threshold` | `0.80` | Cosine similarity above which a note is considered a near-duplicate and skipped |
+| `rebuild_graph` | `false` | Rebuild visualizer `graph.json` after indexing (same as `--rebuild-graph` CLI flag) |
+| `graph_include_daily` | `false` | Include Daily notes in graph rebuild (same as `--graph-include-daily` CLI flag) |
 
 **Behavior:**
 1. Reads entries from `pending_summaries.jsonl`
@@ -995,6 +999,8 @@ All hooks and the summarizer support a centralized configuration file at `~/Pars
 ```yaml
 session_start_hook:  # session_start_hook.py
   ai_model: null     # Model for AI note selection (null = disabled)
+  ai_cooldown_seconds: 30  # Skip nested claude -p if AI SessionStart ran recently for this vault
+  ai_single_flight: true   # Allow only one nested claude -p SessionStart selector per vault at a time
   max_chars: 4000    # Max context injection characters
   ai_timeout: 25     # AI call timeout in seconds
   recent_days: 3     # Days to look back for recent notes
@@ -1020,13 +1026,15 @@ pre_compact_hook:    # pre_compact_hook.py
   lines: 200         # Transcript lines to analyse
 
 summarizer:          # summarize_sessions.py
-  model: null          # null = ai_models.<backend>.large
+  model: claude-sonnet-4-6  # Large model for final note generation
   max_parallel: 5
   transcript_tail_lines: 400
   max_cleaned_chars: 12000
   persist: false     # accepted for backwards compatibility
-  cluster_model: null  # null = ai_models.<backend>.small
+  cluster_model: claude-haiku-4-5-20251001  # Small model for hierarchical chunk summarization
   dedup_threshold: 0.80  # Cosine similarity above which a near-duplicate note is detected and skipped
+  rebuild_graph: false                     # Rebuild visualizer graph.json after indexing
+  graph_include_daily: false               # Include Daily notes in graph rebuild
 
 defaults:            # Centralized model IDs; all scripts fall back to these
   haiku_model: claude-haiku-4-5-20251001
@@ -1037,9 +1045,24 @@ embeddings:          # build_embeddings.py, vault_search.py
   model: BAAI/bge-small-en-v1.5   # ~67 MB ONNX model, cached after first run
   min_score: 0.45                  # Minimum cosine similarity for search results
   top_k: 10                        # Default result count for vault_search.py
+  decay_enabled: true             # Apply temporal decay so newer notes score higher
+  decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
+  decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
 
 git:
   auto_commit: true  # Auto-commit vault changes after writes
+
+anthropic_env:       # Optional: Anthropic-compatible transport settings
+  ANTHROPIC_API_KEY: null
+  ANTHROPIC_AUTH_TOKEN: null
+  ANTHROPIC_BASE_URL: null   # Override API base URL
+  ANTHROPIC_CUSTOM_HEADERS: null
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: null
+  ANTHROPIC_DEFAULT_SONNET_MODEL: null
+  ANTHROPIC_DEFAULT_OPUS_MODEL: null
+  API_TIMEOUT_MS: null
+  HTTPS_PROXY: null
+  HTTP_PROXY: null
 
 event_log:           # all hooks — structured JSON event log
   enabled: true      # Write hook events to hook_events.log
@@ -1053,7 +1076,7 @@ vault:               # Vault identity — used for per-user daily note filenames
   username: ""       # Username suffix for daily notes (DD-{username}.md). Defaults to $USER if blank.
 ```
 
-**Model defaults:** Prompt-style AI scripts use backend-aware defaults from `ai_models.<backend>`. Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) use the backend small tier when AI mode is enabled unless `ai_model` is explicitly set. The summarizer uses the backend large tier for final notes and the backend small tier for chunk summaries unless `summarizer.model`, `summarizer.cluster_model`, or `--model` explicitly override them.
+**Model defaults:** The `defaults` section sets `haiku_model` and `sonnet_model` used across hooks and the summarizer. The summarizer's `model` and `cluster_model` can override these per-task. Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) use `defaults.haiku_model` when AI mode is enabled unless `ai_model` is explicitly set. Anthropic-compatible transport settings (API key, base URL, proxy, timeouts) can be defined in `anthropic_env` using their real env var names, with precedence **environment > `anthropic_env` > default behavior**.
 
 **`git.auto_commit`:** When `false`, `git_commit_vault()` returns immediately without staging or committing. This disables all automatic vault git commits across hooks and the summarizer.
 

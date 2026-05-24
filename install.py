@@ -2313,7 +2313,9 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
 
     Adds entries for ``embeddings.db`` (binary SQLite — must be rebuilt
     locally), ``pending_summaries.jsonl`` (machine-local session queue),
-    and ``hook_events.log`` (machine-local structured log).
+    ``hook_events.log`` (machine-local structured log), ``graph.json``
+    (rebuilt by ``build_graph.py``), and ``.obsidian/`` (machine-specific
+    workspace state).
 
     Args:
         vault_root: Path to the vault root directory.
@@ -2325,6 +2327,7 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
         "pending_summaries.jsonl",
         "hook_events.log",
         "graph.json",
+        ".obsidian/",
     ]
 
     if gitignore.exists():
@@ -2979,11 +2982,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rebuild-graph",
         action="store_true",
+        default=True,
         help=(
             "Add --rebuild-graph to the scheduled summarizer command so the "
             "visualizer graph.json is regenerated each night after indexing. "
-            "Only meaningful with --schedule-summarizer."
+            "Enabled by default. Only meaningful with --schedule-summarizer."
         ),
+    )
+    parser.add_argument(
+        "--no-rebuild-graph",
+        action="store_false",
+        dest="rebuild_graph",
+        help="Disable graph rebuild in the scheduled summarizer.",
     )
     parser.add_argument(
         "--graph-include-daily",
