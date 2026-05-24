@@ -1425,9 +1425,7 @@ def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
     return _find_hook_handler(hooks_list, command) is not None
 
 
-def _find_hook_handler(
-    hooks_list: list[dict], command: str
-) -> dict | None:
+def _find_hook_handler(hooks_list: list[dict], command: str) -> dict | None:
     """Return the hook handler dict matching *command*, or None."""
     for entry in hooks_list:
         if not isinstance(entry, dict):
