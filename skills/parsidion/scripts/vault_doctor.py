@@ -1273,6 +1273,9 @@ Current note:
         # Strip accidental markdown fences if the backend added them
         output = re.sub(r"^```[a-z]*\n?", "", output)
         output = re.sub(r"\n?```$", "", output)
+        # Strip echoed BEGIN/END markers from the prompt wrapper
+        output = re.sub(r"^---BEGIN---\s*\n?", "", output)
+        output = re.sub(r"\n?---END---\s*$", "", output)
         if output:
             return output, "fixed"
     return None, "failed"

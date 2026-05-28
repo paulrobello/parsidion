@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-05-27
+
+### Fixed
+
+- **Vault doctor `---BEGIN---` corruption loop** — The AI repair prompt wraps note content with `---BEGIN---`/`---END---` markers. When the backend echoed these markers in its response, they were written to the file, causing `parse_frontmatter()` to fail and the doctor to re-flag the note as `MISSING_FRONTMATTER` on every run. The echoed markers are now stripped from AI output before writing.
+
 ## [0.7.4] - 2026-05-24
 
 ### Changed
