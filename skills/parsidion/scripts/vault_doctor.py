@@ -2490,11 +2490,12 @@ def main() -> None:
         target_notes = list(vault_common.all_vault_notes(_vault_path))
         explicit = False
 
-    # Always skip the auto-generated vault index and per-folder MANIFEST files —
-    # both are rebuilt by update_index.py and should never be doctor-repaired.
+    # Always skip auto-generated files (rebuilt by update_index.py, never doctor-repaired).
     vault_claude_md = _vault_path / "CLAUDE.md"
+    vault_tags_md = _vault_path / "TAGS.md"
     target_notes = [
-        p for p in target_notes if p != vault_claude_md and p.name != "MANIFEST.md"
+        p for p in target_notes
+        if p != vault_claude_md and p != vault_tags_md and p.name != "MANIFEST.md"
     ]
 
     # Skip notes that have already been processed and are still fresh
@@ -2561,7 +2562,7 @@ def main() -> None:
                 all_filtered = [
                     p
                     for p in all_notes
-                    if p != vault_claude_md and p.name != "MANIFEST.md"
+                    if p != vault_claude_md and p != vault_tags_md and p.name != "MANIFEST.md"
                 ]
                 if not explicit and not args.no_state:
                     target_notes = [
