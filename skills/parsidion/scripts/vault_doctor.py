@@ -2494,7 +2494,8 @@ def main() -> None:
     vault_claude_md = _vault_path / "CLAUDE.md"
     vault_tags_md = _vault_path / "TAGS.md"
     target_notes = [
-        p for p in target_notes
+        p
+        for p in target_notes
         if p != vault_claude_md and p != vault_tags_md and p.name != "MANIFEST.md"
     ]
 
@@ -2562,7 +2563,9 @@ def main() -> None:
                 all_filtered = [
                     p
                     for p in all_notes
-                    if p != vault_claude_md and p != vault_tags_md and p.name != "MANIFEST.md"
+                    if p != vault_claude_md
+                    and p != vault_tags_md
+                    and p.name != "MANIFEST.md"
                 ]
                 if not explicit and not args.no_state:
                     target_notes = [
