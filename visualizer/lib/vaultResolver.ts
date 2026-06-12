@@ -186,6 +186,21 @@ export function resolveVault(vaultName?: string | null): string {
 }
 
 /**
+ * Returns true if `notePath` is strictly inside `vaultRoot`.
+ * SEC-012: Shared path-traversal guard extracted from route files to avoid
+ * copy-paste drift.  All route files import and call this instead of defining
+ * their own `guardPath` helper.
+ *
+ * @param notePath  - Absolute path to the note or file being accessed.
+ * @param vaultRoot - Absolute vault root path.
+ */
+export function guardPath(notePath: string, vaultRoot: string): boolean {
+  const resolved = path.resolve(notePath)
+  const resolvedRoot = path.resolve(vaultRoot)
+  return resolved.startsWith(resolvedRoot + path.sep)
+}
+
+/**
  * Returns the default vault path without resolving a specific name.
  */
 export function getDefaultVault(): string {

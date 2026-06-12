@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useTransition, useRef } from 'react'
+import type { ComponentPropsWithoutRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { getNodeColor } from '@/lib/sigma-colors'
@@ -309,8 +310,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  a: ({ href, children }: any) => {
+                  a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => {
                     if (href?.startsWith('wikilink:')) {
                       const s = decodeURIComponent(href.slice(9))
                       return (
@@ -497,8 +497,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                a: ({ href, children }: any) => {
+                a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => {
                   if (href?.startsWith('wikilink:')) {
                     const stem = decodeURIComponent(href.slice(9))
                     return (

@@ -22,6 +22,10 @@ All public symbols are re-exported here so that existing callers
 # ---------------------------------------------------------------------------
 
 # vault_config: YAML parsing, config loading, validation
+# QA-014: Private names below (_CONFIG_SCHEMA, _clear_config_cache, etc.) are
+# re-exported for backward compatibility only — existing tests import them via
+# vault_common.  They are intentionally omitted from __all__ and should not be
+# used in new code; access them from vault_config directly instead.
 from vault_config import (  # noqa: F401
     _CONFIG_SCHEMA,
     _clear_config_cache,
@@ -97,7 +101,8 @@ from vault_index import (  # noqa: F401
 from vault_hooks import (  # noqa: F401
     TRANSCRIPT_CATEGORIES,
     TRANSCRIPT_CATEGORY_LABELS,
-    _SAFE_ENV_KEYS,
+    SAFE_ENV_KEYS,  # QA-012: public alias
+    _SAFE_ENV_KEYS,  # kept for backward compat — re-exported from vault_common
     allowed_transcript_roots,
     apply_configured_env_defaults,
     codex_home,
@@ -129,7 +134,7 @@ from vault_adaptive import (  # noqa: F401
     update_usefulness_scores,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.7.6"
 
 __all__: list[str] = [
     # Version
@@ -152,6 +157,7 @@ __all__: list[str] = [
     # Environment helpers
     "apply_configured_env_defaults",
     "env_without_claudecode",
+    "SAFE_ENV_KEYS",
     # Frontmatter and content parsing
     "parse_frontmatter",
     "get_body",

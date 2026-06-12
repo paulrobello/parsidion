@@ -1,5 +1,7 @@
 # Vault Explorer Agent Implementation Plan
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Create a read-only `vault-explorer` Haiku subagent that searches `~/ClaudeVault/` and returns a synthesized answer + source paths, then update CLAUDE-VAULT.md, SKILL.md, and install.py to use it instead of direct Grep loops in the main session.

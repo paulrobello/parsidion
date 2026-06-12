@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -155,6 +156,18 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
 
         if not key:
             continue
+
+        # QA-008: warn when an indented sub-key looks like a nested mapping.
+        # Nested mappings are not supported by this parser (see docstring).
+        # Emit a stderr warning so vault-doctor checks don't silently mislead.
+        # This is safe: hook scripts print JSON to stdout; stderr is ignored.
+        if indent > 0 and key:
+            print(
+                f"parse_frontmatter: nested mapping key '{key}' (indented) is not "
+                "supported and will be treated as a top-level scalar. "
+                "Consider flattening this YAML key.",
+                file=sys.stderr,
+            )
 
         current_key = key
 

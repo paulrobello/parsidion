@@ -55,7 +55,7 @@ graph TD
     UpdateIndex["update_index.py\n(subprocess)"]
     VaultDoctor["vault_doctor.py\n(subprocess)"]
     EmbeddingsDB["embeddings.db\n(SQLite + sqlite-vec)"]
-    VaultRoot["~/ClaudeVault/\n(note files)"]
+    VaultRoot["~/ParsidionVault/\n(or ~/ClaudeVault/ for legacy installs)"]
 
     Desktop -->|"stdio (MCP protocol)"| MCP
 
@@ -325,8 +325,8 @@ vault_context(recent_days=5, verbose=True)
 
 Rebuilds the vault index by running `update_index.py` as a subprocess. This regenerates:
 
-- `~/ClaudeVault/CLAUDE.md` — the lean root index (stats, conventions, recent activity, folder pointers)
-- `~/ClaudeVault/TAGS.md` — full tag cloud and tag list (for summarizer tag reuse)
+- `~/ParsidionVault/CLAUDE.md` — the lean root index (stats, conventions, recent activity, folder pointers)
+- `~/ParsidionVault/TAGS.md` — full tag cloud and tag list (for summarizer tag reuse)
 - Per-folder `MANIFEST.md` files
 - The `note_index` table in `embeddings.db`
 

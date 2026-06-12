@@ -23,7 +23,7 @@ __all__: list[str] = [
     # Environment helpers
     "apply_configured_env_defaults",
     "env_without_claudecode",
-    "_SAFE_ENV_KEYS",
+    "SAFE_ENV_KEYS",  # QA-012: public alias; _SAFE_ENV_KEYS kept for backward compat
     # Hook event logging
     "write_hook_event",
     # Transcript helpers
@@ -97,8 +97,14 @@ def write_hook_event(
         vault.mkdir(parents=True, exist_ok=True)
         line = json.dumps(event) + "\n"
 
+        # SEC-008: Create the log file with mode 0o600 (owner read/write only)
+        # so hook events are not world-readable. os.open with O_CREAT | O_RDWR
+        # sets the mode atomically on first creation; subsequent opens inherit
+        # the existing file mode unchanged (chmod is not called on existing files
+        # to avoid a TOCTOU race and to respect deliberate admin changes).
+        fd = os.open(str(log_path), os.O_CREAT | os.O_RDWR, 0o600)
         # Atomic append with optional rotation
-        with open(log_path, "a+", encoding="utf-8") as f:
+        with open(fd, "r+", encoding="utf-8") as f:
             flock_exclusive(f)
             try:
                 f.seek(0)
@@ -181,6 +187,11 @@ _CONFIGURABLE_ENV_KEYS: frozenset[str] = frozenset(
         "HTTP_PROXY",
     }
 )
+
+# QA-012: public alias — export SAFE_ENV_KEYS (no leading underscore) so callers
+# can reference it without accessing a private name.  _SAFE_ENV_KEYS remains
+# available for backward compatibility (referenced in docs and existing callers).
+SAFE_ENV_KEYS: frozenset[str] = _SAFE_ENV_KEYS
 
 
 def _coerce_env_value(value: object) -> str | None:
@@ -337,7 +348,17 @@ def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
 
 
 def is_allowed_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool:
-    """Return True when *transcript_path* is inside an allowed transcript root."""
+    """Return True when *transcript_path* is inside an allowed transcript root.
+
+    SEC-010: Also requires the ``.jsonl`` suffix so that non-transcript files
+    (e.g. ``settings.json``, ``CLAUDE.md``) cannot be read even if they reside
+    under an allowed root such as ``~/.claude/``.
+    """
+    # SEC-010: Reject anything that is not a .jsonl file to prevent hook JSON
+    # from pointing at non-transcript files (settings, keys, etc.) under ~/.claude.
+    if transcript_path.suffix != ".jsonl":
+        return False
+
     try:
         resolved = transcript_path.resolve()
     except OSError:

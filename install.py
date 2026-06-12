@@ -241,6 +241,7 @@ def _make_vprint(verbose: bool):
     """
 
     def vprint(msg: str, always: bool = False) -> None:
+        """Print *msg* when verbose mode is active or *always* is True."""
         if always or verbose:
             print(msg)
 
@@ -2612,11 +2613,7 @@ def install(args: argparse.Namespace) -> int:
         do_schedule = _confirm("Schedule nightly summarizer?", default=False)
 
     # --- Vault username prompt ---
-    import os as _os_import
-
-    _detected_user = _os_import.environ.get(
-        "USER", _os_import.environ.get("USERNAME", "")
-    )
+    _detected_user = os.environ.get("USER", os.environ.get("USERNAME", ""))
     vault_username: str = args.vault_username
     if not args.yes and not vault_username:
         print()
@@ -2710,16 +2707,16 @@ def install(args: argparse.Namespace) -> int:
     # 3. Install scripts
     install_scripts(claude_dir, dry_run=dry_run)
 
-    # 5. Create vault directories
+    # 4. Create vault directories
     create_vault_dirs(vault_root, dry_run=dry_run)
 
-    # 6. Create Templates symlink
+    # 5. Create Templates symlink
     templates_src = claude_dir / "skills" / SKILL_NAME / "templates"
     create_templates_symlink(
         vault_root, templates_src, dry_run=dry_run, verbose=verbose
     )
 
-    # 7. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
+    # 6. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
     if install_claude_runtime and not args.skip_hooks:
         cleanup_legacy_assets(
             claude_dir,
@@ -2736,37 +2733,37 @@ def install(args: argparse.Namespace) -> int:
     if install_gemini_runtime and not args.skip_hooks:
         merge_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run, verbose=verbose)
 
-    # 7b. Enable AI mode if requested
+    # 6b. Enable AI mode if requested
     if enable_ai and install_claude_runtime and not args.skip_hooks:
         enable_ai_mode(settings_file, vault_root, claude_dir, dry_run=dry_run)
 
-    # 8. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
+    # 7. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
     if install_claude_runtime:
         install_claude_vault_md(claude_dir, dry_run=dry_run, verbose=verbose)
 
-    # 9. Rebuild vault index
+    # 8. Rebuild vault index
     rebuild_index(claude_dir, dry_run=dry_run)
 
-    # 10. Configure vault .gitignore for machine-local files
+    # 9. Configure vault .gitignore for machine-local files
     configure_vault_gitignore(vault_root, dry_run=dry_run)
 
-    # 10b. Initialize vault as a git repo (no-op if already initialized)
+    # 9b. Initialize vault as a git repo (no-op if already initialized)
     init_vault_git(vault_root, dry_run=dry_run)
 
-    # 10c. Install post-merge git hook for multi-machine sync
+    # 9c. Install post-merge git hook for multi-machine sync
     install_vault_post_merge_hook(vault_root, claude_dir, dry_run=dry_run)
 
-    # 10d. Write vault.username to config.yaml (for per-user daily note naming)
+    # 9d. Write vault.username to config.yaml (for per-user daily note naming)
     configure_vault_username(vault_root, dry_run=dry_run, username=vault_username)
 
-    # 10e. Write embeddings.enabled to config.yaml
+    # 9e. Write embeddings.enabled to config.yaml
     configure_embeddings(vault_root, enabled=enable_embeddings, dry_run=dry_run)
 
-    # 11. Install global CLI tools (vault-search, vault-new, vault-stats) via uv tool
+    # 10. Install global CLI tools (vault-search, vault-new, vault-stats) via uv tool
     if install_tools:
         install_cli_tools(REPO_ROOT, dry_run=dry_run)
 
-    # 12. Schedule nightly summarizer (optional, --schedule-summarizer)
+    # 11. Schedule nightly summarizer (optional, --schedule-summarizer)
     if do_schedule:
         schedule_summarizer(
             claude_dir,
@@ -2776,7 +2773,7 @@ def install(args: argparse.Namespace) -> int:
             graph_include_daily=args.graph_include_daily,
         )
 
-    # 13. Create vaults.yaml config template (optional, --create-vaults-config)
+    # 12. Create vaults.yaml config template (optional, --create-vaults-config)
     if args.create_vaults_config:
         create_vaults_config(dry_run=dry_run)
 

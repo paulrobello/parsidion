@@ -52,6 +52,7 @@ RECENT_MAX: int = 20
 SUMMARY_MAX_CHARS: int = 80
 STALE_DAYS: int = 30
 
+
 def pid_file() -> Path:
     """Return the PID file path resolved against the current VAULT_ROOT.
 
@@ -62,6 +63,7 @@ def pid_file() -> Path:
     import vault_common as _vc
 
     return _vc.VAULT_ROOT / "index.pid"
+
 
 # Regex to extract wikilink stems like [[note-stem]] from a string
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")

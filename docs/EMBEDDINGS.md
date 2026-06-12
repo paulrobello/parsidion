@@ -44,8 +44,7 @@ the query "database pool timeout" unless those exact words appear in it.
 The embeddings subsystem solves this by encoding each vault note into a 384-dimensional vector
 and storing those vectors in a local SQLite database (`embeddings.db`). At query time, the
 search script encodes the query with the same model and ranks notes by cosine similarity — no
-internet connection required. The vault defaults to `~/ParsidionVault/`, or the legacy
-`~/ClaudeVault/` if it already exists. All commands accept `--vault` to target a specific vault.
+internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/ClaudeVault/` for legacy installs). All commands accept `--vault` to target a specific vault.
 
 **Key capabilities:**
 

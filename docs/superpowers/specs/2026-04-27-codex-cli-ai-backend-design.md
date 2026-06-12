@@ -1,5 +1,7 @@
 # Codex CLI AI Backend Design
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 ## Summary
 
 Add a runtime-neutral prompt AI backend for Parsidion scripts that currently shell out to `claude -p`. The new backend layer will support Claude CLI and Codex CLI, choose the active runtime in `auto` mode, and use purpose-aware model defaults so Codex mode never receives Claude model IDs. This change intentionally excludes `summarize_sessions.py` because it uses `claude-agent-sdk`; SDK replacement will be handled separately after prompt-style CLI calls work.

@@ -383,6 +383,12 @@ def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
     scores = vault_common.load_usefulness_scores()
 
     def _score(path: Path) -> float:
+        """Return a Laplace-smoothed usefulness score in [0, 1] for *path*.
+
+        Looks up the note stem in the loaded usefulness scores and computes
+        ``(hits + 1) / (total + 2)``.  Returns 0.5 (neutral) for notes with
+        no recorded history.
+        """
         entry = scores.get(path.stem)
         if not entry:
             return 0.5  # Neutral score for new notes

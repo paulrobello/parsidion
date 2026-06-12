@@ -1,5 +1,7 @@
 # Vault Visualizer Redesign Implementation Plan
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Transform the vault visualizer from a graph-first app into an Obsidian-style layout with file explorer sidebar, tabbed reading pane, unified search, and Read/Graph mode toggle.

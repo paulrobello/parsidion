@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs/promises'
 import path from 'path'
 import { resolveVault } from '@/lib/vaultResolver'
+import { requireAuth } from '@/lib/apiAuth'
 
 // QA-006: Replaced all synchronous fs calls with async fs.promises equivalents.
 // findNote is now async to avoid blocking the Node.js event loop during
@@ -31,7 +32,12 @@ export async function GET(req: NextRequest) {
   const vault = req.nextUrl.searchParams.get('vault')
   if (!stem && !relPath) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
 
-  const vaultRoot = resolveVault(vault)
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch {
+    return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+  }
   let notePath: string | null
   if (relPath) {
     // Direct path lookup — avoids stem collision across folders
@@ -66,6 +72,8 @@ function guardPath(notePath: string, vaultRoot: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  const authError = requireAuth(req)
+  if (authError) return authError
   const vault = req.nextUrl.searchParams.get('vault')
   const body = await req.json()
   const { stem, content, lastModified } = body as {
@@ -77,7 +85,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'stem and content required' }, { status: 400 })
   }
 
-  const vaultRoot = resolveVault(vault)
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch {
+    return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+  }
   const notePath = await findNote(vaultRoot, stem)
   if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 
@@ -108,6 +121,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const authError = requireAuth(req)
+  if (authError) return authError
   const vault = req.nextUrl.searchParams.get('vault')
   const body = await req.json()
   const { path: relPath, content } = body as { path?: string; content?: string }
@@ -115,7 +130,17 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'path and content required' }, { status: 400 })
   }
 
-  const vaultRoot = resolveVault(vault)
+  // SEC-002: Only .md files may be created through this endpoint.
+  if (!relPath.endsWith('.md')) {
+    return NextResponse.json({ error: 'Only .md files may be created' }, { status: 400 })
+  }
+
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch {
+    return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+  }
   const notePath = path.join(vaultRoot, relPath)
 
   if (!guardPath(notePath, vaultRoot)) {
@@ -139,11 +164,18 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const authError = requireAuth(req)
+  if (authError) return authError
   const stem = req.nextUrl.searchParams.get('stem')
   const vault = req.nextUrl.searchParams.get('vault')
   if (!stem) return NextResponse.json({ error: 'stem required' }, { status: 400 })
 
-  const vaultRoot = resolveVault(vault)
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch {
+    return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+  }
   const notePath = await findNote(vaultRoot, stem)
   if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 

@@ -29,10 +29,10 @@ old_umask=$(umask)
 umask 077
 TMPFILE=$(mktemp "${TMPDIR:-/tmp}/session_stop_hook_XXXXXX.json")
 umask "$old_umask"
-# ARC-014: remove the temp file if the wrapper exits before the background
-# subshell has a chance to run (e.g. REAL_HOOK missing, unexpected signal).
-# The background subshell removes TMPFILE after the real hook completes.
-trap 'rm -f "$TMPFILE"' EXIT
+# QA-015: Do NOT trap EXIT here — a trap 'rm -f "$TMPFILE"' EXIT would fire
+# when the foreground wrapper exits, which races with the background subshell
+# that reads the file.  The background subshell does its own 'rm -f "$TMPFILE"'
+# after the real hook completes, so cleanup is handled there.
 cat > "$TMPFILE"
 
 # Acknowledge to Claude Code immediately

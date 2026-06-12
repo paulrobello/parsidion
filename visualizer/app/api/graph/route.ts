@@ -2,11 +2,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
-import { resolveVault } from '@/lib/vaultResolver'
+import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 
 export async function GET(req: NextRequest) {
   const vault = req.nextUrl.searchParams.get('vault')
-  const vaultPath = resolveVault(vault)
+  let vaultPath: string
+  try {
+    vaultPath = resolveVault(vault)
+  } catch (err) {
+    if (err instanceof VaultConfigError) {
+      return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+    }
+    return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
+  }
   const graphPath = path.join(vaultPath, 'graph.json')
 
   if (!fs.existsSync(graphPath)) {

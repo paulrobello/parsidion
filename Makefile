@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt typecheck checkall clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
+.PHONY: build test lint fmt typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
 
 # Format code with ruff
 fmt:
@@ -17,7 +17,11 @@ test:
 	uv run pytest tests/
 
 # Run all checks in sequence: format, lint, typecheck, test
-checkall: fmt lint typecheck test
+checkall: fmt lint typecheck test checkall-mcp
+
+# Run parsidion-mcp checks (format, lint, typecheck, test)
+checkall-mcp:
+	$(MAKE) -C parsidion-mcp checkall
 
 # Build (no-op for this project — it is managed configuration, not a compiled artifact)
 build:

@@ -357,3 +357,138 @@ class TestAiSelectionSafety:
 
         assert result == "### Note Title (path/to/note.md)\nKey point 1"
         assert stamped == [tmp_path]
+
+
+# ---------------------------------------------------------------------------
+# QA-007: AI cooldown helpers
+# ---------------------------------------------------------------------------
+
+
+class TestAiCooldownHelpers:
+    """Tests for _is_ai_cooldown_active and _write_ai_cooldown_stamp."""
+
+    def test_cooldown_inactive_when_stamp_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            session_start_hook.vault_common,
+            "get_config",
+            lambda section, key, default=None: (
+                30
+                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
+                else default
+            ),
+        )
+        # No stamp file — cooldown should not be active
+        assert session_start_hook._is_ai_cooldown_active(tmp_path) is False
+
+    def test_cooldown_active_when_stamp_fresh(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            session_start_hook.vault_common,
+            "get_config",
+            lambda section, key, default=None: (
+                30
+                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
+                else default
+            ),
+        )
+        # Write a fresh stamp
+        session_start_hook._write_ai_cooldown_stamp(tmp_path)
+        assert session_start_hook._is_ai_cooldown_active(tmp_path) is True
+
+    def test_cooldown_inactive_when_disabled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            session_start_hook.vault_common,
+            "get_config",
+            lambda section, key, default=None: (
+                0
+                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
+                else default
+            ),
+        )
+        # Even with a stamp file, cooldown=0 means always inactive
+        session_start_hook._write_ai_cooldown_stamp(tmp_path)
+        assert session_start_hook._is_ai_cooldown_active(tmp_path) is False
+
+    def test_write_cooldown_stamp_creates_file(self, tmp_path: Path) -> None:
+        stamp = tmp_path / session_start_hook._AI_STAMP_FILENAME
+        assert not stamp.exists()
+        session_start_hook._write_ai_cooldown_stamp(tmp_path)
+        assert stamp.exists()
+
+    def test_write_cooldown_stamp_tolerates_missing_dir(self, tmp_path: Path) -> None:
+        nonexistent = tmp_path / "nonexistent"
+        # Should not raise even if directory is missing
+        session_start_hook._write_ai_cooldown_stamp(nonexistent)
+
+
+# ---------------------------------------------------------------------------
+# QA-007: _build_delta_section
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDeltaSection:
+    """Tests for the 'Since last time' delta assembly."""
+
+    def test_returns_empty_when_no_last_seen(self, tmp_path: Path) -> None:
+        result = session_start_hook._build_delta_section("parsidion", None, tmp_path)
+        assert result == ""
+
+    def test_returns_empty_when_invalid_timestamp(self, tmp_path: Path) -> None:
+        result = session_start_hook._build_delta_section(
+            "parsidion", "not-a-timestamp", tmp_path
+        )
+        assert result == ""
+
+    def test_includes_new_notes_after_cutoff(self, tmp_path: Path) -> None:
+        # Create vault structure
+        vault = tmp_path
+        for d in session_start_hook.vault_common.VAULT_DIRS:
+            (vault / d).mkdir(exist_ok=True)
+
+        # Write a note with a current mtime
+        note = vault / "Patterns" / "new-note.md"
+        note.write_text("# New Note\n", encoding="utf-8")
+
+        # last_seen is in the past (1970 epoch)
+        past_ts = "1970-01-01T00:00:00"
+        result = session_start_hook._build_delta_section("parsidion", past_ts, vault)
+
+        assert "new-note" in result
+        assert "Since last session" in result
+
+    def test_excludes_notes_before_cutoff(self, tmp_path: Path) -> None:
+        vault = tmp_path
+        for d in session_start_hook.vault_common.VAULT_DIRS:
+            (vault / d).mkdir(exist_ok=True)
+
+        note = vault / "Patterns" / "old-note.md"
+        note.write_text("# Old Note\n", encoding="utf-8")
+
+        # Set last_seen to the future so the note appears old
+        future_ts = "2099-01-01T00:00:00"
+        result = session_start_hook._build_delta_section("parsidion", future_ts, vault)
+
+        # No new notes should appear (all are older than the future cutoff)
+        assert result == ""
+
+    def test_caps_results_at_ten(self, tmp_path: Path) -> None:
+        vault = tmp_path
+        for d in session_start_hook.vault_common.VAULT_DIRS:
+            (vault / d).mkdir(exist_ok=True)
+
+        # Write 15 notes
+        for i in range(15):
+            note = vault / "Patterns" / f"note-{i:02d}.md"
+            note.write_text(f"# Note {i}\n", encoding="utf-8")
+
+        past_ts = "1970-01-01T00:00:00"
+        result = session_start_hook._build_delta_section("parsidion", past_ts, vault)
+
+        # Should list at most 10 notes
+        new_lines = [line for line in result.splitlines() if "NEW/UPDATED:" in line]
+        assert len(new_lines) <= 10

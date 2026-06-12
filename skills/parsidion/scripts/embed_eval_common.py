@@ -36,7 +36,31 @@ DEFAULT_MODELS: list[str] = [
     "nomic-ai/nomic-embed-text-v1.5",
 ]
 DEFAULT_CHUNKING: list[str] = ["whole", "paragraph", "sliding_512_128"]
-DEFAULT_QUERIES_FILE: Path = vault_common.VAULT_ROOT / "embed_eval_queries.yaml"
+
+
+def get_default_queries_file(vault: Path | None = None) -> Path:
+    """Return the default queries file path for the given vault.
+
+    ARC-011: Replaces the module-level ``DEFAULT_QUERIES_FILE`` constant that
+    baked ``vault_common.VAULT_ROOT`` at import time, preventing correct
+    operation when the active vault is switched at runtime.
+
+    Args:
+        vault: Optional explicit vault path.  When ``None``, resolves via
+            ``vault_common.resolve_vault()``.
+
+    Returns:
+        Path to ``embed_eval_queries.yaml`` inside the resolved vault.
+    """
+    resolved = vault if vault is not None else vault_common.resolve_vault()
+    return resolved / "embed_eval_queries.yaml"
+
+
+# Backward-compatible module-level constant — evaluates at import time using
+# the default vault.  New code should call ``get_default_queries_file()``
+# instead so vault switching works correctly.
+DEFAULT_QUERIES_FILE: Path = get_default_queries_file()
+
 DEFAULT_NOTES_SAMPLE: int = 100
 DEFAULT_QUERIES_PER_NOTE: int = 3
 DEFAULT_TOP_K: int = 10

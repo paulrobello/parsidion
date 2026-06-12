@@ -180,7 +180,13 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 
 | Script | Purpose |
 |--------|---------|
-| `vault_common.py` | Shared library (frontmatter parsing, search, path utilities, config loader, git commit, `build_compact_index()`) |
+| `vault_common.py` | Re-export facade — re-exports all public symbols from the six sub-modules below; existing `import vault_common` callers continue to work unchanged |
+| `vault_config.py` | Config loading, YAML parsing, and validation (`load_config()`, `get_config()`, `validate_config()`) |
+| `vault_path.py` | Path resolution, vault constants, and secure log directory (`resolve_vault()`, `VAULT_ROOT`, `TEMPLATES_DIR`, `_VAULT_FORBIDDEN_PREFIXES`) |
+| `vault_fs.py` | File locking, pending queue, git commit, and daily notes (`flock_exclusive()`, `append_to_pending()`, `git_commit_vault()`, `today_daily_path()`) |
+| `vault_index.py` | Frontmatter parsing, note search, and context building (`parse_frontmatter()`, `build_compact_index()`, `query_note_index()`, `all_vault_notes()`) |
+| `vault_hooks.py` | Hook event logging, env helpers, and transcript analysis (`write_hook_event()`, `detect_categories()`, `apply_configured_env_defaults()`) |
+| `vault_adaptive.py` | Per-note usefulness tracking and last-seen state (`load_usefulness_scores()`, `update_usefulness_scores()`, `save_injected_notes()`) |
 | `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via the configured prompt AI backend (`claude -p` or `codex exec`); `--debug` logs injected context to `$TMPDIR` |
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
@@ -211,7 +217,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 **Templates:** 9 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge)
 
 **Vault structure:**
-```
+```text
 ~/ParsidionVault/            # Or legacy ~/ClaudeVault/ when upgrading
   CLAUDE.md                  # Auto-generated index (includes tag cloud + Existing Tags list)
   config.yaml                # Optional -- hook/summarizer settings (see Configuration)
@@ -271,7 +277,7 @@ A Haiku-powered read-only subagent that isolates vault lookups from the main ses
 6. **Rank & read** -- top 5 by semantic score, then folder priority
 7. **Synthesize** -- returns `## Answer` + `## Sources`
 
-> **📝 Note:** The vault-explorer agent is listed in `excluded_agents` in `config.yaml` to prevent its own transcripts from being recursively harvested by the SubagentStop hook.
+> **Note:** The vault-explorer agent is listed in `excluded_agents` in `config.yaml` to prevent its own transcripts from being recursively harvested by the SubagentStop hook.
 
 ### Research Agent (`~/.claude/agents/research-agent.md`)
 
@@ -458,7 +464,7 @@ make start-visualizer    # serve on port 3999
 make stop-visualizer     # stop
 ```
 
-> **📝 Note:** Requires vault embeddings to be built first: `uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py`
+> **Note:** Requires vault embeddings to be built first: `uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py`
 
 See [docs/VISUALIZER.md](docs/VISUALIZER.md) for the full architecture, data model, graph engine details, and configuration reference.
 
@@ -507,7 +513,7 @@ Copy the template to get started:
 cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 ```
 
-> **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
+> **Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
 > `claude-haiku-4-5-20251001`, `BAAI/bge-small-en-v1.5`) are the hardcoded script defaults.
 > Override any of them via the corresponding key in `<resolved vault>/config.yaml`.
 >
@@ -712,7 +718,7 @@ If no `.git` directory is present, all git operations are silent no-ops.
 
 ## File Locations
 
-```
+```text
 ~/.claude/
   CLAUDE.md                          # Global Claude Code instructions (@imports CLAUDE-VAULT.md)
   CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion)
@@ -783,7 +789,7 @@ VAULT_SEARCH_MIN_SCORE=0.5 VAULT_SEARCH_TOP=5 vault-search "query"
 
 Precedence: **CLI flag > env var > config.yaml > built-in default**
 
-> **📝 Note:** `vault-search` requires `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root) to register it as a global command. Without this, use `uv run --no-project ~/.claude/skills/parsidion/scripts/vault_search.py` instead.
+> **Note:** `vault-search` requires `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root) to register it as a global command. Without this, use `uv run --no-project ~/.claude/skills/parsidion/scripts/vault_search.py` instead.
 
 **Scaffold a new vault note:**
 ```bash

@@ -1,5 +1,7 @@
 # Gemini Runtime Hooks Design
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 ## Summary
 
 Add Gemini CLI as a first-class Parsidion runtime integration alongside Claude Code and Codex. The initial integration will install Gemini native hooks for session start and session end, add Gemini transcript discovery/parsing helpers, and update installer runtime selection so users can choose Claude, Codex, Gemini, all runtimes, or shared tooling only.

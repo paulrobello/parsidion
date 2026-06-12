@@ -510,6 +510,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 
 ## [0.1.0] - 2026-03-10
 
+> **Note:** Versions 0.1.0 through 0.5.x were released under the name **`parsidion-cc`**. The project was renamed to **`parsidion`** in v0.7.0 (see [0.6.0] for the rebrand details). The GitHub repository was also renamed from `paulrobello/parsidion-cc`; legacy links redirect automatically.
+
 ### Added
 - Claude Vault skill (`skills/parsidion-cc/`) with Obsidian-backed knowledge management
 - Session lifecycle hooks: SessionStart, SessionEnd, PreCompact
@@ -526,3 +528,30 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - Optional vault git integration with auto-commit support
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
+
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/paulrobello/parsidion/compare/v0.7.5...v0.7.6
+[0.7.5]: https://github.com/paulrobello/parsidion/compare/v0.7.4...v0.7.5
+[0.7.4]: https://github.com/paulrobello/parsidion/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/paulrobello/parsidion/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/paulrobello/parsidion/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/paulrobello/parsidion/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/paulrobello/parsidion/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/paulrobello/parsidion/compare/v0.5.6...v0.6.0
+[0.5.6]: https://github.com/paulrobello/parsidion/compare/v0.5.5...v0.5.6
+[0.5.5]: https://github.com/paulrobello/parsidion/compare/v0.5.4...v0.5.5
+[0.5.4]: https://github.com/paulrobello/parsidion/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/paulrobello/parsidion/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/paulrobello/parsidion/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/paulrobello/parsidion/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/paulrobello/parsidion/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/paulrobello/parsidion/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/paulrobello/parsidion/compare/v0.3.5...v0.4.0
+[0.3.5]: https://github.com/paulrobello/parsidion/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/paulrobello/parsidion/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/paulrobello/parsidion/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/paulrobello/parsidion/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/paulrobello/parsidion/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/paulrobello/parsidion/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/paulrobello/parsidion/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/paulrobello/parsidion/releases/tag/v0.1.0

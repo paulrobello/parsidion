@@ -1,5 +1,7 @@
 # Graph Features Design: 5 Visualizer Enhancements
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 **Date:** 2026-03-25
 **Status:** Approved
 **Scope:** Vault visualizer (Next.js + Sigma.js v3 + Graphology 0.26, port 3999)

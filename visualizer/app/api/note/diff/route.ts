@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import { resolveVault } from '@/lib/vaultResolver'
+import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -44,7 +44,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid commit reference' }, { status: 400 })
   }
 
-  const vaultRoot = resolveVault(vault)
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch (err) {
+    if (err instanceof VaultConfigError) {
+      return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+    }
+    return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
+  }
   // Prefer explicit vault-relative path (avoids stem collision for MANIFEST.md etc.)
   const notePath = notePathParam
     ? path.join(vaultRoot, notePathParam)
@@ -75,7 +83,9 @@ export async function GET(req: NextRequest) {
     proc.on('close', code => {
       // git diff exits 0 (no diff) or 1 (has diff) — both are success
       if (code !== 0 && code !== 1) {
-        resolve(NextResponse.json({ error: `git diff failed: ${stderr}` }, { status: 500 }))
+        // SEC-003: Log stderr server-side; return a generic error to the client.
+        console.error('[note/diff] git diff failed:', stderr)
+        resolve(NextResponse.json({ error: 'Failed to compute diff' }, { status: 500 }))
         return
       }
 

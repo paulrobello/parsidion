@@ -25,6 +25,7 @@ from pathlib import Path
 
 import vault_common
 
+
 def _pending_path() -> Path:
     """Return the pending summaries path resolved against the current VAULT_ROOT.
 
@@ -33,6 +34,8 @@ def _pending_path() -> Path:
     baking the path at import time.
     """
     return vault_common.VAULT_ROOT / "pending_summaries.jsonl"
+
+
 _EXCERPT_LINES: int = 20
 
 

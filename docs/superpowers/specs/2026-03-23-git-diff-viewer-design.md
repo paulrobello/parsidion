@@ -1,5 +1,7 @@
 # Git Diff Viewer — Design Spec
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 Design specification for the git diff viewer feature in the parsidion web visualizer, enabling users to browse version history and compare commits for vault notes.
 
 **Date:** 2026-03-23

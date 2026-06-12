@@ -1,5 +1,7 @@
 # Summarizer CLI Backend Design
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 ## Summary
 
 Remove the direct `claude-agent-sdk` dependency from `summarize_sessions.py` and route summarizer model calls through Parsidion's backend-neutral CLI prompt layer. The summarizer will use `claude -p` or `codex exec` through `ai_backend.run_ai_prompt()`, selected by the same backend/model configuration introduced for prompt-style scripts. The existing queue, preprocessing, concurrency, write-gate, merge, note-writing, index rebuild, and git behavior remain intact.
