@@ -2374,7 +2374,18 @@ def main() -> None:
     # QA-001/QA-003: Restore VAULT_ROOT on exit to prevent cross-contamination
     original_vault_root = vault_common.VAULT_ROOT
     vault_common.VAULT_ROOT = _vault_path
-    atexit.register(lambda: setattr(vault_common, "VAULT_ROOT", original_vault_root))
+    # ARC-001: clear caches so lru_cache-memoized load_config() and
+    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    def _restore_vault_root() -> None:
+        vault_common.VAULT_ROOT = original_vault_root
+        # ARC-001: flush caches on restore so subsequent code sees the original vault.
+        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    atexit.register(_restore_vault_root)
 
     # Load persistent state
     state = (

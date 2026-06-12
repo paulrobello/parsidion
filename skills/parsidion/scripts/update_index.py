@@ -52,7 +52,16 @@ RECENT_MAX: int = 20
 SUMMARY_MAX_CHARS: int = 80
 STALE_DAYS: int = 30
 
-PID_FILE: Path = VAULT_ROOT / "index.pid"
+def pid_file() -> Path:
+    """Return the PID file path resolved against the current VAULT_ROOT.
+
+    ARC-005: call-time resolution ensures that monkey-patches to
+    ``vault_common.VAULT_ROOT`` (ARC-001) are reflected correctly instead of
+    baking the path at import time.
+    """
+    import vault_common as _vc
+
+    return _vc.VAULT_ROOT / "index.pid"
 
 # Regex to extract wikilink stems like [[note-stem]] from a string
 _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
@@ -102,18 +111,18 @@ _is_process_running = is_process_running
 
 def _write_pid() -> None:
     """Write current PID to the PID file."""
-    tmp = PID_FILE.with_suffix(".pid.tmp")
+    _pf = pid_file()
+    tmp = _pf.with_suffix(".pid.tmp")
     tmp.write_text(str(os.getpid()), encoding="utf-8")
-    tmp.replace(PID_FILE)
+    tmp.replace(_pf)
 
 
 def _release_pid() -> None:
     """Remove the PID file at process exit."""
     try:
-        if PID_FILE.exists() and PID_FILE.read_text(encoding="utf-8").strip() == str(
-            os.getpid()
-        ):
-            PID_FILE.unlink()
+        _pf = pid_file()
+        if _pf.exists() and _pf.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            _pf.unlink()
     except Exception:  # noqa: BLE001
         pass  # best-effort cleanup
 
@@ -121,7 +130,7 @@ def _release_pid() -> None:
 def _singleton_guard() -> None:
     """Exit early if another update_index is already running."""
     try:
-        existing_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
+        existing_pid = int(pid_file().read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         existing_pid = None
 
@@ -734,6 +743,10 @@ def main() -> None:
 
     original_vault_root = vault_common.VAULT_ROOT
     vault_common.VAULT_ROOT = vault_path
+    # ARC-001: clear caches so lru_cache-memoized load_config() and
+    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     _singleton_guard()
     (
@@ -763,8 +776,10 @@ def main() -> None:
         vault=vault_path,
     )
 
-    # Restore original VAULT_ROOT
+    # Restore original VAULT_ROOT and clear caches again (ARC-001).
     vault_common.VAULT_ROOT = original_vault_root
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     current_stems: set[str] = {row.stem for row in db_rows}
     _write_note_index_to_db(db_rows, current_stems, vault=vault_path)
