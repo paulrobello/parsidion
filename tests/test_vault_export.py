@@ -196,7 +196,11 @@ class TestZipExport:
         zip_path = tmp_path / "filtered.zip"
 
         vault_export._cmd_zip(
-            output_file=zip_path, project=None, folder="Patterns", tag=None, vault_path=vault
+            output_file=zip_path,
+            project=None,
+            folder="Patterns",
+            tag=None,
+            vault_path=vault,
         )
 
         with zipfile.ZipFile(zip_path) as zf:

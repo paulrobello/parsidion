@@ -84,6 +84,7 @@ extraPaths = [
 exclude = [
     "parsidion-mcp",
     ".worktrees",
+    ".claude",
     ".venv",
     "skills/parsidion/scripts/build_graph.py",
 ]

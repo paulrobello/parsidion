@@ -14,7 +14,6 @@ import type { EdgeColorMode, NodeSizeMode } from '@/lib/sigma-colors'
 // These are type-only imports; the runtime imports remain dynamic (code-split).
 import type Sigma from 'sigma'
 import type { AbstractGraph } from 'graphology-types'
-import type { NodeDisplayData, EdgeDisplayData } from 'sigma/types'
 
 export interface GraphCanvasHandle {
   flyToNode: (stem: string) => void
