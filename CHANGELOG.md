@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Visualizer vault-path validation** — The TypeScript `resolveVault()` now enforces the same forbidden-prefix list as the Python resolver (`~/.claude`, `/System`, `/usr`, `/bin`, `/sbin`, `/etc`, `~/Library`), and the WebSocket upgrade handler rejects invalid vault paths with HTTP 400. A Python↔TypeScript parity test keeps the two lists in sync.
+- **Visualizer API hardening** — `PUT /api/note` rejects non-`.md` paths; subprocess `stderr` is no longer echoed to clients; security headers added (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`); mutation endpoints require `application/json` and honor an optional `VISUALIZER_TOKEN` bearer check; rebuild route caps subprocess stderr and validates the vault before spawning.
+- **Hook hardening** — `hook_events.log` and `pending_summaries.jsonl` are created `0o600`; transcript paths must end in `.jsonl` before being read; AI prompts in `vault_doctor` wrap untrusted note content in `<content>` tags; real Windows file locking via `msvcrt`.
+
+### Changed
+
+- **`install.py` decomposed** — Split from ~3,100 lines into an `installer/` package (`colors`, `ui`, `paths`, `hooks`, `schedule`, `vault`, `skill`); `install.py` retains `main()` and re-exports the moved symbols, so behavior and the public API are unchanged.
+- **`vault_doctor.py` `main()` slimmed** — Extracted `run_scan_and_repair()` and replaced the repeated `_vault_path` fallback ternary with a single `_active_vault()` resolver.
+- **`vault_stats` library-importable without `rich`** — Data-gathering logic moved to a new stdlib-only `vault_metrics.py`; all `rich` imports are now lazy.
+- **`GraphCanvas.tsx` refactor** — Physics loop, reducers, and renderers extracted into `lib/useForceLayout.ts`, `lib/useGraphReducers.ts`, and `lib/sigma-renderers.ts`; the sigma reducer callbacks are now properly typed (no `any`).
+- **Vault-switch cache correctness** — Scripts that retarget the active vault now clear the `load_config`/`resolve_vault` caches; `update_index.py` and `vault_review.py` resolve their PID/pending paths at call time instead of import time.
+- **`make checkall` covers `parsidion-mcp`** — New `checkall-mcp` target wired into the root quality gate.
+
+### Fixed
+
+- **`summarize_sessions.py` reliability** — Uses the public `anyio.to_thread` import; logs tracebacks and preserves the queue entry on unexpected errors instead of silently dropping the session.
+- **Documentation drift** — `vault_common.__version__` synced to `0.7.6`; README documents the `vault_common` facade and its six submodules; legacy `~/ClaudeVault/` paths updated to `~/ParsidionVault/` across docs; architecture diagram migrated to `classDef` styling; CHANGELOG version comparison links added.
+
 ## [0.7.6] - 2026-05-31
 
 ### Fixed
