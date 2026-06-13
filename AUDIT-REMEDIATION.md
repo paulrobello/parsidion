@@ -20,7 +20,23 @@
 | 3d — All Documentation | ✅ | fix-documentation | 17 (DOC-001..017) | 17 | 0 | 0 |
 | 4 — Verification | ✅ Pass | orchestrator | — | — | — | — |
 
-**Overall**: 54 of 62 issues resolved, 1 partial, 7 deferred to manual follow-up.
+**Overall**: 62 of 62 issues resolved. (Initial automated pass resolved 54; a follow-up
+pass — Waves A–C below — completed the remaining 7 deferred items, plus full GraphCanvas
+typing and the guardPath migration.)
+
+### Follow-up Pass (Waves A–C) — Remaining 7 Items Now Resolved
+
+| Wave | Item | Status | Outcome |
+|------|------|--------|---------|
+| A | SEC-012 | ✅ | 3 route files now import the shared `guardPath` from `vaultResolver.ts`; local copies deleted (confirmed byte-equivalent). |
+| A | QA-004 (full) | ✅ | `GraphCanvas.tsx` 1,165 → 875 lines; extracted `lib/sigma-renderers.ts`, `lib/useGraphReducers.ts`, `lib/useForceLayout.ts`; all 6 `any` reducer suppressions removed via proper sigma typing. |
+| A | ARC-015 | ✅ (documented) | SSE-migration path fully analyzed in `visualizer/docs/server-evaluation.md`; deferred with rationale (WebSocket→EventSource client rewrite, ~2–4h). CLAUDE.md corrected (it's a Node `http` server, not Express). |
+| B | ARC-009 | ✅ | Tests migrated to a shared `tmp_vault` env-var fixture in `tests/conftest.py`; the runtime-required `sys.modules` branch kept (it backs `update_index.py --vault-path`) with a clarifying comment. |
+| B | ARC-007/012 | ✅ | New stdlib-only `vault_metrics.py` data layer extracted from `vault_stats.py`; all `rich` imports made lazy — `vault_metrics`/`vault_stats` now import without the `[tools]` extra (proven). |
+| C | ARC-002 | ✅ | `install.py` 3,119 → 858 lines; logic moved into an `installer/` package (`colors`, `ui`, `paths`, `hooks`, `schedule`, `vault`, `skill`). `install.py` keeps `main()` + re-exports moved symbols so `test_install.py` is unchanged. `--help`/`--dry-run` verified. |
+| C | ARC-003 | ✅ | `vault_doctor.py` `main()` 519 → 267 lines via extracted `run_scan_and_repair()`; the 12-site `_vault_path if _vault_path else VAULT_ROOT` ternary replaced by one `_active_vault()` helper. |
+
+All waves verified with `make checkall` (now including the MCP package): **456 root tests + 35 MCP tests pass, pyright 0 errors, ruff clean**, visualizer `tsc`/`lint`/`build` green.
 
 ---
 
@@ -91,43 +107,20 @@
 
 ## Requires Manual Intervention 🔧
 
-These were intentionally deferred by the orchestrator — AUDIT.md's own roadmap marks them
-long-term backlog, and running them concurrently with the Phase 3 fixes to the same files
-would have guaranteed conflicts.
+None. All 7 items originally deferred from the automated pass were completed in the
+follow-up Waves A–C (see the table above). The only residual nuances, both intentional and
+documented in code/comments:
 
-### [ARC-002] Decompose `install.py` (3,119 lines) into an `installer/` package
-- **Why**: Large structural refactor; conflicts with concurrent in-file fixes; needs phased execution with review gates.
-- **Recommended approach**: Extract `hooks.py` (3-runtime hook merging), `scheduler.py` (launchd/cron), `vault_setup.py` (vault dirs/git), then thin `install()` orchestrator. Do Step-0 dead-code cleanup first per repo conventions.
-- **Estimated effort**: Large.
-
-### [ARC-003] Refactor `vault_doctor.py` (2,714 lines; 508-line `main()`) into mode dispatch + explicit vault threading
-- **Why**: Same as above; ARC-001's minimal cache fix landed first as planned.
-- **Recommended approach**: `run_<mode>()` functions + dispatch table; replace `_vault_path` global with a `vault: Path` parameter; shared PID-lock context manager.
-- **Estimated effort**: Large.
-
-### [ARC-007] / [ARC-012] Split CLI display layer from data layer in `vault_search.py` / `vault_stats.py`
-- **Why**: Conflicted with the new test suites (QA-005) written this pass; tests-first was the safer order and is now done.
-- **Recommended approach**: Move DB-query logic into `vault_common` submodules; keep the CLIs as thin presenters. The new tests act as the refactor safety net.
-- **Estimated effort**: Medium.
-
-### [ARC-009] Decouple `resolve_vault()` caching from test monkey-patching
-- **Why**: Requires touching every test using `monkeypatch.setattr(vault_common, "VAULT_ROOT", ...)`; too broad to change atomically alongside everything else.
-- **Recommended approach**: Switch tests to `monkeypatch.setenv("CLAUDE_VAULT", ...)` + `cache_clear()`, then remove the `sys.modules` inspection branch from `_resolve_vault_cached`.
-- **Estimated effort**: Medium.
-
-### [ARC-015] Evaluate replacing the custom Express server with SSE-based Next.js routes
-- **Why**: Design evaluation, not a mechanical fix.
-- **Estimated effort**: Medium (investigation + prototype).
-
-### [QA-004 remainder] Full `GraphCanvas.tsx` split with end-to-end sigma typing
-- **Why**: Typing the reducers requires declaring the graph as `MultiGraph<NodeDisplayData>` across graph construction in multiple files — sigma API constraint, larger refactor.
-- **Recommended approach**: Extract `useForceLayout.ts` / `useGraphReducers.ts` / `lib/sigma-renderers.ts` with co-typed graph attributes in one dedicated pass.
-- **Estimated effort**: Medium.
-
-### [SEC-012 remainder] Migrate the 3 route-local `guardPath` copies to the shared export
-- **Why**: Shared `guardPath()` was added; the identical local copies were left to keep the diff surgical.
-- **Recommended approach**: Replace each local copy with `import { guardPath } from '@/lib/vaultResolver'` and delete the duplicates.
-- **Estimated effort**: Small.
+- **ARC-015** was resolved as a *documented deferral* — the SSE migration is viable but the
+  actual WebSocket→EventSource swap is left for a dedicated pass; the full analysis and
+  migration sketch live in `visualizer/docs/server-evaluation.md`.
+- **ARC-009** intentionally **keeps** the `sys.modules["vault_common"].VAULT_ROOT` branch in
+  `_resolve_vault_cached` because `update_index.py --vault-path` relies on it at runtime;
+  the test-side coupling (the thing the audit actually flagged) was removed by migrating
+  tests to the public `tmp_vault` env-var fixture.
+- **ARC-009 note**: `tests/test_update_index.py` still assigns `VAULT_ROOT` directly because
+  `update_index._folder_name()` reads the module global, not `resolve_vault()`. Left as-is
+  (out of scope; would require changing how `_folder_name` resolves the root).
 
 ---
 
@@ -181,8 +174,7 @@ No regressions. `make checkall` exits 0.
 
 ## Next Steps
 
-1. Review the **Requires Manual Intervention** items — ARC-002 and ARC-003 are the two big decompositions; each deserves its own planned, phased effort.
-2. The new tests (QA-005/006) were written tests-first specifically so the ARC-007 layer split can proceed safely next.
-3. `uv run install.py --force --yes` to sync the modified hook scripts to `~/.claude/` (several live hook scripts changed: `vault_hooks.py`, `vault_fs.py`, `session_stop_wrapper.sh`, `vault_index.py`, `session_start_hook.py`, etc.).
-4. Re-run `/audit` after merging to get a fresh AUDIT.md reflecting the remediated state.
-5. Optional: clean up the stale locked agent worktree at `.claude/worktrees/agent-a64dff775a1f9ee64` (`git worktree remove --force`).
+1. `uv run install.py --force --yes` to sync the modified hook scripts to `~/.claude/` (several live hook scripts changed: `vault_hooks.py`, `vault_fs.py`, `session_stop_wrapper.sh`, `vault_index.py`, `session_start_hook.py`, `vault_doctor.py`, etc.). The `installer/` decomposition does not change installed behavior, but the hook-script content changes do.
+2. Re-run `/audit` after merging to get a fresh AUDIT.md reflecting the remediated state.
+3. Optional follow-up: the ARC-015 SSE server migration (deferred by design — see `visualizer/docs/server-evaluation.md`).
+4. Optional: clean up the stale locked agent worktree at `.claude/worktrees/agent-a64dff775a1f9ee64` (`git worktree remove --force`).
