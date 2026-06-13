@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
+import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -19,10 +19,6 @@ function findNote(dir: string, stemToFind: string): string | null {
     }
   } catch { /* skip */ }
   return null
-}
-
-function guardPath(notePath: string, vaultRoot: string): boolean {
-  return path.resolve(notePath).startsWith(path.resolve(vaultRoot) + path.sep)
 }
 
 export interface CommitEntry {

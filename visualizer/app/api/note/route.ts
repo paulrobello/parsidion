@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs/promises'
 import path from 'path'
-import { resolveVault } from '@/lib/vaultResolver'
+import { resolveVault, guardPath } from '@/lib/vaultResolver'
 import { requireAuth } from '@/lib/apiAuth'
 
 // QA-006: Replaced all synchronous fs calls with async fs.promises equivalents.
@@ -63,12 +63,6 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Failed to read note' }, { status: 500 })
   }
-}
-
-function guardPath(notePath: string, vaultRoot: string): boolean {
-  const resolved = path.resolve(notePath)
-  const resolvedRoot = path.resolve(vaultRoot)
-  return resolved.startsWith(resolvedRoot + path.sep)
 }
 
 export async function POST(req: NextRequest) {
