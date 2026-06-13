@@ -28,18 +28,18 @@ import vault_export  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+# ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var) instead
+# of monkeypatching vault_common.VAULT_ROOT directly.
 @pytest.fixture(autouse=True)
-def _patch_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+def _patch_vault(tmp_vault: Path) -> None:  # noqa: ARG001
+    """Wire resolve_vault() to a fresh tmp dir via the tmp_vault fixture."""
 
 
 @pytest.fixture()
-def vault(tmp_path: Path) -> Path:
+def vault(tmp_vault: Path) -> Path:
     for d in vault_common.VAULT_DIRS:
-        (tmp_path / d).mkdir(exist_ok=True)
-    return tmp_path
+        (tmp_vault / d).mkdir(exist_ok=True)
+    return tmp_vault
 
 
 def _note(vault: Path, rel_path: str, frontmatter: str, body: str) -> Path:

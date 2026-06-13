@@ -19,21 +19,20 @@ import vault_doctor
 # ---------------------------------------------------------------------------
 
 
+# ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var) instead
+# of monkeypatching vault_common.VAULT_ROOT directly.
 @pytest.fixture(autouse=True)
-def _patch_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point vault_common and vault_doctor at a temporary vault."""
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
-    monkeypatch.setattr(vault_doctor, "_vault_path", tmp_path)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+def _patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wire resolve_vault() to a fresh tmp dir and point vault_doctor there."""
+    monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
 
 
 @pytest.fixture()
-def vault(tmp_path: Path) -> Path:
+def vault(tmp_vault: Path) -> Path:
     """Return the tmp vault path and create standard dirs."""
     for d in vault_common.VAULT_DIRS:
-        (tmp_path / d).mkdir(exist_ok=True)
-    return tmp_path
+        (tmp_vault / d).mkdir(exist_ok=True)
+    return tmp_vault
 
 
 def _write_note(vault: Path, rel_path: str, content: str) -> Path:

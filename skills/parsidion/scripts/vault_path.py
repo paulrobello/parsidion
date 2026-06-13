@@ -353,10 +353,18 @@ def _resolve_vault_cached(
         return _resolve_vault_reference(env_vault)
 
     # 4. Default vault
-    # ARC-005: Check vault_common's VAULT_ROOT first so that
-    # monkeypatch.setattr(vault_common, "VAULT_ROOT", ...) in tests
-    # propagates correctly through the re-export facade. When unpatched, compute
-    # the default dynamically so HOME changes and legacy detection are respected.
+    # ARC-005 / ARC-009: Check vault_common's VAULT_ROOT so that RUNTIME
+    # callers which mutate that attribute (e.g. ``update_index.py`` lines
+    # 746-782: ``vault_common.VAULT_ROOT = vault_path``) are reflected here.
+    # This is NOT a test-patching hook — it serves the legitimate production
+    # use-case where update_index temporarily swaps the vault root for an
+    # explicit ``--vault-path`` CLI argument and needs resolve_vault() to
+    # follow suit after cache_clear().
+    #
+    # ARC-009: Tests should NOT rely on this branch.  Use the ``tmp_vault``
+    # fixture in tests/conftest.py instead, which sets CLAUDE_VAULT (branch 3
+    # above) — the public override path.  Keeping this branch ensures that
+    # runtime vault-swapping in update_index.py continues to work.
     vc = sys.modules.get("vault_common")
     if vc is not None:
         vc_root = getattr(vc, "VAULT_ROOT", VAULT_ROOT)

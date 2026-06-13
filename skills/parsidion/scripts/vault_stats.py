@@ -28,29 +28,31 @@ Falls back to a plain-text walk when the DB is absent.
 """
 
 import argparse
-import json
 import os
 import sqlite3
 import sys
-import time
-from datetime import datetime, UTC
 from pathlib import Path
 
 import vault_common
-
-from rich.columns import Columns
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich import box
-
-
-_CONSOLE = Console()
+import vault_metrics
 
 
 # ---------------------------------------------------------------------------
-# DB helpers
+# Lazy rich accessor — keeps module importable without rich installed
+# ---------------------------------------------------------------------------
+
+
+def _get_console():  # type: ignore[return]
+    """Return the shared Rich Console instance, importing rich lazily."""
+    from rich.console import Console  # noqa: PLC0415
+
+    if not hasattr(_get_console, "_instance"):
+        _get_console._instance = Console()  # type: ignore[attr-defined]
+    return _get_console._instance  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# DB helpers (thin wrappers; real implementation in vault_metrics)
 # ---------------------------------------------------------------------------
 
 
@@ -63,15 +65,7 @@ def _open_db(vault: Path | None = None) -> sqlite3.Connection | None:
     Returns:
         An open connection, or None if the DB is absent or unreadable.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
-    if not db_path.exists():
-        return None
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        return conn
-    except sqlite3.Error:
-        return None
+    return vault_metrics.open_db(vault)
 
 
 def _fetch_all(
@@ -87,14 +81,28 @@ def _fetch_all(
     Returns:
         List of Row objects.
     """
-    try:
-        return conn.execute(sql, params).fetchall()
-    except sqlite3.Error:
-        return []
+    return vault_metrics.fetch_all(conn, sql, params)
+
+
+def _collect_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
+    """Collect all tags from note_index; delegate to vault_metrics.
+
+    The ``tags`` column stores either a comma-separated string or a JSON
+    array; both formats are handled.  Kept as a thin wrapper so that
+    existing callers (including test_vault_stats.py) continue to work
+    without change.
+
+    Args:
+        conn: Open DB connection.
+
+    Returns:
+        List of (tag, count) tuples sorted by count descending.
+    """
+    return vault_metrics.collect_tags(conn)
 
 
 # ---------------------------------------------------------------------------
-# Modes
+# Display functions (rich-dependent; rich is imported lazily inside each fn)
 # ---------------------------------------------------------------------------
 
 
@@ -104,37 +112,33 @@ def run_summary(conn: sqlite3.Connection) -> None:
     Args:
         conn: Open DB connection.
     """
-    total = _fetch_all(conn, "SELECT COUNT(*) AS n FROM note_index")[0]["n"]
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    folder_rows = _fetch_all(
-        conn,
-        "SELECT folder, COUNT(*) AS n FROM note_index GROUP BY folder ORDER BY n DESC",
+    data = vault_metrics.collect_summary(conn)
+    console = _get_console()
+
+    console.print(
+        f"\n[bold cyan]Vault Summary[/bold cyan] — {data['total']} notes total\n"
     )
-    type_rows = _fetch_all(
-        conn,
-        "SELECT note_type, COUNT(*) AS n FROM note_index GROUP BY note_type ORDER BY n DESC",
-    )
 
-    _CONSOLE.print(f"\n[bold cyan]Vault Summary[/bold cyan] — {total} notes total\n")
-
-    # Folder table
     t = Table(title="Notes by Folder", box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Folder", style="cyan")
     t.add_column("Count", justify="right", style="white")
     t.add_column("Bar", style="green")
+    folder_rows = data["by_folder"]
     max_n = folder_rows[0]["n"] if folder_rows else 1
     for row in folder_rows:
         bar = "▄" * max(1, int(row["n"] / max_n * 20))
         t.add_row(row["folder"] or "(root)", str(row["n"]), bar)
-    _CONSOLE.print(t)
+    console.print(t)
 
-    # Type table
     t2 = Table(title="Notes by Type", box=box.SIMPLE_HEAD, show_lines=False)
     t2.add_column("Type", style="magenta")
     t2.add_column("Count", justify="right", style="white")
-    for row in type_rows:
+    for row in data["by_type"]:
         t2.add_row(row["note_type"] or "(unset)", str(row["n"]))
-    _CONSOLE.print(t2)
+    console.print(t2)
 
 
 def run_stale(conn: sqlite3.Connection) -> None:
@@ -143,28 +147,28 @@ def run_stale(conn: sqlite3.Connection) -> None:
     Args:
         conn: Open DB connection.
     """
-    rows = _fetch_all(
-        conn,
-        "SELECT stem, title, folder, mtime FROM note_index WHERE is_stale = 1 ORDER BY mtime ASC",
-    )
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
+
+    rows = vault_metrics.collect_stale(conn)
+    console = _get_console()
 
     if not rows:
-        _CONSOLE.print("[green]No stale notes found.[/green]")
+        console.print("[green]No stale notes found.[/green]")
         return
 
-    _CONSOLE.print(f"\n[bold yellow]Stale Notes[/bold yellow] — {len(rows)} found\n")
+    console.print(f"\n[bold yellow]Stale Notes[/bold yellow] — {len(rows)} found\n")
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Note", style="cyan")
     t.add_column("Folder", style="dim")
     t.add_column("Last Modified", style="white")
     for row in rows:
-        try:
-            dt = datetime.fromtimestamp(row["mtime"], tz=UTC)
-            age = dt.strftime("%Y-%m-%d")
-        except (OSError, ValueError):
-            age = "unknown"
-        t.add_row(f"[[{row['stem']}]]", row["folder"] or "(root)", age)
-    _CONSOLE.print(t)
+        t.add_row(
+            f"[[{row['stem']}]]",
+            row["folder"] or "(root)",
+            row["age"],
+        )
+    console.print(t)
 
 
 def run_top_linked(conn: sqlite3.Connection, top_n: int = 10) -> None:
@@ -174,19 +178,17 @@ def run_top_linked(conn: sqlite3.Connection, top_n: int = 10) -> None:
         conn: Open DB connection.
         top_n: Number of notes to display.
     """
-    rows = _fetch_all(
-        conn,
-        "SELECT stem, title, folder, incoming_links FROM note_index "
-        "WHERE incoming_links > 0 "
-        "ORDER BY incoming_links DESC LIMIT ?",
-        (top_n,),
-    )
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
+
+    rows = vault_metrics.collect_top_linked(conn, top_n)
+    console = _get_console()
 
     if not rows:
-        _CONSOLE.print("[dim]No notes with incoming links found.[/dim]")
+        console.print("[dim]No notes with incoming links found.[/dim]")
         return
 
-    _CONSOLE.print(f"\n[bold cyan]Top {top_n} Most-Linked Notes[/bold cyan]\n")
+    console.print(f"\n[bold cyan]Top {top_n} Most-Linked Notes[/bold cyan]\n")
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Note", style="cyan")
     t.add_column("Title", style="white")
@@ -199,7 +201,7 @@ def run_top_linked(conn: sqlite3.Connection, top_n: int = 10) -> None:
             row["folder"] or "(root)",
             str(row["incoming_links"]),
         )
-    _CONSOLE.print(t)
+    console.print(t)
 
 
 def run_by_project(conn: sqlite3.Connection) -> None:
@@ -208,104 +210,52 @@ def run_by_project(conn: sqlite3.Connection) -> None:
     Args:
         conn: Open DB connection.
     """
-    rows = _fetch_all(
-        conn,
-        "SELECT project, COUNT(*) AS n FROM note_index "
-        "WHERE project != '' "
-        "GROUP BY project ORDER BY n DESC",
-    )
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    untagged = _fetch_all(
-        conn,
-        "SELECT COUNT(*) AS n FROM note_index WHERE project = ''",
-    )
-    untagged_n = untagged[0]["n"] if untagged else 0
+    data = vault_metrics.collect_by_project(conn)
+    console = _get_console()
 
-    if not rows:
-        _CONSOLE.print("[dim]No project-tagged notes found.[/dim]")
+    if not data["by_project"]:
+        console.print("[dim]No project-tagged notes found.[/dim]")
         return
 
-    _CONSOLE.print("\n[bold cyan]Notes by Project[/bold cyan]\n")
+    console.print("\n[bold cyan]Notes by Project[/bold cyan]\n")
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Project", style="cyan")
     t.add_column("Count", justify="right", style="white")
-    for row in rows:
+    for row in data["by_project"]:
         t.add_row(row["project"], str(row["n"]))
-    if untagged_n:
-        t.add_row("[dim](no project)[/dim]", f"[dim]{untagged_n}[/dim]")
-    _CONSOLE.print(t)
+    if data["untagged_n"]:
+        t.add_row("[dim](no project)[/dim]", f"[dim]{data['untagged_n']}[/dim]")
+    console.print(t)
 
 
 def run_growth(conn: sqlite3.Connection, weeks: int = 8) -> None:
     """Print notes created per week for the last N weeks.
 
-    Uses mtime as a proxy for creation time (first indexed time).
-
     Args:
         conn: Open DB connection.
         weeks: Number of weeks to display.
     """
-    now = time.time()
-    week_secs = 7 * 24 * 3600
-    cutoff = now - weeks * week_secs
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    rows = _fetch_all(
-        conn,
-        "SELECT mtime FROM note_index WHERE mtime >= ? ORDER BY mtime ASC",
-        (cutoff,),
-    )
+    rows = vault_metrics.collect_growth(conn, weeks)
+    console = _get_console()
 
-    # Bin into weeks
-    buckets: dict[int, int] = {}
-    for row in rows:
-        week_num = int((now - row["mtime"]) / week_secs)
-        week_num = min(week_num, weeks - 1)
-        buckets[week_num] = buckets.get(week_num, 0) + 1
-
-    _CONSOLE.print(f"\n[bold cyan]Note Growth — last {weeks} weeks[/bold cyan]\n")
+    console.print(f"\n[bold cyan]Note Growth — last {weeks} weeks[/bold cyan]\n")
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Week", style="dim")
     t.add_column("Count", justify="right", style="white")
     t.add_column("Bar", style="green")
-    max_count = max(buckets.values()) if buckets else 1
-    for w in range(weeks - 1, -1, -1):
-        n = buckets.get(w, 0)
-        label = "this week" if w == 0 else f"{w}w ago"
-        bar = "▄" * max(0, int(n / max_count * 20)) if n else ""
-        t.add_row(label, str(n), bar)
-    _CONSOLE.print(t)
-
-
-def _collect_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
-    """Collect all tags from note_index, returning (tag, count) sorted by count desc.
-
-    The ``tags`` column stores either a comma-separated string
-    (``"python, vault, hooks"``) or a JSON array (``["python", "vault"]``).
-    Both formats are handled; malformed values are skipped silently.
-
-    Args:
-        conn: Open DB connection.
-
-    Returns:
-        List of (tag, count) tuples sorted by count descending.
-    """
-    rows = _fetch_all(
-        conn, "SELECT tags FROM note_index WHERE tags IS NOT NULL AND tags != ''"
-    )
-    counts: dict[str, int] = {}
+    max_count = max((r["n"] for r in rows), default=1)
+    max_count = max(max_count, 1)
     for row in rows:
-        raw = row["tags"]
-        # Try JSON array first, fall back to comma-separated string
-        try:
-            parsed = json.loads(raw)
-            tag_list: list[str] = parsed if isinstance(parsed, list) else []
-        except (json.JSONDecodeError, TypeError):
-            tag_list = [t.strip() for t in raw.split(",")]
-        for tag in tag_list:
-            t = str(tag).strip()
-            if t:
-                counts[t] = counts.get(t, 0) + 1
-    return sorted(counts.items(), key=lambda x: -x[1])
+        n = row["n"]
+        bar = "▄" * max(0, int(n / max_count * 20)) if n else ""
+        t.add_row(row["label"], str(n), bar)
+    console.print(t)
 
 
 def run_tags(conn: sqlite3.Connection, top_n: int = 30) -> None:
@@ -315,12 +265,17 @@ def run_tags(conn: sqlite3.Connection, top_n: int = 30) -> None:
         conn: Open DB connection.
         top_n: Maximum number of tags to display.
     """
-    tags = _collect_tags(conn)[:top_n]
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
+
+    tags = vault_metrics.collect_tags(conn)[:top_n]
+    console = _get_console()
+
     if not tags:
-        _CONSOLE.print("[dim]No tags found.[/dim]")
+        console.print("[dim]No tags found.[/dim]")
         return
 
-    _CONSOLE.print(
+    console.print(
         f"\n[bold cyan]Tag Cloud[/bold cyan] — top {min(top_n, len(tags))} tags\n"
     )
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
@@ -331,7 +286,7 @@ def run_tags(conn: sqlite3.Connection, top_n: int = 30) -> None:
     for tag, count in tags:
         bar = "▄" * max(1, int(count / max_count * 20))
         t.add_row(tag, str(count), bar)
-    _CONSOLE.print(t)
+    console.print(t)
 
 
 def run_dashboard(conn: sqlite3.Connection) -> None:
@@ -343,45 +298,22 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     Args:
         conn: Open DB connection.
     """
-    now = time.time()
-    week_secs = 7 * 24 * 3600
+    from rich.columns import Columns  # noqa: PLC0415
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.table import Table  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    # --- collect data ---
-    total = _fetch_all(conn, "SELECT COUNT(*) AS n FROM note_index")[0]["n"]
-    stale_count = _fetch_all(
-        conn, "SELECT COUNT(*) AS n FROM note_index WHERE is_stale = 1"
-    )[0]["n"]
-    linked_count = _fetch_all(
-        conn, "SELECT COUNT(*) AS n FROM note_index WHERE incoming_links > 0"
-    )[0]["n"]
-    folder_rows = _fetch_all(
-        conn,
-        "SELECT folder, COUNT(*) AS n FROM note_index GROUP BY folder ORDER BY n DESC",
-    )
-    top_linked_rows = _fetch_all(
-        conn,
-        "SELECT stem, title, incoming_links FROM note_index "
-        "WHERE incoming_links > 0 ORDER BY incoming_links DESC LIMIT 10",
-    )
-    stale_rows = _fetch_all(
-        conn,
-        "SELECT stem, folder, mtime FROM note_index WHERE is_stale = 1 ORDER BY mtime ASC LIMIT 10",
-    )
-    growth_rows = _fetch_all(
-        conn,
-        "SELECT mtime FROM note_index WHERE mtime >= ? ORDER BY mtime ASC",
-        (now - 8 * week_secs,),
-    )
-    tags_data = _collect_tags(conn)[:20]
+    data = vault_metrics.collect_dashboard(conn)
+    console = _get_console()
 
-    # --- header ---
-    _CONSOLE.print()
-    _CONSOLE.rule("[bold cyan]Parsidion vault Dashboard[/bold cyan]")
-    _CONSOLE.print(
-        f"\n  [bold white]{total}[/bold white] notes  ·  "
-        f"[yellow]{stale_count}[/yellow] stale  ·  "
-        f"[green]{linked_count}[/green] linked  ·  "
-        f"[dim]{datetime.now(tz=UTC).strftime('%Y-%m-%d %H:%M UTC')}[/dim]\n"
+    console.print()
+    console.rule("[bold cyan]Parsidion vault Dashboard[/bold cyan]")
+    console.print(
+        f"\n  [bold white]{data['total']}[/bold white] notes  ·  "
+        f"[yellow]{data['stale_count']}[/yellow] stale  ·  "
+        f"[green]{data['linked_count']}[/green] linked  ·  "
+        f"[dim]{data['timestamp']}[/dim]\n"
     )
 
     # --- folder distribution ---
@@ -389,42 +321,40 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     folder_table.add_column("Folder", style="cyan")
     folder_table.add_column("Count", justify="right", style="white")
     folder_table.add_column("Bar", style="green")
+    folder_rows = data["by_folder"]
     max_n = folder_rows[0]["n"] if folder_rows else 1
     for row in folder_rows:
         bar = "▄" * max(1, int(row["n"] / max_n * 16))
         folder_table.add_row(row["folder"] or "(root)", str(row["n"]), bar)
 
     # --- weekly growth ---
-    buckets: dict[int, int] = {}
-    for row in growth_rows:
-        w = int((now - row["mtime"]) / week_secs)
-        w = min(w, 7)
-        buckets[w] = buckets.get(w, 0) + 1
     growth_table = Table(
         title="Note Growth (8w)", box=box.SIMPLE_HEAD, show_lines=False
     )
     growth_table.add_column("Week", style="dim")
     growth_table.add_column("n", justify="right", style="white")
     growth_table.add_column("Bar", style="green")
-    max_g = max(buckets.values()) if buckets else 1
-    for w in range(7, -1, -1):
-        n = buckets.get(w, 0)
-        label = "this week" if w == 0 else f"{w}w ago"
+    growth = data["growth"]
+    max_g = max((r["n"] for r in growth), default=1)
+    max_g = max(max_g, 1)
+    for row in growth:
+        n = row["n"]
         bar = "▄" * max(0, int(n / max_g * 16)) if n else ""
-        growth_table.add_row(label, str(n), bar)
+        growth_table.add_row(row["label"], str(n), bar)
 
-    _CONSOLE.print(Columns([folder_table, growth_table], equal=False, expand=False))
+    console.print(Columns([folder_table, growth_table], equal=False, expand=False))
 
     # --- top linked ---
-    _CONSOLE.print()
+    console.print()
     linked_table = Table(
         title="Top 10 Most-Linked Notes", box=box.SIMPLE_HEAD, show_lines=False
     )
     linked_table.add_column("Note", style="cyan")
     linked_table.add_column("Title", style="white")
     linked_table.add_column("Links", justify="right", style="green")
-    if top_linked_rows:
-        for row in top_linked_rows:
+    top_linked = data["top_linked"]
+    if top_linked:
+        for row in top_linked:
             linked_table.add_row(
                 f"[[{row['stem']}]]",
                 (row["title"] or row["stem"])[:40],
@@ -440,20 +370,22 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     stale_table.add_column("Note", style="yellow")
     stale_table.add_column("Folder", style="dim")
     stale_table.add_column("Modified", style="white")
-    if stale_rows:
-        for row in stale_rows:
-            try:
-                age = datetime.fromtimestamp(row["mtime"], tz=UTC).strftime("%Y-%m-%d")
-            except (OSError, ValueError):
-                age = "unknown"
-            stale_table.add_row(f"[[{row['stem']}]]", row["folder"] or "(root)", age)
+    stale = data["stale"]
+    if stale:
+        for row in stale:
+            stale_table.add_row(
+                f"[[{row['stem']}]]",
+                row["folder"] or "(root)",
+                row["age"],
+            )
     else:
         stale_table.add_row("[dim]—[/dim]", "[dim]no stale notes[/dim]", "")
 
-    _CONSOLE.print(Columns([linked_table, stale_table], equal=False, expand=False))
+    console.print(Columns([linked_table, stale_table], equal=False, expand=False))
 
     # --- tag cloud ---
-    _CONSOLE.print()
+    console.print()
+    tags_data = data["tags"]
     if tags_data:
         tag_text = Text()
         max_count = tags_data[0][1]
@@ -470,134 +402,86 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
             if i > 0:
                 tag_text.append("  ")
             tag_text.append(f"{tag}({count})", style=style)
-        _CONSOLE.print(Panel(tag_text, title="Tag Cloud (top 20)", border_style="dim"))
+        console.print(Panel(tag_text, title="Tag Cloud (top 20)", border_style="dim"))
     else:
-        _CONSOLE.print("[dim]No tags found.[/dim]")
+        console.print("[dim]No tags found.[/dim]")
 
-    _CONSOLE.print()
+    console.print()
 
 
 def run_pending(vault: Path | None = None) -> None:
-    """Print a summary of pending_summaries.jsonl queue.
+    """Print a summary of pending_summaries.jsonl queue."""
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    Shows total entries queued, breakdown by source (session vs subagent),
-    projects with pending summaries, oldest pending entry timestamp, and a
-    rough token estimate (100 tokens per entry as proxy).
-    """
-    vault = vault or vault_common.resolve_vault()
-    pending_path = vault / "pending_summaries.jsonl"
-    if not pending_path.exists():
-        _CONSOLE.print("[dim]No pending_summaries.jsonl found — queue is empty.[/dim]")
+    data = vault_metrics.collect_pending(vault)
+    console = _get_console()
+
+    if not data["exists"]:
+        console.print("[dim]No pending_summaries.jsonl found — queue is empty.[/dim]")
         return
 
-    entries: list[dict] = []
-    try:
-        with open(pending_path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-    except OSError as exc:
-        _CONSOLE.print(f"[red]Cannot read pending_summaries.jsonl: {exc}[/red]")
+    if data.get("error"):
+        console.print("[red]Cannot read pending_summaries.jsonl[/red]")
         return
 
-    if not entries:
-        _CONSOLE.print("[green]Queue is empty (0 entries).[/green]")
+    total = data["total"]
+    if total == 0:
+        console.print("[green]Queue is empty (0 entries).[/green]")
         return
 
-    total = len(entries)
-    # Source breakdown
-    source_counts: dict[str, int] = {}
-    project_counts: dict[str, int] = {}
-    oldest_ts: str | None = None
-
-    for entry in entries:
-        src = entry.get("source", "session")
-        source_counts[src] = source_counts.get(src, 0) + 1
-        project = entry.get("project", "")
-        if project:
-            project_counts[project] = project_counts.get(project, 0) + 1
-        ts = entry.get("timestamp", "")
-        if ts and (oldest_ts is None or ts < oldest_ts):
-            oldest_ts = ts
-
-    token_estimate = total * 100
-
-    _CONSOLE.print(
+    token_estimate = data["token_estimate"]
+    console.print(
         f"\n[bold cyan]Pending Summaries Queue[/bold cyan] — {total} entries "
         f"(~{token_estimate:,} tokens estimated)\n"
     )
 
-    # Source breakdown table
     src_table = Table(title="By Source", box=box.SIMPLE_HEAD, show_lines=False)
     src_table.add_column("Source", style="cyan")
     src_table.add_column("Count", justify="right", style="white")
-    for src, count in sorted(source_counts.items(), key=lambda x: -x[1]):
+    for src, count in sorted(data["source_counts"].items(), key=lambda x: -x[1]):
         src_table.add_row(src, str(count))
-    _CONSOLE.print(src_table)
+    console.print(src_table)
 
-    # Projects table
-    if project_counts:
-        _CONSOLE.print()
+    if data["project_counts"]:
+        console.print()
         proj_table = Table(title="By Project", box=box.SIMPLE_HEAD, show_lines=False)
         proj_table.add_column("Project", style="cyan")
         proj_table.add_column("Count", justify="right", style="white")
-        for proj, count in sorted(project_counts.items(), key=lambda x: -x[1]):
+        for proj, count in sorted(data["project_counts"].items(), key=lambda x: -x[1]):
             proj_table.add_row(proj, str(count))
-        _CONSOLE.print(proj_table)
+        console.print(proj_table)
 
-    if oldest_ts:
-        _CONSOLE.print(f"\n  [dim]Oldest entry:[/dim] {oldest_ts}")
-    _CONSOLE.print()
+    if data["oldest_ts"]:
+        console.print(f"\n  [dim]Oldest entry:[/dim] {data['oldest_ts']}")
+    console.print()
 
 
 def run_graph(conn: sqlite3.Connection) -> None:
     """Print knowledge graph analytics from the note_index.
 
-    Shows average incoming_links per note, hub notes (incoming_links >= 5),
-    isolated notes (zero incoming_links AND empty related field), and the
-    total linked vs unlinked ratio.
-
     Args:
         conn: Open DB connection.
     """
-    all_rows = _fetch_all(
-        conn,
-        "SELECT stem, title, folder, incoming_links, related FROM note_index",
-    )
-    if not all_rows:
-        _CONSOLE.print("[dim]No notes in index.[/dim]")
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
+
+    data = vault_metrics.collect_graph(conn)
+    console = _get_console()
+
+    if data["total"] == 0:
+        console.print("[dim]No notes in index.[/dim]")
         return
 
-    total = len(all_rows)
-    total_links = sum(r["incoming_links"] or 0 for r in all_rows)
-    avg_links = total_links / total if total else 0.0
-
-    linked_count = sum(1 for r in all_rows if (r["incoming_links"] or 0) > 0)
-    unlinked_count = total - linked_count
-
-    hub_rows = [r for r in all_rows if (r["incoming_links"] or 0) >= 5]
-    hub_rows.sort(key=lambda r: -(r["incoming_links"] or 0))
-    hub_rows = hub_rows[:10]
-
-    isolated_rows = [
-        r
-        for r in all_rows
-        if (r["incoming_links"] or 0) == 0 and not (r["related"] or "").strip()
-    ]
-
-    _CONSOLE.print("\n[bold cyan]Knowledge Graph Analytics[/bold cyan]\n")
-    _CONSOLE.print(
-        f"  Total notes: [white]{total}[/white]  ·  "
-        f"Avg incoming links: [white]{avg_links:.2f}[/white]  ·  "
-        f"Linked: [green]{linked_count}[/green]  ·  "
-        f"Unlinked: [yellow]{unlinked_count}[/yellow]\n"
+    console.print("\n[bold cyan]Knowledge Graph Analytics[/bold cyan]\n")
+    console.print(
+        f"  Total notes: [white]{data['total']}[/white]  ·  "
+        f"Avg incoming links: [white]{data['avg_links']:.2f}[/white]  ·  "
+        f"Linked: [green]{data['linked_count']}[/green]  ·  "
+        f"Unlinked: [yellow]{data['unlinked_count']}[/yellow]\n"
     )
 
-    # Hub notes
+    hub_rows = data["hub_notes"]
     if hub_rows:
         hub_table = Table(
             title="Hub Notes (≥5 incoming links, top 10)",
@@ -615,13 +499,13 @@ def run_graph(conn: sqlite3.Connection) -> None:
                 row["folder"] or "(root)",
                 str(row["incoming_links"]),
             )
-        _CONSOLE.print(hub_table)
+        console.print(hub_table)
     else:
-        _CONSOLE.print("[dim]No hub notes (none with ≥5 incoming links).[/dim]")
+        console.print("[dim]No hub notes (none with ≥5 incoming links).[/dim]")
 
-    _CONSOLE.print()
+    console.print()
 
-    # Isolated notes
+    isolated_rows = data["isolated_notes"]
     if isolated_rows:
         iso_table = Table(
             title=f"Isolated Notes ({len(isolated_rows)} total — no incoming links, no related)",
@@ -634,51 +518,41 @@ def run_graph(conn: sqlite3.Connection) -> None:
             iso_table.add_row(f"[[{row['stem']}]]", row["folder"] or "(root)")
         if len(isolated_rows) > 20:
             iso_table.add_row(f"[dim]… and {len(isolated_rows) - 20} more[/dim]", "")
-        _CONSOLE.print(iso_table)
+        console.print(iso_table)
     else:
-        _CONSOLE.print("[green]No isolated notes found.[/green]")
+        console.print("[green]No isolated notes found.[/green]")
 
-    _CONSOLE.print()
+    console.print()
 
 
 def run_hooks(last_n: int = 20, vault: Path | None = None) -> None:
     """Print the last N events from hook_events.log.
 
-    Each line is a JSON object with: hook, ts, project, duration_ms, plus
-    optional extra fields.
-
     Args:
         last_n: Number of most-recent events to show.
         vault: Optional vault path. Defaults to resolve_vault().
     """
-    vault = vault or vault_common.resolve_vault()
-    log_path = vault / "hook_events.log"
-    if not log_path.exists():
-        _CONSOLE.print("[dim]No hook_events.log found.[/dim]")
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
+
+    data = vault_metrics.collect_hooks(last_n, vault)
+    console = _get_console()
+
+    if not data["exists"]:
+        console.print("[dim]No hook_events.log found.[/dim]")
         return
 
-    events: list[dict] = []
-    try:
-        with open(log_path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-    except OSError as exc:
-        _CONSOLE.print(f"[red]Cannot read hook_events.log: {exc}[/red]")
+    if data.get("error"):
+        console.print("[red]Cannot read hook_events.log[/red]")
         return
 
+    events = data["events"]
     if not events:
-        _CONSOLE.print("[dim]hook_events.log is empty.[/dim]")
+        console.print("[dim]hook_events.log is empty.[/dim]")
         return
 
-    recent = events[-last_n:]
-
-    _CONSOLE.print(
-        f"\n[bold cyan]Hook Events[/bold cyan] — last {len(recent)} of {len(events)} total\n"
+    console.print(
+        f"\n[bold cyan]Hook Events[/bold cyan] — last {len(events)} of {data['total']} total\n"
     )
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Timestamp", style="dim")
@@ -688,7 +562,7 @@ def run_hooks(last_n: int = 20, vault: Path | None = None) -> None:
     t.add_column("Extra", style="dim")
 
     _KNOWN_FIELDS = {"hook", "ts", "project", "duration_ms"}
-    for event in recent:
+    for event in events:
         ts = event.get("ts", "")
         hook = event.get("hook", "")
         project = event.get("project", "") or ""
@@ -698,7 +572,7 @@ def run_hooks(last_n: int = 20, vault: Path | None = None) -> None:
         extra_str = "  ".join(f"{k}={v}" for k, v in list(extra_items.items())[:3])
         t.add_row(ts, hook, project[:30], dur_str, extra_str[:60])
 
-    _CONSOLE.print(t)
+    console.print(t)
 
 
 def run_weekly(
@@ -706,28 +580,23 @@ def run_weekly(
 ) -> None:
     """Generate or preview a weekly rollup note for the current ISO week.
 
-    Reads all daily notes from the current week's directory, extracts
-    ## Sessions sections, and writes a ``Daily/YYYY-MM/week-NN.md`` summary
-    note with project activity, categories mentioned, and links to daily notes.
-
     Args:
         conn: Open DB connection (unused currently, reserved for future use).
         dry_run: If True, print the note content without writing it.
         vault: Optional vault path. Defaults to resolve_vault().
     """
-    vault = vault or vault_common.resolve_vault()
     from datetime import date, timedelta
+    import re as _re
+
+    console = _get_console()
+    vault = vault or vault_common.resolve_vault()
 
     today = date.today()
     iso_year, iso_week, iso_weekday = today.isocalendar()
-    # Monday of this ISO week
     monday = today - timedelta(days=iso_weekday - 1)
     sunday = monday + timedelta(days=6)
 
     month_dir = vault / "Daily" / f"{today.year:04d}-{today.month:02d}"
-
-    # Collect daily note paths for this week (supports both DD.md and DD-{user}.md)
-    import re as _re
 
     _daily_stem_re = _re.compile(r"^(\d{2})(?:-.+)?$")
     daily_paths: list[Path] = []
@@ -742,13 +611,12 @@ def run_weekly(
                     daily_paths.append(p)
 
     if not daily_paths:
-        _CONSOLE.print(
+        console.print(
             f"[yellow]No daily notes found for week {iso_week} "
             f"({monday} – {sunday}).[/yellow]"
         )
         return
 
-    # Parse each daily note
     projects_seen: set[str] = set()
     categories_seen: set[str] = set()
     session_lines: list[str] = []
@@ -760,7 +628,6 @@ def run_weekly(
         except OSError:
             continue
 
-        # Derive wikilink stem: e.g. Daily/2026-03/17 → "17" (relative stem)
         links_to_daily.append(f"[[{dp.stem}]]")
 
         in_sessions = False
@@ -772,21 +639,18 @@ def run_weekly(
                 in_sessions = False
             if in_sessions:
                 session_lines.append(line)
-            # Look for project mentions
             if "project:" in line.lower():
                 parts = line.split(":", 1)
                 if len(parts) == 2:
                     val = parts[1].strip()
                     if val and val not in {"", "null"}:
                         projects_seen.add(val)
-            # Look for category mentions
             if "categor" in line.lower():
                 import re
 
                 found = re.findall(r"\b[a-zA-Z][\w-]+\b", line)
                 categories_seen.update(found)
 
-    # Build note content
     week_label = f"Week {iso_week:02d} ({monday.strftime('%b %d')} – {sunday.strftime('%b %d, %Y')})"
     today_str = today.strftime("%Y-%m-%d")
 
@@ -825,16 +689,16 @@ related: [{related_field}]
     output_path = month_dir / f"week-{iso_week:02d}.md"
 
     if dry_run:
-        _CONSOLE.print(
+        console.print(
             f"\n[bold cyan]Weekly Rollup (dry run)[/bold cyan] — would write to:\n"
             f"  [dim]{output_path}[/dim]\n"
         )
-        _CONSOLE.print(content)
+        console.print(content)
         return
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(content, encoding="utf-8")
-    _CONSOLE.print(
+    console.print(
         f"\n[green]Weekly rollup written:[/green] {output_path}\n"
         f"  Covered {len(daily_paths)} daily notes, "
         f"{len(projects_seen)} project(s), "
@@ -847,23 +711,20 @@ def run_monthly(
 ) -> None:
     """Generate or preview a monthly rollup note for the current month.
 
-    Reads all daily notes from the current month's directory, extracts
-    ## Sessions sections, and writes ``Daily/YYYY-MM/monthly.md``.
-
     Args:
         conn: Open DB connection (unused currently, reserved for future use).
         dry_run: If True, print the note content without writing it.
         vault: Optional vault path. Defaults to resolve_vault().
     """
-    vault = vault or vault_common.resolve_vault()
     from datetime import date
     import calendar
+    import re as _re
+
+    console = _get_console()
+    vault = vault or vault_common.resolve_vault()
 
     today = date.today()
     month_dir = vault / "Daily" / f"{today.year:04d}-{today.month:02d}"
-
-    # Collect all daily note files in this month's directory (DD.md and DD-{user}.md)
-    import re as _re
 
     _daily_stem_re = _re.compile(r"^(\d{2})(?:-.+)?$")
     daily_paths: list[Path] = []
@@ -873,13 +734,12 @@ def run_monthly(
                 daily_paths.append(dp)
 
     if not daily_paths:
-        _CONSOLE.print(
+        console.print(
             f"[yellow]No daily notes found for "
             f"{today.strftime('%B %Y')} in {month_dir}.[/yellow]"
         )
         return
 
-    # Parse each daily note
     projects_seen: set[str] = set()
     categories_seen: set[str] = set()
     session_lines: list[str] = []
@@ -953,16 +813,16 @@ related: [{related_field}]
     output_path = month_dir / "monthly.md"
 
     if dry_run:
-        _CONSOLE.print(
+        console.print(
             f"\n[bold cyan]Monthly Rollup (dry run)[/bold cyan] — would write to:\n"
             f"  [dim]{output_path}[/dim]\n"
         )
-        _CONSOLE.print(content)
+        console.print(content)
         return
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(content, encoding="utf-8")
-    _CONSOLE.print(
+    console.print(
         f"\n[green]Monthly rollup written:[/green] {output_path}\n"
         f"  Covered {len(daily_paths)} daily notes, "
         f"{len(projects_seen)} project(s).\n"
@@ -974,137 +834,96 @@ def run_timeline(
 ) -> None:
     """Print a bar chart of notes created per day for the last N days.
 
-    Uses mtime from note_index. Falls back to a file walk if DB is absent.
-
     Args:
         conn: Open DB connection, or None for file-walk fallback.
         days: Number of days to display (default: 30).
         vault: Optional vault path. Defaults to resolve_vault().
     """
-    from datetime import date, timedelta
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    today = date.today()
-    now_ts = time.time()
-    day_secs = 24 * 3600
-    cutoff_ts = now_ts - days * day_secs
+    rows = vault_metrics.collect_timeline(conn, days, vault)
+    console = _get_console()
 
-    # Build per-day counts
-    day_counts: dict[int, int] = {i: 0 for i in range(days)}
-
-    if conn is not None:
-        rows = _fetch_all(
-            conn,
-            "SELECT mtime FROM note_index WHERE mtime >= ?",
-            (cutoff_ts,),
-        )
-        for row in rows:
-            age_days = int((now_ts - row["mtime"]) / day_secs)
-            age_days = min(age_days, days - 1)
-            day_counts[age_days] = day_counts.get(age_days, 0) + 1
-    else:
-        vault = vault or vault_common.resolve_vault()
-        if vault.exists():
-            for md in vault.rglob("*.md"):
-                try:
-                    mtime = md.stat().st_mtime
-                except OSError:
-                    continue
-                if mtime < cutoff_ts:
-                    continue
-                age_days = int((now_ts - mtime) / day_secs)
-                age_days = min(age_days, days - 1)
-                day_counts[age_days] = day_counts.get(age_days, 0) + 1
-
-    _CONSOLE.print(f"\n[bold cyan]Note Timeline[/bold cyan] — last {days} days\n")
+    console.print(f"\n[bold cyan]Note Timeline[/bold cyan] — last {days} days\n")
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Date", style="dim")
     t.add_column("Count", justify="right", style="white")
     t.add_column("Bar", style="green")
 
-    max_count = max(day_counts.values()) if day_counts else 1
+    max_count = max((r["n"] for r in rows), default=1)
     max_count = max(max_count, 1)
 
-    for d in range(days - 1, -1, -1):
-        day_date = today - timedelta(days=d)
-        n = day_counts.get(d, 0)
-        label = day_date.strftime("%Y-%m-%d")
-        if d == 0:
+    for row in rows:
+        n = row["n"]
+        label = row["date"]
+        if row["is_today"]:
             label += " [dim](today)[/dim]"
         bar = "▄" * max(0, int(n / max_count * 24)) if n else ""
         t.add_row(label, str(n) if n else "[dim]0[/dim]", bar)
 
-    _CONSOLE.print(t)
+    console.print(t)
 
 
 def run_summarizer_progress() -> None:
-    """Print current summarizer progress from ~/.claude/logs/parsidion-summarizer-progress.json.
+    """Print current summarizer progress."""
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    Shows: total, processed, written, skipped, errors, current.
-    If the file is absent, reports that no summarizer is currently running.
-    """
-    progress_path = (
-        Path.home() / ".claude" / "logs" / "parsidion-summarizer-progress.json"
-    )
-    if not progress_path.exists():
-        _CONSOLE.print("[dim]No summarizer currently running.[/dim]")
+    data = vault_metrics.collect_summarizer_progress()
+    console = _get_console()
+
+    if not data["exists"]:
+        console.print("[dim]No summarizer currently running.[/dim]")
         return
 
-    try:
-        data = json.loads(progress_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        _CONSOLE.print(f"[red]Cannot read progress file: {exc}[/red]")
+    if data.get("error"):
+        console.print(f"[red]Cannot read progress file: {data['error']}[/red]")
         return
 
-    total = data.get("total", 0)
-    processed = data.get("processed", 0)
-    written = data.get("written", 0)
-    skipped = data.get("skipped", 0)
-    errors = data.get("errors", 0)
-    current = data.get("current", "")
-
-    pct = f"{processed / total * 100:.1f}%" if total else "—"
-
-    _CONSOLE.print("\n[bold cyan]Summarizer Progress[/bold cyan]\n")
+    console.print("\n[bold cyan]Summarizer Progress[/bold cyan]\n")
     t = Table(box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Field", style="cyan")
     t.add_column("Value", style="white")
-    t.add_row("Total", str(total))
-    t.add_row("Processed", f"{processed} ({pct})")
-    t.add_row("Written", str(written))
-    t.add_row("Skipped", str(skipped))
-    t.add_row("Errors", str(errors) if errors == 0 else f"[red]{errors}[/red]")
-    if current:
-        t.add_row("Current", current[:60])
-    _CONSOLE.print(t)
-    _CONSOLE.print()
+    t.add_row("Total", str(data["total"]))
+    t.add_row("Processed", f"{data['processed']} ({data['pct']})")
+    t.add_row("Written", str(data["written"]))
+    t.add_row("Skipped", str(data["skipped"]))
+    errors = data["errors"]
+    t.add_row(
+        "Errors",
+        str(errors) if errors == 0 else f"[red]{errors}[/red]",
+    )
+    if data.get("current"):
+        t.add_row("Current", data["current"][:60])
+    console.print(t)
+    console.print()
 
 
 def run_no_db_summary(vault: Path | None = None) -> None:
-    """Print a simple file-walk based note count when DB is absent.
+    """Print a simple file-walk based note count when DB is absent."""
+    from rich.table import Table  # noqa: PLC0415
+    from rich import box  # noqa: PLC0415
 
-    Counts .md files per vault subfolder as a fallback.
-    """
-    vault = vault or vault_common.resolve_vault()
-    if not vault.exists():
-        _CONSOLE.print("[red]Vault not found at[/red] " + str(vault))
+    data = vault_metrics.collect_no_db_summary(vault)
+    console = _get_console()
+
+    if not data["vault_exists"]:
+        console.print(
+            "[red]Vault not found at[/red] "
+            + str(vault or vault_common.resolve_vault())
+        )
         return
 
-    counts: dict[str, int] = {}
-    total = 0
-    for md in vault.rglob("*.md"):
-        folder = md.parent.name if md.parent != vault else "(root)"
-        counts[folder] = counts.get(folder, 0) + 1
-        total += 1
-
-    _CONSOLE.print(
-        f"\n[bold cyan]Vault Summary (file walk)[/bold cyan] — {total} notes\n"
+    console.print(
+        f"\n[bold cyan]Vault Summary (file walk)[/bold cyan] — {data['total']} notes\n"
     )
     t = Table(title="Notes by Folder", box=box.SIMPLE_HEAD, show_lines=False)
     t.add_column("Folder", style="cyan")
     t.add_column("Count", justify="right", style="white")
-    for folder, n in sorted(counts.items(), key=lambda x: -x[1]):
-        t.add_row(folder, str(n))
-    _CONSOLE.print(t)
+    for row in data["by_folder"]:
+        t.add_row(row["folder"], str(row["n"]))
+    console.print(t)
 
 
 # ---------------------------------------------------------------------------
@@ -1121,7 +940,6 @@ def main() -> None:
         epilog=__doc__,
     )
 
-    # Vault selection flag
     parser.add_argument(
         "--vault",
         "-V",
@@ -1239,12 +1057,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
-
     conn = _open_db(vault_path)
 
-    # If no explicit mode chosen, default to summary
     no_mode = not (
         args.summary
         or args.stale
@@ -1262,7 +1077,6 @@ def main() -> None:
         or args.summarizer_progress
     )
 
-    # Modes that don't require a DB connection
     if args.pending:
         run_pending(vault_path)
         return
@@ -1277,7 +1091,7 @@ def main() -> None:
         if no_mode or args.summary or args.dashboard:
             run_no_db_summary(vault_path)
         elif args.graph:
-            _CONSOLE.print(
+            _get_console().print(
                 "[yellow]note_index DB not found — run update_index.py first.[/yellow]"
             )
             sys.exit(1)
@@ -1288,7 +1102,7 @@ def main() -> None:
         elif args.monthly:
             run_monthly(None, dry_run=args.dry_run, vault=vault_path)
         else:
-            _CONSOLE.print(
+            _get_console().print(
                 "[yellow]note_index DB not found — run update_index.py first.[/yellow]"
             )
             sys.exit(1)
