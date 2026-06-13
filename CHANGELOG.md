@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-12
+
 ### Security
 
 - **Visualizer vault-path validation** — The TypeScript `resolveVault()` now enforces the same forbidden-prefix list as the Python resolver (`~/.claude`, `/System`, `/usr`, `/bin`, `/sbin`, `/etc`, `~/Library`), and the WebSocket upgrade handler rejects invalid vault paths with HTTP 400. A Python↔TypeScript parity test keeps the two lists in sync.
@@ -549,7 +551,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.7.6...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/paulrobello/parsidion/compare/v0.7.6...v0.8.0
 [0.7.6]: https://github.com/paulrobello/parsidion/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/paulrobello/parsidion/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/paulrobello/parsidion/compare/v0.7.3...v0.7.4
