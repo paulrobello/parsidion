@@ -1,5 +1,7 @@
 # Gemini Runtime Hooks Implementation Plan
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Gemini CLI runtime hook and transcript support to Parsidion, with installer runtime selection for Claude, Codex, Gemini, all, or none.

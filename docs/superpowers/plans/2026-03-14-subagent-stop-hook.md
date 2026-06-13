@@ -1,5 +1,7 @@
 # SubagentStop Hook Implementation Plan
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Tap the `SubagentStop` lifecycle hook to capture subagent learnings and route them into the existing `pending_summaries.jsonl` queue for AI summarization.

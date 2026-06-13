@@ -683,6 +683,10 @@ def main() -> None:
     # QA-001: Replace module-level VAULT_ROOT with try/finally restore pattern
     original_vault_root = vault_common.VAULT_ROOT
     vault_common.VAULT_ROOT = vault_path
+    # ARC-001: clear caches so lru_cache-memoized load_config() and
+    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     try:
         # --scan mode: find near-duplicate pairs across the whole vault
@@ -776,6 +780,9 @@ def main() -> None:
         sys.exit(0)
     finally:
         vault_common.VAULT_ROOT = original_vault_root
+        # ARC-001: flush caches on restore so subsequent code sees the original vault.
+        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

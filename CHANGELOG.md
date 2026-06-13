@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Visualizer vault-path validation** — The TypeScript `resolveVault()` now enforces the same forbidden-prefix list as the Python resolver (`~/.claude`, `/System`, `/usr`, `/bin`, `/sbin`, `/etc`, `~/Library`), and the WebSocket upgrade handler rejects invalid vault paths with HTTP 400. A Python↔TypeScript parity test keeps the two lists in sync.
+- **Visualizer API hardening** — `PUT /api/note` rejects non-`.md` paths; subprocess `stderr` is no longer echoed to clients; security headers added (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`); mutation endpoints require `application/json` and honor an optional `VISUALIZER_TOKEN` bearer check; rebuild route caps subprocess stderr and validates the vault before spawning.
+- **Hook hardening** — `hook_events.log` and `pending_summaries.jsonl` are created `0o600`; transcript paths must end in `.jsonl` before being read; AI prompts in `vault_doctor` wrap untrusted note content in `<content>` tags; real Windows file locking via `msvcrt`.
+
+### Changed
+
+- **`install.py` decomposed** — Split from ~3,100 lines into an `installer/` package (`colors`, `ui`, `paths`, `hooks`, `schedule`, `vault`, `skill`); `install.py` retains `main()` and re-exports the moved symbols, so behavior and the public API are unchanged.
+- **`vault_doctor.py` `main()` slimmed** — Extracted `run_scan_and_repair()` and replaced the repeated `_vault_path` fallback ternary with a single `_active_vault()` resolver.
+- **`vault_stats` library-importable without `rich`** — Data-gathering logic moved to a new stdlib-only `vault_metrics.py`; all `rich` imports are now lazy.
+- **`GraphCanvas.tsx` refactor** — Physics loop, reducers, and renderers extracted into `lib/useForceLayout.ts`, `lib/useGraphReducers.ts`, and `lib/sigma-renderers.ts`; the sigma reducer callbacks are now properly typed (no `any`).
+- **Vault-switch cache correctness** — Scripts that retarget the active vault now clear the `load_config`/`resolve_vault` caches; `update_index.py` and `vault_review.py` resolve their PID/pending paths at call time instead of import time.
+- **`make checkall` covers `parsidion-mcp`** — New `checkall-mcp` target wired into the root quality gate.
+
+### Fixed
+
+- **`summarize_sessions.py` reliability** — Uses the public `anyio.to_thread` import; logs tracebacks and preserves the queue entry on unexpected errors instead of silently dropping the session.
+- **Documentation drift** — `vault_common.__version__` synced to `0.7.6`; README documents the `vault_common` facade and its six submodules; legacy `~/ClaudeVault/` paths updated to `~/ParsidionVault/` across docs; architecture diagram migrated to `classDef` styling; CHANGELOG version comparison links added.
+
 ## [0.7.6] - 2026-05-31
 
 ### Fixed
@@ -510,6 +530,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 
 ## [0.1.0] - 2026-03-10
 
+> **Note:** Versions 0.1.0 through 0.5.x were released under the name **`parsidion-cc`**. The project was renamed to **`parsidion`** in v0.7.0 (see [0.6.0] for the rebrand details). The GitHub repository was also renamed from `paulrobello/parsidion-cc`; legacy links redirect automatically.
+
 ### Added
 - Claude Vault skill (`skills/parsidion-cc/`) with Obsidian-backed knowledge management
 - Session lifecycle hooks: SessionStart, SessionEnd, PreCompact
@@ -526,3 +548,30 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - Optional vault git integration with auto-commit support
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
+
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/paulrobello/parsidion/compare/v0.7.5...v0.7.6
+[0.7.5]: https://github.com/paulrobello/parsidion/compare/v0.7.4...v0.7.5
+[0.7.4]: https://github.com/paulrobello/parsidion/compare/v0.7.3...v0.7.4
+[0.7.3]: https://github.com/paulrobello/parsidion/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/paulrobello/parsidion/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/paulrobello/parsidion/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/paulrobello/parsidion/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/paulrobello/parsidion/compare/v0.5.6...v0.6.0
+[0.5.6]: https://github.com/paulrobello/parsidion/compare/v0.5.5...v0.5.6
+[0.5.5]: https://github.com/paulrobello/parsidion/compare/v0.5.4...v0.5.5
+[0.5.4]: https://github.com/paulrobello/parsidion/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/paulrobello/parsidion/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/paulrobello/parsidion/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/paulrobello/parsidion/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/paulrobello/parsidion/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/paulrobello/parsidion/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/paulrobello/parsidion/compare/v0.3.5...v0.4.0
+[0.3.5]: https://github.com/paulrobello/parsidion/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/paulrobello/parsidion/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/paulrobello/parsidion/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/paulrobello/parsidion/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/paulrobello/parsidion/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/paulrobello/parsidion/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/paulrobello/parsidion/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/paulrobello/parsidion/releases/tag/v0.1.0

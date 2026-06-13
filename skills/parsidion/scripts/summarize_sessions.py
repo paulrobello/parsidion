@@ -31,12 +31,14 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 from datetime import date, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import anyio  # type: ignore[import-untyped]
+from anyio import to_thread  # type: ignore[import-untyped]
 
 import ai_backend
 import vault_common
@@ -59,7 +61,6 @@ async def _run_summarizer_prompt(
 ) -> str | None:
     """Run a summarizer prompt through the configured AI backend."""
 
-    to_thread = cast(Any, vars(anyio)["to_thread"])
     result = await to_thread.run_sync(
         partial(
             ai_backend.run_ai_prompt,
@@ -690,6 +691,11 @@ async def _summarize_chunk(
             vault=vault,
         )
     except Exception:  # noqa: BLE001
+        print(
+            f"  [chunk-summarizer] Unexpected error on chunk {chunk_num}/{total_chunks}:\n"
+            + traceback.format_exc(),
+            file=sys.stderr,
+        )
         result_text = None
 
     if result_text:
@@ -967,9 +973,13 @@ async def summarize_one(
             )
         except Exception as e:  # noqa: BLE001
             print(
-                f"  Error querying AI backend for {transcript_path_str}: {e}",
+                f"  Error querying AI backend for {transcript_path_str}: {e}\n"
+                + traceback.format_exc(),
                 file=sys.stderr,
             )
+            # QA-009: return None (not _STALE/_SKIPPED) so the queue entry is
+            # preserved and retried on the next run. Only purge for known-stale
+            # or write-gate-skipped cases.
             return entry, None
 
         if not result_text:

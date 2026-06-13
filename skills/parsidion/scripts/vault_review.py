@@ -25,7 +25,17 @@ from pathlib import Path
 
 import vault_common
 
-_PENDING_PATH: Path = vault_common.VAULT_ROOT / "pending_summaries.jsonl"
+
+def _pending_path() -> Path:
+    """Return the pending summaries path resolved against the current VAULT_ROOT.
+
+    ARC-005: call-time resolution ensures that monkey-patches to
+    ``vault_common.VAULT_ROOT`` (ARC-001) are reflected correctly instead of
+    baking the path at import time.
+    """
+    return vault_common.VAULT_ROOT / "pending_summaries.jsonl"
+
+
 _EXCERPT_LINES: int = 20
 
 
@@ -40,10 +50,11 @@ def _read_entries() -> list[dict]:
     Returns:
         List of parsed JSON objects; empty list if file is absent.
     """
-    if not _PENDING_PATH.exists():
+    pp = _pending_path()
+    if not pp.exists():
         return []
     entries: list[dict] = []
-    with open(_PENDING_PATH, encoding="utf-8") as fh:
+    with open(pp, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
@@ -62,12 +73,13 @@ def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
         entries: List of JSON-serialisable dicts to persist.
         vault_path: Path to the vault root.
     """
-    tmp = _PENDING_PATH.with_suffix(".jsonl.tmp")
+    pp = _pending_path()
+    tmp = pp.with_suffix(".jsonl.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         vault_common.flock_exclusive(fh)
         for entry in entries:
             fh.write(json.dumps(entry) + "\n")
-    tmp.replace(_PENDING_PATH)
+    tmp.replace(pp)
 
 
 def _fmt_timestamp(ts: str) -> str:
@@ -565,6 +577,10 @@ def main() -> None:
     # QA-001: Replace module-level VAULT_ROOT with try/finally restore pattern
     original_vault_root = vault_common.VAULT_ROOT
     vault_common.VAULT_ROOT = vault_path
+    # ARC-001: clear caches so lru_cache-memoized load_config() and
+    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     try:
         if args.list:
@@ -601,6 +617,9 @@ def main() -> None:
         sys.exit(0)
     finally:
         vault_common.VAULT_ROOT = original_vault_root
+        # ARC-001: flush caches on restore so subsequent code sees the original vault.
+        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

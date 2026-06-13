@@ -7,7 +7,7 @@ import type { FSWatcher } from 'chokidar' with { "resolution-mode": "import" }
 import fs from 'fs'
 import path from 'path'
 import { vaultBroadcast } from './lib/vaultBroadcast.server'
-import { resolveVault } from './lib/vaultResolver'
+import { resolveVault, VaultConfigError } from './lib/vaultResolver'
 
 const dev = process.env.NODE_ENV !== 'production'
 const PORT = parseInt(process.env.PORT ?? '3999', 10)
@@ -124,7 +124,26 @@ app.prepare().then(async () => {
     if (parsedUrl.pathname === '/ws/vault') {
       // Extract vault from query params
       const vaultParam = parsedUrl.query.vault as string | undefined
-      const vaultPath = resolveVault(vaultParam)
+
+      // SEC-001 / SEC-009: Validate the vault path before establishing the
+      // WebSocket connection.  resolveVault() throws VaultConfigError for
+      // forbidden paths.  Destroy the socket with a 400 response so the client
+      // gets a clear rejection rather than an unhandled server crash.
+      let vaultPath: string
+      try {
+        vaultPath = resolveVault(vaultParam)
+      } catch (err) {
+        if (err instanceof VaultConfigError) {
+          console.warn('[ws/vault] Rejected forbidden vault path:', vaultParam, '-', err.message)
+        } else {
+          console.error('[ws/vault] Vault resolution error:', err)
+        }
+        // Send an HTTP 400 response and destroy the socket — this is the
+        // standard pattern for rejecting a WebSocket upgrade before accepting it.
+        socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+        return
+      }
 
       wss.handleUpgrade(req, socket as import('net').Socket, head, ws => {
         const aWs = ws as AliveWS

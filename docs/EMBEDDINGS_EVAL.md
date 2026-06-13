@@ -179,13 +179,13 @@ uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval
 The first run:
 1. Samples 100 vault notes (excluding Daily notes)
 2. Calls the prompt AI backend once per note to generate 3 queries — approximately 5 minutes
-3. Saves queries to `~/ClaudeVault/embed_eval_queries.yaml`
+3. Saves queries to `~/ParsidionVault/embed_eval_queries.yaml` (or `~/ClaudeVault/` for legacy installs)
 4. Runs the evaluation matrix across 3 models × 3 chunking strategies (9 combos) — approximately
    18 minutes with default settings (`--workers 1`, `--max-index-notes 200`). Omit `paragraph`
    from `--chunking` to cut this to ~4 minutes.
 
 Results appear in the terminal as a Rich table and are saved as timestamped JSON and HTML files in
-`~/ClaudeVault/`.
+`~/ParsidionVault/`.
 
 > **✅ Tip:** On the first run, use `--notes 20 --queries-per-note 2` to get a quick smoke-test
 > result before committing to a full 100-note evaluation. See [Quick Test Recipe](#quick-test-recipe).
@@ -218,17 +218,17 @@ distilled knowledge, making them poor ground-truth candidates.
 
 ### Ground Truth File Format
 
-Queries are saved to `~/ClaudeVault/embed_eval_queries.yaml` as a list of entries:
+Queries are saved to `~/ParsidionVault/embed_eval_queries.yaml` as a list of entries:
 
 ```yaml
 - stem: sqlalchemy-connection-pooling
-  path: /Users/you/ClaudeVault/Debugging/sqlalchemy-connection-pooling.md
+  path: /Users/you/ParsidionVault/Debugging/sqlalchemy-connection-pooling.md
   queries:
     - how to handle database connection timeouts in Python
     - pool_pre_ping SQLAlchemy keepalive
     - fix stale connections after network interruption
 - stem: fastapi-middleware-patterns
-  path: /Users/you/ClaudeVault/Patterns/fastapi-middleware-patterns.md
+  path: /Users/you/ParsidionVault/Patterns/fastapi-middleware-patterns.md
   queries:
     - request lifecycle hooks in FastAPI
     - add logging to all FastAPI routes
@@ -429,7 +429,7 @@ which is what Recall and MRR measure.
 
 ### JSON Results File
 
-Saved as `~/ClaudeVault/embed_eval_YYYYMMDD_HHMMSS.json`. The file contains top-level metadata
+Saved as `~/ParsidionVault/embed_eval_YYYYMMDD_HHMMSS.json`. The file contains top-level metadata
 and a results array:
 
 ```json
@@ -520,7 +520,7 @@ to render the charts.
 | `--eval` | off | Run evaluation only — skip ground truth generation |
 | `--notes N` | `100` | Number of vault notes to sample for ground truth |
 | `--queries-per-note K` | `3` | Number of queries the AI backend generates per note |
-| `--queries-file FILE` | `~/ClaudeVault/embed_eval_queries.yaml` | Path to read/write the YAML ground-truth file |
+| `--queries-file FILE` | `~/ParsidionVault/embed_eval_queries.yaml` | Path to read/write the YAML ground-truth file |
 | `--models M1,M2,...` | three defaults | Comma-separated list of fastembed model IDs to evaluate |
 | `--chunking C1,C2,...` | `whole,paragraph,sliding_512_128` | Comma-separated chunking strategies |
 | `--top-k K` | `10` | Recall@K cutoff for evaluation |
@@ -534,7 +534,7 @@ to render the charts.
 > **📝 Note:** The model IDs shown below are the harness defaults at the time of writing.
 > Pass `--models` to override them with any fastembed-compatible model ID. The production
 > embedding model used by `build_embeddings.py` is set via `embeddings.model` in
-> `~/ClaudeVault/config.yaml` (see [EMBEDDINGS.md](EMBEDDINGS.md#configuration-reference)).
+> `~/ParsidionVault/config.yaml` (see [EMBEDDINGS.md](EMBEDDINGS.md#configuration-reference)).
 
 | Model | Dimensions | Description |
 |---|---|---|
@@ -751,7 +751,7 @@ generated.
 uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --generate --notes 50
 
 # Inspect the queries file to verify quality
-# Open ~/ClaudeVault/embed_eval_queries.yaml and review a few entries
+# Open ~/ParsidionVault/embed_eval_queries.yaml and review a few entries
 ```
 
 Also check that the notes sampled have substantive body text. Frontmatter-only notes produce weak
@@ -779,5 +779,5 @@ uv run ~/.claude/skills/parsidion/scripts/embed_eval.py --eval --seed 42
 - [ARCHITECTURE.md](ARCHITECTURE.md) — full system architecture including hook lifecycle,
   vault structure, and session summarizer
 - [CLAUDE.md](../CLAUDE.md) — vault note conventions, frontmatter schema, and subfolder rules
-- `~/ClaudeVault/config.yaml` — live configuration file (copy from `templates/config.yaml`)
+- `~/ParsidionVault/config.yaml` — live configuration file (copy from `templates/config.yaml`)
 - `~/.claude/skills/parsidion/templates/config.yaml` — reference config with all defaults

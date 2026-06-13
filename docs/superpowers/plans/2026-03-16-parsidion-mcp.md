@@ -1,5 +1,7 @@
 # parsidion-mcp Implementation Plan
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `parsidion-mcp`, an MCP server exposing Parsidion vault operations (search, read, write, context, index rebuild, doctor) to Claude Desktop via FastMCP.

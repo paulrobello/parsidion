@@ -19,10 +19,23 @@ ModelTier = Literal["small", "large"]
 _CONFIG_BACKEND_AUTO = "auto"
 _DEFAULT_CLAUDE_TIMEOUT: int = 30
 _DEFAULT_CODEX_TIMEOUT: int = 60
+# ARC-006: These hardcoded model identifiers are deprecation risks — Anthropic
+# periodically retires dated model snapshots (e.g. ``-20251001`` suffixes).
+# Override them without touching this file by setting either:
+#   • ``defaults.haiku_model`` / ``defaults.sonnet_model`` in config.yaml, or
+#   • the standard Anthropic env vars: ``ANTHROPIC_DEFAULT_HAIKU_MODEL``,
+#     ``ANTHROPIC_DEFAULT_SONNET_MODEL`` (honoured by the claude CLI).
+# The ``ai_models.claude`` config section (``small``/``large`` keys) also
+# takes precedence over these defaults via ``_model_from_config()``.
 _DEFAULT_CLAUDE_MODELS: dict[ModelTier, str] = {
     "small": "claude-haiku-4-5-20251001",
     "large": "claude-sonnet-4-6",
 }
+# ARC-013: Both Codex tiers intentionally map to the same model identifier.
+# The Codex CLI (``codex exec``) does not currently expose a public API for
+# selecting a tier/size variant, so the ``small``/``large`` distinction is a
+# no-op here.  When Codex adds tiered model selection, update this dict and
+# add a config key under ``ai_models.codex`` in config.yaml.
 _DEFAULT_CODEX_MODELS: dict[ModelTier, str] = {
     "small": "gpt-5.5",
     "large": "gpt-5.5",

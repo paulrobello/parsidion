@@ -1,13 +1,13 @@
 # Parsidion Architecture
 
-A Claude Code customization toolkit that replaces built-in auto memory with a markdown vault-based knowledge management system, augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
+An agent-agnostic markdown knowledge vault that gives coding assistants persistent memory, cross-session context, and a searchable store of everything they learn. Claude Code is the primary adapter; Codex CLI, Gemini CLI, and pi are also supported. The system is augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
 
 ## Table of Contents
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
 - [Component Details](#component-details)
   - [CLAUDE-VAULT.md — Always-On Guidance](#claude-vaultmd--always-on-guidance)
-  - [Parsidion vault Skill](#claude-vault-skill)
+  - [Parsidion vault Skill](#parsidion-vault-skill)
   - [Hook Scripts](#hook-scripts)
   - [SubagentStop Hook](#subagent-stop-hook)
   - [Session Summarizer](#session-summarizer)
@@ -51,6 +51,7 @@ A Claude Code customization toolkit that replaces built-in auto memory with a ma
 - Auto-generated lean root index (`CLAUDE.md`) with quick stats, conventions, recent activity, and folder pointers; full tag cloud in `TAGS.md`; detailed per-folder `MANIFEST.md` files
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
 - Obsidian graph view with domain-based color grouping
+- Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), and pi agent (`extensions/pi/parsidion/`)
 
 **Runtime requirements:**
 - Python 3.13+ (stdlib only -- no third-party packages)
@@ -163,42 +164,27 @@ graph TB
     VIZ -->|serves| BG
     MCP -->|reads/writes| VC
 
-    style CVG fill:#004d40,stroke:#00bcd4,stroke-width:2px,color:#ffffff
-    style CC fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Hooks fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff
-    style Skill fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style Agent fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style VE fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style PE fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style DD fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style VC fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style SSH fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style STH fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
-    style ASH fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
-    style PCH fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style POCH fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style SUM fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style IDX fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style VD fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style CGC fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style EVAL fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style BG fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style VIZ fill:#006064,stroke:#00bcd4,stroke-width:2px,color:#ffffff
-    style MCP fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style Config fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style Index fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style Pending fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style Daily fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Projects fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Languages fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Frameworks fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Patterns fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Debugging fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Tools fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Research fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Knowledge fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style History fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Graph fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef warning fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef alwayson fill:#004d40,stroke:#00bcd4,stroke-width:2px,color:#ffffff
+    classDef sessionwrite fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    classDef visualizer fill:#006064,stroke:#00bcd4,stroke-width:2px,color:#ffffff
+
+    class CC,Hooks primary
+    class SSH,PE,VD active
+    class Skill,Agent,VE,DD,SUM,MCP external
+    class VC,IDX,CGC,BG data
+    class PCH,POCH,EVAL warning
+    class Config,Index,Pending database
+    class Daily,Projects,Languages,Frameworks,Patterns,Debugging,Tools,Research,Knowledge,History,Graph neutral
+    class CVG alwayson
+    class STH,ASH sessionwrite
+    class VIZ visualizer
 ```
 
 ## Component Details
@@ -1185,7 +1171,7 @@ sequenceDiagram
 
 ### Source Repository (parsidion)
 
-```
+```text
 parsidion/
 ├── README.md
 ├── install.py                       # Installer: symlinks skills/agents/hooks to ~/.claude/ (copies on Windows)
@@ -1298,7 +1284,7 @@ parsidion/
 
 ### Installed Locations
 
-```
+```text
 ~/.claude/
 ├── CLAUDE.md                        # Global instructions (@imports CLAUDE-VAULT.md)
 ├── CLAUDE-VAULT.md                  # Always-on vault-first guidance

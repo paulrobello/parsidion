@@ -38,9 +38,20 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild
 
 No UI changes are required for new runtime hooks as long as they write normal Parsidion notes and pending summaries. Runtime-specific provenance filters are intentionally not present yet; add them only after notes have stable metadata such as `runtime: claude`, `runtime: codex`, or `runtime: gemini`.
 
+## Custom Dev Server
+
+`server.ts` runs as the dev/prod entry point (`tsx server.ts` / `node dist/server.js`) instead
+of plain `next dev` / `next start`. It adds a WebSocket endpoint (`/ws/vault`) for live vault
+file-change notifications, which Next.js App Router cannot provide natively. A migration to
+`next dev` + an SSE route handler is viable but deferred — see
+[`docs/server-evaluation.md`](docs/server-evaluation.md) for the full analysis, concrete
+migration sketch, and risks.
+
 ## Architecture
 
-- **`server.ts`** — custom Express dev server (`tsx server.ts`) that wraps Next.js and serves `public/` with a file-watcher WebSocket for live graph reload when `graph.json` changes
+- **`server.ts`** — custom Node.js server (`tsx server.ts`) that wraps Next.js, attaches a
+  `ws` WebSocketServer at `/ws/vault` for live graph reload, and manages per-vault `chokidar`
+  file watchers with SEC-009 vault-path validation at upgrade time
 - **`app/`** — Next.js App Router pages
 - **`components/`** — React components; sigma.js canvas rendering lives here
 - **`lib/`** — graph layout utilities (graphology + ForceAtlas2)

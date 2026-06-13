@@ -8,7 +8,51 @@
 // so only the Python implementation is canonical.  See AUDIT.md [QA-012].
 
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
+
+// SEC-001: Mirror Python's _VAULT_FORBIDDEN_PREFIXES from vault_path.py.
+// Prevents resolveVault() from pointing the vault into system directories or
+// the Claude config tree.  Resolved at module load time so home-dir expansion
+// happens once.
+const _home = os.homedir()
+const VAULT_FORBIDDEN_PREFIXES: readonly string[] = [
+  path.resolve(_home, '.claude'),
+  path.resolve('/System'),
+  path.resolve('/usr'),
+  path.resolve('/bin'),
+  path.resolve('/sbin'),
+  path.resolve('/etc'),
+  path.resolve(_home, 'Library'),
+]
+
+/**
+ * Error thrown when a vault path resolves to a forbidden location.
+ * SEC-001: mirrors Python VaultConfigError raised by _validate_vault_path().
+ */
+export class VaultConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'VaultConfigError'
+  }
+}
+
+/**
+ * Throws VaultConfigError if `resolved` falls under a forbidden prefix.
+ * SEC-001: mirrors Python _validate_vault_path() in vault_path.py.
+ *
+ * @param resolved - Fully resolved (path.resolve'd) vault path to validate.
+ * @throws {VaultConfigError} If the path is under a forbidden prefix.
+ */
+export function validateVaultPath(resolved: string): void {
+  for (const prefix of VAULT_FORBIDDEN_PREFIXES) {
+    if (resolved === prefix || resolved.startsWith(prefix + path.sep)) {
+      throw new VaultConfigError(
+        `Vault path resolves to a forbidden location: ${resolved}`
+      )
+    }
+  }
+}
 
 export interface NamedVault {
   name: string
@@ -109,27 +153,51 @@ export function listNamedVaults(): NamedVault[] {
  * 1. Named vault from vaults.yaml
  * 2. Treat as path directly
  * 3. Default vault (VAULT_ROOT env, ~/ParsidionVault, or legacy ~/ClaudeVault)
+ *
+ * SEC-001: After resolution the path is validated against
+ * VAULT_FORBIDDEN_PREFIXES.  Throws VaultConfigError for forbidden paths.
+ *
+ * @throws {VaultConfigError} If the resolved path is under a forbidden prefix.
  */
 export function resolveVault(vaultName?: string | null): string {
-  const home = process.env.HOME || '~'
+  const home = process.env.HOME || _home
+
+  let resolved: string
 
   if (!vaultName) {
-    return getDefaultVault()
+    resolved = getDefaultVault()
+  } else {
+    // Try as named vault first
+    const vaults = listNamedVaults()
+    const named = vaults.find(v => v.name === vaultName)
+    if (named) {
+      resolved = named.path
+    } else if (vaultName.startsWith('~')) {
+      // Treat as path - expand ~ if present
+      resolved = path.join(home, vaultName.slice(1))
+    } else {
+      resolved = vaultName
+    }
   }
 
-  // Try as named vault first
-  const vaults = listNamedVaults()
-  const named = vaults.find(v => v.name === vaultName)
-  if (named) {
-    return named.path
-  }
+  // SEC-001: Validate the fully-resolved path against the forbidden-prefix list.
+  validateVaultPath(path.resolve(resolved))
+  return resolved
+}
 
-  // Treat as path - expand ~ if present
-  if (vaultName.startsWith('~')) {
-    return path.join(home, vaultName.slice(1))
-  }
-
-  return vaultName
+/**
+ * Returns true if `notePath` is strictly inside `vaultRoot`.
+ * SEC-012: Shared path-traversal guard extracted from route files to avoid
+ * copy-paste drift.  All route files import and call this instead of defining
+ * their own `guardPath` helper.
+ *
+ * @param notePath  - Absolute path to the note or file being accessed.
+ * @param vaultRoot - Absolute vault root path.
+ */
+export function guardPath(notePath: string, vaultRoot: string): boolean {
+  const resolved = path.resolve(notePath)
+  const resolvedRoot = path.resolve(vaultRoot)
+  return resolved.startsWith(resolvedRoot + path.sep)
 }
 
 /**

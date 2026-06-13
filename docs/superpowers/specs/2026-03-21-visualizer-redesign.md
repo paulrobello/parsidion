@@ -1,5 +1,7 @@
 # Vault Visualizer Redesign — Obsidian-Style Layout
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 **Date:** 2026-03-21
 **Status:** Implemented
 **Last Updated:** 2026-03-24

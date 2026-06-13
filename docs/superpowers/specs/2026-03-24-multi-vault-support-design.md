@@ -1,5 +1,7 @@
 # Multi-Vault Support Design
 
+> **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
+
 **Date:** 2026-03-24
 **Status:** Implemented
 **Enhancement:** #18 from ENHANCE.md

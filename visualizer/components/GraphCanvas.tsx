@@ -5,15 +5,21 @@ import type { GraphData, GraphEdge, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
 import {
   getNodeColor, getNodeSize, getSemanticEdgeColor,
-  HIGHLIGHT_COLOR, CANVAS_BACKGROUND, LABEL_COLOR, MUTED_NODE_COLOR,
+  HIGHLIGHT_COLOR, LABEL_COLOR, MUTED_NODE_COLOR,
   MENU_BACKGROUND, MENU_BORDER, ACCENT_TEAL,
-  PHYSICS_DAMPING, PHYSICS_DT, PHYSICS_MIN_DIST,
 } from '@/lib/sigma-colors'
 import type { EdgeColorMode, NodeSizeMode } from '@/lib/sigma-colors'
-// QA-004: Import Sigma and AbstractGraph types for proper ref typing.
-// These are type-only imports; the runtime imports remain dynamic (code-split).
 import type Sigma from 'sigma'
+import type { MouseCoords } from 'sigma/types'
 import type { AbstractGraph } from 'graphology-types'
+import { drawNodeLabel, drawNodeHover } from '@/lib/sigma-renderers'
+import { makeNodeReducer, makeEdgeReducer } from '@/lib/useGraphReducers'
+import type { NeighborhoodInfo } from '@/lib/useGraphReducers'
+import {
+  useForceLayout, buildLayoutLoop,
+  buildRecencySizeMap, pruneEdges,
+  RECENCY_SIZE_MIN,
+} from '@/lib/useForceLayout'
 
 export interface GraphCanvasHandle {
   flyToNode: (stem: string) => void
@@ -55,45 +61,8 @@ interface Props {
   neighborhoodHops?: number
 }
 
-// Per-frame temperature decay: temp *= (1 - COOL_FACTOR * slowDown)
-// At slowDown=1 → ~29s to reach 0.005 threshold at 60fps
-// At slowDown=5 → ~6s
-const COOL_FACTOR = 0.002
-
-const RECENCY_SIZE_MIN = 2
-const RECENCY_SIZE_MAX = 12
-
-/** Normalize node sizes by recency across a set of mtimes so the full range is always used. */
-function buildRecencySizeMap(mtimes: { id: string; mtime: number }[]): Map<string, number> {
-  if (mtimes.length === 0) return new Map()
-  const now = Date.now() / 1000
-  const ages = mtimes.map(n => now - n.mtime)
-  const minAge = Math.min(...ages)
-  const maxAge = Math.max(...ages)
-  const range = Math.max(0.001, maxAge - minAge)
-  return new Map(mtimes.map((n, i) => {
-    const t = (ages[i] - minAge) / range // 0 = newest, 1 = oldest
-    return [n.id, RECENCY_SIZE_MIN + (1 - t) * (RECENCY_SIZE_MAX - RECENCY_SIZE_MIN)]
-  }))
-}
-
-function pruneEdges(edges: GraphEdge[], k: number): GraphEdge[] {
-  const perNode = new Map<string, GraphEdge[]>()
-  for (const e of edges) {
-    if (!perNode.has(e.s)) perNode.set(e.s, [])
-    if (!perNode.has(e.t)) perNode.set(e.t, [])
-    perNode.get(e.s)!.push(e)
-    perNode.get(e.t)!.push(e)
-  }
-  const kept = new Set<GraphEdge>()
-  for (const [, nodeEdges] of perNode) {
-    nodeEdges.sort((a, b) => b.w - a.w)
-    nodeEdges.slice(0, k).forEach(e => kept.add(e))
-  }
-  return edges.filter(e => kept.has(e))
-}
-
-// QA-004: Properly typed graph parameter instead of `any`.
+// QA-004: findWikiPath kept here — it is only called from GraphCanvas JSX
+// (the context-menu "Find Path Here" handler).
 function findWikiPath(
   from: string,
   to: string,
@@ -152,29 +121,60 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
-  // QA-004: Properly typed refs for Sigma and graphology instances.
   const sigmaRef = useRef<Sigma | null>(null)
   const graphRef = useRef<AbstractGraph | null>(null)
-  // Simple force simulation state — velocity per node, persists across frames
-  const simVelocitiesRef = useRef<Map<string, { vx: number; vy: number }>>(new Map())
 
-  const layoutParamsRef = useRef({ scalingRatio, gravity })
+  // -------------------------------------------------------------------------
+  // Force layout hook — owns the physics loop and all layout-related refs
+  // -------------------------------------------------------------------------
+  const layout = useForceLayout({
+    isLayoutRunning,
+    startTemperature,
+    slowDown,
+    stopThreshold,
+    scalingRatio,
+    gravity,
+    onLayoutStop,
+    onLayoutRestart,
+  })
+  const { reheat } = layout
+
+  // Expose graphRef and sigmaRefreshRef into the layout hook so the loop can
+  // read graph positions and trigger sigma renders.
+  // (useForceLayout creates these refs; we alias them here for clarity.)
+  const {
+    graphRef: layoutGraphRef,
+    sigmaRefreshRef,
+    simVelocitiesRef,
+    layoutLoopRef,
+    rafRef,
+    temperatureRef,
+    isRunningRef,
+    layoutParamsRef,
+    coolingRateRef,
+    stopThresholdRef,
+    filteredNodesRef,
+    neighborhoodRef,
+    hideIsolatedRef,
+    isDraggingRef,
+    draggedNodeRef,
+    dragPositionRef,
+  } = layout
+
+  // Keep the layout's graphRef in sync — it IS the same ref (shared via the
+  // hook), but we also keep sigmaRef local for the rest of GraphCanvas.
+  // Wire sigmaRefreshRef → sigma.refresh()
+  useEffect(() => {
+    layoutGraphRef.current = graphRef.current
+  })
+  useEffect(() => {
+    sigmaRefreshRef.current = () => sigmaRef.current?.refresh()
+  })
+
+  // Local refs not owned by useForceLayout
   const edgeWeightInfluenceRef = useRef(edgeWeightInfluence)
-  const coolingRateRef = useRef(slowDown * COOL_FACTOR)
-  const startTemperatureRef = useRef(startTemperature)
-  const stopThresholdRef = useRef(stopThreshold)
-  const isRunningRef = useRef(isLayoutRunning)
-  // temperature: 1.0 = fully hot (no damping), 0 = frozen.
-  // Each frame: temp *= (1 - coolingRate). Applied as movement scale to FA2 deltas.
-  const temperatureRef = useRef(1.0)
-  const onLayoutRestartRef = useRef(onLayoutRestart)
-  const rafRef = useRef<number | null>(null)
-  const layoutLoopRef = useRef<(() => void) | null>(null)
-
-  const hideIsolatedRef = useRef(hideIsolated)
   const labelsOnHoverOnlyRef = useRef(labelsOnHoverOnly)
   const showOverlayEdgesRef = useRef(showOverlayEdges)
-  const filteredNodesRef = useRef<Set<string>>(new Set())
   const filterNodesBySimilarityRef = useRef(false)
   const thresholdRef = useRef(threshold)
   const edgeColorModeRef = useRef(edgeColorMode)
@@ -187,10 +187,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const hoveredNodeRef = useRef<string | null>(null)
   const highlightedNodesRef = useRef<Set<string>>(new Set())
   const highlightedEdgesRef = useRef<Set<string>>(new Set())
-  const isDraggingRef = useRef(false)
-  const draggedNodeRef = useRef<string | null>(null)
   const dragHasMovedRef = useRef(false)
-  const dragPositionRef = useRef<{ x: number; y: number } | null>(null)
 
   const [nodeContextMenu, setNodeContextMenu] = useState<{ stem: string; x: number; y: number } | null>(null)
 
@@ -204,7 +201,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // Uses wiki edges only — semantic edges are too dense (19K+) and would
   // reach ~70% of the graph in 2 hops, defeating the purpose of local view.
   // All edge types are still rendered for nodes within the neighborhood.
-  const neighborhoodInfo = useMemo(() => {
+  const neighborhoodInfo = useMemo<NeighborhoodInfo | null>(() => {
     if (!neighborhoodCenter || !data) return null
     const hops = neighborhoodHops ?? 2
     // Pre-build wiki adjacency list for O(1) neighbor lookup
@@ -235,8 +232,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     return { nodes: new Set(distances.keys()), distances, maxHop: hops }
   }, [neighborhoodCenter, neighborhoodHops, data])
 
-  const neighborhoodRef = useRef(neighborhoodInfo)
-  useEffect(() => { neighborhoodRef.current = neighborhoodInfo }, [neighborhoodInfo])
+  useEffect(() => { neighborhoodRef.current = neighborhoodInfo }, [neighborhoodInfo, neighborhoodRef])
 
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
@@ -252,14 +248,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     sigmaRef.current?.refresh()
   }, [neighborhoodCenter, neighborhoodHops])
 
-  useEffect(() => { onLayoutRestartRef.current = onLayoutRestart }, [onLayoutRestart])
   useEffect(() => { thresholdRef.current = threshold }, [threshold])
   useEffect(() => { graphSourceRef.current = graphSource }, [graphSource])
   useEffect(() => { dataRef.current = data }, [data])
   useEffect(() => {
     hideIsolatedRef.current = hideIsolated
     sigmaRef.current?.refresh()
-  }, [hideIsolated])
+  }, [hideIsolated, hideIsolatedRef])
   useEffect(() => {
     labelsOnHoverOnlyRef.current = labelsOnHoverOnly
     sigmaRef.current?.refresh()
@@ -297,18 +292,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     sigma.refresh()
   }, [showOverlayEdges])
 
-  const reheat = useCallback(() => {
-    temperatureRef.current = startTemperatureRef.current
-    // Reset velocities so old momentum doesn't fight the new force balance
-    simVelocitiesRef.current.forEach((v) => { v.vx = 0; v.vy = 0 })
-    const wasRunning = isRunningRef.current
-    isRunningRef.current = true
-    if (!rafRef.current && layoutLoopRef.current) {
-      rafRef.current = requestAnimationFrame(layoutLoopRef.current)
-    }
-    if (!wasRunning) onLayoutRestartRef.current?.()
-  }, [])
-
   // Recompute similarity-filtered node set; reheat so newly visible/hidden nodes settle
   useEffect(() => {
     filterNodesBySimilarityRef.current = filterNodesBySimilarity
@@ -327,12 +310,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     }
     sigmaRef.current?.refresh()
     reheat()
-  }, [filterNodesBySimilarity, threshold, graphSource, data, reheat])
-
-  useEffect(() => {
-    layoutParamsRef.current = { scalingRatio, gravity }
-    reheat()
-  }, [scalingRatio, gravity, reheat])
+  }, [filterNodesBySimilarity, threshold, graphSource, data, reheat, filteredNodesRef])
 
   // Edge weight influence acts as a direct weight multiplier on graph edges.
   useEffect(() => {
@@ -347,16 +325,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     reheat()
   }, [edgeWeightInfluence, reheat])
 
-  useEffect(() => {
-    coolingRateRef.current = slowDown * COOL_FACTOR
-    reheat()
-  }, [slowDown, reheat])
-
-  useEffect(() => {
-    startTemperatureRef.current = startTemperature
-    reheat()
-  }, [startTemperature, reheat])
-  useEffect(() => { stopThresholdRef.current = stopThreshold }, [stopThreshold])
   useEffect(() => { edgeColorModeRef.current = edgeColorMode }, [edgeColorMode])
   useEffect(() => { edgePruningRef.current = edgePruning }, [edgePruning])
   useEffect(() => { edgePruningKRef.current = edgePruningK }, [edgePruningK])
@@ -409,16 +377,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     sigma.refresh()
   }, [edgeColorMode, threshold])
 
-  useEffect(() => {
-    isRunningRef.current = isLayoutRunning
-    if (isLayoutRunning) {
-      temperatureRef.current = startTemperatureRef.current
-      if (!rafRef.current && layoutLoopRef.current) {
-        rafRef.current = requestAnimationFrame(layoutLoopRef.current)
-      }
-    }
-  }, [isLayoutRunning])
-
   const flyToNode = useCallback((stem: string) => {
     if (!sigmaRef.current || !graphRef.current) return
     if (!graphRef.current.hasNode(stem)) return
@@ -444,7 +402,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   }, [])
 
   // temperature IS the energy metric exposed to the temperature bar
-  const getEnergy = useCallback(() => temperatureRef.current, [])
+  const getEnergy = useCallback(() => temperatureRef.current, [temperatureRef])
   useImperativeHandle(ref, () => ({ flyToNode, selectNode, getEnergy }), [flyToNode, selectNode, getEnergy])
 
   useEffect(() => {
@@ -453,7 +411,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     let cancelled = false
 
     const init = async () => {
-      const { default: Sigma } = await import('sigma')
+      const { default: SigmaClass } = await import('sigma')
       const { MultiGraph } = await import('graphology')
 
       if (cancelled) return
@@ -530,7 +488,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       }
 
       const ewi = edgeWeightInfluenceRef.current
-      let edges = filterEdges(data.edges, graphSource, threshold)
+      let edges: GraphEdge[] = filterEdges(data.edges, graphSource, threshold)
       if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
       for (const edge of edges) {
         if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
@@ -562,81 +520,24 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
       if (cancelled) return
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const nodeReducer = (node: string, data: any) => {
-        const pn = pathNodesRef.current
-        if (pn.size > 0 && pn.has(node)) {
-          const showLabel = labelsOnHoverOnlyRef.current ? node === hoveredNodeRef.current : true
-          return { ...data, color: HIGHLIGHT_COLOR, zIndex: 10, label: showLabel ? data.label : '', forceLabel: showLabel, highlighted: showLabel }
-        }
-        if (pathSourceRef.current === node) {
-          return { ...data, color: HIGHLIGHT_COLOR, zIndex: 5 }
-        }
-        const nh = neighborhoodRef.current
-        if (nh && !nh.nodes.has(node)) {
-          return { ...data, hidden: true, label: '' }
-        }
-        const fn = filteredNodesRef.current
-        if (fn.size > 0 && !fn.has(node)) {
-          return { ...data, hidden: true, label: '' }
-        }
-        if (hideIsolatedRef.current) {
-          // When a similarity filter is active, only count edges to other visible
-          // (non-filtered-out) neighbors — edgeReducer hides cross-filter edges
-          // but graph.degree() still counts them, causing isolated-looking nodes.
-          const effectiveDegree = fn.size > 0
-            ? (graph.neighbors(node) as string[]).filter((n: string) => fn.has(n)).length
-            : graph.degree(node)
-          if (effectiveDegree === 0) return { ...data, hidden: true, label: '' }
-        }
-        const hn = highlightedNodesRef.current
-        const isHovered = node === hoveredNodeRef.current
-        const isHighlighted = hn.size === 0 || hn.has(node)
-        const showLabel = labelsOnHoverOnlyRef.current
-          ? (isHovered || (hn.size > 0 && hn.has(node)))
-          : (hn.size === 0 || isHovered || hn.has(node))
-        const label = showLabel ? data.label : ''
-        // forceLabel bypasses sigma's label-density grid so hovered/highlighted
-        // nodes always render their label. highlighted tells sigma to include
-        // the node in its hover-layer rendering (renderHighlightedNodes).
-        const forceLabel = showLabel && (isHovered || (hn.size > 0 && hn.has(node)))
-        if (!isHighlighted && !isHovered) {
-          return { ...data, label, color: CANVAS_BACKGROUND, size: data.size * 0.6, zIndex: 0 }
-        }
-        if (nh) {
-          const hopDist = nh.distances.get(node)
-          if (hopDist === nh.maxHop) {
-            const dimColor = (data.originalColor || data.color) + '66'
-            return { ...data, label, color: dimColor, size: data.size * 0.8, forceLabel, highlighted: forceLabel }
-          }
-        }
-        return { ...data, label, forceLabel, highlighted: forceLabel }
+      // Wire typed reducers — no `any` suppressions needed
+      const reducerCtx = {
+        graph,
+        pathNodesRef,
+        pathEdgesRef,
+        pathSourceRef,
+        labelsOnHoverOnlyRef,
+        hoveredNodeRef,
+        neighborhoodRef,
+        filteredNodesRef,
+        hideIsolatedRef,
+        highlightedNodesRef,
+        highlightedEdgesRef,
       }
+      const nodeReducer = makeNodeReducer(reducerCtx)
+      const edgeReducer = makeEdgeReducer(reducerCtx)
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const edgeReducer = (edge: string, data: any) => {
-        const pe = pathEdgesRef.current
-        if (pe.size > 0 && pe.has(edge)) {
-          return { ...data, color: HIGHLIGHT_COLOR, size: 3, hidden: false }
-        }
-        const nh = neighborhoodRef.current
-        if (nh) {
-          const src = graph.source(edge)
-          const tgt = graph.target(edge)
-          if (!nh.nodes.has(src) || !nh.nodes.has(tgt)) return { ...data, hidden: true }
-        }
-        const fn = filteredNodesRef.current
-        if (fn.size > 0) {
-          const src = graph.source(edge)
-          const tgt = graph.target(edge)
-          if (!fn.has(src) || !fn.has(tgt)) return { ...data, hidden: true }
-        }
-        const he = highlightedEdgesRef.current
-        if (he.size === 0 || he.has(edge)) return data
-        return { ...data, color: CANVAS_BACKGROUND, size: 0.3 }
-      }
-
-      const sigma = new Sigma(graph, containerRef.current!, {
+      const sigma = new SigmaClass(graph, containerRef.current!, {
         renderEdgeLabels: false,
         defaultEdgeColor: 'rgba(150,150,160,0.25)',
         defaultNodeColor: '#6b7280',
@@ -650,74 +551,15 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         zoomToSizeRatioFunction: (ratio: number) => ratio,
         nodeReducer,
         edgeReducer,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        defaultDrawNodeLabel: (context: CanvasRenderingContext2D, data: any, settings: any) => {
-          if (!data.label) return
-          const size: number = settings.labelSize ?? 11
-          const font: string = settings.labelFont ?? 'sans-serif'
-          context.font = `700 ${size}px ${font}`
-          const x = data.x + data.size + 3
-          const y = data.y + size / 4
-          context.lineJoin = 'round'
-          context.lineWidth = 3
-          context.strokeStyle = 'rgba(3, 4, 10, 0.95)'
-          context.strokeText(data.label, x, y)
-          context.fillStyle = LABEL_COLOR
-          context.fillText(data.label, x, y)
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        defaultDrawNodeHover: (context: CanvasRenderingContext2D, data: any, settings: any) => {
-          if (!data.label) return
-          const size: number = settings.labelSize ?? 11
-          const font: string = settings.labelFont ?? 'sans-serif'
-          context.font = `700 ${size}px ${font}`
-          const PADDING = 4
-          const textWidth = context.measureText(data.label).width
-          const boxWidth = Math.round(textWidth + PADDING * 2 + 4)
-          const boxHeight = Math.round(size + PADDING * 2)
-          const radius = Math.max(data.size, size / 2) + PADDING
-          const bx = data.x + radius
-          const by = data.y - boxHeight / 2
-          const r = 4
-
-          // Background pill
-          context.fillStyle = 'rgba(10, 14, 28, 0.94)'
-          context.shadowOffsetX = 0
-          context.shadowOffsetY = 2
-          context.shadowBlur = 10
-          context.shadowColor = 'rgba(0, 0, 0, 0.7)'
-          context.beginPath()
-          context.moveTo(bx + r, by)
-          context.lineTo(bx + boxWidth - r, by)
-          context.arcTo(bx + boxWidth, by, bx + boxWidth, by + r, r)
-          context.lineTo(bx + boxWidth, by + boxHeight - r)
-          context.arcTo(bx + boxWidth, by + boxHeight, bx + boxWidth - r, by + boxHeight, r)
-          context.lineTo(bx + r, by + boxHeight)
-          context.arcTo(bx, by + boxHeight, bx, by + boxHeight - r, r)
-          context.lineTo(bx, by + r)
-          context.arcTo(bx, by, bx + r, by, r)
-          context.closePath()
-          context.fill()
-          context.shadowBlur = 0
-          context.strokeStyle = 'rgba(249, 115, 22, 0.5)'
-          context.lineWidth = 1
-          context.stroke()
-
-          // Highlight ring
-          context.beginPath()
-          context.arc(data.x, data.y, data.size + 3, 0, Math.PI * 2)
-          context.strokeStyle = '#f97316'
-          context.lineWidth = 2
-          context.stroke()
-
-          // Label text
-          context.fillStyle = '#f97316'
-          context.fillText(data.label, bx + PADDING + 2, data.y + size / 4)
-        },
+        defaultDrawNodeLabel: drawNodeLabel,
+        defaultDrawNodeHover: drawNodeHover,
       })
 
       sigmaRef.current = sigma
       graphRef.current = graph
+      // Wire layout hook refs to the live instances
+      layoutGraphRef.current = graph
+      sigmaRefreshRef.current = () => sigma.refresh()
 
       sigma.on('enterNode', ({ node }: { node: string }) => {
         if (isDraggingRef.current) return
@@ -743,11 +585,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           rafRef.current = requestAnimationFrame(layoutLoopRef.current)
         }
       })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sigma.getMouseCaptor().on('mousemovebody', (e: any) => {
+      sigma.getMouseCaptor().on('mousemovebody', (e: MouseCoords) => {
         if (!isDraggingRef.current || !draggedNodeRef.current) return
         dragHasMovedRef.current = true
-        const pos = sigma.viewportToGraph(e)
+        const pos = sigma.viewportToGraph({ x: e.x, y: e.y })
         dragPositionRef.current = { x: pos.x, y: pos.y }
         graph.setNodeAttribute(draggedNodeRef.current, 'x', pos.x)
         graph.setNodeAttribute(draggedNodeRef.current, 'y', pos.y)
@@ -757,8 +598,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         e.original.preventDefault()
         e.original.stopPropagation()
       })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sigma.getMouseCaptor().on('mouseup', (_e: any) => {
+      sigma.getMouseCaptor().on('mouseup', () => {
         if (!isDraggingRef.current) return
         isDraggingRef.current = false
         draggedNodeRef.current = null
@@ -807,161 +647,29 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         velocities.set(node, { vx: 0, vy: 0 })
       })
 
-      // Simple force-directed simulation — no FA2, no adaptive state,
-      // no hidden convergence issues. Just Newtonian physics + damping.
-      const DAMPING = PHYSICS_DAMPING
-      const DT = PHYSICS_DT
-      const MIN_DIST = PHYSICS_MIN_DIST
+      // Build and start the physics loop via the extracted factory
+      buildLayoutLoop({
+        graphRef: layoutGraphRef,
+        sigmaRefreshRef,
+        rafRef,
+        isRunningRef,
+        temperatureRef,
+        simVelocitiesRef,
+        layoutParamsRef,
+        coolingRateRef,
+        stopThresholdRef,
+        filteredNodesRef,
+        neighborhoodRef,
+        hideIsolatedRef,
+        isDraggingRef,
+        draggedNodeRef,
+        dragPositionRef,
+        onLayoutStopRef: layout.onLayoutStopRef,
+        layoutLoopRef,
+      })
 
-      const layoutLoop = () => {
-        if (!isRunningRef.current || !graphRef.current || !sigmaRef.current) {
-          rafRef.current = null
-          return
-        }
-
-        const g = graphRef.current
-        const p = layoutParamsRef.current
-
-        // Build set of VISIBLE nodes — same logic as nodeReducer.
-        // Hidden nodes must not participate in physics at all.
-        const fn = filteredNodesRef.current
-        const allNodes = g.nodes() as string[]
-        const visibleSet = new Set<string>()
-        for (const n of allNodes) {
-          // Similarity filter: if active, only nodes in the filtered set are visible
-          if (fn.size > 0 && !fn.has(n)) continue
-          if (neighborhoodRef.current && !neighborhoodRef.current.nodes.has(n)) continue
-          visibleSet.add(n)
-        }
-        // Hide isolated: remove nodes with no visible non-overlay edges
-        if (hideIsolatedRef.current) {
-          for (const n of [...visibleSet]) {
-            let hasVisibleEdge = false
-            for (const e of g.edges(n) as string[]) {
-              if (g.getEdgeAttribute(e, 'overlay')) continue
-              const other = g.source(e) === n ? g.target(e) : g.source(e)
-              if (visibleSet.has(other as string)) { hasVisibleEdge = true; break }
-            }
-            if (!hasVisibleEdge) visibleSet.delete(n)
-          }
-        }
-        const nodes = [...visibleSet]
-
-        // --- Drag mode ---
-        if (isDraggingRef.current && draggedNodeRef.current && dragPositionRef.current) {
-          const dn = draggedNodeRef.current
-          const dp = dragPositionRef.current
-          g.setNodeAttribute(dn, 'x', dp.x)
-          g.setNodeAttribute(dn, 'y', dp.y)
-          velocities.set(dn, { vx: 0, vy: 0 })
-        }
-
-        // Accumulate forces (only for visible nodes)
-        const forces = new Map<string, { fx: number; fy: number }>()
-        for (const n of nodes) {
-          forces.set(n, { fx: 0, fy: 0 })
-        }
-
-        // 1) Gravity — pull toward center.
-        // Scale with SR² to stay balanced against repulsion (also SR²/dist²).
-        // Factor 0.01 keeps forces moderate at default settings.
-        const gravityStrength = p.gravity * p.scalingRatio * p.scalingRatio * 0.01
-        for (const n of nodes) {
-          const x = g.getNodeAttribute(n, 'x') as number
-          const y = g.getNodeAttribute(n, 'y') as number
-          const f = forces.get(n)!
-          f.fx -= x * gravityStrength
-          f.fy -= y * gravityStrength
-        }
-
-        // 2) Repulsion — all visible pairs (O(n²), acceptable for <1000 nodes)
-        for (let i = 0; i < nodes.length; i++) {
-          const n1 = nodes[i]
-          const x1 = g.getNodeAttribute(n1, 'x') as number
-          const y1 = g.getNodeAttribute(n1, 'y') as number
-          const f1 = forces.get(n1)!
-          for (let j = i + 1; j < nodes.length; j++) {
-            const n2 = nodes[j]
-            const x2 = g.getNodeAttribute(n2, 'x') as number
-            const y2 = g.getNodeAttribute(n2, 'y') as number
-            const dx = x1 - x2
-            const dy = y1 - y2
-            const dist = Math.max(MIN_DIST, Math.sqrt(dx * dx + dy * dy))
-            // Coulomb repulsion: SR² / dist². Squaring slider value compensates
-            // for cube-root equilibrium: d ∝ SR^(2/3). Slider 10→100 = 4.6x change.
-            const rep = (p.scalingRatio * p.scalingRatio) / (dist * dist)
-            const fx = (dx / dist) * rep
-            const fy = (dy / dist) * rep
-            f1.fx += fx
-            f1.fy += fy
-            const f2 = forces.get(n2)!
-            f2.fx -= fx
-            f2.fy -= fy
-          }
-        }
-
-        // 3) Edge attraction — only non-overlay edges between visible nodes
-        ;(g.edges() as string[]).forEach((e: string) => {
-          if (g.getEdgeAttribute(e, 'overlay')) return
-          const src = g.source(e) as string
-          const tgt = g.target(e) as string
-          if (!visibleSet.has(src) || !visibleSet.has(tgt)) return
-          const w = (g.getEdgeAttribute(e, 'weight') as number) || 0
-          if (w === 0) return
-          const x1 = g.getNodeAttribute(src, 'x') as number
-          const y1 = g.getNodeAttribute(src, 'y') as number
-          const x2 = g.getNodeAttribute(tgt, 'x') as number
-          const y2 = g.getNodeAttribute(tgt, 'y') as number
-          const dx = x2 - x1
-          const dy = y2 - y1
-          const fx = dx * w
-          const fy = dy * w
-          forces.get(src)!.fx += fx
-          forces.get(src)!.fy += fy
-          forces.get(tgt)!.fx -= fx
-          forces.get(tgt)!.fy -= fy
-        })
-
-        // 4) Apply forces → velocity → position (with velocity cap)
-        const MAX_VEL = 20
-        const dragNode = isDraggingRef.current ? draggedNodeRef.current : null
-        for (const n of nodes) {
-          if (n === dragNode) continue
-          const f = forces.get(n)!
-          const v = velocities.get(n) || { vx: 0, vy: 0 }
-          v.vx = (v.vx + f.fx * DT) * DAMPING
-          v.vy = (v.vy + f.fy * DT) * DAMPING
-          // Cap velocity to prevent explosions
-          const speed = Math.sqrt(v.vx * v.vx + v.vy * v.vy)
-          if (speed > MAX_VEL) {
-            v.vx = (v.vx / speed) * MAX_VEL
-            v.vy = (v.vy / speed) * MAX_VEL
-          }
-          velocities.set(n, v)
-          const x = (g.getNodeAttribute(n, 'x') as number) + v.vx
-          const y = (g.getNodeAttribute(n, 'y') as number) + v.vy
-          g.setNodeAttribute(n, 'x', x)
-          g.setNodeAttribute(n, 'y', y)
-        }
-
-        // Decay temperature (energy bar + auto-stop)
-        const temp = Math.max(0.0001, temperatureRef.current * (1 - coolingRateRef.current))
-        temperatureRef.current = temp
-        const thr = stopThresholdRef.current
-        if (thr > 0 && temp < thr) {
-          isRunningRef.current = false
-          rafRef.current = null
-          sigmaRef.current.refresh()
-          return
-        }
-
-        sigmaRef.current.refresh()
-        rafRef.current = requestAnimationFrame(layoutLoop)
-      }
-
-      layoutLoopRef.current = layoutLoop
       if (isRunningRef.current) {
-        rafRef.current = requestAnimationFrame(layoutLoop)
+        rafRef.current = requestAnimationFrame(layoutLoopRef.current!)
       }
     }
 
@@ -978,6 +686,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       sigmaRef.current?.kill()
       sigmaRef.current = null
       graphRef.current = null
+      layoutGraphRef.current = null
+      sigmaRefreshRef.current = null
       highlightedNodesRef.current = new Set()
       highlightedEdgesRef.current = new Set()
       hoveredNodeRef.current = null
@@ -1002,7 +712,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     graph.clearEdges()
     const visibleNodes = new Set(graph.nodes() as string[])
     const ewi = edgeWeightInfluenceRef.current
-    let edges = filterEdges(data.edges, graphSource, threshold)
+    let edges: GraphEdge[] = filterEdges(data.edges, graphSource, threshold)
     if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
     for (const edge of edges) {
       if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue

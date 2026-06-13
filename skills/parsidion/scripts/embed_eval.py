@@ -58,11 +58,11 @@ from embed_eval_common import (  # noqa: E402
     DEFAULT_CHUNKING,
     DEFAULT_MODELS,
     DEFAULT_NOTES_SAMPLE,
-    DEFAULT_QUERIES_FILE,
     DEFAULT_QUERIES_PER_NOTE,
     DEFAULT_TOP_K,
     DEFAULT_WORKERS,
     console,
+    get_default_queries_file,
 )
 from embed_eval_generate import generate_ground_truth, load_ground_truth  # noqa: E402
 from embed_eval_report import display_results, generate_html_report, save_json_results  # noqa: E402
@@ -109,9 +109,9 @@ def main() -> None:
     parser.add_argument(
         "--queries-file",
         type=Path,
-        default=DEFAULT_QUERIES_FILE,
+        default=get_default_queries_file(),
         metavar="FILE",
-        help=f"YAML ground-truth file (default: {DEFAULT_QUERIES_FILE}).",
+        help=f"YAML ground-truth file (default: {get_default_queries_file()}).",
     )
     parser.add_argument(
         "--models",

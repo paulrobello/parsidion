@@ -61,20 +61,60 @@ try:
         _fcntl.flock(f, _fcntl.LOCK_UN)
 
 except ImportError:
-    # Windows: fcntl is not available. File operations proceed without locking.
-    # Race conditions between simultaneous Claude instances are acceptably rare
-    # on Windows.
-    def flock_exclusive(f: IO[Any]) -> None:
-        """Acquire an exclusive (write) lock on an open file descriptor (no-op on Windows)."""
-        pass
+    # SEC-013: Windows fallback — fcntl is not available.
+    # Use msvcrt.locking() which is stdlib on Windows (CPython only).
+    # msvcrt.locking() locks byte ranges; we lock the first byte of the file
+    # as a mutex token.  Both the exclusive and shared locks use LK_LOCK
+    # (blocking exclusive) because msvcrt has no shared-lock mode.
+    # This is intentionally conservative: it may serialise readers but it
+    # prevents interleaved writes from parallel Claude instances.
+    try:
+        import msvcrt as _msvcrt
 
-    def flock_shared(f: IO[Any]) -> None:
-        """Acquire a shared (read) lock on an open file descriptor (no-op on Windows)."""
-        pass
+        # msvcrt.locking / LK_LOCK / LK_UNLCK exist on Windows CPython but
+        # pyright's cross-platform stubs do not declare them.
+        # Use getattr to silence the pyright attribute errors while keeping
+        # runtime correctness on Windows.
+        _msvcrt_locking = getattr(_msvcrt, "locking")  # type: ignore[attr-defined]  # noqa: B009
+        _LK_LOCK = getattr(_msvcrt, "LK_LOCK")  # type: ignore[attr-defined]  # noqa: B009
+        _LK_UNLCK = getattr(_msvcrt, "LK_UNLCK")  # type: ignore[attr-defined]  # noqa: B009
 
-    def funlock(f: IO[Any]) -> None:
-        """Release a lock on an open file descriptor (no-op on Windows)."""
-        pass
+        _LOCK_BYTES = 1  # Lock one sentinel byte at offset 0
+
+        def flock_exclusive(f: IO[Any]) -> None:
+            """Acquire an exclusive lock on the file (Windows: msvcrt.locking)."""
+            f.flush()
+            f.seek(0)
+            _msvcrt_locking(f.fileno(), _LK_LOCK, _LOCK_BYTES)
+
+        def flock_shared(f: IO[Any]) -> None:
+            """Acquire a shared lock on the file (Windows: msvcrt exclusive, no shared mode)."""
+            f.flush()
+            f.seek(0)
+            _msvcrt_locking(f.fileno(), _LK_LOCK, _LOCK_BYTES)
+
+        def funlock(f: IO[Any]) -> None:
+            """Release a lock on the file (Windows: msvcrt.LK_UNLCK)."""
+            try:
+                f.seek(0)
+                _msvcrt_locking(f.fileno(), _LK_UNLCK, _LOCK_BYTES)
+            except OSError:
+                pass  # Already unlocked or file closed
+
+    except ImportError:
+        # Neither fcntl nor msvcrt available (non-CPython on Windows?).
+        # File operations proceed without locking — acceptably rare scenario.
+        def flock_exclusive(f: IO[Any]) -> None:
+            """Acquire an exclusive lock (no-op: no locking primitives available)."""
+            pass
+
+        def flock_shared(f: IO[Any]) -> None:
+            """Acquire a shared lock (no-op: no locking primitives available)."""
+            pass
+
+        def funlock(f: IO[Any]) -> None:
+            """Release a lock (no-op: no locking primitives available)."""
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -161,15 +201,17 @@ def append_to_pending(
     if agent_type is not None:
         entry["agent_type"] = agent_type
 
-    # SEC-010: On Windows, fcntl is unavailable so flock_exclusive() is a no-op
-    # (see the ImportError fallback in the locking section above).  Concurrent writes
-    # from multiple Claude instances on Windows may therefore produce duplicate entries
-    # or interleaved JSON lines.  The deduplication check below provides a best-effort
-    # guard, but is not race-free without OS-level locking.
-    # If Windows atomic locking becomes critical, add a lock-file sidecar using:
-    #   import msvcrt; msvcrt.locking(lf.fileno(), msvcrt.LK_LOCK, 1)
+    # SEC-008: Create pending_summaries.jsonl with mode 0o600 (owner read/write
+    # only) so session metadata is not world-readable.  os.open sets the mode
+    # atomically on first creation; existing files retain their current mode.
+    # SEC-013 / SEC-010 (Windows): fcntl is unavailable on Windows so
+    # flock_exclusive() is a no-op; concurrent writes may race.  The dedup
+    # check below provides best-effort guard.  msvcrt.locking() is not
+    # used here because it locks byte ranges (not the whole file) and would
+    # require careful size tracking — too complex for stdlib-only code.
     try:
-        with open(pending_path, "a+", encoding="utf-8") as f:
+        fd = os.open(str(pending_path), os.O_CREAT | os.O_RDWR, 0o600)
+        with open(fd, "r+", encoding="utf-8") as f:
             flock_exclusive(f)
             try:
                 f.seek(0)

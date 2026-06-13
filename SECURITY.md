@@ -60,7 +60,7 @@ will be rejected on security grounds, even if the package is widely trusted.
 
 ## Reporting a Vulnerability
 
-> **⚠️ Warning:** Do not open a public GitHub issue for security vulnerabilities. Use the
+> **Warning:** Do not open a public GitHub issue for security vulnerabilities. Use the
 > private channel below.
 
 To report a vulnerability, email **probello@gmail.com** with:

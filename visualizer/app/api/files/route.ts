@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import type { VaultFile } from '@/lib/vaultFile'
-import { resolveVault } from '@/lib/vaultResolver'
+import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 
 const EXCLUDED_DIRS = new Set(['.obsidian', 'Templates', '.git', '.trash', 'TagsRoutes'])
 
@@ -41,7 +41,15 @@ function walkVault(dir: string, vaultRoot: string, results: VaultFile[]): void {
 
 export async function GET(req: NextRequest) {
   const vault = req.nextUrl.searchParams.get('vault')
-  const vaultRoot = resolveVault(vault)
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch (err) {
+    if (err instanceof VaultConfigError) {
+      return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+    }
+    return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
+  }
   const files: VaultFile[] = []
   walkVault(vaultRoot, vaultRoot, files)
   return NextResponse.json({ files })

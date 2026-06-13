@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import { resolveVault } from '@/lib/vaultResolver'
+import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -21,10 +21,6 @@ function findNote(dir: string, stemToFind: string): string | null {
   return null
 }
 
-function guardPath(notePath: string, vaultRoot: string): boolean {
-  return path.resolve(notePath).startsWith(path.resolve(vaultRoot) + path.sep)
-}
-
 export interface CommitEntry {
   hash: string
   shortHash: string
@@ -38,7 +34,15 @@ export async function GET(req: NextRequest) {
   const vault = req.nextUrl.searchParams.get('vault')
   if (!stem && !notPathParam) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
 
-  const vaultRoot = resolveVault(vault)
+  let vaultRoot: string
+  try {
+    vaultRoot = resolveVault(vault)
+  } catch (err) {
+    if (err instanceof VaultConfigError) {
+      return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
+    }
+    return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
+  }
   // Prefer explicit vault-relative path (avoids stem collision for MANIFEST.md etc.)
   const notePath = notPathParam
     ? path.join(vaultRoot, notPathParam)
@@ -70,7 +74,9 @@ export async function GET(req: NextRequest) {
 
     proc.on('close', code => {
       if (code !== 0) {
-        resolve(NextResponse.json({ error: `git log failed: ${stderr}` }, { status: 500 }))
+        // SEC-003: Log stderr server-side; return a generic error to the client.
+        console.error('[note/history] git log failed:', stderr)
+        resolve(NextResponse.json({ error: 'Failed to retrieve commit history' }, { status: 500 }))
         return
       }
 
