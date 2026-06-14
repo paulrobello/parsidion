@@ -715,3 +715,88 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
 
     assert observed["model"] == "cli-large-model"
     assert observed["cluster_model"] is None
+
+
+def test_ensure_closing_frontmatter_delimiter_inserts_missing_closer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # The model emitted the opening '---' and all fields but no closing '---'.
+    note = (
+        "---\n"
+        "date: 2026-06-14\n"
+        "type: pattern\n"
+        "tags: [python, architecture]\n"
+        "project: parsidion\n"
+        "confidence: high\n"
+        "sources: []\n"
+        "related: ['[[parsidion]]']\n"
+        "session_id: abc123\n"
+        "\n"
+        "# Vault Library Importability Pattern\n\n"
+        "Some reusable insight.\n"
+    )
+
+    repaired = summarize_sessions._ensure_closing_frontmatter_delimiter(note)
+
+    assert repaired != note
+    # Closing delimiter inserted before the body (first blank line).
+    assert "\nsession_id: abc123\n---\n\n#" in repaired
+    fm = summarize_sessions.vault_common.parse_frontmatter(repaired)
+    assert fm.get("type") == "pattern"
+    assert fm.get("date") == "2026-06-14"
+
+
+def test_ensure_closing_frontmatter_delimiter_noop_cases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Already well-formed (both delimiters present) — unchanged.
+    well_formed = (
+        "---\n"
+        "date: 2026-06-14\n"
+        "type: debugging\n"
+        "tags:\n"
+        "  - debugging\n"
+        "---\n"
+        "# Note\n\nBody.\n"
+    )
+    assert (
+        summarize_sessions._ensure_closing_frontmatter_delimiter(well_formed)
+        == well_formed
+    )
+    # No opening '---' at all — unchanged (validator will reject).
+    no_opening = "# Just a heading\n\nNo frontmatter here.\n"
+    assert (
+        summarize_sessions._ensure_closing_frontmatter_delimiter(no_opening)
+        == no_opening
+    )
+
+
+def test_write_note_salvages_note_missing_closing_frontmatter_delimiter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    # Realistic model output that omits the closing '---'.
+    note = (
+        "---\n"
+        "date: 2026-04-27\n"
+        "type: debugging\n"
+        "tags:\n"
+        "  - debugging\n"
+        "confidence: high\n"
+        "\n"
+        "# Test Note\n\nUseful note.\n"
+    )
+
+    result = summarize_sessions.write_note(note, True, vault)
+
+    captured = capsys.readouterr()
+    assert result is None  # dry-run returns None
+    assert "[dry-run] Would write:" in captured.out
+    assert "Debugging/test-note.md" in captured.out
+    assert "Refusing to write note" not in captured.err

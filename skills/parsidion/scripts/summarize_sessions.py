@@ -578,6 +578,56 @@ def _validate_frontmatter(note_content: str) -> str | None:
     return None
 
 
+# Matches a YAML frontmatter key line such as 'date:' or 'tags: [...]'.
+_FRONTMATTER_KEY_LINE_RE = re.compile(r"^[A-Za-z_][\w.-]*\s*:")
+
+
+def _ensure_closing_frontmatter_delimiter(note_content: str) -> str:
+    """Insert a missing closing ``---`` delimiter in AI-generated frontmatter.
+
+    The note generator sometimes emits the opening ``---`` and every frontmatter
+    field but forgets the closing ``---``. ``parse_frontmatter`` (used by the
+    write-gate) requires both delimiters, so without repair the note is rejected
+    as "Note has no YAML frontmatter block" even though the frontmatter is
+    otherwise complete. This salvages that common failure mode by inserting the
+    closing delimiter at the boundary between the frontmatter fields and the
+    note body (first blank line, heading, or non-frontmatter line).
+
+    No-op when the content has no opening ``---`` or already has a well-formed
+    frontmatter block.
+    """
+    if not note_content.lstrip().startswith("---"):
+        return note_content
+    if vault_common.parse_frontmatter(note_content):
+        return note_content
+
+    lines = note_content.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if line.strip() == "---"), None)
+    if start is None:
+        return note_content
+
+    insert_at: int | None = None
+    for i in range(start + 1, len(lines)):
+        line = lines[i]
+        is_frontmatter_line = bool(
+            _FRONTMATTER_KEY_LINE_RE.match(line) or line[:1] in (" ", "\t")
+        )
+        if (
+            line.strip() == ""
+            or line.lstrip().startswith("#")
+            or not is_frontmatter_line
+        ):
+            insert_at = i
+            break
+
+    # No body boundary found, or frontmatter is empty (boundary right after the
+    # opening delimiter) — leave unchanged and let validation report it.
+    if insert_at is None or insert_at <= start + 1:
+        return note_content
+
+    return "".join(lines[:insert_at] + ["---\n"] + lines[insert_at:])
+
+
 def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
     """Write a generated vault note to the appropriate folder.
 
@@ -600,6 +650,12 @@ def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
             if inner.rstrip().endswith("```"):
                 inner = inner.rstrip()[:-3].rstrip()
             note_content = inner
+
+    # Salvage AI notes where the model emitted the opening '---' and all
+    # frontmatter fields but omitted the closing '---' delimiter — a common
+    # model failure mode. parse_frontmatter (used by the write-gate) requires
+    # both delimiters, so without this otherwise-valid frontmatter is rejected.
+    note_content = _ensure_closing_frontmatter_delimiter(note_content)
 
     # SEC-004: Validate YAML frontmatter conformance before writing.  Rejects notes
     # that lack required fields or have an invalid type — guards against adversarial
