@@ -545,3 +545,179 @@ class TestDedupRelatedLinks:
         _write_note(vault, "Patterns/clean.md", content)
         fixed = vault_doctor.dedup_related_links(dry_run=False, vault_path=vault)
         assert fixed == 0
+
+
+# ---------------------------------------------------------------------------
+# _normalize_repaired_note — defence against malformed AI output
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeRepairedNote:
+    """Guard against the small model emitting malformed frontmatter."""
+
+    def test_normalizes_double_nested_related(self, vault: Path) -> None:
+        target = _write_note(vault, "Patterns/real.md", "# Real\n")
+        nm = vault_doctor.build_note_map([target])
+        content = (
+            "---\n"
+            "date: 2026-06-12\n"
+            "type: debugging\n"
+            'related: [["[[real]]"], "[[fake]]"]\n'  # nested + fabricated
+            "---\n\n# Title\n"
+        )
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=False)
+        assert out is not None
+        assert 'related: ["[[real]]"]' in out
+        assert "[[fake]]" not in out
+        assert "# Title" in out
+
+    def test_repairs_missing_closing_delimiter(self, vault: Path) -> None:
+        target = _write_note(vault, "Patterns/real.md", "# Real\n")
+        nm = vault_doctor.build_note_map([target])
+        content = (
+            "---\n"
+            "date: 2026-06-09\n"
+            "type: debugging\n"
+            'related: ["[[real]]"]\n'
+            "\n## Sessions\n"  # no closing ---
+        )
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=False)
+        assert out is not None
+        assert out.split("\n").count("---") == 2
+        assert "## Sessions" in out
+
+    def test_strips_leaked_markers(self, vault: Path) -> None:
+        target = _write_note(vault, "Patterns/real.md", "# Real\n")
+        nm = vault_doctor.build_note_map([target])
+        content = (
+            "---yaml\n"  # leaked marker
+            "---\n"
+            "date: 2026-06-10\n"
+            "type: debugging\n"
+            'related: ["[[real]]"]\n'
+            "---\n\n# Title\n"
+        )
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=False)
+        assert out is not None
+        assert "---yaml" not in out
+        assert out.startswith("---\n")
+        assert 'related: ["[[real]]"]' in out
+
+    def test_rejects_non_daily_with_no_resolving_link(self, vault: Path) -> None:
+        nm = vault_doctor.build_note_map([])  # nothing resolves
+        content = (
+            "---\n"
+            "date: 2026-06-12\n"
+            "type: debugging\n"
+            'related: ["[[fabricated]]"]\n'
+            "---\n\n# Title\n"
+        )
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=False)
+        assert out is None
+
+    def test_daily_allows_empty_related(self, vault: Path) -> None:
+        nm = vault_doctor.build_note_map([])
+        content = (
+            "---\n"
+            "date: 2026-06-15\n"
+            "type: daily\n"
+            'related: [["[[note-one]]"]]\n'  # placeholder leak
+            "---\n\n## Sessions\n"
+        )
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=True)
+        assert out is not None
+        assert "related: []" in out
+        assert "[[note-one]]" not in out
+
+    def test_rejects_duplicate_frontmatter_block(self, vault: Path) -> None:
+        target = _write_note(vault, "Patterns/real.md", "# Real\n")
+        nm = vault_doctor.build_note_map([target])
+        content = (
+            "---\n"
+            "date: 2026-05-29\n"
+            "type: daily\n"
+            "related: []\n"
+            "---END---\n"  # leaked
+            "---BEGIN---\n"  # leaked
+            "---\n"
+            "date: 2026-05-29\n"
+            "type: daily\n"
+            "related: []\n"
+            "\n## Sessions\n"
+        )
+        # After stripping END/BEGIN the body opens with 'date:' → ambiguous → reject
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=True)
+        assert out is None
+
+    def test_valid_note_passes_through(self, vault: Path) -> None:
+        target = _write_note(vault, "Patterns/real.md", "# Real\n")
+        nm = vault_doctor.build_note_map([target])
+        content = (
+            "---\n"
+            "date: 2026-06-12\n"
+            "type: debugging\n"
+            "confidence: high\n"
+            'related: ["[[real]]"]\n'
+            "---\n\n# Title\n\nbody\n"
+        )
+        out = vault_doctor._normalize_repaired_note(content, nm, is_daily=False)
+        assert out is not None
+        assert 'related: ["[[real]]"]' in out
+        assert "confidence: high" in out
+        assert "body" in out
+
+
+class TestRepairOneRejectsMalformedOutput:
+    """_repair_one must not write malformed AI output to disk."""
+
+    def test_malformed_output_is_not_written(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Target note resolves; the AI returns a fabricated link that does not.
+        target = _write_note(vault, "Patterns/real.md", "# Real\n")
+        note = _write_note(
+            vault,
+            "Patterns/needs-related.md",
+            "---\ndate: 2026-06-12\ntype: pattern\nconfidence: high\n---\n\n# Needs\n",
+        )
+        note_map = vault_doctor.build_note_map([note, target])
+        issue = vault_doctor.Issue(
+            path=note,
+            severity="warning",
+            code="ORPHAN_NOTE",
+            message="No [[wikilinks]] in 'related' field (orphan note)",
+        )
+
+        def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+            # Fabricated link that resolves to nothing
+            return (
+                "---\n"
+                "date: 2026-06-12\n"
+                "type: pattern\n"
+                "confidence: high\n"
+                'related: ["[[invented-target]]"]\n'
+                "---\n\n# Needs\n"
+            )
+
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        )
+
+        state: dict = {"notes": {}}
+        repaired = vault_doctor._repair_one(
+            note,
+            [issue],
+            None,
+            state,
+            "2026-06-15",
+            threading.Lock(),
+            note_map=note_map,
+            vault_path=vault,
+        )
+
+        # Repair rejected: nothing written, status failed
+        assert repaired is False
+        assert state["notes"]["Patterns/needs-related.md"]["status"] == "failed"
+        # Original note body preserved (no fabricated link written)
+        on_disk = note.read_text(encoding="utf-8")
+        assert "[[invented-target]]" not in on_disk
