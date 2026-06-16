@@ -446,6 +446,19 @@ _DEFAULT_SCAN_THRESHOLD = 0.92
 _DEFAULT_SCAN_TOP = 50
 
 
+def _is_excluded_from_scan(path: str, folder: str) -> bool:
+    """Return True for notes excluded from duplicate scanning.
+
+    Daily notes share a templated session-list structure and the ``NN-probello``
+    slug pattern, so they hit the cosine threshold against each other despite
+    being semantically distinct (different days). Merging them destroys the
+    per-day structure, so they are excluded entirely.
+    """
+    if folder == "Daily":
+        return True
+    return str(path).replace("\\", "/").lstrip("./").startswith("Daily/")
+
+
 def _scan_duplicates(
     threshold: float = _DEFAULT_SCAN_THRESHOLD,
     top: int = _DEFAULT_SCAN_TOP,
@@ -492,6 +505,8 @@ def _scan_duplicates(
         conn.close()
         sys.exit(1)
     conn.close()
+
+    rows = [r for r in rows if not _is_excluded_from_scan(str(r[1]), str(r[2]))]
 
     if not rows:
         print("No embeddings found in database.")

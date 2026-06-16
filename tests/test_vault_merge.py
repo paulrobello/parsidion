@@ -345,3 +345,28 @@ class TestBacklinkBugFixes:
         vault_merge._update_wikilinks_in_vault("note-b", "note-a", vault)
         a_content = (vault / "Patterns" / "note-a.md").read_text(encoding="utf-8")
         assert "[[note-a]]" not in a_content
+
+
+class TestScanExcludesDailyNotes:
+    """Daily notes are excluded from duplicate scanning.
+
+    They share a templated session-list structure and the NN-probello slug
+    pattern, so the cosine scan flags them as near-duplicates despite being
+    semantically distinct days. Merging them destroys the per-day structure.
+    """
+
+    def test_daily_folder_excluded(self) -> None:
+        assert vault_merge._is_excluded_from_scan(
+            "Daily/2026-05/15-probello.md", "Daily"
+        )
+
+    def test_daily_path_excluded_regardless_of_folder(self) -> None:
+        assert vault_merge._is_excluded_from_scan("Daily/2026-03/16-probello.md", "")
+
+    def test_non_daily_not_excluded(self) -> None:
+        assert not vault_merge._is_excluded_from_scan(
+            "Patterns/some-pattern.md", "Patterns"
+        )
+        assert not vault_merge._is_excluded_from_scan(
+            "Debugging/some-bug.md", "Debugging"
+        )
