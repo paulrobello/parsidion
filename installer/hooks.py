@@ -457,7 +457,7 @@ def _set_codex_hooks_in_features_section(content: str, *, yes: bool) -> str | No
 
     lines = content.splitlines()
     if not lines:
-        return "[features]\ncodex_hooks = true\n"
+        return "[features]\nhooks = true\n"
 
     features_start: int | None = None
     features_end = len(lines)
@@ -478,32 +478,30 @@ def _set_codex_hooks_in_features_section(content: str, *, yes: bool) -> str | No
 
     if features_start is None:
         suffix = "" if content.endswith("\n") else "\n"
-        return content + suffix + "\n[features]\ncodex_hooks = true\n"
+        return content + suffix + "\n[features]\nhooks = true\n"
 
     codex_hooks_re = re.compile(
-        r"^(\s*codex_hooks\s*=\s*)(true|false)(\s*(?:#.*)?)$", re.IGNORECASE
+        r"^(\s*hooks\s*=\s*)(true|false)(\s*(?:#.*)?)$", re.IGNORECASE
     )
-    codex_hooks_key_re = re.compile(r"^\s*codex_hooks\s*=")
+    codex_hooks_key_re = re.compile(r"^\s*hooks\s*=")
     for index in range(features_start + 1, features_end):
         match = codex_hooks_re.match(lines[index])
         if not match:
             if codex_hooks_key_re.match(lines[index]):
-                _warn("Ambiguous codex_hooks setting; leaving Codex config unchanged")
+                _warn("Ambiguous hooks setting; leaving Codex config unchanged")
                 return None
             continue
         value = match.group(2).lower()
         if value == "true":
             return content
-        if not yes and not _confirm(
-            "Enable codex_hooks in Codex config?", default=True
-        ):
-            _warn("Codex hooks are disabled; add `codex_hooks = true` manually")
+        if not yes and not _confirm("Enable hooks in Codex config?", default=True):
+            _warn("Codex hooks are disabled; add `hooks = true` manually")
             return None
         lines[index] = f"{match.group(1)}true{match.group(3)}"
         return "\n".join(lines) + "\n"
 
     insert_at = features_end
-    lines.insert(insert_at, "codex_hooks = true")
+    lines.insert(insert_at, "hooks = true")
     return "\n".join(lines) + "\n"
 
 
@@ -525,7 +523,7 @@ def enable_codex_hooks_config(
 
     updated = _set_codex_hooks_in_features_section(content, yes=yes)
     if updated is None:
-        _warn("Add this manually to Codex config:\n[features]\ncodex_hooks = true")
+        _warn("Add this manually to Codex config:\n[features]\nhooks = true")
         return
     if updated == content:
         _ok("Codex hooks already enabled")
