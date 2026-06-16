@@ -40,3 +40,46 @@ class TestCodexFeatureFlagName:
         text = _apply(config, yes=True)
         assert "hooks = true" in text
         assert "codex_hooks" not in text
+
+
+import installer.skill as skill  # noqa: E402
+import installer.paths as paths  # noqa: E402
+
+# The delimited section markers every instructions file must use.
+_BEGIN = "<!-- BEGIN parsidion -->"
+_END = "<!-- END parsidion -->"
+
+
+class TestInstructionsInjection:
+    def test_codex_agents_md_injects_section(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            paths, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        agents_md = codex_home / "AGENTS.md"
+        agents_md.write_text("# my rules\n", encoding="utf-8")
+        skill.install_codex_agents_md(codex_home)
+        text = agents_md.read_text(encoding="utf-8")
+        assert "# my rules" in text
+        assert _BEGIN in text and _END in text
+        assert "vault-search" in text  # the shared content is present
+
+    def test_gemini_md_injection_is_idempotent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            paths, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        gemini_home = tmp_path / ".gemini"
+        gemini_home.mkdir()
+        skill.install_gemini_md(gemini_home)
+        before = (gemini_home / "GEMINI.md").read_text(encoding="utf-8")
+        skill.install_gemini_md(gemini_home)  # second call must not duplicate
+        after = (gemini_home / "GEMINI.md").read_text(encoding="utf-8")
+        assert before.count(_BEGIN) == 1
+        assert after == before
+
+
+def _fake_instructions(tmp_path: Path) -> Path:
+    p = tmp_path / "AGENT_INSTRUCTIONS.md"
+    p.write_text("Use vault-search to recall prior notes.\n", encoding="utf-8")
+    return p

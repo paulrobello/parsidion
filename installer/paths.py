@@ -32,6 +32,9 @@ AGENT_SRCS: list[Path] = [
 ]
 SCRIPTS_SRC: Path = REPO_ROOT / "scripts"
 CLAUDE_VAULT_MD_SRC: Path = REPO_ROOT / "CLAUDE-VAULT.md"
+AGENT_INSTRUCTIONS_SRC: Path = (
+    REPO_ROOT / "skills" / "parsidion" / "AGENT_INSTRUCTIONS.md"
+)
 
 # Hook script filenames installed inside the skill.
 # SessionEnd uses a shell wrapper that outputs {} immediately and runs the

@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from installer.paths import (
+    AGENT_INSTRUCTIONS_SRC,
     AGENT_SRCS,
     CLAUDE_VAULT_MD_SRC,
     LEGACY_SKILL_NAME,
@@ -240,6 +241,55 @@ def install_claude_vault_md(
             content + suffix + _CLAUDE_VAULT_MD_IMPORT + "\n",
             encoding="utf-8",
         )
+
+
+# ---------------------------------------------------------------------------
+# Agent instructions injection (codex AGENTS.md / gemini GEMINI.md)
+# ---------------------------------------------------------------------------
+
+_BEGIN_MARKER = "<!-- BEGIN parsidion -->"
+_END_MARKER = "<!-- END parsidion -->"
+
+
+def _inject_instructions_block(dest: Path, dry_run: bool, verbose: bool) -> None:
+    """Idempotently inject the parsidion instructions section into *dest*."""
+    from installer.ui import dim
+
+    if not AGENT_INSTRUCTIONS_SRC.exists():
+        _warn(f"AGENT_INSTRUCTIONS.md not found at {AGENT_INSTRUCTIONS_SRC} — skipping")
+        return
+
+    block = AGENT_INSTRUCTIONS_SRC.read_text(encoding="utf-8").strip()
+    section = f"{_BEGIN_MARKER}\n{block}\n{_END_MARKER}\n"
+
+    existing = dest.read_text(encoding="utf-8") if dest.exists() else ""
+    if _BEGIN_MARKER in existing:
+        _print(
+            dim(f"  {dest} already has parsidion instructions block"),
+            verbose_only=True,
+            verbose=verbose,
+        )
+        return
+
+    _step(f"Inject parsidion instructions → {dest}", dry_run=dry_run)
+    if not dry_run:
+        suffix = "" if existing.endswith("\n") or existing == "" else "\n"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(existing + suffix + section, encoding="utf-8")
+
+
+def install_codex_agents_md(
+    codex_home: Path, dry_run: bool = False, verbose: bool = False
+) -> None:
+    """Inject parsidion instructions into ~/.codex/AGENTS.md (global user layer)."""
+    _inject_instructions_block(codex_home / "AGENTS.md", dry_run, verbose)
+
+
+def install_gemini_md(
+    gemini_home: Path, dry_run: bool = False, verbose: bool = False
+) -> None:
+    """Inject parsidion instructions into ~/.gemini/GEMINI.md (global user layer)."""
+    _inject_instructions_block(gemini_home / "GEMINI.md", dry_run, verbose)
 
 
 # ---------------------------------------------------------------------------
