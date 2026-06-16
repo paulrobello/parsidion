@@ -97,12 +97,12 @@ uv run install.py --schedule-summarizer --no-rebuild-graph
 
 # Friendly multi-agent verbs — install or remove one runtime integration
 uv run install.py connect claude      # install Claude Code integration only
-uv run install.py connect codex       # install Codex CLI hooks only
-uv run install.py connect gemini      # install Gemini CLI hooks only
-uv run install.py disconnect codex    # remove Codex CLI hooks only
+uv run install.py connect codex       # install Codex CLI integration (hooks + AGENTS.md)
+uv run install.py connect gemini      # install Gemini CLI integration (hooks + GEMINI.md)
+uv run install.py disconnect codex    # remove Codex CLI integration
 ```
 
-`connect <claude|codex|gemini>` is a friendlier alias for `--runtime <agent>` that installs only one integration. `disconnect <...>` removes only that integration's hooks (equivalent to a targeted `--uninstall --runtime <agent>`).
+`connect <claude|codex|gemini>` is a friendlier alias for `--runtime <agent>` that installs only one integration. `disconnect <...>` removes that agent's full Parsidion integration (equivalent to a targeted `--uninstall --runtime <agent>`).
 
 **Options:**
 
