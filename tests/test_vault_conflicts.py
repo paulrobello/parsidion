@@ -170,3 +170,31 @@ class TestApplyResolution:
     def test_unknown_choice_is_skip(self) -> None:
         c = {"a": "alpha", "b": "beta"}
         assert vault_conflicts._apply_resolution(c, "skip") == "skipped"
+
+
+class TestRunScan:
+    def test_scan_pipeline_end_to_end(self, tmp_vault: Path, monkeypatch) -> None:
+        _seed_embeddings_db(
+            tmp_vault,
+            [
+                ("note-a", [1.0, 0.0], "A"),
+                ("note-b", [0.99, 0.01], "B"),
+            ],
+        )
+        import ai_backend
+
+        canned = '[{"type":"contradiction","a":"note-a","b":"note-b","a_says":"X","b_says":"not-X","recommendation":"needs_review"}]'
+        monkeypatch.setattr(ai_backend, "run_ai_prompt", lambda *a, **k: canned)
+
+        conflicts = vault_conflicts._run_scan(tmp_vault, threshold=0.75, top=50)
+        assert len(conflicts) == 1
+        assert conflicts[0]["a"] == "note-a"
+        # The scan must also persist the report.
+        assert vault_conflicts.read_conflict_report(tmp_vault) == conflicts
+
+    def test_scan_no_clusters_returns_empty(self, tmp_vault: Path) -> None:
+        _seed_embeddings_db(
+            tmp_vault,
+            [("solo", [1.0, 0.0], "Solo")],
+        )
+        assert vault_conflicts._run_scan(tmp_vault, threshold=0.75, top=50) == []

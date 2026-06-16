@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 import struct
-import sys  # noqa: F401
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -273,9 +273,137 @@ def _apply_resolution(conflict: dict[str, Any], choice: str) -> str:
     return "skipped"
 
 
-def main() -> None:  # pragma: no cover - wired in Task 4.6
-    """CLI entry point (implemented in Task 4.6)."""
-    raise NotImplementedError
+def _run_scan(
+    vault: Path, threshold: float, top: int, no_ai: bool = False
+) -> list[dict[str, Any]]:
+    """Run the full detect pipeline and persist the report. Returns conflicts."""
+    clusters = find_candidate_clusters(vault, threshold=threshold, top=top)
+    all_conflicts: list[dict[str, Any]] = []
+    for cluster in clusters:
+        members = cluster[:_DEFAULT_MAX_CLUSTER]
+        all_conflicts.extend(_detect_contradictions(members, vault, no_ai=no_ai))
+    write_conflict_report(all_conflicts, vault)
+    return all_conflicts
+
+
+def _run_tui(conflicts: list[dict[str, Any]], vault: Path) -> None:  # pragma: no cover
+    """Interactive curses walkthrough (mirrors vault_review._show_popup).
+
+    For each conflict: show a_says vs b_says, collect a choice
+    (a=keep_a, b=keep_b, m=merge, s=skip, q=quit). Decisions are collected
+    during the curses loop and printed AFTER the wrapper returns (curses owns
+    the screen while active, so stdout is not visible mid-loop).
+    """
+    import curses
+
+    decisions: list[str] = []
+
+    def _loop(stdscr: Any) -> None:
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        mapping = {
+            ord("a"): "keep_a",
+            ord("b"): "keep_b",
+            ord("m"): "merge",
+            ord("s"): "skip",
+        }
+        idx = 0
+        while idx < len(conflicts):
+            c = conflicts[idx]
+            stdscr.clear()
+            stdscr.addstr(0, 2, f"Conflict {idx + 1}/{len(conflicts)}")
+            stdscr.addstr(2, 2, f"[A] {c.get('a')}: {c.get('a_says', '')}")
+            stdscr.addstr(3, 2, f"[B] {c.get('b')}: {c.get('b_says', '')}")
+            stdscr.addstr(5, 2, "a=keep A  b=keep B  m=merge  s=skip  q=quit")
+            stdscr.refresh()
+            key = stdscr.getch()
+            if key == ord("q"):
+                break
+            choice = mapping.get(key)
+            if choice:
+                decisions.append(_apply_resolution(c, choice))
+                idx += 1
+
+    try:
+        curses.wrapper(_loop)
+    except Exception:  # noqa: BLE001
+        print(
+            "Terminal does not support curses; use --scan-only or --json.",
+            file=sys.stderr,
+        )
+        return
+
+    for line in decisions:
+        print(line)
+
+
+def main() -> None:
+    """CLI entry: detect contradictions, then optionally review interactively."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="vault-conflicts",
+        description="Detect contradictions between semantically-similar vault notes.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=_DEFAULT_TOPIC_THRESHOLD,
+        help=f"Topic-similarity threshold for clustering (default {_DEFAULT_TOPIC_THRESHOLD}).",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=_DEFAULT_TOP,
+        help=f"Max pairs considered (default {_DEFAULT_TOP}).",
+    )
+    parser.add_argument(
+        "--vault", "-V", metavar="PATH", default=None, help="Vault root."
+    )
+    parser.add_argument(
+        "--scan-only",
+        action="store_true",
+        help="Write the conflict report and exit (no interactive TUI).",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the conflict report as JSON and exit.",
+    )
+    parser.add_argument(
+        "--no-ai",
+        action="store_true",
+        help="Run clustering only; do not call the AI backend (useful for dry runs).",
+    )
+    args = parser.parse_args()
+
+    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=str(Path.cwd()))
+
+    # QA-001/ARC-001: swap VAULT_ROOT so lru-cached resolvers observe the new root.
+    original_vault_root = vault_common.VAULT_ROOT
+    vault_common.VAULT_ROOT = vault_path
+    vault_common.apply_configured_env_defaults(vault=vault_path)
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    try:
+        conflicts = _run_scan(vault_path, args.threshold, args.top, no_ai=args.no_ai)
+    finally:
+        vault_common.VAULT_ROOT = original_vault_root
+        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    if args.json:
+        print(json.dumps(conflicts, indent=2))
+        return
+
+    if not conflicts:
+        print("No contradictions detected.")
+        return
+
+    print(f"Detected {len(conflicts)} potential contradiction(s).")
+    print(f"Report written to {vault_path / 'conflicts' / 'report.json'}")
+    if not args.scan_only:
+        _run_tui(conflicts, vault_path)
 
 
 if __name__ == "__main__":
