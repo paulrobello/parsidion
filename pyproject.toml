@@ -29,6 +29,7 @@ vault-stats = "vault_stats:main"
 vault-review = "vault_review:main"
 vault-export = "vault_export:main"
 vault-merge = "vault_merge:main"
+vault-conflicts = "vault_conflicts:main"
 
 [build-system]
 requires = [
@@ -48,6 +49,7 @@ py-modules = [
     "vault_review",
     "vault_export",
     "vault_merge",
+    "vault_conflicts",
 ]
 
 [tool.setuptools.package-dir]
