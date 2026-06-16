@@ -47,6 +47,11 @@ uv run install.py --install-tools    # runs uv tool install --editable ".[tools]
 # OR manually from the repo root:
 uv tool install --editable ".[tools]"
 
+# Connect parsidion to another coding agent (hooks + instructions injection)
+uv run install.py connect codex     # wires ~/.codex/AGENTS.md + codex hooks
+uv run install.py connect gemini    # wires ~/.gemini/GEMINI.md + gemini hooks
+uv run install.py disconnect codex  # remove codex integration only
+
 # Rebuild the vault index (after creating/renaming/deleting notes)
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 
