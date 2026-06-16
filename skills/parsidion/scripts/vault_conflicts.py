@@ -12,7 +12,7 @@ import json
 import re
 import struct  # noqa: F401
 import sys  # noqa: F401
-from collections import defaultdict  # noqa: F401
+from collections import defaultdict
 from pathlib import Path  # noqa: F401
 from typing import Any
 
@@ -50,6 +50,41 @@ def _parse_json_array(text: str) -> list[dict[str, Any]]:
     if not isinstance(parsed, list):
         return []
     return [item for item in parsed if isinstance(item, dict)]
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity of two equal-length float vectors; 0.0 for zero vectors."""
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b, strict=True):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / ((na**0.5) * (nb**0.5))
+
+
+def _group_clusters(n: int, pairs: list[tuple[int, int]]) -> list[list[int]]:
+    """Union-find over *pairs*; return ONLY clusters with >= 2 members."""
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i, j in pairs:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    groups: dict[int, list[int]] = defaultdict(list)
+    for idx in range(n):
+        groups[find(idx)].append(idx)
+    return [sorted(members) for members in groups.values() if len(members) >= 2]
 
 
 def main() -> None:  # pragma: no cover - wired in Task 4.6
