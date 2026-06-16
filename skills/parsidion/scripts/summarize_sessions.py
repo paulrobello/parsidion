@@ -644,6 +644,43 @@ def _note_body(note_content: str) -> str:
     return note_content.strip()
 
 
+_RELATED_LINE_RE = re.compile(r"^related:\s*(.*)$", re.MULTILINE)
+# A stem wrapped in any combination of brackets/quotes: catches [[stem]],
+# [stem], [["stem"]], "[[stem]]", etc. A stem starts with a word char and may
+# contain word chars, dots (version slugs), and hyphens; it stops at | (alias),
+# # (anchor), or whitespace.
+_RELATED_STEM_RE = re.compile(r"[\[\"']+([\w][\w.-]*)[\]\"']+")
+
+
+def _normalize_related_field(note_content: str) -> str:
+    """Normalize the ``related:`` frontmatter field to a clean inline array of
+    ``[[wikilinks]]``.
+
+    Repairs common AI malformations — ``[stem]`` (single bracket), ``[["stem"]]``
+    (quoted inside double brackets), ``"[[stem]]"`` (quoted wikilink) — by
+    extracting every ``[[...]]`` span (de-aliasing, de-quoting) and rebuilding a
+    single-line ``related: ["[[a]]", "[[b]]"]``. Tokens that aren't real
+    ``[[wikilinks]]`` are dropped rather than echoed verbatim (which previously
+    left malformed entries in written notes).
+    """
+    m = _RELATED_LINE_RE.search(note_content)
+    if not m:
+        return note_content
+    stems: list[str] = []
+    seen: set[str] = set()
+    for sm in _RELATED_STEM_RE.finditer(m.group(1)):
+        stem = sm.group(1)
+        if stem.lower() not in seen:
+            seen.add(stem.lower())
+            stems.append(stem)
+    new_line = (
+        "related: [" + ", ".join(f'"[[{s}]]"' for s in stems) + "]"
+        if stems
+        else "related: []"
+    )
+    return note_content[: m.start()] + new_line + note_content[m.end() :]
+
+
 def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
     """Write a generated vault note to the appropriate folder.
 
@@ -672,6 +709,9 @@ def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
     # model failure mode. parse_frontmatter (used by the write-gate) requires
     # both delimiters, so without this otherwise-valid frontmatter is rejected.
     note_content = _ensure_closing_frontmatter_delimiter(note_content)
+    # Normalize 'related' to clean [[wikilinks]] — repairs AI malformations
+    # ([stem], [["stem"]], quoted wikilinks) before the note is written.
+    note_content = _normalize_related_field(note_content)
 
     # SEC-004: Validate YAML frontmatter conformance before writing.  Rejects notes
     # that lack required fields or have an invalid type — guards against adversarial
@@ -1109,6 +1149,7 @@ async def summarize_one(
                             target_stem = target_wikilink.strip("[]")
                             target_path = _resolve_note_stem(target_stem, vault)
                             if target_path is not None and not dry_run:
+                                new_content = _normalize_related_field(new_content)
                                 target_path.write_text(new_content, encoding="utf-8")
                                 print(
                                     f"  [dedup-merge] Updated [[{target_stem}]] "

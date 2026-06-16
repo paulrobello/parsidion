@@ -853,3 +853,63 @@ def test_write_note_merges_on_slug_collision_no_sibling(
     assert "## Session update" in content
     captured = capsys.readouterr()
     assert "Slug collision" in captured.err
+
+
+def test_normalize_related_field_clean_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    note = (
+        "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\n"
+        'related: ["[[a]]", "[[b]]"]\n---\n# T\n\nBody.\n'
+    )
+    assert summarize_sessions._normalize_related_field(note) == note
+
+
+def test_normalize_related_field_repairs_malformations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Real corruption patterns observed from a dedup run:
+    #  - "["parsidion"]"     (quoted single-bracket)
+    #  - "[[real-note]]"     (clean)
+    #  - "[["other-note"]]"  (quoted inside double brackets)
+    note = (
+        "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\n"
+        'related: ["["parsidion"]", "[[real-note]]", "[["other-note"]]"]\n'
+        "---\n# T\n\nBody.\n"
+    )
+    out = summarize_sessions._normalize_related_field(note)
+    m = summarize_sessions._RELATED_LINE_RE.search(out)
+    assert m.group(1) == '["[[parsidion]]", "[[real-note]]", "[[other-note]]"]'
+
+
+def test_normalize_related_field_empty_when_only_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Bare prose with spaces (no bracket-wrapped stem) yields nothing.
+    note = (
+        "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\n"
+        'related: ["not a wikilink here", "plain prose text"]\n---\n# T\n\nBody.\n'
+    )
+    out = summarize_sessions._normalize_related_field(note)
+    assert "related: []" in out
+
+
+def test_write_note_normalizes_malformed_related(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    # AI emitted a [["stem"]] malformation (quoted inside double brackets).
+    note = (
+        "---\ndate: 2026-06-16\ntype: debugging\ntags: [debugging]\n"
+        'related: [["real-note"], "[[other-note]]"]\n'
+        "---\n# Fresh Note\n\nBody.\n"
+    )
+    result = summarize_sessions.write_note(note, False, vault)
+    assert result is not None
+    written = result.read_text(encoding="utf-8")
+    # Malformed entries repaired to clean [[wikilinks]].
+    assert 'related: ["[[real-note]]", "[[other-note]]"]' in written
+    assert '[["real-note"]' not in written

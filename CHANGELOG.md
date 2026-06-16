@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`summarize_sessions.py` related-field normalization** — Both write paths (`write_note` and the dedup-merge path) now normalize the AI-generated `related` field to a clean inline array of `[[wikilinks]]` before writing. A new `_normalize_related_field()` extracts any bracket/quote-wrapped stem — repairing `[stem]`, `[["stem"]]`, and `"[[stem]]"` malformations the model emits — instead of echoing them verbatim into the note.
+
 ## [0.8.1] - 2026-06-16
 
 ### Fixed
