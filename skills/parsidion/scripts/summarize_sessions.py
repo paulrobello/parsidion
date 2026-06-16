@@ -647,9 +647,9 @@ def _note_body(note_content: str) -> str:
 _RELATED_LINE_RE = re.compile(r"^related:\s*(.*)$", re.MULTILINE)
 # A stem wrapped in any combination of brackets/quotes: catches [[stem]],
 # [stem], [["stem"]], "[[stem]]", etc. A stem starts with a word char and may
-# contain word chars, dots (version slugs), and hyphens; it stops at | (alias),
-# # (anchor), or whitespace.
-_RELATED_STEM_RE = re.compile(r"[\[\"']+([\w][\w.-]*)[\]\"']+")
+# contain word chars, dots (version slugs), slashes (folder-qualified links),
+# and hyphens; it stops at | (alias), # (anchor), or whitespace.
+_RELATED_STEM_RE = re.compile(r"[\[\"']+([\w][\w./-]*)[\]\"']+")
 
 
 def _normalize_related_field(note_content: str) -> str:

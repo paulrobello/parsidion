@@ -864,6 +864,19 @@ def test_normalize_related_field_clean_is_noop(monkeypatch: pytest.MonkeyPatch) 
     assert summarize_sessions._normalize_related_field(note) == note
 
 
+def test_normalize_related_field_preserves_folder_qualified_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # A folder-qualified wikilink must NOT be truncated at the '/'.
+    note = (
+        "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\n"
+        'related: ["[[yes-man/settings-path-api-drift]]"]\n---\n# T\n\nBody.\n'
+    )
+    out = summarize_sessions._normalize_related_field(note)
+    assert "[[yes-man/settings-path-api-drift]]" in out
+
+
 def test_normalize_related_field_repairs_malformations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
