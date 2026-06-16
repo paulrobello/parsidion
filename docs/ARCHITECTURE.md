@@ -845,10 +845,9 @@ Scans all vault notes for near-duplicate pairs using embedding similarity. Repor
 
 The contradiction-detection companion to `vault-merge` (which merges near-duplicates). Clusters notes by embedding similarity, then asks the configured prompt AI backend whether any pair within a cluster makes mutually-exclusive claims, and persists the findings to `conflicts/report.json`.
 
-**Usage:** `vault-conflicts [--threshold SCORE] [--top N] [--max-cluster N] [--scan] [--resolve] [--json]`
+**Usage:** `vault-conflicts [--threshold SCORE] [--top N] [--vault PATH] [--scan-only] [--json] [--no-ai]`
 
-- `--scan` (default): cluster the top `--top` notes (default `50`) by cosine similarity at or above `--threshold` (default `0.75`), cap each cluster at `--max-cluster` notes (default `8`), and ask the AI backend to identify contradictions within each cluster. Results are written to `<vault>/conflicts/report.json` and printed.
-- `--resolve`: launch the interactive curses TUI to review detected conflicts (accept/reject/defer), updating backlinks as conflicts are resolved.
+By default, scans for contradictions then launches the interactive curses TUI to review them. `--scan-only` writes `conflicts/report.json` and exits without the TUI; `--json` prints the report as JSON and exits; `--no-ai` runs clustering only without calling the AI backend. The cluster-size cap is fixed at 8 notes per cluster.
 
 Stdlib-only (no third-party dependencies). Falls back gracefully when `embeddings.db` is absent or `vault-search` is not installed.
 
