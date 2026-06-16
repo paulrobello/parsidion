@@ -87,3 +87,85 @@ class TestVaultMergePreservesProvenance:
         )
         assert "provenance: inferred" in fm
         assert fm.index("related:") < fm.index("provenance:")
+
+
+import importlib  # noqa: E402
+import sys  # noqa: E402
+import types  # noqa: E402
+from collections.abc import Iterator  # noqa: E402
+from typing import cast  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture()
+def summarize_sessions() -> Iterator[types.ModuleType]:
+    """Import summarize_sessions with anyio stubbed out.
+
+    summarize_sessions.py is a PEP 723 script whose runtime deps (anyio) are
+    not installed in the dev environment — tests/test_summarize_sessions.py
+    uses the same stubbing pattern. We only exercise the pure-python
+    _validate_frontmatter helper, so a no-op anyio namespace is sufficient.
+    """
+    sys.modules["anyio"] = cast(
+        types.ModuleType,
+        types.SimpleNamespace(
+            Semaphore=object,
+            to_thread=types.SimpleNamespace(
+                run_sync=lambda func, *a, **k: func(*a, **k)
+            ),
+            create_task_group=object,
+            run=lambda func, *a, **k: func(*a, **k),
+        ),
+    )
+    sys.modules.pop("summarize_sessions", None)
+    try:
+        yield importlib.import_module("summarize_sessions")
+    finally:
+        sys.modules.pop("summarize_sessions", None)
+        sys.modules.pop("anyio", None)
+
+
+class TestSummarizerAcceptsProvenance:
+    def test_valid_provenance_passes_validation(
+        self, summarize_sessions: types.ModuleType
+    ) -> None:
+        note = (
+            "---\n"
+            "date: 2026-06-16\n"
+            "type: pattern\n"
+            "tags: [vault]\n"
+            "provenance: inferred\n"
+            'related: ["[[x]]"]\n'
+            "---\n# Title\nbody\n"
+        )
+        assert summarize_sessions._validate_frontmatter(note) is None
+
+    def test_invalid_provenance_fails_validation(
+        self, summarize_sessions: types.ModuleType
+    ) -> None:
+        note = (
+            "---\n"
+            "date: 2026-06-16\n"
+            "type: pattern\n"
+            "tags: [vault]\n"
+            "provenance: guesswork\n"
+            'related: ["[[x]]"]\n'
+            "---\n# Title\nbody\n"
+        )
+        err = summarize_sessions._validate_frontmatter(note)
+        assert err is not None and "provenance" in err.lower()
+
+    def test_missing_provenance_still_valid(
+        self, summarize_sessions: types.ModuleType
+    ) -> None:
+        # provenance is optional — notes without it must still validate.
+        note = (
+            "---\n"
+            "date: 2026-06-16\n"
+            "type: pattern\n"
+            "tags: [vault]\n"
+            'related: ["[[x]]"]\n'
+            "---\n# Title\nbody\n"
+        )
+        assert summarize_sessions._validate_frontmatter(note) is None

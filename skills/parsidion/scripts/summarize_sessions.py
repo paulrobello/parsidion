@@ -436,6 +436,8 @@ Write a complete markdown vault note. Requirements:
   related (REQUIRED — must be a non-empty YAML list of quoted [[wikilinks]]; always provide at
   least one entry; if no specific note title is known, link to the project name or primary
   technology, e.g. ["[[{project}]]"]; an empty "related: []" is NEVER acceptable),
+  provenance (optional; one of explicit|inferred|corrected|observed|imported — use "inferred" for knowledge
+  distilled from a transcript, "observed" for auto-captured events, "imported" for external research),
   session_id: {session_id}
 - # Title heading (3-5 descriptive words, not generic) — use a single # (H1), not ##
 - Convert ALL relative dates to absolute dates (e.g. "yesterday" → "{today} - 1 day",
@@ -545,6 +547,11 @@ _VALID_NOTE_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# Valid values for the optional 'provenance' frontmatter field
+_VALID_PROVENANCE_VALUES: frozenset[str] = frozenset(
+    {"explicit", "inferred", "corrected", "observed", "imported"}
+)
+
 
 def _validate_frontmatter(note_content: str) -> str | None:
     """Validate that AI-generated note content has required YAML frontmatter fields.
@@ -574,6 +581,10 @@ def _validate_frontmatter(note_content: str) -> str | None:
     tags = fm.get("tags")
     if not isinstance(tags, list) or len(tags) == 0:
         return "Frontmatter 'tags' must be a non-empty list"
+
+    provenance = fm.get("provenance")
+    if provenance is not None and provenance not in _VALID_PROVENANCE_VALUES:
+        return f"Frontmatter 'provenance' has invalid value: {provenance!r}"
 
     return None
 
