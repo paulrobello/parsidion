@@ -13,7 +13,7 @@ import re
 import struct
 import sys  # noqa: F401
 from collections import defaultdict
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 from typing import Any
 
 import vault_common
@@ -158,6 +158,73 @@ def find_candidate_clusters(
         if len(cluster) >= 2:
             clusters.append(cluster)
     return clusters
+
+
+def _read_body(path: str) -> str:
+    """Read a note's body (after frontmatter), truncated for prompt size."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    # Drop frontmatter block if present.
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            text = text[end + 4 :]
+    return text.strip()[:2000]
+
+
+def _build_prompt(records: list[dict[str, str]]) -> str:
+    """Build the contradiction-detection prompt with note bodies inlined."""
+    blocks: list[str] = []
+    for rec in records:
+        body = _read_body(rec["path"])
+        blocks.append(f"### {rec['stem']}\n{rec['path']}\n{body}")
+    note_block = "\n\n".join(blocks)
+    return (
+        f"You are a knowledge-vault consistency auditor. Below are {len(records)} "
+        "notes that are semantically similar and may overlap.\n\n"
+        f"NOTES:\n{note_block}\n\n"
+        "Identify CONTRADICTIONS ONLY — pairs of notes making conflicting, "
+        "mutually-exclusive claims about the same subject. Do NOT flag near-duplicates, "
+        "complements, or unrelated notes sharing keywords.\n\n"
+        "Respond with ONLY a JSON array (no prose). Each element:\n"
+        '{"type":"contradiction","a":"<stem A>","b":"<stem B>",'
+        '"a_says":"<one-line claim>","b_says":"<one-line claim>",'
+        '"recommendation":"keep_a|keep_b|merge|needs_review"}\n\n'
+        "If there are no contradictions, respond with: []"
+    )
+
+
+def _detect_contradictions(
+    records: list[dict[str, str]], vault: Path, no_ai: bool = False
+) -> list[dict[str, Any]]:
+    """Ask the AI backend to find contradictions within a cluster of notes.
+
+    Returns a list of conflict dicts (parsed from the AI's JSON array).
+    """
+    if no_ai or len(records) < 2:
+        return []
+    import ai_backend
+
+    prompt = _build_prompt(records)
+    raw = ai_backend.run_ai_prompt(
+        prompt,
+        model_tier="large",
+        timeout=_DEFAULT_AI_TIMEOUT,
+        purpose="vault-conflicts",
+        vault=vault,
+    )
+    if not raw:
+        return []
+    conflicts = _parse_json_array(raw)
+    # Keep only entries that name two distinct known stems in this cluster.
+    known = {rec["stem"] for rec in records}
+    return [
+        c
+        for c in conflicts
+        if c.get("a") in known and c.get("b") in known and c.get("a") != c.get("b")
+    ]
 
 
 def main() -> None:  # pragma: no cover - wired in Task 4.6

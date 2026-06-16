@@ -109,3 +109,41 @@ class TestFindCandidateClusters:
         stems_per_cluster = [{rec["stem"] for rec in cluster} for cluster in clusters]
         assert any({"note-a", "note-b"} == s for s in stems_per_cluster)
         assert not any("note-c" in s for s in stems_per_cluster)
+
+
+class TestDetectContradictions:
+    def test_build_prompt_includes_all_bodies(self, tmp_vault: Path) -> None:
+        recs = [
+            {"stem": "a", "path": str(tmp_vault / "a.md"), "title": "A", "tags": ""},
+            {"stem": "b", "path": str(tmp_vault / "b.md"), "title": "B", "tags": ""},
+        ]
+        (tmp_vault / "a.md").write_text("# A\nUse approach X.\n", encoding="utf-8")
+        (tmp_vault / "b.md").write_text("# B\nUse approach Y.\n", encoding="utf-8")
+        prompt = vault_conflicts._build_prompt(recs)
+        assert "Use approach X." in prompt
+        assert "Use approach Y." in prompt
+        assert "JSON" in prompt
+
+    def test_detect_parses_ai_json(self, tmp_vault: Path, monkeypatch) -> None:
+        recs = [
+            {"stem": "a", "path": str(tmp_vault / "a.md"), "title": "A", "tags": ""},
+            {"stem": "b", "path": str(tmp_vault / "b.md"), "title": "B", "tags": ""},
+        ]
+        (tmp_vault / "a.md").write_text("# A\nA says X.\n", encoding="utf-8")
+        (tmp_vault / "b.md").write_text("# B\nB says not-X.\n", encoding="utf-8")
+
+        import ai_backend
+
+        canned = '[{"type":"contradiction","a":"a","b":"b","a_says":"X","b_says":"not-X","recommendation":"needs_review"}]'
+        monkeypatch.setattr(ai_backend, "run_ai_prompt", lambda *a, **k: canned)
+
+        result = vault_conflicts._detect_contradictions(recs, tmp_vault)
+        assert len(result) == 1
+        assert result[0]["a"] == "a" and result[0]["b"] == "b"
+
+    def test_detect_no_ai_returns_empty(self, tmp_vault: Path) -> None:
+        recs = [
+            {"stem": "a", "path": str(tmp_vault / "a.md"), "title": "A", "tags": ""}
+        ]
+        (tmp_vault / "a.md").write_text("# A\nbody\n", encoding="utf-8")
+        assert vault_conflicts._detect_contradictions(recs, tmp_vault, no_ai=True) == []
