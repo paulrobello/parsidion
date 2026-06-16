@@ -89,6 +89,7 @@ class NoteEntry(NamedTuple):
         related: Comma-separated wikilink stems from ``related`` frontmatter.
         is_stale: 1 if the note has no incoming links and is >30 days old, else 0.
         incoming_links: Number of other notes that link to this one.
+        date: ``date`` frontmatter value (``YYYY-MM-DD`` string) for point-in-time search.
     """
 
     stem: str
@@ -104,6 +105,7 @@ class NoteEntry(NamedTuple):
     related: str
     is_stale: int
     incoming_links: int
+    date: str = ""
 
 
 # QA-007: _is_process_running removed — now imported from vault_common.
@@ -355,6 +357,7 @@ def build_index(
                 related=", ".join(per_note_data.get(stem, (0.0, []))[1]),
                 is_stale=1 if is_stale else 0,
                 incoming_links=incoming,
+                date=str(fm.get("date", "") or ""),
             )
         )
 
@@ -621,10 +624,10 @@ def _write_note_index_to_db(
             """
             INSERT INTO note_index (
                 stem, path, folder, title, summary, tags, note_type,
-                project, confidence, mtime, related, is_stale, incoming_links
+                project, confidence, mtime, related, is_stale, incoming_links, date
             ) VALUES (
                 :stem, :path, :folder, :title, :summary, :tags, :note_type,
-                :project, :confidence, :mtime, :related, :is_stale, :incoming_links
+                :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date
             )
             ON CONFLICT(stem) DO UPDATE SET
                 path=excluded.path,
@@ -638,7 +641,8 @@ def _write_note_index_to_db(
                 mtime=excluded.mtime,
                 related=excluded.related,
                 is_stale=excluded.is_stale,
-                incoming_links=excluded.incoming_links
+                incoming_links=excluded.incoming_links,
+                date=excluded.date
             """,
             [row._asdict() for row in db_rows],
         )
