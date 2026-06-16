@@ -628,6 +628,22 @@ def _ensure_closing_frontmatter_delimiter(note_content: str) -> str:
     return "".join(lines[:insert_at] + ["---\n"] + lines[insert_at:])
 
 
+def _note_body(note_content: str) -> str:
+    """Return the markdown body of a note — everything after the YAML frontmatter.
+
+    Used when merging a new note into an existing one on a slug collision: the
+    existing note keeps its frontmatter and only the new note's body is appended.
+    """
+    text = note_content.lstrip()
+    if not text.startswith("---"):
+        return note_content.strip()
+    lines = text.splitlines()
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[i + 1 :]).strip()
+    return note_content.strip()
+
+
 def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
     """Write a generated vault note to the appropriate folder.
 
@@ -700,8 +716,31 @@ def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if target_path.exists():
-        suffix = datetime.now().strftime("%H%M")
-        target_path = target_dir / f"{slug}-{suffix}.md"
+        # A note with this slug already exists. Previously this stamped a -HHMM
+        # suffix and wrote a sibling file, which accumulated hundreds of
+        # near-duplicate timestamped notes. Merge the new note's body into the
+        # existing note instead so no duplicate file is ever created.
+        try:
+            existing = target_path.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+        merged = (
+            existing.rstrip()
+            + f"\n\n## Session update {date.today().isoformat()}\n\n"
+            + _note_body(note_content)
+            + "\n"
+        )
+        try:
+            target_path.write_text(merged, encoding="utf-8")
+            print(
+                f"  [dedup] Slug collision: merged into existing "
+                f"{target_path.name} (no duplicate created)",
+                file=sys.stderr,
+            )
+            return target_path
+        except OSError as e:
+            print(f"Error merging {target_path}: {e}", file=sys.stderr)
+            return None
 
     try:
         target_path.write_text(note_content, encoding="utf-8")
@@ -1009,7 +1048,12 @@ async def summarize_one(
         dedup_threshold: float = vault_common.get_config(
             "summarizer", "dedup_threshold", 0.80
         )
-        topic_query = f"{project} {' '.join(categories)}".strip()
+        # Content-rich query: include a slice of the cleaned transcript so
+        # semantic dedup can match the SPECIFIC existing note. The coarse
+        # project+categories query was too generic and missed near-duplicates,
+        # causing duplicate notes to be written.
+        query_seed = (cleaned or "")[:400].replace("\n", " ").strip()
+        topic_query = f"{project} {' '.join(categories)} {query_seed}".strip()
         similar_notes = _find_dedup_candidates(
             topic_query, vault, threshold=dedup_threshold
         )

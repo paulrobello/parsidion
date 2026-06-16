@@ -800,3 +800,56 @@ def test_write_note_salvages_note_missing_closing_frontmatter_delimiter(
     assert "[dry-run] Would write:" in captured.out
     assert "Debugging/test-note.md" in captured.out
     assert "Refusing to write note" not in captured.err
+
+
+def test_note_body_strips_frontmatter(monkeypatch: pytest.MonkeyPatch) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    with_fm = (
+        "---\ndate: 2026-06-15\ntype: pattern\ntags: [x]\n---\n\n# Title\n\nBody.\n"
+    )
+    assert summarize_sessions._note_body(with_fm) == "# Title\n\nBody."
+    # No frontmatter -> returned stripped, as-is.
+    assert summarize_sessions._note_body("# Just a heading\n") == "# Just a heading"
+
+
+def test_write_note_merges_on_slug_collision_no_sibling(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """On slug collision, write_note merges into the existing note — no -HHMM sibling."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    existing = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nOriginal insight.\n"
+    )
+    (debugging / "test-note.md").write_text(existing, encoding="utf-8")
+
+    new_note = (
+        "---\n"
+        "date: 2026-06-15\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nFollow-up insight.\n"
+    )
+    result = summarize_sessions.write_note(new_note, False, vault)
+
+    assert result is not None
+    assert result.name == "test-note.md"  # same file, not a sibling
+    # No timestamped sibling was created.
+    assert [p.name for p in debugging.iterdir()] == ["test-note.md"]
+    # Existing content preserved + new body appended under a Session update heading.
+    content = result.read_text(encoding="utf-8")
+    assert "Original insight." in content
+    assert "Follow-up insight." in content
+    assert "## Session update" in content
+    captured = capsys.readouterr()
+    assert "Slug collision" in captured.err
