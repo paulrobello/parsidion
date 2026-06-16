@@ -71,6 +71,9 @@ class TestVaultNewEmitsProvenance:
         assert fm.index("related:") < fm.index("provenance:")
 
 
+import migrate_memory  # noqa: E402
+import migrate_research  # noqa: E402
+
 import vault_merge  # noqa: E402
 
 
@@ -169,3 +172,22 @@ class TestSummarizerAcceptsProvenance:
             "---\n# Title\nbody\n"
         )
         assert summarize_sessions._validate_frontmatter(note) is None
+
+
+class TestMigrateScriptsEmitProvenance:
+    def test_migrate_research_orders_provenance_after_related(self) -> None:
+        fm = migrate_research._serialize_frontmatter(
+            {
+                "date": "2026-06-16",
+                "type": "research",
+                "tags": ["x"],
+                "related": ["[[a]]"],
+                "provenance": "imported",
+            }
+        )
+        assert "provenance: imported" in fm
+        assert fm.index("related:") < fm.index("provenance:")
+
+    def test_migrate_memory_emits_provenance(self) -> None:
+        fm = migrate_memory._build_frontmatter("pattern", ["x"], "")
+        assert "provenance: inferred" in fm
