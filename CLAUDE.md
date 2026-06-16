@@ -76,6 +76,8 @@ vault-search -T python -d 7                  # metadata: by tag + recency
 vault-search --folder Patterns --tag python  # metadata: long form still works
 vault-search --grep "dedup_threshold"        # full-text body search (case-insensitive)
 vault-search --grep "FLOCK" --grep-case      # full-text body search (case-sensitive)
+vault-search --changed-since 2026-06-01      # temporal: notes modified on/after a date (mtime)
+vault-search --as-of 2026-06-01              # temporal: notes dated on/before a date (frontmatter date)
 vault-search --interactive                   # interactive curses TUI
 VAULT_SEARCH_FORMAT=rich VAULT_SEARCH_MIN_SCORE=0.5 vault-search "query"  # env vars
 
@@ -109,6 +111,14 @@ vault-export --pdf ~/vault.pdf     # PDF via pandoc
 
 # Merge near-duplicate notes (after uv tool install --editable ".[tools]")
 vault-merge                        # AI-assisted note merging with backlink updates
+
+# Detect contradictory notes (after uv tool install --editable ".[tools]")
+vault-conflicts                    # scan for contradictions, then interactive TUI review
+vault-conflicts --scan-only        # scan + write conflicts/report.json, no TUI
+vault-conflicts --json             # emit JSON report to stdout and exit
+vault-conflicts --no-ai            # clustering only, skip the AI backend (dry run)
+vault-conflicts --threshold 0.80   # cosine threshold for candidate pairs
+vault-conflicts --top 50           # limit to top N candidate pairs
 
 # Vault doctor — individual fix modes
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-tags           # detect duplicate tags (dry-run)
@@ -242,7 +252,7 @@ python skills/parsidion/scripts/subagent_stop_hook.py <<'EOF'
 EOF
 ```
 
-**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `vault_common.py`, `vault_links.py`, `vault_new.py`, `vault_stats.py`, `vault_review.py`, `vault_export.py`, `vault_merge.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
+**stdlib-only rule**: `install.py` and all hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `vault_common.py`, `vault_links.py`, `vault_new.py`, `vault_stats.py`, `vault_review.py`, `vault_export.py`, `vault_merge.py`, `vault_conflicts.py`, `update_index.py`, `session_stop_wrapper.sh`) must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. The `pyproject.toml` intentionally has no dependencies.
 
 **Exception**: `summarize_sessions.py` is a PEP 723 script with an inline `anyio` dependency. Run it with `uv run` — deps are installed automatically into an isolated environment. It uses Parsidion's configured prompt AI backend (`claude -p` or `codex exec`), not the Claude Agent SDK.
 
@@ -265,7 +275,7 @@ EOF
 
 ## Architecture
 
-The system has ten components:
+The system has eleven components:
 
 1. **Hook scripts** — Python scripts fired by Claude Code's lifecycle events, communicating via JSON stdin/stdout:
    - `session_start_hook.py`: Loads relevant vault notes as `additionalContext`. Default mode injects a **compact one-line-per-note index** (title + tags) to minimize token usage; `--verbose` flag or `verbose_mode: true` config switches to full summaries. Optional `--ai [MODEL]` flag uses `claude -p` (haiku by default, `CLAUDECODE` unset) to intelligently select notes — requires bumping hook timeout to 30 s in `settings.json`. Also shows a **pending queue warning** when `pending_summaries.jsonl` has entries and prepends a **"Since last time" delta** of new/modified notes per project (controlled by `track_delta` config key). When `adaptive_context.enabled: true`, notes are ranked by historical usefulness and unused notes are deranked over time.
@@ -291,7 +301,9 @@ The system has ten components:
 
 9. **`vault_merge.py`** — AI-assisted note merging tool (`vault-merge` global command). Detects near-duplicate notes, merges their content via Claude haiku, and updates all bidirectional backlinks.
 
-10. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
+10. **`vault_conflicts.py`** — Contradiction detector (`vault-conflicts` global command, companion to `vault-merge`). Where `vault-merge` collapses near-duplicate notes saying the *same* thing, `vault-conflicts` surfaces semantically-similar pairs saying *opposite* things. Default behavior: scan the vault (embedding-similarity candidate clustering) then drop into an interactive TUI for review. Flags: `--threshold` (cosine cutoff), `--top` (max pairs), `--vault`/`-V`, `--scan-only` (write `conflicts/report.json` and exit, no TUI), `--json` (print report and exit), `--no-ai` (cluster only, skip the AI backend — dry run). Read-only: it detects and reports; it does not mutate notes.
+
+11. **`~/ClaudeVault/`** — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
 
 ## Vault Note Conventions
 
@@ -338,6 +350,7 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 - `embeddings.db` = `~/ClaudeVault/embeddings.db` — SQLite database with two tables: `note_embeddings` (384-dim float32 vectors built by `build_embeddings.py`) and `note_index` (per-note metadata built by `update_index.py`). Queried by `vault_search.py` (both modes) and `vault_common.query_note_index()`. All callers fall back gracefully when absent.
 - `EXCLUDE_DIRS` = set of folder names skipped by the indexer and vault traversal (defined in `vault_common.py`). Currently: `.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`.
 - `hook_events.log` = `~/ClaudeVault/hook_events.log` — structured JSON log of hook executions. Each line: `{"hook": "SessionStart", "ts": "...", "project": "...", "notes_injected": 5, "chars": 2800, "duration_ms": 320}`. Rotated at `event_log.max_lines` (default 10,000). Written by `vault_common.write_hook_event()`. Read by `vault-stats --hooks N`.
+- `conflicts/report.json` = `<vault>/conflicts/report.json` — output of `vault-conflicts --scan-only` (and any `vault-conflicts` run). Lists the candidate contradiction pairs detected by embedding-similarity clustering, with scores and the conflicting note paths. Written atomically by `vault_conflicts.py`.
 - Summarizer progress file: `~/.claude/logs/parsidion-summarizer-progress.json` — written by `summarize_sessions.py` during a run; read by `vault-stats --summarizer-progress`.
 - Hook registration: `~/.claude/settings.json`
 - Trigger eval results: `~/.claude/skills/parsidion/eval_results.json`

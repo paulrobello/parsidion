@@ -207,6 +207,18 @@ All hooks read `<resolved vault>/config.yaml` for settings. CLI args override co
 
 Claude Code installs the full hook set below. Codex runtime hooks are session lifecycle only: native Codex `SessionStart` and `Stop` hooks registered in `~/.codex/hooks.json` when `hooks = true` is enabled in `~/.codex/config.toml`. Gemini runtime hooks are also lifecycle only: `SessionStart` and `SessionEnd` commands registered in `~/.gemini/settings.json` via `--runtime gemini` or `--runtime all`. Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend; Gemini has no native subagent lifecycle capture in this first pass.
 
+#### Connecting other agents
+
+The `connect` / `disconnect` installer verbs wire parsidion into a coding agent's hooks and instructions file in one command. `connect` writes the agent instructions file (`~/.codex/AGENTS.md` for codex, `~/.gemini/GEMINI.md` for gemini) and enables the agent's runtime hooks; `disconnect` removes only that agent's integration:
+
+```bash
+uv run install.py connect codex      # wire codex: AGENTS.md + codex hooks
+uv run install.py connect gemini     # wire gemini: GEMINI.md + gemini hooks
+uv run install.py disconnect codex   # remove the codex integration only
+```
+
+`connect`/`disconnect` are a friendlier front-end for the existing `--runtime` flag; they also inject the agent instructions file that `--runtime` alone does not.
+
 | Hook | Behavior | Config section |
 |---|---|---|
 | **SessionStart** | Loads relevant vault notes as a **compact one-line-per-note index** (title + tags) by default — minimal token usage. `--verbose` flag or `verbose_mode: true` config switches to full note summaries. Optional AI selection via `--ai [MODEL]` or `session_start_hook.ai_model` uses the configured prompt AI backend. | `session_start_hook` |
@@ -358,6 +370,19 @@ vault-conflicts --no-ai
 | `--threshold FLOAT` | Cosine similarity threshold for candidate pairs |
 | `--top N` | Limit to the top N candidate pairs |
 | `--vault PATH` | Target vault (path or name from `~/.config/parsidion/vaults.yaml`) |
+
+## Temporal Search
+
+`vault-search` accepts two temporal filters (used with metadata mode, no positional query):
+
+- `--changed-since YYYY-MM-DD` — notes whose file `mtime` is on/after the date (catches edits).
+- `--as-of YYYY-MM-DD` — notes whose frontmatter `date` is on/before the date (creation-time bound).
+
+```bash
+vault-search --changed-since 2026-06-01   # everything touched since June 1
+vault-search --as-of 2026-01-01           # everything dated Jan 1 or earlier
+vault-search --changed-since 2026-06-01 --tag python   # combine with other filters
+```
 
 ## Vault Doctor
 
