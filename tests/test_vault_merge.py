@@ -363,6 +363,14 @@ class TestScanExcludesDailyNotes:
     def test_daily_path_excluded_regardless_of_folder(self) -> None:
         assert vault_merge._is_excluded_from_scan("Daily/2026-03/16-probello.md", "")
 
+    def test_absolute_path_with_month_folder_excluded(self) -> None:
+        # The embeddings store absolute paths and folder as the month (YYYY-MM),
+        # NOT "Daily" — the original exclusion missed this format entirely.
+        assert vault_merge._is_excluded_from_scan(
+            "/Users/probello/ParsidionVault/Daily/2026-06/15-probello.md",
+            "2026-06",
+        )
+
     def test_non_daily_not_excluded(self) -> None:
         assert not vault_merge._is_excluded_from_scan(
             "Patterns/some-pattern.md", "Patterns"

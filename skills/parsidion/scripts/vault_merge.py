@@ -446,17 +446,20 @@ _DEFAULT_SCAN_THRESHOLD = 0.92
 _DEFAULT_SCAN_TOP = 50
 
 
-def _is_excluded_from_scan(path: str, folder: str) -> bool:
+def _is_excluded_from_scan(path: str, folder: str) -> bool:  # noqa: ARG001
     """Return True for notes excluded from duplicate scanning.
 
     Daily notes share a templated session-list structure and the ``NN-probello``
     slug pattern, so they hit the cosine threshold against each other despite
     being semantically distinct (different days). Merging them destroys the
     per-day structure, so they are excluded entirely.
+
+    The embeddings store the path as absolute (``/…/Daily/YYYY-MM/…``) and the
+    folder as the month (``YYYY-MM``), so match the ``Daily/`` segment anywhere
+    in the normalized path (covers absolute and relative forms).
     """
-    if folder == "Daily":
-        return True
-    return str(path).replace("\\", "/").lstrip("./").startswith("Daily/")
+    norm = str(path).replace("\\", "/")
+    return "/Daily/" in norm or norm.lstrip("./").startswith("Daily/")
 
 
 def _scan_duplicates(
