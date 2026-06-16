@@ -300,6 +300,7 @@ project: project-name   # optional
 confidence: high|medium|low
 sources: []
 related: ["[[note-one]]", "[[note-two]]"]  # inline quoted array; must contain at least one [[wikilink]]
+provenance: explicit|inferred|corrected|observed|imported   # optional — how the knowledge was obtained
 session_id: <uuid>      # optional — set by summarize_sessions.py on AI-generated notes
 ---
 ```
