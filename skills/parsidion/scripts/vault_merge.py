@@ -162,28 +162,28 @@ def _find_note(query: str, vault_path: Path) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
+_WIKILINK_SPAN_RE = re.compile(r"\[\[([^\[\]]+)\]\]")
+
+
 def _parse_related_list(fm: dict) -> list[str]:
-    """Extract the related field as a list of strings.
+    """Extract ``[[wikilink]]`` entries from the related field, robustly.
 
-    Handles both list and bare-string formats.
-
-    Args:
-        fm: Parsed frontmatter dict.
-
-    Returns:
-        List of related wikilink strings.
+    Handles list, bare-string, and *malformed* values — e.g. a leaked template
+    comment like ``[]  # inline quoted array: ["note-one", "note-two"]`` — by
+    extracting only the actual ``[[wikilink]]`` spans. Never echoes raw comment
+    text back into the field (which previously produced mangled ``related``
+    values when a note with an unusual field was the merge keeper).
     """
     raw = fm.get("related", [])
-    if isinstance(raw, list):
-        return [str(r) for r in raw]
-    if isinstance(raw, str) and raw.strip():
-        # May be a quoted inline list like '["[[a]]", "[[b]]"]'
-        inner = raw.strip()
-        if inner.startswith("[") and inner.endswith("]"):
-            items = re.findall(r'"([^"]+)"', inner)
-            return items if items else [inner]
-        return [inner]
-    return []
+    text = "".join(str(r) for r in raw) if isinstance(raw, list) else str(raw or "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _WIKILINK_SPAN_RE.finditer(text):
+        span = m.group(0)
+        if span.lower() not in seen:
+            seen.add(span.lower())
+            out.append(span)
+    return out
 
 
 def _parse_tags_list(fm: dict) -> list[str]:
@@ -286,18 +286,25 @@ def _merge_notes(
     tags_b = _parse_tags_list(fm_b)
     merged_tags = sorted(set(tags_a) | set(tags_b))
 
-    # Related: union, deduplicated
+    # Related: union, deduplicated. Do NOT add a [[B]] backlink — B is about to
+    # be trashed, so [[B]] would be a broken link, and the vault-wide
+    # [[B]]→[[A]] rewrite would turn it into a self-reference inside A. The
+    # body's "merged from" comment already records provenance. Also drop any
+    # entry that self-references A's own stem.
+    self_link = f"[[{path_a.stem}]]".lower()
+    trash_link = f"[[{path_b.stem}]]".lower()
     related_a = _parse_related_list(fm_a)
     related_b = _parse_related_list(fm_b)
-    # Add a backlink to note_b's stem so the merged note references it
-    stem_b_link = f"[[{path_b.stem}]]"
     seen: set[str] = set()
     merged_related: list[str] = []
-    for r in related_a + related_b + [stem_b_link]:
+    for r in related_a + related_b:
         r_norm = r.strip().lower()
-        if r_norm not in seen:
-            seen.add(r_norm)
-            merged_related.append(r)
+        # Drop self-references (to A) and references to the trashed note (B),
+        # which would be broken once B is removed.
+        if not r_norm or r_norm == self_link or r_norm == trash_link or r_norm in seen:
+            continue
+        seen.add(r_norm)
+        merged_related.append(r)
 
     merged_fm: dict = {}
     merged_fm["date"] = fm_a.get("date") or fm_b.get("date") or ""
@@ -359,7 +366,12 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
         re.IGNORECASE,
     )
     replacement = f"[[{new_stem}\\1]]"
+    new_stem_lower = new_stem.lower()
     for path in vault_common.all_vault_notes(vault=vault_path):
+        # Skip the keeper itself: rewriting [[old]]→[[new]] inside the note
+        # whose stem == new_stem would create a self-referencing wikilink.
+        if path.stem.lower() == new_stem_lower:
+            continue
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:

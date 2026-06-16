@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-16
+
+### Fixed
+
+- **`vault-merge` backlink corruption** — Merging introduced self-referencing wikilinks and mangled `related` fields across the vault (most visibly on daily notes). Three causes fixed: (1) `_merge_notes` no longer adds a `[[B]]` backlink to the keeper (B is trashed, so the link was broken and the vault-wide `[[B]]`→`[[A]]` rewrite turned it into a self-reference); it also drops self-references and references to the trashed stem. (2) `_update_wikilinks_in_vault` skips the keeper file so the rewrite can't create a `[[A]]` self-reference inside A. (3) `_parse_related_list` now extracts only real `[[wikilink]]` spans instead of echoing raw text — fixing mangled values where a leaked template comment (`[]  # inline quoted array: …`) was serialized back as a list element.
+- **`summarize_sessions.py` duplicate-note creation** — When a generated note's slug already existed, `write_note` stamped a `-HHMM` suffix and wrote a sibling file, accumulating hundreds of near-duplicate timestamped notes. On slug collision it now merges the new note's body into the existing note (no sibling is ever created). The pre-write dedup query also now includes a slice of the transcript content (not just project+categories), so semantic dedup matches the specific existing note.
+- **`vault_doctor.py` AI frontmatter validation** — `--fix-frontmatter` wrote the small model's output straight to disk, which corrupted notes with malformed frontmatter (double-nested `related` arrays, missing closing `---`, leaked `---yaml`/`---BEGIN---` markers, fabricated wikilinks). A new `_normalize_repaired_note()` validates and normalizes the output before writing — stripping leaked markers, repairing a missing closing `---`, rebuilding `related` as a clean inline array of resolving wikilinks, and rejecting output it cannot make valid (so the note is retried instead of corrupted). The prompt also exempts daily notes from `related` and requires a strict inline-array format.
+
 ## [0.8.0] - 2026-06-12
 
 ### Security
@@ -552,6 +560,7 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
 [Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.8.0...HEAD
+[0.8.1]: https://github.com/paulrobello/parsidion/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/paulrobello/parsidion/compare/v0.7.6...v0.8.0
 [0.7.6]: https://github.com/paulrobello/parsidion/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/paulrobello/parsidion/compare/v0.7.4...v0.7.5

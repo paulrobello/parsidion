@@ -279,3 +279,69 @@ class TestFindNote:
         note = _note(vault, "Patterns/My-Note.md", "# My Note\n")
         result = vault_merge._find_note("my-note", vault)
         assert result == note
+
+
+# ---------------------------------------------------------------------------
+# Backlink bug fixes (self-references + mangled related on merge)
+# ---------------------------------------------------------------------------
+
+
+class TestBacklinkBugFixes:
+    """Regression tests for the merge backlink-injection bug.
+
+    Merging previously (a) added a [[B]] backlink that the vault-wide
+    [[B]]→[[A]] rewrite turned into a self-reference inside the keeper, and
+    (b) mangled ``related`` fields carrying a leaked template comment.
+    """
+
+    def test_parse_related_list_malformed_comment_no_mangle(self) -> None:
+        # Leaked template comment — there are no real [[wikilinks]] here (the
+        # "note-one"/"note-two" are quoted strings, not wikilinks), so the
+        # result must be empty — never the raw comment echoed as a list element
+        # (which was the mangling bug).
+        fm = {
+            "related": '[]  # inline quoted array: ["note-one", "note-two"]'
+            " -- no orphan notes allowed"
+        }
+        assert vault_merge._parse_related_list(fm) == []
+
+    def test_merge_drops_backlink_to_trashed_note(self, vault: Path) -> None:
+        path_a = vault / "Patterns" / "note-a.md"
+        path_b = vault / "Patterns" / "note-b.md"
+        content_a = "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\nrelated: []\n---\n# A\n\nBody A.\n"
+        content_b = "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\nrelated: []\n---\n# B\n\nBody B.\n"
+        path_a.write_text(content_a, encoding="utf-8")
+        path_b.write_text(content_b, encoding="utf-8")
+        merged = vault_merge._merge_notes(
+            path_a, content_a, path_b, content_b, no_ai=True
+        )
+        # The merged note must NOT reference the soon-to-be-trashed note B.
+        assert "[[note-b]]" not in merged
+
+    def test_merge_drops_self_reference_to_keeper(self, vault: Path) -> None:
+        path_a = vault / "Patterns" / "note-a.md"
+        path_b = vault / "Patterns" / "note-b.md"
+        content_a = (
+            "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\n"
+            'related: ["[[note-a]]", "[[real-note]]"]\n---\n# A\n\nBody A.\n'
+        )
+        content_b = "---\ndate: 2026-06-16\ntype: pattern\ntags: [x]\nrelated: []\n---\n# B\n\nBody B.\n"
+        path_a.write_text(content_a, encoding="utf-8")
+        path_b.write_text(content_b, encoding="utf-8")
+        merged = vault_merge._merge_notes(
+            path_a, content_a, path_b, content_b, no_ai=True
+        )
+        assert "[[note-a]]" not in merged  # self-reference dropped
+        assert "[[real-note]]" in merged  # real cross-ref preserved
+
+    def test_update_wikilinks_does_not_create_self_reference_in_keeper(
+        self, vault: Path
+    ) -> None:
+        # note-a (keeper) references [[note-b]]; after merging note-b into
+        # note-a, the vault-wide [[note-b]]→[[note-a]] rewrite must NOT touch
+        # note-a itself (that would create a [[note-a]] self-reference).
+        _note(vault, "Patterns/note-a.md", "# A\n\nSee [[note-b]].\n")
+        _note(vault, "Patterns/note-b.md", "# B\n")
+        vault_merge._update_wikilinks_in_vault("note-b", "note-a", vault)
+        a_content = (vault / "Patterns" / "note-a.md").read_text(encoding="utf-8")
+        assert "[[note-a]]" not in a_content
