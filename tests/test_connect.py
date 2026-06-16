@@ -95,3 +95,44 @@ def _fake_instructions(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return p
+
+
+import install as install_mod  # noqa: E402
+
+
+class TestConnectVerbs:
+    def test_connect_codex_calls_install_with_codex_runtime(self, monkeypatch):
+        called: dict = {}
+
+        def fake_install(args):
+            called["runtime"] = args.runtime
+
+        monkeypatch.setattr(install_mod, "install", fake_install)
+        monkeypatch.setattr(sys, "argv", ["install.py", "connect", "codex"])
+        install_mod.main()
+        assert called["runtime"] == "codex"
+
+    def test_connect_gemini_calls_install_with_gemini_runtime(self, monkeypatch):
+        called: dict = {}
+
+        def fake_install(args):
+            called["runtime"] = args.runtime
+
+        monkeypatch.setattr(install_mod, "install", fake_install)
+        monkeypatch.setattr(sys, "argv", ["install.py", "connect", "gemini"])
+        install_mod.main()
+        assert called["runtime"] == "gemini"
+
+    def test_disconnect_codex_calls_uninstall_with_codex_runtime(self, monkeypatch):
+        called: dict = {}
+
+        def fake_uninstall(*f_args, **f_kwargs):
+            # The real uninstall() is called as
+            # uninstall(claude_dir, settings_file, runtime=..., ...) — runtime
+            # arrives as a keyword arg, not on a namespace.
+            called["runtime"] = f_kwargs.get("runtime")
+
+        monkeypatch.setattr(install_mod, "uninstall", fake_uninstall)
+        monkeypatch.setattr(sys, "argv", ["install.py", "disconnect", "codex"])
+        install_mod.main()
+        assert called["runtime"] == "codex"
