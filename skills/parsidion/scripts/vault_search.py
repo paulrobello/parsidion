@@ -220,6 +220,7 @@ def query(
     project: str | None = None,
     recent_days: int | None = None,
     changed_since: str | None = None,
+    as_of: str | None = None,
     limit: int = 50,
     vault: Path | None = None,
 ) -> list[dict[str, object]]:
@@ -298,10 +299,15 @@ def query(
             conditions.append("mtime >= ?")
             params.append(cutoff)
 
+        if as_of is not None:
+            # ISO YYYY-MM-DD strings sort lexicographically; exclude empty dates.
+            conditions.append("date != '' AND date <= ?")
+            params.append(as_of)
+
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         sql = (
             f"SELECT stem, path, folder, title, summary, tags, note_type, "
-            f"project, confidence, mtime, related, is_stale, incoming_links "
+            f"project, confidence, mtime, related, is_stale, incoming_links, date "
             f"FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
         )
         params.append(limit)
@@ -333,6 +339,7 @@ def query(
                 "related": [r.strip() for r in related_str.split(",") if r.strip()],
                 "is_stale": bool(d.get("is_stale", 0)),
                 "incoming_links": d.get("incoming_links", 0),
+                "date": d.get("date", ""),
             }
         )
     return results
@@ -738,6 +745,12 @@ def main() -> None:
         metavar="DATE",
         help="Metadata: notes modified on/after DATE (YYYY-MM-DD). Uses file mtime.",
     )
+    parser.add_argument(
+        "--as-of",
+        "-A",
+        metavar="DATE",
+        help="Metadata: point-in-time view — notes whose frontmatter date <= DATE (YYYY-MM-DD).",
+    )
 
     # Grep / full-text body search flags
     parser.add_argument(
@@ -825,6 +838,7 @@ def main() -> None:
         args.project,
         args.recent_days,
         args.changed_since,
+        args.as_of,
     )
     has_query = args.query is not None
     has_filters = any(f is not None for f in _filter_flags)
@@ -833,7 +847,7 @@ def main() -> None:
     if not has_query and not has_filters and not has_grep:
         parser.error(
             "Provide a search QUERY for semantic search, or at least one filter flag "
-            "(--tag, --folder, --type, --project, --recent-days, --changed-since, --grep) for metadata/grep search."
+            "(--tag, --folder, --type, --project, --recent-days, --changed-since, --as-of, --grep) for metadata/grep search."
         )
 
     if has_query and has_filters:
@@ -865,6 +879,7 @@ def main() -> None:
             project=args.project,
             recent_days=args.recent_days,
             changed_since=args.changed_since,
+            as_of=args.as_of,
             limit=args.limit,
             vault=vault_path,
         )
