@@ -94,7 +94,15 @@ uv run install.py --schedule-summarizer --graph-include-daily
 
 # To disable graph rebuild:
 uv run install.py --schedule-summarizer --no-rebuild-graph
+
+# Friendly multi-agent verbs — install or remove one runtime integration
+uv run install.py connect claude      # install Claude Code integration only
+uv run install.py connect codex       # install Codex CLI hooks only
+uv run install.py connect gemini      # install Gemini CLI hooks only
+uv run install.py disconnect codex    # remove Codex CLI hooks only
 ```
+
+`connect <claude|codex|gemini>` is a friendlier alias for `--runtime <agent>` that installs only one integration. `disconnect <...>` removes only that integration's hooks (equivalent to a targeted `--uninstall --runtime <agent>`).
 
 **Options:**
 
@@ -146,7 +154,7 @@ uv run install.py --yes --runtime gemini
 uv run install.py --yes --runtime all
 ```
 
-Codex integration uses native Codex hooks for session lifecycle events and requires `codex_hooks = true` in `~/.codex/config.toml`. Parsidion can enable this during install and registers hooks in `~/.codex/hooks.json`. Parsidion does not manage Codex auth or copy `~/.codex/auth.json`.
+Codex integration uses native Codex hooks for session lifecycle events and requires `hooks = true` in `~/.codex/config.toml`. Parsidion can enable this during install and registers hooks in `~/.codex/hooks.json`. Parsidion does not manage Codex auth or copy `~/.codex/auth.json`.
 
 Gemini runtime hooks are separate from prompt AI backend selection. `--runtime gemini` or `--runtime all` registers Gemini CLI `SessionStart` and `SessionEnd` commands in `~/.gemini/settings.json`; it does not add a Gemini prompt AI backend. Gemini has no native subagent lifecycle hook in this first pass, so subagent-style capture remains Claude/pi-specific.
 
@@ -203,6 +211,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `vault_review.py` | Interactive TUI for inspecting and approving/rejecting pending sessions before AI summarization; available as `vault-review` global command |
 | `vault_export.py` | Export vault to HTML static site, filtered zip, or PDF via pandoc; available as `vault-export` global command |
 | `vault_merge.py` | Backend-aware AI-assisted merging of near-duplicate notes with automatic backlink updates; `--scan` finds near-duplicate pairs via embedding similarity; `--no-index` skips per-merge index rebuild for batch workflows; available as `vault-merge` global command |
+| `vault_conflicts.py` | Detects contradictions between similar notes (embedding-similarity pairs) and resolves them interactively via the configured prompt AI backend; `--scan-only` lists pairs, `--json` emits machine-readable output, `--no-ai` skips AI resolution; available as `vault-conflicts` global command (companion to `vault-merge`) |
 | `update_index.py` | Rebuilds the resolved vault's `CLAUDE.md` index and populates the `note_index` SQLite table; includes tag cloud and vault health from `doctor_state.json` |
 | `vault_doctor.py` | Scans vault notes for structural issues (missing frontmatter, broken wikilinks, orphan notes, etc.); auto-repairs broken wikilinks via exact stem match or `vault-search` semantic lookup (Python-only, no prompt AI call); repairs other issues via the configured prompt AI backend with semantic candidates from `vault-search`; singleton-guarded via PID in `doctor_state.json`; auto-commits uncommitted vault files ≥ 15 min old before scanning |
 | `check_graph_coverage.py` | Audits vault tags vs graph.json color groups; shows uncovered tags and stale entries |
@@ -768,6 +777,11 @@ vault-search --grep "dedup_threshold"                 # case-insensitive body se
 vault-search --grep "FLOCK" --grep-case               # case-sensitive body search
 vault-search --grep "pattern" -f Patterns             # combine with metadata filters
 
+# Temporal filters (metadata mode) — narrow by note mtime
+vault-search --changed-since 2026-06-01               # notes modified on/after a date
+vault-search --changed-since 2026-06-01 -T python     # combine with other metadata filters
+vault-search --as-of 2026-05-15 "fastapi middleware"  # semantic search against note state at a past date
+
 # Interactive curses TUI (real-time results, navigation, editor integration)
 vault-search --interactive
 vault-search -i
@@ -837,6 +851,14 @@ vault-export --pdf ~/vault.pdf     # export via pandoc to PDF
 **Merge near-duplicate notes:**
 ```bash
 vault-merge                        # AI-assisted: detect and merge near-duplicate notes, update backlinks
+```
+
+**Detect and resolve conflicting notes:**
+```bash
+vault-conflicts                    # interactive: scan similar pairs, resolve contradictions via prompt AI backend
+vault-conflicts --scan-only        # list candidate conflict pairs only (no AI, no writes)
+vault-conflicts --json             # machine-readable output for scripting
+vault-conflicts --no-ai            # list pairs without invoking the AI backend
 ```
 
 **Summarize queued sessions** (generates structured vault notes via the configured prompt AI backend: Claude uses `claude -p`, Codex uses `codex exec`; no Claude Agent SDK or Codex SDK required):

@@ -150,6 +150,7 @@ type: pattern|debugging|research|project|daily|tool|language|framework|knowledge
 tags: [tag1, tag2]
 project: project-name        # optional - omit if not project-specific
 confidence: high|medium|low
+provenance: explicit         # optional - explicit|inferred|corrected|observed|imported (default: explicit)
 sources: []                  # URLs, file paths, or references
 related: []                  # [[wikilinks]] to other vault notes
 ---
@@ -161,6 +162,7 @@ related: []                  # [[wikilinks]] to other vault notes
 - `tags`: Freeform but prefer existing tags. Check the vault index first. **NEVER use underscores — always kebab-case (hyphens).** Convert repo names like `par_ai_core` to `par-ai-core`. Prefer short singular tags — e.g. `voxel` not `voxel-engine`, `hook` not `hooks`, `fractal` not `fractals`. Longer compound tags are acceptable only when the shorter form would be ambiguous.
 - `project`: Optional. Must also be kebab-case (no underscores). Convert repo names: `par_ai_core` → `par-ai-core`.
 - `confidence`: `high` = verified across multiple interactions or sources. `medium` = likely correct, single source. `low` = hypothesis or unverified.
+- `provenance` (optional): Origin of the note's content. `explicit` (default) = user directly stated it; `inferred` = derived from transcript/behavior; `corrected` = edited from a prior incorrect version; `observed` = directly witnessed at runtime; `imported` = brought in from an external source. Omit when unsure — defaults to `explicit`.
 - `related`: Must contain at least one wikilink in inline quoted array format: `["[[note-one]]", "[[note-two]]"]`. No orphan notes.
 
 ## When to Save Knowledge
@@ -203,7 +205,7 @@ Do not create notes for:
 
 All hooks read `<resolved vault>/config.yaml` for settings. CLI args override config values.
 
-Claude Code installs the full hook set below. Codex runtime hooks are session lifecycle only: native Codex `SessionStart` and `Stop` hooks registered in `~/.codex/hooks.json` when `codex_hooks = true` is enabled in `~/.codex/config.toml`. Gemini runtime hooks are also lifecycle only: `SessionStart` and `SessionEnd` commands registered in `~/.gemini/settings.json` via `--runtime gemini` or `--runtime all`. Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend; Gemini has no native subagent lifecycle capture in this first pass.
+Claude Code installs the full hook set below. Codex runtime hooks are session lifecycle only: native Codex `SessionStart` and `Stop` hooks registered in `~/.codex/hooks.json` when `hooks = true` is enabled in `~/.codex/config.toml`. Gemini runtime hooks are also lifecycle only: `SessionStart` and `SessionEnd` commands registered in `~/.gemini/settings.json` via `--runtime gemini` or `--runtime all`. Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend; Gemini has no native subagent lifecycle capture in this first pass.
 
 | Hook | Behavior | Config section |
 |---|---|---|
@@ -325,6 +327,37 @@ vault-merge NOTE_A NOTE_B --no-index --execute
 | `--no-index` | Skip rebuilding the vault index after the merge; use during batch operations and run `update_index.py` once when all merges are done |
 
 > Use `--no-index` on every individual merge during a batch deduplication run; run `update_index.py` once at the end. The `vault-deduplicator` agent handles this automatically.
+
+## Vault Conflicts
+
+`vault-conflicts` is a global CLI command (companion to `vault-merge`) that detects contradictions between similar notes and resolves them via the configured prompt AI backend. Where `vault-merge` collapses near-duplicate notes saying the *same* thing, `vault-conflicts` surfaces pairs that say *opposite* things.
+
+### Usage
+
+```bash
+# List candidate conflict pairs only (no AI, no writes)
+vault-conflicts --scan-only
+
+# Machine-readable output for scripting
+vault-conflicts --json
+
+# Interactive resolution (default): review each pair, resolve via prompt AI backend
+vault-conflicts
+
+# List pairs without invoking the AI backend
+vault-conflicts --no-ai
+```
+
+### Key Flags
+
+| Flag | Description |
+|---|---|
+| `--scan-only` | List candidate conflict pairs (embedding-similarity candidates); no AI call, no writes |
+| `--json` | Emit machine-readable JSON instead of interactive output |
+| `--no-ai` | List pairs without invoking the prompt AI backend |
+| `--threshold FLOAT` | Cosine similarity threshold for candidate pairs |
+| `--top N` | Limit to the top N candidate pairs |
+| `--vault PATH` | Target vault (path or name from `~/.config/parsidion/vaults.yaml`) |
 
 ## Vault Doctor
 
