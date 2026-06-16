@@ -87,6 +87,7 @@ def _build_frontmatter(
             "confidence: medium",
             "sources: []",
             'related: ["[[vault-index]]"]',
+            "provenance: inferred",
             "---",
         ]
     )

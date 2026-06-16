@@ -11,6 +11,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+import vault_new  # noqa: E402
+
 _TEMPLATES_DIR = (
     Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "templates"
 )
@@ -59,3 +61,11 @@ class TestTemplatesCarryProvenance:
             assert value == expected, (
                 f"{name}.md provenance={value!r}, want {expected!r}"
             )
+
+
+class TestVaultNewEmitsProvenance:
+    def test_build_frontmatter_contains_provenance(self) -> None:
+        fm = vault_new._build_frontmatter("pattern", ["vault"], project=None)
+        assert "provenance: inferred" in fm
+        # provenance must appear after related (epistemic cluster ordering)
+        assert fm.index("related:") < fm.index("provenance:")
