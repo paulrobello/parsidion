@@ -69,3 +69,21 @@ class TestVaultNewEmitsProvenance:
         assert "provenance: inferred" in fm
         # provenance must appear after related (epistemic cluster ordering)
         assert fm.index("related:") < fm.index("provenance:")
+
+
+import vault_merge  # noqa: E402
+
+
+class TestVaultMergePreservesProvenance:
+    def test_build_frontmatter_emits_provenance(self) -> None:
+        fm = vault_merge._build_frontmatter(
+            {
+                "date": "2026-06-16",
+                "type": "pattern",
+                "tags": ["x"],
+                "related": ["[[a]]"],
+                "provenance": "inferred",
+            }
+        )
+        assert "provenance: inferred" in fm
+        assert fm.index("related:") < fm.index("provenance:")
