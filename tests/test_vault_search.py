@@ -177,6 +177,20 @@ class TestMetadataQuery:
         results = vault_search.query(tag="python", vault=vault)
         assert any(r["stem"] == "last-tag" for r in results)
 
+    def test_filters_by_changed_since(self, vault: Path) -> None:
+        _make_db(vault)
+        # mtime 1000.0 == 1970-01-01; a 2026 cutoff must EXCLUDE it.
+        _insert_note(vault, stem="old", mtime=1000.0)
+        # a recent mtime (year 2026) must be INCLUDED.
+        import time as _time
+
+        recent = _time.mktime((2026, 6, 1, 0, 0, 0, 0, 0, 0))
+        _insert_note(vault, stem="new", mtime=recent)
+        results = vault_search.query(changed_since="2026-01-01", vault=vault)
+        stems = {r["stem"] for r in results}
+        assert "new" in stems
+        assert "old" not in stems
+
 
 # ---------------------------------------------------------------------------
 # _apply_grep_filter

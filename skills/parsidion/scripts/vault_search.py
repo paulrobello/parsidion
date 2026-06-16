@@ -219,6 +219,7 @@ def query(
     note_type: str | None = None,
     project: str | None = None,
     recent_days: int | None = None,
+    changed_since: str | None = None,
     limit: int = 50,
     vault: Path | None = None,
 ) -> list[dict[str, object]]:
@@ -289,6 +290,11 @@ def query(
 
         if recent_days is not None:
             cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
+            conditions.append("mtime >= ?")
+            params.append(cutoff)
+
+        if changed_since is not None:
+            cutoff = datetime.fromisoformat(changed_since).timestamp()
             conditions.append("mtime >= ?")
             params.append(cutoff)
 
@@ -726,6 +732,12 @@ def main() -> None:
         type=int,
         help="Metadata: notes modified within the last N days.",
     )
+    parser.add_argument(
+        "--changed-since",
+        "-c",
+        metavar="DATE",
+        help="Metadata: notes modified on/after DATE (YYYY-MM-DD). Uses file mtime.",
+    )
 
     # Grep / full-text body search flags
     parser.add_argument(
@@ -812,6 +824,7 @@ def main() -> None:
         args.note_type,
         args.project,
         args.recent_days,
+        args.changed_since,
     )
     has_query = args.query is not None
     has_filters = any(f is not None for f in _filter_flags)
@@ -820,7 +833,7 @@ def main() -> None:
     if not has_query and not has_filters and not has_grep:
         parser.error(
             "Provide a search QUERY for semantic search, or at least one filter flag "
-            "(--tag, --folder, --type, --project, --recent-days, --grep) for metadata/grep search."
+            "(--tag, --folder, --type, --project, --recent-days, --changed-since, --grep) for metadata/grep search."
         )
 
     if has_query and has_filters:
@@ -851,6 +864,7 @@ def main() -> None:
             note_type=args.note_type,
             project=args.project,
             recent_days=args.recent_days,
+            changed_since=args.changed_since,
             limit=args.limit,
             vault=vault_path,
         )
