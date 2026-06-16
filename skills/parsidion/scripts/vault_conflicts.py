@@ -227,6 +227,52 @@ def _detect_contradictions(
     ]
 
 
+def _report_path(vault: Path) -> Path:
+    return vault / _CONFLICTS_DIRNAME / _CONFLICTS_FILENAME
+
+
+def write_conflict_report(conflicts: list[dict[str, Any]], vault: Path) -> None:
+    """Atomically write the conflict report (flock-protected)."""
+    dest = _report_path(vault)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        vault_common.flock_exclusive(fh)
+        fh.write(json.dumps(conflicts, indent=2) + "\n")
+    tmp.replace(dest)
+
+
+def read_conflict_report(vault: Path) -> list[dict[str, Any]]:
+    """Read the conflict report; return [] if absent/unparseable."""
+    path = _report_path(vault)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _apply_resolution(conflict: dict[str, Any], choice: str) -> str:
+    """Return a short description of the applied resolution.
+
+    The TUI (Task 4.6) collects *choice* ∈ {keep_a, keep_b, merge, skip} and
+    calls this. Actual note mutation (deleting/merging files) is intentionally
+    NOT done here — this version records the decision; users perform the edit
+    in their editor or via vault-merge. (Keeps vault-conflicts read-only-safe.)
+    """
+    a = conflict.get("a", "?")
+    b = conflict.get("b", "?")
+    if choice == "keep_a":
+        return f"keep {a}; review {b} for staleness"
+    if choice == "keep_b":
+        return f"keep {b}; review {a} for staleness"
+    if choice == "merge":
+        return f"merge {a} + {b} via vault-merge"
+    return "skipped"
+
+
 def main() -> None:  # pragma: no cover - wired in Task 4.6
     """CLI entry point (implemented in Task 4.6)."""
     raise NotImplementedError

@@ -147,3 +147,26 @@ class TestDetectContradictions:
         ]
         (tmp_vault / "a.md").write_text("# A\nbody\n", encoding="utf-8")
         assert vault_conflicts._detect_contradictions(recs, tmp_vault, no_ai=True) == []
+
+
+class TestReportPersistence:
+    def test_write_then_read_roundtrip(self, tmp_vault: Path) -> None:
+        conflicts = [{"a": "x", "b": "y", "recommendation": "needs_review"}]
+        vault_conflicts.write_conflict_report(conflicts, tmp_vault)
+        report_path = tmp_vault / "conflicts" / "report.json"
+        assert report_path.exists()
+        loaded = vault_conflicts.read_conflict_report(tmp_vault)
+        assert loaded == conflicts
+
+    def test_read_missing_returns_empty(self, tmp_vault: Path) -> None:
+        assert vault_conflicts.read_conflict_report(tmp_vault) == []
+
+
+class TestApplyResolution:
+    def test_keep_a(self) -> None:
+        c = {"a": "alpha", "b": "beta"}
+        assert "alpha" in vault_conflicts._apply_resolution(c, "keep_a")
+
+    def test_unknown_choice_is_skip(self) -> None:
+        c = {"a": "alpha", "b": "beta"}
+        assert vault_conflicts._apply_resolution(c, "skip") == "skipped"
