@@ -44,6 +44,8 @@ exists and `~/ParsidionVault/` does not, use `~/ClaudeVault/` instead.
    - Project name → `-p`/`--project`
    - Tag signal → `-T`/`--tag`
    - "recent" → `-d 7`/`--recent-days 7`
+   - "changed/modified since DATE" (mtime-based) → `--changed-since DATE`
+   - "as of DATE" / point-in-time view (frontmatter-date based) → `--as-of DATE`
 
    Run:
    ```bash
@@ -80,6 +82,18 @@ exists and `~/ParsidionVault/` does not, use `~/ClaudeVault/` instead.
    files using the Read tool.
 
 7. **Synthesize and return** in the exact format below.
+
+## Conflicting Guidance
+
+If recall surfaces notes that give **conflicting** guidance on the same point
+(not merely overlapping/duplicate content), point the caller at the
+`vault-conflicts` tool, which clusters similar notes and flags contradictions
+between them for resolution:
+
+```bash
+vault-conflicts          # interactive curses review
+vault-conflicts --json   # emit conflicts/report.json
+```
 
 ## Return Format
 
