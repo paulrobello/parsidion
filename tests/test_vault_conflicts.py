@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json  # noqa: F401
+import struct
 import sys
 from pathlib import Path
 
@@ -62,3 +63,49 @@ class TestGroupClusters:
 class TestModuleImports:
     def test_main_exists(self) -> None:
         assert callable(vault_conflicts.main)
+
+
+def _seed_embeddings_db(vault: Path, rows: list[tuple[str, list[float], str]]) -> None:
+    """Create a minimal note_embeddings table with hand-crafted vectors."""
+    import sqlite3
+
+    db = vault / "embeddings.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE note_embeddings ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, stem TEXT, path TEXT, folder TEXT, "
+        "title TEXT, tags TEXT, mtime REAL, embedding BLOB)"
+    )
+    for stem, vec, title in rows:
+        blob = struct.pack(f"{len(vec)}f", *vec)
+        path = str(vault / "Patterns" / f"{stem}.md")
+        (vault / "Patterns").mkdir(parents=True, exist_ok=True)
+        (vault / "Patterns" / f"{stem}.md").write_text(
+            f"---\ntype: pattern\n---\n# {title}\nbody\n", encoding="utf-8"
+        )
+        conn.execute(
+            "INSERT INTO note_embeddings (stem, path, folder, title, tags, mtime, embedding) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (stem, path, "Patterns", title, "", 1000.0, blob),
+        )
+    conn.commit()
+    conn.close()
+
+
+class TestFindCandidateClusters:
+    def test_clusters_similar_notes_excludes_daily(self, tmp_vault: Path) -> None:
+        # a,b near-identical (same direction); c orthogonal.
+        _seed_embeddings_db(
+            tmp_vault,
+            [
+                ("note-a", [1.0, 0.0, 0.0], "A"),
+                ("note-b", [0.99, 0.01, 0.0], "B"),
+                ("note-c", [0.0, 0.0, 1.0], "C"),
+            ],
+        )
+        clusters = vault_conflicts.find_candidate_clusters(
+            tmp_vault, threshold=0.75, top=50
+        )
+        stems_per_cluster = [{rec["stem"] for rec in cluster} for cluster in clusters]
+        assert any({"note-a", "note-b"} == s for s in stems_per_cluster)
+        assert not any("note-c" in s for s in stems_per_cluster)

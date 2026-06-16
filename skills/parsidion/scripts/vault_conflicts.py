@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import json
 import re
-import struct  # noqa: F401
+import struct
 import sys  # noqa: F401
 from collections import defaultdict
 from pathlib import Path  # noqa: F401
 from typing import Any
 
-import vault_common  # noqa: F401
+import vault_common
 
 _DEFAULT_TOPIC_THRESHOLD = 0.75
 _DEFAULT_MAX_CLUSTER = 8
@@ -85,6 +85,79 @@ def _group_clusters(n: int, pairs: list[tuple[int, int]]) -> list[list[int]]:
     for idx in range(n):
         groups[find(idx)].append(idx)
     return [sorted(members) for members in groups.values() if len(members) >= 2]
+
+
+def _is_excluded(path: str) -> bool:
+    """Exclude Daily notes (they are auto-captured, not curated knowledge)."""
+    norm = str(path).replace("\\", "/")
+    return "/Daily/" in norm or norm.lstrip("./").startswith("Daily/")
+
+
+def _load_embeddings(
+    vault: Path,
+) -> tuple[list[dict[str, str]], list[list[float]]]:
+    """Load note_embeddings rows + unpacked float32 vectors.
+
+    Returns parallel lists of (records, vectors). Empty if the DB or table is
+    missing (the caller should print a helpful message).
+    """
+    import sqlite3
+
+    db_path = vault_common.get_embeddings_db_path(vault)
+    if not db_path.exists():
+        return [], []
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT stem, path, folder, title, tags, embedding FROM note_embeddings"
+        ).fetchall()
+    except sqlite3.Error:
+        return [], []
+    finally:
+        conn.close()
+
+    records: list[dict[str, str]] = []
+    vectors: list[list[float]] = []
+    blobs = []
+    for stem, path, folder, title, tags, blob in rows:
+        if _is_excluded(path):
+            continue
+        records.append(
+            {
+                "stem": stem,
+                "path": path,
+                "folder": folder,
+                "title": title,
+                "tags": tags,
+            }
+        )
+        blobs.append(blob)
+    if not blobs:
+        return [], []
+    dim = len(blobs[0]) // 4
+    vectors = [list(struct.unpack(f"{dim}f", b)) for b in blobs]
+    return records, vectors
+
+
+def find_candidate_clusters(
+    vault: Path, threshold: float = _DEFAULT_TOPIC_THRESHOLD, top: int = _DEFAULT_TOP
+) -> list[list[dict[str, str]]]:
+    """Cluster semantically-similar notes; return clusters with >= 2 members."""
+    records, vectors = _load_embeddings(vault)
+    n = len(records)
+    if n < 2:
+        return []
+    pairs: list[tuple[int, int]] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _cosine_similarity(vectors[i], vectors[j]) >= threshold:
+                pairs.append((i, j))
+    clusters: list[list[dict[str, str]]] = []
+    for member_indices in _group_clusters(n, pairs):
+        cluster = [records[idx] for idx in member_indices[:top]]
+        if len(cluster) >= 2:
+            clusters.append(cluster)
+    return clusters
 
 
 def main() -> None:  # pragma: no cover - wired in Task 4.6
