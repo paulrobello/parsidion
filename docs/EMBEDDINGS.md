@@ -68,7 +68,7 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 | Table | Populated by | Purpose |
 |-------|-------------|---------|
 | `note_embeddings` | `build_embeddings.py` | 384-dim float32 vectors with metadata (stem, path, folder, title, tags, mtime) for cosine similarity search |
-| `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, staleness, incoming links) for indexed queries |
+| `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, date, staleness, incoming links) for indexed queries |
 
 Both tables are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` has not run yet.
 
@@ -176,10 +176,13 @@ CREATE TABLE note_index (
     mtime          REAL    NOT NULL DEFAULT 0.0,
     related        TEXT    NOT NULL DEFAULT '',     -- comma-separated stems
     is_stale       INTEGER NOT NULL DEFAULT 0,
-    incoming_links INTEGER NOT NULL DEFAULT 0
+    incoming_links INTEGER NOT NULL DEFAULT 0,
+    date           TEXT    NOT NULL DEFAULT ''      -- YYYY-MM-DD from frontmatter (lexicographically sortable)
 );
--- Secondary indexes on folder, note_type, project, mtime, tags
+-- Secondary indexes: idx_ni_folder, idx_ni_note_type, idx_ni_project, idx_ni_mtime, idx_ni_tags, idx_ni_date
 ```
+
+The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The schema migration (`ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''`) runs automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open.
 
 ### Querying via CLI
 
@@ -205,6 +208,30 @@ uv run ~/.claude/skills/parsidion/scripts/vault_search.py -p parsidion -t
 # Rich-colorized output
 uv run ~/.claude/skills/parsidion/scripts/vault_search.py -f Debugging -r
 ```
+
+### Date-based filters
+
+Two complementary date filters narrow results by time. They are mutually independent and combine with the other metadata flags.
+
+| Flag | Short | Basis | Description |
+|---|---|---|---|
+| `--changed-since DATE` | `-c` | file `mtime` | Notes modified on/after `DATE` (YYYY-MM-DD). Reflects filesystem edits, so it tracks the last time the note file was actually rewritten — useful for "what changed since I last synced". |
+| `--as-of DATE` | `-A` | frontmatter `date` | Point-in-time view: notes whose frontmatter `date` is on/before `DATE` (YYYY-MM-DD). Served by the `idx_ni_date` index on the `date` column. Notes without a frontmatter `date` are excluded. Useful for reconstructing what the vault knew at a past date. |
+
+```bash
+# Notes modified on/after a given date (mtime-based)
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py --changed-since 2026-06-01
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -c 2026-06-01   # short form
+
+# Point-in-time: everything known as of a date (frontmatter-date-based)
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py --as-of 2026-05-01
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -A 2026-05-01   # short form
+
+# Combine with other filters
+uv run ~/.claude/skills/parsidion/scripts/vault_search.py -f Debugging --as-of 2026-05-01
+```
+
+> **Note:** `--changed-since` and `--recent-days` both key off `mtime` and are largely interchangeable (`--recent-days 7` ≈ `--changed-since` set to seven days ago). `--as-of` is different — it keys off the note's own frontmatter `date`, so it reflects when the knowledge was recorded rather than when the file was last touched.
 
 ### Querying via Python
 

@@ -231,6 +231,7 @@ def _build_frontmatter(
     lines.append("confidence: medium")
     lines.append("sources: []")
     lines.append("related: []")
+    lines.append("provenance: inferred")
     lines.append("---")
     return "\n".join(lines) + "\n"
 

@@ -617,7 +617,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `get_body()` | Returns markdown content after frontmatter |
 | `extract_title()` | Extract H1 heading or stem as the note title |
 | `get_embeddings_db_path()` | Return the path to `embeddings.db` |
-| `ensure_note_index_schema(conn)` | Creates `note_index` table and 5 indexes in an open SQLite connection |
+| `ensure_note_index_schema(conn)` | Creates `note_index` table and 6 indexes (folder, note_type, project, mtime, tags, date) in an open SQLite connection |
 | `query_note_index(*, tag, folder, note_type, project, recent_days, limit)` | DB-first metadata query; returns `None` (not `[]`) when DB absent to signal file-walk fallback |
 | `find_notes_by_project()` | Search by `project` frontmatter field — DB-first, falls back to file walk |
 | `find_notes_by_tag()` | Search by tag in `tags` list — DB-first, falls back to file walk |
@@ -833,11 +833,23 @@ Merges two vault notes into one. Accepts either absolute paths or stem names (ca
 
 **Merge usage:** `vault-merge NOTE_A NOTE_B [--output OUTPUT] [--dry-run] [--execute]`
 
-Without `--execute`, prints the proposed merged content and exits. With `--execute`, writes the merged note, moves `NOTE_B` to `.trash/`, and updates all wikilinks across the vault.
+Without `--execute`, prints the proposed merged content and exits. With `--execute`, writes the merged note, moves `NOTE_B` to `.trash/`, and updates all wikilinks across the vault. The merged note's `provenance` frontmatter field is set to the source notes' `provenance` (or `inferred` when unset) so the merge is traceable; `provenance` is one of `explicit | inferred | corrected | observed | imported`.
 
 **Scan usage:** `vault-merge --scan [--threshold SCORE] [--top N]`
 
 Scans all vault notes for near-duplicate pairs using embedding similarity. Reports candidate pairs above `--threshold` (default `0.85`), limited to `--top` pairs (default `10`).
+
+#### vault-conflicts
+
+**Location:** `skills/parsidion/scripts/vault_conflicts.py` · Global command: `vault-conflicts` (after `--install-tools`)
+
+The contradiction-detection companion to `vault-merge` (which merges near-duplicates). Clusters notes by embedding similarity, then asks the configured prompt AI backend whether any pair within a cluster makes mutually-exclusive claims, and persists the findings to `conflicts/report.json`.
+
+**Usage:** `vault-conflicts [--threshold SCORE] [--top N] [--vault PATH] [--scan-only] [--json] [--no-ai]`
+
+By default, scans for contradictions then launches the interactive curses TUI to review them. `--scan-only` writes `conflicts/report.json` and exits without the TUI; `--json` prints the report as JSON and exits; `--no-ai` runs clustering only without calling the AI backend. The cluster-size cap is fixed at 8 notes per cluster.
+
+Stdlib-only (no third-party dependencies). Falls back gracefully when `embeddings.db` is absent or `vault-search` is not installed.
 
 #### vault-review
 

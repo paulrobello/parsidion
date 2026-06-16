@@ -148,10 +148,13 @@ confidence: high|medium|low
 sources:
   - https://example.com/docs
 related: ["[[related-note-name]]"]
+provenance: imported
 ---
 ```
 
 **CRITICAL**: `related: []` is NEVER acceptable. Every note must link to at least one other vault note via `[[wikilink]]`. If no specific note exists yet, link to the primary topic or technology name (e.g. `"[[qdrant]]"`, `"[[fastapi]]"`). A note with an empty `related` field is an orphan and fails vault validation.
+
+**`provenance: imported`**: research-agent notes synthesize knowledge from external web sources, so they carry `provenance: imported` (one of `explicit | inferred | corrected | observed | imported`).
 
 **Tag reuse**: Before choosing tags, scan the vault index (`<vault root>/CLAUDE.md`) for existing tags on related notes and reuse them where they fit. **NEVER use underscores in tags or the project field — always use kebab-case (hyphens).** Prefer short singular tags — e.g. `swift` not `swift-language`, `hook` not `hooks`, `fractal` not `fractals`. Longer compound tags are only acceptable when the shorter form is ambiguous. Invent new tags only when no existing tag accurately describes the topic.
 
@@ -167,6 +170,7 @@ tags: [topic]
 confidence: medium
 sources: []
 related: ["[[related-note-title]]"]
+provenance: imported
 ---
 
 # [Topic Title]

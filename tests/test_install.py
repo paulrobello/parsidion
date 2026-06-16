@@ -274,7 +274,7 @@ class TestCodexHooks:
         install.enable_codex_hooks_config(codex_home, dry_run=False, yes=True)
 
         assert (codex_home / "config.toml").read_text(encoding="utf-8") == (
-            "[features]\ncodex_hooks = true\n"
+            "[features]\nhooks = true\n"
         )
 
 

@@ -73,6 +73,11 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 
 ## Guidelines
 
+- **Near-duplicates vs contradictions**: `vault-merge` / this deduplicator handle
+  **near-duplicate** notes — the same content appearing twice. If two notes make
+  **conflicting claims** about the same point (contradictory, not merely redundant),
+  that is the `vault-conflicts` tool's job, not this one — refer the user there.
+
 - **--no-index on every merge**: never pass `--execute` without `--no-index`
   during the batch phase; one final index rebuild at the end is sufficient.
 - **Skip redundant pairs**: when a stem appears in multiple pairs and you've

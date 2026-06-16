@@ -54,7 +54,8 @@ def _make_db(vault: Path) -> sqlite3.Connection:
             stem TEXT, path TEXT, folder TEXT, title TEXT, summary TEXT,
             tags TEXT, note_type TEXT, project TEXT, confidence TEXT,
             mtime REAL, related TEXT, is_stale INTEGER DEFAULT 0,
-            incoming_links INTEGER DEFAULT 0
+            incoming_links INTEGER DEFAULT 0,
+            date TEXT DEFAULT ''
         )
         """
     )
@@ -72,6 +73,7 @@ def _insert_note(
     note_type: str = "pattern",
     project: str = "",
     mtime: float = 1000.0,
+    frontmatter_date: str = "",
     body: str = "# Test\nBody content.",
 ) -> Path:
     """Insert a note into note_index and write the actual file."""
@@ -79,11 +81,15 @@ def _insert_note(
     conn = sqlite3.connect(str(db_path))
     path = vault / folder / f"{stem}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body, encoding="utf-8")
+    if frontmatter_date:
+        file_body = f"---\ndate: {frontmatter_date}\ntype: {note_type}\n---\n" + body
+    else:
+        file_body = body
+    path.write_text(file_body, encoding="utf-8")
     conn.execute(
-        "INSERT INTO note_index (stem, path, folder, tags, note_type, project, mtime) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (stem, str(path), folder, tags, note_type, project, mtime),
+        "INSERT INTO note_index (stem, path, folder, tags, note_type, project, mtime, date) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (stem, str(path), folder, tags, note_type, project, mtime, frontmatter_date),
     )
     conn.commit()
     conn.close()
@@ -176,6 +182,31 @@ class TestMetadataQuery:
         _insert_note(vault, stem="last-tag", tags="vault, python")
         results = vault_search.query(tag="python", vault=vault)
         assert any(r["stem"] == "last-tag" for r in results)
+
+    def test_filters_by_changed_since(self, vault: Path) -> None:
+        _make_db(vault)
+        # mtime 1000.0 == 1970-01-01; a 2026 cutoff must EXCLUDE it.
+        _insert_note(vault, stem="old", mtime=1000.0)
+        # a recent mtime (year 2026) must be INCLUDED.
+        import time as _time
+
+        recent = _time.mktime((2026, 6, 1, 0, 0, 0, 0, 0, 0))
+        _insert_note(vault, stem="new", mtime=recent)
+        results = vault_search.query(changed_since="2026-01-01", vault=vault)
+        stems = {r["stem"] for r in results}
+        assert "new" in stems
+        assert "old" not in stems
+
+    def test_filters_by_as_of(self, vault: Path) -> None:
+        _make_db(vault)
+        _insert_note(vault, stem="jan", frontmatter_date="2026-01-15")
+        _insert_note(vault, stem="may", frontmatter_date="2026-05-20")
+        _insert_note(vault, stem="undated")  # no frontmatter date
+        results = vault_search.query(as_of="2026-03-01", vault=vault)
+        stems = {r["stem"] for r in results}
+        assert "jan" in stems  # 2026-01-15 <= 2026-03-01
+        assert "may" not in stems  # 2026-05-20  > 2026-03-01
+        assert "undated" not in stems  # empty date excluded from point-in-time view
 
 
 # ---------------------------------------------------------------------------

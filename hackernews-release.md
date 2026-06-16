@@ -27,7 +27,9 @@ Next.js app with two modes. **Read mode**: GFM rendering, clickable wikilinks, t
 
 ## CLI tools & MCP
 
-`vault-stats` (analytics dashboard), `vault-new` (note scaffolding), `vault-review` (approve/reject pending sessions), `vault-export` (HTML/zip/PDF), `vault-merge` (AI dedup), `vault-doctor` (structural health + auto-repair). An MCP server exposes vault ops to Claude Desktop.
+`vault-stats` (analytics dashboard), `vault-new` (note scaffolding), `vault-review` (approve/reject pending sessions), `vault-export` (HTML/zip/PDF), `vault-merge` (AI dedup), `vault-doctor` (structural health + auto-repair), `vault-conflicts` (contradiction detection between similar notes). An MCP server exposes vault ops to Claude Desktop.
+
+New search filters: `vault-search --changed-since DATE` (mtime-based) and `--as-of DATE` (point-in-time frontmatter view). New `provenance` frontmatter field tracks how each note was obtained. Multi-agent install verbs: `install.py connect <agent>` / `disconnect <agent>`.
 
 ## Install
 

@@ -1,0 +1,200 @@
+"""Tests for vault-conflicts (contradiction detection)."""
+
+from __future__ import annotations
+
+import json  # noqa: F401
+import struct
+import sys
+from pathlib import Path
+
+_SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "scripts"
+)
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import vault_conflicts  # noqa: E402
+
+
+class TestParseJsonArray:
+    def test_plain_array(self) -> None:
+        text = '[{"type": "contradiction", "a": "x", "b": "y"}]'
+        assert vault_conflicts._parse_json_array(text) == [
+            {"type": "contradiction", "a": "x", "b": "y"}
+        ]
+
+    def test_strips_markdown_fence(self) -> None:
+        text = "```json\n[]\n```"
+        assert vault_conflicts._parse_json_array(text) == []
+
+    def test_extracts_array_from_prose(self) -> None:
+        text = 'Here are the conflicts:\n[{"a": "1", "b": "2"}]\nDone.'
+        assert vault_conflicts._parse_json_array(text) == [{"a": "1", "b": "2"}]
+
+    def test_empty_for_unparseable(self) -> None:
+        assert vault_conflicts._parse_json_array("no json here") == []
+
+
+class TestCosine:
+    def test_identical_vectors_score_one(self) -> None:
+        assert vault_conflicts._cosine_similarity([1.0, 0.0], [1.0, 0.0]) == 1.0
+
+    def test_orthogonal_vectors_score_zero(self) -> None:
+        assert vault_conflicts._cosine_similarity([1.0, 0.0], [0.0, 1.0]) == 0.0
+
+    def test_zero_vector_returns_zero(self) -> None:
+        assert vault_conflicts._cosine_similarity([0.0, 0.0], [1.0, 1.0]) == 0.0
+
+
+class TestGroupClusters:
+    def test_union_find_merges_transitively(self) -> None:
+        # pairs: 0~1, 1~2  ->  {0,1,2}; 3~4 -> {3,4}
+        pairs = [(0, 1), (1, 2), (3, 4)]
+        clusters = vault_conflicts._group_clusters(5, pairs)
+        clusters_sorted = sorted(sorted(c) for c in clusters)
+        assert clusters_sorted == [[0, 1, 2], [3, 4]]
+
+    def test_singletons_excluded(self) -> None:
+        # Index 2 is isolated (no pairs) -> must NOT appear. Contract:
+        # _group_clusters returns ONLY clusters with >= 2 members.
+        assert vault_conflicts._group_clusters(3, [(0, 1)]) == [[0, 1]]
+
+
+class TestModuleImports:
+    def test_main_exists(self) -> None:
+        assert callable(vault_conflicts.main)
+
+
+def _seed_embeddings_db(vault: Path, rows: list[tuple[str, list[float], str]]) -> None:
+    """Create a minimal note_embeddings table with hand-crafted vectors."""
+    import sqlite3
+
+    db = vault / "embeddings.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE note_embeddings ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, stem TEXT, path TEXT, folder TEXT, "
+        "title TEXT, tags TEXT, mtime REAL, embedding BLOB)"
+    )
+    for stem, vec, title in rows:
+        blob = struct.pack(f"{len(vec)}f", *vec)
+        path = str(vault / "Patterns" / f"{stem}.md")
+        (vault / "Patterns").mkdir(parents=True, exist_ok=True)
+        (vault / "Patterns" / f"{stem}.md").write_text(
+            f"---\ntype: pattern\n---\n# {title}\nbody\n", encoding="utf-8"
+        )
+        conn.execute(
+            "INSERT INTO note_embeddings (stem, path, folder, title, tags, mtime, embedding) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (stem, path, "Patterns", title, "", 1000.0, blob),
+        )
+    conn.commit()
+    conn.close()
+
+
+class TestFindCandidateClusters:
+    def test_clusters_similar_notes_excludes_daily(self, tmp_vault: Path) -> None:
+        # a,b near-identical (same direction); c orthogonal.
+        _seed_embeddings_db(
+            tmp_vault,
+            [
+                ("note-a", [1.0, 0.0, 0.0], "A"),
+                ("note-b", [0.99, 0.01, 0.0], "B"),
+                ("note-c", [0.0, 0.0, 1.0], "C"),
+            ],
+        )
+        clusters = vault_conflicts.find_candidate_clusters(
+            tmp_vault, threshold=0.75, top=50
+        )
+        stems_per_cluster = [{rec["stem"] for rec in cluster} for cluster in clusters]
+        assert any({"note-a", "note-b"} == s for s in stems_per_cluster)
+        assert not any("note-c" in s for s in stems_per_cluster)
+
+
+class TestDetectContradictions:
+    def test_build_prompt_includes_all_bodies(self, tmp_vault: Path) -> None:
+        recs = [
+            {"stem": "a", "path": str(tmp_vault / "a.md"), "title": "A", "tags": ""},
+            {"stem": "b", "path": str(tmp_vault / "b.md"), "title": "B", "tags": ""},
+        ]
+        (tmp_vault / "a.md").write_text("# A\nUse approach X.\n", encoding="utf-8")
+        (tmp_vault / "b.md").write_text("# B\nUse approach Y.\n", encoding="utf-8")
+        prompt = vault_conflicts._build_prompt(recs)
+        assert "Use approach X." in prompt
+        assert "Use approach Y." in prompt
+        assert "JSON" in prompt
+
+    def test_detect_parses_ai_json(self, tmp_vault: Path, monkeypatch) -> None:
+        recs = [
+            {"stem": "a", "path": str(tmp_vault / "a.md"), "title": "A", "tags": ""},
+            {"stem": "b", "path": str(tmp_vault / "b.md"), "title": "B", "tags": ""},
+        ]
+        (tmp_vault / "a.md").write_text("# A\nA says X.\n", encoding="utf-8")
+        (tmp_vault / "b.md").write_text("# B\nB says not-X.\n", encoding="utf-8")
+
+        import ai_backend
+
+        canned = '[{"type":"contradiction","a":"a","b":"b","a_says":"X","b_says":"not-X","recommendation":"needs_review"}]'
+        monkeypatch.setattr(ai_backend, "run_ai_prompt", lambda *a, **k: canned)
+
+        result = vault_conflicts._detect_contradictions(recs, tmp_vault)
+        assert len(result) == 1
+        assert result[0]["a"] == "a" and result[0]["b"] == "b"
+
+    def test_detect_no_ai_returns_empty(self, tmp_vault: Path) -> None:
+        recs = [
+            {"stem": "a", "path": str(tmp_vault / "a.md"), "title": "A", "tags": ""}
+        ]
+        (tmp_vault / "a.md").write_text("# A\nbody\n", encoding="utf-8")
+        assert vault_conflicts._detect_contradictions(recs, tmp_vault, no_ai=True) == []
+
+
+class TestReportPersistence:
+    def test_write_then_read_roundtrip(self, tmp_vault: Path) -> None:
+        conflicts = [{"a": "x", "b": "y", "recommendation": "needs_review"}]
+        vault_conflicts.write_conflict_report(conflicts, tmp_vault)
+        report_path = tmp_vault / "conflicts" / "report.json"
+        assert report_path.exists()
+        loaded = vault_conflicts.read_conflict_report(tmp_vault)
+        assert loaded == conflicts
+
+    def test_read_missing_returns_empty(self, tmp_vault: Path) -> None:
+        assert vault_conflicts.read_conflict_report(tmp_vault) == []
+
+
+class TestApplyResolution:
+    def test_keep_a(self) -> None:
+        c = {"a": "alpha", "b": "beta"}
+        assert "alpha" in vault_conflicts._apply_resolution(c, "keep_a")
+
+    def test_unknown_choice_is_skip(self) -> None:
+        c = {"a": "alpha", "b": "beta"}
+        assert vault_conflicts._apply_resolution(c, "skip") == "skipped"
+
+
+class TestRunScan:
+    def test_scan_pipeline_end_to_end(self, tmp_vault: Path, monkeypatch) -> None:
+        _seed_embeddings_db(
+            tmp_vault,
+            [
+                ("note-a", [1.0, 0.0], "A"),
+                ("note-b", [0.99, 0.01], "B"),
+            ],
+        )
+        import ai_backend
+
+        canned = '[{"type":"contradiction","a":"note-a","b":"note-b","a_says":"X","b_says":"not-X","recommendation":"needs_review"}]'
+        monkeypatch.setattr(ai_backend, "run_ai_prompt", lambda *a, **k: canned)
+
+        conflicts = vault_conflicts._run_scan(tmp_vault, threshold=0.75, top=50)
+        assert len(conflicts) == 1
+        assert conflicts[0]["a"] == "note-a"
+        # The scan must also persist the report.
+        assert vault_conflicts.read_conflict_report(tmp_vault) == conflicts
+
+    def test_scan_no_clusters_returns_empty(self, tmp_vault: Path) -> None:
+        _seed_embeddings_db(
+            tmp_vault,
+            [("solo", [1.0, 0.0], "Solo")],
+        )
+        assert vault_conflicts._run_scan(tmp_vault, threshold=0.75, top=50) == []

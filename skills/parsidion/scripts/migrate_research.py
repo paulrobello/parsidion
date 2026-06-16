@@ -285,6 +285,7 @@ def _serialize_frontmatter(fm: dict[str, Any]) -> str:
         "confidence",
         "sources",
         "related",
+        "provenance",
     ]
     remaining_keys: list[str] = [k for k in fm if k not in ordered_keys]
 

@@ -223,6 +223,7 @@ def _build_frontmatter(fm: dict) -> str:
         "confidence",
         "sources",
         "related",
+        "provenance",
         "session_id",
     ):
         if key not in fm:
@@ -318,6 +319,9 @@ def _merge_notes(
     )
     merged_fm["sources"] = fm_a.get("sources", [])
     merged_fm["related"] = merged_related
+    merged_fm["provenance"] = (
+        fm_a.get("provenance") or fm_b.get("provenance") or "inferred"
+    )
 
     title_a = vault_common.extract_title(content_a, path_a.stem)
     title_b = vault_common.extract_title(content_b, path_b.stem)

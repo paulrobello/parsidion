@@ -163,6 +163,8 @@ from installer.skill import (  # noqa: F401
     install_agents,
     install_cli_tools,
     install_claude_vault_md,
+    install_codex_agents_md,
+    install_gemini_md,
     install_scripts,
     install_skill,
     rebuild_index,
@@ -502,6 +504,12 @@ def install(args: argparse.Namespace) -> int:
     if install_claude_runtime:
         install_claude_vault_md(claude_dir, dry_run=dry_run, verbose=verbose)
 
+    # 7b. Inject parsidion instructions into codex/gemini config dirs
+    if install_codex_runtime:
+        install_codex_agents_md(codex_home, dry_run=dry_run, verbose=verbose)
+    if install_gemini_runtime:
+        install_gemini_md(gemini_home, dry_run=dry_run, verbose=verbose)
+
     # 8. Rebuild vault index
     rebuild_index(claude_dir, dry_run=dry_run)
 
@@ -763,6 +771,20 @@ def parse_args() -> argparse.Namespace:
         help="Create ~/.config/parsidion/vaults.yaml template",
     )
     parser.add_argument(
+        "verb",
+        nargs="?",
+        choices=["connect", "disconnect"],
+        default=None,
+        help="Friendly multi-agent verb: 'connect <agent>' or 'disconnect <agent>'.",
+    )
+    parser.add_argument(
+        "agent",
+        nargs="?",
+        choices=["claude", "codex", "gemini"],
+        default=None,
+        help="Target agent for the connect/disconnect verb.",
+    )
+    parser.add_argument(
         "--help",
         "-h",
         action="help",
@@ -774,6 +796,38 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Entry point for the Parsidion installer."""
     args = parse_args()
+
+    # Friendly multi-agent verbs: 'connect <agent>' / 'disconnect <agent>'.
+    # Rewrite the args namespace so the existing install()/uninstall() flow
+    # targets exactly one runtime, then delegate.
+    if args.verb in ("connect", "disconnect"):
+        if args.agent is None:
+            _err(f"{args.verb} requires an agent: claude | codex | gemini")
+            sys.exit(2)
+        args.runtime = args.agent
+        if args.verb == "disconnect":
+            claude_dir = Path(args.claude_dir).expanduser().resolve()
+            settings_file = claude_dir / "settings.json"
+            runtime = resolve_runtime_choice(
+                args.runtime, yes=args.yes, interactive=not args.yes
+            )
+            codex_home = Path(args.codex_home).expanduser().resolve()
+            gemini_home = Path(args.gemini_home).expanduser().resolve()
+            uninstall(
+                claude_dir,
+                settings_file,
+                dry_run=args.dry_run,
+                yes=args.yes,
+                hooks_only=False,
+                runtime=runtime,
+                codex_home=codex_home,
+                gemini_home=gemini_home,
+            )
+            return
+        # connect == targeted install for one runtime
+        install(args)
+        return
+
     claude_dir = Path(args.claude_dir).expanduser().resolve()
     settings_file = claude_dir / "settings.json"
 

@@ -272,6 +272,9 @@ def slugify(text: str) -> str:
 def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     """Create the note_index table and indexes if they don't exist.
 
+    Also idempotently adds the ``date`` column to databases created before
+    Phase 2 of the memory-enhancements plan (point-in-time search support).
+
     Args:
         conn: An open sqlite3.Connection (caller sets WAL mode).
     """
@@ -290,10 +293,16 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
             mtime          REAL    NOT NULL DEFAULT 0.0,
             related        TEXT    NOT NULL DEFAULT '',
             is_stale       INTEGER NOT NULL DEFAULT 0,
-            incoming_links INTEGER NOT NULL DEFAULT 0
+            incoming_links INTEGER NOT NULL DEFAULT 0,
+            date           TEXT    NOT NULL DEFAULT ''
         )
         """
     )
+    # Migration: add date column to pre-existing databases (CREATE IF NOT EXISTS
+    # does not add columns to an already-present table).
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
+    if "date" not in cols:
+        conn.execute("ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_folder    ON note_index(folder)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_note_type ON note_index(note_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_project   ON note_index(project)")
@@ -301,6 +310,7 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_ni_mtime     ON note_index(mtime DESC)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_tags      ON note_index(tags)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_date      ON note_index(date)")
     conn.commit()
 
 

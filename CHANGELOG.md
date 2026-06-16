@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Added
+- **`vault-conflicts`** — new global command that detects contradictions between semantically-similar vault notes (companion to `vault-merge`, which merges near-duplicates). Clusters by embedding similarity, asks the configured AI backend for contradictions, writes a report, optional interactive resolution.
+- **`provenance`** frontmatter field (`explicit | inferred | corrected | observed | imported`) — optional; captures how a note's knowledge was obtained. Default `inferred` (or `observed` for daily notes).
+- **`vault-search --changed-since DATE`** — notes modified on/after a date (file mtime).
+- **`vault-search --as-of DATE`** — point-in-time view (frontmatter `date <= DATE`); backed by a new indexed `date` column in `note_index`.
+- **`uv run install.py connect <agent>` / `disconnect <agent>`** — friendly multi-agent verb; injects parsidion instructions into `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md`.
 
+### Fixed
+- Installer now writes codex's correct `hooks` feature key (was `codex_hooks`, silently ignored).
 - **`summarize_sessions.py` related-field normalization** — Both write paths (`write_note` and the dedup-merge path) now normalize the AI-generated `related` field to a clean inline array of `[[wikilinks]]` before writing. A new `_normalize_related_field()` extracts any bracket/quote-wrapped stem — repairing `[stem]`, `[["stem"]]`, and `"[[stem]]"` malformations the model emits — instead of echoing them verbatim into the note.
 
 ## [0.8.1] - 2026-06-16
