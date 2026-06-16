@@ -43,7 +43,6 @@ class TestCodexFeatureFlagName:
 
 
 import installer.skill as skill  # noqa: E402
-import installer.paths as paths  # noqa: E402
 
 # The delimited section markers every instructions file must use.
 _BEGIN = "<!-- BEGIN parsidion -->"
@@ -52,8 +51,11 @@ _END = "<!-- END parsidion -->"
 
 class TestInstructionsInjection:
     def test_codex_agents_md_injects_section(self, tmp_path, monkeypatch):
+        # Bind on `skill`, not `paths`: skill.py imports the constant at module
+        # top-level, so _inject_instructions_block resolves the bare name from
+        # skill's own namespace. Patching paths.AGENT_INSTRUCTIONS_SRC is inert.
         monkeypatch.setattr(
-            paths, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
         )
         codex_home = tmp_path / ".codex"
         codex_home.mkdir()
@@ -63,11 +65,15 @@ class TestInstructionsInjection:
         text = agents_md.read_text(encoding="utf-8")
         assert "# my rules" in text
         assert _BEGIN in text and _END in text
-        assert "vault-search" in text  # the shared content is present
+        # Sentinel is unique to the FAKE source (absent from the real
+        # AGENT_INSTRUCTIONS.md), so this proves the injected text came from
+        # the monkeypatched path, not the real file.
+        assert "parsidion-test-sentinel-9f2a" in text
 
     def test_gemini_md_injection_is_idempotent(self, tmp_path, monkeypatch):
+        # See test_codex_agents_md_injects_section: must patch skill, not paths.
         monkeypatch.setattr(
-            paths, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
         )
         gemini_home = tmp_path / ".gemini"
         gemini_home.mkdir()
@@ -81,5 +87,11 @@ class TestInstructionsInjection:
 
 def _fake_instructions(tmp_path: Path) -> Path:
     p = tmp_path / "AGENT_INSTRUCTIONS.md"
-    p.write_text("Use vault-search to recall prior notes.\n", encoding="utf-8")
+    # Include a sentinel string that does NOT appear in the real
+    # skills/parsidion/AGENT_INSTRUCTIONS.md so tests can prove the injected
+    # text came from this fake source, not the real one.
+    p.write_text(
+        "Use vault-search to recall prior notes.\nparsidion-test-sentinel-9f2a\n",
+        encoding="utf-8",
+    )
     return p
