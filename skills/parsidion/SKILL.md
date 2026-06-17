@@ -4,12 +4,18 @@ description: >
   Use first when a request references past knowledge or future memory: "have we
   seen this before", "what do we know", "check notes", "prior art", "save to
   the vault", "remember this", "don't forget", "capture this", "the vault",
-  "ParsidionVault", or "ClaudeVault". Parsidion owns the persistent markdown
-  vault (default ~/ParsidionVault, legacy ~/ClaudeVault fallback) for debugging
-  fixes, reusable patterns, research, and cross-project context. Use it to search
-  existing knowledge, save new discoveries, rebuild the index, run the session
-  summarizer, or configure vault hooks. Do not invoke for pure coding/debugging
-  with no memory, notes, or persistence angle.
+  "ParsidionVault", or "ClaudeVault". Also for vault-specific queries and upkeep:
+  "what changed in the vault since <date>" or "what did the vault know as of
+  <date>" (temporal search), "do my notes contradict each other" or "find
+  conflicts in the vault" (vault-conflicts), and "connect parsidion to codex or
+  gemini" or "wire parsidion into another agent" (multi-agent install). Parsidion
+  owns the persistent markdown vault (default ~/ParsidionVault, legacy
+  ~/ClaudeVault fallback) for debugging fixes, reusable patterns, research, and
+  cross-project context. Use it to search existing knowledge, save new
+  discoveries, rebuild the index, run the session summarizer, detect
+  contradictions between notes, or configure vault hooks and agent integrations.
+  Do not invoke for pure coding/debugging with no memory, notes, or persistence
+  angle.
 ---
 
 # Parsidion vault - Knowledge Management System
