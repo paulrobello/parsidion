@@ -17,7 +17,6 @@ import argparse
 import os
 import re
 import shutil
-import struct
 import sqlite3
 import subprocess
 import sys
@@ -511,41 +510,57 @@ def _scan_duplicates(
         print(f"Error reading embeddings: {exc}", file=sys.stderr)
         conn.close()
         sys.exit(1)
-    conn.close()
 
     rows = [r for r in rows if not _is_excluded_from_scan(str(r[1]), str(r[2]))]
 
     if not rows:
+        conn.close()
         print("No embeddings found in database.")
         return
 
-    # Unpack vectors
-    n = len(rows)
     stems = [r[0] for r in rows]
     folders = [r[2] for r in rows]
     titles = [r[3] for r in rows]
     tags_list = [r[4] for r in rows]
-    blobs = [r[5] for r in rows]
+    stem_to_idx = {s: i for i, s in enumerate(stems)}
 
-    dim = len(blobs[0]) // 4  # float32 = 4 bytes each
-    vecs: list[list[float]] = [list(struct.unpack(f"{dim}f", b)) for b in blobs]
+    # Pairwise cosine via sqlite-vec's C-level vec_distance_cosine (fast at
+    # scale; the pure-Python O(n^2) scan took minutes on thousands of notes).
+    # similarity >= threshold  <=>  vec_distance_cosine <= (1 - threshold).
+    # Restrict to non-excluded stems via a temp table so _is_excluded_from_scan
+    # stays the single source of truth for the Daily-note filter.
+    max_dist = 1.0 - threshold
+    try:
+        conn.execute("CREATE TEMP TABLE _kept (stem TEXT PRIMARY KEY)")
+        conn.executemany(
+            "INSERT INTO _kept (stem) VALUES (?)", [(s,) for s in stems]
+        )
+        pair_rows = conn.execute(
+            """
+            SELECT a.stem, b.stem,
+                   (1.0 - vec_distance_cosine(a.embedding, b.embedding)) AS score
+            FROM note_embeddings a
+            JOIN note_embeddings b ON a.rowid < b.rowid
+            WHERE a.stem IN (SELECT stem FROM _kept)
+              AND b.stem IN (SELECT stem FROM _kept)
+              AND vec_distance_cosine(a.embedding, b.embedding) <= ?
+            ORDER BY score DESC
+            LIMIT ?
+            """,
+            (max_dist, top),
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error computing similarities: {exc}", file=sys.stderr)
+        conn.close()
+        sys.exit(1)
+    conn.close()
 
-    # Compute pairwise cosine similarity (upper triangle only)
     pairs: list[tuple[float, int, int]] = []
-    for i in range(n):
-        vi = vecs[i]
-        norm_i = sum(x * x for x in vi) ** 0.5
-        if norm_i == 0:
-            continue
-        for j in range(i + 1, n):
-            vj = vecs[j]
-            norm_j = sum(x * x for x in vj) ** 0.5
-            if norm_j == 0:
-                continue
-            dot = sum(a * b for a, b in zip(vi, vj, strict=True))
-            score = dot / (norm_i * norm_j)
-            if score >= threshold:
-                pairs.append((score, i, j))
+    for a, b, score in pair_rows:
+        ia = stem_to_idx.get(a)
+        ib = stem_to_idx.get(b)
+        if ia is not None and ib is not None:
+            pairs.append((score, ia, ib))
 
     if not pairs:
         print(f"No note pairs found above similarity threshold {threshold:.2f}.")
