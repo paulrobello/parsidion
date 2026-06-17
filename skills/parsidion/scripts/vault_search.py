@@ -259,6 +259,23 @@ def query(
         ):
             return []
 
+        # Defensive: a note_index predating the `date` migration (e.g. an
+        # embeddings-disabled vault never rebuilt) lacks the column. SELECTing
+        # `date` would raise OperationalError and silently return []. Detect it
+        # instead: non-date queries omit the column (still work); --as-of (which
+        # genuinely needs it) warns and returns [].
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(note_index)").fetchall()
+        }
+        has_date = "date" in columns
+        if as_of is not None and not has_date:
+            print(
+                "note_index schema is stale (no 'date' column); "
+                "run update_index.py to enable --as-of.",
+                file=sys.stderr,
+            )
+            return []
+
         # SECURITY: The SQL WHERE clause is assembled from literal condition fragments
         # only — no column names are ever derived from external input.  All filter
         # values are passed as bound parameters (?).  Column names used below form a
@@ -305,9 +322,11 @@ def query(
             params.append(as_of)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        date_col = ", date" if has_date else ""
         sql = (
             f"SELECT stem, path, folder, title, summary, tags, note_type, "
-            f"project, confidence, mtime, related, is_stale, incoming_links, date "
+            f"project, confidence, mtime, related, is_stale, incoming_links"
+            f"{date_col} "
             f"FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
         )
         params.append(limit)

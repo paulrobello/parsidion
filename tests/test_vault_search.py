@@ -208,6 +208,48 @@ class TestMetadataQuery:
         assert "may" not in stems  # 2026-05-20  > 2026-03-01
         assert "undated" not in stems  # empty date excluded from point-in-time view
 
+    def test_stale_schema_without_date_degrades_gracefully(
+        self, vault: Path, capsys
+    ) -> None:
+        # A note_index predating the date-column migration (no `date` column), as
+        # on an embeddings-disabled vault whose index was never rebuilt.
+        db = vault / "embeddings.db"
+        conn = sqlite3.connect(str(db))
+        conn.execute(
+            "CREATE TABLE note_index (stem TEXT, path TEXT, folder TEXT, title TEXT, "
+            "summary TEXT, tags TEXT, note_type TEXT, project TEXT, confidence TEXT, "
+            "mtime REAL, related TEXT, is_stale INTEGER DEFAULT 0, incoming_links INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO note_index (stem, path, folder, tags, note_type, project, mtime) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "oldnote",
+                str(vault / "Patterns" / "oldnote.md"),
+                "Patterns",
+                "",
+                "pattern",
+                "",
+                1000.0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # Non-date metadata query still returns results on the stale schema
+        # (SELECT omits `date`), instead of silently returning [].
+        results = vault_search.query(folder="Patterns", vault=vault)
+        assert len(results) == 1
+        assert results[0]["stem"] == "oldnote"
+        assert results[0]["date"] == ""  # date column absent -> defaults to ""
+        assert capsys.readouterr().err == ""  # no warning for non-date query
+
+        # --as-of genuinely needs the date column: warn + return [] (not silent).
+        asof_results = vault_search.query(as_of="2026-01-01", vault=vault)
+        captured = capsys.readouterr()
+        assert asof_results == []
+        assert "stale" in captured.err.lower() or "update_index" in captured.err.lower()
+
 
 # ---------------------------------------------------------------------------
 # _apply_grep_filter
