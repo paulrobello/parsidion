@@ -8,6 +8,8 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
+> **New in 0.9.0:** `vault-conflicts` (detect contradictions between notes), the `provenance` frontmatter field, temporal search (`vault-search --changed-since` / `--as-of`), and `connect <agent>` multi-agent install. Plus ~25× faster duplicate/contradiction scans. See the [Changelog](CHANGELOG.md).
+
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
 > [View the interactive architecture slideshow](https://paulrobello.github.io/parsidion/vault-architecture-slideshow.html) for a detailed walkthrough of every component.

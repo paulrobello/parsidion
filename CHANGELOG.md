@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.9.0] - 2026-06-16
+
 ### Added
 - **`vault-conflicts`** — new global command that detects contradictions between semantically-similar vault notes (companion to `vault-merge`, which merges near-duplicates). Clusters by embedding similarity, asks the configured AI backend for contradictions, writes a report, optional interactive resolution.
 - **`provenance`** frontmatter field (`explicit | inferred | corrected | observed | imported`) — optional; captures how a note's knowledge was obtained. Default `inferred` (or `observed` for daily notes).
@@ -17,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Installer now writes codex's correct `hooks` feature key (was `codex_hooks`, silently ignored).
 - **`summarize_sessions.py` related-field normalization** — Both write paths (`write_note` and the dedup-merge path) now normalize the AI-generated `related` field to a clean inline array of `[[wikilinks]]` before writing. A new `_normalize_related_field()` extracts any bracket/quote-wrapped stem — repairing `[stem]`, `[["stem"]]`, and `"[[stem]]"` malformations the model emits — instead of echoing them verbatim into the note.
+- **`install.py --yes` no longer silently disables embeddings** — a plain sync clobbered `embeddings.enabled` to `false` (the `--enable-embeddings` flag defaults False and `--yes` skipped the prompt that defaulted True). It now preserves the current setting; `--enable-embeddings` still forces on.
+- **`provenance` default corrected to `inferred`** in the skill docs (was `explicit`, mismatching the default emitted by templates, `vault_new`, and the summarizer).
+- **`vault-search` degrades gracefully on a stale schema** — a `note_index` predating the `date` migration no longer fails silently to `[]`; non-date queries keep working and `--as-of` warns to run `update_index.py`.
+- **`vault-merge --scan` daily-note exclusion** now matches the real `Daily/YYYY-MM/` embeddings path, so auto-captured daily notes aren't flagged as duplicates.
+
+### Performance
+- **`vault-conflicts` and `vault-merge --scan`** now compute pairwise cosine via sqlite-vec's C-level `vec_distance_cosine` instead of a pure-Python O(n²) scan. On a ~5,000-note vault both dropped from ~8 minutes to ~17–24 seconds.
 
 ## [0.8.1] - 2026-06-16
 

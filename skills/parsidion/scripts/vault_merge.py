@@ -532,9 +532,7 @@ def _scan_duplicates(
     max_dist = 1.0 - threshold
     try:
         conn.execute("CREATE TEMP TABLE _kept (stem TEXT PRIMARY KEY)")
-        conn.executemany(
-            "INSERT INTO _kept (stem) VALUES (?)", [(s,) for s in stems]
-        )
+        conn.executemany("INSERT INTO _kept (stem) VALUES (?)", [(s,) for s in stems])
         pair_rows = conn.execute(
             """
             SELECT a.stem, b.stem,
