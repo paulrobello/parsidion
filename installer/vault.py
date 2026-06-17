@@ -318,6 +318,32 @@ def configure_vault_username(
         _warn(f"Could not write vault.username to {config_path}: {exc}")
 
 
+def read_embeddings_enabled(vault_root: Path, *, default: bool = True) -> bool:
+    """Read the current ``embeddings.enabled`` value from the vault config.
+
+    Returns *default* when the config file, the ``embeddings:`` section, or the
+    ``enabled:`` key is absent — so a fresh install with no prior setting still
+    defaults to enabled.
+    """
+    config_path = vault_root / "config.yaml"
+    if not config_path.exists():
+        return default
+    try:
+        content = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return default
+    emb_match = re.search(r"(?m)^embeddings:", content)
+    if not emb_match:
+        return default
+    rest = content[emb_match.start() + len("embeddings:") :]
+    next_section = re.search(r"(?m)^\S", rest)
+    section = rest[: next_section.start() if next_section else len(rest)]
+    enabled = re.search(r"(?m)^\s+enabled\s*:\s*(true|false)", section)
+    if not enabled:
+        return default
+    return enabled.group(1) == "true"
+
+
 def configure_embeddings(
     vault_root: Path, *, enabled: bool, dry_run: bool = False
 ) -> None:

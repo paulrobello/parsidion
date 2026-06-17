@@ -143,6 +143,7 @@ from installer.vault import (  # noqa: F401
     _POST_MERGE_HOOK_TEMPLATE,
     _POST_MERGE_MARKER,
     configure_embeddings,
+    read_embeddings_enabled,
     configure_vault_gitignore,
     configure_vault_username,
     create_templates_symlink,
@@ -348,7 +349,13 @@ def install(args: argparse.Namespace) -> int:
 
     # --- Embeddings prompt ---
     enable_embeddings: bool = args.enable_embeddings
-    if not args.yes and not enable_embeddings:
+    if not enable_embeddings and args.yes:
+        # Non-interactive sync without --enable-embeddings: PRESERVE the current
+        # setting instead of clobbering it. (Regression: every `install.py --yes`
+        # silently disabled embeddings because the flag defaults False and --yes
+        # skipped the interactive prompt that defaulted True.)
+        enable_embeddings = read_embeddings_enabled(vault_root)
+    elif not args.yes and not enable_embeddings:
         print()
         print(bold("Semantic Search Embeddings (optional)"))
         print(

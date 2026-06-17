@@ -1198,3 +1198,136 @@ class TestLegacyCleanup:
         assert (
             "parsidion-cc" in updated["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         )
+
+
+class TestReadEmbeddingsEnabled:
+    """read_embeddings_enabled reads the current setting without writing."""
+
+    def test_reads_true(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "embeddings:\n  enabled: true\n", encoding="utf-8"
+        )
+        assert install.read_embeddings_enabled(tmp_path) is True
+
+    def test_reads_false(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text(
+            "embeddings:\n  enabled: false\n", encoding="utf-8"
+        )
+        assert install.read_embeddings_enabled(tmp_path) is False
+
+    def test_defaults_true_when_section_absent(self, tmp_path: Path) -> None:
+        (tmp_path / "config.yaml").write_text("other: value\n", encoding="utf-8")
+        assert install.read_embeddings_enabled(tmp_path) is True
+
+    def test_defaults_true_when_no_config_file(self, tmp_path: Path) -> None:
+        assert install.read_embeddings_enabled(tmp_path) is True
+
+
+class TestEmbeddingsPreservedOnYesSync:
+    """Regression: `install.py --yes` must not clobber embeddings.enabled to false."""
+
+    @staticmethod
+    def _noop(*args, **kwargs) -> None:
+        return None
+
+    def _stub_heavy_steps(self, monkeypatch) -> None:
+        for name in (
+            "install_skill",
+            "install_agents",
+            "install_scripts",
+            "create_vault_dirs",
+            "create_templates_symlink",
+            "cleanup_legacy_assets",
+            "merge_hooks",
+            "enable_codex_hooks_config",
+            "merge_codex_hooks",
+            "install_claude_vault_md",
+            "rebuild_index",
+            "configure_vault_gitignore",
+            "init_vault_git",
+            "install_vault_post_merge_hook",
+            "configure_vault_username",
+            "install_cli_tools",
+            "schedule_summarizer",
+            "create_vaults_config",
+        ):
+            monkeypatch.setattr(install, name, self._noop)
+
+    def test_yes_sync_preserves_enabled_true(self, tmp_path: Path, monkeypatch) -> None:
+        # config has embeddings.enabled: true; a plain --yes sync must keep it.
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        vault = tmp_path / "ClaudeVault"
+        vault.mkdir()
+        (vault / "config.yaml").write_text(
+            "embeddings:\n  enabled: true\n", encoding="utf-8"
+        )
+        captured: dict = {}
+
+        def fake_configure_embeddings(vault_root, *, enabled, dry_run=False):
+            captured["enabled"] = enabled
+
+        monkeypatch.setattr(install, "configure_embeddings", fake_configure_embeddings)
+        self._stub_heavy_steps(monkeypatch)
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "none",
+                "--dry-run",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(tmp_path / ".claude"),
+                "--codex-home",
+                str(tmp_path / ".codex"),
+            ],
+        )
+        install.install(install.parse_args())
+
+        assert captured.get("enabled") is True, (
+            "install.py --yes clobbered embeddings.enabled (must preserve existing true)"
+        )
+
+    def test_enable_embeddings_flag_still_forces_true(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Even when config says false, --enable-embeddings must force true.
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        vault = tmp_path / "ClaudeVault"
+        vault.mkdir()
+        (vault / "config.yaml").write_text(
+            "embeddings:\n  enabled: false\n", encoding="utf-8"
+        )
+        captured: dict = {}
+
+        def fake_configure_embeddings(vault_root, *, enabled, dry_run=False):
+            captured["enabled"] = enabled
+
+        monkeypatch.setattr(install, "configure_embeddings", fake_configure_embeddings)
+        self._stub_heavy_steps(monkeypatch)
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--enable-embeddings",
+                "--runtime",
+                "none",
+                "--dry-run",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(tmp_path / ".claude"),
+                "--codex-home",
+                str(tmp_path / ".codex"),
+            ],
+        )
+        install.install(install.parse_args())
+
+        assert captured.get("enabled") is True
