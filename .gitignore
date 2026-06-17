@@ -23,3 +23,6 @@ ideas.md
 docs/superpowers/
 graphify-out/
 .claude/worktrees/
+
+# parsidion trigger-eval output (regenerated each eval run)
+skills/parsidion/eval_results.json
