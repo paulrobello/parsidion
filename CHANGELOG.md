@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **Installer vault `.gitignore` template** now lists `doctor_state.json` (alongside `summarizer_state.json`), so new and reinstalled vaults ignore the machine-local doctor health-state file that churns on every `vault_doctor` run.
 
 ## [0.9.1] - 2026-06-17
 

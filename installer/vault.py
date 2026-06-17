@@ -116,6 +116,7 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
         "hook_events.log",
         "graph.json",
         "summarizer_state.json",
+        "doctor_state.json",
         ".obsidian/",
     ]
 
