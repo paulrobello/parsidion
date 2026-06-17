@@ -139,19 +139,89 @@ def _load_embeddings(
     return records, vectors
 
 
+def _python_pairwise(
+    vectors: list[list[float]], threshold: float
+) -> list[tuple[int, int]]:
+    """Pure-Python O(n^2) pairwise cosine — fallback when sqlite-vec is absent.
+
+    Correct but slow at scale (~minutes for thousands of notes); used in the
+    dev/test environment and minimal installs without the ``[tools]`` extras.
+    """
+    pairs: list[tuple[int, int]] = []
+    n = len(vectors)
+    for i in range(n):
+        vi = vectors[i]
+        for j in range(i + 1, n):
+            if _cosine_similarity(vi, vectors[j]) >= threshold:
+                pairs.append((i, j))
+    return pairs
+
+
+def _sqlite_pairwise(
+    vault: Path, stem_to_idx: dict[str, int], threshold: float
+) -> list[tuple[int, int]] | None:
+    """Fast pairwise cosine via sqlite-vec's C-level ``vec_distance_cosine``.
+
+    Returns ``None`` when sqlite-vec is unavailable or the query fails, so the
+    caller falls back to pure Python. ``cosine similarity >= threshold`` is
+    equivalent to ``vec_distance_cosine <= (1 - threshold)``.
+    """
+    try:
+        import sqlite3
+
+        import sqlite_vec  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+    db_path = vault_common.get_embeddings_db_path(vault)
+    if not db_path.exists():
+        return None
+    max_dist = 1.0 - threshold
+    conn = None
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        # Upper-triangle self-join: each pair once, no self-pairs.
+        rows = conn.execute(
+            """
+            SELECT a.stem, b.stem
+            FROM note_embeddings a
+            JOIN note_embeddings b ON a.rowid < b.rowid
+            WHERE vec_distance_cosine(a.embedding, b.embedding) <= ?
+            """,
+            (max_dist,),
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+    pairs: list[tuple[int, int]] = []
+    for a, b in rows:
+        ia = stem_to_idx.get(a)
+        ib = stem_to_idx.get(b)
+        if ia is not None and ib is not None:
+            pairs.append((ia, ib))
+    return pairs
+
+
 def find_candidate_clusters(
     vault: Path, threshold: float = _DEFAULT_TOPIC_THRESHOLD, top: int = _DEFAULT_TOP
 ) -> list[list[dict[str, str]]]:
-    """Cluster semantically-similar notes; return clusters with >= 2 members."""
+    """Cluster semantically-similar notes; return clusters with >= 2 members.
+
+    Uses sqlite-vec's C-level cosine when available (fast at scale); falls back
+    to a pure-Python O(n^2) scan otherwise.
+    """
     records, vectors = _load_embeddings(vault)
     n = len(records)
     if n < 2:
         return []
-    pairs: list[tuple[int, int]] = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            if _cosine_similarity(vectors[i], vectors[j]) >= threshold:
-                pairs.append((i, j))
+    stem_to_idx = {rec["stem"]: i for i, rec in enumerate(records)}
+    pairs = _sqlite_pairwise(vault, stem_to_idx, threshold)
+    if pairs is None:
+        pairs = _python_pairwise(vectors, threshold)
     clusters: list[list[dict[str, str]]] = []
     for member_indices in _group_clusters(n, pairs):
         cluster = [records[idx] for idx in member_indices[:top]]
