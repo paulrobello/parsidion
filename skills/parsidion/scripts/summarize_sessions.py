@@ -26,6 +26,7 @@ vault_links.py.  This file now imports and delegates to that module.
 """
 
 import argparse
+import atexit
 import json
 import os
 import re
@@ -1409,6 +1410,77 @@ def rebuild_index(
         print(f"Warning: could not run update_index.py: {e}", file=sys.stderr)
 
 
+# ---------------------------------------------------------------------------
+# Singleton guard — only one summarizer may run at a time per vault.
+# Mirrors vault_doctor.py's doctor_state.json PID lock: claim on start,
+# release via atexit, and detect stale PIDs (killed/crashed runs) so a dead
+# lock never blocks the next run. Prevents the auto-summarizer launched by
+# the stop hook from racing a manual `--run-doctor` invocation.
+# ---------------------------------------------------------------------------
+
+_SUMMARIZER_STATE_FILENAME = "summarizer_state.json"
+
+
+def _summarizer_state_file(vault_path: Path) -> Path:
+    """Return the singleton-guard state file path for *vault_path*."""
+    return vault_path / _SUMMARIZER_STATE_FILENAME
+
+
+def _load_summarizer_state(vault_path: Path) -> dict:
+    """Load summarizer_state.json, returning {} if missing/corrupt."""
+    try:
+        return json.loads(
+            _summarizer_state_file(vault_path).read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_summarizer_state(state: dict, vault_path: Path) -> None:
+    """Write summarizer_state.json atomically via a sibling .tmp file."""
+    dest = _summarizer_state_file(vault_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)  # vault dir may not exist yet
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp.replace(dest)
+
+
+def claim_summarizer_lock(vault_path: Path) -> bool:
+    """Claim the singleton summarizer lock for *vault_path*.
+
+    Returns True if this process now holds the lock, False if another
+    summarizer is already running. A stale PID (dead process) is reclaimed.
+    """
+    state = _load_summarizer_state(vault_path)
+    existing_pid = state.get("pid")
+    if (
+        existing_pid
+        and existing_pid != os.getpid()
+        and vault_common.is_process_running(existing_pid)
+    ):
+        print(
+            f"summarize_sessions is already running (PID {existing_pid}). Skipping.",
+            file=sys.stderr,
+        )
+        return False
+    _write_summarizer_state(
+        {"pid": os.getpid(), "last_run": datetime.now().isoformat(timespec="seconds")},
+        vault_path,
+    )
+    return True
+
+
+def release_summarizer_lock(vault_path: Path) -> None:
+    """Clear our PID from summarizer_state.json (best-effort, idempotent)."""
+    try:
+        state = _load_summarizer_state(vault_path)
+        if state.get("pid") == os.getpid():
+            state.pop("pid", None)
+            _write_summarizer_state(state, vault_path)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main() -> None:
     """Parse arguments and run the summarizer."""
     parser = argparse.ArgumentParser(
@@ -1514,6 +1586,11 @@ def main() -> None:
     # Resolve vault
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
     vault_common.apply_configured_env_defaults(vault=vault_path)
+
+    # Singleton guard — only one summarizer may run at a time per vault.
+    if not claim_summarizer_lock(vault_path):
+        sys.exit(1)
+    atexit.register(release_summarizer_lock, vault_path)
 
     # Optionally run vault_doctor first (--fix-all: frontmatter, tags, subfolders)
     if args.run_doctor:

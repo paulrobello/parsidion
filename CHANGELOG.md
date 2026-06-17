@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.9.1] - 2026-06-17
+
+### Added
+- **`summarize_sessions.py` singleton guard** — Only one summarizer may run per vault at a time, mirroring the PID lock already in `vault_doctor.py` (and `update_index.py`). Prevents the auto-summarizer launched by the session-stop hook (`auto_summarize: true`) from racing a manual `--run-doctor` invocation and writing duplicate notes from the same pending sessions. Claims a PID lock in `<vault>/summarizer_state.json` at startup, releases it via `atexit`, and reclaims stale locks from killed or crashed runs so a dead lock never blocks the next run. The state file is gitignored (added to the installer's vault `.gitignore` template alongside `pending_summaries.jsonl` and `hook_events.log`).
+
+### Fixed
+- **`vault_doctor.py` false `BROKEN_WIKILINK` on version-numbered slugs** — `resolve_wikilink()` derived its lookup key with `Path(link).stem`, which strips the last dotted segment, so a link like `[[sha2-hmac-migration-0.11-0.13]]` resolved to `…0.11-0` and was falsely flagged broken (the target note was fine). It now strips only a trailing `.md`/`.markdown`, matching how the note map is keyed by file stem. (`vault_links.py` was already correct — it extracts link stems by regex, not `Path.stem`.)
+
 ## [0.9.0] - 2026-06-16
 
 ### Added
@@ -581,7 +589,9 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/paulrobello/parsidion/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/paulrobello/parsidion/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/paulrobello/parsidion/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/paulrobello/parsidion/compare/v0.7.6...v0.8.0
 [0.7.6]: https://github.com/paulrobello/parsidion/compare/v0.7.5...v0.7.6

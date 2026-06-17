@@ -764,7 +764,15 @@ def resolve_wikilink(raw_link: str, note_map: dict[str, list[Path]]) -> bool:
     if not target:
         return True  # empty — ignore
 
-    stem = Path(target.split("/")[-1]).stem.lower()
+    # Derive the lookup key from the link target. Wikilink targets are bare
+    # slugs with no extension, so Path.stem must NOT be used here: it strips
+    # the last dotted segment, breaking version-numbered slugs like
+    # "sha2-hmac-migration-0.11-0.13" (-> "...0.11-0"). Strip a trailing
+    # .md/.markdown only if the author included one.
+    target_name = target.split("/")[-1].lower()
+    if target_name.endswith((".md", ".markdown")):
+        target_name = target_name.rsplit(".", 1)[0]
+    stem = target_name
     candidates = note_map.get(stem, [])
     if not candidates:
         return False
