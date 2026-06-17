@@ -150,7 +150,7 @@ type: pattern|debugging|research|project|daily|tool|language|framework|knowledge
 tags: [tag1, tag2]
 project: project-name        # optional - omit if not project-specific
 confidence: high|medium|low
-provenance: explicit         # optional - explicit|inferred|corrected|observed|imported (default: explicit)
+provenance: inferred         # optional - explicit|inferred|corrected|observed|imported (default: inferred)
 sources: []                  # URLs, file paths, or references
 related: []                  # [[wikilinks]] to other vault notes
 ---
@@ -162,7 +162,7 @@ related: []                  # [[wikilinks]] to other vault notes
 - `tags`: Freeform but prefer existing tags. Check the vault index first. **NEVER use underscores — always kebab-case (hyphens).** Convert repo names like `par_ai_core` to `par-ai-core`. Prefer short singular tags — e.g. `voxel` not `voxel-engine`, `hook` not `hooks`, `fractal` not `fractals`. Longer compound tags are acceptable only when the shorter form would be ambiguous.
 - `project`: Optional. Must also be kebab-case (no underscores). Convert repo names: `par_ai_core` → `par-ai-core`.
 - `confidence`: `high` = verified across multiple interactions or sources. `medium` = likely correct, single source. `low` = hypothesis or unverified.
-- `provenance` (optional): Origin of the note's content. `explicit` (default) = user directly stated it; `inferred` = derived from transcript/behavior; `corrected` = edited from a prior incorrect version; `observed` = directly witnessed at runtime; `imported` = brought in from an external source. Omit when unsure — defaults to `explicit`.
+- `provenance` (optional): Origin of the note's content. `explicit` = user directly stated it; `inferred` (default) = derived from transcript/behavior or distilled by an agent; `corrected` = edited from a prior incorrect version; `observed` = directly witnessed at runtime (e.g. daily notes); `imported` = brought in from an external source. Omit when unsure — defaults to `inferred`.
 - `related`: Must contain at least one wikilink in inline quoted array format: `["[[note-one]]", "[[note-two]]"]`. No orphan notes.
 
 ## When to Save Knowledge
