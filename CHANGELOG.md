@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.9.2] - 2026-06-17
+
 ### Changed
-- **Installer vault `.gitignore` template** now lists `doctor_state.json` (alongside `summarizer_state.json`), so new and reinstalled vaults ignore the machine-local doctor health-state file that churns on every `vault_doctor` run.
+- **`doctor_state.json` is no longer tracked in vault git** — it's machine-local per-note health state that churned thousands of lines on every `vault_doctor` run (and would diverge across machines in a synced vault). The installer's vault `.gitignore` template now lists it alongside `summarizer_state.json`, `embeddings.db`, `pending_summaries.jsonl`, and `hook_events.log`, so new and reinstalled vaults ignore it. Existing vaults: `git rm --cached doctor_state.json` to untrack (the file stays on disk; the doctor and the `CLAUDE.md` health line keep reading it).
 
 ## [0.9.1] - 2026-06-17
 
@@ -590,7 +594,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/paulrobello/parsidion/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/paulrobello/parsidion/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/paulrobello/parsidion/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/paulrobello/parsidion/compare/v0.8.0...v0.8.1

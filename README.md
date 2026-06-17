@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.9.0:** `vault-conflicts` (detect contradictions between notes), the `provenance` frontmatter field, temporal search (`vault-search --changed-since` / `--as-of`), and `connect <agent>` multi-agent install. Plus ~25× faster duplicate/contradiction scans. See the [Changelog](CHANGELOG.md).
+> **New in 0.9.2:** `doctor_state.json` is now gitignored (no more multi-thousand-line churn in vault commits). 0.9.1 added a `summarize_sessions` singleton guard (prevents concurrent summarizers from writing duplicate notes) and fixed false `BROKEN_WIKILINK` flags on version-numbered slugs. 0.9.0 brought `vault-conflicts`, the `provenance` field, temporal search (`vault-search --changed-since` / `--as-of`), `connect <agent>`, and ~25× faster duplicate/contradiction scans. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
@@ -1015,7 +1015,7 @@ No. The `SessionStart` hook injects a **compact one-line-per-note index** (title
 
 ### How can I share a vault across multiple machines or with a team?
 
-The installer sets up everything you need. It initializes the vault as a git repo, configures `.gitignore` for machine-local files (`embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`), installs a `post-merge` git hook that automatically rebuilds the local search index after every `git pull`, and writes your OS username into `vault.username` in `config.yaml`.
+The installer sets up everything you need. It initializes the vault as a git repo, configures `.gitignore` for machine-local files (`embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`, `graph.json`, `summarizer_state.json`, `doctor_state.json`), installs a `post-merge` git hook that automatically rebuilds the local search index after every `git pull`, and writes your OS username into `vault.username` in `config.yaml`.
 
 Daily notes are stored as `Daily/YYYY-MM/DD-{username}.md` so multiple team members can push to the same remote without daily-note merge conflicts. Each person's notes land in their own file.
 
@@ -1034,7 +1034,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.7.3** (nightly graph rebuild by default, doc sync, installer fixes). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.9.2** (`doctor_state.json` now gitignored; 0.9.1 summarizer singleton guard + version-numbered-wikilink fix; 0.9.0 `vault-conflicts`, `provenance`, temporal search, `connect`). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
