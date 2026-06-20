@@ -44,8 +44,8 @@ def vault(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _make_db(vault: Path) -> sqlite3.Connection:
-    """Create embeddings.db with note_index, return open connection."""
+def _make_db(vault: Path) -> None:
+    """Create embeddings.db with an empty note_index table."""
     db_path = vault / "embeddings.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute(
@@ -61,7 +61,6 @@ def _make_db(vault: Path) -> sqlite3.Connection:
     )
     conn.commit()
     conn.close()
-    return sqlite3.connect(str(db_path))
 
 
 def _insert_note(
