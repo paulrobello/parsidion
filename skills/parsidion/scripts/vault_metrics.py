@@ -251,6 +251,10 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
     Returns:
         Dict with keys: total, total_links, avg_links, linked_count,
         unlinked_count, hub_notes (list of dicts), isolated_notes (list of dicts).
+        Retrieval-readiness keys (graph-expansion feature): expandable_count
+        (notes carrying >=1 related link), avg_related_per_note, total_targets
+        (sum of related stems across all notes), dangling_targets (related stems
+        that resolve to no indexed note and are therefore skipped at retrieval).
     """
     all_rows = fetch_all(
         conn,
@@ -265,6 +269,10 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
             "unlinked_count": 0,
             "hub_notes": [],
             "isolated_notes": [],
+            "expandable_count": 0,
+            "avg_related_per_note": 0.0,
+            "total_targets": 0,
+            "dangling_targets": 0,
         }
 
     total = len(all_rows)
@@ -284,6 +292,18 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
         if (r["incoming_links"] or 0) == 0 and not (r["related"] or "").strip()
     ]
 
+    # Retrieval-readiness metrics for the graph-expansion feature.
+    valid_stems = {r["stem"] for r in all_rows}
+    expandable_count = sum(1 for r in all_rows if (r["related"] or "").strip())
+    total_targets = 0
+    dangling_targets = 0
+    for r in all_rows:
+        for target in vault_common.parse_related_stems(r["related"] or ""):
+            total_targets += 1
+            if target not in valid_stems:
+                dangling_targets += 1
+    avg_related_per_note = total_targets / total if total else 0.0
+
     return {
         "total": total,
         "total_links": total_links,
@@ -292,6 +312,10 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
         "unlinked_count": unlinked_count,
         "hub_notes": [dict(r) for r in hub_rows],
         "isolated_notes": [dict(r) for r in isolated_rows],
+        "expandable_count": expandable_count,
+        "avg_related_per_note": avg_related_per_note,
+        "total_targets": total_targets,
+        "dangling_targets": dangling_targets,
     }
 
 

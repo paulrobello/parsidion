@@ -481,6 +481,37 @@ def run_graph(conn: sqlite3.Connection) -> None:
         f"Unlinked: [yellow]{data['unlinked_count']}[/yellow]\n"
     )
 
+    # Retrieval readiness — health of the graph-expansion retrieval feature.
+    pct_expandable = (
+        data["expandable_count"] / data["total"] * 100 if data["total"] else 0.0
+    )
+    console.print(
+        "[bold cyan]Retrieval Readiness[/bold cyan] (graph-expansion feature)"
+    )
+    console.print(
+        f"  Expandable notes: [green]{data['expandable_count']}[/green] "
+        f"([white]{pct_expandable:.1f}%[/white] of total carry ≥1 related link)  ·  "
+        f"Avg neighbours/note: [white]{data['avg_related_per_note']:.2f}[/white]"
+    )
+    if data["total_targets"]:
+        live_targets = data["total_targets"] - data["dangling_targets"]
+        console.print(
+            f"  Related targets: [white]{data['total_targets']}[/white] total  ·  "
+            f"[green]{live_targets}[/green] live  ·  "
+            f"[yellow]{data['dangling_targets']}[/yellow] dangling"
+        )
+        if data["dangling_targets"]:
+            console.print(
+                "  [dim]Dangling targets are skipped at retrieval time. Repair with "
+                "`vault_doctor.py --fix-frontmatter --execute`.[/dim]"
+            )
+    else:
+        console.print(
+            "  [dim]No related links in the vault — graph expansion cannot add "
+            "neighbours.[/dim]"
+        )
+    console.print()
+
     hub_rows = data["hub_notes"]
     if hub_rows:
         hub_table = Table(

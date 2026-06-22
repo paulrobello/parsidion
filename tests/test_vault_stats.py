@@ -196,3 +196,68 @@ class TestRunPending:
         )
         # Should skip malformed lines without raising
         vault_stats.run_pending(vault)
+
+
+# ---------------------------------------------------------------------------
+# collect_graph retrieval-readiness metrics
+# ---------------------------------------------------------------------------
+
+
+class TestCollectGraphReadiness:
+    """Retrieval-readiness metrics added for the graph-expansion feature."""
+
+    def _conn_with(self, vault: Path, rows: list[dict]) -> sqlite3.Connection:
+        db_path = _make_db(vault)
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        for row in rows:
+            conn.execute(
+                "INSERT INTO note_index (stem, related, incoming_links) "
+                "VALUES (?, ?, ?)",
+                (row["stem"], row.get("related", ""), row.get("incoming_links", 0)),
+            )
+        conn.commit()
+        return conn
+
+    def test_expandable_count_and_avg_neighbours(self, vault: Path) -> None:
+        # a->b (1 outgoing), b->a,c (2 outgoing), c (0 outgoing)
+        conn = self._conn_with(
+            vault,
+            [
+                {"stem": "a", "related": "b", "incoming_links": 1},
+                {"stem": "b", "related": "a, c", "incoming_links": 1},
+                {"stem": "c", "related": "", "incoming_links": 1},
+            ],
+        )
+        data = vault_stats.vault_metrics.collect_graph(conn)
+        conn.close()
+        assert data["total"] == 3
+        assert data["expandable_count"] == 2  # only a and b carry related links
+        assert data["total_targets"] == 3  # b + (a, c)
+        assert data["avg_related_per_note"] == pytest.approx(1.0)
+
+    def test_dangling_targets_detected(self, vault: Path) -> None:
+        # a links to b (exists) and ghost (does not exist)
+        conn = self._conn_with(
+            vault,
+            [
+                {"stem": "a", "related": "b, ghost", "incoming_links": 0},
+                {"stem": "b", "related": "", "incoming_links": 1},
+            ],
+        )
+        data = vault_stats.vault_metrics.collect_graph(conn)
+        conn.close()
+        assert data["total_targets"] == 2
+        assert data["dangling_targets"] == 1  # ghost
+
+    def test_empty_graph_readiness_defaults(self, vault: Path) -> None:
+        db_path = _make_db(vault)
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        data = vault_stats.vault_metrics.collect_graph(conn)
+        conn.close()
+        assert data["total"] == 0
+        assert data["expandable_count"] == 0
+        assert data["total_targets"] == 0
+        assert data["dangling_targets"] == 0
+        assert data["avg_related_per_note"] == 0.0
