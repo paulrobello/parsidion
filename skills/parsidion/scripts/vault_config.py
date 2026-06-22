@@ -300,6 +300,9 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "verbose_mode": (bool,),
         "use_embeddings": (bool,),
         "track_delta": (bool,),
+        "graph_expand": (bool,),
+        "graph_expand_max": (int,),
+        "graph_rerank": (bool,),
     },
     "session_stop_hook": {
         "ai_model": (str, type(None)),

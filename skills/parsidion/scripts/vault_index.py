@@ -48,6 +48,9 @@ __all__: list[str] = [
     # DB helpers
     "ensure_note_index_schema",
     "query_note_index",
+    "load_graph_metadata",
+    # Graph parsing
+    "parse_related_stems",
 ]
 
 # ---------------------------------------------------------------------------
@@ -646,6 +649,71 @@ def _load_note_index_map() -> dict[str, tuple[str, str, str]] | None:
         return {r[0]: (r[1], r[2], r[3]) for r in rows}
     except sqlite3.Error:
         return None
+
+
+def parse_related_stems(related_str: str) -> list[str]:
+    """Extract note stems from a ``note_index`` ``related`` column value.
+
+    The indexer stores ``related`` as bare comma-separated stems
+    (``", ".join(stems)``); legacy/raw notes may use ``[[wikilink]]`` form.
+    Both are accepted for robustness.  Mirrors ``build_graph.parse_related_stems``
+    so the vault reads the graph the same way it writes it.
+
+    Args:
+        related_str: Raw value of the ``related`` column (or frontmatter field).
+
+    Returns:
+        Ordered list of bare note stems (no brackets, stripped).
+    """
+    if not related_str:
+        return []
+    if "[[" in related_str:
+        return re.findall(r"\[\[([^\]]+)\]\]", related_str)
+    return [s.strip() for s in related_str.split(",") if s.strip()]
+
+
+def load_graph_metadata() -> dict[str, dict[str, object]] | None:
+    """Load per-note graph metadata from the ``note_index`` table.
+
+    Used by ``session_start_hook`` for 1-hop neighbor expansion (Tier 1) and
+    graph-aware reranking (Tier 2).  Returns ``None`` when ``embeddings.db``
+    or the ``note_index`` table is absent, signalling the caller to skip graph
+    features gracefully -- mirrors ``query_note_index``'s None-sentinel
+    contract so callers fall back to the existing retrieval path.
+
+    Paths are returned verbatim (unvalidated); callers that resolve stems to
+    filesystem paths must apply the SEC-005 vault-containment guard themselves.
+
+    Returns:
+        Mapping of ``stem -> {"path": str, "related": str,
+        "incoming_links": int, "tags": str}``, or ``None`` on DB error.
+    """
+    db_path = get_embeddings_db_path()
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+        ).fetchone()
+        if row is None:
+            conn.close()
+            return None
+        rows = conn.execute(
+            "SELECT stem, path, related, incoming_links, tags FROM note_index"
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error:
+        return None
+    return {
+        r[0]: {
+            "path": r[1],
+            "related": r[2] or "",
+            "incoming_links": int(r[3] or 0),
+            "tags": r[4] or "",
+        }
+        for r in rows
+    }
 
 
 def build_compact_index(

@@ -41,6 +41,14 @@ _AI_STAMP_FILENAME = ".session_start_ai.last_run"
 # Characters reserved for the vault-context header injected before the AI-selected
 # note content.  Ensures the final output never slightly exceeds max_chars.
 _AI_CONTEXT_HEADER_RESERVE: int = 500
+# Graph retrieval (Tier 1 expansion + Tier 2 rerank).  The note_index wikilink
+# graph is maintained by vault_links.py but was historically never traversed at
+# retrieval time; these defaults turn it on.  Expansion only ever *adds* notes
+# and the output is char-budget capped, so the blast radius is small and both
+# disable cleanly via config (session_start_hook.graph_expand / graph_rerank).
+_DEFAULT_GRAPH_EXPAND: bool = True
+_DEFAULT_GRAPH_EXPAND_MAX: int = 8
+_DEFAULT_GRAPH_RERANK: bool = True
 
 try:
     import fcntl
@@ -48,7 +56,12 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-def _build_candidates(project_name: str, vault_path: Path) -> list[Path]:
+def _build_candidates(
+    project_name: str,
+    vault_path: Path,
+    graph_meta: dict[str, dict[str, object]] | None = None,
+    graph_expand_max: int = 0,
+) -> list[Path]:
     """Collect candidate vault notes for AI selection.
 
     Returns project-specific notes first, then all other notes sorted by
@@ -58,12 +71,22 @@ def _build_candidates(project_name: str, vault_path: Path) -> list[Path]:
     matching without reading every file.  Falls back to the full filesystem
     walk when the database is absent or the table is missing.
 
+    When *graph_meta* is supplied with a positive *graph_expand_max*, 1-hop
+    wikilink neighbours of the project notes are spliced in immediately after
+    the project-notes prefix (Phase 3).  This is the AI-mode equivalent of
+    Tier 1 expansion: it widens the pool the selector reads so graph-related
+    prior art lands inside the prompt's character window.  Tier 2 rerank does
+    NOT apply here -- the selector ranks the pool itself.
+
     Args:
         project_name: The current project name (used to prioritize notes).
         vault_path: The vault root path.
+        graph_meta: Optional output of ``vault_common.load_graph_metadata()``.
+        graph_expand_max: Max graph neighbours to splice in (0 = disabled).
 
     Returns:
-        Ordered list of note paths; project notes first, then others by mtime.
+        Ordered list of note paths; project notes first, then graph neighbours,
+        then other notes by mtime.
     """
     # ARC-011: Try SQLite first for project notes (O(1) index lookup)
     db_project_notes = vault_common.query_note_index(project=project_name, limit=500)
@@ -73,7 +96,14 @@ def _build_candidates(project_name: str, vault_path: Path) -> list[Path]:
         # SQLite path: fast, no file reads needed for candidate list
         project_set = set(str(p) for p in db_project_notes)
         other_notes = [p for p in db_recent_notes if str(p) not in project_set]
-        return db_project_notes + other_notes
+        return _enrich_with_graph(
+            db_project_notes + other_notes,
+            len(db_project_notes),
+            db_project_notes,
+            graph_meta,
+            vault_path,
+            graph_expand_max,
+        )
 
     # Fallback: full filesystem walk (when embeddings.db is absent)
     all_notes = vault_common.all_vault_notes(vault=vault_path)
@@ -99,7 +129,40 @@ def _build_candidates(project_name: str, vault_path: Path) -> list[Path]:
             other_notes_with_mtime.append((mtime, note_path))
 
     other_notes_with_mtime.sort(key=lambda x: x[0], reverse=True)
-    return project_notes + [p for _, p in other_notes_with_mtime]
+    return _enrich_with_graph(
+        project_notes + [p for _, p in other_notes_with_mtime],
+        len(project_notes),
+        project_notes,
+        graph_meta,
+        vault_path,
+        graph_expand_max,
+    )
+
+
+def _enrich_with_graph(
+    base: list[Path],
+    prefix_len: int,
+    seed_notes: list[Path],
+    graph_meta: dict[str, dict[str, object]] | None,
+    vault_path: Path,
+    max_add: int,
+) -> list[Path]:
+    """Splice 1-hop graph neighbours of *seed_notes* into *base* after the
+    project-notes prefix (Phase 3 AI-mode enrichment).
+
+    Neighbours already present in *base* are not duplicated.  No-op when graph
+    metadata is unavailable or *max_add* is non-positive.
+    """
+    if not graph_meta or max_add <= 0:
+        return base
+    neighbours = _graph_neighbors(seed_notes, graph_meta, vault_path, max_add)
+    if not neighbours:
+        return base
+    existing = {str(p) for p in base}
+    fresh = [n for n in neighbours if str(n) not in existing]
+    if not fresh:
+        return base
+    return base[:prefix_len] + fresh + base[prefix_len:]
 
 
 def _run_semantic_search(
@@ -403,6 +466,126 @@ def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
     return sorted(notes, key=_score, reverse=True)
 
 
+def _graph_neighbors(
+    seed_paths: list[Path],
+    meta_map: dict[str, dict[str, object]] | None,
+    vault_path: Path,
+    max_add: int,
+) -> list[Path]:
+    """Tier 1: return up to *max_add* 1-hop wikilink neighbours of *seed_paths*.
+
+    The vault already maintains a bidirectional wikilink graph in the
+    ``related`` frontmatter field (written by ``vault_links.py``); this turns
+    it on at retrieval time.  A note is a neighbour when a seed links to it
+    (outgoing) or it links to a seed (incoming), so the neighbourhood is
+    complete even for notes authored before backlink injection existed.  Seeds
+    themselves are excluded.  Resolved neighbour paths must exist and reside
+    inside *vault_path* (the SEC-005 path-containment guard).  When the cap is
+    binding, the best-connected neighbours (highest ``incoming_links``) survive.
+
+    Args:
+        seed_paths: Already-selected note paths (excluded from results).
+        meta_map: Output of ``vault_common.load_graph_metadata()``, or ``None``.
+        vault_path: Vault root for path-containment validation.
+        max_add: Maximum number of neighbour paths to return.
+
+    Returns:
+        List of neighbour Paths, possibly empty.
+    """
+    if not meta_map or max_add <= 0:
+        return []
+
+    parse_related = vault_common.parse_related_stems
+    related_sets: dict[str, set[str]] = {
+        stem: set(parse_related(str(meta.get("related", ""))))
+        for stem, meta in meta_map.items()
+    }
+
+    seed_stems = {p.stem for p in seed_paths}
+    neighbour_stems: set[str] = set()
+    for seed in seed_paths:
+        stem = seed.stem
+        # Outgoing: stems this seed declares.
+        neighbour_stems |= related_sets.get(stem, set())
+        # Incoming: notes that declare this seed.
+        for other, rels in related_sets.items():
+            if stem in rels:
+                neighbour_stems.add(other)
+
+    neighbour_stems -= seed_stems
+
+    vault_root = vault_path.resolve()
+    candidates: list[tuple[int, str, Path]] = []
+    for stem in neighbour_stems:
+        meta = meta_map.get(stem)
+        if not meta:
+            continue
+        path = Path(str(meta.get("path", "")))
+        try:
+            if not path.exists() or not path.resolve().is_relative_to(vault_root):
+                continue
+        except OSError:
+            continue
+        raw_incoming = meta.get("incoming_links", 0)
+        incoming = int(raw_incoming) if isinstance(raw_incoming, (int, float)) else 0
+        candidates.append((incoming, stem, path))
+
+    # Best-connected first; deterministic tie-break by stem.
+    candidates.sort(key=lambda c: (-c[0], c[1]))
+    return [path for _, _, path in candidates[:max_add]]
+
+
+def _rank_by_graph(
+    notes: list[Path],
+    seed_paths: list[Path],
+    meta_map: dict[str, dict[str, object]] | None,
+) -> list[Path]:
+    """Tier 2: stable re-rank of *notes* using graph signals.
+
+    Primary key: shares at least one tag with the seed cluster (the tags of
+    the pre-expansion selection).  Secondary key: ``incoming_links`` (hubness).
+    Python's ``sorted`` is stable, so notes with no graph signal keep their
+    prior relative order.  Tag-overlap-primary means the intentionally
+    selected seeds stay near the top and char-budget truncation cuts low-signal
+    expansion neighbours rather than displacing relevant notes.
+
+    The cluster is derived from *seed_paths* (the pre-expansion snapshot) so
+    expansion neighbours cannot vote themselves up via their own tags.
+
+    Args:
+        notes: Candidate note paths to re-rank.
+        seed_paths: The pre-expansion seed notes defining the tag cluster.
+        meta_map: Output of ``vault_common.load_graph_metadata()``, or ``None``.
+
+    Returns:
+        Re-ranked list of the same paths.
+    """
+    if not meta_map or not notes:
+        return notes
+
+    def _tags(stem: str) -> set[str]:
+        meta = meta_map.get(stem)
+        if not meta:
+            return set()
+        raw = str(meta.get("tags", ""))
+        return {t.strip() for t in raw.split(",") if t.strip()} if raw else set()
+
+    cluster_tags: set[str] = set()
+    for seed in seed_paths:
+        cluster_tags |= _tags(seed.stem)
+
+    def _key(note: Path) -> tuple[int, int]:
+        meta = meta_map.get(note.stem)
+        if not meta:
+            return (0, 0)
+        shares = 1 if (cluster_tags & _tags(note.stem)) else 0
+        raw_incoming = meta.get("incoming_links", 0)
+        incoming = int(raw_incoming) if isinstance(raw_incoming, (int, float)) else 0
+        return (shares, incoming)
+
+    return sorted(notes, key=_key, reverse=True)
+
+
 def _build_pending_notice(vault_path: Path) -> str:
     """Return a one-line warning if pending_summaries.jsonl has entries.
 
@@ -536,7 +719,26 @@ def build_session_context(
     notes_injected = 0
 
     if ai_enabled or ai_model is not None:
-        candidates = _build_candidates(project_name, vault_path)
+        # Phase 3: widen the AI's candidate pool with 1-hop graph neighbours of
+        # the project notes so the selector sees related prior art.  Tier 2
+        # rerank is intentionally not applied -- the selector ranks the pool.
+        ai_graph_meta = vault_common.load_graph_metadata()
+        ai_max_add = 0
+        if (
+            vault_common.get_config(
+                "session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND
+            )
+            and ai_graph_meta is not None
+        ):
+            ai_max_add = vault_common.get_config(
+                "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
+            )
+        candidates = _build_candidates(
+            project_name,
+            vault_path,
+            graph_meta=ai_graph_meta,
+            graph_expand_max=ai_max_add,
+        )
         ai_context = _select_context_with_ai(
             project_name, cwd, candidates, ai_model, max_chars, vault_path=vault_path
         )
@@ -603,6 +805,37 @@ def build_session_context(
     daily_resolved: Path = daily_path.resolve()
     if daily_resolved not in seen:
         all_notes.append(daily_path)
+
+    # Graph retrieval: expand the seed set with 1-hop wikilink neighbours
+    # (Tier 1) and re-rank by seed-cluster tag overlap + hubness (Tier 2).
+    # The seed snapshot is captured BEFORE expansion so the tag cluster used
+    # for reranking reflects the intentional selection, not the added neighbours.
+    seed_snapshot: list[Path] = list(all_notes)
+    graph_meta = vault_common.load_graph_metadata()
+
+    if (
+        vault_common.get_config(
+            "session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND
+        )
+        and graph_meta is not None
+    ):
+        max_add = vault_common.get_config(
+            "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
+        )
+        for note in _graph_neighbors(seed_snapshot, graph_meta, vault_path, max_add):
+            resolved = note.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                all_notes.append(note)
+
+    if (
+        vault_common.get_config(
+            "session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK
+        )
+        and graph_meta is not None
+        and all_notes
+    ):
+        all_notes = _rank_by_graph(all_notes, seed_snapshot, graph_meta)
 
     # Adaptive context (#17): re-rank notes by usefulness when enabled
     adaptive_enabled: bool = vault_common.get_config(

@@ -16,6 +16,9 @@ session_start_hook:
   verbose_mode: false      # If true, inject full note summaries instead of the default compact one-line-per-note index
   use_embeddings: true     # Blend semantic matches into context; graceful fallback if db absent
   track_delta: true        # Show "Since last session" delta for new/updated notes (#10)
+  graph_expand: true       # Add 1-hop wikilink neighbours of selected notes (Tier 1 graph retrieval)
+  graph_expand_max: 8      # Max neighbour notes added per session (best-connected first)
+  graph_rerank: true       # Re-rank notes by seed-cluster tag overlap + hubness (Tier 2 graph retrieval)
 
 # Session stop hook (session_stop_hook.py)
 session_stop_hook:

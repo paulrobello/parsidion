@@ -91,7 +91,9 @@ from vault_index import (  # noqa: F401
     find_notes_by_type,
     find_recent_notes,
     get_body,
+    load_graph_metadata,
     parse_frontmatter,
+    parse_related_stems,
     query_note_index,
     read_note_summary,
     slugify,
@@ -220,6 +222,8 @@ __all__: list[str] = [
     "get_embeddings_db_path",
     "ensure_note_index_schema",
     "query_note_index",
+    "load_graph_metadata",
+    "parse_related_stems",
     # Content helpers
     "extract_title",
 ]
