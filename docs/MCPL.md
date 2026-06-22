@@ -450,7 +450,7 @@ The daemon shuts itself down automatically in any of these conditions:
 
 ### How CLAUDE.md References mcpl
 
-The parsidion project embeds mcpl usage instructions directly in `~/.claude/CLAUDE.md` so that Claude Code has them available in every session. The key guidance injected into the agent context is:
+The recommended practice is to embed mcpl usage instructions directly in `~/.claude/CLAUDE.md` (user level) or `./CLAUDE.md` (project level) so that Claude Code has them available in every session. The key guidance to include is:
 
 1. **Always discover before calling** — never guess tool names; use `mcpl search` first
 2. **Search returns required params** — the search result gives you everything needed to construct a call
@@ -458,7 +458,7 @@ The parsidion project embeds mcpl usage instructions directly in `~/.claude/CLAU
 4. **Always set a timeout** — when using MCP tools that make network requests, always specify a `timeout` parameter (API calls 5-10s, web scraping 10-30s, large downloads 30-60s)
 5. **Troubleshoot with `mcpl verify`** — first step when any server fails
 
-The mcpl guidance is part of the global user-level `~/.claude/CLAUDE.md` installed by parsidion. The same pattern — embedding an "MCP Launchpad" section in your CLAUDE.md or AGENTS.md — can be applied at either the project level (`./CLAUDE.md`) or user level (`~/.claude/CLAUDE.md`).
+> **Note:** parsidion's installer does not manage the mcpl section of `CLAUDE.md`. It only installs vault-related instructions (`CLAUDE-VAULT.md`, wired in via `@import`). Add the "MCP Launchpad" guidance to your `CLAUDE.md` or `AGENTS.md` manually, at either the project level (`./CLAUDE.md`) or user level (`~/.claude/CLAUDE.md`).
 
 ### Agent Workflow Pattern
 

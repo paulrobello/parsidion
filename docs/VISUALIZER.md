@@ -131,7 +131,7 @@ graph TB
 |-------|-----------|
 | Framework | Next.js + React |
 | Graph Rendering | Sigma.js (WebGL) |
-| Graph Layout | Graphology + ForceAtlas2 |
+| Graph Layout | Custom Newtonian force loop (`lib/useForceLayout.ts`) on a Graphology graph |
 | Styling | Tailwind CSS |
 | Runtime / Package Manager | Bun |
 | Markdown Rendering | react-markdown + remark-gfm |
@@ -786,13 +786,13 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 
 ### Physics Simulation
 
-The ForceAtlas2 algorithm drives the layout:
+A custom Newtonian force loop drives the layout (see `lib/useForceLayout.ts`). It is **not** ForceAtlas2 — per frame it applies center gravity, pairwise Coulomb repulsion, Hooke attraction on edges, and velocity damping:
 
 ```mermaid
 stateDiagram-v2
     [*] --> Loading: fetch graph.json
     Loading --> Ready: build Graphology graph
-    Ready --> Simulating: start ForceAtlas2
+    Ready --> Simulating: start force loop
     Simulating --> Simulating: per-frame RAF loop
     Simulating --> Converged: temperature < stopThreshold
     Converged --> Simulating: drag node (reheat)
@@ -800,7 +800,8 @@ stateDiagram-v2
 
     note right of Simulating
         Per frame:
-        - apply FA2 iteration
+        - gravity + repulsion + edge attraction
+        - velocity damping + position update
         - decay temperature
         - update Sigma display
     end note
@@ -826,7 +827,7 @@ For local (2-hop) view:
 | Tested vault size | 1000+ notes |
 | Semantic edges at 0.70 threshold | ~19,000 |
 | Rendering | WebGL via Sigma.js — ~1000 nodes at 60 fps |
-| Physics | O(N) per iteration with velocity tracking |
+| Physics | Custom Newtonian loop, O(N²) per iteration (pairwise repulsion) with velocity tracking |
 | Content loading | Cached per-tab after first fetch |
 
 ## Configuration
@@ -883,13 +884,17 @@ parsidion/
 │   │   ├── graph.ts                  # Data types and fetch helpers
 │   │   ├── useVisualizerState.ts     # Central state management hook (incl. vault, history, graph controls)
 │   │   ├── useVaultFiles.ts          # WebSocket hook for real-time vault sync
+│   │   ├── useForceLayout.ts         # Custom Newtonian physics loop (gravity + repulsion + edge attraction + damping)
+│   │   ├── useGraphReducers.ts       # Sigma node/edge reducers and neighborhood computation
 │   │   ├── vaultFile.ts              # VaultFile type (shared client/server)
 │   │   ├── vaultResolver.ts          # Multi-vault path resolution (server-side)
 │   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side events
+│   │   ├── apiAuth.ts                # Shared auth guard for mutating API routes
 │   │   ├── parseDiff.ts              # Client-side unified diff parser (DiffHunk, DiffLine)
 │   │   ├── parseDiff.test.ts         # Unit tests for parseDiff
 │   │   ├── sigma-colors.ts           # Note type → color mapping, edge coloring, node sizing constants
-│   │   ├── frontmatter.ts           # Frontmatter parse/serialize helpers
+│   │   ├── sigma-renderers.ts        # Custom Sigma label/hover renderers
+│   │   ├── frontmatter.ts            # Frontmatter parse/serialize helpers
 │   │   └── useLocalStorage.ts        # localStorage persistence hook
 │   ├── public/
 │   │   └── (static assets only — graph.json lives in the vault, not here)

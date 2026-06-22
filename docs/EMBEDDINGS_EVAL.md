@@ -61,7 +61,7 @@ note for a given query against this specific vault?**
 
 **Script location:** `~/.claude/skills/parsidion/scripts/embed_eval.py`
 
-The harness is split across four modules:
+The harness is split across five modules:
 
 | Module | Purpose |
 |---|---|

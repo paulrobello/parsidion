@@ -143,7 +143,7 @@ graph TB
 1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
 3. `vault_search.py` loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. When `decay_enabled` is `true` (the default), raw cosine scores are multiplied by an exponential decay factor based on note age, so newer notes rank higher. It also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model.
-4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking.
+4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking. The facade also re-exports `load_graph_metadata()` and `parse_related_stems()`, which read the `related`/`incoming_links`/`tags` columns to drive the session start hook's graph retrieval passes.
 5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
 The `vault_common.py` re-export facade (backed by `vault_path.py`) exposes `get_embeddings_db_path(vault=...)` so every script resolves
@@ -515,15 +515,34 @@ After deduplicating project-specific and recently-active notes, the hook queries
 semantic matches. This surfaces notes from other projects or topic areas that happen to be
 relevant to the current one.
 
-Enable or disable this behavior via `config.yaml`:
+### Graph Retrieval (Tier 1 + Tier 2)
+
+On top of the semantic blend, the hook adds two graph-based retrieval passes driven by the
+wikilink topology stored in `note_index` (`related` and `incoming_links` columns):
+
+- **Tier 1 — neighbour expansion:** after seeds are selected, the hook calls
+  `vault_common.load_graph_metadata()` (implemented in `vault_index.py`) and
+  `vault_common.parse_related_stems()` to splice in up to `graph_expand_max` 1-hop wikilink
+  neighbours of the seed notes, best-connected first. This widens the pool so graph-adjacent
+  prior art lands inside the prompt's character window.
+- **Tier 2 — graph rerank:** the candidate list is re-ranked by seed-cluster tag overlap and
+  hubness (incoming-link count) for a stable, relevance-ordered result.
+
+Both passes are on by default and are gated by config keys under `session_start_hook:`
 
 ```yaml
 session_start_hook:
   use_embeddings: true
+  graph_expand: true        # Tier 1 neighbour expansion
+  graph_expand_max: 8       # Max neighbour notes added per session (best-connected first)
+  graph_rerank: true        # Tier 2 re-rank by tag overlap + hubness
 ```
 
-When `embeddings.db` is absent, the hook silently skips the semantic blend step. No error is
-raised and the session starts normally with keyword-based context only.
+Set `graph_expand: false` (and/or `graph_rerank: false`) to disable either pass cleanly.
+
+When `embeddings.db` is absent, the hook silently skips the semantic blend step and both
+graph passes. No error is raised and the session starts normally with keyword-based context
+only.
 
 ### Session Summarizer
 
@@ -604,6 +623,9 @@ embeddings:
 
 session_start_hook:
   use_embeddings: true
+  graph_expand: true        # Tier 1 neighbour expansion
+  graph_expand_max: 8
+  graph_rerank: true        # Tier 2 re-rank by tag overlap + hubness
 ```
 
 | Key | Section | Type | Default | Description |
@@ -616,6 +638,9 @@ session_start_hook:
 | `decay_half_life_days` | `embeddings` | float | `90` | Days for a score to decay halfway to `decay_min_factor`; higher values mean slower decay |
 | `decay_min_factor` | `embeddings` | float | `0.5` | Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing entirely |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
+| `graph_expand` | `session_start_hook` | boolean | `true` | Enable Tier 1 graph retrieval — splice 1-hop wikilink neighbours of selected notes into the candidate pool |
+| `graph_expand_max` | `session_start_hook` | integer | `8` | Max neighbour notes added per session (best-connected first); only applies when `graph_expand` is `true` |
+| `graph_rerank` | `session_start_hook` | boolean | `true` | Enable Tier 2 graph retrieval — re-rank candidates by seed-cluster tag overlap + hubness (incoming-link count) |
 
 > **Note:** CLI flags override `config.yaml` values for a single invocation without modifying
 > the stored configuration. Environment variables (`VAULT_SEARCH_*`) sit between config.yaml

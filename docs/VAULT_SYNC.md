@@ -53,7 +53,7 @@ rebuild the database locally on each machine.
 
 The installer automatically:
 - initializes the vault as a **git repository** (with `.gitignore` and initial commit)
-- adds `embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`, and `graph.json` to `.gitignore`
+- adds `embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`, `graph.json`, `summarizer_state.json`, and `doctor_state.json` to `.gitignore`
 - installs a **post-merge hook** that rebuilds the index and embeddings after every pull
 
 If you already have a vault, re-running the installer adds git support without affecting
@@ -109,6 +109,8 @@ database so semantic search works immediately.
 | `pending_summaries.jsonl` | **No** | Machine-local session queue, uses `fcntl.flock` |
 | `hook_events.log` | **No** | Machine-local structured log |
 | `graph.json` | **No** | Visualizer graph data — rebuilt by `build_graph.py` |
+| `summarizer_state.json` | **No** | Machine-local summarizer run state |
+| `doctor_state.json` | **No** | Machine-local vault doctor run state |
 | `.obsidian/` | **No** | Obsidian workspace state — machine-specific |
 
 The installer adds all "No" entries to `.gitignore` automatically.

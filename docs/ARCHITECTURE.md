@@ -50,6 +50,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - A dedicated research agent that saves findings to the vault
 - Auto-generated lean root index (`CLAUDE.md`) with quick stats, conventions, recent activity, and folder pointers; full tag cloud in `TAGS.md`; detailed per-folder `MANIFEST.md` files
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
+- Graph retrieval at session start: Tier 1 expands the injected note set with 1-hop wikilink neighbours of selected notes; Tier 2 re-ranks by seed-cluster tag overlap + hubness (default on, configurable via `graph_expand`/`graph_expand_max`/`graph_rerank`)
 - Obsidian graph view with domain-based color grouping
 - Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), and pi agent (`extensions/pi/parsidion/`)
 
@@ -253,21 +254,28 @@ Fires when a Claude Code, Codex, or Gemini session begins. Loads relevant vault 
 | `verbose_mode` | `false` | When true, inject full note summaries; default is compact one-line index |
 | `use_embeddings` | `true` | Blend semantic (embedding) matches into context selection; graceful fallback if `embeddings.db` is absent |
 | `track_delta` | `true` | Prepend a "Since last session" delta of new/modified notes per project |
+| `graph_expand` | `true` | Tier 1 graph retrieval: splice in 1-hop wikilink neighbours of selected notes (best-connected first) |
+| `graph_expand_max` | `8` | Cap on neighbour notes added per session by Tier 1 expansion |
+| `graph_rerank` | `true` | Tier 2 graph retrieval: re-rank notes by seed-cluster tag overlap + hubness (`incoming_links`) |
 
 **Standard behaviour:**
 1. Determines the current project from the working directory
 2. Ensures vault directories and today's daily note exist
 3. Gathers project-specific notes (by `project` frontmatter field)
 4. Gathers recent notes (modified within last `recent_days` days, configurable)
-5. Deduplicates and builds context: **compact mode** (default) injects one line per note — `[[stem]] (folder) — \`tags\``; **verbose mode** (`--verbose` or `verbose_mode: true`) injects full note summaries via `build_context_block()`
-6. Returns the context as `additionalContext` in the hook output
-7. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/parsidion-session-start-debug.log`
+5. **Graph retrieval (Tier 1 + Tier 2)** when `graph_expand`/`graph_rerank` are enabled (defaults) and the `note_index` DB is present. Graph metadata is loaded once via `vault_common.load_graph_metadata()`:
+   - **Tier 1 — neighbour expansion** (`graph_expand`, cap `graph_expand_max`): adds up to N 1-hop wikilink neighbours of the selected seed notes (both outgoing and incoming links), best-connected first (highest `incoming_links`). The pre-expansion seed snapshot is captured first so the rerank cluster reflects the intentional selection, not the added neighbours.
+   - **Tier 2 — graph-aware rerank** (`graph_rerank`): stable re-sort of the merged candidate list by seed-cluster tag overlap (primary) and `incoming_links` hubness (secondary); notes with no graph signal keep their prior relative order.
+   - Both tiers fall back gracefully to the existing retrieval path when `embeddings.db` or `note_index` is absent (no behaviour change for fresh vaults).
+6. Deduplicates and builds context: **compact mode** (default) injects one line per note — `[[stem]] (folder) — \`tags\``; **verbose mode** (`--verbose` or `verbose_mode: true`) injects full note summaries via `build_context_block()`
+7. Returns the context as `additionalContext` in the hook output
+8. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/parsidion-session-start-debug.log`
 
 **AI-powered mode (`--ai [MODEL]`):**
 
 Pass `--ai` (or `--ai <model-id>`) to the hook command, or set `session_start_hook.ai_model` in config.yaml, to enable intelligent note selection via `claude -p`. When enabled:
 
-1. Collects **all** vault notes as candidates — project-tagged notes first, then the rest sorted by mtime descending
+1. Collects **all** vault notes as candidates — project-tagged notes first (via `query_note_index` SQLite lookup, with a filesystem-walk fallback), then 1-hop wikilink neighbours of those project notes spliced in by `_enrich_with_graph()` (when `graph_expand` is enabled), then the rest sorted by mtime descending. Tier 2 rerank does not apply in AI mode — the selector ranks the pool itself.
 2. Builds a summarised candidate block (up to 8000 chars) from note titles and first 6 body lines
 3. Runs `claude -p <prompt> --model <model> --no-session-persistence` with `CLAUDECODE` unset so it can be called from within an active session; timeout is controlled by `session_start_hook.ai_timeout` (default 25 s)
 4. Claude selects and formats the most relevant notes as context (target ≤ `max_chars - 500` chars)
@@ -619,6 +627,8 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `get_embeddings_db_path()` | Return the path to `embeddings.db` |
 | `ensure_note_index_schema(conn)` | Creates `note_index` table and 6 indexes (folder, note_type, project, mtime, tags, date) in an open SQLite connection |
 | `query_note_index(*, tag, folder, note_type, project, recent_days, limit)` | DB-first metadata query; returns `None` (not `[]`) when DB absent to signal file-walk fallback |
+| `load_graph_metadata()` | Load per-note graph metadata (`path`, `related`, `incoming_links`, `tags`) from the `note_index` table; returns `None` when DB/table absent so graph-retrieval callers fall back gracefully |
+| `parse_related_stems(related_str)` | Extract note stems from a `related` column value, accepting both bare comma-separated and `[[wikilink]]` form |
 | `find_notes_by_project()` | Search by `project` frontmatter field — DB-first, falls back to file walk |
 | `find_notes_by_tag()` | Search by tag in `tags` list — DB-first, falls back to file walk |
 | `find_notes_by_type()` | Search by `type` frontmatter field — DB-first, falls back to file walk |
@@ -1007,6 +1017,9 @@ session_start_hook:  # session_start_hook.py
   verbose_mode: false  # If true, inject full note summaries instead of compact one-line index
   use_embeddings: true  # Blend semantic matches into context; graceful fallback if db absent
   track_delta: true  # Prepend "Since last session" delta of new/updated notes per project
+  graph_expand: true       # Tier 1: splice in 1-hop wikilink neighbours of selected notes
+  graph_expand_max: 8      # Max neighbour notes added per session (best-connected first)
+  graph_rerank: true       # Tier 2: re-rank by seed-cluster tag overlap + hubness
 
 session_stop_hook:   # session_stop_hook.py
   ai_model: null     # Model for AI classification (null = disabled)

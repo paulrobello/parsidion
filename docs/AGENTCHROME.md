@@ -127,7 +127,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Device emulation** | Simulate mobile viewports and network conditions (`emulate set/reset/status`) |
 | **Performance tracing** | Capture Core Web Vitals, record traces, and analyze insights (`perf vitals/record/analyze`) |
 | **Lighthouse audits** | Run Google Lighthouse performance, accessibility, SEO, and best-practices audits (`audit lighthouse`) |
-| **Dialog handling** | Inspect and dismiss alerts, confirms, prompts (`dialog info/accept/dismiss`) |
+| **Dialog handling** | Inspect, accept, or dismiss alerts, confirms, and prompts (`dialog info/handle`) |
 | **Media control** | List, play, pause, and seek HTML5 audio and video elements (`media list/play/pause/seek/seek-end`) |
 | **Pre-automation diagnostics** | Scan pages for iframes, overlays, shadow DOM, media gates, and framework quirks (`diagnose`) |
 | **Batch scripting** | Execute JSON batch scripts with conditionals and loops (`script run`) |
