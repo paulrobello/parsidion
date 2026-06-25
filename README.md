@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.9.2:** `doctor_state.json` is now gitignored (no more multi-thousand-line churn in vault commits). 0.9.1 added a `summarize_sessions` singleton guard (prevents concurrent summarizers from writing duplicate notes) and fixed false `BROKEN_WIKILINK` flags on version-numbered slugs. 0.9.0 brought `vault-conflicts`, the `provenance` field, temporal search (`vault-search --changed-since` / `--as-of`), `connect <agent>`, and ~25× faster duplicate/contradiction scans. See the [Changelog](CHANGELOG.md).
+> **New in 0.10.0:** graph retrieval turns the wikilink graph into a retrieval signal at session start (on by default), `vault-stats --graph` reports retrieval-readiness metrics, and a Codex `SubagentStop` hook now captures Codex subagent sessions. 0.9.2 gitignored `doctor_state.json`; 0.9.1 added a summarizer singleton guard; 0.9.0 brought `vault-conflicts`, the `provenance` field, temporal search, and `connect <agent>`. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
@@ -156,7 +156,7 @@ uv run install.py --yes --runtime gemini
 uv run install.py --yes --runtime all
 ```
 
-Codex integration uses native Codex hooks for session lifecycle events and requires `hooks = true` in `~/.codex/config.toml`. Parsidion can enable this during install and registers hooks in `~/.codex/hooks.json`. Parsidion does not manage Codex auth or copy `~/.codex/auth.json`.
+Codex integration uses native Codex hooks for session lifecycle events (`SessionStart`, `Stop`, `SubagentStop`) and requires `hooks = true` in `~/.codex/config.toml`. Parsidion can enable this during install and registers hooks in `~/.codex/hooks.json`. Parsidion does not manage Codex auth or copy `~/.codex/auth.json`.
 
 Gemini runtime hooks are separate from prompt AI backend selection. `--runtime gemini` or `--runtime all` registers Gemini CLI `SessionStart` and `SessionEnd` commands in `~/.gemini/settings.json`; it does not add a Gemini prompt AI backend. Gemini has no native subagent lifecycle hook in this first pass, so subagent-style capture remains Claude/pi-specific.
 
@@ -292,7 +292,7 @@ A Haiku-powered read-only subagent that isolates vault lookups from the main ses
 
 ### Research Agent (`~/.claude/agents/research-agent.md`)
 
-Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter. Fetches pages via `agentchrome page html` piped through `html-to-md.py` for noise-free markdown (curl fallback if agentchrome unavailable). Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits -- see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
+Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter. Fetches pages via `agentchrome dom get-html "css:html"` piped through `html-to-md.py` for noise-free markdown (curl fallback if agentchrome unavailable). Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits -- see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
 
 ### Vault Deduplicator Agent (`~/.claude/agents/vault-deduplicator.md`)
 
@@ -305,7 +305,7 @@ A PEP 723 standalone script (installed to `~/.claude/skills/parsidion/scripts/ht
 ```bash
 uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py page.html          # file → stdout
 uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - < page.html      # stdin → stdout
-agentchrome page html | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url https://example.com
+agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url https://example.com
 ```
 
 ### Context Preview (`scripts/show-context`)
@@ -1034,7 +1034,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.9.2** (`doctor_state.json` now gitignored; 0.9.1 summarizer singleton guard + version-numbered-wikilink fix; 0.9.0 `vault-conflicts`, `provenance`, temporal search, `connect`). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.10.0** (graph retrieval at session start; `vault-stats --graph` retrieval-readiness metrics; Codex `SubagentStop` hook; Codex hook timeout-unit fix). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

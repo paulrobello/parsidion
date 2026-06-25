@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.10.0] - 2026-06-24
+
+### Added
+- **Graph retrieval at session start** — the bidirectional wikilink graph written by `vault_links.py` at note-creation time was maintained but never read at retrieval. It is now a retrieval signal. In standard mode, Tier 1 adds 1-hop neighbours of the seed notes (capped by `graph_expand_max`) and Tier 2 re-ranks the combined set by seed-cluster tag overlap + hubness; in `--ai` mode the Tier 1 neighbours are spliced into the selector's candidate pool instead. Controlled by new `session_start_hook` config keys `graph_expand` / `graph_expand_max` / `graph_rerank` (all default on).
+- **Graph retrieval-readiness metrics** — `vault-stats --graph` now reports `expandable_count`, `avg_related_per_note`, `total_targets`, and `dangling_targets` (related stems that resolve to no indexed note and are silently skipped by graph expansion), with a hint to run `vault_doctor --fix-frontmatter` when dangling targets exist.
+- **Codex `SubagentStop` hook** — `codex_subagent_stop_hook.py` (mirrors `codex_stop_hook.py`) captures Codex subagent transcripts and queues them to `pending_summaries.jsonl` with `source="subagent"` + `agent_type`/`session_id`, so Codex Desktop/CLI subagent sessions are summarized like Claude/pi subagents. Registered via `_CODEX_HOOK_SCRIPTS` and wired into `~/.codex/hooks.json` by `connect codex`. (PreCompact/PostCompact remain unwired for Codex: its output schemas don't support `additionalContext`, so those context-injection hooks would be no-ops.)
+
+### Fixed
+- **Codex hook `timeout` units** — the installer wrote `"timeout": 10000` intending Claude's milliseconds, but Codex's `timeout` field is seconds (`Duration::from_secs` in codex-rs/hooks), so the `SessionStart`/`Stop` hooks had a ~2.78-hour timeout. Now `60` (seconds), generous for the non-AI hooks.
+
+### Changed
+- **Dependencies bumped** to latest.
+
 ## [0.9.2] - 2026-06-17
 
 ### Changed
@@ -594,7 +607,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/paulrobello/parsidion/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/paulrobello/parsidion/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/paulrobello/parsidion/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/paulrobello/parsidion/compare/v0.8.1...v0.9.0
