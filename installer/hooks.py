@@ -257,9 +257,13 @@ def merge_codex_hooks(
 
         from installer.colors import bold, dim
 
+        # Codex's "timeout" field is in SECONDS (Duration::from_secs in
+        # codex-rs/hooks), not milliseconds like Claude's settings.json.
+        # 60s is generous for the non-AI parsidion hooks (codex's own default
+        # for SessionStart/Stop is 600s).
         new_entry = {
             "matcher": "",
-            "hooks": [{"type": "command", "command": command, "timeout": 10000}],
+            "hooks": [{"type": "command", "command": command, "timeout": 60}],
         }
         _step(f"Register Codex hook {bold(event)}: {dim(command)}", dry_run=dry_run)
         if not dry_run:

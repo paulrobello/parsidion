@@ -564,6 +564,90 @@ class TestCodexHookIntegration:
         assert "configured the setting" in daily_text
         assert not (tmp_path / "pending_summaries.jsonl").exists()
 
+    def test_codex_subagent_stop_missing_transcript_exits_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        result = _run_hook(
+            "codex_subagent_stop_hook.py",
+            {
+                "cwd": str(tmp_path),
+                "hook_event_name": "SubagentStop",
+                "agent_transcript_path": None,
+            },
+            tmp_path,
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+
+    def test_codex_subagent_stop_skips_internal_sessions(self, tmp_path: Path) -> None:
+        codex_home = tmp_path / ".codex"
+        transcript = (
+            codex_home / "sessions" / "2026" / "04" / "27" / "rollout-internal.jsonl"
+        )
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(
+            '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed a pytest failure."}]}}\n',
+            encoding="utf-8",
+        )
+
+        result = _run_hook(
+            "codex_subagent_stop_hook.py",
+            {
+                "cwd": str(tmp_path),
+                "hook_event_name": "SubagentStop",
+                "agent_transcript_path": str(transcript),
+            },
+            tmp_path,
+            extra_env={"PARSIDION_INTERNAL": "1", "CODEX_HOME": str(codex_home)},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+        assert not (tmp_path / "pending_summaries.jsonl").exists()
+
+    def test_codex_subagent_stop_with_real_transcript_queues_pending(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        transcript = (
+            codex_home / "sessions" / "2026" / "04" / "27" / "rollout-subagent.jsonl"
+        )
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(
+            '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed a pytest failure by updating the parser test."}]}}\n',
+            encoding="utf-8",
+        )
+
+        result = _run_hook(
+            "codex_subagent_stop_hook.py",
+            {
+                "cwd": str(tmp_path),
+                "hook_event_name": "SubagentStop",
+                "agent_transcript_path": str(transcript),
+                "agent_id": "agent-123",
+                "agent_type": "Explore",
+            },
+            tmp_path,
+            extra_env={"CODEX_HOME": str(codex_home)},
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+        pending = tmp_path / "pending_summaries.jsonl"
+        assert pending.exists()
+        entries = [
+            json.loads(line)
+            for line in pending.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["source"] == "subagent"
+        assert entry["agent_type"] == "Explore"
+        assert entry["session_id"] == "agent-123"
+        assert "rollout-subagent" in entry["transcript_path"]
+
 
 # ---------------------------------------------------------------------------
 # gemini hooks

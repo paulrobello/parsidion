@@ -56,6 +56,7 @@ _HOOK_OPTIONS: dict[str, dict] = {
 _CODEX_HOOK_SCRIPTS: dict[str, str] = {
     "SessionStart": "codex_session_start_hook.py",
     "Stop": "codex_stop_hook.py",
+    "SubagentStop": "codex_subagent_stop_hook.py",
 }
 
 _GEMINI_HOOK_SCRIPTS: dict[str, str] = {
