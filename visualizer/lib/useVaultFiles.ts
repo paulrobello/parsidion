@@ -56,8 +56,10 @@ export function useVaultFiles(opts: Opts): {
   // Ref to hold the connect function so ws.onclose can reference it without TDZ issues
   const connectRef = useRef<(() => void) | null>(null)
 
-  // Fetch initial file list when vault changes
-  useEffect(() => {
+  // Fetch the file list. Called on mount/vault-change and whenever the graph is
+  // rebuilt (graph:rebuilt implies vault contents changed — e.g. after the
+  // summarizer writes new notes, which the incremental file:* events can miss).
+  const fetchFiles = useCallback(() => {
     const url = opts.vault ? `/api/files?vault=${encodeURIComponent(opts.vault)}` : '/api/files'
     fetch(url)
       .then(r => r.json())
@@ -66,6 +68,15 @@ export function useVaultFiles(opts: Opts): {
       })
       .catch(err => console.warn('[useVaultFiles] /api/files failed:', err))
   }, [opts.vault])
+
+  const fetchFilesRef = useRef(fetchFiles)
+  useEffect(() => {
+    fetchFilesRef.current = fetchFiles
+  }, [fetchFiles])
+
+  useEffect(() => {
+    fetchFiles()
+  }, [fetchFiles])
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
@@ -121,6 +132,7 @@ export function useVaultFiles(opts: Opts): {
 
           case 'graph:rebuilt':
             onGraphRebuiltRef.current()
+            fetchFilesRef.current?.()
             break
         }
       } catch { /* ignore malformed messages */ }

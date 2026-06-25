@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Visualizer vault-stats header** — the toolbar now shows two live chips after the vault selector: **PEND** (sessions queued in `pending_summaries.jsonl`, amber when >0) and **NOTES** (total note count). A new `GET /api/stats` route counts non-empty JSON lines in the queue (mirroring `vault_metrics.collect_pending`); NOTES reuses the live `totalFiles` from `useVaultFiles`. Pending polls every 60 s and on tab focus.
+- **Run summarizer from the visualizer** — clicking the PEND chip opens a confirmation dialog; confirming spawns `summarize_sessions.py` against the selected vault and the chip morphs into a pulsing `processed/total` progress indicator. New `POST /api/summarize` route spawns the summarizer detached/non-blocking (returns at once with the PID) with `CLAUDECODE` stripped from the child env so the claude-cli backend works even when the dev server inherits it; `GET /api/summarizer/status` reports liveness + progress. Progress polls every 5 s, keeps the pending count live, detects runs already in progress on mount (including CLI-started ones), and flashes "✓ finished" / "⚠ errors" on completion. Liveness combines the summarizer's own progress file with a PID state file in `~/.claude/logs/`. Shared server logic lives in `lib/vaultStatsServer.ts`.
+- **Post-run vault refresh** — on summarizer completion, `VaultStats` POSTs `/api/graph/rebuild`, and the `graph:rebuilt` broadcast now also refreshes the file list (not just the graph), so newly written notes appear in both the graph and the NOTES count without depending on the file watcher (which can miss summarizer-written notes under the legacy `ClaudeVault` → `ParsidionVault` symlink).
 
 ## [0.10.0] - 2026-06-24
 

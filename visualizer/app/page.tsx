@@ -283,6 +283,7 @@ export default function Home() {
             onGraphTabClick={handleGraphTabClick}
             onNewNote={() => setShowNewNote(true)}
             wsStatus={wsStatus}
+            totalNotes={totalFiles}
             selectedVault={state.selectedVault}
             onSelectVault={state.setSelectedVault}
           />

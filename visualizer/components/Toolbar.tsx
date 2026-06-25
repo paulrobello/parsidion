@@ -5,6 +5,7 @@ import type { NoteNode } from '@/lib/graph'
 import { TabBar } from './TabBar'
 import { UnifiedSearch } from './UnifiedSearch'
 import { VaultSelector } from './VaultSelector'
+import { VaultStats } from './VaultStats'
 import type { WsStatus } from '@/lib/useVaultFiles'
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
   onGraphTabClick: () => void
   onNewNote: () => void
   wsStatus: WsStatus
+  totalNotes: number
   selectedVault: string | null
   onSelectVault: (vault: string | null) => void
 }
@@ -31,6 +33,7 @@ export function Toolbar({
   graphTabActive, onGraphTabClick,
   onNewNote,
   wsStatus,
+  totalNotes,
   selectedVault,
   onSelectVault,
 }: Props) {
@@ -91,6 +94,8 @@ export function Toolbar({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         {/* Vault selector */}
         <VaultSelector selectedVault={selectedVault} onSelect={onSelectVault} />
+        {/* Vault health: pending summaries + total notes */}
+        <VaultStats vault={selectedVault} totalNotes={totalNotes} />
         {/* WebSocket status indicator */}
         <div
           style={{ position: 'relative', display: 'flex', alignItems: 'center', flexShrink: 0 }}
