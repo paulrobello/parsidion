@@ -276,7 +276,7 @@ Interactive force-directed graph for exploring note relationships:
 - Shows semantic edges within the neighborhood
 
 **Full Vault View**
-- Toggle via "Show Full Vault ⤢" button in the HUD
+- Toggle via the "Show Full Vault ⤢" button in the top-right scope indicator (placed there to avoid overlapping the HUD)
 - Renders all notes and edges simultaneously
 
 **Visual Encoding**

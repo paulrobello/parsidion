@@ -28,7 +28,7 @@ below with its intended audience and purpose.
 | [VAULT_SYNC.md](VAULT_SYNC.md) | Multi-machine vault sync: strategies, recommended git-based setup, post-merge hook, conflict handling, and troubleshooting. |
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
 | [superpowers/](superpowers/) | Implementation plans (`superpowers/plans/`) and design specs (`superpowers/specs/`) for major features (vault-explorer agent, subagent stop hook, parsidion-mcp, visualizer redesign, git diff viewer, multi-vault support, graph features, Codex/Gemini runtime hooks, and more). |
-| [ideas.md](ideas.md) | Enhancement ideas and feature proposals. |
+| [ideas.md](ideas.md) | Visualizer enhancement ideas and feature proposals generated from analysis of the current vault visualizer. |
 
 ## Where to Start
 

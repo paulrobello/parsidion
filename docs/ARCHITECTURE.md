@@ -222,7 +222,7 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop` wrappers; Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
+Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop`/`SubagentStop` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
 
 Transcript compatibility:
 - Claude Code JSONL (`type: "assistant" | "user"`)
@@ -524,7 +524,7 @@ A Claude Code agent definition (runs on Sonnet) that conducts technical research
 1. Dispatches `vault-explorer` agent with the research topic to check for existing knowledge — proceeds to web research only for gaps not covered by existing notes
 2. Uses NotebookLM (if available) for deep synthesis of source material
 3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
-4. Fetches raw HTML via `agentchrome page html`, pipes through `~/.claude/skills/parsidion/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
+4. Fetches raw HTML via `agentchrome dom get-html "css:html"`, pipes through `~/.claude/skills/parsidion/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
 5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/MCPL.md`) was also requested
 6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
 7. Runs `update_index.py` after saving vault notes
@@ -1227,7 +1227,6 @@ parsidion/
 │   ├── VAULT_SYNC.md                # Multi-machine vault sync guide
 │   ├── README.md                    # Documentation index
 │   ├── ideas.md                     # Feature ideas and planning
-│   ├── archive/                     # Archived documentation
 │   └── superpowers/                 # Superpowers skill documentation
 ├── agents/
 │   ├── research-agent.md
@@ -1237,7 +1236,15 @@ parsidion/
 ├── tests/
 │   ├── test_vault_common.py
 │   ├── test_vault_dirs_sync.py
+│   ├── test_vault_search.py
+│   ├── test_vault_stats.py
+│   ├── test_vault_conflicts.py
+│   ├── test_vault_export.py
+│   ├── test_vault_merge.py
+│   ├── test_vault_resolver_parity.py
 │   ├── test_update_index.py
+│   ├── test_note_index_date.py
+│   ├── test_provenance.py
 │   ├── test_session_start_hook.py
 │   ├── test_session_stop_hook.py
 │   ├── test_pre_compact_hook.py
@@ -1246,6 +1253,7 @@ parsidion/
 │   ├── test_ai_script_migration.py
 │   ├── test_embed_eval.py
 │   ├── test_install.py
+│   ├── test_connect.py
 │   ├── test_summarize_sessions.py
 │   └── test_vault_doctor.py
 └── skills/parsidion/
@@ -1263,6 +1271,7 @@ parsidion/
     │   ├── vault_tui.py             # Interactive curses TUI (extracted from vault_search.py)
     │   ├── vault_new.py             # CLI to scaffold vault notes from templates (vault-new)
     │   ├── vault_stats.py           # Analytics CLI for vault health and activity (vault-stats)
+    │   ├── vault_metrics.py         # Stdlib-only data layer for vault analytics (ARC-007; used by vault-stats)
     │   ├── vault_export.py          # CLI to export notes as HTML or zip (vault-export)
     │   ├── vault_merge.py           # CLI to merge two vault notes (vault-merge)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
@@ -1273,6 +1282,7 @@ parsidion/
     │   ├── session_stop_hook.py     # SessionEnd hook (queues to pending_summaries.jsonl)
     │   ├── codex_session_start_hook.py # Codex SessionStart wrapper
     │   ├── codex_stop_hook.py       # Codex Stop wrapper
+    │   ├── codex_subagent_stop_hook.py # Codex SubagentStop wrapper (mirrors codex_stop_hook.py)
     │   ├── gemini_session_start_hook.py # Gemini SessionStart wrapper
     │   ├── gemini_session_end_hook.py # Gemini SessionEnd wrapper
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)

@@ -297,7 +297,7 @@ agentchrome interact click-at 100,200
 agentchrome form fill s5 "hello@example.com"
 
 # Fill multiple form fields at once from JSON
-agentchrome form fill-many '{"s5": "hello@example.com", "s6": "John"}'
+agentchrome form fill-many '[{"target": "s5", "value": "hello@example.com"}, {"target": "s6", "value": "John"}]'
 
 # Upload a file to a file input element
 agentchrome form upload s7 /path/to/file.pdf
