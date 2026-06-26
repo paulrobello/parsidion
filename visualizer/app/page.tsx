@@ -394,6 +394,7 @@ export default function Home() {
                       edgePruning={state.edgePruning}
                       edgePruningK={state.edgePruningK}
                       nodeSizeMode={state.nodeSizeMode}
+                      nodeColorMode={state.nodeColorMode}
                       nodeSizeMap={state.nodeSizeMap}
                       selectedNode={state.selectedNode}
                       onNodeClick={handleGraphNodeClick}
@@ -458,6 +459,8 @@ export default function Home() {
                       totalEdgeCount={graphData?.meta.edge_count ?? 0}
                       nodeSizeMode={state.nodeSizeMode}
                       onNodeSizeModeChange={state.setNodeSizeMode}
+                      nodeColorMode={state.nodeColorMode}
+                      onNodeColorModeChange={state.setNodeColorMode}
                       nodeSizeComputing={state.nodeSizeComputing}
                       graphStats={state.graphStats}
                     />

@@ -4,11 +4,11 @@ import { useEffect, useRef, useCallback, useMemo, useState, forwardRef, useImper
 import type { GraphData, GraphEdge, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
 import {
-  getNodeColor, getNodeSize, getSemanticEdgeColor,
+  getNodeColor, getNodeSize, getSemanticEdgeColor, recencyHeatColor,
   HIGHLIGHT_COLOR, LABEL_COLOR, MUTED_NODE_COLOR,
   MENU_BACKGROUND, MENU_BORDER, ACCENT_TEAL,
 } from '@/lib/sigma-colors'
-import type { EdgeColorMode, NodeSizeMode } from '@/lib/sigma-colors'
+import type { EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
 import type Sigma from 'sigma'
 import type { MouseCoords } from 'sigma/types'
 import type { AbstractGraph } from 'graphology-types'
@@ -17,7 +17,7 @@ import { makeNodeReducer, makeEdgeReducer } from '@/lib/useGraphReducers'
 import type { NeighborhoodInfo } from '@/lib/useGraphReducers'
 import {
   useForceLayout, buildLayoutLoop,
-  buildRecencySizeMap, pruneEdges,
+  buildRecencySizeMap, buildRecencyColorMap, pruneEdges,
   RECENCY_SIZE_MIN,
 } from '@/lib/useForceLayout'
 
@@ -41,6 +41,7 @@ interface Props {
   edgePruning: boolean
   edgePruningK: number
   nodeSizeMode: NodeSizeMode
+  nodeColorMode: NodeColorMode
   nodeSizeMap: Map<string, number> | null
   selectedNode: string | null
   onNodeClick: (stem: string, newTab: boolean) => void
@@ -113,7 +114,7 @@ function findWikiPath(
 
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
   {
-    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, edgePruning, edgePruningK, nodeSizeMode, nodeSizeMap, selectedNode,
+    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, edgePruning, edgePruningK, nodeSizeMode, nodeColorMode, nodeSizeMap, selectedNode,
     onNodeClick, onBackgroundClick, onOpenHistory,
     scalingRatio, gravity, slowDown, edgeWeightInfluence, startTemperature, stopThreshold, isLayoutRunning, onLayoutStop, onLayoutRestart,
     neighborhoodCenter, neighborhoodHops,
@@ -183,6 +184,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const edgePruningRef = useRef(edgePruning)
   const edgePruningKRef = useRef(edgePruningK)
   const nodeSizeModeRef = useRef(nodeSizeMode)
+  const nodeColorModeRef = useRef(nodeColorMode)
   const nodeSizeMapRef = useRef(nodeSizeMap)
   const hoveredNodeRef = useRef<string | null>(null)
   const highlightedNodesRef = useRef<Set<string>>(new Set())
@@ -329,6 +331,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   useEffect(() => { edgePruningRef.current = edgePruning }, [edgePruning])
   useEffect(() => { edgePruningKRef.current = edgePruningK }, [edgePruningK])
   useEffect(() => { nodeSizeModeRef.current = nodeSizeMode }, [nodeSizeMode])
+  useEffect(() => { nodeColorModeRef.current = nodeColorMode }, [nodeColorMode])
   useEffect(() => { nodeSizeMapRef.current = nodeSizeMap }, [nodeSizeMap])
 
   useEffect(() => {
@@ -360,6 +363,29 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     })
     sigma.refresh()
   }, [nodeSizeMode, nodeSizeMap])
+
+  // Recolor nodes when the color mode toggles. Color has no physics effect, so
+  // this is a refresh-only update — do NOT call reheat().
+  useEffect(() => {
+    const graph = graphRef.current
+    const sigma = sigmaRef.current
+    const d = dataRef.current
+    if (!graph || !sigma || !d) return
+    const nodeDataMap = new Map(d.nodes.map(n => [n.id, n]))
+    const ids = graph.nodes() as string[]
+    const colorMap = nodeColorMode === 'recency'
+      ? buildRecencyColorMap(ids.map(id => ({ id, mtime: nodeDataMap.get(id)?.mtime ?? 0 })))
+      : null
+    ids.forEach((nodeId: string) => {
+      const nd = nodeDataMap.get(nodeId)
+      const col = colorMap
+        ? (colorMap.get(nodeId) ?? recencyHeatColor(1))
+        : getNodeColor(nd?.type ?? '')
+      graph.setNodeAttribute(nodeId, 'color', col)
+      graph.setNodeAttribute(nodeId, 'originalColor', col)
+    })
+    sigma.refresh()
+  }, [nodeColorMode])
 
   useEffect(() => {
     const graph = graphRef.current
@@ -442,6 +468,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         ? buildRecencySizeMap(visibleNodeList.map(n => ({ id: n.id, mtime: n.mtime })))
         : null
 
+      const initColorMap = nodeColorModeRef.current === 'recency'
+        ? buildRecencyColorMap(visibleNodeList.map(n => ({ id: n.id, mtime: n.mtime })))
+        : null
+
       const JITTER = 1.8
       const placed = new Map<string, { x: number; y: number }>()
 
@@ -477,13 +507,15 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         } else {
           nodeSize = getNodeSize(node.incoming_links)
         }
+        const typeCol = getNodeColor(node.type)
+        const nodeColor = initColorMap ? (initColorMap.get(node.id) ?? recencyHeatColor(1)) : typeCol
         graph.addNode(node.id, {
           label: node.title,
-          color: getNodeColor(node.type),
+          color: nodeColor,
           size: nodeSize,
           x, y,
           nodeType: node.type,
-          originalColor: getNodeColor(node.type),
+          originalColor: nodeColor,
         })
       }
 

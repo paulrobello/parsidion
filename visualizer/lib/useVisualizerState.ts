@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useLocalStorage } from '@/lib/useLocalStorage'
 import type { GraphData, GraphSource, NoteNode } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
-import { TYPE_COLORS, EdgeColorMode, NodeSizeMode } from '@/lib/sigma-colors'
+import { TYPE_COLORS, EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
 
 const SIM_DEFAULTS = {
   scalingRatio: 10,
@@ -331,6 +331,7 @@ export function useVisualizerState(graphData: GraphData | null) {
   const [edgePruningK, setEdgePruningK] = useLocalStorage('vv:edgePruningK', 8)
   const toggleEdgePruning = useCallback(() => setEdgePruning(s => !s), [setEdgePruning])
   const [nodeSizeMode, setNodeSizeMode] = useLocalStorage<NodeSizeMode>('vv:nodeSizeMode', 'incoming_links')
+  const [nodeColorMode, setNodeColorMode] = useLocalStorage<NodeColorMode>('vv:nodeColorMode', 'type')
   // null = not computed yet or non-betweenness mode; a Map = computed result
   const [nodeSizeMap, setNodeSizeMap] = useState<Map<string, number> | null>(null)
   // 'idle' | 'queued' (timer set, not started) | 'done'
@@ -522,6 +523,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     edgeColorMode, setEdgeColorMode,
     edgePruning, toggleEdgePruning, edgePruningK, setEdgePruningK,
     nodeSizeMode, setNodeSizeMode,
+    nodeColorMode, setNodeColorMode,
     nodeSizeMap,
     nodeSizeComputing,
     resetSimSettings,

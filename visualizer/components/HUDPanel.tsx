@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import type { GraphSource } from '@/lib/graph'
 import type { GraphStats } from '@/lib/useVisualizerState'
 import { TYPE_COLORS } from '@/lib/sigma-colors'
-import type { EdgeColorMode, NodeSizeMode } from '@/lib/sigma-colors'
+import type { EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
 import { TemperatureBar } from './TemperatureBar'
 import type { GraphCanvasHandle } from './GraphCanvas'
 
@@ -80,6 +80,8 @@ interface Props {
   totalEdgeCount: number
   nodeSizeMode: NodeSizeMode
   onNodeSizeModeChange: (mode: NodeSizeMode) => void
+  nodeColorMode: NodeColorMode
+  onNodeColorModeChange: (mode: NodeColorMode) => void
   nodeSizeComputing: boolean
   graphStats: GraphStats | null
 }
@@ -105,6 +107,7 @@ export function HUDPanel({
   edgeColorMode, onEdgeColorModeChange,
   edgePruning, onToggleEdgePruning, edgePruningK, onEdgePruningKChange, totalEdgeCount,
   nodeSizeMode, onNodeSizeModeChange, nodeSizeComputing,
+  nodeColorMode, onNodeColorModeChange,
   graphStats,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
@@ -315,6 +318,44 @@ export function HUDPanel({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Node Color */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 5 }}>
+              <span style={{ color: '#6B7A99', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>Node Color</span>
+              <Tip text="Type: color by note type. Heatmap: color by how recently each note was changed (red = recent, blue = old)." />
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['type', 'recency'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => onNodeColorModeChange(m)}
+                  style={{
+                    flex: 1, padding: '4px 0', borderRadius: 4, border: '1px solid',
+                    borderColor: nodeColorMode === m ? '#00FFC8' : 'rgba(255,255,255,0.08)',
+                    background: nodeColorMode === m ? 'rgba(0,255,200,0.12)' : 'transparent',
+                    color: nodeColorMode === m ? '#00FFC8' : '#6B7A99',
+                    cursor: 'pointer', fontSize: 10, fontFamily: 'Oxanium, sans-serif',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {m === 'type' ? 'Type' : 'Heatmap'}
+                </button>
+              ))}
+            </div>
+            {nodeColorMode === 'recency' && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{
+                  height: 8, borderRadius: 4,
+                  background: 'linear-gradient(90deg, hsl(0,80%,55%), hsl(220,80%,55%))',
+                }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+                  <span style={{ color: '#6B7A99', fontSize: 9, fontFamily: 'Oxanium, sans-serif' }}>recent</span>
+                  <span style={{ color: '#6B7A99', fontSize: 9, fontFamily: 'Oxanium, sans-serif' }}>old</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Node Size */}
