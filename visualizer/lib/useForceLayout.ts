@@ -12,6 +12,7 @@ import {
   PHYSICS_DAMPING,
   PHYSICS_DT,
   PHYSICS_MIN_DIST,
+  recencyHeatColor,
 } from '@/lib/sigma-colors'
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,23 @@ export function buildRecencySizeMap(mtimes: { id: string; mtime: number }[]): Ma
   return new Map(mtimes.map((n, i) => {
     const t = (ages[i] - minAge) / range  // 0 = newest, 1 = oldest
     return [n.id, RECENCY_SIZE_MIN + (1 - t) * (RECENCY_SIZE_MAX - RECENCY_SIZE_MIN)]
+  }))
+}
+
+/**
+ * Map each node id to a recency heatmap hex color. Mirrors buildRecencySizeMap's
+ * normalization (0 = newest, 1 = oldest) so the size and color ramps stay aligned.
+ */
+export function buildRecencyColorMap(mtimes: { id: string; mtime: number }[]): Map<string, string> {
+  if (mtimes.length === 0) return new Map()
+  const now = Date.now() / 1000
+  const ages = mtimes.map(n => now - n.mtime)
+  const minAge = Math.min(...ages)
+  const maxAge = Math.max(...ages)
+  const range = Math.max(0.001, maxAge - minAge)
+  return new Map(mtimes.map((n, i) => {
+    const t = (ages[i] - minAge) / range  // 0 = newest, 1 = oldest
+    return [n.id, recencyHeatColor(t)]
   }))
 }
 

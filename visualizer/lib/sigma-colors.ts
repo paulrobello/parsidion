@@ -63,6 +63,19 @@ export function getNodeSize(incomingLinks: number): number {
   return Math.max(2, Math.log(incomingLinks + 1) * 2)
 }
 
+export type NodeColorMode = 'type' | 'recency'
+
+/**
+ * Recency heatmap color: t=0 (newest) → red (hue 0°), t=1 (oldest) → blue (hue 220°).
+ * Same hue range as the semantic-edge gradient (getSemanticEdgeColor) so the
+ * heatmap reads consistently with the rest of the graph. Output is #rrggbb hex
+ * so the node reducer can append alpha ('66') for the neighborhood fringe fade.
+ */
+export function recencyHeatColor(t: number): string {
+  const clamped = Math.max(0, Math.min(1, t))
+  return hslToHex(220 * clamped, 80, 55)
+}
+
 export type EdgeColorMode = 'binary' | 'gradient'
 export type NodeSizeMode = 'uniform' | 'incoming_links' | 'betweenness' | 'recency'
 
