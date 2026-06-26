@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-06-26
+
+### Fixed
+- **Visualizer npm security patch** — pinned vulnerable transitive dependencies to patched versions via a new `overrides` block in `visualizer/package.json` (keeps them transitive — no fake direct deps), after an OSV/GHSA audit (the `pip` and GitHub-Actions ecosystems are clean): picomatch `4.0.3 → 4.0.4` (ReDoS via extglob quantifiers — GHSA-c2c7-rcm5-vvqj, HIGH; incorrect POSIX character-class matching — GHSA-3v7f-55p6-f55p, MOD), brace-expansion `5.0.4 → 5.0.6` (DoS via zero-step / large-numeric ranges — GHSA-f886-m6hf-6m8v / GHSA-jxxr-4gwj-5jf2, MOD), postcss `8.5.8 → 8.5.15` (XSS via unescaped `</style>` in stringify output — GHSA-qx2v-qp2m-jg93, MOD), @babel/core `7.29.0 → 7.29.7` (in-major patch; dev-time file read via `sourceMappingURL` — GHSA-4x5r-pxfx-6jf8, LOW), esbuild `0.28.0 → 0.28.1` (dev-server file read on Windows — GHSA-g7r4-m6w7-qqqr, LOW). `bun run build` and all unit tests pass; re-audit shows 0 advisories.
+
 ## [0.11.0] - 2026-06-26
 
 ### Added
@@ -619,7 +624,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/paulrobello/parsidion/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/paulrobello/parsidion/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/paulrobello/parsidion/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/paulrobello/parsidion/compare/v0.9.1...v0.9.2

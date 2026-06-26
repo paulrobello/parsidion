@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.11.0:** the visualizer toolbar gained live PEND/NOTES chips and can launch the summarizer in-place (refreshing the vault on completion); the recency-heatmap legend now matches the node colors; dependencies are on the latest. 0.10.0 brought graph retrieval at session start, `vault-stats --graph` retrieval-readiness metrics, and a Codex `SubagentStop` hook. See the [Changelog](CHANGELOG.md).
+> **New in 0.11.1:** security patch — vulnerable transitive npm deps in the visualizer bumped (picomatch, brace-expansion, postcss, @babel/core, esbuild). 0.11.0 added the visualizer vault-stats toolbar + in-place summarizer launch and fixed the recency-heatmap legend; 0.10.0 brought graph retrieval at session start. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
@@ -1034,7 +1034,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.11.0** (visualizer vault-stats header + in-place summarizer launch + post-run vault refresh; recency-heatmap legend fix; dependency upgrades). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.11.1** (visualizer npm security patch — picomatch, brace-expansion, postcss, @babel/core, esbuild transitive bumps). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
