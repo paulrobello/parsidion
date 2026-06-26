@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { recencyHeatColor } from './sigma-colors'
+import { recencyHeatColor, RECENCY_HEATMAP_GRADIENT } from './sigma-colors'
 
 const HEX = /^#[0-9a-f]{6}$/i
 function channels(hex: string) {
@@ -25,5 +25,14 @@ describe('recencyHeatColor', () => {
     const oldest = channels(recencyHeatColor(1))
     expect(newest.r).toBeGreaterThan(oldest.r)   // red falls as notes age
     expect(newest.b).toBeLessThan(oldest.b)      // blue rises as notes age
+  })
+
+  it('legend gradient sweeps through green like the nodes do', () => {
+    // A plain CSS red→blue gradient interpolates in RGB space and skips green;
+    // the sampled hue sweep must include the green mid-recency band (hue ~110°).
+    expect(RECENCY_HEATMAP_GRADIENT).toMatch(/linear-gradient\(90deg, .+, .+\)/)
+    const mid = channels(recencyHeatColor(0.5))
+    expect(mid.g).toBeGreaterThan(mid.r)
+    expect(mid.g).toBeGreaterThan(mid.b)
   })
 })

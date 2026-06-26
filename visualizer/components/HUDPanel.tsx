@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type { GraphSource } from '@/lib/graph'
 import type { GraphStats } from '@/lib/useVisualizerState'
-import { TYPE_COLORS } from '@/lib/sigma-colors'
+import { TYPE_COLORS, RECENCY_HEATMAP_GRADIENT } from '@/lib/sigma-colors'
 import type { EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
 import { TemperatureBar } from './TemperatureBar'
 import type { GraphCanvasHandle } from './GraphCanvas'
@@ -348,7 +348,7 @@ export function HUDPanel({
               <div style={{ marginTop: 6 }}>
                 <div style={{
                   height: 8, borderRadius: 4,
-                  background: 'linear-gradient(90deg, hsl(0,80%,55%), hsl(220,80%,55%))',
+                  background: RECENCY_HEATMAP_GRADIENT,
                 }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
                   <span style={{ color: '#6B7A99', fontSize: 9, fontFamily: 'Oxanium, sans-serif' }}>recent</span>

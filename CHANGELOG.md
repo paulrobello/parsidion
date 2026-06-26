@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-26
+
 ### Added
 - **Visualizer vault-stats header** — the toolbar now shows two live chips after the vault selector: **PEND** (sessions queued in `pending_summaries.jsonl`, amber when >0) and **NOTES** (total note count). A new `GET /api/stats` route counts non-empty JSON lines in the queue (mirroring `vault_metrics.collect_pending`); NOTES reuses the live `totalFiles` from `useVaultFiles`. Pending polls every 60 s and on tab focus.
 - **Run summarizer from the visualizer** — clicking the PEND chip opens a confirmation dialog; confirming spawns `summarize_sessions.py` against the selected vault and the chip morphs into a pulsing `processed/total` progress indicator. New `POST /api/summarize` route spawns the summarizer detached/non-blocking (returns at once with the PID) with `CLAUDECODE` stripped from the child env so the claude-cli backend works even when the dev server inherits it; `GET /api/summarizer/status` reports liveness + progress. Progress polls every 5 s, keeps the pending count live, detects runs already in progress on mount (including CLI-started ones), and flashes "✓ finished" / "⚠ errors" on completion. Liveness combines the summarizer's own progress file with a PID state file in `~/.claude/logs/`. Shared server logic lives in `lib/vaultStatsServer.ts`.
 - **Post-run vault refresh** — on summarizer completion, `VaultStats` POSTs `/api/graph/rebuild`, and the `graph:rebuilt` broadcast now also refreshes the file list (not just the graph), so newly written notes appear in both the graph and the NOTES count without depending on the file watcher (which can miss summarizer-written notes under the legacy `ClaudeVault` → `ParsidionVault` symlink).
+
+### Changed
+- **Dependencies bumped to latest** across the root project and `parsidion-mcp` (notably numpy 2.4 → 2.5, onnxruntime 1.26 → 1.27, and `mcp` 1.27 → 1.28). `parsidion-mcp`'s security constraints (`requests>=2.33.1`, `python-multipart>=0.0.26`, `pillow>=12.2.0`) remain satisfied.
+- **Root `ruff` now excludes `parsidion-mcp`** — `make fmt` / `make lint` at the repo root no longer recurse into the subproject (which owns its own ruff config and `Makefile`), so the two configs can't race. The boundary now matches `pyright`, which already excluded it.
+
+### Fixed
+- **Visualizer recency-heatmap legend missed green** — the legend bar used a plain CSS `red → blue` gradient, which interpolates in RGB space and skips green; meanwhile mid-recency nodes (hue ~110°) render green, so the legend didn't match the nodes. The legend now derives from `recencyHeatColor` (5 sampled hue stops: red → yellow → green → cyan → blue), so it can never drift from the actual node colors again.
 
 ## [0.10.0] - 2026-06-24
 
@@ -610,7 +619,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/paulrobello/parsidion/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/paulrobello/parsidion/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/paulrobello/parsidion/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/paulrobello/parsidion/compare/v0.9.0...v0.9.1

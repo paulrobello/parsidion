@@ -76,6 +76,17 @@ export function recencyHeatColor(t: number): string {
   return hslToHex(220 * clamped, 80, 55)
 }
 
+/**
+ * CSS linear-gradient mirroring recencyHeatColor's hue sweep (red → green → blue),
+ * for the heatmap legend bar. Sampled at 5 stops because CSS interpolates two HSL
+ * stops in RGB space — a plain red→blue gradient skips green entirely, even though
+ * mid-recency nodes (hue ~110°) render green. Built from recencyHeatColor so the
+ * legend can never drift from the actual node colors.
+ */
+export const RECENCY_HEATMAP_GRADIENT = `linear-gradient(90deg, ${
+  [0, 0.25, 0.5, 0.75, 1].map(t => recencyHeatColor(t)).join(', ')
+})`
+
 export type EdgeColorMode = 'binary' | 'gradient'
 export type NodeSizeMode = 'uniform' | 'incoming_links' | 'betweenness' | 'recency'
 
