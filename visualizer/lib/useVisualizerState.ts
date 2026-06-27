@@ -90,7 +90,7 @@ export function useVisualizerState(graphData: GraphData | null) {
   const [openTabStems, setOpenTabStems] = useLocalStorage<string[]>('vv:openTabs', [])
   const [activeTabStem, setActiveTabStem] = useLocalStorage<string | null>('vv:activeTab', null)
   const [viewMode, setViewMode] = useLocalStorage<'read' | 'graph'>('vv:viewMode', 'read')
-  const [graphScope, setGraphScope] = useLocalStorage<'local' | 'full'>('vv:graphScope', 'local')
+  const [neighborhoodCenter, setNeighborhoodCenter] = useState<string | null>(null)
 
   // --- History mode state ---
   const [historyMode, setHistoryMode] = useState(false)
@@ -325,7 +325,6 @@ export function useVisualizerState(graphData: GraphData | null) {
   const [startTemperature, setStartTemperature] = useLocalStorage('vv:startTemperature', SIM_DEFAULTS.startTemperature)
   const [stopThreshold, setStopThreshold] = useLocalStorage('vv:stopThreshold', SIM_DEFAULTS.stopThreshold)
   const [isLayoutRunning, setIsLayoutRunning] = useState(true)
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [edgeColorMode, setEdgeColorMode] = useLocalStorage<EdgeColorMode>('vv:edgeColorMode', 'binary')
   const [edgePruning, setEdgePruning] = useLocalStorage('vv:edgePruning', false)
   const [edgePruningK, setEdgePruningK] = useLocalStorage('vv:edgePruningK', 8)
@@ -497,7 +496,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     openTabs: validTabs, activeTab: validActiveTab, activeNode,
     openNote, closeTab, switchTab,
     // View state
-    viewMode, setViewMode, graphScope, setGraphScope,
+    viewMode, setViewMode, neighborhoodCenter, setNeighborhoodCenter,
     historyMode, historyNote, historyPath, openHistory, closeHistory,
     // Sidebar state
     sidebarWidth, setSidebarWidth, sidebarCollapsed, setSidebarCollapsed,
@@ -519,7 +518,6 @@ export function useVisualizerState(graphData: GraphData | null) {
     startTemperature, setStartTemperature,
     stopThreshold, setStopThreshold,
     isLayoutRunning, setIsLayoutRunning,
-    selectedNode, setSelectedNode,
     edgeColorMode, setEdgeColorMode,
     edgePruning, toggleEdgePruning, edgePruningK, setEdgePruningK,
     nodeSizeMode, setNodeSizeMode,

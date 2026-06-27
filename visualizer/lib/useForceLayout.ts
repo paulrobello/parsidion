@@ -305,10 +305,20 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
     // --- Drag mode ---
     if (isDraggingRef.current && draggedNodeRef.current && dragPositionRef.current) {
       const dn = draggedNodeRef.current
-      const dp = dragPositionRef.current
-      g.setNodeAttribute(dn, 'x', dp.x)
-      g.setNodeAttribute(dn, 'y', dp.y)
-      velocities.set(dn, { vx: 0, vy: 0 })
+      // Defense-in-depth: if the dragged node was dropped (e.g. by an incremental
+      // graph update mid-drag), clear drag state rather than writing to a missing
+      // node (graphology would throw and kill the rAF loop). GraphCanvas also
+      // clears these refs in applyNodeDelta; this guards any future caller.
+      if (!g.hasNode(dn)) {
+        isDraggingRef.current = false
+        draggedNodeRef.current = null
+        dragPositionRef.current = null
+      } else {
+        const dp = dragPositionRef.current
+        g.setNodeAttribute(dn, 'x', dp.x)
+        g.setNodeAttribute(dn, 'y', dp.y)
+        velocities.set(dn, { vx: 0, vy: 0 })
+      }
     }
 
     // Accumulate forces (only for visible nodes)
