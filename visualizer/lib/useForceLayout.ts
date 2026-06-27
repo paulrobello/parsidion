@@ -310,7 +310,9 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
       // node (graphology would throw and kill the rAF loop). GraphCanvas also
       // clears these refs in applyNodeDelta; this guards any future caller.
       if (!g.hasNode(dn)) {
-        isDraggingRef.current = false
+        // Dragged node was dropped (incremental update). Stop dragging it, but
+        // keep isDraggingRef true so the mouseup handler still runs its full
+        // cleanup (cursor reset + reheat) — clearing it here makes mouseup bail.
         draggedNodeRef.current = null
         dragPositionRef.current = null
       } else {

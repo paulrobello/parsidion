@@ -114,9 +114,11 @@ export function useVisualizerState(graphData: GraphData | null) {
       // Clear tabs
       setOpenTabStems([])
       setActiveTabStem(null)
+      // Clear graph focus — the old center id doesn't exist in the new vault
+      setNeighborhoodCenter(null)
     }
     setSelectedVaultInternal(vault)
-  }, [selectedVault, setSelectedVaultInternal, setOpenTabStems, setActiveTabStem])
+  }, [selectedVault, setSelectedVaultInternal, setOpenTabStems, setActiveTabStem, setNeighborhoodCenter])
 
   // --- Wikilink resolution map ---
   const stemLookup = useMemo(() => {

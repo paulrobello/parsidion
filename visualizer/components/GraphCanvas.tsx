@@ -478,16 +478,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // Size/color for new + changed nodes are corrected by the size/color effects
   // via nodeDeltaVersion (bumped by the caller) — not here.
   const applyNodeDelta = useCallback((graph: AbstractGraph, d: GraphData, delta: NodeDelta) => {
-    // Hole B: if the node being dragged was removed, clear drag state so the
-    // physics loop's drag branch doesn't write to a dropped node.
+    // If the dragged node was removed, stop dragging it (so mousemovebody and
+    // the layout loop don't write to a missing node). Keep isDraggingRef true so
+    // the mouseup handler still runs its full cleanup (cursor reset + reheat).
     if (draggedNodeRef.current && delta.removed.includes(draggedNodeRef.current)) {
-      isDraggingRef.current = false
       draggedNodeRef.current = null
       dragPositionRef.current = null
     }
 
     for (const id of delta.removed) {
       if (graph.hasNode(id)) graph.dropNode(id)
+      simVelocitiesRef.current.delete(id) // don't let stale entries grow the map
     }
 
     // Placement seed = surviving nodes' current positions, so new nodes land

@@ -58,9 +58,10 @@ export function computeNodeDelta(
   currentIds: Set<string>,
   newVisible: NoteNode[]
 ): NodeDelta {
+  const newIds = new Set(newVisible.map(n => n.id))
   const removed: string[] = []
   for (const id of currentIds) {
-    if (!newVisible.some(n => n.id === id)) removed.push(id)
+    if (!newIds.has(id)) removed.push(id)
   }
   const added: NoteNode[] = []
   const kept: NoteNode[] = []
