@@ -20,6 +20,11 @@ import {
   buildRecencySizeMap, buildRecencyColorMap, pruneEdges,
   RECENCY_SIZE_MIN,
 } from '@/lib/useForceLayout'
+import {
+  computeVisibleNodes, computeNodeDelta, shouldFullRebuild,
+  buildAdjacency, seedPlacementFrom, graphBounds, positionNewNode,
+} from '@/lib/graphDelta'
+import type { NodeDelta } from '@/lib/graphDelta'
 
 export interface GraphCanvasHandle {
   flyToNode: (stem: string) => void
@@ -43,8 +48,7 @@ interface Props {
   nodeSizeMode: NodeSizeMode
   nodeColorMode: NodeColorMode
   nodeSizeMap: Map<string, number> | null
-  selectedNode: string | null
-  onNodeClick: (stem: string, newTab: boolean) => void
+  onNodeClick: (stem: string, open: boolean, newTab: boolean) => void
   onBackgroundClick: () => void
   onOpenHistory?: (stem: string) => void
   scalingRatio: number
@@ -114,7 +118,7 @@ function findWikiPath(
 
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
   {
-    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, edgePruning, edgePruningK, nodeSizeMode, nodeColorMode, nodeSizeMap, selectedNode,
+    data, threshold, graphSource, activeTypes, showDaily, hideIsolated, labelsOnHoverOnly, showOverlayEdges, filterNodesBySimilarity, edgeColorMode, edgePruning, edgePruningK, nodeSizeMode, nodeColorMode, nodeSizeMap,
     onNodeClick, onBackgroundClick, onOpenHistory,
     scalingRatio, gravity, slowDown, edgeWeightInfluence, startTemperature, stopThreshold, isLayoutRunning, onLayoutStop, onLayoutRestart,
     neighborhoodCenter, neighborhoodHops,
@@ -192,6 +196,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const dragHasMovedRef = useRef(false)
 
   const [nodeContextMenu, setNodeContextMenu] = useState<{ stem: string; x: number; y: number } | null>(null)
+  // Bumped after each incremental node delta so the size + color effects re-run
+  // and size/color newly-added and changed nodes (their deps are otherwise
+  // mode-only, so they'd skip a pure data change). See applyNodeDelta.
+  const [nodeDeltaVersion, setNodeDeltaVersion] = useState(0)
 
   const pathSourceRef = useRef<string | null>(null)
   const pathNodesRef = useRef<Set<string>>(new Set())
@@ -362,7 +370,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       graph.setNodeAttribute(nodeId, 'size', size)
     })
     sigma.refresh()
-  }, [nodeSizeMode, nodeSizeMap])
+  }, [nodeSizeMode, nodeSizeMap, nodeDeltaVersion])
 
   // Recolor nodes when the color mode toggles. Color has no physics effect, so
   // this is a refresh-only update — do NOT call reheat().
@@ -385,7 +393,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       graph.setNodeAttribute(nodeId, 'originalColor', col)
     })
     sigma.refresh()
-  }, [nodeColorMode])
+  }, [nodeColorMode, nodeDeltaVersion])
 
   useEffect(() => {
     const graph = graphRef.current
@@ -431,8 +439,120 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const getEnergy = useCallback(() => temperatureRef.current, [temperatureRef])
   useImperativeHandle(ref, () => ({ flyToNode, selectNode, getEnergy }), [flyToNode, selectNode, getEnergy])
 
+  // Kill the sigma/graphology instance and reset all refs. Used by the unmount
+  // effect and by the [data] effect's safety-valve full-rebuild path. It is NOT
+  // called on an ordinary data change — that path applies an incremental delta
+  // so the camera and converged layout survive a graph.json rebuild.
+  const teardownInstance = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    layoutLoopRef.current = null
+    simVelocitiesRef.current.clear()
+    sigmaRef.current?.kill()
+    sigmaRef.current = null
+    graphRef.current = null
+    layoutGraphRef.current = null
+    sigmaRefreshRef.current = null
+    highlightedNodesRef.current = new Set()
+    highlightedEdgesRef.current = new Set()
+    hoveredNodeRef.current = null
+    isDraggingRef.current = false
+    draggedNodeRef.current = null
+    dragPositionRef.current = null
+    pathSourceRef.current = null
+    pathNodesRef.current = new Set()
+    pathEdgesRef.current = new Set()
+    // refs from useForceLayout are stable; exhaustive-deps can't see that
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Apply an incremental node delta to the live graphology instance:
+  //   - drop removed nodes (graphology cascades incident edges → removed links
+  //     vanish instantly)
+  //   - add new nodes positioned near their existing neighbors, or on the
+  //     perimeter if they have none
+  //   - refresh labels for kept (possibly renamed) nodes
+  //   - reheat so the layout settles from current positions
+  // Size/color for new + changed nodes are corrected by the size/color effects
+  // via nodeDeltaVersion (bumped by the caller) — not here.
+  const applyNodeDelta = useCallback((graph: AbstractGraph, d: GraphData, delta: NodeDelta) => {
+    // If the dragged node was removed, stop dragging it (so mousemovebody and
+    // the layout loop don't write to a missing node). Keep isDraggingRef true so
+    // the mouseup handler still runs its full cleanup (cursor reset + reheat).
+    if (draggedNodeRef.current && delta.removed.includes(draggedNodeRef.current)) {
+      draggedNodeRef.current = null
+      dragPositionRef.current = null
+    }
+
+    for (const id of delta.removed) {
+      if (graph.hasNode(id)) graph.dropNode(id)
+      simVelocitiesRef.current.delete(id) // don't let stale entries grow the map
+    }
+
+    // Placement seed = surviving nodes' current positions, so new nodes land
+    // near existing neighbors; isolated new nodes fall to the perimeter.
+    const visibleIds = new Set<string>(graph.nodes() as string[])
+    for (const n of delta.added) visibleIds.add(n.id)
+    const adjacency = buildAdjacency(d.edges, visibleIds)
+    const placed = seedPlacementFrom((id: string) => {
+      const a = graph.getNodeAttributes(id) as { x: number; y: number }
+      return { x: a.x, y: a.y }
+    }, graph.nodes() as string[])
+    const bounds = graphBounds(placed)
+
+    // Place well-connected new nodes first so later siblings can cluster on them.
+    const addedSorted = [...delta.added].sort(
+      (a, b) => (adjacency.get(b.id)?.size ?? 0) - (adjacency.get(a.id)?.size ?? 0)
+    )
+    for (const n of addedSorted) {
+      if (graph.hasNode(n.id)) continue
+      const { x, y } = positionNewNode(n.id, placed, adjacency, bounds)
+      const col = getNodeColor(n.type)
+      // Fallback size/color; the size + color effects overwrite with the
+      // mode-correct values on the next commit (nodeDeltaVersion dep).
+      graph.addNode(n.id, {
+        label: n.title, color: col, size: getNodeSize(n.incoming_links),
+        x, y, nodeType: n.type, originalColor: col,
+      })
+      placed.set(n.id, { x, y })
+      simVelocitiesRef.current.set(n.id, { vx: 0, vy: 0 }) // add only — never clear()
+    }
+
+    // Kept nodes: refresh label for renames (there is no dedicated label effect).
+    for (const n of delta.kept) {
+      const attrs = graph.getNodeAttributes(n.id) as { label?: string }
+      if (attrs.label !== n.title) graph.setNodeAttribute(n.id, 'label', n.title)
+    }
+
+    sigmaRef.current?.refresh()
+    reheat()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reheat])
+
   useEffect(() => {
     if (!containerRef.current || !data) return
+
+    // INCREMENTAL DELTA — a sigma/graphology instance already exists. Instead of
+    // tearing it down (which discards the camera and the converged layout), mutate
+    // it: drop removed nodes, add new ones near their existing neighbors, reheat.
+    // Falls back to the full bootstrap below when there is no instance yet or the
+    // turnover is large (e.g. a vault switch).
+    if (sigmaRef.current && graphRef.current) {
+      const graph = graphRef.current
+      const currentIds = new Set(graph.nodes() as string[])
+      const newVisible = computeVisibleNodes(data.nodes, activeTypes, showDaily)
+      const delta = computeNodeDelta(currentIds, newVisible)
+
+      if (shouldFullRebuild(delta, currentIds.size)) {
+        teardownInstance()   // large turnover → discard and re-bootstrap below
+      } else {
+        applyNodeDelta(graph, data, delta)
+        setNodeDeltaVersion(v => v + 1)
+        return () => { /* delta is synchronous; never kill sigma on a data change */ }
+      }
+    }
 
     let cancelled = false
 
@@ -642,9 +762,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       })
       sigma.on('clickNode', ({ node, event }: { node: string; event: { original: MouseEvent | TouchEvent } }) => {
         if (dragHasMovedRef.current) return  // drag, not click
-        const orig = event.original
-        const newTab = orig instanceof MouseEvent ? (orig.metaKey || orig.ctrlKey) : false
-        onNodeClick(node, newTab)
+        // shift/cmd/ctrl => open the note; cmd/ctrl => new tab. Read modifiers
+        // defensively off event.original (sigma's wrapped native event),
+        // falling back to event itself — an instanceof MouseEvent guard proved
+        // unreliable here (sigma's wrapper is not always a native MouseEvent).
+        const orig = (event.original ?? event) as { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }
+        const open = !!(orig.shiftKey || orig.metaKey || orig.ctrlKey)
+        const newTab = !!(orig.metaKey || orig.ctrlKey)
+        onNodeClick(node, open, newTab)
         const neighbors = new Set(graph.neighbors(node) as string[])
         neighbors.add(node)
         highlightedNodesRef.current = neighbors
@@ -713,30 +838,26 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
-      layoutLoopRef.current = null
-      simVelocitiesRef.current.clear()
-      sigmaRef.current?.kill()
-      sigmaRef.current = null
-      graphRef.current = null
-      layoutGraphRef.current = null
-      sigmaRefreshRef.current = null
-      highlightedNodesRef.current = new Set()
-      highlightedEdgesRef.current = new Set()
-      hoveredNodeRef.current = null
-      isDraggingRef.current = false
-      draggedNodeRef.current = null
-      dragPositionRef.current = null
-      pathSourceRef.current = null
-      pathNodesRef.current = new Set()
-      pathEdgesRef.current = new Set()
+      // NOTE: sigma is NOT killed here. On a data change we apply an incremental
+      // delta (above) or re-bootstrap after teardownInstance(); killing here would
+      // discard the camera + converged layout on every graph.json rebuild — the
+      // exact regression incremental updates exist to prevent. Teardown happens
+      // only on unmount (the effect below) or via teardownInstance().
     }
-  // QA-017: Intentionally only depends on `data` — the effect rebuilds the entire
-  // Sigma/graphology instance from scratch when the data source changes.  Including
-  // all prop dependencies (threshold, activeTypes, etc.) would cause the graph to
-  // be destroyed and recreated on every slider change, losing camera position and
-  // layout state.  Incremental updates are handled by separate effects below.
+  // QA-017: Intentionally only depends on `data`. The effect bootstraps the
+  // Sigma/graphology instance on first load (or after a large turnover), and
+  // applies an incremental delta otherwise. Including all prop dependencies
+  // (threshold, activeTypes, etc.) would re-run it on every slider change. The
+  // delta branch also reads activeTypes/showDaily from this closure — safe because
+  // they only matter when `data` changes (filter-toggle live updates are a
+  // separate, currently-unimplemented concern).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
+
+  // Unmount-only teardown. The [data] effect's cleanup no longer kills sigma
+  // (so incremental updates preserve the instance); this effect owns the kill.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => teardownInstance(), [])
 
   useEffect(() => {
     if (!sigmaRef.current || !graphRef.current || !data) return
@@ -805,7 +926,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
               style={{ padding: '6px 12px', cursor: 'pointer', color: '#ccc' }}
               onMouseEnter={e => (e.currentTarget.style.background = MENU_BORDER)}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              onClick={() => { onNodeClick(nodeContextMenu.stem, false); setNodeContextMenu(null) }}
+              onClick={() => { onNodeClick(nodeContextMenu.stem, true, false); setNodeContextMenu(null) }}
             >
               Open in Reading Pane
             </div>

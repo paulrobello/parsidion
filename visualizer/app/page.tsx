@@ -161,11 +161,15 @@ export default function Home() {
     }
   }, [state])
 
-  const handleGraphNodeClick = useCallback((stem: string, newTab: boolean) => {
-    state.openNote(stem, newTab)
-    state.setSelectedNode(stem)
-    // Switch to read mode when opening a note from graph
-    state.setViewMode('read')
+  const handleGraphNodeClick = useCallback((stem: string, open: boolean, newTab: boolean) => {
+    if (open) {
+      // shift / cmd / ctrl: open the note in the reading pane
+      state.openNote(stem, newTab)
+      state.setViewMode('read')
+    } else {
+      // plain click: focus the graph on this node's neighborhood (no tab change)
+      state.setNeighborhoodCenter(stem)
+    }
   }, [state])
 
   // Track whether the sim was running when we last left the graph tab,
@@ -224,7 +228,7 @@ export default function Home() {
   }, [pendingOpenStem, state])
 
   // Determine neighborhood center for graph mode
-  const neighborhoodCenter = state.graphScope === 'local' ? state.activeTab : null
+  const neighborhoodCenter = state.neighborhoodCenter
 
   return (
     <main suppressHydrationWarning style={{
@@ -353,7 +357,7 @@ export default function Home() {
                       display: 'flex', gap: 6, zIndex: 10,
                       fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
                     }}>
-                      {state.activeTab && state.graphScope === 'local' && (
+                      {state.neighborhoodCenter && (
                         <div style={{
                           background: 'rgba(15,23,42,0.92)',
                           border: '1px solid #1e293b', borderRadius: 5,
@@ -361,12 +365,12 @@ export default function Home() {
                           display: 'flex', gap: 8, alignItems: 'center',
                         }}>
                           <span style={{ color: '#f97316' }}>●</span>
-                          <span style={{ color: '#e8e8f0' }}>{state.activeTab}</span>
+                          <span style={{ color: '#e8e8f0' }}>{state.neighborhoodCenter}</span>
                           <span style={{ color: '#6b7a99' }}>· 2 hops</span>
                         </div>
                       )}
                       <button
-                        onClick={() => state.setGraphScope(state.graphScope === 'local' ? 'full' : 'local')}
+                        onClick={() => state.setNeighborhoodCenter(state.neighborhoodCenter ? null : state.activeTab)}
                         style={{
                           background: 'rgba(15,23,42,0.92)',
                           border: '1px solid #1e293b', borderRadius: 5,
@@ -375,7 +379,7 @@ export default function Home() {
                           fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
                         }}
                       >
-                        {state.graphScope === 'local' ? 'Show Full Vault ⤢' : 'Show Neighborhood ⤡'}
+                        {state.neighborhoodCenter ? 'Show Full Vault ⤢' : 'Show Neighborhood ⤡'}
                       </button>
                     </div>
 
@@ -396,9 +400,8 @@ export default function Home() {
                       nodeSizeMode={state.nodeSizeMode}
                       nodeColorMode={state.nodeColorMode}
                       nodeSizeMap={state.nodeSizeMap}
-                      selectedNode={state.selectedNode}
                       onNodeClick={handleGraphNodeClick}
-                      onBackgroundClick={() => state.setSelectedNode(null)}
+                      onBackgroundClick={() => state.setNeighborhoodCenter(null)}
                       onOpenHistory={state.openHistory}
                       scalingRatio={state.scalingRatio}
                       gravity={state.gravity}
