@@ -640,6 +640,38 @@ def _ensure_closing_frontmatter_delimiter(note_content: str) -> str:
     return "".join(lines[:insert_at] + ["---\n"] + lines[insert_at:])
 
 
+def _strip_leading_preamble(note_content: str) -> str:
+    """Strip prose preamble the model emits before the opening ``---``.
+
+    A third salvage defense for AI-generated notes, complementing the
+    code-fence unwrap and the missing-closing-delimiter repair. The note
+    prompt asks for "ONLY the raw markdown note … no preamble", but large
+    models on the hierarchical summarization path sometimes preface the note
+    with a line like "Here is the note:". Because ``parse_frontmatter``
+    requires the content to start with ``---``, such otherwise-valid notes
+    are rejected as "Note has no YAML frontmatter block" — and the other two
+    salvages are no-ops because they also assume a leading ``---``.
+
+    Drops everything before the first line that is exactly ``---``, but only
+    when the remainder actually parses as frontmatter (after the standard
+    closing-delimiter repair), so a body horizontal rule is never mistaken
+    for a frontmatter delimiter. No-op when the content already starts with
+    ``---`` or has no salvageable frontmatter at all.
+    """
+    if note_content.lstrip().startswith("---"):
+        return note_content
+    lines = note_content.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.strip() != "---":
+            continue
+        candidate = "".join(lines[i:])
+        if vault_common.parse_frontmatter(
+            _ensure_closing_frontmatter_delimiter(candidate)
+        ):
+            return candidate
+    return note_content
+
+
 def _note_body(note_content: str) -> str:
     """Return the markdown body of a note — everything after the YAML frontmatter.
 
@@ -715,6 +747,13 @@ def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
             if inner.rstrip().endswith("```"):
                 inner = inner.rstrip()[:-3].rstrip()
             note_content = inner
+
+    # Salvage AI notes where the model prefaced the note with prose ("Here is
+    # the note:") before the opening '---' — a third model failure mode. The
+    # fence unwrap above and the closing-delimiter repair below both assume a
+    # leading '---', so without this the note is rejected as having no
+    # frontmatter at all.
+    note_content = _strip_leading_preamble(note_content)
 
     # Salvage AI notes where the model emitted the opening '---' and all
     # frontmatter fields but omitted the closing '---' delimiter — a common

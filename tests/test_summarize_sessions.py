@@ -802,6 +802,78 @@ def test_write_note_salvages_note_missing_closing_frontmatter_delimiter(
     assert "Refusing to write note" not in captured.err
 
 
+def test_strip_leading_preamble_strips_prose_before_frontmatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # The model prefaced the note with prose despite the "no preamble" instruction.
+    note = (
+        "Here is the vault note for this session:\n\n"
+        "---\n"
+        "date: 2026-06-27\n"
+        "type: debugging\n"
+        "tags: [python]\n"
+        "confidence: high\n"
+        "---\n\n"
+        "# Some Note\n\nUseful insight.\n"
+    )
+
+    stripped = summarize_sessions._strip_leading_preamble(note)
+
+    assert stripped != note
+    assert stripped.startswith("---")
+    fm = summarize_sessions.vault_common.parse_frontmatter(stripped)
+    assert fm.get("type") == "debugging"
+    assert fm.get("date") == "2026-06-27"
+
+
+def test_strip_leading_preamble_noop_cases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Already starts with '---' — unchanged.
+    well_formed = (
+        "---\ndate: 2026-06-27\ntype: pattern\ntags: [x]\n---\n# Note\n\nBody.\n"
+    )
+    assert summarize_sessions._strip_leading_preamble(well_formed) == well_formed
+    # No frontmatter at all — unchanged (validator will reject).
+    prose_only = "Just some prose with no delimiters.\n"
+    assert summarize_sessions._strip_leading_preamble(prose_only) == prose_only
+    # A body horizontal rule must NOT be mistaken for a frontmatter delimiter.
+    body_rule = "Intro prose.\n\n---\n\nJust a paragraph, not frontmatter.\n"
+    assert summarize_sessions._strip_leading_preamble(body_rule) == body_rule
+
+
+def test_write_note_salvages_note_with_leading_preamble(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    # Realistic model output that prefaced the note with prose.
+    note = (
+        "Sure — here's the note:\n\n"
+        "---\n"
+        "date: 2026-06-27\n"
+        "type: debugging\n"
+        "tags:\n"
+        "  - debugging\n"
+        "confidence: high\n"
+        "---\n\n"
+        "# Preamble Note\n\nUseful insight.\n"
+    )
+
+    result = summarize_sessions.write_note(note, True, vault)
+
+    captured = capsys.readouterr()
+    assert result is None  # dry-run returns None
+    assert "[dry-run] Would write:" in captured.out
+    assert "Debugging/preamble-note.md" in captured.out
+    assert "Refusing to write note" not in captured.err
+
+
 def test_note_body_strips_frontmatter(monkeypatch: pytest.MonkeyPatch) -> None:
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     with_fm = (
