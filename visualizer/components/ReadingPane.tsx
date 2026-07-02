@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useTransition, useRef } from 'react'
 import type { ComponentPropsWithoutRef } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { getNodeColor } from '@/lib/sigma-colors'
 import type { NoteNode } from '@/lib/graph'
@@ -12,18 +12,27 @@ import { FrontmatterEditor } from './FrontmatterEditor'
 import { parseFrontmatter, serializeFrontmatter } from '@/lib/frontmatter'
 import type { FrontmatterFields } from '@/lib/frontmatter'
 
+// react-markdown v10's defaultUrlTransform strips unrecognized protocols (like our
+// wikilink: pseudo-protocol) to an empty href before the custom `a` component runs.
+// Pass wikilink: URLs through untouched so the custom handler below still sees them.
+function urlTransform(url: string): string {
+  return url.startsWith('wikilink:') ? url : defaultUrlTransform(url)
+}
+
 interface Props {
   node: NoteNode | null
-  fetchContent: (stem: string, path?: string) => Promise<string>
+  fetchContent: (stem: string, path?: string) => Promise<{ content: string; fromCache: boolean }>
   onNavigate: (stem: string, newTab: boolean) => void
-  onSave: (stem: string, content: string, lastModified?: number) => Promise<{ conflict: true; serverContent: string } | { ok: true }>
-  onDelete: (stem: string) => Promise<void>
+  onSave: (stem: string, content: string, lastModified?: number, notePath?: string) => Promise<{ conflict: true; serverContent: string } | { ok: true }>
+  onDelete: (stem: string, notePath?: string) => Promise<void>
   onOpenHistory: (stem: string, notePath?: string) => void
   nodes: NoteNode[]
   refreshTrigger?: number
+  /** Whether this pane is currently visible (not hidden behind graph view) — gates the ⌘E shortcut. */
+  visible?: boolean
 }
 
-export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0 }: Props) {
+export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0, visible = true }: Props) {
   const [content, setContent] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -42,20 +51,32 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const savedScrollRef = useRef(0)
 
+  // Stable note identifier (path, falling back to id) — a background graph reload
+  // (e.g. after the summarizer runs) produces a new `node` object for the same note,
+  // which must not re-trigger this effect or discard in-progress edits.
+  const noteKey = node ? (node.path || node.id) : null
+
   useEffect(() => {
     if (!node) return
     setIsEditing(false)
     let cancelled = false
     startTransition(async () => {
       try {
-        const c = await fetchContent(node.id, node.path)
-        if (!cancelled) { setContent(c); setLoadedAt(Date.now()); setError(null) }
+        const { content: c, fromCache } = await fetchContent(node.id, node.path)
+        if (!cancelled) {
+          setContent(c)
+          if (!fromCache) setLoadedAt(Date.now())
+          setError(null)
+        }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
       }
     })
     return () => { cancelled = true }
-  }, [node, fetchContent])
+  // Keyed on noteKey (not the `node` object) so a same-note reload with a new object
+  // identity doesn't re-run this effect and reset isEditing / refetch content.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteKey, fetchContent])
 
   const handleStartEdit = useCallback(() => {
     if (!content) return
@@ -66,9 +87,10 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     setIsEditing(true)
   }, [content])
 
-  // ⌘E to enter edit mode
+  // ⌘E to enter edit mode — only while this pane is actually visible
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (!visible) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !isEditing) {
         e.preventDefault()
         handleStartEdit()
@@ -76,7 +98,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [isEditing, handleStartEdit])
+  }, [isEditing, handleStartEdit, visible])
 
   useEffect(() => {
     if (refreshTrigger === 0 || !node) return
@@ -88,10 +110,10 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     let cancelled = false
     startTransition(async () => {
       try {
-        const c = await fetchContent(node.id, node.path)
+        const { content: c, fromCache } = await fetchContent(node.id, node.path)
         if (!cancelled) {
           setContent(c)
-          setLoadedAt(Date.now())
+          if (!fromCache) setLoadedAt(Date.now())
           setError(null)
         }
       } catch { /* ignore refresh errors */ }
@@ -124,7 +146,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     setSaveError(null)
     try {
       const fullContent = serializeFrontmatter(editFields, editBody)
-      const result = await onSave(node.id, fullContent, loadedAt)
+      const result = await onSave(node.id, fullContent, loadedAt, node.path)
       if ('conflict' in result && result.conflict) {
         setConflictData({ serverContent: result.serverContent })
         return
@@ -146,7 +168,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     setIsDeleting(true)
     setDeleteError(null)
     try {
-      await onDelete(node.id)
+      await onDelete(node.id, node.path)
       setShowDeleteConfirm(false)
     } catch (e) {
       setDeleteError((e as Error).message)
@@ -161,7 +183,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     setSaveError(null)
     try {
       // Force-save: omit lastModified so the server skips the conflict check
-      await onSave(node.id, resolved)
+      await onSave(node.id, resolved, undefined, node.path)
       setContent(resolved)
       setLoadedAt(Date.now())
       setIsEditing(false)
@@ -309,6 +331,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
             <div className="note-markdown">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                urlTransform={urlTransform}
                 components={{
                   a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => {
                     if (href?.startsWith('wikilink:')) {
@@ -496,6 +519,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
           <div className="note-markdown">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
+              urlTransform={urlTransform}
               components={{
                 a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => {
                   if (href?.startsWith('wikilink:')) {

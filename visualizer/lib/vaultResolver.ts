@@ -149,40 +149,82 @@ export function listNamedVaults(): NamedVault[] {
  * Resolves a vault name or path to an absolute vault path.
  * Falls back to the default vault if no vault is specified.
  *
- * Resolution order:
- * 1. Named vault from vaults.yaml
- * 2. Treat as path directly
- * 3. Default vault (VAULT_ROOT env, ~/ParsidionVault, or legacy ~/ClaudeVault)
+ * Resolution is an allowlist: `vaultName` must match either a named vault
+ * from vaults.yaml or the default vault. Arbitrary filesystem paths (e.g.
+ * "/", "~", "$HOME/Documents") are rejected outright, even when they don't
+ * hit VAULT_FORBIDDEN_PREFIXES — previously this was a denylist that let any
+ * non-forbidden path through, so any string with `vault=` in it (like the
+ * bare home directory) resolved and could be walked.
  *
- * SEC-001: After resolution the path is validated against
- * VAULT_FORBIDDEN_PREFIXES.  Throws VaultConfigError for forbidden paths.
+ * The fully-resolved path is additionally validated against
+ * VAULT_FORBIDDEN_PREFIXES as defense in depth (e.g. local misconfiguration
+ * of VAULT_ROOT).
  *
- * @throws {VaultConfigError} If the resolved path is under a forbidden prefix.
+ * @throws {VaultConfigError} If `vaultName` doesn't match a known vault, or
+ *   the resolved path is under a forbidden prefix.
  */
 export function resolveVault(vaultName?: string | null): string {
   const home = process.env.HOME || _home
 
-  let resolved: string
-
   if (!vaultName) {
-    resolved = getDefaultVault()
-  } else {
-    // Try as named vault first
-    const vaults = listNamedVaults()
-    const named = vaults.find(v => v.name === vaultName)
-    if (named) {
-      resolved = named.path
-    } else if (vaultName.startsWith('~')) {
-      // Treat as path - expand ~ if present
-      resolved = path.join(home, vaultName.slice(1))
-    } else {
-      resolved = vaultName
-    }
+    const resolved = getDefaultVault()
+    validateVaultPath(path.resolve(resolved))
+    return resolved
   }
 
-  // SEC-001: Validate the fully-resolved path against the forbidden-prefix list.
-  validateVaultPath(path.resolve(resolved))
-  return resolved
+  const named = listNamedVaults().find(v => v.name === vaultName)
+  if (named) {
+    validateVaultPath(path.resolve(named.path))
+    return named.path
+  }
+
+  // Allow the default vault to be referenced by its own path (expanding ~
+  // the same way named-vault paths are expanded), not just by omitting the
+  // vault name.
+  const expanded = vaultName.startsWith('~') ? path.join(home, vaultName.slice(1)) : vaultName
+  const defaultVault = getDefaultVault()
+  if (path.resolve(expanded) === path.resolve(defaultVault)) {
+    validateVaultPath(path.resolve(defaultVault))
+    return defaultVault
+  }
+
+  throw new VaultConfigError(`Unknown vault: ${vaultName}`)
+}
+
+/**
+ * Best-effort fs.realpathSync — falls back to the input path if it doesn't
+ * exist (or can't be read) rather than throwing.
+ */
+function realpathOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p)
+  } catch {
+    return p
+  }
+}
+
+/**
+ * Resolves `p` to its real (symlink-free) path. For paths that don't exist
+ * yet (e.g. a note being created via PUT), walks up to the nearest existing
+ * ancestor, realpaths that, and reattaches the nonexistent remainder — so
+ * symlinks in the existing portion of the path are still caught while the
+ * not-yet-created target itself doesn't need to exist.
+ */
+function realpathAllowingMissing(p: string): string {
+  let target = path.resolve(p)
+  const missingSuffix: string[] = []
+
+  while (true) {
+    try {
+      const real = fs.realpathSync(target)
+      return missingSuffix.length > 0 ? path.join(real, ...missingSuffix) : real
+    } catch {
+      const parent = path.dirname(target)
+      if (parent === target) return target // hit filesystem root; give up
+      missingSuffix.unshift(path.basename(target))
+      target = parent
+    }
+  }
 }
 
 /**
@@ -191,13 +233,17 @@ export function resolveVault(vaultName?: string | null): string {
  * copy-paste drift.  All route files import and call this instead of defining
  * their own `guardPath` helper.
  *
+ * Resolves real (symlink-free) paths before the containment check, so a
+ * symlink inside the vault that points outside of it (e.g. carried in via a
+ * shared/git-synced vault) can't be used to escape the vault root.
+ *
  * @param notePath  - Absolute path to the note or file being accessed.
  * @param vaultRoot - Absolute vault root path.
  */
 export function guardPath(notePath: string, vaultRoot: string): boolean {
-  const resolved = path.resolve(notePath)
-  const resolvedRoot = path.resolve(vaultRoot)
-  return resolved.startsWith(resolvedRoot + path.sep)
+  const resolvedRoot = realpathOrSelf(path.resolve(vaultRoot))
+  const resolved = realpathAllowingMissing(notePath)
+  return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep)
 }
 
 /**

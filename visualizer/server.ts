@@ -46,8 +46,10 @@ app.prepare().then(async () => {
   type AliveWS = WebSocket & { isAlive: boolean; vaultPath?: string }
   const clients = new Set<AliveWS>()
 
-  // Track watchers by vault path (lazy creation)
-  const watchers = new Map<string, FSWatcher>()
+  // Track watchers by vault path (lazy creation), reference-counted by
+  // subscribed client so the watcher is torn down once the last client for
+  // that vault disconnects instead of accumulating forever.
+  const watchers = new Map<string, { watcher: FSWatcher; refCount: number }>()
 
   function createVaultWatcher(vaultRoot: string): FSWatcher {
     const watcher = watch(vaultRoot, {
@@ -92,13 +94,23 @@ app.prepare().then(async () => {
     return watcher
   }
 
-  function getOrCreateWatcher(vaultPath: string): FSWatcher {
-    let watcher = watchers.get(vaultPath)
-    if (!watcher) {
-      watcher = createVaultWatcher(vaultPath)
-      watchers.set(vaultPath, watcher)
+  function acquireWatcher(vaultPath: string): void {
+    let entry = watchers.get(vaultPath)
+    if (!entry) {
+      entry = { watcher: createVaultWatcher(vaultPath), refCount: 0 }
+      watchers.set(vaultPath, entry)
     }
-    return watcher
+    entry.refCount += 1
+  }
+
+  function releaseWatcher(vaultPath: string): void {
+    const entry = watchers.get(vaultPath)
+    if (!entry) return
+    entry.refCount -= 1
+    if (entry.refCount <= 0) {
+      entry.watcher.close()
+      watchers.delete(vaultPath)
+    }
   }
 
   function broadcastToVault(vaultPath: string, msg: object): void {
@@ -122,6 +134,27 @@ app.prepare().then(async () => {
   server.on('upgrade', (req, socket, head) => {
     const parsedUrl = parse(req.url ?? '/', true)
     if (parsedUrl.pathname === '/ws/vault') {
+      // Reject cross-origin upgrades. WebSockets bypass CORS, so without this
+      // check any website the user visits could open ws://localhost:3999/ws/vault
+      // and passively receive vault file-change broadcasts. A same-origin
+      // browser request's Origin host always matches the Host header it sent;
+      // non-browser clients typically omit Origin entirely and are allowed.
+      const origin = req.headers.origin
+      if (origin) {
+        let originHost: string | undefined
+        try {
+          originHost = new URL(origin).host
+        } catch {
+          originHost = undefined
+        }
+        if (!originHost || originHost !== req.headers.host) {
+          console.warn('[ws/vault] Rejected cross-origin upgrade:', origin)
+          socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+          socket.destroy()
+          return
+        }
+      }
+
       // Extract vault from query params
       const vaultParam = parsedUrl.query.vault as string | undefined
 
@@ -162,7 +195,7 @@ app.prepare().then(async () => {
 
     // Ensure watcher exists for this vault
     if (aWs.vaultPath) {
-      getOrCreateWatcher(aWs.vaultPath)
+      acquireWatcher(aWs.vaultPath)
     }
 
     aWs.on('message', data => {
@@ -172,8 +205,24 @@ app.prepare().then(async () => {
       } catch { /* ignore */ }
     })
 
-    aWs.on('close', () => clients.delete(aWs))
-    aWs.on('error', () => { aWs.terminate(); clients.delete(aWs) })
+    // 'error' calls terminate(), which itself emits 'close' — guard against
+    // double-releasing the watcher refcount for the same connection.
+    let watcherReleased = false
+    function releaseOnce(): void {
+      if (watcherReleased) return
+      watcherReleased = true
+      if (aWs.vaultPath) releaseWatcher(aWs.vaultPath)
+    }
+
+    aWs.on('close', () => {
+      clients.delete(aWs)
+      releaseOnce()
+    })
+    aWs.on('error', () => {
+      aWs.terminate()
+      clients.delete(aWs)
+      releaseOnce()
+    })
   })
 
   // Heartbeat — ping every 30 s; drop clients that miss it
@@ -194,16 +243,18 @@ app.prepare().then(async () => {
   vaultBroadcast.on('graph:rebuilt', () => broadcast({ type: 'graph:rebuilt' }))
 
   // ── Initial vault watcher (default vault, for backward compatibility) ─────
+  // Holds a permanent reference so the default vault stays watched even when
+  // no client is currently subscribed to it.
 
   const defaultVaultPath = resolveVault()
-  getOrCreateWatcher(defaultVaultPath)
+  acquireWatcher(defaultVaultPath)
 
   // ── Clean up on server close ───────────────────────────────────────────────
 
   server.on('close', () => {
     clearInterval(heartbeat)
-    for (const watcher of watchers.values()) {
-      watcher.close()
+    for (const entry of watchers.values()) {
+      entry.watcher.close()
     }
   })
 

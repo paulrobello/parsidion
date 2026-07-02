@@ -5,7 +5,9 @@ import type { FrontmatterFields } from '@/lib/frontmatter'
 import type { NoteNode } from '@/lib/graph'
 import { TYPE_COLORS } from '@/lib/sigma-colors'
 
-const TYPES = ['pattern', 'debugging', 'research', 'project', 'tool', 'language', 'framework', 'knowledge', 'daily']
+// 'daily' intentionally excluded — daily notes follow the Daily/YYYY-MM/DD-user.md
+// convention and are written by hooks, not created/retyped through this editor.
+const TYPES = ['pattern', 'debugging', 'research', 'project', 'tool', 'language', 'framework', 'knowledge']
 const CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const
 const CONFIDENCE_COLORS: Record<string, string> = { low: '#6b7a99', medium: '#f59e0b', high: '#10b981' }
 
@@ -227,7 +229,12 @@ function ChipInput({ values, onChange, placeholder, normalize, suggestions }: {
         add(input)
       }
     } else if (e.key === 'Escape') {
-      setShowDropdown(false)
+      if (showDropdown) {
+        // Only the dropdown is dismissed here — don't let Escape bubble to a
+        // parent dialog's window-level handler and close the whole form.
+        e.stopPropagation()
+        setShowDropdown(false)
+      }
     } else if (e.key === 'Backspace' && !input && values.length > 0) {
       e.preventDefault()
       remove(values[values.length - 1])
@@ -257,7 +264,7 @@ function ChipInput({ values, onChange, placeholder, normalize, suggestions }: {
           value={input}
           onChange={e => { setInput(e.target.value); setShowDropdown(true) }}
           onFocus={() => setShowDropdown(true)}
-          onBlur={() => setTimeout(() => { if (input.trim() && !showDropdown) add(input); setShowDropdown(false) }, 200)}
+          onBlur={() => setTimeout(() => { if (input.trim()) add(input); setShowDropdown(false) }, 200)}
           onKeyDown={handleKeyDown}
           placeholder={values.length === 0 ? placeholder : ''}
           style={{
@@ -360,12 +367,17 @@ function RelatedInput({ values, onChange, nodes }: {
         add(input.trim())
       }
     } else if (e.key === 'Escape') {
-      setShowDropdown(false)
+      if (showDropdown) {
+        // Only the dropdown is dismissed here — don't let Escape bubble to a
+        // parent dialog's window-level handler and close the whole form.
+        e.stopPropagation()
+        setShowDropdown(false)
+      }
     } else if (e.key === 'Backspace' && !input && values.length > 0) {
       e.preventDefault()
       remove(values[values.length - 1])
     }
-  }, [results, selectedIdx, input, values, add, remove])
+  }, [results, selectedIdx, input, values, showDropdown, add, remove])
 
   return (
     <div style={{ position: 'relative' }}>

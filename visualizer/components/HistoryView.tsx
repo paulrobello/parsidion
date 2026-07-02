@@ -12,6 +12,7 @@ interface Props {
   stem: string
   notePath: string | null
   node: NoteNode | null
+  vault: string | null
   onClose: () => void
 }
 
@@ -20,7 +21,7 @@ const BUTTON_BASE: CSSProperties = {
   fontFamily: "'JetBrains Mono', monospace",
 }
 
-export function HistoryView({ stem, notePath, node, onClose }: Props) {
+export function HistoryView({ stem, notePath, node, vault, onClose }: Props) {
   const [commits, setCommits] = useState<CommitEntry[]>([])
   const [loadingCommits, setLoadingCommits] = useState(true)
   const [commitsError, setCommitsError] = useState<string | null>(null)
@@ -35,14 +36,16 @@ export function HistoryView({ stem, notePath, node, onClose }: Props) {
 
   const [diffMode, setDiffMode] = useState<DiffMode>('split')
 
-  // Load commit history on mount
+  // Load commit history on mount; abort stale in-flight requests when stem/notePath/vault changes
   useEffect(() => {
     setLoadingCommits(true) // eslint-disable-line react-hooks/set-state-in-effect
     setCommitsError(null)
-    const historyQuery = notePath
-      ? `path=${encodeURIComponent(notePath)}`
-      : `stem=${encodeURIComponent(stem)}`
-    fetch(`/api/note/history?${historyQuery}`)
+    const controller = new AbortController()
+    const params = new URLSearchParams()
+    if (notePath) params.set('path', notePath)
+    else params.set('stem', stem)
+    if (vault) params.set('vault', vault)
+    fetch(`/api/note/history?${params.toString()}`, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
         if (data.error) { setCommitsError(data.error as string); return }
@@ -57,9 +60,10 @@ export function HistoryView({ stem, notePath, node, onClose }: Props) {
           setToHash(null)
         }
       })
-      .catch(e => setCommitsError((e as Error).message))
+      .catch(e => { if ((e as Error).name !== 'AbortError') setCommitsError((e as Error).message) })
       .finally(() => setLoadingCommits(false))
-  }, [stem, notePath])
+    return () => controller.abort()
+  }, [stem, notePath, vault])
 
   // Fetch diff whenever from/to changes; abort stale in-flight requests
   useEffect(() => {
@@ -67,10 +71,13 @@ export function HistoryView({ stem, notePath, node, onClose }: Props) {
     const controller = new AbortController()
     setLoadingDiff(true)
     setDiffError(null)
-    const diffQuery = notePath
-      ? `path=${encodeURIComponent(notePath)}`
-      : `stem=${encodeURIComponent(stem)}`
-    fetch(`/api/note/diff?${diffQuery}&from=${encodeURIComponent(fromHash)}&to=${encodeURIComponent(toHash)}`, { signal: controller.signal })
+    const params = new URLSearchParams()
+    if (notePath) params.set('path', notePath)
+    else params.set('stem', stem)
+    if (vault) params.set('vault', vault)
+    params.set('from', fromHash)
+    params.set('to', toHash)
+    fetch(`/api/note/diff?${params.toString()}`, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
         if (data.error) { setDiffError(data.error as string); return }
@@ -80,7 +87,7 @@ export function HistoryView({ stem, notePath, node, onClose }: Props) {
       .catch(e => { if ((e as Error).name !== 'AbortError') setDiffError((e as Error).message) })
       .finally(() => setLoadingDiff(false))
     return () => controller.abort()
-  }, [stem, notePath, fromHash, toHash])
+  }, [stem, notePath, vault, fromHash, toHash])
 
   const hunks = useMemo(() => parseDiff(rawDiff), [rawDiff])
   const filename = useMemo(() => node?.path.split('/').pop() ?? `${stem}.md`, [node?.path, stem])

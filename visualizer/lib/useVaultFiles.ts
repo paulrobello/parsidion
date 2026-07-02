@@ -55,6 +55,10 @@ export function useVaultFiles(opts: Opts): {
   const mountedRef = useRef(true)
   // Ref to hold the connect function so ws.onclose can reference it without TDZ issues
   const connectRef = useRef<(() => void) | null>(null)
+  // Bumped on every connect(); handlers capture their own generation and no-op if stale.
+  // Prevents a slow-closing old socket's onclose from clobbering a newer socket's state
+  // (e.g. when the vault changes and cleanup + reconnect race).
+  const generationRef = useRef(0)
 
   // Fetch the file list. Called on mount/vault-change and whenever the graph is
   // rebuilt (graph:rebuilt implies vault contents changed — e.g. after the
@@ -82,6 +86,11 @@ export function useVaultFiles(opts: Opts): {
     if (!mountedRef.current) return
     setWsStatus('connecting')
 
+    // Tag this socket with the current generation. Handlers below no-op once a newer
+    // generation has started, so a slow-closing stale socket's onclose can't clobber
+    // the state of the socket that replaced it (e.g. during a vault switch).
+    const myGeneration = ++generationRef.current
+
     const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3999'
     const vaultQuery = opts.vault ? `?vault=${encodeURIComponent(opts.vault)}` : ''
@@ -89,13 +98,13 @@ export function useVaultFiles(opts: Opts): {
     wsRef.current = ws
 
     ws.onopen = () => {
-      if (!mountedRef.current) return
+      if (!mountedRef.current || myGeneration !== generationRef.current) return
       retryDelayRef.current = 1_000 // reset backoff on successful connect
       setWsStatus('connected')
     }
 
     ws.onmessage = (event: MessageEvent<string>) => {
-      if (!mountedRef.current) return
+      if (!mountedRef.current || myGeneration !== generationRef.current) return
       try {
         const msg = JSON.parse(event.data) as {
           type: string
@@ -139,7 +148,7 @@ export function useVaultFiles(opts: Opts): {
     }
 
     ws.onclose = () => {
-      if (!mountedRef.current) return
+      if (!mountedRef.current || myGeneration !== generationRef.current) return
       wsRef.current = null
       setWsStatus('disconnected')
       const delay = retryDelayRef.current

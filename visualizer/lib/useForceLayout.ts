@@ -261,7 +261,7 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
     coolingRateRef, stopThresholdRef,
     filteredNodesRef, neighborhoodRef, hideIsolatedRef,
     isDraggingRef, draggedNodeRef, dragPositionRef,
-    layoutLoopRef,
+    onLayoutStopRef, layoutLoopRef,
   } = deps
 
   const DAMPING = PHYSICS_DAMPING
@@ -419,6 +419,7 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
       isRunningRef.current = false
       rafRef.current = null
       sigmaRefreshRef.current()
+      onLayoutStopRef.current?.()
       return
     }
 

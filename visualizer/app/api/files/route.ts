@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
+import fs from 'fs/promises'
 import path from 'path'
 import type { VaultFile } from '@/lib/vaultFile'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
+import { requireSameOrigin } from '@/lib/apiAuth'
 
 const EXCLUDED_DIRS = new Set(['.obsidian', 'Templates', '.git', '.trash', 'TagsRoutes'])
 
@@ -11,10 +12,10 @@ function parseFrontmatterType(content: string): string | undefined {
   return match?.[1]?.trim()
 }
 
-function walkVault(dir: string, vaultRoot: string, results: VaultFile[]): void {
-  let entries: fs.Dirent[]
+async function walkVault(dir: string, vaultRoot: string, results: VaultFile[]): Promise<void> {
+  let entries: import('fs').Dirent[]
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
+    entries = await fs.readdir(dir, { withFileTypes: true })
   } catch {
     return
   }
@@ -25,13 +26,13 @@ function walkVault(dir: string, vaultRoot: string, results: VaultFile[]): void {
 
     if (entry.isDirectory()) {
       if (EXCLUDED_DIRS.has(entry.name)) continue
-      walkVault(full, vaultRoot, results)
+      await walkVault(full, vaultRoot, results)
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       const relPath = path.relative(vaultRoot, full)
       const stem = entry.name.replace(/\.md$/, '')
       let noteType: string | undefined
       try {
-        const content = fs.readFileSync(full, 'utf-8')
+        const content = await fs.readFile(full, 'utf-8')
         noteType = parseFrontmatterType(content)
       } catch { /* skip unreadable */ }
       results.push({ stem, path: relPath, noteType })
@@ -40,6 +41,8 @@ function walkVault(dir: string, vaultRoot: string, results: VaultFile[]): void {
 }
 
 export async function GET(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
   const vault = req.nextUrl.searchParams.get('vault')
   let vaultRoot: string
   try {
@@ -51,6 +54,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
   }
   const files: VaultFile[] = []
-  walkVault(vaultRoot, vaultRoot, files)
+  await walkVault(vaultRoot, vaultRoot, files)
   return NextResponse.json({ files })
 }

@@ -3,8 +3,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
+import { requireSameOrigin } from '@/lib/apiAuth'
 
 export async function GET(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
   const vault = req.nextUrl.searchParams.get('vault')
   let vaultPath: string
   try {

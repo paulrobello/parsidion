@@ -124,13 +124,21 @@ export function makeNodeReducer(
       return { ...d, hidden: true, label: '' }
     }
     if (hideIsolatedRef.current) {
-      // When a similarity filter is active, only count edges to other visible
-      // (non-filtered-out) neighbors — edgeReducer hides cross-filter edges
-      // but graph.degree() still counts them, causing isolated-looking nodes.
-      const effectiveDegree = fn.size > 0
-        ? (graph.neighbors(node) as string[]).filter((n: string) => fn.has(n)).length
-        : graph.degree(node)
-      if (effectiveDegree === 0) return { ...d, hidden: true, label: '' }
+      // Mirror useForceLayout.ts's visibleSet logic: exclude overlay edges and
+      // edges to neighbors hidden by the neighborhood/filter sets. Otherwise a
+      // node whose only edges are overlay edges (or lead to a filtered-out
+      // neighbor) renders visible here but is frozen and inert in the physics loop.
+      let hasVisibleEdge = false
+      for (const e of graph.edges(node) as string[]) {
+        if (graph.getEdgeAttribute(e, 'overlay')) continue
+        const src = graph.source(e)
+        const other = (src === node ? graph.target(e) : src) as string
+        if (fn.size > 0 && !fn.has(other)) continue
+        if (nh && !nh.nodes.has(other)) continue
+        hasVisibleEdge = true
+        break
+      }
+      if (!hasVisibleEdge) return { ...d, hidden: true, label: '' }
     }
     const hn = highlightedNodesRef.current
     const isHovered = node === hoveredNodeRef.current

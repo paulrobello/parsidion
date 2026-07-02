@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs/promises'
 import path from 'path'
 import { resolveVault, guardPath } from '@/lib/vaultResolver'
-import { requireAuth } from '@/lib/apiAuth'
+import { requireAuth, requireSameOrigin } from '@/lib/apiAuth'
 
 // QA-006: Replaced all synchronous fs calls with async fs.promises equivalents.
 // findNote is now async to avoid blocking the Node.js event loop during
@@ -27,6 +27,8 @@ async function findNote(dir: string, stemToFind: string): Promise<string | null>
 }
 
 export async function GET(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
   const stem = req.nextUrl.searchParams.get('stem')
   const relPath = req.nextUrl.searchParams.get('path')
   const vault = req.nextUrl.searchParams.get('vault')
@@ -70,13 +72,14 @@ export async function POST(req: NextRequest) {
   if (authError) return authError
   const vault = req.nextUrl.searchParams.get('vault')
   const body = await req.json()
-  const { stem, content, lastModified } = body as {
+  const { stem, path: relPath, content, lastModified } = body as {
     stem?: string
+    path?: string
     content?: string
     lastModified?: number
   }
-  if (!stem || content === undefined) {
-    return NextResponse.json({ error: 'stem and content required' }, { status: 400 })
+  if ((!stem && !relPath) || content === undefined) {
+    return NextResponse.json({ error: 'stem or path, and content required' }, { status: 400 })
   }
 
   let vaultRoot: string
@@ -85,12 +88,28 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
-  const notePath = await findNote(vaultRoot, stem)
-  if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 
-  if (!guardPath(notePath, vaultRoot)) {
-    return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+  // Prefer an explicit vault-relative path (avoids stem collision across
+  // folders — findNote() below returns only the first depth-first match).
+  let notePath: string | null
+  if (relPath) {
+    const candidate = path.join(vaultRoot, relPath)
+    if (!guardPath(candidate, vaultRoot)) {
+      return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
+    try {
+      await fs.access(candidate)
+      notePath = candidate
+    } catch {
+      notePath = null
+    }
+  } else {
+    notePath = await findNote(vaultRoot, stem!)
+    if (notePath && !guardPath(notePath, vaultRoot)) {
+      return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
   }
+  if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
 
   // Conflict detection: if caller provided lastModified and the file
   // has been modified since then, return the current content instead of saving.
@@ -161,8 +180,9 @@ export async function DELETE(req: NextRequest) {
   const authError = requireAuth(req)
   if (authError) return authError
   const stem = req.nextUrl.searchParams.get('stem')
+  const relPath = req.nextUrl.searchParams.get('path')
   const vault = req.nextUrl.searchParams.get('vault')
-  if (!stem) return NextResponse.json({ error: 'stem required' }, { status: 400 })
+  if (!stem && !relPath) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
 
   let vaultRoot: string
   try {
@@ -170,12 +190,28 @@ export async function DELETE(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
-  const notePath = await findNote(vaultRoot, stem)
-  if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 
-  if (!guardPath(notePath, vaultRoot)) {
-    return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+  // Prefer an explicit vault-relative path (avoids stem collision across
+  // folders — findNote() below returns only the first depth-first match).
+  let notePath: string | null
+  if (relPath) {
+    const candidate = path.join(vaultRoot, relPath)
+    if (!guardPath(candidate, vaultRoot)) {
+      return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
+    try {
+      await fs.access(candidate)
+      notePath = candidate
+    } catch {
+      notePath = null
+    }
+  } else {
+    notePath = await findNote(vaultRoot, stem!)
+    if (notePath && !guardPath(notePath, vaultRoot)) {
+      return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
   }
+  if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
 
   try {
     await fs.unlink(notePath)
