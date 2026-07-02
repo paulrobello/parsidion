@@ -1,7 +1,11 @@
 # ARC-015: Custom Express Server Evaluation
 
 **Date:** 2026-06-12
-**Status:** Deferred — migration is viable but timing is wrong (concurrent agent work in progress)
+**Status:** Implemented (2026-07-02) — the custom `server.ts` has been removed. The app now
+runs on plain `next dev` / `next start` with live vault updates delivered by
+[`app/api/vault/events/route.ts`](../app/api/vault/events/route.ts). The sections below are
+kept as the original analysis and migration record; see the "Implementation Notes" section
+at the end for what changed versus the sketch.
 
 ---
 
@@ -165,13 +169,37 @@ export async function GET(req: NextRequest) {
 
 ## Recommendation
 
-**Defer.** The migration is technically clean and has no framework blockers.
-However:
+~~Defer.~~ Superseded — see "Implementation Notes" below.
 
-- `lib/useVaultFiles.ts` is currently in scope for concurrent agent work — editing
-  it now risks a merge conflict.
-- The existing `server.ts` is correct, stable, and well-tested.
+## Implementation Notes (2026-07-02)
 
-Revisit after the concurrent `GraphCanvas.tsx` / `vaultResolver.ts` agent work
-is merged. At that point the migration is a self-contained 2–4 hour task with
-clear verification steps.
+The migration was completed largely as sketched above, with these deviations:
+
+- **Reference-counted watcher, not a single shared `Map`.** The sketch's `watchers` map held
+  bare `FSWatcher` instances closed only implicitly on process exit. The shipped route mirrors
+  `server.ts`'s `acquireWatcher`/`releaseWatcher` refcounting: each `WatcherEntry` tracks
+  `refCount` and a `Set` of per-connection `send` callbacks, and the watcher is closed as soon
+  as the last SSE subscriber for that vault disconnects (`req.signal`'s `abort` event), not
+  left running indefinitely.
+- **Per-vault fan-out via a subscriber set.** Because a watcher can be shared by multiple
+  concurrent SSE connections, `broadcastToVault()` iterates the `WatcherEntry.subscribers` set
+  (one `send` closure per connection) rather than assuming a single stream per vault.
+- **`requireSameOrigin` reused, not a bespoke Origin check.** The route imports
+  `requireSameOrigin` from `lib/apiAuth.ts` (the same guard used by the other GET routes)
+  instead of writing a new Origin comparison — this is the SSE analogue of the WS Origin check
+  in `server.ts`.
+- **No default-vault permanent watcher.** `server.ts` pinned a watcher for the default vault
+  at boot so it stayed active even with zero connected clients. The SSE route has no boot
+  hook, so watchers are lazily created per subscription and torn down when unused, per the
+  original risk assessment ("acceptable for a dev tool").
+- **Response headers add `X-Accel-Buffering: no`** to disable reverse-proxy buffering, per the
+  Next.js streaming guide's reverse-proxy guidance (not in the original sketch, but relevant
+  since SSE depends on unbuffered chunk delivery).
+- **Client rewrite dropped the manual backoff/heartbeat entirely** (as anticipated) and kept
+  the existing generation-counter guard so a stale connection's handlers can't clobber state
+  after a vault switch.
+
+Verified via `bun run lint`, `bunx tsc --noEmit`, `bun test`, `bun run build`, and a runtime
+smoke test against `bun dev` (same-origin stream opens as `text/event-stream`, cross-site
+`Sec-Fetch-Site` requests are rejected with 403, and a touched `.md` file produces a
+`file:modified` event on the stream).

@@ -1,9 +1,12 @@
 // app/api/summarizer/status/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
+import { requireSameOrigin } from '@/lib/apiAuth'
 import { getSummarizerStatus, countPendingSummaries } from '@/lib/vaultStatsServer'
 
 export async function GET(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
   const vault = req.nextUrl.searchParams.get('vault')
   let vaultPath: string
   try {

@@ -12,7 +12,7 @@ interface Props {
   activePath: string | null
   onSelectNote: (stem: string, newTab: boolean, path?: string) => void
   onOpenHistory: (stem: string, notePath?: string) => void
-  onDeleteNote?: (stem: string) => void
+  onDeleteNote?: (stem: string, path: string) => void
   width: number
   onWidthChange: (w: number) => void
   collapsed: boolean
@@ -241,7 +241,7 @@ export function FileExplorer({ fileTree, activeTab, activePath, onSelectNote, on
               style={{ padding: '6px 12px', cursor: 'pointer', color: '#ef4444', borderTop: '1px solid #1a2040' }}
               onMouseEnter={e => (e.currentTarget.style.background = '#1a2040')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              onClick={() => { onDeleteNote(contextMenu.stem); setContextMenu(null) }}
+              onClick={() => { onDeleteNote(contextMenu.stem, contextMenu.path); setContextMenu(null) }}
             >
               Delete
             </div>

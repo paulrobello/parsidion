@@ -47,6 +47,10 @@ export function UnifiedSearch({ nodes, onSelect }: Props) {
     return filtered.slice(0, 8)
   }, [query, nodes])
 
+  // Narrowing the query after arrowing down can leave selectedIdx pointing past
+  // the new (shorter) results array — reset it whenever results change.
+  useEffect(() => { setSelectedIdx(0) }, [results]) // eslint-disable-line react-hooks/set-state-in-effect
+
   // Derive open state: auto-open when results exist, unless manually dismissed
   const open = !dismissed && results.length > 0 && query.trim().length > 0
 

@@ -733,6 +733,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         hoveredNodeRef.current = null
         if (containerRef.current) containerRef.current.style.cursor = 'grabbing'
         isRunningRef.current = true
+        // Floor temperature so a settled sim doesn't immediately re-stop on the
+        // loop's first frame — otherwise only the dragged node moves and
+        // neighbors never react.
+        temperatureRef.current = Math.max(temperatureRef.current, 0.4)
         if (!rafRef.current && layoutLoopRef.current) {
           rafRef.current = requestAnimationFrame(layoutLoopRef.current)
         }
@@ -746,6 +750,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         graph.setNodeAttribute(draggedNodeRef.current, 'y', pos.y)
         // Floor temperature so neighbors keep reacting
         temperatureRef.current = Math.max(temperatureRef.current, 0.4)
+        isRunningRef.current = true
+        if (!rafRef.current && layoutLoopRef.current) {
+          rafRef.current = requestAnimationFrame(layoutLoopRef.current)
+        }
         e.preventSigmaDefault()
         e.original.preventDefault()
         e.original.stopPropagation()
@@ -849,8 +857,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // applies an incremental delta otherwise. Including all prop dependencies
   // (threshold, activeTypes, etc.) would re-run it on every slider change. The
   // delta branch also reads activeTypes/showDaily from this closure — safe because
-  // they only matter when `data` changes (filter-toggle live updates are a
-  // separate, currently-unimplemented concern).
+  // they only matter when `data` changes; live toggle updates are handled by the
+  // dedicated effect below via the same delta path.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
@@ -858,6 +866,22 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // (so incremental updates preserve the instance); this effect owns the kill.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => teardownInstance(), [])
+
+  // Apply activeTypes/showDaily toggle changes immediately via the same delta
+  // path used for graph.json rebuilds — otherwise a chip toggle only takes
+  // effect on the next data reload.
+  useEffect(() => {
+    const graph = graphRef.current
+    const d = dataRef.current
+    if (!graph || !d) return
+    const currentIds = new Set(graph.nodes() as string[])
+    const newVisible = computeVisibleNodes(d.nodes, activeTypes, showDaily)
+    const delta = computeNodeDelta(currentIds, newVisible)
+    if (delta.added.length === 0 && delta.removed.length === 0) return
+    applyNodeDelta(graph, d, delta)
+    setNodeDeltaVersion(v => v + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTypes, showDaily])
 
   useEffect(() => {
     if (!sigmaRef.current || !graphRef.current || !data) return
@@ -869,7 +893,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
     for (const edge of edges) {
       if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-      const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current)
+      const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current, thresholdRef.current)
       try {
         graph.addEdge(edge.s, edge.t, {
           weight: edge.w * ewi, baseWeight: edge.w, color: col,
@@ -895,6 +919,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     }
     highlightedNodesRef.current = new Set()
     highlightedEdgesRef.current = new Set()
+    pathSourceRef.current = null
+    pathNodesRef.current = new Set()
+    pathEdgesRef.current = new Set()
     sigmaRef.current.refresh()
     reheat()
   // Note: edgePruning/edgePruningK are in the dep array intentionally — unlike edgeWeightInfluence

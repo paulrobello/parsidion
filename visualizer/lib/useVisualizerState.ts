@@ -105,12 +105,16 @@ export function useVisualizerState(graphData: GraphData | null) {
 
   // --- Note content cache ---
   const contentCache = useRef<Map<string, string>>(new Map())
+  // Server mtime (fs.stat().mtimeMs) for each cached note — the conflict-detection
+  // token echoed back on save. Keyed identically to contentCache (stem and/or path).
+  const mtimeCache = useRef<Map<string, number>>(new Map())
 
   // Wrapper that clears cache/tabs when vault changes
   const setSelectedVault = useCallback((vault: string | null) => {
     if (vault !== selectedVault) {
       // Clear content cache
       contentCache.current.clear()
+      mtimeCache.current.clear()
       // Clear tabs
       setOpenTabStems([])
       setActiveTabStem(null)
@@ -191,7 +195,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     })
   }, [stemLookup, setOpenTabStems, setActiveTabStem, validActiveTab])
 
-  const closeTab = useCallback((stem: string) => {
+  const closeTab = useCallback((stem: string, path?: string) => {
     setOpenTabStems(prev => {
       const next = prev.filter(s => s !== stem)
       if (stem === validActiveTab) {
@@ -202,7 +206,13 @@ export function useVisualizerState(graphData: GraphData | null) {
       return next
     })
     contentCache.current.delete(stem)
-  }, [setOpenTabStems, setActiveTabStem, validActiveTab])
+    mtimeCache.current.delete(stem)
+    const p = path ?? nodeMap.get(stem)?.path
+    if (p) {
+      contentCache.current.delete(p)
+      mtimeCache.current.delete(p)
+    }
+  }, [setOpenTabStems, setActiveTabStem, validActiveTab, nodeMap])
 
   const switchTab = useCallback((stem: string) => {
     setActiveTabStem(stem)
@@ -231,68 +241,95 @@ export function useVisualizerState(graphData: GraphData | null) {
   // --- Fetch note content (with cache) ---
   // notePath: vault-relative path (e.g. "Daily/MANIFEST.md"). When provided, used for both
   // the API call and the cache key so same-stem notes in different folders don't collide.
-  const fetchNoteContent = useCallback(async (stem: string, notePath?: string): Promise<string> => {
+  // mtimeMs is the server's fs.stat().mtimeMs for the note — the conflict-detection token
+  // callers must echo back via saveNote's baseMtimeMs. It is returned on cache hits too
+  // (from mtimeCache) so the token survives tab switches without a clock-based fallback.
+  const fetchNoteContent = useCallback(async (stem: string, notePath?: string): Promise<{ content: string; mtimeMs?: number; fromCache: boolean }> => {
     const cacheKey = notePath ?? stem
     const cached = contentCache.current.get(cacheKey)
-    if (cached !== undefined) return cached
+    if (cached !== undefined) return { content: cached, mtimeMs: mtimeCache.current.get(cacheKey), fromCache: true }
 
-    const query = notePath
-      ? `path=${encodeURIComponent(notePath)}`
-      : `stem=${encodeURIComponent(stem)}`
-    const res = await fetch(`/api/note?${query}`)
+    const params = new URLSearchParams()
+    if (notePath) params.set('path', notePath)
+    else params.set('stem', stem)
+    if (selectedVault) params.set('vault', selectedVault)
+    const res = await fetch(`/api/note?${params.toString()}`)
     const data = await res.json()
     if (data.error) throw new Error(data.error as string)
     const content = data.content as string
+    const mtimeMs = data.mtimeMs as number
     contentCache.current.set(cacheKey, content)
-    return content
-  }, [])
+    mtimeCache.current.set(cacheKey, mtimeMs)
+    return { content, mtimeMs, fromCache: false }
+  }, [selectedVault])
 
   // --- Save note content ---
+  // baseMtimeMs: the server mtime the caller last observed for this note (from
+  // fetchNoteContent or a prior saveNote response) — echoed back so the server can
+  // detect an external edit by comparing server-side mtimes only (no client clock).
   const saveNote = useCallback(async (
     stem: string,
     content: string,
-    lastModified?: number,
+    baseMtimeMs?: number,
     notePath?: string,
-  ): Promise<{ conflict: true; serverContent: string } | { ok: true }> => {
+  ): Promise<{ conflict: true; serverContent: string; mtimeMs: number } | { ok: true; mtimeMs: number }> => {
+    const body: Record<string, unknown> = { stem, content, baseMtimeMs }
+    if (notePath) body.path = notePath
+    if (selectedVault) body.vault = selectedVault
     const res = await fetch('/api/note', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stem, content, lastModified }),
+      body: JSON.stringify(body),
     })
-    const data = await res.json() as { error?: string; conflict?: boolean; serverContent?: string; ok?: boolean }
+    const data = await res.json() as { error?: string; conflict?: boolean; serverContent?: string; ok?: boolean; mtimeMs?: number }
     if (data.error) throw new Error(data.error)
-    if (data.conflict && data.serverContent) {
-      return { conflict: true, serverContent: data.serverContent }
+    if (data.conflict === true) {
+      return { conflict: true, serverContent: data.serverContent ?? '', mtimeMs: data.mtimeMs ?? 0 }
     }
+    const newMtimeMs = data.mtimeMs ?? 0
     // Cache under both stem and path so fetches always hit
     contentCache.current.set(stem, content)
-    if (notePath) contentCache.current.set(notePath, content)
-    return { ok: true }
-  }, [])
+    mtimeCache.current.set(stem, newMtimeMs)
+    if (notePath) {
+      contentCache.current.set(notePath, content)
+      mtimeCache.current.set(notePath, newMtimeMs)
+    }
+    return { ok: true, mtimeMs: newMtimeMs }
+  }, [selectedVault])
 
   // --- Invalidate cached note (called when vault watcher detects external edit) ---
   const invalidateNote = useCallback((stem: string, notePath?: string): void => {
     contentCache.current.delete(stem)
-    if (notePath) contentCache.current.delete(notePath)
+    mtimeCache.current.delete(stem)
+    if (notePath) {
+      contentCache.current.delete(notePath)
+      mtimeCache.current.delete(notePath)
+    }
   }, [])
 
   // --- Delete note ---
-  const deleteNote = useCallback(async (stem: string): Promise<void> => {
-    const res = await fetch(`/api/note?stem=${encodeURIComponent(stem)}`, { method: 'DELETE' })
+  const deleteNote = useCallback(async (stem: string, notePath?: string): Promise<void> => {
+    const params = new URLSearchParams()
+    if (notePath) params.set('path', notePath)
+    else params.set('stem', stem)
+    if (selectedVault) params.set('vault', selectedVault)
+    const res = await fetch(`/api/note?${params.toString()}`, { method: 'DELETE' })
     const data = await res.json()
     if (data.error) throw new Error(data.error as string)
-  }, [])
+  }, [selectedVault])
 
   // --- Create note ---
   const createNote = useCallback(async (notePath: string, content: string): Promise<void> => {
+    const body: Record<string, unknown> = { path: notePath, content }
+    if (selectedVault) body.vault = selectedVault
     const res = await fetch('/api/note', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: notePath, content }),
+      body: JSON.stringify(body),
     })
     const data = await res.json()
     if (data.error) throw new Error(data.error as string)
-  }, [])
+  }, [selectedVault])
 
   // --- Resolve wikilink stem ---
   const resolveWikilink = useCallback((rawStem: string): string | null => {

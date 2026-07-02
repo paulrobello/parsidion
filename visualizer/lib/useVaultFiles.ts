@@ -43,18 +43,18 @@ export function useVaultFiles(opts: Opts): {
   const [files, setFiles] = useState<VaultFile[]>([])
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
 
-  // Stable refs for callbacks — avoids stale closures in WS handler
+  // Stable refs for callbacks — avoids stale closures in the SSE handler
   const onNoteModifiedRef = useRef(opts.onNoteModified)
   const onGraphRebuiltRef = useRef(opts.onGraphRebuilt)
   useEffect(() => { onNoteModifiedRef.current = opts.onNoteModified }, [opts.onNoteModified])
   useEffect(() => { onGraphRebuiltRef.current = opts.onGraphRebuilt }, [opts.onGraphRebuilt])
 
-  const wsRef = useRef<WebSocket | null>(null)
-  const retryDelayRef = useRef(1_000)
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const esRef = useRef<EventSource | null>(null)
   const mountedRef = useRef(true)
-  // Ref to hold the connect function so ws.onclose can reference it without TDZ issues
-  const connectRef = useRef<(() => void) | null>(null)
+  // Bumped on every connect(); handlers capture their own generation and no-op if stale.
+  // Prevents a slow-closing old connection's handlers from clobbering a newer
+  // connection's state (e.g. when the vault changes and cleanup + reconnect race).
+  const generationRef = useRef(0)
 
   // Fetch the file list. Called on mount/vault-change and whenever the graph is
   // rebuilt (graph:rebuilt implies vault contents changed — e.g. after the
@@ -82,20 +82,23 @@ export function useVaultFiles(opts: Opts): {
     if (!mountedRef.current) return
     setWsStatus('connecting')
 
-    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3999'
-    const vaultQuery = opts.vault ? `?vault=${encodeURIComponent(opts.vault)}` : ''
-    const ws = new WebSocket(`${protocol}//${host}/ws/vault${vaultQuery}`)
-    wsRef.current = ws
+    // Tag this connection with the current generation. Handlers below no-op once
+    // a newer generation has started, so a slow-closing stale connection's events
+    // can't clobber the state of the connection that replaced it (e.g. during a
+    // vault switch).
+    const myGeneration = ++generationRef.current
 
-    ws.onopen = () => {
-      if (!mountedRef.current) return
-      retryDelayRef.current = 1_000 // reset backoff on successful connect
+    const vaultQuery = opts.vault ? `?vault=${encodeURIComponent(opts.vault)}` : ''
+    const es = new EventSource(`/api/vault/events${vaultQuery}`)
+    esRef.current = es
+
+    es.onopen = () => {
+      if (!mountedRef.current || myGeneration !== generationRef.current) return
       setWsStatus('connected')
     }
 
-    ws.onmessage = (event: MessageEvent<string>) => {
-      if (!mountedRef.current) return
+    es.onmessage = (event: MessageEvent<string>) => {
+      if (!mountedRef.current || myGeneration !== generationRef.current) return
       try {
         const msg = JSON.parse(event.data) as {
           type: string
@@ -104,10 +107,6 @@ export function useVaultFiles(opts: Opts): {
           noteType?: string
         }
         switch (msg.type) {
-          case 'ping':
-            ws.send(JSON.stringify({ type: 'pong' }))
-            break
-
           case 'file:created':
             if (msg.path && msg.stem) {
               setFiles(prev => {
@@ -138,27 +137,21 @@ export function useVaultFiles(opts: Opts): {
       } catch { /* ignore malformed messages */ }
     }
 
-    ws.onclose = () => {
-      if (!mountedRef.current) return
-      wsRef.current = null
-      setWsStatus('disconnected')
-      const delay = retryDelayRef.current
-      retryDelayRef.current = Math.min(delay * 2, 30_000)
-      retryTimerRef.current = setTimeout(() => connectRef.current?.(), delay)
+    es.onerror = () => {
+      if (!mountedRef.current || myGeneration !== generationRef.current) return
+      // EventSource retries natively unless readyState is CLOSED (e.g. the
+      // server rejected the request outright, such as a 400/403 response) —
+      // no manual backoff/reconnect logic needed here.
+      setWsStatus(es.readyState === EventSource.CLOSED ? 'disconnected' : 'connecting')
     }
-
-    ws.onerror = () => ws.close()
   }, [opts.vault]) // reconnect when vault changes
 
   useEffect(() => {
     mountedRef.current = true
-    // Keep connectRef in sync with the stable connect callback so ws.onclose can reference it
-    connectRef.current = connect
     connect() // eslint-disable-line react-hooks/set-state-in-effect
     return () => {
       mountedRef.current = false
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
-      wsRef.current?.close()
+      esRef.current?.close()
     }
   }, [connect])
 

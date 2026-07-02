@@ -74,6 +74,9 @@ export function drawNodeHover(
   context.closePath()
   context.fill()
   context.shadowBlur = 0
+  context.shadowOffsetX = 0
+  context.shadowOffsetY = 0
+  context.shadowColor = 'transparent'
   context.strokeStyle = 'rgba(249, 115, 22, 0.5)'
   context.lineWidth = 1
   context.stroke()

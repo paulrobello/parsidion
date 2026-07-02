@@ -14,6 +14,7 @@ import { ReadingPane } from '@/components/ReadingPane'
 import { HUDPanel } from '@/components/HUDPanel'
 import { NewNoteDialog } from '@/components/NewNoteDialog'
 import { HistoryView } from '@/components/HistoryView'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 const GraphCanvas = dynamic(() => import('@/components/GraphCanvas').then(m => m.GraphCanvas), {
   ssr: false,
@@ -41,6 +42,10 @@ export default function Home() {
   // Tracks the explicit vault-relative path last selected from the sidebar.
   // Needed when multiple notes share the same stem (e.g. MANIFEST.md in every folder).
   const [selectedVaultPath, setSelectedVaultPath] = useState<string | null>(null)
+  // Pending sidebar-initiated delete awaiting confirmation (mirrors ReadingPane's delete flow)
+  const [pendingDelete, setPendingDelete] = useState<{ stem: string; path: string } | null>(null)
+  const [isSidebarDeleting, setIsSidebarDeleting] = useState(false)
+  const [sidebarDeleteError, setSidebarDeleteError] = useState<string | null>(null)
 
   // Initialize state before the load effect so selectedVault is available immediately
   const state = useVisualizerState(graphData)
@@ -202,10 +207,29 @@ export default function Home() {
     }
   }, [state])
 
-  const handleDelete = useCallback(async (stem: string) => {
-    await state.deleteNote(stem)
-    state.closeTab(stem)
+  const handleDelete = useCallback(async (stem: string, path?: string) => {
+    await state.deleteNote(stem, path)
+    state.closeTab(stem, path)
   }, [state])
+
+  const handleRequestSidebarDelete = useCallback((stem: string, path: string) => {
+    setSidebarDeleteError(null)
+    setPendingDelete({ stem, path })
+  }, [])
+
+  const handleConfirmSidebarDelete = useCallback(async () => {
+    if (!pendingDelete) return
+    setIsSidebarDeleting(true)
+    setSidebarDeleteError(null)
+    try {
+      await handleDelete(pendingDelete.stem, pendingDelete.path)
+      setPendingDelete(null)
+    } catch (e) {
+      setSidebarDeleteError((e as Error).message)
+    } finally {
+      setIsSidebarDeleting(false)
+    }
+  }, [pendingDelete, handleDelete])
 
   const handleCreate = useCallback(async (notePath: string, content: string, stem: string) => {
     await state.createNote(notePath, content)
@@ -317,7 +341,7 @@ export default function Home() {
               collapsed={state.sidebarCollapsed}
               totalNotes={totalFiles}
               onOpenHistory={state.openHistory}
-              onDeleteNote={handleDelete}
+              onDeleteNote={handleRequestSidebarDelete}
             />
 
             {/* Content area */}
@@ -327,6 +351,7 @@ export default function Home() {
                   stem={state.historyNote}
                   notePath={state.historyPath}
                   node={state.nodeMap.get(state.historyNote) ?? null}
+                  vault={state.selectedVault}
                   onClose={state.closeHistory}
                 />
               ) : (
@@ -342,6 +367,7 @@ export default function Home() {
                       onOpenHistory={state.openHistory}
                       nodes={graphData.nodes}
                       refreshTrigger={noteRefreshTrigger}
+                      visible={state.viewMode === 'read'}
                     />
                   </div>
 
@@ -478,6 +504,18 @@ export default function Home() {
               onConfirm={handleCreate}
               onCancel={() => setShowNewNote(false)}
               nodes={graphData.nodes}
+            />
+          )}
+
+          {pendingDelete && (
+            <ConfirmDialog
+              title="Delete note"
+              message={`"${pendingDelete.stem}" will be permanently deleted from the vault. This cannot be undone.${sidebarDeleteError ? ` Error: ${sidebarDeleteError}` : ''}`}
+              confirmLabel={isSidebarDeleting ? 'Deleting…' : 'Delete'}
+              cancelLabel="Cancel"
+              danger
+              onConfirm={handleConfirmSidebarDelete}
+              onCancel={() => setPendingDelete(null)}
             />
           )}
         </>

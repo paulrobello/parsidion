@@ -26,6 +26,29 @@ import { NextRequest, NextResponse } from 'next/server'
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH'])
 
 /**
+ * Rejects cross-site GET requests using the `Sec-Fetch-Site` header.
+ *
+ * GET routes aren't covered by requireAuth()'s Content-Type guard — a simple
+ * cross-site `fetch()` GET doesn't trigger a CORS preflight, so a drive-by
+ * page could otherwise trigger server-side side effects (recursive directory
+ * walks, subprocess spawns) even though it can't read the response body.
+ * `Sec-Fetch-Site` is set by the browser and can't be spoofed by page script;
+ * Origin is not used here because browsers omit it on many legitimate
+ * same-origin GETs. Non-browser clients typically omit `Sec-Fetch-Site`
+ * entirely and are allowed through.
+ *
+ * @returns A 403 NextResponse when the request is cross-site, or null when
+ *   the request is permitted.
+ */
+export function requireSameOrigin(req: NextRequest): NextResponse | null {
+  const site = req.headers.get('sec-fetch-site')
+  if (site === 'cross-site') {
+    return NextResponse.json({ error: 'Cross-site requests are not allowed' }, { status: 403 })
+  }
+  return null
+}
+
+/**
  * Checks auth/CSRF guards for an incoming API request.
  *
  * @returns A NextResponse with a 4xx status when the request should be
