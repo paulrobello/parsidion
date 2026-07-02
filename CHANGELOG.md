@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.12.0] - 2026-07-02
+
 ### Added
 - **Visualizer force-layout performance** — the per-frame simulation now snapshots visible nodes' positions/velocities into flat typed arrays once per frame and runs gravity, repulsion, and edge-attraction over those arrays instead of doing per-pair graphology attribute lookups (a large constant-factor win with identical physics). Above `BARNES_HUT_THRESHOLD` (1000 visible nodes) exact O(n²) repulsion is replaced by grid-based (linked-cell half-shell) approximate repulsion; below it the exact path is retained. The `hideIsolated` visibility rule is now a single shared `isEffectivelyIsolated()` predicate used by both the physics loop and the node reducer.
 - **Visualizer SSE live-reload** — the custom `ws` Node server (`server.ts`) is retired in favor of native `next dev`/`next start` plus a Server-Sent Events route (`app/api/vault/events`). The route preserves SEC-009 vault validation, the `Sec-Fetch-Site` cross-origin guard, reference-counted per-vault `chokidar` watchers, and identical `file:created/deleted/modified` + `graph:rebuilt` payloads; `useVaultFiles` moves to `EventSource` with an unchanged public contract. `ws`/`tsx`/`@types/ws` and `tsconfig.server.json` are removed.
@@ -656,7 +660,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/paulrobello/parsidion/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/paulrobello/parsidion/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/paulrobello/parsidion/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/paulrobello/parsidion/compare/v0.9.2...v0.10.0

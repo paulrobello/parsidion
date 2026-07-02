@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.11.1:** security patch — vulnerable transitive npm deps in the visualizer bumped (picomatch, brace-expansion, postcss, @babel/core, esbuild). 0.11.0 added the visualizer vault-stats toolbar + in-place summarizer launch and fixed the recency-heatmap legend; 0.10.0 brought graph retrieval at session start. See the [Changelog](CHANGELOG.md).
+> **New in 0.12.0:** visualizer SSE live-reload (retires the custom `ws` server for native `next dev` + Server-Sent Events) and a force-layout performance rewrite (flat typed-array physics + grid-based Barnes-Hut above 1000 nodes); a dead-letter queue retires perpetually-failing summarizations; `vault_doctor` gains pre-mutation backups and every note write is now atomic; plus fence-aware wikilink rewriting, a `config.local.yaml` overlay, and a **security fix** that stops `config.yaml` leaking API keys into vault git history. 0.11.1 was a visualizer npm security patch; 0.11.0 added the vault-stats toolbar + in-place summarizer launch. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
@@ -202,6 +202,9 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
 | `gemini_session_start_hook.py` | Gemini SessionStart hook -- wraps the same context builder for Gemini CLI runtime integration |
 | `gemini_session_end_hook.py` | Gemini SessionEnd hook -- parses Gemini transcripts and queues learnable sessions from `~/.gemini/...` or `<project>/.gemini/...` |
+| `codex_session_start_hook.py` | Codex CLI SessionStart hook -- wraps the same context builder for Codex runtime integration (registered in `~/.codex/hooks.json`) |
+| `codex_stop_hook.py` | Codex CLI Stop hook -- parses Codex transcripts and queues learnable sessions; native Codex hook lifecycle |
+| `codex_subagent_stop_hook.py` | Codex CLI SubagentStop hook -- captures Codex subagent transcripts with `source="subagent"` + `agent_type`/`session_id`; mirrors `codex_stop_hook.py` |
 | `subagent_stop_hook.py` | SubagentStop hook (async) -- captures subagent transcripts and queues them to `pending_summaries.jsonl`; skips agents listed in `excluded_agents`; accepts Claude and pi transcript paths |
 | `summarize_sessions.py` | On-demand AI summarizer -- generates structured vault notes from queued sessions via the configured prompt AI backend (`claude -p` or `codex exec`); uses `anyio` for concurrency and checks for near-duplicate notes before writing (configurable via `summarizer.dedup_threshold`) |
 | `pre_compact_hook.py` | PreCompact hook -- snapshots working state before compaction |
@@ -470,9 +473,9 @@ make graph-with-daily    # include Daily folder notes
 cd visualizer && bun dev
 
 # Production
-make build-visualizer    # compile
-make start-visualizer    # serve on port 3999
-make stop-visualizer     # stop
+make build-visualizer        # compile
+cd visualizer && bun start   # serve on port 3999
+make stop-visualizer         # stop
 ```
 
 > **Note:** Requires vault embeddings to be built first: `uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py`
@@ -1034,7 +1037,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.11.1** (visualizer npm security patch — picomatch, brace-expansion, postcss, @babel/core, esbuild transitive bumps). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.12.0** (visualizer SSE live-reload + force-layout performance, dead-letter queue, `config.local.yaml` overlay, fence-aware wikilink rewriting, atomic note writes & pre-mutation backups in `vault_doctor`, and a `config.yaml` API-key leak fix). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
