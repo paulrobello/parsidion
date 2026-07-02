@@ -410,7 +410,7 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
 
 
 def run_pending(vault: Path | None = None) -> None:
-    """Print a summary of pending_summaries.jsonl queue."""
+    """Print a summary of pending_summaries.jsonl queue and dead_letters.jsonl."""
     from rich.table import Table  # noqa: PLC0415
     from rich import box  # noqa: PLC0415
 
@@ -419,41 +419,57 @@ def run_pending(vault: Path | None = None) -> None:
 
     if not data["exists"]:
         console.print("[dim]No pending_summaries.jsonl found — queue is empty.[/dim]")
-        return
-
-    if data.get("error"):
+    elif data.get("error"):
         console.print("[red]Cannot read pending_summaries.jsonl[/red]")
-        return
-
-    total = data["total"]
-    if total == 0:
+    elif data["total"] == 0:
         console.print("[green]Queue is empty (0 entries).[/green]")
+    else:
+        total = data["total"]
+        token_estimate = data["token_estimate"]
+        console.print(
+            f"\n[bold cyan]Pending Summaries Queue[/bold cyan] — {total} entries "
+            f"(~{token_estimate:,} tokens estimated)\n"
+        )
+
+        src_table = Table(title="By Source", box=box.SIMPLE_HEAD, show_lines=False)
+        src_table.add_column("Source", style="cyan")
+        src_table.add_column("Count", justify="right", style="white")
+        for src, count in sorted(data["source_counts"].items(), key=lambda x: -x[1]):
+            src_table.add_row(src, str(count))
+        console.print(src_table)
+
+        if data["project_counts"]:
+            console.print()
+            proj_table = Table(
+                title="By Project", box=box.SIMPLE_HEAD, show_lines=False
+            )
+            proj_table.add_column("Project", style="cyan")
+            proj_table.add_column("Count", justify="right", style="white")
+            for proj, count in sorted(
+                data["project_counts"].items(), key=lambda x: -x[1]
+            ):
+                proj_table.add_row(proj, str(count))
+            console.print(proj_table)
+
+        if data["oldest_ts"]:
+            console.print(f"\n  [dim]Oldest entry:[/dim] {data['oldest_ts']}")
+        console.print()
+
+    # --- Dead-letter status (always shown, even when the queue is empty) ---
+    dl_data = vault_metrics.collect_dead_letters(vault)
+    if not dl_data["exists"] or dl_data.get("error") or dl_data["total"] == 0:
+        console.print("[dim]Dead letters: 0[/dim]")
         return
 
-    token_estimate = data["token_estimate"]
     console.print(
-        f"\n[bold cyan]Pending Summaries Queue[/bold cyan] — {total} entries "
-        f"(~{token_estimate:,} tokens estimated)\n"
+        f"\n[bold red]Dead Letters[/bold red] — {dl_data['total']} entries "
+        f"(dead_letters.jsonl)\n"
     )
-
-    src_table = Table(title="By Source", box=box.SIMPLE_HEAD, show_lines=False)
-    src_table.add_column("Source", style="cyan")
-    src_table.add_column("Count", justify="right", style="white")
-    for src, count in sorted(data["source_counts"].items(), key=lambda x: -x[1]):
-        src_table.add_row(src, str(count))
-    console.print(src_table)
-
-    if data["project_counts"]:
-        console.print()
-        proj_table = Table(title="By Project", box=box.SIMPLE_HEAD, show_lines=False)
-        proj_table.add_column("Project", style="cyan")
-        proj_table.add_column("Count", justify="right", style="white")
-        for proj, count in sorted(data["project_counts"].items(), key=lambda x: -x[1]):
-            proj_table.add_row(proj, str(count))
-        console.print(proj_table)
-
-    if data["oldest_ts"]:
-        console.print(f"\n  [dim]Oldest entry:[/dim] {data['oldest_ts']}")
+    for entry in dl_data["recent"]:
+        console.print(
+            f"  [dim]{entry['dead_lettered_at']}[/dim] "
+            f"[cyan]{entry['project']}[/cyan] — {entry['last_failure']}"
+        )
     console.print()
 
 

@@ -117,7 +117,12 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
         "graph.json",
         "summarizer_state.json",
         "doctor_state.json",
+        "dead_letters.jsonl",
         ".obsidian/",
+        # config.yaml / config.local.yaml may hold ANTHROPIC_API_KEY /
+        # ANTHROPIC_AUTH_TOKEN (anthropic_env section) — never sync to a remote.
+        "config.yaml",
+        "config.local.yaml",
     ]
 
     if gitignore.exists():

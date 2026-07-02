@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 from datetime import date, datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ __all__: list[str] = [
     "funlock",
     # File I/O
     "read_last_n_lines",
+    "atomic_write_text",
     # Pending queue
     "append_to_pending",
     "migrate_pending_paths",
@@ -145,6 +147,41 @@ def read_last_n_lines(filepath: Path, n: int) -> list[str]:
         return []
 
 
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Write *content* to *path* atomically via a sibling tmp file + ``Path.replace``.
+
+    The tmp file lives in *path*'s own directory so the final ``Path.replace``
+    is a same-filesystem rename -- atomic on POSIX and safe against readers
+    observing a half-written file.  When *path* already exists, its
+    permission bits are copied onto the tmp file before the replace so an
+    existing ``chmod`` is not silently reset.  The tmp file is removed if
+    either the write or the replace fails.
+
+    Args:
+        path: Destination file path.
+        content: Text content to write.
+        encoding: Text encoding (default: utf-8).
+    """
+    existing_mode: int | None = None
+    try:
+        existing_mode = stat.S_IMODE(os.stat(path).st_mode)
+    except OSError:
+        pass
+
+    tmp = path.parent / (path.name + ".tmp")
+    try:
+        tmp.write_text(content, encoding=encoding)
+        if existing_mode is not None:
+            os.chmod(tmp, existing_mode)
+        tmp.replace(path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Pending summary queue
 # ---------------------------------------------------------------------------
@@ -210,33 +247,45 @@ def append_to_pending(
     # used here because it locks byte ranges (not the whole file) and would
     # require careful size tracking — too complex for stdlib-only code.
     try:
-        fd = os.open(str(pending_path), os.O_CREAT | os.O_RDWR, 0o600)
-        with open(fd, "r+", encoding="utf-8") as f:
-            flock_exclusive(f)
-            try:
-                f.seek(0)
-                # ARC-012: Build a set of existing session IDs for O(1) dedup
-                # instead of comparing each line individually during iteration.
-                existing_ids: set[str] = set()
-                for raw_line in f:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
+        # migrate_pending_paths() rewrites the queue via tmp + atomic replace
+        # while holding the same flock. If that replace happens while we are
+        # blocked on the lock, our handle points at the unlinked old inode and
+        # the write would be silently lost — re-open until the locked handle
+        # matches the path on disk.
+        for _attempt in range(5):
+            fd = os.open(str(pending_path), os.O_CREAT | os.O_RDWR, 0o600)
+            with open(fd, "r+", encoding="utf-8") as f:
+                flock_exclusive(f)
+                try:
                     try:
-                        existing = json.loads(line)
-                        eid = (
-                            existing.get("session_id")
-                            or Path(existing.get("transcript_path", "")).stem
-                        )
-                        existing_ids.add(eid)
-                    except (json.JSONDecodeError, ValueError):
+                        if os.fstat(f.fileno()).st_ino != os.stat(pending_path).st_ino:
+                            continue  # File was replaced; retry on the new inode
+                    except OSError:
                         continue
-                if session_id in existing_ids:
-                    return  # Already queued
-                f.seek(0, 2)
-                f.write(json.dumps(entry) + "\n")
-            finally:
-                funlock(f)
+                    f.seek(0)
+                    # ARC-012: Build a set of existing session IDs for O(1) dedup
+                    # instead of comparing each line individually during iteration.
+                    existing_ids: set[str] = set()
+                    for raw_line in f:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        try:
+                            existing = json.loads(line)
+                            eid = (
+                                existing.get("session_id")
+                                or Path(existing.get("transcript_path", "")).stem
+                            )
+                            existing_ids.add(eid)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                    if session_id in existing_ids:
+                        return  # Already queued
+                    f.seek(0, 2)
+                    f.write(json.dumps(entry) + "\n")
+                    return
+                finally:
+                    funlock(f)
     except OSError:
         pass
 
@@ -260,55 +309,79 @@ def migrate_pending_paths(dry_run: bool = False, vault: Path | None = None) -> i
     pending_path = vault / "pending_summaries.jsonl"
     if not pending_path.exists():
         return 0
-    entries: list[dict] = []
-    with open(pending_path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+
+    # Hold the same exclusive lock append_to_pending() takes — on the REAL
+    # pending file — for the entire read → transform → replace sequence, so a
+    # concurrently-queued session cannot be dropped by the rewrite.
+    try:
+        fd = os.open(str(pending_path), os.O_RDWR)
+    except OSError:
+        return 0
     fixed = 0
-    for entry in entries:
-        stored = entry.get("transcript_path", "")
-        if not stored:
-            continue
-        stored_path = Path(stored)
-        if stored_path.exists():
-            continue
-
-        candidates: list[Path] = []
-
-        # Claude Code fallback: old entries lacked the "agent-" prefix.
-        candidates.append(stored_path.parent / f"agent-{stored_path.stem}.jsonl")
-
-        # pi fallback: support both historical location spellings.
-        stored_str = str(stored_path)
-        if "/.pi/agent/sessions/" in stored_str:
-            candidates.append(
-                Path(stored_str.replace("/.pi/agent/sessions/", "/.pi/agent-sessions/"))
-            )
-        if "/.pi/agent-sessions/" in stored_str:
-            candidates.append(
-                Path(stored_str.replace("/.pi/agent-sessions/", "/.pi/agent/sessions/"))
-            )
-
-        repaired = next(
-            (candidate for candidate in candidates if candidate.exists()), None
-        )
-        if repaired is not None:
-            if not dry_run:
-                entry["transcript_path"] = str(repaired)
-            fixed += 1
-    if fixed and not dry_run:
-        tmp = pending_path.with_suffix(".jsonl.tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            flock_exclusive(fh)
+    with open(fd, "r+", encoding="utf-8") as fh:
+        flock_exclusive(fh)
+        try:
+            entries: list[dict] = []
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
             for entry in entries:
-                fh.write(json.dumps(entry) + "\n")
-        tmp.replace(pending_path)
+                stored = entry.get("transcript_path", "")
+                if not stored:
+                    continue
+                stored_path = Path(stored)
+                if stored_path.exists():
+                    continue
+
+                candidates: list[Path] = []
+
+                # Claude Code fallback: old entries lacked the "agent-" prefix.
+                candidates.append(
+                    stored_path.parent / f"agent-{stored_path.stem}.jsonl"
+                )
+
+                # pi fallback: support both historical location spellings.
+                stored_str = str(stored_path)
+                if "/.pi/agent/sessions/" in stored_str:
+                    candidates.append(
+                        Path(
+                            stored_str.replace(
+                                "/.pi/agent/sessions/", "/.pi/agent-sessions/"
+                            )
+                        )
+                    )
+                if "/.pi/agent-sessions/" in stored_str:
+                    candidates.append(
+                        Path(
+                            stored_str.replace(
+                                "/.pi/agent-sessions/", "/.pi/agent/sessions/"
+                            )
+                        )
+                    )
+
+                repaired = next(
+                    (candidate for candidate in candidates if candidate.exists()), None
+                )
+                if repaired is not None:
+                    if not dry_run:
+                        entry["transcript_path"] = str(repaired)
+                    fixed += 1
+            if fixed and not dry_run:
+                # Write via tmp + atomic replace (mode 0o600 like the queue
+                # itself) while still holding the lock on the original file.
+                tmp = pending_path.with_suffix(".jsonl.tmp")
+                tmp_fd = os.open(str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                with open(tmp_fd, "w", encoding="utf-8") as out:
+                    for entry in entries:
+                        out.write(json.dumps(entry) + "\n")
+                tmp.replace(pending_path)
+        finally:
+            funlock(fh)
     return fixed
 
 
@@ -347,7 +420,12 @@ def git_commit_vault(
         if paths:
             add_args = ["git", "add"] + [str(p) for p in paths]
         else:
-            add_args = ["git", "add", "-A"]
+            # The vault-root config.yaml may contain secrets (e.g.
+            # ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN under anthropic_env),
+            # so auto-commits must never stage it — it would end up on
+            # remotes via the documented multi-machine git sync.  Callers
+            # that pass explicit paths are honored unchanged.
+            add_args = ["git", "add", "-A", "--", ".", ":(exclude)config.yaml"]
 
         result = subprocess.run(
             add_args,

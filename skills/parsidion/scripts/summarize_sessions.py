@@ -84,6 +84,22 @@ _STALE = "__STALE__"
 # transient. Skipped entries are also purged so they are not reprocessed forever.
 _SKIPPED = "__SKIPPED__"
 
+# Dead-letter cap: a queue entry that fails this many times is purged from
+# pending_summaries.jsonl instead of retrying (and re-billing an AI call) on
+# every run forever. Tracked via the optional "attempts" field (absent = 0).
+_MAX_ATTEMPTS = 3
+
+# In-memory only: stamped on an entry by _mark_failure() so main() can hand the
+# failure reason to remove_processed() for the dead-letter warning. Never
+# persisted — the queue rewrite works from the on-disk lines, not these dicts.
+_FAILURE_REASON_KEY = "_failure_reason"
+
+
+def _mark_failure(entry: dict[str, object], reason: str) -> None:
+    """Record why *entry* failed so the dead-letter purge warning can report it."""
+    entry[_FAILURE_REASON_KEY] = reason
+
+
 # Progress tracking (#13)
 _PROGRESS_FILE = vault_common.secure_log_dir() / "parsidion-summarizer-progress.json"
 
@@ -793,7 +809,7 @@ def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
         slug = "session-note"
     target_dir = vault / folder_name
     resolved = (target_dir / f"{slug}.md").resolve()
-    if not str(resolved).startswith(str(vault.resolve())):
+    if not resolved.is_relative_to(vault.resolve()):
         raise ValueError(f"Refusing to write outside vault: {resolved}")
     target_path = target_dir / f"{slug}.md"
 
@@ -1133,6 +1149,7 @@ async def summarize_one(
                 f"  Skipping {transcript_path_str}: could not read transcript",
                 file=sys.stderr,
             )
+            _mark_failure(entry, "could not read transcript")
             return entry, None
 
         # Semantic dedup: find near-duplicate notes before calling the backend
@@ -1171,6 +1188,7 @@ async def summarize_one(
             # QA-009: return None (not _STALE/_SKIPPED) so the queue entry is
             # preserved and retried on the next run. Only purge for known-stale
             # or write-gate-skipped cases.
+            _mark_failure(entry, f"AI backend error: {e}")
             return entry, None
 
         if not result_text:
@@ -1178,6 +1196,7 @@ async def summarize_one(
                 f"  No result from AI backend for {transcript_path_str}",
                 file=sys.stderr,
             )
+            _mark_failure(entry, "no result from AI backend")
             return entry, None
 
         # Write-gate: check if the backend decided this session is not worth saving or should merge
@@ -1192,29 +1211,49 @@ async def summarize_one(
                         print(f"  [write-gate] Skipping session {short_id}: {reason}")
                         return entry, _SKIPPED
                     if decision.get("decision") == "merge":
-                        # The backend chose to merge into an existing note
+                        # The backend chose to merge into an existing note.
+                        # A malformed or unresolvable merge must NOT fall
+                        # through to the generic write path — result_text is
+                        # still raw decision JSON there and always fails
+                        # frontmatter validation with a misleading error.
+                        # Fail with the real reason instead; the attempts cap
+                        # in remove_processed() bounds retries.
                         target_wikilink = str(decision.get("target", ""))
                         new_content = str(decision.get("new_content", ""))
-                        if new_content and target_wikilink:
-                            # Extract stem from [[stem]] wikilink
-                            target_stem = target_wikilink.strip("[]")
-                            target_path = _resolve_note_stem(target_stem, vault)
-                            if target_path is not None and not dry_run:
-                                new_content = _normalize_related_field(new_content)
-                                target_path.write_text(new_content, encoding="utf-8")
-                                print(
-                                    f"  [dedup-merge] Updated [[{target_stem}]] "
-                                    f"instead of creating new note"
-                                )
-                                return entry, target_path
-                            elif dry_run:
-                                print(f"  [dry-run] Would merge into [[{target_stem}]]")
-                                return entry, None
+                        if not new_content or not target_wikilink:
+                            reason = "merge decision missing target or new_content"
+                            print(f"  {reason}", file=sys.stderr)
+                            _mark_failure(entry, reason)
+                            return entry, None
+                        # Extract stem from [[stem]] wikilink
+                        target_stem = target_wikilink.strip("[]")
+                        target_path = _resolve_note_stem(target_stem, vault)
+                        if dry_run:
+                            print(f"  [dry-run] Would merge into [[{target_stem}]]")
+                            return entry, None
+                        if target_path is None:
+                            reason = (
+                                f"merge target [[{target_stem}]] could not be resolved"
+                            )
+                            print(f"  {reason}", file=sys.stderr)
+                            _mark_failure(entry, reason)
+                            return entry, None
+                        new_content = _normalize_related_field(new_content)
+                        target_path.write_text(new_content, encoding="utf-8")
+                        print(
+                            f"  [dedup-merge] Updated [[{target_stem}]] "
+                            f"instead of creating new note"
+                        )
+                        return entry, target_path
             except (json.JSONDecodeError, ValueError):
                 pass  # Not a structured decision — treat as normal note
 
         result_text = inject_project_tag(result_text, project)
         written = write_note(result_text, dry_run, vault)
+        if written is None and not dry_run:
+            # write_note already printed the specific refusal (frontmatter
+            # validation, daily-note skip, ...) to stderr.
+            _mark_failure(entry, "note validation or write failed")
 
         # Automated backlink suggestion
         if written is not None:
@@ -1328,10 +1367,12 @@ async def run_all(
         results.append(result)
         _progress_counters[0] += 1  # processed
         _, written_path = result
-        if written_path is not None:
+        if written_path in (_STALE, _SKIPPED):
+            _progress_counters[2] += 1  # skipped (stale or write-gate)
+        elif written_path is not None:
             _progress_counters[1] += 1  # written
         else:
-            _progress_counters[2] += 1  # skipped/error (approximation)
+            _progress_counters[3] += 1  # errors
         _write_progress(
             total=total,
             processed=_progress_counters[0],
@@ -1347,19 +1388,66 @@ async def run_all(
     return results
 
 
+def _append_dead_letter(
+    pending_path: Path,
+    entry: dict[str, object],
+    attempts: int,
+    last_failure: str,
+) -> None:
+    """Best-effort append of a dead-lettered entry to dead_letters.jsonl.
+
+    Mirrors vault_fs.append_to_pending's permission/lock conventions (0o600,
+    exclusive flock) but must never raise -- the entry has already been
+    purged from the queue by the caller, so a write failure here is only
+    a loss of visibility, not a correctness problem.
+
+    Args:
+        pending_path: Path to the pending JSONL file (dead_letters.jsonl is
+            written as a sibling in the same vault directory).
+        entry: The original queue entry being purged.
+        attempts: Final attempts count that triggered the purge.
+        last_failure: The failure reason recorded for this attempt.
+    """
+    dead_letter_path = pending_path.parent / "dead_letters.jsonl"
+    record = dict(entry)
+    record["attempts"] = attempts
+    record["last_failure"] = last_failure
+    record["dead_lettered_at"] = datetime.now().isoformat()
+    try:
+        fd = os.open(str(dead_letter_path), os.O_CREAT | os.O_RDWR, 0o600)
+        with open(fd, "r+", encoding="utf-8") as f:
+            _flock_exclusive(f)
+            try:
+                f.seek(0, 2)
+                f.write(json.dumps(record) + "\n")
+            finally:
+                _funlock(f)
+    except OSError as e:
+        print(f"Warning: could not write dead-letter record: {e}", file=sys.stderr)
+
+
 def remove_processed(
     pending_path: Path,
     processed_entries: list[dict[str, object]],
+    failed: dict[str, str] | None = None,
 ) -> None:
     """Remove successfully processed entries from the pending file.
+
+    Entries keyed in *failed* get their optional ``attempts`` counter
+    incremented (absent = 0); an entry reaching ``_MAX_ATTEMPTS`` is purged
+    (dead-lettered) with a stderr warning so a deterministic failure cannot
+    retry — and re-bill an AI call — on every run forever.
 
     Args:
         pending_path: Path to the pending JSONL file.
         processed_entries: Entries that were successfully processed.
+        failed: Map of session_id/transcript_path key -> last failure reason
+            for entries that failed this run.
     """
     if not pending_path.exists():
         return
 
+    failed = failed or {}
     # Prefer session_id for matching; fall back to transcript_path for entries
     # written by older versions of the hook that lack session_id.
     processed_ids = {
@@ -1368,9 +1456,9 @@ def remove_processed(
     }
 
     try:
-        # Open r+ so read and truncate+rewrite happen under a single
-        # exclusive lock — stop hooks appending concurrently will block
-        # until the rewrite completes, preventing lost entries.
+        # Hold the exclusive lock on the REAL file for the whole read+swap so
+        # concurrent append_to_pending() calls (vault_fs.py flocks the same
+        # file) cannot interleave between the read and the replace.
         with open(pending_path, "r+", encoding="utf-8") as f:
             _flock_exclusive(f)
             try:
@@ -1381,17 +1469,44 @@ def remove_processed(
                         continue
                     try:
                         entry = json.loads(line)
-                        key = str(
-                            entry.get("session_id") or entry.get("transcript_path", "")
-                        )
-                        if key not in processed_ids:
-                            remaining.append(line)
                     except (json.JSONDecodeError, ValueError):
                         remaining.append(line)  # Keep malformed lines
-                f.seek(0)
-                f.truncate()
-                for line in remaining:
-                    f.write(line + "\n")
+                        continue
+                    key = str(
+                        entry.get("session_id") or entry.get("transcript_path", "")
+                    )
+                    if key in processed_ids:
+                        continue
+                    if key in failed:
+                        raw_attempts = entry.get("attempts")
+                        attempts = (
+                            raw_attempts if isinstance(raw_attempts, int) else 0
+                        ) + 1
+                        if attempts >= _MAX_ATTEMPTS:
+                            print(
+                                f"Warning: dead-letter purge of session "
+                                f"{entry.get('session_id') or entry.get('transcript_path', '?')} "
+                                f"(project: {entry.get('project', 'unknown')}) after "
+                                f"{attempts} failed attempts; last failure: {failed[key]}",
+                                file=sys.stderr,
+                            )
+                            _append_dead_letter(
+                                pending_path, entry, attempts, failed[key]
+                            )
+                            continue
+                        entry["attempts"] = attempts
+                        remaining.append(json.dumps(entry))
+                        continue
+                    remaining.append(line)
+                # Crash-atomic rewrite: write survivors to a sibling .tmp and
+                # swap it over the original (same pattern as
+                # _write_summarizer_state / vault_fs.migrate_pending_paths).
+                # A kill mid-rewrite can no longer truncate the queue.
+                tmp = pending_path.with_suffix(".jsonl.tmp")
+                tmp.write_text(
+                    "".join(line + "\n" for line in remaining), encoding="utf-8"
+                )
+                tmp.replace(pending_path)
             finally:
                 _funlock(f)
     except OSError as e:
@@ -1484,38 +1599,64 @@ def _write_summarizer_state(state: dict, vault_path: Path) -> None:
     tmp.replace(dest)
 
 
+def _summarizer_claim_lock_file(vault_path: Path) -> Path:
+    """Return the flock guard path serializing summarizer_state.json updates."""
+    return _summarizer_state_file(vault_path).with_suffix(".lock")
+
+
 def claim_summarizer_lock(vault_path: Path) -> bool:
     """Claim the singleton summarizer lock for *vault_path*.
 
     Returns True if this process now holds the lock, False if another
     summarizer is already running. A stale PID (dead process) is reclaimed.
+
+    The read-check-write on summarizer_state.json is serialized under an
+    exclusive flock on a sibling .lock file so two near-simultaneous
+    SessionEnd hooks cannot both read the pre-claim state and both "win".
     """
-    state = _load_summarizer_state(vault_path)
-    existing_pid = state.get("pid")
-    if (
-        existing_pid
-        and existing_pid != os.getpid()
-        and vault_common.is_process_running(existing_pid)
-    ):
-        print(
-            f"summarize_sessions is already running (PID {existing_pid}). Skipping.",
-            file=sys.stderr,
-        )
-        return False
-    _write_summarizer_state(
-        {"pid": os.getpid(), "last_run": datetime.now().isoformat(timespec="seconds")},
-        vault_path,
-    )
-    return True
+    lock_path = _summarizer_claim_lock_file(vault_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)  # vault dir may not exist yet
+    with open(lock_path, "a+", encoding="utf-8") as lock_file:
+        _flock_exclusive(lock_file)
+        try:
+            state = _load_summarizer_state(vault_path)
+            existing_pid = state.get("pid")
+            if (
+                existing_pid
+                and existing_pid != os.getpid()
+                and vault_common.is_process_running(existing_pid)
+            ):
+                print(
+                    f"summarize_sessions is already running (PID {existing_pid}). Skipping.",
+                    file=sys.stderr,
+                )
+                return False
+            _write_summarizer_state(
+                {
+                    "pid": os.getpid(),
+                    "last_run": datetime.now().isoformat(timespec="seconds"),
+                },
+                vault_path,
+            )
+            return True
+        finally:
+            _funlock(lock_file)
 
 
 def release_summarizer_lock(vault_path: Path) -> None:
     """Clear our PID from summarizer_state.json (best-effort, idempotent)."""
     try:
-        state = _load_summarizer_state(vault_path)
-        if state.get("pid") == os.getpid():
-            state.pop("pid", None)
-            _write_summarizer_state(state, vault_path)
+        with open(
+            _summarizer_claim_lock_file(vault_path), "a+", encoding="utf-8"
+        ) as lock_file:
+            _flock_exclusive(lock_file)
+            try:
+                state = _load_summarizer_state(vault_path)
+                if state.get("pid") == os.getpid():
+                    state.pop("pid", None)
+                    _write_summarizer_state(state, vault_path)
+            finally:
+                _funlock(lock_file)
     except Exception:  # noqa: BLE001
         pass
 
@@ -1680,7 +1821,7 @@ def main() -> None:
     successful_entries: list[dict[str, object]] = []
     stale_entries: list[dict[str, object]] = []
     skipped_entries: list[dict[str, object]] = []
-    failed_count = 0
+    failed_entries: list[dict[str, object]] = []
     for entry, written_path in results:
         if written_path == _STALE:
             stale_entries.append(entry)
@@ -1690,15 +1831,27 @@ def main() -> None:
             print(f"  Written: {written_path}")
             successful_entries.append(entry)
         elif not args.dry_run:
-            failed_count += 1
+            failed_entries.append(entry)
 
     skipped_count = len(skipped_entries)
+    failed_count = len(failed_entries)
 
     if not args.dry_run:
-        # Remove processed, stale, and write-gate skipped entries from pending file
+        # Remove processed, stale, and write-gate skipped entries from pending
+        # file; failed entries get their attempts counter bumped (and are
+        # dead-lettered at _MAX_ATTEMPTS).
         removable = successful_entries + stale_entries + skipped_entries
-        if not args.sessions and removable:
-            remove_processed(source_path, removable)
+        failed_reasons = {
+            str(e.get("session_id") or e.get("transcript_path", "")): str(
+                e.get(_FAILURE_REASON_KEY, "unknown failure")
+            )
+            for e in failed_entries
+        }
+        if not args.sessions:
+            if failed_reasons:
+                remove_processed(source_path, removable, failed=failed_reasons)
+            elif removable:
+                remove_processed(source_path, removable)
 
         # Rebuild vault index and commit all new notes + updated index
         if successful_entries:

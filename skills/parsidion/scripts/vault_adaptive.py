@@ -11,8 +11,13 @@ are re-exported from ``vault_common`` for backward compatibility.
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+
+from vault_fs import flock_exclusive, funlock
 
 __all__: list[str] = [
     # Last-seen tracking
@@ -26,6 +31,37 @@ __all__: list[str] = [
     "update_usefulness_scores",
     "get_injected_stems",
 ]
+
+# ---------------------------------------------------------------------------
+# Locked, atomic JSON persistence helpers
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _locked(path: Path) -> Iterator[None]:
+    """Hold an exclusive lock on a stable ``.lock`` sibling of *path*.
+
+    The lock file (not the JSON itself) is locked because the JSON file is
+    swapped out by atomic replace, which would defeat an inode-bound flock.
+    These files are shared across all projects, so parallel sessions must
+    serialize their read-modify-write cycles to avoid losing updates.
+    """
+    lock_path = path.parent / (path.name + ".lock")
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    with open(fd, "r+", encoding="utf-8") as lock_file:
+        flock_exclusive(lock_file)
+        try:
+            yield
+        finally:
+            funlock(lock_file)
+
+
+def _atomic_write_json(path: Path, data: object) -> None:
+    """Write JSON via tmp + ``Path.replace`` so readers never see partial data."""
+    tmp = path.parent / (path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
 
 # ---------------------------------------------------------------------------
 # Per-project last-seen tracking (#10 cross-session delta)
@@ -78,9 +114,10 @@ def save_last_seen(
         ts = datetime.now().isoformat(timespec="seconds")
     path = get_last_seen_path(vault)
     try:
-        data = load_last_seen(vault)
-        data[project] = ts
-        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        with _locked(path):
+            data = load_last_seen(vault)
+            data[project] = ts
+            _atomic_write_json(path, data)
     except OSError:
         pass
 
@@ -152,9 +189,10 @@ def save_injected_notes(project: str, stems: list[str]) -> None:
     """
     path = get_last_seen_path()
     try:
-        data = load_last_seen()
-        data[f"{project}__injected"] = ",".join(stems)
-        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        with _locked(path):
+            data = load_last_seen()
+            data[f"{project}__injected"] = ",".join(stems)
+            _atomic_write_json(path, data)
     except OSError:
         pass
 
@@ -177,15 +215,18 @@ def update_usefulness_scores(
         return
     path = get_usefulness_path()
     try:
-        scores = load_usefulness_scores()
-        now_ts = datetime.now().isoformat(timespec="seconds")
-        for stem in injected_stems:
-            entry = scores.setdefault(stem, {"hits": 0, "misses": 0, "last_hit": None})
-            if stem in referenced_stems:
-                entry["hits"] = entry.get("hits", 0) + 1
-                entry["last_hit"] = now_ts
-            else:
-                entry["misses"] = entry.get("misses", 0) + 1
-        path.write_text(json.dumps(scores, indent=2) + "\n", encoding="utf-8")
+        with _locked(path):
+            scores = load_usefulness_scores()
+            now_ts = datetime.now().isoformat(timespec="seconds")
+            for stem in injected_stems:
+                entry = scores.setdefault(
+                    stem, {"hits": 0, "misses": 0, "last_hit": None}
+                )
+                if stem in referenced_stems:
+                    entry["hits"] = entry.get("hits", 0) + 1
+                    entry["last_hit"] = now_ts
+                else:
+                    entry["misses"] = entry.get("misses", 0) + 1
+            _atomic_write_json(path, scores)
     except OSError:
         pass

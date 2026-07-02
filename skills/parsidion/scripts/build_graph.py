@@ -215,6 +215,18 @@ def build_wiki_edges(notes: list[dict], valid_stems: set[str]) -> list[dict]:
     return deduped
 
 
+def write_graph_json(graph: dict, output_path: Path) -> None:
+    """Write graph.json via tmp + atomic replace.
+
+    The visualizer live-reads this file, so a direct write could expose
+    truncated JSON mid-write.
+    """
+    tmp_path = output_path.parent / (output_path.name + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(graph, f, separators=(",", ":"))
+    tmp_path.replace(output_path)
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
@@ -329,8 +341,7 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print("Writing graph.json...", file=sys.stderr)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(graph, f, separators=(",", ":"))
+    write_graph_json(graph, output_path)
 
     print(
         f"Done: {len(nodes)} nodes, {total_edges} edges → {output_path}",

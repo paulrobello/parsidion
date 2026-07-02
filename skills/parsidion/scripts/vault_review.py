@@ -281,6 +281,45 @@ def _cmd_clear(vault_path: Path | None = None) -> None:
 # TUI helpers
 # ---------------------------------------------------------------------------
 
+_POPUP_MIN_H: int = 3  # top/bottom border + one content line
+_POPUP_MIN_W: int = 12  # side borders + padding + minimal readable text
+
+
+def _clamp_selected(selected: int, count: int) -> int:
+    """Clamp a selection index to the valid range for a list of ``count`` items.
+
+    Args:
+        selected: Current selection index (may be out of range after pops).
+        count: Number of items in the list.
+
+    Returns:
+        An index in ``[0, count - 1]``, or 0 when the list is empty.
+    """
+    if count <= 0:
+        return 0
+    return max(0, min(selected, count - 1))
+
+
+def _popup_dims(h: int, w: int, n_lines: int) -> tuple[int, int, int, int] | None:
+    """Compute popup geometry for a terminal of ``h`` rows by ``w`` columns.
+
+    Args:
+        h: Terminal height in rows.
+        w: Terminal width in columns.
+        n_lines: Number of content lines the popup should display.
+
+    Returns:
+        ``(pop_h, pop_w, top, left)`` for ``curses.newwin``, or None when the
+        terminal is too small to host a popup.
+    """
+    pop_h = min(h - 4, n_lines + 4)
+    pop_w = min(w - 4, 100)
+    if pop_h < _POPUP_MIN_H or pop_w < _POPUP_MIN_W:
+        return None
+    top = (h - pop_h) // 2
+    left = (w - pop_w) // 2
+    return pop_h, pop_w, top, left
+
 
 def _draw_header(stdscr, title: str) -> None:
     """Draw a header bar at the top of the screen.
@@ -371,27 +410,36 @@ def _show_popup(stdscr, lines: list[str], title: str = "") -> int:
     import curses
 
     h, w = stdscr.getmaxyx()
-    pop_h = min(h - 4, len(lines) + 4)
-    pop_w = min(w - 4, 100)
-    top = (h - pop_h) // 2
-    left = (w - pop_w) // 2
+    dims = _popup_dims(h, w, len(lines))
+    if dims is None:
+        # Terminal too small for a popup — show a one-line hint instead.
+        try:
+            stdscr.addstr(
+                h - 1, 0, "Terminal too small for popup — press any key."[: w - 1]
+            )
+        except curses.error:
+            pass
+        stdscr.refresh()
+        stdscr.getch()
+        return ord("q")
+    pop_h, pop_w, top, left = dims
 
     win = curses.newwin(pop_h, pop_w, top, left)
     win.keypad(True)
-    win.box()
-    if title:
-        win.addstr(0, 2, f" {title[: pop_w - 6]} ")
 
     inner_h = pop_h - 2
     inner_w = pop_w - 4
     offset = 0
     closing_key = ord("q")
     while True:
-        win.clear()
-        win.box()
+        try:
+            win.clear()
+            win.box()
+        except curses.error:
+            pass
         if title:
             try:
-                win.addstr(0, 2, f" {title[: pop_w - 6]} ")
+                win.addstr(0, 2, f" {title[: max(0, pop_w - 6)]} ")
             except curses.error:
                 pass
         for i in range(inner_h):
@@ -483,7 +531,7 @@ def _run_tui(stdscr, vault_path: Path | None = None) -> None:
 
         # Dump transcript excerpt
         elif key in (ord("d"), ord("\n"), curses.KEY_ENTER, 10, 13):
-            while True:
+            while entries:
                 entry = entries[selected]
                 excerpt = _read_transcript_excerpt(entry, vault_path=vault_path)
                 closing = _show_popup(stdscr, excerpt, title="Transcript Excerpt")
@@ -492,23 +540,21 @@ def _run_tui(stdscr, vault_path: Path | None = None) -> None:
                     entries[selected]["status"] = "approved"
                     _write_entries(entries, vault_path=vault_path)
                     status_msg = f"Entry {selected + 1} approved."
-                    selected = min(selected + 1, len(entries) - 1)
-                    if selected >= len(entries):
-                        break
+                    if selected + 1 >= len(entries):
+                        break  # approved the final entry — close the popup
+                    selected += 1
                 elif closing == ord("n"):
                     entries.pop(selected)
                     _write_entries(entries, vault_path=vault_path)
-                    if not entries:
-                        break
-                    selected = min(selected, len(entries) - 1)
                     status_msg = "Entry removed from queue."
+                    selected = _clamp_selected(selected, len(entries))
+                    # After y/n: show next entry's transcript automatically
                 else:
                     break  # any other key just closes the popup
 
-                # After y/n: show next entry's transcript automatically
-                if entries:
-                    continue
-                break
+            if not entries:
+                break  # queue drained inside the popup — exit like outer reject
+            selected = _clamp_selected(selected, len(entries))
 
         # Approve
         elif key == ord("y"):

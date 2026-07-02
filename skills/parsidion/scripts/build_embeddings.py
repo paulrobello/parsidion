@@ -141,6 +141,7 @@ def embed_and_write(
     model_name: str,
     conn: sqlite3.Connection,
     dry_run: bool,
+    clear_existing: bool = False,
 ) -> int:
     """Embed a batch of notes and write them to the database.
 
@@ -149,22 +150,32 @@ def embed_and_write(
         model_name: fastembed model ID to use.
         conn: Open database connection.
         dry_run: If True, print actions without writing.
+        clear_existing: If True, delete all existing rows in the same
+            transaction as the inserts (used by full rebuild).
 
     Returns:
         Number of records written (0 in dry_run mode).
     """
     if not notes_to_embed:
+        if clear_existing and not dry_run:
+            with conn:
+                conn.execute("DELETE FROM note_embeddings")
         return 0
 
     if dry_run:
         print(f"[dry-run] Would embed {len(notes_to_embed)} notes with {model_name}")
         return 0
 
+    # Load the model and embed BEFORE any destructive write: the first model
+    # load is a network fetch that can fail, and a failure here must not
+    # leave the index emptied by a preceding DELETE.
     texts = [t for _, _, t in notes_to_embed]
     model = TextEmbedding(model_name=model_name)
     vectors = list(model.embed(texts))
 
     with conn:
+        if clear_existing:
+            conn.execute("DELETE FROM note_embeddings")
         for (note_path, stem, _), vec in zip(notes_to_embed, vectors, strict=False):
             try:
                 content = note_path.read_text(encoding="utf-8")
@@ -259,10 +270,12 @@ def full_rebuild(vault_root: Path, model_name: str, dry_run: bool) -> None:
         return
 
     conn = open_db(db_path)
-    with conn:
-        conn.execute("DELETE FROM note_embeddings")
-
-    written = embed_and_write(notes, model_name, conn, dry_run=False)
+    # The DELETE happens inside embed_and_write's transaction, after the
+    # embedding model has loaded, so a model-load/network failure cannot
+    # leave the semantic index permanently empty.
+    written = embed_and_write(
+        notes, model_name, conn, dry_run=False, clear_existing=True
+    )
     conn.close()
     print(f"Full rebuild: embedded {written} notes")
 

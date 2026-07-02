@@ -25,6 +25,12 @@ ensures repairs pick real, existing notes rather than hallucinated links.
 Degrades gracefully when ``vault-search`` is not installed or ``embeddings.db``
 is absent.
 
+Before the first execute-mode mutation of a note in a given run, a copy of the
+original is saved to ``<vault>/.trash/backup/<YYYY-MM-DD>/<relative-path>``
+(first version of the day wins). ``.trash`` is already excluded from indexing,
+so backups never show up in search or the graph. Backups are best-effort and
+never block a fix; prune ``.trash/backup/`` freely whenever you like.
+
 # ARC-015: Concurrency model rationale
 # vault_doctor.py uses ``concurrent.futures.ThreadPoolExecutor`` because it is
 # a stdlib-only script.  ``ThreadPoolExecutor`` is sufficient here: the work is
@@ -47,6 +53,7 @@ import concurrent.futures
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -56,6 +63,8 @@ from pathlib import Path
 
 import ai_backend
 import vault_common
+import vault_fs
+import vault_links
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -235,6 +244,43 @@ def _release_pid(vault_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pre-mutation backups
+# ---------------------------------------------------------------------------
+# Every execute-mode content mutation and rename below is preceded by a call
+# to _backup_note() so an operator can recover the pre-fix version of a note
+# from an unattended --fix-all run. ".trash" is already in
+# vault_common.EXCLUDE_DIRS so backups are invisible to search/indexing.
+
+_backed_up_this_run: set[Path] = set()
+
+
+def _backup_note(vault: Path, note_path: Path) -> None:
+    """Copy *note_path* to today's pre-mutation backup dir, best-effort.
+
+    No-ops if this note was already backed up during the current process
+    (tracked in ``_backed_up_this_run`` to avoid re-stat'ing) or if a backup
+    for today already exists on disk (first version of the day wins).  Never
+    raises — a backup failure warns on stderr but must not block the fix
+    itself, since this runs unattended nightly via cron.
+    """
+    if note_path in _backed_up_this_run:
+        return
+    _backed_up_this_run.add(note_path)
+    try:
+        rel = note_path.relative_to(vault)
+    except ValueError:
+        return  # outside the vault -- nothing to back up
+    dest = vault / ".trash" / "backup" / date.today().isoformat() / rel
+    if dest.exists():
+        return  # first version of the day already saved
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(note_path, dest)
+    except OSError as exc:
+        print(f"  ⚠ backup failed for {rel}: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # Stale file auto-commit
 # ---------------------------------------------------------------------------
 
@@ -338,10 +384,12 @@ def dedup_related_links(dry_run: bool = False, vault_path: Path | None = None) -
         new_line = f"{prefix}[{quoted}]"
         updated = related_re.sub(new_line, content, count=1)
         try:
-            note_path.write_text(updated, encoding="utf-8")
+            _backup_note(vault_path, note_path)
+            vault_fs.atomic_write_text(note_path, updated)
             fixed += 1
-        except OSError:
-            pass
+        except OSError as exc:
+            rel = note_path.relative_to(vault_path)
+            print(f"  ⚠ failed to write {rel}: {exc}", file=sys.stderr)
 
     if fixed and not dry_run:
         vault_common.git_commit_vault(
@@ -448,6 +496,7 @@ def _filter_clusters_with_claude(
     clusters: list[tuple[Path, str, list[Path], Path | None]],
     model: str | None = DEFAULT_MODEL,
     timeout: int = AI_TIMEOUT,
+    on_failure: str = "keep",
 ) -> list[tuple[Path, str, list[Path], Path | None]]:
     """Use prompt AI to discard first-word clusters whose prefix is a generic English word.
 
@@ -456,8 +505,16 @@ def _filter_clusters_with_claude(
 
     A "meaningful" first-word prefix is a specific project/library/tool/OS name
     (e.g. 'parvitar', 'redis', 'obsidian').  Generic verbs, adjectives, and modifiers
-    (e.g. 'fixing', 'missing', 'multi', 'cross') are rejected.  Falls back to keeping
-    all clusters on any error so the caller is never silently blocked.
+    (e.g. 'fixing', 'missing', 'multi', 'cross') are rejected.
+
+    ``on_failure`` controls the fallback when the AI backend is unavailable or
+    returns unparseable output:
+
+    - ``"keep"`` (default): keep all clusters so interactive callers are never
+      silently blocked (the scan path prints candidates for human review).
+    - ``"skip"``: drop the unfiltered first-word clusters (keep exact-stem only).
+      Required for unattended callers (nightly ``--fix-all``) — moving unvetted
+      generic-word clusters would create junk subfolders and auto-commit them.
     """
     if not clusters:
         return clusters
@@ -472,6 +529,16 @@ def _filter_clusters_with_claude(
 
     if not first_word:
         return clusters
+
+    def _fallback() -> list[tuple[Path, str, list[Path], Path | None]]:
+        if on_failure == "skip":
+            print(
+                f"  ⚠ AI backend unavailable — skipping {len(first_word)} "
+                "unvetted first-word cluster(s) (no notes moved).",
+                file=sys.stderr,
+            )
+            return exact_stem
+        return clusters  # keep all
 
     lines = []
     for folder, prefix, notes, _ in first_word:
@@ -510,11 +577,11 @@ def _filter_clusters_with_claude(
             purpose="vault-doctor",
         )
         if not output:
-            return clusters  # fallback
+            return _fallback()
 
         m = re.search(r"\[.*?\]", output.strip(), re.DOTALL)
         if not m:
-            return clusters
+            return _fallback()
 
         accepted: set[str] = set(json.loads(m.group(0)))
         kept_first_word: list[tuple[Path, str, list[Path], Path | None]] = [
@@ -526,7 +593,7 @@ def _filter_clusters_with_claude(
         return result_clusters
 
     except (json.JSONDecodeError, ValueError):
-        return clusters  # fallback: keep all
+        return _fallback()
 
 
 def fix_prefix_cluster(
@@ -550,6 +617,7 @@ def fix_prefix_cluster(
     """
     subfolder = folder / prefix
     moves: list[tuple[Path, Path]] = []
+    vault_path = _active_vault()
 
     for note in cluster_notes:
         if note is base_note:
@@ -578,6 +646,7 @@ def fix_prefix_cluster(
     failed_moves: list[tuple[Path, Path]] = []
     for old_path, new_path in moves:
         try:
+            _backup_note(vault_path, old_path)
             old_path.rename(new_path)
         except FileNotFoundError:
             print(f"  ⚠ skipped (not found): {old_path.relative_to(_active_vault())}")
@@ -594,15 +663,10 @@ def fix_prefix_cluster(
         except OSError:
             return
         original = content
-        for old_stem, new_stem in stem_map.items():
-            content = content.replace(f"[[{old_stem}]]", f"[[{new_stem}]]")
-            content = re.sub(
-                rf"\[\[{re.escape(old_stem)}\|",
-                f"[[{new_stem}|",
-                content,
-            )
+        content = vault_links.replace_wikilinks_outside_code(content, stem_map)
         if content != original:
-            path.write_text(content, encoding="utf-8")
+            _backup_note(vault_path, path)
+            vault_fs.atomic_write_text(path, content)
 
     for note in all_notes:
         if note not in old_paths:
@@ -667,7 +731,12 @@ def find_subfolder_candidates(
     return result
 
 
-def run_migrate_subfolders(vault_root: Path, dry_run: bool = True) -> None:
+def run_migrate_subfolders(
+    vault_root: Path,
+    dry_run: bool = True,
+    model: str | None = DEFAULT_MODEL,
+    timeout: int = AI_TIMEOUT,
+) -> None:
     """Detect prefix groups and optionally migrate notes into subfolders.
 
     Shows all candidate groups (folders with >= 3 notes sharing a first-word prefix).
@@ -675,11 +744,43 @@ def run_migrate_subfolders(vault_root: Path, dry_run: bool = True) -> None:
     With ``dry_run=False``: moves files, updates wikilinks vault-wide, then calls
     ``update_index.py`` to rebuild the index.
 
+    Candidates pass through the same generic-word AI filter as the scan path
+    (``_filter_clusters_with_claude``) in BOTH modes, so dry-run previews match
+    execute behavior.  When the AI backend is unavailable, unvetted clusters are
+    skipped (``on_failure="skip"``) — this mode runs unattended via ``--fix-all``
+    cron, where moving unfiltered clusters would auto-commit junk subfolders.
+
     Args:
         vault_root: Root path of the vault.
         dry_run: When True, only print candidates — do not move any files.
+        model: AI model override for the generic-word filter (None = backend default).
+        timeout: AI call timeout in seconds for the generic-word filter.
     """
     candidates = find_subfolder_candidates(vault_root)
+
+    if candidates:
+        clusters: list[tuple[Path, str, list[Path], Path | None]] = [
+            (vault_root / folder_rel, prefix, notes, None)
+            for folder_rel, groups in sorted(candidates.items())
+            for prefix, notes in groups
+        ]
+        kept = _filter_clusters_with_claude(
+            clusters, model=model, timeout=timeout, on_failure="skip"
+        )
+        kept_keys = {
+            (str(folder.relative_to(vault_root)), prefix)
+            for folder, prefix, _, _ in kept
+        }
+        filtered: dict[str, list[tuple[str, list[Path]]]] = {}
+        for folder_rel, groups in candidates.items():
+            kept_groups = [
+                (prefix, notes)
+                for prefix, notes in groups
+                if (folder_rel, prefix) in kept_keys
+            ]
+            if kept_groups:
+                filtered[folder_rel] = kept_groups
+        candidates = filtered
 
     if not candidates:
         print("No subfolder migration candidates found.")
@@ -1108,12 +1209,21 @@ def _auto_repair_broken_wikilinks(
         content = related_pattern.sub(new_related_line, content)
 
     # --- Update body text broken links ---
-    for link, replacement in replacements.items():
-        if replacement:
-            content = content.replace(f"[[{link}]]", f"[[{replacement}]]")
-        else:
-            # Strip brackets, keep text
-            content = content.replace(f"[[{link}]]", link)
+    if replacements:
+        link_pattern = re.compile(
+            r"\[\[(" + "|".join(re.escape(link) for link in replacements) + r")\]\]"
+        )
+
+        def _repl_body_link(m: re.Match[str]) -> str:
+            link = m.group(1)
+            replacement = replacements.get(link)
+            if replacement:
+                return f"[[{replacement}]]"
+            return link  # strip brackets, keep text
+
+        content, _ = vault_links.sub_wikilinks_outside_code(
+            content, link_pattern, _repl_body_link
+        )
 
     if content == original_content:
         return None, False
@@ -1195,7 +1305,8 @@ def _auto_fix_self_refs(path: Path) -> bool:
     if updated == content:
         return False
 
-    path.write_text(updated, encoding="utf-8")
+    _backup_note(_active_vault(), path)
+    vault_fs.atomic_write_text(path, updated)
     return True
 
 
@@ -1225,7 +1336,8 @@ def _auto_fix_headings(path: Path) -> bool:
             break
 
     if modified:
-        path.write_text("\n".join(lines), encoding="utf-8")
+        _backup_note(_active_vault(), path)
+        vault_fs.atomic_write_text(path, "\n".join(lines))
     return modified
 
 
@@ -1524,7 +1636,8 @@ def _repair_one(
             note_path, broken, note_map
         )
         if fixed_content:
-            note_path.write_text(fixed_content + "\n", encoding="utf-8")
+            _backup_note(vault_path, note_path)
+            vault_fs.atomic_write_text(note_path, fixed_content + "\n")
             link_fix_made = True
 
     # Step 2: If note became orphan (all related removed, no candidates found),
@@ -1556,7 +1669,8 @@ def _repair_one(
                 fixed_content = None
                 repair_status = "failed"
             else:
-                note_path.write_text(normalized + "\n", encoding="utf-8")
+                _backup_note(vault_path, note_path)
+                vault_fs.atomic_write_text(note_path, normalized + "\n")
     elif broken or heading_issues or self_ref_issues:
         # Only broken wikilinks / heading / self-ref fixes — no Claude call needed
         repair_status = (
@@ -1842,7 +1956,8 @@ def _replace_tag_in_note(path: Path, old_tag: str, new_tag: str) -> bool:
         return False
 
     new_content = content[: fm_match.start(1)] + fm_text + content[fm_match.end(1) :]
-    path.write_text(new_content, encoding="utf-8")
+    _backup_note(_active_vault(), path)
+    vault_fs.atomic_write_text(path, new_content)
     return True
 
 
@@ -1968,18 +2083,34 @@ def _normalize_underscores_in_frontmatter(
                     + fm_text[inline_m.end(2) :]
                 )
         else:
-            # Block sequence: replace underscores in "  - tag_name" lines
+            # Block sequence: replace underscores in "  - tag_name" lines.
+            # Bound the replacement at the end of the contiguous tags block —
+            # substituting through the rest of the frontmatter would corrupt
+            # later block-sequence fields (e.g. sources: URLs with underscores).
             block_m = _TAGS_BLOCK_START_RE.search(fm_text)
             if block_m:
                 after = fm_text[block_m.end() :]
-                new_after = re.sub(
-                    r"^(  - )(.+)$",
-                    lambda m: m.group(1) + m.group(2).replace("_", "-"),
-                    after,
-                    flags=re.MULTILINE,
-                )
-                if new_after != after:
-                    fm_text = fm_text[: block_m.end()] + new_after
+                all_lines = after.split("\n")
+                end_idx = 0
+                saw_item = False
+                for i, line in enumerate(all_lines):
+                    stripped = line.strip()
+                    if stripped.startswith("- "):
+                        saw_item = True
+                        end_idx = i + 1
+                    elif not stripped and not saw_item:
+                        # Leading blank line before first item — skip
+                        end_idx = i + 1
+                    else:
+                        break  # blank line after items, or next field
+                changed = False
+                for i in range(end_idx):
+                    line = all_lines[i]
+                    if line.startswith("  - ") and "_" in line:
+                        all_lines[i] = "  - " + line[4:].replace("_", "-")
+                        changed = True
+                if changed:
+                    fm_text = fm_text[: block_m.end()] + "\n".join(all_lines)
 
         # Fix project field
         fm_text = project_re.sub(
@@ -1991,7 +2122,8 @@ def _normalize_underscores_in_frontmatter(
             new_content = (
                 content[: fm_match.start(1)] + fm_text + content[fm_match.end(1) :]
             )
-            note.write_text(new_content, encoding="utf-8")
+            _backup_note(vault_path, note)
+            vault_fs.atomic_write_text(note, new_content)
             modified += 1
 
     if modified:
@@ -2214,12 +2346,25 @@ def run_strip_prefixes(
         )
         return
 
-    # Build stem remapping for wikilink patching
-    stem_map: dict[str, str] = {old.stem: new.stem for old, new in pairs}
-
-    # Rename files
+    # Rename files (skip failures gracefully — a mid-batch crash here would
+    # leave already-renamed notes with unpatched, vault-wide broken wikilinks)
+    renamed: list[tuple[Path, Path]] = []
     for old, new in pairs:
-        old.rename(new)
+        try:
+            _backup_note(vault_path, old)
+            old.rename(new)
+        except OSError as exc:
+            rel = old.relative_to(vault_path)
+            print(f"  ⚠ skipped (rename failed): {rel}: {exc}", file=sys.stderr)
+            continue
+        renamed.append((old, new))
+
+    if not renamed:
+        print("No files were renamed.")
+        return
+
+    # Build stem remapping for wikilink patching — only stems that actually renamed
+    stem_map: dict[str, str] = {old.stem: new.stem for old, new in renamed}
 
     # Patch wikilinks vault-wide (including in the renamed files)
     patched_notes = 0
@@ -2230,23 +2375,18 @@ def run_strip_prefixes(
         except OSError:
             continue
         original = content
-        for old_stem, new_stem in stem_map.items():
-            content = content.replace(f"[[{old_stem}]]", f"[[{new_stem}]]")
-            content = re.sub(
-                rf"\[\[{re.escape(old_stem)}\|",
-                f"[[{new_stem}|",
-                content,
-            )
+        content = vault_links.replace_wikilinks_outside_code(content, stem_map)
         if content != original:
-            note.write_text(content, encoding="utf-8")
+            _backup_note(vault_path, note)
+            vault_fs.atomic_write_text(note, content)
             patched_notes += 1
 
     vault_common.git_commit_vault(
-        f"refactor(vault): strip redundant subfolder prefix from {len(pairs)} note(s)",
+        f"refactor(vault): strip redundant subfolder prefix from {len(renamed)} note(s)",
         vault=vault_path,
     )
     print(
-        f"Renamed {len(pairs)} file(s), patched wikilinks in {patched_notes} note(s)."
+        f"Renamed {len(renamed)} file(s), patched wikilinks in {patched_notes} note(s)."
     )
     if auto_reindex:
         _run_reindex(vault_path)
@@ -2330,6 +2470,7 @@ def run_migrate_daily_notes(
             print(f"  Skipped (target exists): {old.relative_to(vault_root)}")
             skipped += 1
             continue
+        _backup_note(vault_root, old)
         old.rename(new)
         print(
             f"  Renamed: {old.relative_to(vault_root)}  →  {new.relative_to(vault_root)}"
@@ -2357,21 +2498,15 @@ def run_migrate_daily_notes(
             except (OSError, UnicodeDecodeError):
                 continue
 
-            new_text = text
-            for old, new in moved:
-                if old.parent != month_dir:
-                    continue
-                old_stem = re.escape(old.stem)
-                new_stem = new.stem
-                # Match [[DD]] but not [[DD-something]] (avoid double-rename)
-                new_text = re.sub(
-                    rf"\[\[{old_stem}\]\]",
-                    f"[[{new_stem}]]",
-                    new_text,
-                )
+            # Match [[DD]] but not [[DD-something]] (avoid double-rename)
+            stem_map = {
+                old.stem: new.stem for old, new in moved if old.parent == month_dir
+            }
+            new_text = vault_links.replace_wikilinks_outside_code(text, stem_map)
 
             if new_text != text:
-                rollup.write_text(new_text, encoding="utf-8")
+                _backup_note(vault_root, rollup)
+                vault_fs.atomic_write_text(rollup, new_text)
                 updated_rollups.append(rollup)
                 print(f"  Updated wikilinks: {rollup.relative_to(vault_root)}")
 
@@ -2413,7 +2548,6 @@ def run_scan_and_repair(
     jobs: int,
     timeout: int,
     fix_headings: bool,
-    fix_all: bool,
 ) -> None:
     """Run the core scan-and-repair pipeline.
 
@@ -2438,7 +2572,6 @@ def run_scan_and_repair(
         jobs: Parallel repair worker count.
         timeout: Per-repair AI call timeout in seconds.
         fix_headings: When True, auto-promote ## headings to #.
-        fix_all: When True, suppress per-mode early returns so all modes run.
     """
     # Auto-fix legacy pending paths (silent when nothing to fix)
     fixed_paths = vault_common.migrate_pending_paths(dry_run=dry_run, vault=vault)
@@ -2704,13 +2837,15 @@ def run_scan_and_repair(
         f"\nDone: {repaired} repaired, {failed} failed, {leftover} not yet processed."
     )
 
+    # Scan-and-repair is the LAST stage of the --fix-all pipeline; earlier
+    # stages reindex only their own changes, so repairs must reindex here too.
     if repaired:
-        if not fix_all:
-            _run_reindex(vault)
+        _run_reindex(vault)
 
 
 def main() -> None:
     """Parse CLI arguments, acquire the singleton PID lock, and dispatch to the requested repair mode."""
+    _backed_up_this_run.clear()  # defensive: fresh dedup set for this run
     parser = argparse.ArgumentParser(
         description="Vault Doctor — find and optionally repair vault note issues",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2948,7 +3083,9 @@ def main() -> None:
     # ── --migrate-subfolders mode ──────────────────────────────────────────
     if args.migrate_subfolders:
         dry = not args.execute
-        run_migrate_subfolders(_vault_path, dry_run=dry)
+        run_migrate_subfolders(
+            _vault_path, dry_run=dry, model=args.model, timeout=args.timeout
+        )
         if not args.fix_all:
             return
 
@@ -2973,7 +3110,6 @@ def main() -> None:
         jobs=args.jobs,
         timeout=args.timeout,
         fix_headings=args.fix_headings,
-        fix_all=args.fix_all,
     )
 
 

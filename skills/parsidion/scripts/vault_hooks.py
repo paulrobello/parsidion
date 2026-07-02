@@ -110,13 +110,22 @@ def write_hook_event(
                 f.seek(0)
                 existing_lines = f.readlines()
                 if len(existing_lines) >= max_lines:
-                    # Keep the second half of the file to avoid thrashing
+                    # Keep the second half of the file to avoid thrashing.
+                    # Rotate via tmp + atomic replace (still holding the lock
+                    # on the original handle) so a crash mid-rotation cannot
+                    # truncate the log to a partial state.
                     keep = existing_lines[max_lines // 2 :]
-                    f.seek(0)
-                    f.truncate()
-                    f.writelines(keep)
-                f.seek(0, 2)
-                f.write(line)
+                    tmp = log_path.parent / (log_path.name + ".tmp")
+                    tmp_fd = os.open(
+                        str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600
+                    )
+                    with open(tmp_fd, "w", encoding="utf-8") as out:
+                        out.writelines(keep)
+                        out.write(line)
+                    tmp.replace(log_path)
+                else:
+                    f.seek(0, 2)
+                    f.write(line)
             finally:
                 funlock(f)
     except OSError:

@@ -1,0 +1,362 @@
+"""Tests for the dead-letter visibility enhancement.
+
+Covers:
+- summarize_sessions._append_dead_letter(): written on purge at _MAX_ATTEMPTS,
+  best-effort (never raises) when the write itself fails.
+- vault_metrics.collect_dead_letters(): parses dead_letters.jsonl.
+- session_start_hook._build_dead_letter_notice(): warning line construction,
+  and its inclusion in build_session_context()'s injected context.
+"""
+
+from __future__ import annotations
+
+import importlib
+import json
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import vault_metrics  # noqa: E402
+
+session_start_hook = importlib.import_module("session_start_hook")
+
+
+class _FakeSemaphore:
+    def __init__(self, _: int = 1) -> None:
+        pass
+
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
+class _FakeTaskGroup:
+    """Sequential stand-in for anyio.create_task_group()."""
+
+    def __init__(self) -> None:
+        self._tasks: list[tuple[object, tuple[object, ...]]] = []
+
+    async def __aenter__(self) -> _FakeTaskGroup:
+        return self
+
+    def start_soon(self, fn: object, *args: object) -> None:
+        self._tasks.append((fn, args))
+
+    async def __aexit__(self, *exc: object) -> None:
+        for fn, args in self._tasks:
+            await fn(*args)  # type: ignore[operator]
+
+
+def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """Import summarize_sessions.py with a stub anyio (real package not installed)."""
+    monkeypatch.setitem(
+        sys.modules,
+        "anyio",
+        types.SimpleNamespace(
+            Semaphore=_FakeSemaphore,
+            create_task_group=_FakeTaskGroup,
+            to_thread=types.SimpleNamespace(run_sync=lambda func, *args: func(*args)),
+        ),
+    )
+    sys.modules.pop("summarize_sessions", None)
+    return importlib.import_module("summarize_sessions")
+
+
+def _write_pending(path: Path, entries: list[dict[str, object]]) -> None:
+    path.write_text(
+        "".join(json.dumps(e) + "\n" for e in entries),
+        encoding="utf-8",
+    )
+
+
+def _read_pending_lines(path: Path) -> list[str]:
+    return [line for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+# ---------------------------------------------------------------------------
+# summarize_sessions: dead-letter write on purge
+# ---------------------------------------------------------------------------
+
+
+def test_purge_at_max_attempts_writes_dead_letter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    doomed: dict[str, object] = {
+        "session_id": "dead1",
+        "project": "myproj",
+        "transcript_path": "/tmp/x.jsonl",
+        "attempts": 2,
+    }
+    _write_pending(pending, [doomed])
+
+    mod.remove_processed(pending, [], failed={"dead1": "merge target unresolvable"})
+
+    dead_letter_path = tmp_path / "dead_letters.jsonl"
+    assert dead_letter_path.exists()
+    lines = [
+        line
+        for line in dead_letter_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["session_id"] == "dead1"
+    assert record["project"] == "myproj"
+    assert record["transcript_path"] == "/tmp/x.jsonl"
+    assert record["attempts"] == 3
+    assert record["last_failure"] == "merge target unresolvable"
+    assert "dead_lettered_at" in record and record["dead_lettered_at"]
+
+    # Permissions match the 0o600 convention used by vault_fs.append_to_pending.
+    mode = dead_letter_path.stat().st_mode & 0o777
+    assert mode == 0o600
+
+    # Entry is gone from the pending queue.
+    assert _read_pending_lines(pending) == []
+
+
+def test_dead_letter_appends_across_multiple_purges(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+
+    _write_pending(pending, [{"session_id": "d1", "project": "p1", "attempts": 2}])
+    mod.remove_processed(pending, [], failed={"d1": "boom1"})
+
+    _write_pending(pending, [{"session_id": "d2", "project": "p2", "attempts": 2}])
+    mod.remove_processed(pending, [], failed={"d2": "boom2"})
+
+    dead_letter_path = tmp_path / "dead_letters.jsonl"
+    lines = [
+        json.loads(line)
+        for line in dead_letter_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert [r["session_id"] for r in lines] == ["d1", "d2"]
+
+
+# ---------------------------------------------------------------------------
+# summarize_sessions: dead-letter write is best-effort
+# ---------------------------------------------------------------------------
+
+
+def test_dead_letter_write_failure_is_best_effort(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    _write_pending(
+        pending, [{"session_id": "dead2", "project": "myproj", "attempts": 2}]
+    )
+
+    def _boom(*args: object, **kwargs: object) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mod.os, "open", _boom)
+
+    # Must not raise even though the dead-letter write itself fails.
+    mod.remove_processed(pending, [], failed={"dead2": "boom"})
+
+    # The entry is still purged from the queue -- the dead-letter write
+    # failure only loses visibility, it must not resurrect the entry.
+    assert _read_pending_lines(pending) == []
+    assert not (tmp_path / "dead_letters.jsonl").exists()
+
+    err = capsys.readouterr().err
+    assert "could not write dead-letter record" in err
+
+
+# ---------------------------------------------------------------------------
+# vault_metrics.collect_dead_letters
+# ---------------------------------------------------------------------------
+
+
+def test_collect_dead_letters_absent_file(tmp_path: Path) -> None:
+    data = vault_metrics.collect_dead_letters(tmp_path)
+    assert data == {"exists": False, "total": 0, "recent": []}
+
+
+def test_collect_dead_letters_parses_file(tmp_path: Path) -> None:
+    dead_letter_path = tmp_path / "dead_letters.jsonl"
+    records = [
+        {
+            "session_id": "a",
+            "project": "p1",
+            "last_failure": "err1",
+            "dead_lettered_at": "2026-01-01T00:00:00",
+        },
+        {
+            "session_id": "b",
+            "project": "p2",
+            "last_failure": "err2",
+            "dead_lettered_at": "2026-01-02T00:00:00",
+        },
+        {
+            "session_id": "c",
+            "project": "p3",
+            "last_failure": "err3",
+            "dead_lettered_at": "2026-01-03T00:00:00",
+        },
+        {
+            "session_id": "d",
+            "project": "p4",
+            "last_failure": "err4",
+            "dead_lettered_at": "2026-01-04T00:00:00",
+        },
+    ]
+    dead_letter_path.write_text(
+        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8"
+    )
+
+    data = vault_metrics.collect_dead_letters(tmp_path)
+
+    assert data["exists"] is True
+    assert data["total"] == 4
+    assert len(data["recent"]) == 3
+    # Capped at 3, most-recently-written entry first.
+    assert data["recent"][0] == {
+        "project": "p4",
+        "last_failure": "err4",
+        "dead_lettered_at": "2026-01-04T00:00:00",
+    }
+    assert data["recent"][-1]["project"] == "p2"
+
+
+def test_collect_dead_letters_skips_malformed_lines(tmp_path: Path) -> None:
+    dead_letter_path = tmp_path / "dead_letters.jsonl"
+    dead_letter_path.write_text(
+        '{"session_id": "ok", "project": "p1"}\nnot-json\n', encoding="utf-8"
+    )
+
+    data = vault_metrics.collect_dead_letters(tmp_path)
+
+    assert data["total"] == 1
+    assert data["recent"][0]["project"] == "p1"
+
+
+# ---------------------------------------------------------------------------
+# session_start_hook._build_dead_letter_notice
+# ---------------------------------------------------------------------------
+
+
+def test_build_dead_letter_notice_empty_when_absent(tmp_path: Path) -> None:
+    assert session_start_hook._build_dead_letter_notice(tmp_path) == ""
+
+
+def test_build_dead_letter_notice_empty_when_file_empty(tmp_path: Path) -> None:
+    (tmp_path / "dead_letters.jsonl").write_text("", encoding="utf-8")
+    assert session_start_hook._build_dead_letter_notice(tmp_path) == ""
+
+
+def test_build_dead_letter_notice_appears_when_nonempty(tmp_path: Path) -> None:
+    dead_letter_path = tmp_path / "dead_letters.jsonl"
+    dead_letter_path.write_text(
+        json.dumps({"session_id": "a", "project": "p1"})
+        + "\n"
+        + json.dumps({"session_id": "b", "project": "p2"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    notice = session_start_hook._build_dead_letter_notice(tmp_path)
+
+    assert notice.startswith("⚠ 2 session summary(ies) were dead-lettered")
+    assert "vault-stats --pending" in notice
+    assert str(dead_letter_path) in notice
+
+
+def test_build_dead_letter_notice_swallows_read_errors(tmp_path: Path) -> None:
+    # A directory named dead_letters.jsonl makes open() raise OSError
+    # (IsADirectoryError) without relying on permission bits, which can be
+    # unreliable across platforms/CI.
+    (tmp_path / "dead_letters.jsonl").mkdir()
+    assert session_start_hook._build_dead_letter_notice(tmp_path) == ""
+
+
+# ---------------------------------------------------------------------------
+# session_start_hook.build_session_context: notice is wired into the output
+# ---------------------------------------------------------------------------
+
+
+def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
+    """Point vault_common at *vault* and clear the resolver/config caches."""
+    monkeypatch.setattr(session_start_hook.vault_common, "VAULT_ROOT", vault)
+    session_start_hook.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    session_start_hook.vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    session_start_hook.vault_common._clear_config_cache()
+
+
+def test_dead_letter_notice_included_in_session_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    vault = tmp_path / "vault"
+    for d in session_start_hook.vault_common.VAULT_DIRS:
+        (vault / d).mkdir(parents=True, exist_ok=True)
+    (vault / "config.yaml").write_text(
+        "session_start_hook:\n"
+        "  use_embeddings: false\n"
+        "  track_delta: false\n"
+        "  graph_expand: false\n",
+        encoding="utf-8",
+    )
+    _use_vault(monkeypatch, vault)
+    monkeypatch.setattr(
+        session_start_hook.vault_common, "find_notes_by_project", lambda project: []
+    )
+    monkeypatch.setattr(
+        session_start_hook.vault_common, "find_recent_notes", lambda days=3: []
+    )
+    monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
+
+    (vault / "dead_letters.jsonl").write_text(
+        json.dumps({"session_id": "a", "project": "p1"})
+        + "\n"
+        + json.dumps({"session_id": "b", "project": "p2"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    context, _count = session_start_hook.build_session_context(cwd=str(vault))
+
+    assert "⚠ 2 session summary(ies) were dead-lettered" in context
+    assert "vault-stats --pending" in context
+
+
+def test_no_dead_letter_notice_when_file_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    vault = tmp_path / "vault"
+    for d in session_start_hook.vault_common.VAULT_DIRS:
+        (vault / d).mkdir(parents=True, exist_ok=True)
+    (vault / "config.yaml").write_text(
+        "session_start_hook:\n"
+        "  use_embeddings: false\n"
+        "  track_delta: false\n"
+        "  graph_expand: false\n",
+        encoding="utf-8",
+    )
+    _use_vault(monkeypatch, vault)
+    monkeypatch.setattr(
+        session_start_hook.vault_common, "find_notes_by_project", lambda project: []
+    )
+    monkeypatch.setattr(
+        session_start_hook.vault_common, "find_recent_notes", lambda days=3: []
+    )
+    monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
+
+    context, _count = session_start_hook.build_session_context(cwd=str(vault))
+
+    assert "dead-lettered" not in context

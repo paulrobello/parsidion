@@ -18,10 +18,12 @@ from typing import Any
 __all__: list[str] = [
     # YAML parsing helpers (also used by vault_index for frontmatter)
     "_parse_scalar",
+    "_parse_list_item",
     "_split_list_items",
     "_strip_inline_comment",
     # Config loading
     "_parse_config_yaml",
+    "_merge_config_dicts",
     "load_config",
     "_load_config_cached",
     "_clear_config_cache",
@@ -98,6 +100,19 @@ def _parse_scalar(value: str) -> Any:
     return value
 
 
+def _parse_list_item(value: str) -> str:
+    """Parse a YAML list item, keeping it as a string.
+
+    Unlike ``_parse_scalar``, list items are never coerced to bool/int/float:
+    frontmatter list fields (``tags``, ``sources``, ``related``) are always
+    string-valued, and coercing e.g. ``tags: [2026, python]`` to an int makes
+    the tag silently unfindable downstream. Surrounding quotes are stripped.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
+    return value
+
+
 def _strip_inline_comment(value: str) -> str:
     """Strip a trailing ``# comment`` from a YAML value, respecting quotes."""
     in_quote: str | None = None
@@ -133,8 +148,11 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
     current_section: str | None = None
     current_nested_key: str | None = None
     current_nested_indent = 0
+    # Indent of leaf keys inside the current nested dict; anything indented
+    # deeper is a 3rd nesting level, which this parser does not support.
+    current_nested_leaf_indent: int | None = None
 
-    for line in text.splitlines():
+    for lineno, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -164,6 +182,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                 current_section = key
                 current_nested_key = None
                 current_nested_indent = 0
+                current_nested_leaf_indent = None
                 result[key] = {}
             else:
                 value_str = _strip_inline_comment(value_str)
@@ -171,6 +190,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                 current_section = None
                 current_nested_key = None
                 current_nested_indent = 0
+                current_nested_leaf_indent = None
         elif current_section is not None and indent > 0:
             value_str = _strip_inline_comment(value_str)
             section = result.get(current_section)
@@ -184,6 +204,19 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
             ):
                 nested = section[current_nested_key]
                 if isinstance(nested, dict):
+                    if current_nested_leaf_indent is None:
+                        current_nested_leaf_indent = indent
+                    if not value_str or indent > current_nested_leaf_indent:
+                        # A 3rd nesting level (a sub-section header inside a
+                        # nested dict, or a key indented deeper than the
+                        # nested dict's leaf keys) would silently flatten
+                        # into the 2nd-level dict -- skip it visibly instead.
+                        print(
+                            "vault_common: config nesting deeper than 2 levels "
+                            f"is not supported; key '{key}' (line {lineno}) ignored",
+                            file=sys.stderr,
+                        )
+                        continue
                     nested[key] = _parse_scalar(value_str)
                 continue
 
@@ -191,10 +224,12 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                 section[key] = {}
                 current_nested_key = key
                 current_nested_indent = indent
+                current_nested_leaf_indent = None
             else:
                 section[key] = _parse_scalar(value_str)
                 current_nested_key = None
                 current_nested_indent = 0
+                current_nested_leaf_indent = None
         elif indent > 0:
             # Indented line outside any section -- likely a typo
             print(
@@ -210,33 +245,72 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _merge_config_dicts(
+    base: dict[str, Any], overlay: dict[str, Any]
+) -> dict[str, Any]:
+    """Deep-merge *overlay* over *base*, with *overlay* winning on conflict.
+
+    Dict values present in both are merged recursively key-by-key (matching
+    the parser's supported nesting depth, e.g. ``ai_models.codex``). A dict
+    value present only in *overlay* is added as a new section. Any other
+    value type -- including top-level scalars -- is replaced outright by the
+    *overlay* value.
+    """
+    merged = dict(base)
+    for key, overlay_value in overlay.items():
+        base_value = merged.get(key)
+        if isinstance(base_value, dict) and isinstance(overlay_value, dict):
+            merged[key] = _merge_config_dicts(base_value, overlay_value)
+        else:
+            merged[key] = overlay_value
+    return merged
+
+
 @functools.lru_cache(maxsize=1)
 def load_config(vault: Path | None = None) -> dict[str, Any]:
-    """Load ``config.yaml`` from the vault.
+    """Load ``config.yaml`` from the vault, layered with ``config.local.yaml``.
 
-    Results are cached per-process via ``functools.lru_cache``.  Call
-    ``load_config.cache_clear()`` to invalidate the cache in tests when
-    the vault path has been changed.
+    ``config.local.yaml`` is an optional gitignored overlay read from the
+    same vault directory. When present, it is deep-merged over ``config.yaml``
+    (section-by-section, with local values winning on conflict) so users can
+    keep secrets in the local-only file while git-syncing a secret-free
+    ``config.yaml``, or vice versa.
+
+    Results are cached per-process via ``functools.lru_cache``. Both files
+    are read within the same cached call, so the cache covers them jointly --
+    call ``load_config.cache_clear()`` to invalidate the cache in tests (or
+    after either file changes) when the vault path has been changed.
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
 
-    Returns an empty dict when the file is missing or unreadable.
+    Returns an empty dict when both files are missing or unreadable.
     """
     if vault is None:
         # Lazy import to avoid circular dependency with vault_path
         from vault_path import resolve_vault
 
         vault = resolve_vault()
-    config_path = vault / "config.yaml"
-    if not config_path.is_file():
-        return {}
 
-    try:
-        content = config_path.read_text(encoding="utf-8")
-        return _parse_config_yaml(content)
-    except (OSError, UnicodeDecodeError):
-        return {}
+    config: dict[str, Any] = {}
+    config_path = vault / "config.yaml"
+    if config_path.is_file():
+        try:
+            content = config_path.read_text(encoding="utf-8")
+            config = _parse_config_yaml(content)
+        except (OSError, UnicodeDecodeError):
+            config = {}
+
+    local_path = vault / "config.local.yaml"
+    if local_path.is_file():
+        try:
+            local_content = local_path.read_text(encoding="utf-8")
+            local_config = _parse_config_yaml(local_content)
+            config = _merge_config_dicts(config, local_config)
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    return config
 
 
 # QA-015: Keep backward-compatible aliases for callers that used the old names.

@@ -2,7 +2,11 @@
 #
 # Place at ~/ClaudeVault/config.yaml
 # Values here override script defaults. CLI arguments override these values.
-# Precedence: defaults → config.yaml → CLI args
+# Precedence: defaults → config.yaml → config.local.yaml → CLI args
+#
+# config.local.yaml (same directory, always gitignored) is an optional overlay
+# merged over this file section-by-section, local values winning on conflict.
+# Use it to keep secrets or machine-specific overrides out of config.yaml.
 
 # Session start hook (session_start_hook.py)
 session_start_hook:
@@ -71,6 +75,15 @@ git:
 # These keys mirror real env var names so you can copy values directly from
 # env-based configs such as ~/.claude/glm-settings.json.
 # Precedence: real environment variable > this config section.
+# SECURITY: if you put a real API key or auth token here, this file must NOT
+# be committed to the vault git repo. The installer gitignores config.yaml and
+# auto-commits exclude it, but if your vault predates that, verify with:
+#   git -C <vault> ls-files config.yaml   (output means it is tracked — run
+#   git -C <vault> rm --cached config.yaml to untrack it)
+# Prefer to git-sync a secret-free config.yaml? Move this anthropic_env
+# section (or just the secret keys within it) into config.local.yaml instead
+# -- it is always gitignored and is deep-merged over config.yaml at load
+# time, so the rest of your config can stay tracked in git.
 anthropic_env:
   ANTHROPIC_API_KEY: null
   ANTHROPIC_AUTH_TOKEN: null

@@ -9,18 +9,166 @@ Extracted from ``summarize_sessions.py`` to enable reuse by both the
 summarizer and ``parsidion-mcp``.
 """
 
+import os
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import vault_common
+from vault_index import _FRONTMATTER_RE
 
 __all__ = [
     "find_related_by_tags",
     "find_related_by_semantic",
     "inject_related_links",
     "add_backlinks_to_existing",
+    "sub_wikilinks_outside_code",
+    "replace_wikilinks_outside_code",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Code-fence-aware wikilink rewriting
+# ---------------------------------------------------------------------------
+#
+# Several callers (vault_doctor.py, vault_merge.py) rewrite `[[stem]]`
+# wikilinks vault-wide during renames/merges/migrations. Doing that with a
+# plain str.replace()/re.sub() over the whole note body also rewrites
+# literal wikilink examples that appear inside fenced code blocks or inline
+# code spans — corrupting notes that document wikilink syntax. The helpers
+# below restrict rewriting to text outside of "protected" code regions.
+
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+
+
+def _iter_unprotected_spans(content: str) -> list[tuple[int, int]]:
+    """Return (start, end) offsets of *content* that are safe to rewrite.
+
+    Excludes text inside fenced code blocks (``` ` `` `` or ``~~~``, tracked
+    line-by-line; an opening fence may have a language suffix, e.g.
+    ` ```python `) and text inside single-backtick inline code spans on a
+    non-fenced line. YAML frontmatter is treated as ordinary text (it is
+    delimited by ``---``, not by code fences) so it is always included.
+
+    An opening fence that is never closed protects the remainder of the
+    document — under-rewriting a note is safer than corrupting a code
+    example that happens to look like a closing fence.
+
+    Limitation: inline code detection only handles non-nested, single
+    backtick pairs (`` `like this` ``) on the same line. Multi-backtick
+    inline spans (`` ``like this`` ``), escaped backticks, or an inline
+    span that crosses a line boundary are not specially recognised — the
+    stray backtick is treated as ordinary text.
+    """
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+
+    for line in content.splitlines(keepends=True):
+        line_start = pos
+        pos += len(line)
+        stripped = line.rstrip("\n")
+
+        if in_fence:
+            m = _FENCE_RE.match(stripped)
+            if m and m.group(1)[0] == fence_char and len(m.group(1)) >= fence_len:
+                in_fence = False
+            # Whole line (open, body, or close fence) stays protected.
+            continue
+
+        m = _FENCE_RE.match(stripped)
+        if m:
+            in_fence = True
+            fence_char = m.group(1)[0]
+            fence_len = len(m.group(1))
+            continue  # the opening fence line itself is protected
+
+        # Not inside a fence: protect inline code spans, keep the rest.
+        last = 0
+        for im in _INLINE_CODE_RE.finditer(line):
+            if im.start() > last:
+                spans.append((line_start + last, line_start + im.start()))
+            last = im.end()
+        if last < len(line):
+            spans.append((line_start + last, line_start + len(line)))
+
+    return spans
+
+
+def sub_wikilinks_outside_code(
+    content: str,
+    pattern: re.Pattern[str],
+    repl: str | Callable[[re.Match[str]], str],
+) -> tuple[str, int]:
+    """Fence/inline-code-aware equivalent of ``pattern.subn(repl, content)``.
+
+    Applies ``pattern.subn(repl, segment)`` independently to each span of
+    *content* that is not inside a fenced code block or inline code span
+    (see ``_iter_unprotected_spans``); protected spans are copied through
+    unchanged. This lets callers keep their own regex/case-sensitivity/
+    callback logic (e.g. case-insensitive stem matching, unwrap-to-display-
+    text callbacks) while gaining fence-awareness for free.
+
+    Returns:
+        Tuple of (new_content, total substitution count).
+    """
+    spans = _iter_unprotected_spans(content)
+    if not spans:
+        return content, 0
+
+    pieces: list[str] = []
+    total = 0
+    prev_end = 0
+    for start, end in spans:
+        if start > prev_end:
+            pieces.append(content[prev_end:start])  # protected text, verbatim
+        new_segment, n = pattern.subn(repl, content[start:end])
+        pieces.append(new_segment)
+        total += n
+        prev_end = end
+    if prev_end < len(content):
+        pieces.append(content[prev_end:])
+
+    return "".join(pieces), total
+
+
+def replace_wikilinks_outside_code(content: str, replacements: dict[str, str]) -> str:
+    """Rewrite ``[[old]]`` and ``[[old|alias]]`` wikilinks to their new stem.
+
+    ``replacements`` maps old stem -> new stem. Matching is exact
+    (case-sensitive) on the stem inside the brackets, mirroring the naive
+    ``str.replace(f"[[{old}]]", ...)`` + alias-regex pattern this helper
+    replaces; an optional ``|alias`` suffix is preserved unchanged.
+    ``#anchor`` links are left untouched (the naive call sites this unifies
+    never handled that form either). Text inside fenced code blocks and
+    inline code spans is never modified — see ``sub_wikilinks_outside_code``.
+
+    Args:
+        content: Full note content (frontmatter + body).
+        replacements: Mapping of old stem -> new stem.
+
+    Returns:
+        Rewritten content. Returns *content* unchanged if ``replacements``
+        is empty.
+    """
+    if not replacements:
+        return content
+
+    pattern = re.compile(
+        r"\[\[(" + "|".join(re.escape(s) for s in replacements) + r")(\|[^\]]*)?\]\]"
+    )
+
+    def _repl(m: re.Match[str]) -> str:
+        new_stem = replacements[m.group(1)]
+        suffix = m.group(2) or ""
+        return f"[[{new_stem}{suffix}]]"
+
+    new_content, _ = sub_wikilinks_outside_code(content, pattern, _repl)
+    return new_content
 
 
 def find_related_by_tags(
@@ -222,17 +370,40 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     quoted_items = ", ".join(f'"{lnk}"' for lnk in merged)
     new_related_line = f"related: [{quoted_items}]"
 
-    # Replace the entire related field (inline or block-style)
-    if _RELATED_FIELD_RE.search(content):
-        updated = _RELATED_FIELD_RE.sub(new_related_line, content, count=1)
-    else:
-        # Insert before the closing --- of frontmatter
-        updated = content.replace("\n---\n", f"\n{new_related_line}\n---\n", 1)
+    # Operate only on the frontmatter block: applying _RELATED_FIELD_RE to
+    # the whole file would clobber a body line starting with `related:`
+    # (e.g. a note quoting the frontmatter schema).
+    match = _FRONTMATTER_RE.match(content)
+    if match is None:
+        # No frontmatter block -- nowhere safe to inject
+        return
+    inner_start, inner_end = match.start(1), match.end(1)
+    fm_inner = content[inner_start:inner_end]
 
+    # Replace the entire related field (inline or block-style)
+    if _RELATED_FIELD_RE.search(fm_inner):
+        fm_inner = _RELATED_FIELD_RE.sub(new_related_line, fm_inner, count=1)
+        # The regex's trailing \s*$ swallows the final newline when the
+        # related field is the last frontmatter line -- restore it so the
+        # closing --- fence stays on its own line.
+        if not fm_inner.endswith("\n"):
+            fm_inner += "\n"
+    else:
+        # Append before the closing --- (fm_inner always ends with \n)
+        fm_inner = f"{fm_inner}{new_related_line}\n"
+
+    updated = content[:inner_start] + fm_inner + content[inner_end:]
+
+    # Crash-safe write: tmp file in the same directory, then atomic replace
+    tmp_path = note_path.parent / f".{note_path.name}.{os.getpid()}.tmp"
     try:
-        note_path.write_text(updated, encoding="utf-8")
+        tmp_path.write_text(updated, encoding="utf-8")
+        tmp_path.replace(note_path)
     except OSError:
-        pass
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
 
 
 def add_backlinks_to_existing(

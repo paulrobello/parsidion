@@ -195,6 +195,15 @@ Examples:
 
     # Build slug and target path
     slug = _build_slug(args.title)
+    if not slug:
+        # A title with no ASCII letters/digits slugifies to "" and would
+        # silently create e.g. Patterns/.md.
+        print(
+            f"Error: title {args.title!r} produces an empty filename slug; "
+            "provide a title containing ASCII letters or digits.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     folder_name = _TYPE_TO_FOLDER[args.type]
     target_dir = vault_path / folder_name
 

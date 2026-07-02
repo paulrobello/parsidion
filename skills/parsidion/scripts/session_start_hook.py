@@ -609,6 +609,37 @@ def _build_pending_notice(vault_path: Path) -> str:
     return f"⚠ {count} session{'s' if count != 1 else ''} pending summarization (run summarize_sessions.py)"
 
 
+def _build_dead_letter_notice(vault_path: Path) -> str:
+    """Return a one-line warning if dead_letters.jsonl has entries.
+
+    Cheap by design (line count only, no JSON parsing) since this runs on
+    every session start. Any read error is swallowed -- a hook must never
+    crash the host session over a visibility warning.
+
+    Args:
+        vault_path: The vault root path.
+
+    Returns:
+        Warning string like ``⚠ 2 session summary(ies) were dead-lettered
+        after repeated failures — inspect <vault>/dead_letters.jsonl or run
+        vault-stats --pending`` or empty string if absent/empty/unreadable.
+    """
+    dead_letter_path = vault_path / "dead_letters.jsonl"
+    if not dead_letter_path.exists():
+        return ""
+    try:
+        with open(dead_letter_path, encoding="utf-8") as f:
+            count = sum(1 for line in f if line.strip())
+    except OSError:
+        return ""
+    if count == 0:
+        return ""
+    return (
+        f"⚠ {count} session summary(ies) were dead-lettered after repeated "
+        f"failures — inspect {dead_letter_path} or run vault-stats --pending"
+    )
+
+
 def _build_delta_section(
     project_name: str, last_seen_ts: str | None, vault_path: Path
 ) -> str:
@@ -706,6 +737,13 @@ def build_session_context(
 
     # --- Pending queue warning (#3) ---
     pending_notice = _build_pending_notice(vault_path)
+    dead_letter_notice = _build_dead_letter_notice(vault_path)
+    if dead_letter_notice:
+        pending_notice = (
+            f"{pending_notice}\n{dead_letter_notice}"
+            if pending_notice
+            else dead_letter_notice
+        )
 
     # --- Cross-session delta (#10) ---
     delta_section = ""

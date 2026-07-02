@@ -391,6 +391,51 @@ def collect_pending(vault: Path | None = None) -> dict:
     }
 
 
+def collect_dead_letters(vault: Path | None = None) -> dict:
+    """Return a summary of dead_letters.jsonl (purged dead-letter entries).
+
+    Entries are written by summarize_sessions.remove_processed() when a
+    pending queue entry hits _MAX_ATTEMPTS and is purged.
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
+
+    Returns:
+        Dict with keys: exists (bool), total (int), recent (list of up to
+        3 dicts with project/last_failure/dead_lettered_at, most recent
+        first).
+    """
+    vault = vault or vault_common.resolve_vault()
+    dead_letter_path = vault / "dead_letters.jsonl"
+    if not dead_letter_path.exists():
+        return {"exists": False, "total": 0, "recent": []}
+
+    entries: list[dict] = []
+    try:
+        with open(dead_letter_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+    except OSError:
+        return {"exists": True, "error": True, "total": 0, "recent": []}
+
+    recent = [
+        {
+            "project": e.get("project", "unknown"),
+            "last_failure": e.get("last_failure", ""),
+            "dead_lettered_at": e.get("dead_lettered_at", ""),
+        }
+        for e in entries[-3:]
+    ]
+    recent.reverse()
+
+    return {"exists": True, "total": len(entries), "recent": recent}
+
+
 def collect_hooks(last_n: int = 20, vault: Path | None = None) -> dict:
     """Return the last N events from hook_events.log.
 
@@ -442,12 +487,19 @@ def collect_timeline(
     """
     from datetime import date, timedelta
 
+    # Bucket by local calendar day (not rolling 24h windows): bucket index d
+    # holds notes whose mtime falls on calendar day (today - d), matching the
+    # calendar-date labels below regardless of the time of day the report runs.
     today = date.today()
-    now_ts = time.time()
-    day_secs = 24 * 3600
-    cutoff_ts = now_ts - days * day_secs
+    oldest_day = today - timedelta(days=days - 1)
+    # Local midnight at the start of the oldest bucketed day.
+    cutoff_ts = datetime(oldest_day.year, oldest_day.month, oldest_day.day).timestamp()
 
     day_counts: dict[int, int] = {i: 0 for i in range(days)}
+
+    def _age_days(mtime: float) -> int:
+        age = (today - date.fromtimestamp(mtime)).days
+        return min(max(age, 0), days - 1)
 
     if conn is not None:
         rows = fetch_all(
@@ -456,8 +508,7 @@ def collect_timeline(
             (cutoff_ts,),
         )
         for row in rows:
-            age_days = int((now_ts - row["mtime"]) / day_secs)
-            age_days = min(age_days, days - 1)
+            age_days = _age_days(row["mtime"])
             day_counts[age_days] = day_counts.get(age_days, 0) + 1
     else:
         vault = vault or vault_common.resolve_vault()
@@ -469,8 +520,7 @@ def collect_timeline(
                     continue
                 if mtime < cutoff_ts:
                     continue
-                age_days = int((now_ts - mtime) / day_secs)
-                age_days = min(age_days, days - 1)
+                age_days = _age_days(mtime)
                 day_counts[age_days] = day_counts.get(age_days, 0) + 1
 
     result = []

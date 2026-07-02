@@ -21,14 +21,28 @@ if [ -n "${PARSIDION_INTERNAL:-}" ]; then
   exit 0
 fi
 
+# SEC-007: redirect log to ~/.claude/logs/ (user-private) instead of world-readable
+# /tmp/session_stop_hook.log to prevent other users from reading session metadata.
+LOG_DIR="$HOME/.claude/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/session_stop_hook.log"
+
 # SEC-003: restrict temp file permissions to owner-only (mode 0600) by setting
 # umask 077 before mktemp so no other user on the system can read cwd/transcript
 # paths written to the file.
 # SEC-003: prefer $TMPDIR (user-specific on macOS) over the world-accessible /tmp.
 old_umask=$(umask)
 umask 077
-TMPFILE=$(mktemp "${TMPDIR:-/tmp}/session_stop_hook_XXXXXX.json")
+TMPFILE=$(mktemp "${TMPDIR:-/tmp}/session_stop_hook_XXXXXX.json") || TMPFILE=""
 umask "$old_umask"
+# An unchecked mktemp failure would silently drop the session's stdin JSON.
+# Still acknowledge Claude Code with {} (never break the host session), but
+# leave a diagnostic line in the log before exiting.
+if [ -z "$TMPFILE" ]; then
+  printf '{}'
+  echo "$(date '+%Y-%m-%d %H:%M:%S') session_stop_wrapper: mktemp failed; SessionEnd payload dropped" >> "$LOG_FILE" 2>/dev/null
+  exit 0
+fi
 # QA-015: Do NOT trap EXIT here — a trap 'rm -f "$TMPFILE"' EXIT would fire
 # when the foreground wrapper exits, which races with the background subshell
 # that reads the file.  The background subshell does its own 'rm -f "$TMPFILE"'
@@ -37,12 +51,6 @@ cat > "$TMPFILE"
 
 # Acknowledge to Claude Code immediately
 printf '{}'
-
-# SEC-007: redirect log to ~/.claude/logs/ (user-private) instead of world-readable
-# /tmp/session_stop_hook.log to prevent other users from reading session metadata.
-LOG_DIR="$HOME/.claude/logs"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/session_stop_hook.log"
 
 # Run the real hook detached — immune to SIGHUP and process-group exit
 # stdout/stderr go to a log file for debugging; temp file is cleaned up after.

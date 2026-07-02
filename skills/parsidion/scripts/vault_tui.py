@@ -132,7 +132,8 @@ def interactive_search(vault: Path | None = None) -> None:
             # Query line
             prompt = "Search: "
             q_str = "".join(query_buf)
-            stdscr.addstr(1, 0, f"{prompt}{q_str[: w - len(prompt) - 1]}")
+            if h > 1:
+                stdscr.addstr(1, 0, f"{prompt}{q_str}"[: max(0, w - 1)])
 
             # Results
             max_results = h - 4
@@ -155,16 +156,17 @@ def interactive_search(vault: Path | None = None) -> None:
                     attr = curses.color_pair(1) if i % 2 == 0 else curses.A_NORMAL
                 stdscr.addstr(y, 0, line[: w - 1], attr)
 
-            if not results and q_str:
-                stdscr.addstr(3, 2, "No results found.", curses.A_DIM)
+            if not results and q_str and 3 < h - 1 and w > 3:
+                stdscr.addstr(3, 2, "No results found."[: w - 3], curses.A_DIM)
 
             # Status bar
             status = f" {len(results)} result(s) " if results else " Type to search... "
-            stdscr.addstr(h - 1, 0, status[: w - 1], curses.A_DIM)
+            stdscr.addstr(h - 1, 0, status[: max(0, w - 1)], curses.A_DIM)
 
             # Reposition cursor
-            cursor_col = min(len(prompt) + len(q_str), w - 1)
-            stdscr.move(1, cursor_col)
+            if h > 1:
+                cursor_col = min(len(prompt) + len(q_str), w - 1)
+                stdscr.move(1, cursor_col)
             stdscr.refresh()
 
             # Re-search if query changed
@@ -188,7 +190,13 @@ def interactive_search(vault: Path | None = None) -> None:
                     if path:
                         curses.endwin()
                         _open_note(path)
+                        # Re-init and restore the full mode set that
+                        # curses.wrapper established, so arrow keys don't
+                        # leak escape bytes into the search buffer.
                         stdscr = curses.initscr()
+                        curses.noecho()
+                        curses.cbreak()
+                        stdscr.keypad(True)
                         curses.curs_set(1)
             elif ch in (curses.KEY_BACKSPACE, 127, 8):
                 if query_buf:

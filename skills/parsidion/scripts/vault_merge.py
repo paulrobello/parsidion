@@ -2,36 +2,77 @@
 """vault-merge — merge two vault notes into one.
 
 Usage:
-    vault-merge NOTE_A NOTE_B [--output OUTPUT] [--dry-run] [--execute]
+    vault-merge NOTE_A NOTE_B [--output OUTPUT] [--dry-run] [--execute] [--from-preview]
 
 NOTE_A and NOTE_B can be:
   - Absolute paths to .md files
   - Stem names searched in the vault (case-insensitive)
 
-Without --execute, prints the proposed merged content and exits.
+Without --execute, prints the proposed merged content and exits. When the AI
+backend produced the merged body, that body is cached to a per-pair preview
+file so a later `--execute --from-preview` can apply the exact reviewed text
+without a second (possibly different) AI call.
+
 With --execute, writes the merged note, moves NOTE_B to .trash/, and
-updates all wikilinks across the vault.
+updates all wikilinks across the vault. The write/trash/backlink sequence is
+guarded by an exclusive, non-blocking lock so two concurrent `--execute`
+invocations against the same vault cannot interleave.
 """
 
 import argparse
+import contextlib
+import hashlib
+import json
 import os
 import re
 import shutil
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import ai_backend
 import vault_common
 import vault_config
+import vault_links
+
+try:
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    _fcntl = None
 
 _DEFAULT_AI_TIMEOUT: int = 60
+_PREVIEW_DIRNAME = ".merge_previews"
+_MERGE_LOCK_FILENAME = ".merge.lock"
+
+
+class AIMergeOutputError(RuntimeError):
+    """AI backend returned output that is not a valid merged note body.
+
+    Raised instead of silently accepting refusal/error text: writing such
+    output over the keeper note (and then trashing note B) is destructive.
+    ``main()`` catches this before any file is written or trashed.
+    """
 
 
 # ---------------------------------------------------------------------------
 # AI merge
 # ---------------------------------------------------------------------------
+
+
+def _is_valid_merge_body(merged: str) -> bool:
+    """Return True if AI output has the shape the merge prompt demands.
+
+    The prompt requires the backend to emit ONLY the merged note body,
+    starting with the first markdown heading — no frontmatter, no code
+    fences, no prose preamble. Backend refusals and error messages fail
+    this shape check, so they can never be written over the keeper note.
+    """
+    stripped = merged.strip()
+    if len(stripped) < 50:
+        return False
+    return stripped.startswith("#")
 
 
 def _configured_merge_model(vault_path: Path | None = None) -> str | None:
@@ -74,8 +115,14 @@ def _ai_merge_bodies(
         vault_path: Path to the vault root.
 
     Returns:
-        The merged body text, or None on failure (caller should fall back
-        to naive concatenation).
+        The merged body text, or None when the backend is unavailable
+        (caller should fall back to naive concatenation).
+
+    Raises:
+        AIMergeOutputError: The backend returned output that is not a valid
+            note body (e.g. a refusal or error message). The merge must be
+            aborted — not concatenated silently — so the caller can leave
+            both notes untouched.
     """
     prompt = (
         "You are a note-merging assistant. Read the two vault notes at the "
@@ -108,9 +155,16 @@ def _ai_merge_bodies(
     if not merged:
         return None
 
-    # Sanity check: AI output should be non-trivial
-    if len(merged) < 50:
-        return None
+    if not _is_valid_merge_body(merged):
+        preview = merged.strip()[:200]
+        print(
+            "Error: AI merge output does not look like a note body "
+            f"(refusal or error text?). First 200 chars:\n{preview}",
+            file=sys.stderr,
+        )
+        raise AIMergeOutputError(
+            "AI backend returned invalid merge output; merge aborted"
+        )
     return merged
 
 
@@ -253,6 +307,8 @@ def _merge_notes(
     *,
     no_ai: bool = False,
     vault_path: Path | None = None,
+    precomputed_ai_body: str | None = None,
+    ai_body_out: dict[str, str] | None = None,
 ) -> str:
     """Produce merged note content from two vault notes.
 
@@ -272,6 +328,14 @@ def _merge_notes(
         content_b: Full content of note B.
         no_ai: Skip AI merge and use naive concatenation.
         vault_path: Path to the vault root.
+        precomputed_ai_body: Reuse this text instead of calling the AI
+            backend (e.g. a cached dry-run preview). Only takes effect when
+            ``no_ai`` is False and NOTE_B has a body — same condition under
+            which a fresh AI call would otherwise be made.
+        ai_body_out: Optional out-param. When the merge body comes from the
+            AI backend (fresh or via ``precomputed_ai_body``), the raw body
+            (before the "merged from" comment is appended) is stored at
+            ``ai_body_out["body"]`` so callers can cache it for later reuse.
 
     Returns:
         Full merged note content including frontmatter and body.
@@ -328,8 +392,14 @@ def _merge_notes(
     # Try AI merge for intelligent deduplication
     merged_body: str | None = None
     if not no_ai and body_b:
-        merged_body = _ai_merge_bodies(path_a, path_b, title_a, vault_path=vault_path)
+        merged_body = (
+            precomputed_ai_body
+            if precomputed_ai_body is not None
+            else _ai_merge_bodies(path_a, path_b, title_a, vault_path=vault_path)
+        )
         if merged_body:
+            if ai_body_out is not None:
+                ai_body_out["body"] = merged_body
             # Add a comment noting the merge source
             merged_body += f"\n\n<!-- merged from: {title_b} ({path_b.name}) -->"
 
@@ -344,6 +414,131 @@ def _merge_notes(
 
 
 # ---------------------------------------------------------------------------
+# Dry-run preview cache
+# ---------------------------------------------------------------------------
+#
+# A dry-run merge and a later --execute each independently called the AI
+# backend, so the text a user reviewed in the dry-run was never guaranteed to
+# be what --execute actually wrote. When a dry-run produces an AI-merged
+# body, it is cached here (keyed by the sha256 of both source notes' raw
+# content) so `--execute --from-preview` can reuse the exact reviewed text
+# instead of risking a different fresh AI call. The cache is a single JSON
+# sidecar per (keeper, loser) pair — body and staleness hashes are always
+# read/written together, so one small file is simpler than a markdown body
+# plus a separate metadata file.
+
+
+def _hash_content(content: str) -> str:
+    """Return the sha256 hex digest of note content, for staleness checks."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _preview_dir(vault_path: Path) -> Path:
+    """Return the vault's preview-cache directory, creating it if needed."""
+    preview_dir = vault_path / _PREVIEW_DIRNAME
+    preview_dir.mkdir(mode=0o700, exist_ok=True)
+    return preview_dir
+
+
+def _preview_cache_path(vault_path: Path, path_a: Path, path_b: Path) -> Path:
+    """Return the JSON preview-cache path for a (keeper, loser) note pair."""
+    return _preview_dir(vault_path) / f"{path_a.stem}--{path_b.stem}.json"
+
+
+def _write_preview(
+    vault_path: Path,
+    path_a: Path,
+    content_a: str,
+    path_b: Path,
+    content_b: str,
+    ai_body: str,
+) -> Path:
+    """Persist a dry-run's AI-merged body for later ``--execute --from-preview`` reuse."""
+    cache_path = _preview_cache_path(vault_path, path_a, path_b)
+    payload = {
+        "hash_a": _hash_content(content_a),
+        "hash_b": _hash_content(content_b),
+        "body": ai_body,
+    }
+    tmp_path = cache_path.with_name(cache_path.name + ".tmp")
+    tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+    tmp_path.replace(cache_path)
+    return cache_path
+
+
+def _load_fresh_preview(
+    vault_path: Path,
+    path_a: Path,
+    content_a: str,
+    path_b: Path,
+    content_b: str,
+) -> str | None:
+    """Return the cached AI body for (path_a, path_b) if both hashes still match.
+
+    Returns None when no preview exists, it is unreadable, or either source
+    note has changed since the preview was generated.
+    """
+    cache_path = _preview_cache_path(vault_path, path_a, path_b)
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("hash_a") != _hash_content(content_a) or payload.get(
+        "hash_b"
+    ) != _hash_content(content_b):
+        return None
+    body = payload.get("body")
+    return body if isinstance(body, str) else None
+
+
+def _delete_preview(vault_path: Path, path_a: Path, path_b: Path) -> None:
+    """Remove a pair's cached preview after a successful --execute."""
+    _preview_cache_path(vault_path, path_a, path_b).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Execute-path locking
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _merge_lock(vault_path: Path) -> Iterator[None]:
+    """Hold an exclusive, non-blocking lock around the merge mutation sequence.
+
+    Guards read A/B -> write keeper -> trash loser -> rewrite backlinks so two
+    concurrent ``--execute`` invocations against the same vault cannot
+    interleave. A second invocation that cannot acquire the lock fails
+    immediately with ``SystemExit`` instead of blocking, so a stuck or
+    crashed holder can never wedge unrelated merges.
+
+    ``vault_fs.flock_exclusive`` is not used here because it blocks
+    indefinitely (no ``LOCK_NB``); a blocked second invocation would look
+    like a hang rather than the clean, immediate failure this needs.
+    """
+    lock_path = _preview_dir(vault_path) / _MERGE_LOCK_FILENAME
+    lock_file = open(lock_path, "a+", encoding="utf-8")
+    if _fcntl is not None:
+        try:
+            _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            print(
+                "Error: another vault-merge --execute is already running "
+                f"against this vault (lock: {lock_path}). Try again shortly.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    try:
+        yield
+    finally:
+        if _fcntl is not None:
+            _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_UN)
+        lock_file.close()
+
+
+# ---------------------------------------------------------------------------
 # Wikilink update
 # ---------------------------------------------------------------------------
 
@@ -354,6 +549,16 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
     """Replace all wikilinks referencing old_stem with new_stem across the vault.
 
     Only rewrites files that actually contain the old wikilink.
+
+    In the keeper note itself (stem == new_stem), rewriting [[old]]→[[new]]
+    would create a self-referencing wikilink, but skipping the file would
+    leave a dangling link to the trashed note. Instead the link is unwrapped
+    to its display text (the alias if present, else old_stem) so the prose
+    stays readable with no broken link.
+
+    Text inside fenced code blocks and inline code spans is left untouched
+    (see ``vault_links.sub_wikilinks_outside_code``), so notes documenting
+    wikilink syntax in an example are not corrupted by the rewrite.
 
     Args:
         old_stem: Stem name being replaced.
@@ -370,16 +575,30 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
     )
     replacement = f"[[{new_stem}\\1]]"
     new_stem_lower = new_stem.lower()
+
+    def _unwrap_to_display_text(m: re.Match[str]) -> str:
+        suffix = m.group(1)
+        if suffix.startswith("|"):
+            return suffix[1:]
+        return old_stem
+
     for path in vault_common.all_vault_notes(vault=vault_path):
-        # Skip the keeper itself: rewriting [[old]]→[[new]] inside the note
-        # whose stem == new_stem would create a self-referencing wikilink.
-        if path.stem.lower() == new_stem_lower:
-            continue
         try:
             content = path.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            print(
+                f"Warning: skipping unreadable file during wikilink update: {path} ({exc})",
+                file=sys.stderr,
+            )
             continue
-        new_content, n = old_pattern.subn(replacement, content)
+        if path.stem.lower() == new_stem_lower:
+            new_content, n = vault_links.sub_wikilinks_outside_code(
+                content, old_pattern, _unwrap_to_display_text
+            )
+        else:
+            new_content, n = vault_links.sub_wikilinks_outside_code(
+                content, old_pattern, replacement
+            )
         if n > 0:
             path.write_text(new_content, encoding="utf-8")
             updated += 1
@@ -693,6 +912,15 @@ def main() -> None:
         help="Write merged note, move NOTE_B to .trash/, update wikilinks.",
     )
     parser.add_argument(
+        "--from-preview",
+        action="store_true",
+        help=(
+            "With --execute, reuse the cached AI-merged body from a prior "
+            "dry-run if both source notes are unchanged, instead of calling "
+            "the AI backend again."
+        ),
+    )
+    parser.add_argument(
         "--scan",
         action="store_true",
         help="Scan all vault notes for near-duplicate pairs using embedding similarity.",
@@ -762,65 +990,130 @@ def main() -> None:
             print("Error: NOTE_A and NOTE_B are the same file.", file=sys.stderr)
             sys.exit(1)
 
-        content_a = path_a.read_text(encoding="utf-8")
-        content_b = path_b.read_text(encoding="utf-8")
-
-        # Show diff summary
-        _print_diff_summary(path_a, content_a, path_b, content_b, vault_path=vault_path)
-
-        # Build merged content
-        merged = _merge_notes(
-            path_a,
-            content_a,
-            path_b,
-            content_b,
-            no_ai=args.no_ai,
-            vault_path=vault_path,
+        # Only the mutating (--execute, non-dry-run) path needs to serialize
+        # against other invocations; a preview is read-only w.r.t. the vault
+        # notes themselves (it only ever writes to its own cache file).
+        is_execute = args.execute and not args.dry_run
+        lock_cm: contextlib.AbstractContextManager[None] = (
+            _merge_lock(vault_path) if is_execute else contextlib.nullcontext()
         )
+        with lock_cm:
+            content_a = path_a.read_text(encoding="utf-8")
+            content_b = path_b.read_text(encoding="utf-8")
 
-        if args.dry_run or not args.execute:
-            print("=== Proposed merged content ===\n")
-            print(merged)
-            if not args.execute:
-                print("(dry-run — pass --execute to apply changes)")
-            return
-
-        # --execute: write merged note
-        output_path = Path(args.output) if args.output else path_a
-        output_path.write_text(merged, encoding="utf-8")
-        print(f"Merged note written to: {output_path}")
-
-        # Move NOTE_B to .trash/
-        trash_dir = vault_path / ".trash"
-        trash_dir.mkdir(exist_ok=True)
-        trash_dest = trash_dir / path_b.name
-        # Avoid clobbering existing trash file
-        if trash_dest.exists():
-            suffix = 1
-            while (trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}").exists():
-                suffix += 1
-            trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
-        shutil.move(str(path_b), str(trash_dest))
-        print(f"Moved {path_b.name} to .trash/")
-
-        # Update wikilinks
-        n_updated = _update_wikilinks_in_vault(
-            path_b.stem, output_path.stem, vault_path
-        )
-        if n_updated:
-            print(
-                f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
+            # Show diff summary
+            _print_diff_summary(
+                path_a, content_a, path_b, content_b, vault_path=vault_path
             )
 
-        # Commit
-        vault_common.git_commit_vault(
-            f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
-            vault=vault_path,
-        )
+            precomputed_ai_body: str | None = None
+            if is_execute and args.from_preview:
+                precomputed_ai_body = _load_fresh_preview(
+                    vault_path, path_a, content_a, path_b, content_b
+                )
+                if precomputed_ai_body is not None:
+                    print(
+                        "Reusing cached preview merge from a prior dry-run "
+                        "(source notes unchanged) — skipping AI call."
+                    )
+                else:
+                    print(
+                        "No matching cached preview for this pair (or a "
+                        "source note changed since the preview) — falling "
+                        "back to a fresh AI merge.",
+                        file=sys.stderr,
+                    )
 
-        # Rebuild index
-        if not args.no_index:
-            _rebuild_index()
+            # Build merged content
+            ai_body_out: dict[str, str] = {}
+            try:
+                merged = _merge_notes(
+                    path_a,
+                    content_a,
+                    path_b,
+                    content_b,
+                    no_ai=args.no_ai,
+                    vault_path=vault_path,
+                    precomputed_ai_body=precomputed_ai_body,
+                    ai_body_out=ai_body_out,
+                )
+            except AIMergeOutputError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                print(
+                    "Merge aborted — no files were modified. "
+                    "Re-run with --no-ai to merge by concatenation.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            if args.dry_run or not args.execute:
+                print("=== Proposed merged content ===\n")
+                print(merged)
+                if "body" in ai_body_out:
+                    _write_preview(
+                        vault_path,
+                        path_a,
+                        content_a,
+                        path_b,
+                        content_b,
+                        ai_body_out["body"],
+                    )
+                    print(
+                        "\nPreview cached — re-run with "
+                        "--execute --from-preview to apply this exact merge "
+                        "without another AI call."
+                    )
+                if not args.execute:
+                    print("(dry-run — pass --execute to apply changes)")
+                return
+
+            # --execute: write merged note via sibling tmp + atomic replace so a
+            # kill mid-write can never leave the keeper truncated. NOTE_B is only
+            # trashed after the replace succeeds.
+            output_path = Path(args.output) if args.output else path_a
+            tmp_path = output_path.with_name(output_path.name + ".tmp")
+            try:
+                tmp_path.write_text(merged, encoding="utf-8")
+                tmp_path.replace(output_path)
+            except OSError:
+                tmp_path.unlink(missing_ok=True)
+                raise
+            print(f"Merged note written to: {output_path}")
+
+            # Move NOTE_B to .trash/
+            trash_dir = vault_path / ".trash"
+            trash_dir.mkdir(exist_ok=True)
+            trash_dest = trash_dir / path_b.name
+            # Avoid clobbering existing trash file
+            if trash_dest.exists():
+                suffix = 1
+                while (trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}").exists():
+                    suffix += 1
+                trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
+            shutil.move(str(path_b), str(trash_dest))
+            print(f"Moved {path_b.name} to .trash/")
+
+            # Update wikilinks
+            n_updated = _update_wikilinks_in_vault(
+                path_b.stem, output_path.stem, vault_path
+            )
+            if n_updated:
+                print(
+                    f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
+                )
+
+            # This pair's cached preview (if any) has now been applied.
+            _delete_preview(vault_path, path_a, path_b)
+
+            # Commit
+            vault_common.git_commit_vault(
+                f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
+                vault=vault_path,
+            )
+
+            # Rebuild index
+            if not args.no_index:
+                _rebuild_index()
 
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)

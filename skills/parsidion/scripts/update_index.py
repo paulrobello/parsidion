@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,7 +33,9 @@ from vault_common import (
     is_process_running,
     parse_frontmatter,
     resolve_vault,
+    write_hook_event,
 )
+from vault_index import drain_parse_warnings, record_parse_warning
 
 # Canonical folder order for index sections
 FOLDER_ORDER: list[str] = [
@@ -114,11 +117,17 @@ _is_process_running = is_process_running
 
 
 def _write_pid() -> None:
-    """Write current PID to the PID file."""
-    _pf = pid_file()
-    tmp = _pf.with_suffix(".pid.tmp")
-    tmp.write_text(str(os.getpid()), encoding="utf-8")
-    tmp.replace(_pf)
+    """Atomically claim the PID file for this process.
+
+    Uses ``O_CREAT | O_EXCL`` so the claim itself is the exclusivity check --
+    two concurrent processes racing to create the file can never both
+    succeed. Raises ``FileExistsError`` if the file already exists.
+    """
+    fd = os.open(pid_file(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    try:
+        os.write(fd, str(os.getpid()).encode("utf-8"))
+    finally:
+        os.close(fd)
 
 
 def _release_pid() -> None:
@@ -132,24 +141,54 @@ def _release_pid() -> None:
 
 
 def _singleton_guard() -> None:
-    """Exit early if another update_index is already running."""
+    """Exit early if another update_index is already running.
+
+    The claim itself (``_write_pid``) is atomic, which closes the
+    check-then-write race of the previous implementation: reading the PID
+    file, deciding no one owns it, and only then writing our own PID left a
+    window where two concurrent invocations could both pass the check. If
+    the atomic claim finds the file already present, the owning PID is
+    inspected; a dead owner means a stale lock, which is removed and the
+    atomic claim retried exactly once before giving up.
+    """
     try:
-        existing_pid = int(pid_file().read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        existing_pid = None
+        _write_pid()
+    except FileExistsError:
+        try:
+            existing_pid: int | None = int(
+                pid_file().read_text(encoding="utf-8").strip()
+            )
+        except (OSError, ValueError):
+            existing_pid = None
 
-    if (
-        existing_pid
-        and existing_pid != os.getpid()
-        and _is_process_running(existing_pid)
-    ):
-        print(
-            f"update_index is already running (PID {existing_pid}). Exiting.",
-            file=sys.stderr,
-        )
-        sys.exit(0)
+        if (
+            existing_pid is not None
+            and existing_pid != os.getpid()
+            and _is_process_running(existing_pid)
+        ):
+            print(
+                f"update_index is already running (PID {existing_pid}). Exiting.",
+                file=sys.stderr,
+            )
+            sys.exit(0)
 
-    _write_pid()
+        # Stale lock (owner process dead, or file unreadable/corrupt) --
+        # remove it and retry the atomic claim exactly once.
+        try:
+            pid_file().unlink()
+        except OSError:
+            pass
+        try:
+            _write_pid()
+        except FileExistsError:
+            # Lost a race against another process re-claiming the file in
+            # the gap between our unlink and retry -- bail out defensively.
+            print(
+                "update_index: lost the singleton race to another process. Exiting.",
+                file=sys.stderr,
+            )
+            sys.exit(0)
+
     atexit.register(_release_pid)
 
 
@@ -287,6 +326,18 @@ def build_index(
         tags_list: list[str] = []
         if isinstance(tags_raw, list):
             for tag in tags_raw:
+                if not isinstance(tag, str) and tag is not None:
+                    # Defensive: numeric-looking tags (e.g. `tags: [2026]`)
+                    # coerced by older parsers must not be silently dropped --
+                    # build_embeddings.py writes str(t), so dropping here would
+                    # desync the note_index and note_embeddings tables.
+                    _tag_warning = (
+                        f"update_index: coercing non-string tag {tag!r} "
+                        f"to string in {note_path}"
+                    )
+                    print(_tag_warning, file=sys.stderr)
+                    record_parse_warning(_tag_warning)
+                    tag = str(tag)
                 if isinstance(tag, str) and tag:
                     tag_counter[tag] += 1
                     tags_list.append(tag)
@@ -617,44 +668,47 @@ def _write_note_index_to_db(
             return
 
         conn = _sqlite3.connect(str(db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        ensure_note_index_schema(conn)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            ensure_note_index_schema(conn)
 
-        conn.executemany(
-            """
-            INSERT INTO note_index (
-                stem, path, folder, title, summary, tags, note_type,
-                project, confidence, mtime, related, is_stale, incoming_links, date
-            ) VALUES (
-                :stem, :path, :folder, :title, :summary, :tags, :note_type,
-                :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date
+            conn.executemany(
+                """
+                INSERT INTO note_index (
+                    stem, path, folder, title, summary, tags, note_type,
+                    project, confidence, mtime, related, is_stale, incoming_links, date
+                ) VALUES (
+                    :stem, :path, :folder, :title, :summary, :tags, :note_type,
+                    :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date
+                )
+                ON CONFLICT(stem) DO UPDATE SET
+                    path=excluded.path,
+                    folder=excluded.folder,
+                    title=excluded.title,
+                    summary=excluded.summary,
+                    tags=excluded.tags,
+                    note_type=excluded.note_type,
+                    project=excluded.project,
+                    confidence=excluded.confidence,
+                    mtime=excluded.mtime,
+                    related=excluded.related,
+                    is_stale=excluded.is_stale,
+                    incoming_links=excluded.incoming_links,
+                    date=excluded.date
+                """,
+                [row._asdict() for row in db_rows],
             )
-            ON CONFLICT(stem) DO UPDATE SET
-                path=excluded.path,
-                folder=excluded.folder,
-                title=excluded.title,
-                summary=excluded.summary,
-                tags=excluded.tags,
-                note_type=excluded.note_type,
-                project=excluded.project,
-                confidence=excluded.confidence,
-                mtime=excluded.mtime,
-                related=excluded.related,
-                is_stale=excluded.is_stale,
-                incoming_links=excluded.incoming_links,
-                date=excluded.date
-            """,
-            [row._asdict() for row in db_rows],
-        )
 
-        # Prune rows for notes that no longer exist in the vault
-        db_stems = conn.execute("SELECT stem FROM note_index").fetchall()
-        stale = [(row[0],) for row in db_stems if row[0] not in current_stems]
-        if stale:
-            conn.executemany("DELETE FROM note_index WHERE stem = ?", stale)
+            # Prune rows for notes that no longer exist in the vault
+            db_stems = conn.execute("SELECT stem FROM note_index").fetchall()
+            stale = [(row[0],) for row in db_stems if row[0] not in current_stems]
+            if stale:
+                conn.executemany("DELETE FROM note_index WHERE stem = ?", stale)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            # Close on all paths -- the broad except below must not leak conn
+            conn.close()
     except Exception as exc:  # noqa: BLE001
         print(f"update_index DB error: {exc}", file=sys.stderr)
 
@@ -739,6 +793,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Entry point: rebuild the index, write CLAUDE.md, and generate MANIFEST.md files."""
+    _hook_start = time.monotonic()
     args = _parse_args()
 
     # Resolve vault path
@@ -793,6 +848,24 @@ def main() -> None:
     print(
         f"Updated CLAUDE.md: {note_count} notes indexed, {tag_count} tags; "
         f"TAGS.md written; {manifest_count} MANIFEST.md file(s) generated"
+    )
+
+    # Surface frontmatter parse warnings (stderr is swallowed by hook callers)
+    # via the same hook_events.log read by `vault-stats --hooks N`.
+    parse_warnings = drain_parse_warnings()
+    event_extra: dict[str, object] = {
+        "notes_indexed": note_count,
+        "tags": tag_count,
+    }
+    if parse_warnings:
+        event_extra["parse_warnings"] = len(parse_warnings)
+        event_extra["parse_warning_samples"] = parse_warnings[:5]
+    write_hook_event(
+        hook="IndexRebuild",
+        project=vault_path.name,
+        duration_ms=(time.monotonic() - _hook_start) * 1000,
+        vault=vault_path,
+        **event_extra,
     )
 
     # Update embeddings.db in the background when enabled.

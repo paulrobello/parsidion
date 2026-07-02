@@ -9,15 +9,17 @@ are re-exported from ``vault_common`` for backward compatibility.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sqlite3
 import sys
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from vault_config import _parse_scalar, _split_list_items
+from vault_config import _parse_list_item, _parse_scalar, _split_list_items
 from vault_path import (
     EXCLUDE_DIRS,
     VAULT_DIRS,
@@ -33,6 +35,9 @@ __all__: list[str] = [
     "parse_frontmatter",
     "get_body",
     "extract_title",
+    # Parse warning collector
+    "record_parse_warning",
+    "drain_parse_warnings",
     # Slug utility
     "slugify",
     # Note search
@@ -63,6 +68,36 @@ _SLUG_SPECIAL_RE = re.compile(r"[^a-z0-9\-]")
 _SLUG_MULTI_HYPHEN_RE = re.compile(r"-{2,}")
 
 # ---------------------------------------------------------------------------
+# Parse warning collector
+# ---------------------------------------------------------------------------
+#
+# Frontmatter parsing warnings are printed to stderr (see below), which hook
+# scripts swallow -- making them invisible to users.  This in-process
+# collector lets callers (e.g. update_index.py) surface them via
+# write_hook_event() so they show up in `vault-stats --hooks N`.
+
+_PARSE_WARNINGS_MAX = 200
+_parse_warnings: list[str] = []
+
+
+def record_parse_warning(msg: str) -> None:
+    """Record a frontmatter parse warning for later retrieval via drain_parse_warnings().
+
+    Capped at ``_PARSE_WARNINGS_MAX`` entries to bound memory during large
+    index rebuilds; warnings beyond the cap are silently dropped.
+    """
+    if len(_parse_warnings) < _PARSE_WARNINGS_MAX:
+        _parse_warnings.append(msg)
+
+
+def drain_parse_warnings() -> list[str]:
+    """Return all recorded parse warnings and clear the collector."""
+    warnings = list(_parse_warnings)
+    _parse_warnings.clear()
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # Frontmatter parsing
 # ---------------------------------------------------------------------------
 
@@ -76,8 +111,11 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
       booleans (``true``/``false``/``yes``/``no``), ``null``/``~``, and
       date strings (``YYYY-MM-DD`` kept as strings).
     - Inline lists: ``key: [a, b, c]`` with optional quoting of items.
-      Quoted items may contain commas.
-    - Block sequence lists: ``key:`` followed by ``  - item`` lines.
+      Quoted items may contain commas.  List items are always kept as
+      strings (never coerced to bool/int/float) so numeric-looking tags
+      like ``tags: [2026, python]`` remain findable.
+    - Block sequence lists: ``key:`` followed by ``  - item`` lines
+      (items kept as strings, same as inline lists).
     - Multi-line scalars: ``>`` (folded -- joins continuation lines with a
       space), ``|`` (literal -- joins with newlines), and strip variants
       ``>-`` / ``|-``.  Only indented continuation lines (indent > 0) are
@@ -137,7 +175,7 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
             and current_key is not None
             and current_list is not None
         ):
-            current_list.append(_parse_scalar(stripped[2:].strip()))
+            current_list.append(_parse_list_item(stripped[2:].strip()))
             result[current_key] = current_list
             continue
 
@@ -165,12 +203,13 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
         # Emit a stderr warning so vault-doctor checks don't silently mislead.
         # This is safe: hook scripts print JSON to stdout; stderr is ignored.
         if indent > 0 and key:
-            print(
+            _warning = (
                 f"parse_frontmatter: nested mapping key '{key}' (indented) is not "
                 "supported and will be treated as a top-level scalar. "
-                "Consider flattening this YAML key.",
-                file=sys.stderr,
+                "Consider flattening this YAML key."
             )
+            print(_warning, file=sys.stderr)
+            record_parse_warning(_warning)
 
         current_key = key
 
@@ -195,7 +234,7 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
                 result[key] = []
             else:
                 items = [
-                    _parse_scalar(item.strip()) for item in _split_list_items(inner)
+                    _parse_list_item(item.strip()) for item in _split_list_items(inner)
                 ]
                 result[key] = items
             current_list = None
@@ -257,13 +296,27 @@ def slugify(text: str) -> str:
     """Convert text to a kebab-case filename slug.
 
     Lowercases the text, replaces spaces and underscores with hyphens,
-    removes special characters, and collapses multiple consecutive hyphens.
+    transliterates non-ASCII characters to their closest ASCII equivalent
+    (e.g. "é" -> "e"), removes remaining special characters, and collapses
+    multiple consecutive hyphens.
+
+    Titles that are entirely non-transliterable (e.g. CJK) would otherwise
+    collapse to an empty slug and collide with each other; in that case a
+    stable hash of the original title is used instead so distinct titles
+    never collide. Purely-ASCII titles that strip to nothing (e.g. "!!!")
+    still return "" -- vault_new.py relies on that to reject garbage titles.
     """
+    has_non_ascii = any(ord(ch) > 127 for ch in text)
     slug = text.lower().strip()
     slug = slug.replace(" ", "-").replace("_", "-")
+    # Transliterate accented/non-ASCII characters before stripping specials
+    # so e.g. "café" -> "cafe" instead of "caf".
+    slug = unicodedata.normalize("NFKD", slug).encode("ascii", "ignore").decode()
     slug = _SLUG_SPECIAL_RE.sub("", slug)
     slug = _SLUG_MULTI_HYPHEN_RE.sub("-", slug)
     slug = slug.strip("-")
+    if not slug and has_non_ascii:
+        slug = "note-" + hashlib.sha1(text.encode()).hexdigest()[:8]
     return slug
 
 
@@ -636,19 +689,22 @@ def _load_note_index_map() -> dict[str, tuple[str, str, str]] | None:
         return None
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+    try:
         row = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
         ).fetchone()
         if row is None:
-            conn.close()
             return None
         rows = conn.execute(
             "SELECT stem, title, tags, folder FROM note_index"
         ).fetchall()
-        conn.close()
         return {r[0]: (r[1], r[2], r[3]) for r in rows}
     except sqlite3.Error:
         return None
+    finally:
+        conn.close()
 
 
 def parse_related_stems(related_str: str) -> list[str]:
@@ -693,18 +749,21 @@ def load_graph_metadata() -> dict[str, dict[str, object]] | None:
         return None
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+    try:
         row = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
         ).fetchone()
         if row is None:
-            conn.close()
             return None
         rows = conn.execute(
             "SELECT stem, path, related, incoming_links, tags FROM note_index"
         ).fetchall()
-        conn.close()
     except sqlite3.Error:
         return None
+    finally:
+        conn.close()
     return {
         r[0]: {
             "path": r[1],

@@ -171,7 +171,14 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full multi-machine setup gu
 ## Vault Configuration
 
 All hook and summarizer options can be set in `~/ClaudeVault/config.yaml`. Precedence:
-**defaults → config.yaml → CLI args** (last one wins).
+**defaults → config.yaml → config.local.yaml → CLI args** (last one wins).
+
+`config.local.yaml` is an optional overlay in the same vault directory, always gitignored
+by the installer. `load_config()` deep-merges it over `config.yaml` section-by-section
+(local values win on key conflict within a section; a section only present in
+`config.local.yaml` is added; nested dicts such as `ai_models.codex` merge recursively).
+This lets you keep secrets or machine-specific overrides in `config.local.yaml` while
+choosing to git-sync a secret-free `config.yaml`, or vice versa.
 
 A template with all options and their defaults is at `skills/parsidion/templates/config.yaml`.
 Copy it to the vault root to get started:
