@@ -6,6 +6,7 @@ import { FrontmatterEditor } from './FrontmatterEditor'
 import { defaultFields, serializeFrontmatter } from '@/lib/frontmatter'
 import type { FrontmatterFields } from '@/lib/frontmatter'
 import type { NoteNode } from '@/lib/graph'
+import { useFocusTrap } from '@/lib/useFocusTrap'
 
 const TYPE_TO_FOLDER: Record<string, string> = {
   pattern:   'Patterns',
@@ -40,9 +41,11 @@ export function NewNoteDialog({ onConfirm, onCancel, nodes }: Props) {
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  useFocusTrap(dialogRef, true, titleRef)
 
   useEffect(() => {
-    titleRef.current?.focus()
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel()
     }
@@ -81,6 +84,7 @@ export function NewNoteDialog({ onConfirm, onCancel, nodes }: Props) {
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="New note"

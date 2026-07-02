@@ -1,11 +1,12 @@
 // components/ConflictDialog.tsx
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { createPatch } from 'diff'
 import { DiffViewer } from './DiffViewer'
 import type { DiffMode } from './DiffViewer'
 import { parseDiff } from '@/lib/parseDiff'
+import { useFocusTrap } from '@/lib/useFocusTrap'
 
 interface Props {
   stem: string
@@ -20,6 +21,9 @@ export function ConflictDialog({ stem, myContent, serverContent, onResolve, onCa
   const [view, setView] = useState<'diff' | 'merge'>('diff')
   const [diffMode, setDiffMode] = useState<DiffMode>('split')
   const [mergeText, setMergeText] = useState(myContent)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  useFocusTrap(dialogRef, true)
 
   // Compute a unified diff: server content → my content
   const unifiedDiff = createPatch(
@@ -54,7 +58,7 @@ export function ConflictDialog({ stem, myContent, serverContent, onResolve, onCa
 
   return (
     <div style={overlayStyle} onClick={onCancel}>
-      <div style={dialogStyle} onClick={e => e.stopPropagation()}>
+      <div ref={dialogRef} style={dialogStyle} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div style={{
           padding: '12px 16px',

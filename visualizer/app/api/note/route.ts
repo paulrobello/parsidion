@@ -59,9 +59,12 @@ export async function GET(req: NextRequest) {
   if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
 
   try {
-    const content = await fs.readFile(notePath, 'utf-8')
+    const [content, stat] = await Promise.all([
+      fs.readFile(notePath, 'utf-8'),
+      fs.stat(notePath),
+    ])
     const relativePath = path.relative(vaultRoot, notePath)
-    return NextResponse.json({ content, path: relativePath })
+    return NextResponse.json({ content, path: relativePath, mtimeMs: stat.mtimeMs })
   } catch {
     return NextResponse.json({ error: 'Failed to read note' }, { status: 500 })
   }
@@ -72,11 +75,11 @@ export async function POST(req: NextRequest) {
   if (authError) return authError
   const vault = req.nextUrl.searchParams.get('vault')
   const body = await req.json()
-  const { stem, path: relPath, content, lastModified } = body as {
+  const { stem, path: relPath, content, baseMtimeMs } = body as {
     stem?: string
     path?: string
     content?: string
-    lastModified?: number
+    baseMtimeMs?: number
   }
   if ((!stem && !relPath) || content === undefined) {
     return NextResponse.json({ error: 'stem or path, and content required' }, { status: 400 })
@@ -111,14 +114,17 @@ export async function POST(req: NextRequest) {
   }
   if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
 
-  // Conflict detection: if caller provided lastModified and the file
-  // has been modified since then, return the current content instead of saving.
-  if (lastModified !== undefined) {
+  // Conflict detection: if caller provided baseMtimeMs (the server mtime it last
+  // fetched) and the file's mtime is now strictly greater, the file was modified
+  // externally since then — return the current content instead of saving. This
+  // compares server mtimes only, never a client wall-clock timestamp, so it is
+  // immune to clock skew between the browser and the machine running the vault.
+  if (baseMtimeMs !== undefined) {
     try {
       const stat = await fs.stat(notePath)
-      if (stat.mtimeMs > lastModified) {
+      if (stat.mtimeMs > baseMtimeMs) {
         const serverContent = await fs.readFile(notePath, 'utf-8')
-        return NextResponse.json({ conflict: true, serverContent })
+        return NextResponse.json({ conflict: true, serverContent, mtimeMs: stat.mtimeMs })
       }
     } catch {
       // If stat fails, proceed with the save
@@ -127,7 +133,8 @@ export async function POST(req: NextRequest) {
 
   try {
     await fs.writeFile(notePath, content, 'utf-8')
-    return NextResponse.json({ ok: true })
+    const stat = await fs.stat(notePath)
+    return NextResponse.json({ ok: true, mtimeMs: stat.mtimeMs })
   } catch {
     return NextResponse.json({ error: 'Failed to write note' }, { status: 500 })
   }

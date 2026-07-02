@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useFocusTrap } from '@/lib/useFocusTrap'
 
 interface Props {
   title: string
@@ -22,10 +23,13 @@ export function ConfirmDialog({
   onCancel,
 }: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
-  // Focus cancel button by default (safer) and handle Escape
+  // Trap focus in the dialog, defaulting to the safe cancel action (not confirm/danger)
+  useFocusTrap(dialogRef, true, cancelRef)
+
+  // Handle Escape
   useEffect(() => {
-    cancelRef.current?.focus()
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel()
     }
@@ -51,6 +55,7 @@ export function ConfirmDialog({
     >
       {/* Dialog */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-title"

@@ -21,9 +21,9 @@ function urlTransform(url: string): string {
 
 interface Props {
   node: NoteNode | null
-  fetchContent: (stem: string, path?: string) => Promise<{ content: string; fromCache: boolean }>
+  fetchContent: (stem: string, path?: string) => Promise<{ content: string; mtimeMs?: number; fromCache: boolean }>
   onNavigate: (stem: string, newTab: boolean) => void
-  onSave: (stem: string, content: string, lastModified?: number, notePath?: string) => Promise<{ conflict: true; serverContent: string } | { ok: true }>
+  onSave: (stem: string, content: string, baseMtimeMs?: number, notePath?: string) => Promise<{ conflict: true; serverContent: string; mtimeMs: number } | { ok: true; mtimeMs: number }>
   onDelete: (stem: string, notePath?: string) => Promise<void>
   onOpenHistory: (stem: string, notePath?: string) => void
   nodes: NoteNode[]
@@ -45,8 +45,9 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [loadedAt, setLoadedAt] = useState(0)
-  const [conflictData, setConflictData] = useState<{ serverContent: string } | null>(null)
+  // Conflict-detection token: the server's mtimeMs for the note as currently loaded.
+  const [baseMtime, setBaseMtime] = useState<number | undefined>(undefined)
+  const [conflictData, setConflictData] = useState<{ serverContent: string; mtimeMs: number } | null>(null)
   const [externallyModified, setExternallyModified] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const savedScrollRef = useRef(0)
@@ -62,10 +63,10 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     let cancelled = false
     startTransition(async () => {
       try {
-        const { content: c, fromCache } = await fetchContent(node.id, node.path)
+        const { content: c, mtimeMs } = await fetchContent(node.id, node.path)
         if (!cancelled) {
           setContent(c)
-          if (!fromCache) setLoadedAt(Date.now())
+          setBaseMtime(mtimeMs)
           setError(null)
         }
       } catch (e) {
@@ -110,10 +111,10 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     let cancelled = false
     startTransition(async () => {
       try {
-        const { content: c, fromCache } = await fetchContent(node.id, node.path)
+        const { content: c, mtimeMs } = await fetchContent(node.id, node.path)
         if (!cancelled) {
           setContent(c)
-          if (!fromCache) setLoadedAt(Date.now())
+          setBaseMtime(mtimeMs)
           setError(null)
         }
       } catch { /* ignore refresh errors */ }
@@ -146,13 +147,13 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     setSaveError(null)
     try {
       const fullContent = serializeFrontmatter(editFields, editBody)
-      const result = await onSave(node.id, fullContent, loadedAt, node.path)
+      const result = await onSave(node.id, fullContent, baseMtime, node.path)
       if ('conflict' in result && result.conflict) {
-        setConflictData({ serverContent: result.serverContent })
+        setConflictData({ serverContent: result.serverContent, mtimeMs: result.mtimeMs })
         return
       }
       setContent(fullContent)
-      setLoadedAt(Date.now())
+      setBaseMtime(result.mtimeMs)
       setIsEditing(false)
       setPreviewMode(false)
       setExternallyModified(false)
@@ -161,7 +162,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     } finally {
       setIsSaving(false)
     }
-  }, [node, editFields, editBody, onSave, loadedAt])
+  }, [node, editFields, editBody, onSave, baseMtime])
 
   const handleConfirmDelete = useCallback(async () => {
     if (!node) return
@@ -177,15 +178,22 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
   }, [node, onDelete])
 
   const handleConflictResolve = useCallback(async (resolved: string) => {
-    if (!node) return
+    if (!node || !conflictData) return
+    // Base the retry on the mtime seen at conflict time — the file the user just
+    // reviewed — so the overwrite succeeds unless it changed again in the meantime.
+    const retryBaseMtime = conflictData.mtimeMs
     setConflictData(null)
     setIsSaving(true)
     setSaveError(null)
     try {
-      // Force-save: omit lastModified so the server skips the conflict check
-      await onSave(node.id, resolved, undefined, node.path)
+      const result = await onSave(node.id, resolved, retryBaseMtime, node.path)
+      if ('conflict' in result && result.conflict) {
+        // Modified again during resolution — surface the new conflict instead of silently overwriting.
+        setConflictData({ serverContent: result.serverContent, mtimeMs: result.mtimeMs })
+        return
+      }
       setContent(resolved)
-      setLoadedAt(Date.now())
+      setBaseMtime(result.mtimeMs)
       setIsEditing(false)
       setPreviewMode(false)
       setExternallyModified(false)
@@ -194,7 +202,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     } finally {
       setIsSaving(false)
     }
-  }, [node, onSave])
+  }, [node, onSave, conflictData])
 
   const handleWikilink = useCallback((stem: string, e: React.MouseEvent) => {
     onNavigate(stem, e.metaKey || e.ctrlKey)

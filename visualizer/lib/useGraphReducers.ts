@@ -67,6 +67,30 @@ export interface NeighborhoodInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Shared visibility predicate
+// ---------------------------------------------------------------------------
+
+/**
+ * True if `node` has no non-overlay edge to another node considered visible
+ * by `isVisible`. Shared by the hideIsolated branch below and by
+ * useForceLayout.ts's visibleSet pruning, so "effectively isolated" can't
+ * drift out of sync between the reducer and the physics loop again.
+ */
+export function isEffectivelyIsolated(
+  graph: AbstractGraph,
+  node: string,
+  isVisible: (other: string) => boolean
+): boolean {
+  for (const e of graph.edges(node) as string[]) {
+    if (graph.getEdgeAttribute(e, 'overlay')) continue
+    const src = graph.source(e)
+    const other = (src === node ? graph.target(e) : src) as string
+    if (isVisible(other)) return false
+  }
+  return true
+}
+
+// ---------------------------------------------------------------------------
 // Reducer factories
 // ---------------------------------------------------------------------------
 
@@ -124,21 +148,14 @@ export function makeNodeReducer(
       return { ...d, hidden: true, label: '' }
     }
     if (hideIsolatedRef.current) {
-      // Mirror useForceLayout.ts's visibleSet logic: exclude overlay edges and
-      // edges to neighbors hidden by the neighborhood/filter sets. Otherwise a
-      // node whose only edges are overlay edges (or lead to a filtered-out
-      // neighbor) renders visible here but is frozen and inert in the physics loop.
-      let hasVisibleEdge = false
-      for (const e of graph.edges(node) as string[]) {
-        if (graph.getEdgeAttribute(e, 'overlay')) continue
-        const src = graph.source(e)
-        const other = (src === node ? graph.target(e) : src) as string
-        if (fn.size > 0 && !fn.has(other)) continue
-        if (nh && !nh.nodes.has(other)) continue
-        hasVisibleEdge = true
-        break
+      // Otherwise a node whose only edges are overlay edges (or lead to a
+      // filtered-out neighbor) would render visible here but sit frozen and
+      // inert in the physics loop — see isEffectivelyIsolated.
+      const isVisible = (other: string) =>
+        (fn.size === 0 || fn.has(other)) && (!nh || nh.nodes.has(other))
+      if (isEffectivelyIsolated(graph, node, isVisible)) {
+        return { ...d, hidden: true, label: '' }
       }
-      if (!hasVisibleEdge) return { ...d, hidden: true, label: '' }
     }
     const hn = highlightedNodesRef.current
     const isHovered = node === hoveredNodeRef.current

@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 import { useRef, useCallback, useEffect } from 'react'
 import type { AbstractGraph } from 'graphology-types'
+import { isEffectivelyIsolated } from '@/lib/useGraphReducers'
 import type { NeighborhoodInfo } from '@/lib/useGraphReducers'
 import {
   PHYSICS_DAMPING,
@@ -250,6 +251,76 @@ export interface LayoutLoopDeps {
   layoutLoopRef: React.RefObject<(() => void) | null>
 }
 
+// Above this many visible nodes, exact O(n²) all-pairs repulsion is swapped
+// for an approximate O(n) uniform-grid scheme (see applyGridRepulsion) so the
+// frame rate stays usable on large vaults. Below the threshold the exact pass
+// runs (still over the flat-array snapshot), so small/medium graphs get
+// identical physics to before this change.
+export const BARNES_HUT_THRESHOLD = 1000
+
+/**
+ * Approximate repulsion for visible-node counts above BARNES_HUT_THRESHOLD.
+ * Bins nodes into a uniform grid sized so each cell holds ~1 node on average,
+ * then sums repulsion only between nodes in the same cell or one of the 4
+ * "forward" neighbor cells (right, down, down-right, down-left) — the
+ * classic linked-cell half-shell trick, which covers every unordered pair in
+ * the full 3x3 neighborhood exactly once with no double-counting. Repulsion
+ * beyond ~1 cell width is dropped; since it decays with 1/dist² this trades a
+ * small amount of accuracy for O(n) instead of O(n²) pair evaluations. A grid
+ * is used instead of a quadtree because it is simpler and lower-risk while
+ * still giving a visually stable layout — it does not need to reproduce the
+ * exact all-pairs result.
+ */
+function applyGridRepulsion(
+  xs: Float64Array,
+  ys: Float64Array,
+  count: number,
+  apply: (i: number, j: number) => void
+): void {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (let i = 0; i < count; i++) {
+    if (xs[i] < minX) minX = xs[i]
+    if (xs[i] > maxX) maxX = xs[i]
+    if (ys[i] < minY) minY = ys[i]
+    if (ys[i] > maxY) maxY = ys[i]
+  }
+  const width = Math.max(1, maxX - minX)
+  const height = Math.max(1, maxY - minY)
+  // Target ~1 node per cell on average.
+  const cellSize = Math.max(1, Math.sqrt((width * height) / count))
+  const cols = Math.max(1, Math.ceil(width / cellSize) + 1)
+
+  const buckets = new Map<number, number[]>()
+  for (let i = 0; i < count; i++) {
+    const cx = Math.floor((xs[i] - minX) / cellSize)
+    const cy = Math.floor((ys[i] - minY) / cellSize)
+    const key = cy * cols + cx
+    let bucket = buckets.get(key)
+    if (!bucket) { bucket = []; buckets.set(key, bucket) }
+    bucket.push(i)
+  }
+
+  const FORWARD_OFFSETS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [1, 1], [-1, 1]]
+  for (const [key, bucket] of buckets) {
+    for (let a = 0; a < bucket.length; a++) {
+      for (let b = a + 1; b < bucket.length; b++) {
+        apply(bucket[a], bucket[b])
+      }
+    }
+    const cx = key % cols
+    const cy = Math.floor(key / cols)
+    for (const [dx, dy] of FORWARD_OFFSETS) {
+      const neighbor = buckets.get((cy + dy) * cols + (cx + dx))
+      if (!neighbor) continue
+      for (const a of bucket) {
+        for (const b of neighbor) {
+          apply(a, b)
+        }
+      }
+    }
+  }
+}
+
 /**
  * Builds the per-frame physics loop closure and assigns it to layoutLoopRef.
  * Called once after graph construction so all graphRef reads are safe.
@@ -267,6 +338,7 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
   const DAMPING = PHYSICS_DAMPING
   const DT = PHYSICS_DT
   const MIN_DIST = PHYSICS_MIN_DIST
+  const MAX_VEL = 20
 
   const layoutLoop = () => {
     if (!isRunningRef.current || !graphRef.current || !sigmaRefreshRef.current) {
@@ -278,31 +350,32 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
     const p = layoutParamsRef.current
     const velocities = simVelocitiesRef.current
 
-    // Build set of VISIBLE nodes — same logic as nodeReducer.
-    // Hidden nodes must not participate in physics at all.
+    // Build set of VISIBLE nodes — same logic as nodeReducer, via the shared
+    // isEffectivelyIsolated predicate. Hidden nodes must not participate in
+    // physics at all.
     const fn = filteredNodesRef.current
+    const nh = neighborhoodRef.current
     const allNodes = g.nodes() as string[]
     const visibleSet = new Set<string>()
-    for (const n of allNodes) {
-      if (fn.size > 0 && !fn.has(n)) continue
-      if (neighborhoodRef.current && !neighborhoodRef.current.nodes.has(n)) continue
-      visibleSet.add(n)
+    for (const id of allNodes) {
+      if (fn.size > 0 && !fn.has(id)) continue
+      if (nh && !nh.nodes.has(id)) continue
+      visibleSet.add(id)
     }
     // Hide isolated: remove nodes with no visible non-overlay edges
     if (hideIsolatedRef.current) {
-      for (const n of [...visibleSet]) {
-        let hasVisibleEdge = false
-        for (const e of g.edges(n) as string[]) {
-          if (g.getEdgeAttribute(e, 'overlay')) continue
-          const other = g.source(e) === n ? g.target(e) : g.source(e)
-          if (visibleSet.has(other as string)) { hasVisibleEdge = true; break }
+      for (const id of [...visibleSet]) {
+        if (isEffectivelyIsolated(g, id, other => visibleSet.has(other))) {
+          visibleSet.delete(id)
         }
-        if (!hasVisibleEdge) visibleSet.delete(n)
       }
     }
     const nodes = [...visibleSet]
+    const count = nodes.length
 
-    // --- Drag mode ---
+    // --- Drag mode — writes straight to graphology. The flat-array snapshot
+    // below reads positions back out of graphology, so it picks up the
+    // dragged node's current position automatically. ---
     if (isDraggingRef.current && draggedNodeRef.current && dragPositionRef.current) {
       const dn = draggedNodeRef.current
       // Defense-in-depth: if the dragged node was dropped (e.g. by an incremental
@@ -323,47 +396,61 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
       }
     }
 
-    // Accumulate forces (only for visible nodes)
-    const forces = new Map<string, { fx: number; fy: number }>()
-    for (const n of nodes) {
-      forces.set(n, { fx: 0, fy: 0 })
+    // --- Flat-array snapshot ---
+    // Snapshot visible nodes' x/y/vx/vy into flat typed arrays once per frame
+    // so the O(n²) repulsion + attraction passes below do plain array
+    // indexing instead of millions of string-keyed graphology attribute
+    // lookups. Results are written back to graphology + simVelocitiesRef
+    // once, at the end of the frame.
+    const xs = new Float64Array(count)
+    const ys = new Float64Array(count)
+    const vxs = new Float64Array(count)
+    const vys = new Float64Array(count)
+    const fxs = new Float64Array(count)
+    const fys = new Float64Array(count)
+    const nodeIndex = new Map<string, number>()
+    for (let i = 0; i < count; i++) {
+      const id = nodes[i]
+      nodeIndex.set(id, i)
+      xs[i] = g.getNodeAttribute(id, 'x') as number
+      ys[i] = g.getNodeAttribute(id, 'y') as number
+      const v = velocities.get(id)
+      vxs[i] = v ? v.vx : 0
+      vys[i] = v ? v.vy : 0
     }
 
     // 1) Gravity — pull toward center.
     // Scale with SR² to stay balanced against repulsion (also SR²/dist²).
     // Factor 0.01 keeps forces moderate at default settings.
     const gravityStrength = p.gravity * p.scalingRatio * p.scalingRatio * 0.01
-    for (const n of nodes) {
-      const x = g.getNodeAttribute(n, 'x') as number
-      const y = g.getNodeAttribute(n, 'y') as number
-      const f = forces.get(n)!
-      f.fx -= x * gravityStrength
-      f.fy -= y * gravityStrength
+    for (let i = 0; i < count; i++) {
+      fxs[i] -= xs[i] * gravityStrength
+      fys[i] -= ys[i] * gravityStrength
     }
 
-    // 2) Repulsion — all visible pairs (O(n²), acceptable for <1000 nodes)
-    for (let i = 0; i < nodes.length; i++) {
-      const n1 = nodes[i]
-      const x1 = g.getNodeAttribute(n1, 'x') as number
-      const y1 = g.getNodeAttribute(n1, 'y') as number
-      const f1 = forces.get(n1)!
-      for (let j = i + 1; j < nodes.length; j++) {
-        const n2 = nodes[j]
-        const x2 = g.getNodeAttribute(n2, 'x') as number
-        const y2 = g.getNodeAttribute(n2, 'y') as number
-        const dx = x1 - x2
-        const dy = y1 - y2
-        const dist = Math.max(MIN_DIST, Math.sqrt(dx * dx + dy * dy))
-        // Coulomb repulsion: SR² / dist². Squaring slider value compensates
-        // for cube-root equilibrium: d ∝ SR^(2/3). Slider 10→100 = 4.6x change.
-        const rep = (p.scalingRatio * p.scalingRatio) / (dist * dist)
-        const fx = (dx / dist) * rep
-        const fy = (dy / dist) * rep
-        f1.fx += fx
-        f1.fy += fy
-        const f2 = forces.get(n2)!
-        f2.fx -= fx
-        f2.fy -= fy
+    // 2) Repulsion — exact all-pairs below BARNES_HUT_THRESHOLD, approximate
+    // uniform-grid above it.
+    const applyRepulsion = (i: number, j: number) => {
+      const dx = xs[i] - xs[j]
+      const dy = ys[i] - ys[j]
+      const dist = Math.max(MIN_DIST, Math.sqrt(dx * dx + dy * dy))
+      // Coulomb repulsion: SR² / dist². Squaring slider value compensates
+      // for cube-root equilibrium: d ∝ SR^(2/3). Slider 10→100 = 4.6x change.
+      const rep = (p.scalingRatio * p.scalingRatio) / (dist * dist)
+      const fx = (dx / dist) * rep
+      const fy = (dy / dist) * rep
+      fxs[i] += fx
+      fys[i] += fy
+      fxs[j] -= fx
+      fys[j] -= fy
+    }
+    if (count > BARNES_HUT_THRESHOLD) {
+      applyGridRepulsion(xs, ys, count, applyRepulsion)
+    } else {
+      for (let i = 0; i < count; i++) {
+        for (let j = i + 1; j < count; j++) {
+          applyRepulsion(i, j)
+        }
       }
     }
 
@@ -372,43 +459,46 @@ export function buildLayoutLoop(deps: LayoutLoopDeps): void {
       if (g.getEdgeAttribute(e, 'overlay')) return
       const src = g.source(e) as string
       const tgt = g.target(e) as string
-      if (!visibleSet.has(src) || !visibleSet.has(tgt)) return
+      const si = nodeIndex.get(src)
+      const ti = nodeIndex.get(tgt)
+      if (si === undefined || ti === undefined) return
       const w = (g.getEdgeAttribute(e, 'weight') as number) || 0
       if (w === 0) return
-      const x1 = g.getNodeAttribute(src, 'x') as number
-      const y1 = g.getNodeAttribute(src, 'y') as number
-      const x2 = g.getNodeAttribute(tgt, 'x') as number
-      const y2 = g.getNodeAttribute(tgt, 'y') as number
-      const dx = x2 - x1
-      const dy = y2 - y1
+      const dx = xs[ti] - xs[si]
+      const dy = ys[ti] - ys[si]
       const fx = dx * w
       const fy = dy * w
-      forces.get(src)!.fx += fx
-      forces.get(src)!.fy += fy
-      forces.get(tgt)!.fx -= fx
-      forces.get(tgt)!.fy -= fy
+      fxs[si] += fx
+      fys[si] += fy
+      fxs[ti] -= fx
+      fys[ti] -= fy
     })
 
     // 4) Apply forces → velocity → position (with velocity cap)
-    const MAX_VEL = 20
     const dragNode = isDraggingRef.current ? draggedNodeRef.current : null
-    for (const n of nodes) {
-      if (n === dragNode) continue
-      const f = forces.get(n)!
-      const v = velocities.get(n) || { vx: 0, vy: 0 }
-      v.vx = (v.vx + f.fx * DT) * DAMPING
-      v.vy = (v.vy + f.fy * DT) * DAMPING
+    const dragIdx = dragNode !== null ? nodeIndex.get(dragNode) : undefined
+    for (let i = 0; i < count; i++) {
+      if (i === dragIdx) continue
+      let vx = (vxs[i] + fxs[i] * DT) * DAMPING
+      let vy = (vys[i] + fys[i] * DT) * DAMPING
       // Cap velocity to prevent explosions
-      const speed = Math.sqrt(v.vx * v.vx + v.vy * v.vy)
+      const speed = Math.sqrt(vx * vx + vy * vy)
       if (speed > MAX_VEL) {
-        v.vx = (v.vx / speed) * MAX_VEL
-        v.vy = (v.vy / speed) * MAX_VEL
+        vx = (vx / speed) * MAX_VEL
+        vy = (vy / speed) * MAX_VEL
       }
-      velocities.set(n, v)
-      const x = (g.getNodeAttribute(n, 'x') as number) + v.vx
-      const y = (g.getNodeAttribute(n, 'y') as number) + v.vy
-      g.setNodeAttribute(n, 'x', x)
-      g.setNodeAttribute(n, 'y', y)
+      vxs[i] = vx
+      vys[i] = vy
+      xs[i] += vx
+      ys[i] += vy
+    }
+
+    // Write results back to graphology + the velocity map once per frame.
+    for (let i = 0; i < count; i++) {
+      const id = nodes[i]
+      g.setNodeAttribute(id, 'x', xs[i])
+      g.setNodeAttribute(id, 'y', ys[i])
+      velocities.set(id, { vx: vxs[i], vy: vys[i] })
     }
 
     // Decay temperature (energy bar + auto-stop)
