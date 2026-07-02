@@ -58,10 +58,10 @@ graph TB
         Conflict[ConflictDialog]
     end
 
-    subgraph "Server"
-        Server[Custom server.ts]
-        WS[WebSocketServer]
-        Watcher[Chokidar Watcher]
+    subgraph "Next.js Server (plain next dev/start)"
+        SSE["/api/vault/events (SSE)"]
+        Watcher[Chokidar Watcher - per vault, ref-counted]
+        Broadcast[vaultBroadcast EventEmitter]
     end
 
     subgraph "Data"
@@ -86,10 +86,11 @@ graph TB
     App --> History[HistoryView]
     Read --> Conflict
 
-    Server --> WS
-    Server --> Watcher
+    SSE --> Watcher
     Watcher --> Vault
-    WS -->|file:created/deleted/modified| App
+    SSE -->|text/event-stream: file:created/deleted/modified| App
+    Broadcast -->|graph:rebuilt| SSE
+    SSE -->|graph:rebuilt| App
 
     App -->|fetch on load| GJ
     Read -->|fetch on open| API
@@ -111,8 +112,8 @@ graph TB
     style Sidebar fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style History fill:#006064,stroke:#00acc1,stroke-width:2px,color:#ffffff
     style Conflict fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
-    style Server fill:#4a148c,stroke:#9c27b0,stroke-width:3px,color:#ffffff
-    style WS fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    style SSE fill:#4a148c,stroke:#9c27b0,stroke-width:3px,color:#ffffff
+    style Broadcast fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
     style Watcher fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style GJ fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
     style API fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
@@ -144,8 +145,9 @@ graph TD
     Toolbar[Toolbar.tsx]
     TabBar[TabBar.tsx]
     Search[UnifiedSearch.tsx]
-    WsIndicator[WS Status Dot]
+    WsIndicator[Sync Status Dot]
     VaultSel[VaultSelector.tsx]
+    VaultStats[VaultStats.tsx]
     Sidebar[FileExplorer.tsx]
     ReadPane[ReadingPane.tsx]
     GraphCanvas[GraphCanvas.tsx]
@@ -164,6 +166,7 @@ graph TD
     Toolbar --> Search
     Toolbar --> WsIndicator
     Toolbar --> VaultSel
+    Toolbar --> VaultStats
     Page --> Sidebar
     Page --> ReadPane
     Page --> GraphCanvas
@@ -187,6 +190,7 @@ graph TD
     style Search fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style WsIndicator fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
     style VaultSel fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style VaultStats fill:#1b5e20,stroke:#4caf50,stroke-width:1px,color:#ffffff
     style TempBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
     style NewNote fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
     style Confirm fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
@@ -402,19 +406,25 @@ Activated with **⌘K** — three modes selectable by prefix:
 
 ### Real-Time Vault Sync
 
-The visualizer maintains a WebSocket connection to the server for live vault updates:
+The visualizer maintains a Server-Sent Events (SSE) connection to the Next.js server for live vault updates. The app runs on plain `next dev` / `next start` — there is no custom server; the stream is a route handler at `app/api/vault/events/route.ts`.
 
-**WebSocket Connection**
-- Endpoint: `/ws/vault`
-- Automatic reconnection with exponential backoff (1s → 30s max)
-- Heartbeat: server pings every 30 seconds; clients must respond with `pong`
+**SSE Connection**
+- Endpoint: `GET /api/vault/events?vault=<name>` (`text/event-stream`)
+- Client opens it with the browser's `EventSource` API (in `lib/useVaultFiles.ts`)
+- Reconnection is native to `EventSource` — the browser retries automatically with its own backoff; the client reports `connecting` while the stream is down and `connected` once `onopen` fires
+- Same-origin guard (`requireSameOrigin`) is applied before the stream opens; the vault path is validated against `vaults.yaml`
 - Connection status indicator in toolbar: green (connected), amber (connecting), red (disconnected)
 
-**Live Updates**
-- New notes appear in FileExplorer immediately (no reload)
-- Deleted notes are removed from the sidebar instantly
-- Modified notes auto-refresh in read mode (scroll position preserved)
-- When `graph.json` is rebuilt server-side, clients refetch automatically
+**Server-Side Watcher**
+- A reference-counted `chokidar` watcher is created per vault (module-level registry inside the route handler). It is shared across concurrent SSE connections for the same vault and closed only when its last subscriber disconnects.
+- The watcher ignores the standard excluded dirs (`.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`), dot-files, and anything that is not a `.md` file, and waits for writes to settle (`awaitWriteFinish`) before emitting.
+- `graph:rebuilt` events from `lib/vaultBroadcast.server.ts` (an EventEmitter) are forwarded to every subscriber — this is how clients learn that `graph.json` was regenerated.
+
+**Live Updates (event payload)**
+- `file:created` → note appears in FileExplorer immediately (no reload)
+- `file:deleted` → note is removed from the sidebar instantly
+- `file:modified` → modified note auto-refreshes in read mode (scroll position preserved)
+- `graph:rebuilt` → clients refetch `graph.json` and reload the file list
 
 **Conflict Detection**
 - When saving a note that was modified externally, a `ConflictDialog` appears
@@ -444,7 +454,7 @@ vaults:
 
 **Vault Selector**
 
-- Dropdown in the toolbar (left of WebSocket status indicator)
+- Dropdown in the toolbar (left of the vault-sync status indicator)
 - Shows all configured vaults plus "default"
 - Persists selection to localStorage (`vv:selectedVault`)
 - Switching vaults clears the content cache and resets tabs
@@ -456,7 +466,7 @@ vaults:
 | FileExplorer | Re-fetches file list from `/api/files?vault=name` |
 | ReadingPane | Loads notes via `/api/note?vault=name&stem=...` |
 | GraphCanvas | Graph data is vault-specific (separate `graph.json` per vault) |
-| WebSocket | Reconnects to `/ws/vault?vault=name` on switch |
+| SSE stream | Reconnects to `/api/vault/events?vault=name` on switch |
 
 **API Endpoints**
 
@@ -471,7 +481,11 @@ All API routes accept an optional `vault` query parameter:
 | `GET /api/note/diff?vault=<name>&...` | Git diff in vault |
 | `GET /api/graph?vault=<name>` | Serve graph.json from vault root |
 | `POST /api/graph/rebuild?vault=<name>` | Rebuild vault's graph.json |
+| `GET /api/vault/events?vault=<name>` | SSE stream of file/create/modify/delete and `graph:rebuilt` events |
 | `GET /api/vaults` | List available vaults |
+| `GET /api/stats?vault=<name>` | Pending summary count for the vault |
+| `POST /api/summarize?vault=<name>` | Spawn the summarizer subprocess for the vault (auth required) |
+| `GET /api/summarizer/status?vault=<name>` | Live summarizer run progress (processed/written/skipped/errors, pct) |
 
 **Fallback Behavior**
 
@@ -607,7 +621,7 @@ graph LR
 }
 ```
 
-### `VaultFile` (WebSocket and API)
+### `VaultFile` (SSE events and /api/files)
 
 ```typescript
 {
@@ -650,7 +664,7 @@ Body: `{ path: string, content: string }`. Returns 409 if the note already exist
 
 **`DELETE /api/note?stem=<stem>`** — Delete a note by stem.
 
-**`POST /api/graph/rebuild`** — Trigger a server-side `build_graph.py` run to regenerate `graph.json`. Broadcasts `graph:rebuilt` event to all connected WebSocket clients.
+**`POST /api/graph/rebuild`** — Trigger a server-side `build_graph.py` run to regenerate `graph.json`. Broadcasts a `graph:rebuilt` event via `vaultBroadcast` to all connected SSE clients.
 
 **`GET /api/graph`** — Serve the vault's `graph.json` file.
 
@@ -664,6 +678,38 @@ Body: `{ path: string, content: string }`. Returns 409 if the note already exist
 **`GET /api/vaults`** — List available vaults from `vaults.yaml`.
 
 **Response (200):** `{ vaults: VaultInfo[], defaultVault: string }` where each `VaultInfo` has `{ name, path, isDefault }`.
+
+**`GET /api/vault/events`** — Server-Sent Events stream of vault file changes for live sync. Replaces the retired `ws`-based `/ws/vault` endpoint.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200):** `text/event-stream`. Each `data:` line is a JSON object with a `type` of `file:created`, `file:deleted`, `file:modified`, or `graph:rebuilt`. Same-origin guard applied before the stream opens; vault path is validated against `vaults.yaml`. A reference-counted `chokidar` watcher is created per vault and shared across concurrent connections.
+
+**`GET /api/stats`** — Lightweight vault health probe used by the toolbar's `VaultStats` chip.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200):** `{ pendingSummaries: number }` — count of entries in the vault's `pending_summaries.jsonl`.
+
+**`POST /api/summarize`** — Spawn the Parsidion summarizer subprocess (`summarize_sessions.py`) for the vault. Auth-required (mutation route).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200):** `{ started: true, pid: number }`. **Response (409):** `{ alreadyRunning: true }` — a summarizer is already running. **Response (400):** invalid vault or vault directory missing.
+
+**`GET /api/summarizer/status`** — Live progress for a running summarizer (polled by `VaultStats` while a run is in flight).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200):** `{ running: boolean, error?: string, progress: Progress | null, pendingSummaries: number }` where `Progress` is `{ total, processed, written, skipped, errors, current, pct }`.
 
 **`GET /api/files`** — Returns the complete vault file tree.
 
@@ -709,7 +755,8 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 | `openTabs` | `string[]` | Array of open note stems |
 | `activeTab` | `string \| null` | Currently displayed note stem |
 | `viewMode` | `'read' \| 'graph'` | Current display mode |
-| `graphScope` | `'local' \| 'full'` | Neighborhood vs. full vault |
+| `neighborhoodCenter` | `string \| null` | Stem at the center of the local 2-hop view; `null` means full vault |
+| `isLayoutRunning` | `boolean` | Whether the force simulation is active (paused when leaving Graph mode) |
 
 **History Mode State**
 
@@ -738,12 +785,12 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 | `deleteNote(stem)` | callback | Delete a note by stem |
 | `createNote(path, content)` | callback | Create a new note at a vault-relative path |
 
-**WebSocket State** (from `useVaultFiles`)
+**Live-Sync State** (from `useVaultFiles`)
 
 | Key | Type | Description |
 |-----|------|-------------|
 | `fileTree` | `VaultFileTree` | Nested Map<folder, Map<subfolder, VaultFile[]>> |
-| `wsStatus` | `WsStatus` | Connection state |
+| `wsStatus` | `WsStatus` | SSE/EventSource connection state (type name retained for brevity) |
 | `totalFiles` | `number` | Total vault note count |
 
 **Graph Controls** (all persisted to `localStorage` with `vv:` prefix)
@@ -759,6 +806,7 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 | `hideIsolated` | `false` | Hide unconnected nodes |
 | `labelsOnHoverOnly` | `false` | Only show labels on hover |
 | `edgeColorMode` | `'binary'` | Edge coloring: `binary` (opacity) or `gradient` (blue to red) |
+| `nodeColorMode` | `'type'` | Node coloring: `type` (by note type) or `recency` (heat ramp) |
 | `nodeSizeMode` | `'incoming_links'` | Node sizing: `uniform`, `incoming_links`, `betweenness`, or `recency` |
 | `edgePruning` | `false` | Enable per-node edge pruning for dense graphs |
 | `edgePruningK` | `8` | Max edges per node when pruning is enabled |
@@ -850,58 +898,67 @@ All graph controls and UI layout are persisted to `localStorage` using the `vv:`
 
 ```
 parsidion/
-├── visualizer/                       # Next.js app root
-│   ├── server.ts                     # Custom server: Next.js + WebSocket + chokidar (multi-vault)
+├── visualizer/                       # Next.js App Router root (plain next dev/start, no custom server)
 │   ├── app/
 │   │   ├── page.tsx                  # Main layout and state wiring
 │   │   ├── layout.tsx                # HTML head, global styles
-│   │   ├── api/note/route.ts         # Note CRUD API (GET, POST, PUT, DELETE)
-│   │   ├── api/note/history/route.ts # Git log for a note (GET)
-│   │   ├── api/note/diff/route.ts    # Git diff between two commits (GET)
-│   │   ├── api/files/route.ts        # Vault file tree (GET)
-│   │   ├── api/vaults/route.ts       # List available vaults (GET)
-│   │   ├── api/graph/route.ts          # Serve graph.json from vault (GET)
-│   │   └── api/graph/rebuild/route.ts  # Trigger graph.json rebuild (POST)
+│   │   ├── api/note/route.ts            # Note CRUD API (GET, POST, PUT, DELETE)
+│   │   ├── api/note/history/route.ts    # Git log for a note (GET)
+│   │   ├── api/note/diff/route.ts       # Git diff between two commits (GET)
+│   │   ├── api/files/route.ts           # Vault file tree (GET)
+│   │   ├── api/vaults/route.ts          # List available vaults (GET)
+│   │   ├── api/vault/events/route.ts    # SSE stream of file/create/modify/delete + graph:rebuilt (GET)
+│   │   ├── api/graph/route.ts           # Serve graph.json from vault (GET)
+│   │   ├── api/graph/rebuild/route.ts   # Trigger graph.json rebuild (POST)
+│   │   ├── api/stats/route.ts           # Pending-summary count for VaultStats (GET)
+│   │   ├── api/summarize/route.ts       # Spawn the summarizer subprocess (POST, auth)
+│   │   └── api/summarizer/status/route.ts # Live summarizer run progress (GET)
 │   ├── components/
 │   │   ├── GraphCanvas.tsx           # Sigma.js WebGL renderer + node right-click menu
-│   │   ├── HUDPanel.tsx              # Graph controls overlay (edge color, node size, density, physics)
+│   │   ├── HUDPanel.tsx              # Graph controls overlay (edge color, node color/size, density, physics)
 │   │   ├── FileExplorer.tsx          # Sidebar with folder tree + right-click context menu
 │   │   ├── ReadingPane.tsx           # Markdown renderer + HISTORY toolbar button
 │   │   ├── HistoryView.tsx           # Split-screen git history viewer
 │   │   ├── CommitList.tsx            # Scrollable commit list with FROM/TO selection
 │   │   ├── DiffViewer.tsx            # Diff renderer (unified / split / words modes)
-│   │   ├── Toolbar.tsx               # Top bar with tabs + vault selector + WS status + new note
+│   │   ├── Toolbar.tsx               # Top bar: tabs + vault selector + VaultStats + sync dot + new note
 │   │   ├── VaultSelector.tsx         # Multi-vault dropdown switcher
+│   │   ├── VaultStats.tsx            # PEND / NOTES chips; triggers + monitors summarizer runs
 │   │   ├── TabBar.tsx                # Scrollable tab strip with permanent Graph tab
 │   │   ├── UnifiedSearch.tsx         # ⌘K search input + dropdown
 │   │   ├── TemperatureBar.tsx        # Simulation energy indicator
 │   │   ├── NewNoteDialog.tsx         # Dialog for creating new vault notes
 │   │   ├── ConfirmDialog.tsx         # Reusable confirmation prompt
 │   │   ├── ConflictDialog.tsx        # Edit conflict resolution (take theirs / keep mine / merge)
-│   │   ├── FrontmatterEditor.tsx    # Structured YAML frontmatter editor
+│   │   ├── FrontmatterEditor.tsx     # Structured YAML frontmatter editor
 │   │   └── ViewToggle.tsx            # (unused) Legacy Read/Graph mode toggle — replaced by TabBar Graph tab
 │   ├── lib/
 │   │   ├── graph.ts                  # Data types and fetch helpers
 │   │   ├── useVisualizerState.ts     # Central state management hook (incl. vault, history, graph controls)
-│   │   ├── useVaultFiles.ts          # WebSocket hook for real-time vault sync
+│   │   ├── useVaultFiles.ts          # SSE / EventSource hook for real-time vault sync
 │   │   ├── useForceLayout.ts         # Custom Newtonian physics loop (gravity + repulsion + edge attraction + damping)
+│   │   ├── useForceLayout.test.ts    # Unit tests for the physics loop
 │   │   ├── useGraphReducers.ts       # Sigma node/edge reducers and neighborhood computation
+│   │   ├── useFocusTrap.ts           # Focus-trap hook used by accessible modal dialogs
 │   │   ├── vaultFile.ts              # VaultFile type (shared client/server)
-│   │   ├── vaultResolver.ts          # Multi-vault path resolution (server-side)
-│   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side events
-│   │   ├── apiAuth.ts                # Shared auth guard for mutating API routes
+│   │   ├── vaultResolver.ts          # Multi-vault path resolution (server-side, with forbidden-prefix guard)
+│   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side graph:rebuilt events
+│   │   ├── vaultStatsServer.ts       # Summarizer spawn/status + pending-summary counting (server-side)
+│   │   ├── graphDelta.ts             # Graph diff/merge helpers for incremental updates
+│   │   ├── apiAuth.ts                # Shared auth + same-origin guards for mutating/SSE routes
 │   │   ├── parseDiff.ts              # Client-side unified diff parser (DiffHunk, DiffLine)
 │   │   ├── parseDiff.test.ts         # Unit tests for parseDiff
 │   │   ├── sigma-colors.ts           # Note type → color mapping, edge coloring, node sizing constants
+│   │   ├── sigma-colors.test.ts      # Unit tests for sigma-colors
 │   │   ├── sigma-renderers.ts        # Custom Sigma label/hover renderers
 │   │   ├── frontmatter.ts            # Frontmatter parse/serialize helpers
+│   │   ├── frontmatter.test.ts       # Unit tests for frontmatter
 │   │   └── useLocalStorage.ts        # localStorage persistence hook
 │   ├── public/
 │   │   └── (static assets only — graph.json lives in the vault, not here)
 │   ├── package.json
 │   ├── tsconfig.json
-│   ├── tsconfig.server.json          # TypeScript config for server.ts
-│   └── next.config.ts
+│   └── next.config.ts                # Security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy)
 │
 │
 └── Makefile                          # Build targets

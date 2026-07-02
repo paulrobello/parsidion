@@ -169,7 +169,7 @@ flowchart TD
 ## Quick Start
 
 ```bash
-# Full pipeline: generate queries then evaluate (default settings, ~10-15 min)
+# Full pipeline: generate queries then evaluate (default settings, ~20-25 min)
 uv run ~/.claude/skills/parsidion/scripts/embed_eval.py
 
 # Re-run evaluation with cached queries (fast, no AI backend calls)

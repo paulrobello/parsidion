@@ -373,7 +373,7 @@ Manage OAuth 2.1 authentication for remote MCP servers that require it (e.g., No
 
 ```bash
 mcpl auth login notion                              # Open browser for OAuth authorization
-mcpl auth login figma --scope read --scope write    # Request multiple scopes (repeatable flag)
+mcpl auth login figma --scope "read write"          # Request multiple scopes (space-separated)
 mcpl auth login custom --force                      # Force re-authentication
 mcpl auth login custom --client-id my-id --client-secret-stdin  # Provide credentials non-interactively
 mcpl auth login notion --timeout 120                # Extend browser callback timeout (seconds)
@@ -806,7 +806,7 @@ set MCPL_SESSION_ID=my-session-1
 
 ## Related Documentation
 
-- [CLAUDE.md](../CLAUDE.md) - Project instructions including mcpl usage guidance for Claude Code
+- [CLAUDE.md](../CLAUDE.md) - Project instructions; the installer does not add mcpl guidance, so add it manually as described above
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture overview
 - [MCP Launchpad GitHub Repository](https://github.com/kenneth-liao/mcp-launchpad) - Source, issues, and latest releases
 - [MCP Specification](https://modelcontextprotocol.io) - The Model Context Protocol specification

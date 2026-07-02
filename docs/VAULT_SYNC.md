@@ -53,8 +53,9 @@ rebuild the database locally on each machine.
 
 The installer automatically:
 - initializes the vault as a **git repository** (with `.gitignore` and initial commit)
-- adds `embeddings.db`, `pending_summaries.jsonl`, `hook_events.log`, `graph.json`, `summarizer_state.json`, and `doctor_state.json` to `.gitignore`
+- adds the machine-local files listed in [What Gets Synced](#what-gets-synced) to `.gitignore` (including `embeddings.db`, `pending_summaries.jsonl`, `config.yaml`, `config.local.yaml`, and others)
 - installs a **post-merge hook** that rebuilds the index and embeddings after every pull
+- writes `vault.username` (from `$USER`) into `config.yaml` for per-user daily note naming
 
 If you already have a vault, re-running the installer adds git support without affecting
 existing notes:
@@ -101,7 +102,6 @@ database so semantic search works immediately.
 | File / Path | Sync? | Reason |
 |-------------|-------|--------|
 | `*.md` notes (all folders) | Yes | Source of truth — markdown is merge-friendly |
-| `config.yaml` | Yes | Shared settings across machines (uses `~` paths) |
 | `CLAUDE.md` (vault root) | Yes | Auto-generated lean index — rebuilt by `update_index.py` |
 | `TAGS.md` (vault root) | Yes | Auto-generated full tag cloud — rebuilt by `update_index.py` |
 | `**/MANIFEST.md` | Yes | Per-folder indexes — rebuilt by `update_index.py` |
@@ -111,9 +111,17 @@ database so semantic search works immediately.
 | `graph.json` | **No** | Visualizer graph data — rebuilt by `build_graph.py` |
 | `summarizer_state.json` | **No** | Machine-local summarizer run state |
 | `doctor_state.json` | **No** | Machine-local vault doctor run state |
+| `dead_letters.jsonl` | **No** | Machine-local failed-summary entries from the summarizer |
+| `config.yaml` | **No** | May hold secrets (`anthropic_env` API keys) — configure locally on each machine |
+| `config.local.yaml` | **No** | Optional machine-specific overlay — gitignored, never synced |
 | `.obsidian/` | **No** | Obsidian workspace state — machine-specific |
 
 The installer adds all "No" entries to `.gitignore` automatically.
+
+> **Security:** `config.yaml` and `config.local.yaml` are intentionally
+> gitignored. They can hold `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the
+> `anthropic_env` section, so they must never travel through a git remote.
+> Set up config independently on each machine after cloning.
 
 ---
 
@@ -254,9 +262,15 @@ If you have a legacy vault that still uses un-namespaced `DD.md` files, see
 
 ### config.yaml
 
-Shared configuration should use portable paths (`~` notation).  If two machines
-need different settings, use machine-specific overrides via CLI flags rather than
-editing `config.yaml` differently on each machine.
+`config.yaml` and `config.local.yaml` are gitignored (see
+[What Gets Synced](#what-gets-synced)) because they can hold API keys in the
+`anthropic_env` section. Each machine maintains its own config — there is no
+conflict surface because the file never travels through git.
+
+If you want to share non-secret settings across machines, copy `config.yaml`
+manually after a clone, or keep a sanitized template outside the vault and copy
+it in. Use CLI flags or `config.local.yaml` for machine-specific overrides such
+as model names or timeouts.
 
 ### pending_summaries.jsonl
 

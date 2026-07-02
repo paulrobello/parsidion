@@ -118,7 +118,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Coordinate resolution** | Resolve a selector to frame-local and page-global coordinates (`page coords`) |
 | **Screenshot capture** | Full-page, viewport, or element PNG/JPEG/WebP screenshots (`page screenshot`) |
 | **Form automation** | Fill, clear, upload files, and submit form fields by UID or CSS selector (`form fill/fill-many/clear/upload/submit`) |
-| **User interaction** | Click, hover, type, press keys, scroll, and drag-and-drop by UID or CSS selector (`interact click/click-at/hover/type/key/scroll/drag/drag-at`) |
+| **User interaction** | Click, hover, type, press keys, scroll, drag-and-drop, and manual mouse-button control by UID or CSS selector (`interact click/click-at/hover/type/key/scroll/drag/drag-at/mousedown-at/mouseup-at`) |
 | **JavaScript execution** | Run arbitrary JS in the page context (`js exec`) |
 | **Console monitoring** | Read or stream browser console messages (`console read/follow`) |
 | **Network monitoring** | Inspect and stream requests and responses (`network list/get/follow`) |
@@ -132,7 +132,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Pre-automation diagnostics** | Scan pages for iframes, overlays, shadow DOM, media gates, and framework quirks (`diagnose`) |
 | **Batch scripting** | Execute JSON batch scripts with conditionals and loops (`script run`) |
 | **Navigation history** | Navigate, go back, forward, and reload (`navigate/back/forward/reload`) |
-| **Skill management** | Install agentchrome skill files for AI coding tools (`skill install/list`) |
+| **Skill management** | Install, update, or remove agentchrome skill files for AI coding tools (`skill install/update/uninstall/list`) |
 | **Configuration** | Manage connection config via TOML config file (`config show/init/path`) |
 | **Capabilities manifest** | Output a machine-readable manifest of all CLI commands and flags (`capabilities`) |
 | **Man pages** | Display man pages for agentchrome commands (`man`) |

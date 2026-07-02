@@ -113,14 +113,14 @@ Script paths for `rebuild_index` and `vault_doctor` use `vault_common.SCRIPTS_DI
 
 - Python 3.13 or later
 - `uv` (the package manager — install from [docs.astral.sh/uv](https://docs.astral.sh/uv))
-- `parsidion` installed as an editable package with the `[search]` extra (this brings in `vault_common`, `vault_search`, `fastembed`, and `sqlite-vec`)
+- `parsidion` installed as an editable package with the `[search]` extra. The editable install exposes the `vault_common` and `vault_search` py-modules; the `[search]` extra pulls in `fastembed`, `sqlite-vec`, and `pillow`
 
 > **📝 Note:** Both `parsidion` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion`.
 
 ### Install from Repository
 
 ```bash
-# Step 1 — Install parsidion[search] editably (skip if already done)
+# Step 1 — Install parsidion[tools] editably (skip if already done)
 cd parsidion/
 uv tool install --editable ".[tools]"
 
