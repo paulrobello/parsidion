@@ -251,7 +251,13 @@ class TestWriteHookEventRotation:
 @pytest.fixture()
 def build_graph_mod(monkeypatch: pytest.MonkeyPatch):
     if "numpy" not in sys.modules:
-        monkeypatch.setitem(sys.modules, "numpy", types.ModuleType("numpy"))
+        # build_graph imports numpy at module level and annotates its helpers
+        # with np.ndarray. Under Python <3.14 those annotations evaluate
+        # eagerly at import time, so the stub must resolve any attribute —
+        # the graph-JSON write path under test never touches numpy itself.
+        fake_np = types.ModuleType("numpy")
+        fake_np.__getattr__ = lambda name: object  # type: ignore[assignment]
+        monkeypatch.setitem(sys.modules, "numpy", fake_np)
     sys.modules.pop("build_graph", None)
     mod = importlib.import_module("build_graph")
     yield mod

@@ -1,8 +1,12 @@
-.PHONY: build test lint fmt typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
+.PHONY: build test lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
 
 # Format code with ruff
 fmt:
 	uv run ruff format .
+
+# Verify formatting without rewriting files (matches CI's format-check step)
+fmt-check:
+	uv run ruff format --check .
 
 # Lint code with ruff
 lint:
@@ -16,8 +20,8 @@ typecheck:
 test:
 	uv run pytest tests/
 
-# Run all checks in sequence: format, lint, typecheck, test
-checkall: fmt lint typecheck test checkall-mcp
+# Run all checks in sequence: format check, lint, typecheck, test
+checkall: fmt-check lint typecheck test checkall-mcp
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
