@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -197,6 +199,57 @@ def _run_prompt_subprocess(
     )
 
 
+def _log_backend_failure(
+    label: str,
+    returncode: int,
+    stdout: str,
+    stderr: str,
+) -> None:
+    """Emit a diagnostic for a prompt-AI call that produced no usable output.
+
+    Non-zero exits and CLI error messages were previously swallowed, making
+    empty-result failures impossible to diagnose (the caller only saw ``None``).
+    """
+    snippet = (stderr or "").strip()
+    if len(snippet) > 500:
+        snippet = snippet[:500] + "…"
+    parts = [
+        f"[ai_backend] {label} yielded no usable result",
+        f"rc={returncode}",
+        f"stdout_len={len(stdout or '')}",
+    ]
+    if snippet:
+        parts.append(f"stderr={snippet!r}")
+    sys.stderr.write(" ".join(parts) + "\n")
+    sys.stderr.flush()
+
+
+def _extract_claude_json_result(stdout: str) -> str | None:
+    """Extract the assistant text from a ``claude -p --output-format json`` run.
+
+    ``--output-format json`` prints a single JSON envelope whose ``result``
+    field holds the model's final text answer (populated even when the response
+    includes thinking, which is not emitted to ``-p`` stdout). Returns ``None``
+    when the envelope has no usable ``result``. Falls back to the raw stdout
+    when it is not JSON, so older / non-JSON CLI output keeps working.
+    """
+    text = (stdout or "").strip()
+    if not text:
+        return None
+    try:
+        envelope = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return text
+    if isinstance(envelope, dict):
+        result_field = envelope.get("result")
+        if isinstance(result_field, str):
+            stripped = result_field.strip()
+            if stripped:
+                return stripped
+        return None
+    return text
+
+
 def _run_claude_prompt(
     prompt: str,
     *,
@@ -210,6 +263,11 @@ def _run_claude_prompt(
     if model:
         cmd.extend(["--model", model])
     cmd.append("--no-session-persistence")
+    # JSON output gives a reliable ``result`` field (the assistant's final text,
+    # separate from any thinking) plus ``subtype``/``session_id`` for diagnostics,
+    # instead of relying on plain-text stdout which can be empty for
+    # thinking-dominated responses.
+    cmd.extend(["--output-format", "json"])
 
     try:
         result = _run_prompt_subprocess(
@@ -226,8 +284,15 @@ def _run_claude_prompt(
         return None
 
     if result.returncode != 0:
+        _log_backend_failure(
+            "claude -p", result.returncode, result.stdout, result.stderr
+        )
         return None
-    output = result.stdout.strip()
+    output = _extract_claude_json_result(result.stdout)
+    if not output:
+        _log_backend_failure(
+            "claude -p", result.returncode, result.stdout, result.stderr
+        )
     return output or None
 
 

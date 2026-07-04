@@ -244,7 +244,9 @@ class TestRunAiPrompt:
 
         def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
             calls.append((cmd, kwargs))
-            return subprocess.CompletedProcess(cmd, 0, stdout="answer\n", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"result": "answer\\n"}', stderr=""
+            )
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
 
@@ -262,6 +264,8 @@ class TestRunAiPrompt:
             "--model",
             "claude-haiku-4-5-20251001",
             "--no-session-persistence",
+            "--output-format",
+            "json",
         ]
         assert kwargs["timeout"] == 12
         assert kwargs["cwd"] == str(tmp_path)
@@ -269,6 +273,33 @@ class TestRunAiPrompt:
         assert isinstance(env, dict)
         assert env["PARSIDION_INTERNAL"] == "1"
         assert "CLAUDECODE" not in env
+
+    def test_claude_plain_stdout_fallback_returns_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: claude-cli\n")
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="raw answer\n", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+
+        # Non-JSON stdout (older CLI / pre-JSON output) falls back to raw text.
+        assert ai_backend.run_ai_prompt("hello", vault=vault) == "raw answer"
+
+    def test_claude_empty_json_result_returns_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: claude-cli\n")
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"result": ""}', stderr=""
+            )
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+
+        assert ai_backend.run_ai_prompt("hello", vault=vault) is None
 
     def test_codex_command_construction_reads_output_last_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

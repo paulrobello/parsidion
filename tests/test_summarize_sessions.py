@@ -409,6 +409,66 @@ def test_summarize_one_preserves_skip_write_gate(
     assert "session-1234" in str(calls[0]["prompt"])
 
 
+def test_summarize_one_preserves_skip_write_gate_when_fenced(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A fenced JSON skip decision must still be recognized as a write-gate skip.
+
+    Regression: the backend wraps write-gate JSON in a ```json code fence; without
+    _strip_code_fence the decision starts with a backtick, misses the JSON branch,
+    falls through to write_note, and fails frontmatter validation (false "failed").
+    """
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"user","content":"Investigate a routine issue"}\n'
+        '{"type":"assistant","content":"Nothing reusable here"}\n',
+        encoding="utf-8",
+    )
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+        return (
+            '```json\n{"decision": "skip", "reason": "routine transient session"}\n```'
+        )
+
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+    )
+
+    async def run() -> tuple[dict[str, object], Path | str | None]:
+        return await summarize_sessions.summarize_one(
+            {
+                "transcript_path": str(transcript_path),
+                "project": "parsidion",
+                "categories": ["testing"],
+                "session_id": "session-fenced",
+            },
+            "summary-model",
+            False,
+            summarize_sessions.anyio.Semaphore(1),
+            ["testing"],
+            False,
+            vault,
+            cluster_model=None,
+        )
+
+    entry, written = asyncio.run(run())
+
+    assert entry["session_id"] == "session-fenced"
+    assert written == summarize_sessions._SKIPPED
+
+
 def test_summarize_one_preserves_dry_run_markdown_note_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

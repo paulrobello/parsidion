@@ -89,6 +89,29 @@ _SKIPPED = "__SKIPPED__"
 # every run forever. Tracked via the optional "attempts" field (absent = 0).
 _MAX_ATTEMPTS = 3
 
+
+def _strip_code_fence(text: str) -> str:
+    """Strip a single surrounding markdown code fence, if present.
+
+    The summarizer backend occasionally wraps a JSON write-gate decision in a
+    ```` ```json ```` fence. Without stripping, the ``startswith("{")`` check
+    misses it and a "skip"/"merge" decision falls through to ``write_note``,
+    which fails frontmatter validation and reports a false "failed" result.
+    Only one outer fence is removed so a genuinely fenced note body is intact.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    newline = stripped.find("\n")
+    if newline == -1:
+        return stripped
+    inner = stripped[newline + 1 :]
+    end = inner.rfind("```")
+    if end != -1:
+        inner = inner[:end]
+    return inner.strip()
+
+
 # In-memory only: stamped on an entry by _mark_failure() so main() can hand the
 # failure reason to remove_processed() for the dead-letter warning. Never
 # persisted — the queue rewrite works from the on-disk lines, not these dicts.
@@ -1199,11 +1222,15 @@ async def summarize_one(
             _mark_failure(entry, "no result from AI backend")
             return entry, None
 
-        # Write-gate: check if the backend decided this session is not worth saving or should merge
-        stripped_result = result_text.strip()
-        if stripped_result.startswith("{"):
+        # Write-gate: check if the backend decided this session is not worth
+        # saving or should merge. Strip a wrapping ```json code fence first —
+        # otherwise a fenced skip/merge decision starts with a backtick, misses
+        # this JSON branch, falls through to write_note, and fails frontmatter
+        # validation (false "failed" result).
+        candidate = _strip_code_fence(result_text)
+        if candidate.startswith("{"):
             try:
-                decision = json.loads(stripped_result)
+                decision = json.loads(candidate)
                 if isinstance(decision, dict):
                     if decision.get("decision") == "skip":
                         reason = decision.get("reason", "no reason given")
