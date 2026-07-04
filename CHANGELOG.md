@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.12.1] - 2026-07-03
+
+### Fixed
+- **Summarizer misclassified fenced write-gate decisions as failures** — when the prompt-AI backend wrapped its `{"decision": "skip"|"merge"}` JSON in a ```` ```json ```` markdown fence, the write-gate's `startswith("{")` check missed it; the decision fell through to `write_note`, failed frontmatter validation, and the session was reported as failed (or "No result from AI backend") instead of a deliberate skip. The summarizer now strips one surrounding code fence before parsing the decision (regression test: `test_summarizer_one_preserves_skip_write_gate_when_fenced`).
+- **`claude -p` failures were silently swallowed** — `_run_claude_prompt` returned `None` on either a non-zero exit *or* empty stdout and discarded stderr entirely, so empty-result summarizer failures were impossible to diagnose. It now logs `rc`/`stdout_len`/`stderr` to stderr on any empty or failed call.
+
+### Changed
+- **`claude -p` now runs with `--output-format json`** — the assistant's final answer is read from the envelope's `result` field (populated even when the response includes thinking, which is not emitted to `-p` stdout), with a raw-stdout fallback for older/non-JSON output. The envelope also yields `subtype`/`session_id` for diagnostics.
+
 ## [0.12.0] - 2026-07-02
 
 ### Added
@@ -660,7 +669,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/paulrobello/parsidion/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/paulrobello/parsidion/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/paulrobello/parsidion/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/paulrobello/parsidion/compare/v0.10.0...v0.11.0
