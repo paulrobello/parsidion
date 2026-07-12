@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.12.2] - 2026-07-12
+
+### Fixed
+- **Summarizer dead-lettered notes the model emitted with empty or absent `tags`** — a recurring failure mode on long, dense transcripts (notably read-only audit/review subagents) was valid frontmatter with `tags: []` or no `tags` line at all. `inject_project_tag` only repaired the inline `tags: []` case when a usable project was known, so these notes were refused at validation, re-queued, and dead-lettered after 3 attempts even though their content was fine. `write_note` now runs a `_backfill_tags_if_empty` salvage step (sibling to the existing preamble / closing-delimiter / related-field salvages) that derives a non-empty tag list from the note `type`, the session `project`, and `categories` before validation — normalizing to vault form (lowercase, underscores → hyphens, leading dots stripped). Existing non-empty tags are never clobbered. Tests: `test_backfill_*` in `test_summarizer_queue_fixes.py`.
+
 ## [0.12.1] - 2026-07-03
 
 ### Fixed

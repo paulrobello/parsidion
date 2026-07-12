@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.12.1:** summarizer reliability fixes — fenced JSON write-gate decisions (skip/merge) are now recognized instead of misfiling sessions as failed, `claude -p` runs with `--output-format json` for robust answer extraction (even when a response includes thinking), and empty/failed backend calls now log `rc`/`stderr` instead of vanishing. 0.12.0 brought visualizer SSE live-reload, a force-layout performance rewrite, a dead-letter queue, atomic note writes, and a **security fix** that stops `config.yaml` leaking API keys into vault git history. See the [Changelog](CHANGELOG.md).
+> **New in 0.12.2:** the summarizer no longer dead-letters notes the model emitted with empty or absent `tags` (a common failure on dense audit/review transcripts) — tags are now backfilled from the note type/project/categories before validation. 0.12.1 brought fenced write-gate JSON recognition, `claude -p --output-format json` answer extraction, and `rc`/`stderr` logging on failed backend calls. 0.12.0 brought visualizer SSE live-reload, a force-layout performance rewrite, a dead-letter queue, atomic note writes, and a **security fix** that stops `config.yaml` leaking API keys into vault git history. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
 
@@ -1037,7 +1037,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.12.0** (visualizer SSE live-reload + force-layout performance, dead-letter queue, `config.local.yaml` overlay, fence-aware wikilink rewriting, atomic note writes & pre-mutation backups in `vault_doctor`, and a `config.yaml` API-key leak fix). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.12.2** (summarizer empty/absent-`tags` salvage that stops dense audit/review transcripts from dead-lettering). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
