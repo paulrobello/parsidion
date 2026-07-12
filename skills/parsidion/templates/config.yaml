@@ -61,11 +61,24 @@ summarizer:
 embeddings:
   enabled: true                   # Set false to disable all embedding builds, note_index writes, and auto-rebuild after update_index.py runs
   model: BAAI/bge-small-en-v1.5  # ~67 MB ONNX model, cached after first run
-  min_score: 0.45                 # Minimum cosine similarity for search results
+  min_score: 0.45                 # Minimum cosine similarity for search results (embeddings backend only; par-mem results gate by rank/top_k)
   top_k: 10                       # Default result count for vault_search.py
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing
+
+# par-mem code-memory backend (optional external CLI + always-on daemon).
+# When installed and healthy, vault semantic search is served by par-mem's
+# hybrid BM25+vector+graph retrieval; the local embeddings pipeline remains
+# the always-on silent fallback. See docs/PAR-MEM.md.
+par_mem:
+  enabled: true            # Probe for par-mem when available; false = never probe
+  binary: par-mem          # PATH lookup or absolute path to the par-mem CLI
+  timeout_s: 10            # Per-query subprocess timeout in seconds
+
+# Vault search backend selection (vault_search.py)
+search:
+  backend: auto            # auto | par-mem | embeddings | none
 
 # Git integration
 git:

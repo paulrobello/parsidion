@@ -79,19 +79,19 @@ def _parmem_isolation(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     Pins PARMEM_MCP_URL at an unreachable loopback port (connection refused
     instantly) so `resolve_parmem_backend()` can only succeed when a test
     opts into the `fake_parmem_health` fixture, and clears the per-process
-    availability cache around each test. The parmem_backend module does not
-    exist until Task 2 lands — the ImportError guard covers Task 1.
+    availability cache around each test. The try/except guards against a
+    future state where parmem_backend is removed or renamed.
     """
     monkeypatch.setenv("PARMEM_MCP_URL", "http://127.0.0.1:1/mcp")
     try:
-        import parmem_backend  # type: ignore[reportMissingImports]
+        import parmem_backend
 
         parmem_backend.reset_parmem_cache()
     except ImportError:
         pass
     yield
     try:
-        import parmem_backend  # type: ignore[reportMissingImports]
+        import parmem_backend
 
         parmem_backend.reset_parmem_cache()
     except ImportError:

@@ -40,6 +40,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 py-modules = [
     "vault_search",
+    "parmem_backend",
     "vault_tui",
     "vault_common",
     "vault_metrics",

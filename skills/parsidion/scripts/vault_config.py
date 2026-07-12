@@ -410,6 +410,14 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "decay_half_life_days": (float, int),
         "decay_min_factor": (float, int),
     },
+    "par_mem": {
+        "enabled": (bool,),
+        "binary": (str,),
+        "timeout_s": (int, float),
+    },
+    "search": {
+        "backend": (str,),
+    },
     "anthropic_env": {
         "ANTHROPIC_API_KEY": (str, type(None)),
         "ANTHROPIC_AUTH_TOKEN": (str, type(None)),
