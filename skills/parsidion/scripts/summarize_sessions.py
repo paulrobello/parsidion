@@ -764,7 +764,96 @@ def _normalize_related_field(note_content: str) -> str:
     return note_content[: m.start()] + new_line + note_content[m.end() :]
 
 
-def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
+def _clean_tag(value: object) -> str:
+    """Normalize a raw tag candidate to vault form.
+
+    Lowercases, strips leading dots (``.claude`` -> ``claude``), converts
+    underscores to hyphens (the vault bans underscores in tags), and keeps
+    only ``[a-z0-9-]``.
+    """
+    s = str(value).strip().lower().lstrip(".")
+    s = s.replace("_", "-")
+    s = re.sub(r"[^a-z0-9-]+", "", s)
+    return s.strip("-")
+
+
+def _backfill_tags_if_empty(
+    note_content: str, project: str, categories: list[str]
+) -> str:
+    """Backfill the ``tags`` field when the model left it empty or absent.
+
+    A recurring model failure mode on long, dense transcripts (notably
+    read-only audit/review subagents) is valid frontmatter with ``tags: []``
+    or no ``tags`` line at all. ``inject_project_tag`` only repairs the
+    inline ``tags: []`` case when a usable project is known; this catches
+    the rest by deriving tags from the note ``type`` (always present), the
+    session ``project``, and ``categories``. Without it the note is refused
+    at validation, re-queued, and eventually dead-lettered — even though
+    the content was fine.
+
+    No-op when ``tags`` is already a non-empty list (never clobbers valid
+    tags). Mirrors the other pre-validation salvage functions.
+    """
+    fm = vault_common.parse_frontmatter(note_content)
+    existing = fm.get("tags") if fm else None
+    if isinstance(existing, list) and existing:
+        return note_content
+
+    candidates: list[str] = []
+    if fm:
+        note_type = fm.get("type")
+        if isinstance(note_type, str) and note_type.strip():
+            candidates.append(note_type)
+    if project:
+        candidates.append(project)
+    candidates.extend(categories)
+
+    tags: list[str] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        tag = _clean_tag(raw)
+        if tag and tag != "unknown" and tag not in seen:
+            seen.add(tag)
+            tags.append(tag)
+    if not tags:
+        tags = ["general"]  # last resort — field must be non-empty to validate
+
+    new_line = "tags: [" + ", ".join(tags) + "]"
+
+    # Replace an existing tags construct (inline list, YAML-list block, or
+    # bare scalar) if present; otherwise insert after the opening '---'.
+    inline = re.search(r"^tags:\s*\[[^\]]*\]", note_content, re.MULTILINE)
+    if inline:
+        return note_content[: inline.start()] + new_line + note_content[inline.end() :]
+    block = re.search(r"^tags:\n(?:[ \t]+-.+\n)*", note_content, re.MULTILINE)
+    if block:
+        return (
+            note_content[: block.start()]
+            + new_line
+            + "\n"
+            + note_content[block.end() :]
+        )
+    bare = re.search(r"^tags:.*$", note_content, re.MULTILINE)
+    if bare:
+        return note_content[: bare.start()] + new_line + note_content[bare.end() :]
+    first_nl = note_content.find("\n")
+    if first_nl != -1 and note_content[:first_nl].strip() == "---":
+        return (
+            note_content[: first_nl + 1]
+            + new_line
+            + "\n"
+            + note_content[first_nl + 1 :]
+        )
+    return note_content
+
+
+def write_note(
+    note_content: str,
+    dry_run: bool,
+    vault: Path,
+    project: str = "",
+    categories: list[str] | None = None,
+) -> Path | None:
     """Write a generated vault note to the appropriate folder.
 
     Args:
@@ -802,6 +891,11 @@ def write_note(note_content: str, dry_run: bool, vault: Path) -> Path | None:
     # Normalize 'related' to clean [[wikilinks]] — repairs AI malformations
     # ([stem], [["stem"]], quoted wikilinks) before the note is written.
     note_content = _normalize_related_field(note_content)
+
+    # Salvage notes whose model omitted an empty/absent tags field (common on
+    # dense audit/review transcripts) — derive one from type/project/categories
+    # so the note passes validation instead of being refused and dead-lettered.
+    note_content = _backfill_tags_if_empty(note_content, project, categories or [])
 
     # SEC-004: Validate YAML frontmatter conformance before writing.  Rejects notes
     # that lack required fields or have an invalid type — guards against adversarial
@@ -1276,7 +1370,7 @@ async def summarize_one(
                 pass  # Not a structured decision — treat as normal note
 
         result_text = inject_project_tag(result_text, project)
-        written = write_note(result_text, dry_run, vault)
+        written = write_note(result_text, dry_run, vault, project, categories)
         if written is None and not dry_run:
             # write_note already printed the specific refusal (frontmatter
             # validation, daily-note skip, ...) to stderr.

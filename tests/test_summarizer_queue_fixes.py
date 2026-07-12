@@ -317,3 +317,83 @@ def test_merge_with_missing_fields_fails_with_real_reason(
     assert entry[mod._FAILURE_REASON_KEY] == (
         "merge decision missing target or new_content"
     )
+
+
+# ---------------------------------------------------------------------------
+# _backfill_tags_if_empty: salvage notes the model emitted with empty/absent tags
+# ---------------------------------------------------------------------------
+
+_FM_HEAD = '---\ndate: 2026-07-12\ntype: {ntype}\n{tagsline}related: ["[[x]]"]\n---\n# T\nbody\n'
+
+
+def _note(ntype: str, tagsline: str) -> str:
+    return _FM_HEAD.format(ntype=ntype, tagsline=tagsline)
+
+
+def test_backfill_empty_inline_tags_derives_from_type_project_categories(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    out = mod._backfill_tags_if_empty(
+        _note("pattern", "tags: []\n"), "voxel-world", ["error_fix"]
+    )
+    assert "tags: [pattern, voxel-world, error-fix]" in out
+    assert mod._validate_frontmatter(out) is None
+
+
+def test_backfill_missing_tags_line_inserts_after_delimiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    out = mod._backfill_tags_if_empty(_note("tool", ""), ".claude", ["pattern"])
+    # leading dot stripped (.claude -> claude), inserted right after opening ---
+    assert out.startswith("---\ntags: [tool, claude, pattern]\n")
+    assert mod._validate_frontmatter(out) is None
+
+
+def test_backfill_does_not_clobber_valid_tags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    note = _note("pattern", "tags: [react, hook]\n")
+    assert mod._backfill_tags_if_empty(note, "voxel-world", ["error_fix"]) == note
+
+
+def test_backfill_cleans_underscores_and_dots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    out = mod._backfill_tags_if_empty(
+        _note("debugging", "tags: []\n"), "par_ai_core", ["config_setup"]
+    )
+    assert "tags: [debugging, par-ai-core, config-setup]" in out
+
+
+def test_backfill_replaces_empty_yaml_list_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    # Non-empty YAML list is left untouched.
+    populated = (
+        "---\ndate: 2026-07-12\ntype: pattern\ntags:\n  - one\n"
+        'related: ["[[x]]"]\n---\n# T\n'
+    )
+    assert "  - one" in mod._backfill_tags_if_empty(populated, "proj", [])
+    # Empty YAML list (tags:\n with no items) is backfilled.
+    empty_block = (
+        '---\ndate: 2026-07-12\ntype: pattern\ntags:\nrelated: ["[[x]]"]\n---\n# T\n'
+    )
+    out = mod._backfill_tags_if_empty(empty_block, "proj", [])
+    assert "tags: [pattern, proj]" in out
+    assert mod._validate_frontmatter(out) is None
+
+
+def test_backfill_type_alone_suffices_when_project_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    # Unknown project, no categories: the note type alone yields a valid tag,
+    # which is the realistic minimal case that prevents the empty-tags failure.
+    out = mod._backfill_tags_if_empty(_note("pattern", "tags: []\n"), "unknown", [])
+    assert "tags: [pattern]" in out
+    assert mod._validate_frontmatter(out) is None
