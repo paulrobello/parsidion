@@ -115,7 +115,7 @@ class TestBodyLinksAppended:
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
-        assert {"s": "a", "t": "b", "w": 1.0, "kind": "wiki"} in graph["edges"]
+        assert graph["edges"] == [{"s": "a", "t": "b", "w": 1.0, "kind": "wiki"}]
         assert graph["meta"]["parmem_body_links"] == 1
 
 
@@ -213,6 +213,7 @@ class TestNoParmemFlag:
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out, extra_args=["--no-parmem"])
         fake_parmem.assert_no_call("doc-links", settle=0.1)
+        assert graph["edges"] == []
         assert "parmem_body_links" not in graph["meta"]
 
 

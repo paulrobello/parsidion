@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
+.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
 
 # Format code with ruff
 fmt:
@@ -20,8 +20,13 @@ typecheck:
 test:
 	uv run pytest tests/
 
+# Run build_graph.py's par-mem body-link enrichment tests (numpy-gated,
+# skipped under `test`/`checkall`'s numpy-free default suite)
+test-graph:
+	uv run --with numpy pytest tests/test_build_graph_parmem.py
+
 # Run all checks in sequence: format check, lint, typecheck, test
-checkall: fmt-check lint typecheck test checkall-mcp
+checkall: fmt-check lint typecheck test test-graph checkall-mcp
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
