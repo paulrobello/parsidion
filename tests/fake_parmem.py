@@ -39,6 +39,9 @@ elif sub == "repos":
         json.dumps(cfg.get("repos", {"repositories": [], "_meta": {"count": 0}}))
     )
 # index / watch / unwatch need no stdout for the backend's purposes.
+stderr_output = cfg.get("stderr_output")
+if stderr_output:
+    sys.stderr.write(stderr_output)
 exit_codes = cfg.get("exit_codes") or {}
 sys.exit(int(exit_codes.get(sub, cfg.get("exit_code", 0))))
 """.lstrip()
@@ -74,6 +77,7 @@ class FakeParMem:
         exit_codes: dict[str, int] | None = None,
         delay: float = 0.0,
         stdout_override: str | None = None,
+        stderr_output: str = "",
     ) -> None:
         """(Re)write the fake's behavior config.
 
@@ -87,6 +91,7 @@ class FakeParMem:
             exit_codes: per-subcommand exit-code overrides, e.g. {"find-code": 1}.
             delay: seconds to sleep before responding (timeout tests; keep <= 3).
             stdout_override: printed verbatim for every subcommand (garbage-JSON tests).
+            stderr_output: printed to stderr for every subcommand (failure-detail tests).
         """
         self.config_path.write_text(
             json.dumps(
@@ -101,6 +106,7 @@ class FakeParMem:
                     "exit_codes": exit_codes or {},
                     "delay": delay,
                     "stdout_override": stdout_override,
+                    "stderr_output": stderr_output,
                 }
             ),
             encoding="utf-8",

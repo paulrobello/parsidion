@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import time
@@ -145,10 +146,13 @@ class TestFindCodeRaw:
     def test_nonzero_exit_returns_none_and_logs(
         self, tmp_vault: Path, ready: FakeParMem
     ) -> None:
-        ready.configure(exit_code=1)
+        ready.configure(exit_code=1, stderr_output="repo not indexed: /some/path\n")
         assert parmem_backend.find_code_raw("q", cwd=tmp_vault) is None
         log = (tmp_vault / "hook_events.log").read_text(encoding="utf-8")
-        assert "ParMemBackend" in log
+        event = json.loads(log.strip().splitlines()[-1])
+        assert event["hook"] == "ParMemBackend"
+        assert event["detail"].startswith("exit:1")
+        assert "repo not indexed" in event["detail"]  # stderr excerpt carried through
 
     def test_garbage_json_returns_none_and_logs(
         self, tmp_vault: Path, ready: FakeParMem
@@ -168,7 +172,9 @@ class TestFindCodeRaw:
         ready.configure(stdout_override='{"unexpected": true}')
         assert parmem_backend.find_code_raw("q", cwd=tmp_vault) is None
 
-    def test_timeout_returns_none(self, tmp_vault: Path, ready: FakeParMem) -> None:
+    def test_timeout_returns_none_and_logs(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
         _write_config(
             tmp_vault, "par_mem:\n  timeout_s: 1\nembeddings:\n  decay_enabled: false\n"
         )
@@ -176,6 +182,9 @@ class TestFindCodeRaw:
         start = time.monotonic()
         assert parmem_backend.find_code_raw("q", cwd=tmp_vault) is None
         assert time.monotonic() - start < 3.0  # killed, did not wait out the delay
+        log = (tmp_vault / "hook_events.log").read_text(encoding="utf-8")
+        event = json.loads(log.strip().splitlines()[-1])
+        assert event["detail"] == "timeout"
 
 
 class TestParmemSearchMapping:

@@ -1,9 +1,10 @@
 # par-mem Code-Memory Backend
 
-An **optional** integration: when the [par-mem](https://github.com/paulrobello/par-mem)
-code-memory system is installed and its daemon is running, parsidion's vault
-semantic search is served by par-mem's hybrid BM25+vector+graph retrieval
-instead of the local embeddings-only cosine search. par-mem absent means
+An **optional** integration: when the par-mem code-memory system (local
+install; see its own README for installation) is installed and its daemon
+is running, parsidion's vault semantic search is served by par-mem's
+hybrid BM25+vector+graph retrieval instead of the local embeddings-only
+cosine search. par-mem absent means
 parsidion behaves byte-for-byte as before — the local embeddings pipeline
 (`embeddings.db`, `build_embeddings.py`) remains the always-on silent
 fallback. The integration is pure stdlib (`shutil.which` + `subprocess` +

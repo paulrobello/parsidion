@@ -147,15 +147,22 @@ def _run_parmem(
     cwd: Path,
     timeout: float,
     vault: Path | None,
-) -> subprocess.CompletedProcess[str] | None:
-    """Run the par-mem CLI; None on launch failure or timeout.
+) -> tuple[str, subprocess.CompletedProcess[str] | None]:
+    """Run the par-mem CLI; returns ``(reason, proc)``.
+
+    ``reason`` is ``"ok"`` on normal completion (``proc`` set, any
+    returncode), ``"launch"`` when the binary could not be started, or
+    ``"timeout"`` when it exceeded *timeout* seconds. ``proc`` is None
+    whenever ``reason`` isn't ``"ok"``; there is no captured stderr for
+    those cases (the process never finished), so callers logging failure
+    detail should only look at ``proc.stderr`` when ``proc`` is not None.
 
     Uses a new session + process-group kill on timeout (the ai_backend
     discipline) so a hung daemon proxy can never orphan children.
     """
     binary = _resolve_binary(vault)
     if binary is None:
-        return None
+        return "launch", None
     cmd = [binary, *cli_args]
     try:
         proc = subprocess.Popen(
@@ -168,7 +175,7 @@ def _run_parmem(
             start_new_session=True,
         )
     except OSError:
-        return None
+        return "launch", None
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -186,15 +193,26 @@ def _run_parmem(
                 break
             except subprocess.TimeoutExpired:
                 continue
-        return None
+        return "timeout", None
     except Exception:  # noqa: BLE001 — contract: never raises
-        return None
-    return subprocess.CompletedProcess(
+        return "launch", None
+    return "ok", subprocess.CompletedProcess(
         cmd,
         proc.returncode if proc.returncode is not None else 0,
         stdout=stdout,
         stderr=stderr,
     )
+
+
+def _sanitize_detail(reason: str, stderr: str) -> str:
+    """Build a single-line log detail: *reason* plus a short stderr excerpt.
+
+    Newlines/whitespace in *stderr* are collapsed so the ``write_hook_event``
+    line stays single-line, then truncated to 200 chars. Pure string
+    manipulation on values that are always ``str`` — cannot raise.
+    """
+    excerpt = " ".join(stderr.split())[:200]
+    return f"{reason} stderr={excerpt}" if excerpt else reason
 
 
 def find_code_raw(
@@ -210,7 +228,9 @@ def find_code_raw(
     repo-relative ``file_path`` and an RRF ``score`` that may be null), or
     None on any failure: backend unavailable, launch failure, timeout,
     nonzero exit, or unparseable output. Failures (other than plain
-    unavailability) are logged via ``write_hook_event``. Never raises.
+    unavailability) are logged via ``write_hook_event`` with a reason tag
+    (``"launch"``/``"timeout"``/``"exit:N"``/``"bad-json"``/``"missing-results"``)
+    plus a sanitized stderr excerpt when the process completed. Never raises.
     """
     try:
         vault = vault or vault_common.resolve_vault()
@@ -221,26 +241,38 @@ def find_code_raw(
             return None
         eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
         started = time.monotonic()
-        result = _run_parmem(
+        reason, result = _run_parmem(
             ["find-code", query, "--json", "--limit", str(top_k)],
             cwd=cwd,
             timeout=eff_timeout,
             vault=vault,
         )
         if result is None:
-            _log_event(vault, "find-code", "spawn-or-timeout", started)
+            _log_event(vault, "find-code", reason, started)
             return None
         if result.returncode != 0:
-            _log_event(vault, "find-code", f"exit:{result.returncode}", started)
+            _log_event(
+                vault,
+                "find-code",
+                _sanitize_detail(f"exit:{result.returncode}", result.stderr),
+                started,
+            )
             return None
         try:
             payload = json.loads(result.stdout)
         except (json.JSONDecodeError, ValueError):
-            _log_event(vault, "find-code", "bad-json", started)
+            _log_event(
+                vault, "find-code", _sanitize_detail("bad-json", result.stderr), started
+            )
             return None
         results = payload.get("results") if isinstance(payload, dict) else None
         if not isinstance(results, list):
-            _log_event(vault, "find-code", "missing-results", started)
+            _log_event(
+                vault,
+                "find-code",
+                _sanitize_detail("missing-results", result.stderr),
+                started,
+            )
             return None
         return [hit for hit in results if isinstance(hit, dict)]
     except Exception:  # noqa: BLE001 — contract: never raises
@@ -426,7 +458,9 @@ def spawn_background_index(vault: Path | None = None) -> bool:
 
     NDJSON progress is appended to ``~/.claude/logs/parsidion-parmem.log``
     (the same detach pattern update_index.py uses for build_embeddings.py).
-    Returns True when the process launched; never blocks, never raises.
+    Returns True when the process launched; never blocks the calling hook
+    aside from the accepted, cached ≤1s availability probe — the subprocess
+    launch itself never blocks. Never raises.
     """
     try:
         vault = vault or vault_common.resolve_vault()
@@ -450,10 +484,11 @@ def spawn_background_index(vault: Path | None = None) -> bool:
 def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool:
     """Fire-and-forget ``par-mem <verb> <vault> --hold-token parsidion-<id>``.
 
-    Detached Popen (never blocks the calling hook); stdout/stderr append to
-    ``~/.claude/logs/parsidion-parmem.log``. The daemon refcounts holds and
-    expires them by TTL server-side, so a crashed session cannot leak one.
-    Never raises.
+    Detached Popen — never blocks the calling hook aside from the accepted,
+    cached ≤1s availability probe; the subprocess launch itself never
+    blocks. stdout/stderr append to ``~/.claude/logs/parsidion-parmem.log``.
+    The daemon refcounts holds and expires them by TTL server-side, so a
+    crashed session cannot leak one. Never raises.
     """
     try:
         vault = vault or vault_common.resolve_vault()
@@ -555,7 +590,7 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
         if _resolve_binary(vault) is None:
             return False
         started = time.monotonic()
-        result = _run_parmem(
+        _, result = _run_parmem(
             ["repos", "--json"], cwd=vault, timeout=_timeout_s(vault), vault=vault
         )
         if result is None or result.returncode != 0:

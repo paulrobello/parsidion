@@ -17,6 +17,9 @@ class TestVaultExplorerBridge:
         # Availability probe + graceful-absence rules must be spelled out.
         assert "/health" in agent
         assert "Never treat par-mem absence" in agent
+        # Config gate: honor par_mem.enabled and the PARMEM_MCP_URL override.
+        assert "par_mem.enabled" in agent
+        assert "PARMEM_MCP_URL" in agent
         # Hits merge into the standard sections.
         assert "## Answer" in agent and "## Sources" in agent
 
