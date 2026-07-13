@@ -83,6 +83,35 @@ exists and `~/ParsidionVault/` does not, use `~/ClaudeVault/` instead.
 
 7. **Synthesize and return** in the exact format below.
 
+## Code-Memory Bridge (par-mem)
+
+When the query is **code-shaped** — it names a symbol, function, or error
+string tied to a specific repository, asks "where/how is X implemented", or
+asks for cross-project prior art that should resolve to real code — also
+consult the par-mem code-memory graph. Run this in addition to the vault
+search above, not instead of it.
+
+1. **Availability probe** (one Bash call; on failure skip this whole section
+   silently):
+   ```bash
+   command -v par-mem >/dev/null && curl -sf --max-time 1 http://127.0.0.1:4848/health >/dev/null && echo OK
+   ```
+2. **Query the relevant indexed repo(s)**, scoped via `cwd` (the CLI resolves
+   the repo from the working directory — run from the repo root):
+   ```bash
+   cd /path/to/repo && par-mem find-code "QUERY" --json --limit 5
+   cd /path/to/repo && par-mem find-symbol SYMBOL_NAME --json   # exact names
+   ```
+   Only query repos par-mem already knows (`par-mem repos --json` lists
+   them). Do not index new repos from this agent — you are read-only.
+3. **Merge code hits into your response:** cite them in `## Answer` alongside
+   the vault notes, and add each hit's absolute file path (repo root +
+   the hit's repo-relative `file_path`) to `## Sources` with a one-line
+   relevance note, exactly like note sources.
+
+Never treat par-mem absence or a failed command as an error — vault notes
+alone remain a complete answer.
+
 ## Conflicting Guidance
 
 If recall surfaces notes that give **conflicting** guidance on the same point
