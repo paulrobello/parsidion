@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Optional par-mem code-memory search backend** — vault semantic search can now be served by [par-mem](docs/PAR-MEM.md), a local Rust code-memory daemon, instead of the local embeddings-only cosine search. `search.backend` selects `auto` (par-mem when available and indexed, silent fallback to embeddings — the default), `par-mem` (par-mem only, no fallback), `embeddings` (today's path unconditionally), or `none`; a new `par_mem:` config section (`enabled`/`binary`/`timeout_s`) and a `vault-search --backend/-B` flag control it per query. par-mem absent means parsidion behaves byte-for-byte as before.
+- **Hybrid BM25+vector+graph vault search** — when routed to par-mem, queries hit its always-on daemon (MCP over HTTP) instead of the local `embeddings.db` cosine index, and results are enriched from `note_index` and re-scored with parsidion's existing temporal decay.
+- **par-mem freshness triggers** — `update_index.py`/`rebuild_index()` kick a detached background `par-mem index` on every rebuild, and the SessionStart/SessionEnd hooks hold/release a live `par-mem watch` on the vault, so the par-mem-side index tracks vault edits without manual intervention.
+- **vault-explorer code-memory bridge** — the agent now also consults par-mem's code graph (`par-mem find-code`/`find-symbol`) for code-shaped questions, merging hits into its `## Answer`/`## Sources` response alongside vault notes.
+- **parsidion-mcp `code_search` tool** — exposes the par-mem code-memory bridge to Claude Desktop and other MCP clients, with backend-aware pre-checks that raise a clear error instead of degrading silently (MCP callers can choose another tool).
+- **docs/PAR-MEM.md** — the full integration guide: configuration, requirements, score semantics, degradation matrix, index freshness, and troubleshooting.
 
 ## [0.12.2] - 2026-07-12
 

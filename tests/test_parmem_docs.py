@@ -74,6 +74,19 @@ class TestParMemDoc:
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         assert "docs/PAR-MEM.md" in readme
 
+    def test_doc_notes_any_directory_routing(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "any" in doc and "working directory" in doc
+        assert "2026-07-12" in doc
+
+    def test_doc_notes_index_lock_queueing(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "queued behind another job's hold on the global index lock" in doc
+
+    def test_doc_notes_idle_embedder_after_restart(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "ready: false, status: idle" in doc
+
 
 class TestGraphVizSection:
     def test_doc_documents_par_mem_ui(self) -> None:

@@ -128,6 +128,19 @@ degrading silently, because MCP callers can choose another tool.)
 - **Daemon down?** `curl -sf http://127.0.0.1:4848/health` — no answer means
   the launchd agent is not running; consult par-mem's docs. parsidion keeps
   serving from embeddings meanwhile.
+- **`/health` shows `ready: false, status: idle` right after a daemon
+  restart?** Not an error — par-mem's embedder warms lazily. It stays
+  `idle` until the first query (from par-mem or parsidion) triggers
+  warm-up, then reports `ready: true` shortly after.
+- **Daemon healthy but `par-mem repos --json` still exits 2?** Par-mem
+  builds from 2026-07-12 or later route every daemon-required CLI call
+  (`repos`/`watch`/`unwatch`, the query proxies) to the daemon from **any**
+  working directory, including a git-repo vault like `~/ParsidionVault`
+  that owns no local `.parmem` store of its own. Builds before that date
+  only recognized a daemon anchored to the invoking directory's own store,
+  so a fully healthy always-on daemon (`/health` 200) next to a vault with
+  no local store still produced exit 2. If you see that exact combination,
+  update par-mem — it is not a parsidion-side issue.
 - **Wrong par-mem version?** `par-mem repos --json` should exit 0 and list
   your vault. A nonzero exit, an "unknown subcommand" error, or a hang means
   the installed par-mem predates the CLI daemon-proxy surface this
@@ -137,6 +150,14 @@ degrading silently, because MCP callers can choose another tool.)
   plus per-worktree `indexed_head`/`stale`. Kick a manual index with
   `par-mem index ~/ParsidionVault`. (`par-mem status` only reports
   symbol/file counts — it carries no freshness information.)
+- **`par-mem index` exits 2 mentioning
+  "queued behind another job's hold on the global index lock"?** Loud but
+  harmless. This is parsidion's own background index trigger (see "Index
+  freshness" above) hitting the daemon while it is busy serializing another
+  index job — e.g. right after a daemon restart, while its own
+  startup-stale-refresh reindexes every worktree. par-mem self-heals the
+  staleness on its own, and parsidion's next query falls back to embeddings
+  meanwhile.
 - **Background index/watch output:** `~/.claude/logs/parsidion-parmem.log`
   (NDJSON progress events and watch/unwatch output).
 - **Backend failures:** logged to `<vault>/hook_events.log` as
