@@ -66,6 +66,13 @@ def parse_args() -> argparse.Namespace:
             "or legacy ~/ClaudeVault if it exists)"
         ),
     )
+    parser.add_argument(
+        "--no-parmem",
+        dest="use_parmem",
+        action="store_false",
+        help="Skip par-mem body-link enrichment of wiki edges",
+    )
+    parser.set_defaults(use_parmem=True)
     return parser.parse_args()
 
 
@@ -215,6 +222,44 @@ def build_wiki_edges(notes: list[dict], valid_stems: set[str]) -> list[dict]:
     return deduped
 
 
+def build_parmem_body_edges(
+    vault_root: Path,
+    rel_path_to_stem: dict[str, str],
+    existing_keys: set[tuple[str, str]],
+) -> list[dict]:
+    """Wiki edges from par-mem's in-body doc links (frontmatter pass can't see them).
+
+    Never raises and returns [] whenever par-mem is unavailable or fails, so the
+    graph build is byte-identical to the pre-integration output in every
+    degraded case.
+    """
+    try:
+        import parmem_backend
+    except ImportError:
+        return []
+    try:
+        if not parmem_backend.resolve_parmem_backend(vault_root):
+            return []
+        links = parmem_backend.doc_links_raw(cwd=vault_root, vault=vault_root)
+        if not links:
+            return []
+        edges = []
+        seen = set(existing_keys)
+        for link in links:
+            src = rel_path_to_stem.get(link.get("source_path", ""))
+            dst = rel_path_to_stem.get(link.get("target_path", ""))
+            if not src or not dst or src == dst:
+                continue
+            s, t = (src, dst) if src < dst else (dst, src)
+            if (s, t) in seen:
+                continue
+            seen.add((s, t))
+            edges.append({"s": s, "t": t, "w": 1.0, "kind": "wiki"})
+        return edges
+    except Exception:  # noqa: BLE001 — enrichment must never break the build
+        return []
+
+
 def write_graph_json(graph: dict, output_path: Path) -> None:
     """Write graph.json via tmp + atomic replace.
 
@@ -299,11 +344,29 @@ def main() -> None:
     wiki_edges = build_wiki_edges(filtered_notes, valid_stems)
     print(f"  → {len(wiki_edges)} pairs", file=sys.stderr)
 
-    all_edges = semantic_edges + wiki_edges
+    vault_root_str = str(vault_root) + "/"
+
+    body_edges: list[dict] = []
+    if args.use_parmem:
+        print(
+            "Enriching with par-mem body links...", end="", file=sys.stderr, flush=True
+        )
+        rel_path_to_stem = {}
+        for note in filtered_notes:
+            rel = note["path"]
+            if rel.startswith(vault_root_str):
+                rel = rel[len(vault_root_str) :]
+            rel_path_to_stem[rel] = note["stem"]
+        existing_keys = {(e["s"], e["t"]) for e in wiki_edges}
+        body_edges = build_parmem_body_edges(
+            vault_root, rel_path_to_stem, existing_keys
+        )
+        print(f"  → {len(body_edges)} pairs", file=sys.stderr)
+
+    all_edges = semantic_edges + wiki_edges + body_edges
     total_edges = len(all_edges)
 
     # Build nodes list
-    vault_root_str = str(vault_root) + "/"
     nodes = []
     for note in filtered_notes:
         rel_path = note["path"]
@@ -331,6 +394,7 @@ def main() -> None:
             "note_count": len(nodes),
             "edge_count": total_edges,
             "min_semantic_threshold": args.min_threshold,
+            **({"parmem_body_links": len(body_edges)} if body_edges else {}),
         },
         "nodes": nodes,
         "edges": all_edges,
