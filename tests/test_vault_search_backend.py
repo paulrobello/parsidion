@@ -292,3 +292,37 @@ class TestCli:
         )
         vault_search.main()
         assert "backend: par-mem" in capsys.readouterr().err
+
+
+class TestInteractiveBackend:
+    def test_interactive_flag_threads_backend_through(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--backend/-B must reach vault_tui.interactive_search, not be dropped."""
+        import vault_tui
+
+        calls: list[dict[str, object]] = []
+
+        def fake_interactive_search(
+            vault: Path | None = None, backend: str | None = None
+        ) -> None:
+            calls.append({"vault": vault, "backend": backend})
+
+        monkeypatch.setattr(vault_tui, "interactive_search", fake_interactive_search)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "vault-search",
+                "-i",
+                "-B",
+                "embeddings",
+                "-V",
+                str(tmp_vault),
+            ],
+        )
+        vault_search.main()
+        assert len(calls) == 1
+        assert calls[0]["backend"] == "embeddings"

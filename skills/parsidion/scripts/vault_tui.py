@@ -23,7 +23,9 @@ from typing import Any
 import vault_common
 
 
-def _search_notes(q: str, vault: Path) -> list[dict[str, object]]:
+def _search_notes(
+    q: str, vault: Path, backend: str | None = None
+) -> list[dict[str, object]]:
     """Run a search and return results.
 
     Tries semantic search first (via vault_search.search), then falls back
@@ -32,6 +34,8 @@ def _search_notes(q: str, vault: Path) -> list[dict[str, object]]:
     Args:
         q: The user's query string.
         vault: Vault root path.
+        backend: ``auto | par-mem | embeddings | none`` override; None reads
+            the ``search.backend`` config key (default ``auto``).
 
     Returns:
         List of result dicts (max 10).
@@ -44,7 +48,9 @@ def _search_notes(q: str, vault: Path) -> list[dict[str, object]]:
             # Lazy import to avoid pulling fastembed at module level
             import vault_search  # noqa: PLC0415
 
-            return vault_search.search(query=q, top=10, min_score=0.45, vault=vault)
+            return vault_search.search(
+                query=q, top=10, min_score=0.45, vault=vault, backend=backend
+            )
         except Exception:  # noqa: BLE001
             pass
     # Fallback: metadata title search via grep over all notes
@@ -89,7 +95,7 @@ def _open_note(path_str: str) -> None:
         pass
 
 
-def interactive_search(vault: Path | None = None) -> None:
+def interactive_search(vault: Path | None = None, backend: str | None = None) -> None:
     """Launch a curses-based interactive vault search TUI.
 
     Real-time search as you type. Arrow keys navigate results.
@@ -98,6 +104,8 @@ def interactive_search(vault: Path | None = None) -> None:
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
+        backend: ``auto | par-mem | embeddings | none`` override; None reads
+            the ``search.backend`` config key (default ``auto``).
     """
     vault = vault or vault_common.resolve_vault()
 
@@ -172,7 +180,7 @@ def interactive_search(vault: Path | None = None) -> None:
             # Re-search if query changed
             if q_str != last_query:
                 last_query = q_str
-                results = _search_notes(q_str, vault)
+                results = _search_notes(q_str, vault, backend=backend)
                 selected = 0
 
             # Input handling
@@ -218,7 +226,7 @@ def interactive_search(vault: Path | None = None) -> None:
                 break
             if not q:
                 break
-            results = _search_notes(q, vault)
+            results = _search_notes(q, vault, backend=backend)
             if not results:
                 print("  No results.")
                 continue

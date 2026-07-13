@@ -716,7 +716,7 @@ def _env_int(name: str, fallback: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _interactive_search(vault: Path | None = None) -> None:
+def _interactive_search(vault: Path | None = None, backend: str | None = None) -> None:
     """Launch the interactive vault search TUI.
 
     Delegates to ``vault_tui.interactive_search()`` via lazy import so that
@@ -725,10 +725,12 @@ def _interactive_search(vault: Path | None = None) -> None:
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
+        backend: ``auto | par-mem | embeddings | none`` override; None reads
+            the ``search.backend`` config key (default ``auto``).
     """
     from vault_tui import interactive_search  # noqa: PLC0415
 
-    interactive_search(vault)
+    interactive_search(vault, backend=backend)
 
 
 # ---------------------------------------------------------------------------
@@ -927,7 +929,7 @@ def main() -> None:
 
     # Interactive mode — runs before the normal search logic
     if args.interactive:
-        _interactive_search(vault_path)
+        _interactive_search(vault_path, backend=args.backend)
         return
 
     _filter_flags = (
