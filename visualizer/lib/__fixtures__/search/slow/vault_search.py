@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fake vault_search.py — sleeps to exercise timeout/concurrency (test fixture)."""
+
 import json
 import time
 

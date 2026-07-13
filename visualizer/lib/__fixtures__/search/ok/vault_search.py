@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fake vault_search.py — happy path (test fixture)."""
+
 import json
 import sys
 
