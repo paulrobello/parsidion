@@ -77,6 +77,7 @@ export function UnifiedSearch({ nodes, vault, onSelect }: Props) {
       return
     }
     setSemanticStatus('loading')
+    setSemanticItems([])
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
