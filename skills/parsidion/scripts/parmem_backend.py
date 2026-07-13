@@ -30,6 +30,8 @@ _DEFAULT_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
 _DEFAULT_MCP_URL = "http://127.0.0.1:4848/mcp"
 _HEALTH_TIMEOUT_S = 1.0
+_LOG_DIR = Path.home() / ".claude" / "logs"
+_LOG_NAME = "parsidion-parmem.log"
 
 # Per-process availability cache: str(vault) -> absolute binary path when
 # available, or None when par-mem was probed and found unavailable.
@@ -417,3 +419,123 @@ def parmem_search(
         return [entry for _, entry in scored[:top_k]]
     except Exception:  # noqa: BLE001 — contract: never raises
         return None
+
+
+def spawn_background_index(vault: Path | None = None) -> bool:
+    """Launch a detached background ``par-mem index <vault> --json``.
+
+    NDJSON progress is appended to ``~/.claude/logs/parsidion-parmem.log``
+    (the same detach pattern update_index.py uses for build_embeddings.py).
+    Returns True when the process launched; never blocks, never raises.
+    """
+    try:
+        vault = vault or vault_common.resolve_vault()
+        binary = _resolve_binary(vault)
+        if binary is None:
+            return False
+        _LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        log = open(_LOG_DIR / _LOG_NAME, "a", encoding="utf-8")  # noqa: SIM115
+        subprocess.Popen(
+            [binary, "index", str(vault), "--json"],
+            stdout=log,
+            stderr=log,
+            env=vault_common.env_without_claudecode(vault=vault),
+            start_new_session=True,
+        )
+        return True
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return False
+
+
+def _vault_repo_state(payload: object, vault: Path) -> str:
+    """Classify *vault* in a verbatim `par-mem repos --json` payload.
+
+    Returns ``"fresh"``, ``"stale"``, ``"absent"``, or ``"invalid"``
+    (unparseable payload). The vault matches a repo by canonicalized
+    ``root_path`` or any worktree ``path`` (``os.path.realpath`` both
+    sides). Freshness comes from the matched worktree's ``stale`` flag; a
+    root_path match with no matching worktree row falls back to the primary
+    worktree's flag, and counts as fresh when no worktree row is readable
+    (no staleness signal).
+    """
+    if not isinstance(payload, dict):
+        return "invalid"
+    repos = payload.get("repositories")
+    if not isinstance(repos, list):
+        return "invalid"
+    vault_real = os.path.realpath(str(vault))
+    for repo in repos:
+        if not isinstance(repo, dict):
+            continue
+        worktrees = repo.get("worktrees")
+        wt_rows: list[dict[str, Any]] = (
+            [w for w in worktrees if isinstance(w, dict)]
+            if isinstance(worktrees, list)
+            else []
+        )
+        root = repo.get("root_path")
+        repo_matches = isinstance(root, str) and os.path.realpath(root) == vault_real
+        matched_wt: dict[str, Any] | None = None
+        for wt in wt_rows:
+            wt_path = wt.get("path")
+            if isinstance(wt_path, str) and os.path.realpath(wt_path) == vault_real:
+                matched_wt = wt
+                break
+        if matched_wt is None and repo_matches:
+            for wt in wt_rows:
+                if wt.get("is_primary"):
+                    matched_wt = wt
+                    break
+        if matched_wt is not None:
+            return "stale" if bool(matched_wt.get("stale", False)) else "fresh"
+        if repo_matches:
+            return "fresh"
+    return "absent"
+
+
+def ensure_vault_indexed(vault: Path | None = None) -> bool:
+    """Return True when the current query may be served by par-mem.
+
+    Freshness comes from ``par-mem repos --json`` (the verbatim
+    list_indexed_repositories result; proxy-only — exit 2 without a daemon):
+
+    - **fresh** → True.
+    - **stale** → kick a detached background ``par-mem index`` and STILL
+      return True: a stale index is usable, so this query serves from it
+      while the reindex catches up.
+    - **absent** → kick a background index and return False so the CURRENT
+      query falls back to embeddings (a later query picks par-mem up).
+    - **failed/garbled ``repos``** → False WITHOUT spawning — never reindex
+      blind when the daemon cannot even list its repositories.
+
+    Never raises.
+    """
+    try:
+        vault = vault or vault_common.resolve_vault()
+        if _resolve_binary(vault) is None:
+            return False
+        started = time.monotonic()
+        result = _run_parmem(
+            ["repos", "--json"], cwd=vault, timeout=_timeout_s(vault), vault=vault
+        )
+        if result is None or result.returncode != 0:
+            _log_event(vault, "repos", "spawn-timeout-or-nonzero", started)
+            return False
+        try:
+            payload = json.loads(result.stdout)
+        except (json.JSONDecodeError, ValueError):
+            _log_event(vault, "repos", "bad-json", started)
+            return False
+        state = _vault_repo_state(payload, vault)
+        if state == "fresh":
+            return True
+        if state == "stale":
+            spawn_background_index(vault)
+            return True
+        if state == "absent":
+            spawn_background_index(vault)
+            return False
+        _log_event(vault, "repos", "unexpected-shape", started)
+        return False
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return False
