@@ -6,26 +6,10 @@ import fs from 'fs'
 import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 import { requireAuth } from '@/lib/apiAuth'
+import { findParsidionScript } from '@/lib/scriptResolver'
 
 // SEC-014: Cap stderr accumulation to avoid unbounded memory growth.
 const MAX_STDERR_BYTES = 64 * 1024
-
-/** Locate build_graph.py — checks alongside this app, then in the source repo. */
-function findBuildGraphScript(): string | null {
-  // 1. Installed alongside the app (symlinked or copied from parsidion repo)
-  const installed = path.join(
-    process.env.HOME || '~',
-    '.claude', 'skills', 'parsidion', 'scripts', 'build_graph.py'
-  )
-  if (fs.existsSync(installed)) return installed
-
-  // 2. Source repo: app lives at <repo>/visualizer/, script at <repo>/skills/parsidion/scripts/
-  const repoRoot = path.join(process.cwd(), '..')
-  const source = path.join(repoRoot, 'skills', 'parsidion', 'scripts', 'build_graph.py')
-  if (fs.existsSync(source)) return source
-
-  return null
-}
 
 export async function POST(req: NextRequest) {
   const authError = requireAuth(req)
@@ -49,7 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Vault directory not found' }, { status: 400 })
   }
 
-  const scriptPath = findBuildGraphScript()
+  const scriptPath = findParsidionScript('build_graph.py')
   if (!scriptPath) {
     return NextResponse.json(
       { error: 'build_graph.py not found. Install parsidion or run from the source repo.' },
