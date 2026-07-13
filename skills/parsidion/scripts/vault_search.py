@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import parmem_backend
 import vault_common
 
 _DEFAULT_MODEL: str = vault_common.get_config(
@@ -117,14 +118,14 @@ def _apply_decay(score: float, mtime: float, now: float) -> float:
     return score * decay
 
 
-def search(
+def _search_embeddings(
     query: str,
     top: int = 10,
     min_score: float = 0.45,
     model_name: str = _DEFAULT_MODEL,
     vault: Path | None = None,
 ) -> list[dict[str, object]]:
-    """Search the vault for notes semantically similar to *query*.
+    """Embeddings-backend semantic search (the always-on fallback path).
 
     Returns an empty list gracefully when embeddings.db does not exist.
 
@@ -205,6 +206,78 @@ def search(
         )
 
     return results
+
+
+_VALID_BACKENDS: frozenset[str] = frozenset({"auto", "par-mem", "embeddings", "none"})
+
+# Name of the backend that served the most recent search() call in this
+# process ("par-mem" | "embeddings" | "none"); read by main() for the --rich
+# backend label. None until search() has run.
+LAST_BACKEND: str | None = None
+
+
+def _configured_search_backend() -> str:
+    """Return the validated ``search.backend`` config value (default: auto)."""
+    value = vault_common.get_config("search", "backend", "auto")
+    normalized = str(value).strip().lower() if value is not None else "auto"
+    return normalized if normalized in _VALID_BACKENDS else "auto"
+
+
+def search(
+    query: str,
+    top: int = 10,
+    min_score: float = 0.45,
+    model_name: str = _DEFAULT_MODEL,
+    vault: Path | None = None,
+    backend: str | None = None,
+) -> list[dict[str, object]]:
+    """Search the vault for notes semantically similar to *query*.
+
+    Routes to the optional par-mem backend when selected and available,
+    silently falling back to the local embeddings pipeline. Both backends
+    return identically shaped result dicts. ``min_score`` applies only to
+    the embeddings backend — par-mem RRF scores are rank-fusion values, not
+    cosines, and gate by rank/``top`` instead.
+
+    Args:
+        query: Natural language query string.
+        top: Maximum number of results to return.
+        min_score: Minimum cosine similarity (embeddings backend only).
+        model_name: fastembed model ID used when the index was built.
+        vault: Optional vault path. Defaults to resolve_vault().
+        backend: ``auto | par-mem | embeddings | none`` override; None reads
+            the ``search.backend`` config key (default ``auto``).
+
+    Returns:
+        List of result dicts with keys: score, stem, title, folder, tags,
+        path, summary, note_type, project, confidence, mtime, related,
+        is_stale, incoming_links. Sorted by score descending.
+    """
+    global LAST_BACKEND
+    selected = (backend or "").strip().lower() or _configured_search_backend()
+    if selected not in _VALID_BACKENDS:
+        selected = "auto"
+
+    if selected == "none":
+        LAST_BACKEND = "none"
+        return []
+
+    if selected in ("auto", "par-mem"):
+        available = parmem_backend.resolve_parmem_backend(vault)
+        if available and parmem_backend.ensure_vault_indexed(vault):
+            parmem_results = parmem_backend.parmem_search(query, top_k=top, vault=vault)
+            if parmem_results is not None:
+                LAST_BACKEND = "par-mem"
+                return parmem_results
+        if selected == "par-mem":
+            # Explicit par-mem: no embeddings fallback (testing/debug affordance).
+            LAST_BACKEND = "par-mem"
+            return []
+
+    LAST_BACKEND = "embeddings"
+    return _search_embeddings(
+        query=query, top=top, min_score=min_score, model_name=model_name, vault=vault
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -730,6 +803,13 @@ def main() -> None:
         metavar="MODEL",
         help=f"Semantic: fastembed model ID (default: {_eff_model}, env: VAULT_SEARCH_MODEL).",
     )
+    parser.add_argument(
+        "--backend",
+        "-B",
+        choices=["auto", "par-mem", "embeddings", "none"],
+        default=None,
+        help="Semantic: backend override (default: search.backend config, auto).",
+    )
 
     # Metadata filter flags
     parser.add_argument(
@@ -876,8 +956,13 @@ def main() -> None:
         )
 
     if has_query:
+        selected_backend = args.backend or _configured_search_backend()
+        parmem_may_serve = selected_backend in (
+            "auto",
+            "par-mem",
+        ) and parmem_backend.resolve_parmem_backend(vault_path)
         db_path = vault_common.get_embeddings_db_path(vault_path)
-        if not db_path.exists():
+        if not db_path.exists() and not parmem_may_serve and selected_backend != "none":
             print(
                 "embeddings.db not found — run build_embeddings.py first",
                 file=sys.stderr,
@@ -889,6 +974,7 @@ def main() -> None:
             min_score=args.min_score,
             model_name=args.model,
             vault=vault_path,
+            backend=args.backend,
         )
     else:
         results = query(
@@ -918,6 +1004,10 @@ def main() -> None:
     if args.output_format == "text":
         print(_format_text(results))
     elif args.output_format == "rich":
+        if has_query and LAST_BACKEND is not None:
+            from rich.console import Console
+
+            Console(stderr=True).print(f"[dim]backend: {LAST_BACKEND}[/dim]")
         _format_rich(results)
     else:
         print(json.dumps(results, indent=2))
