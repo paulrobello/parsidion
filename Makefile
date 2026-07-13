@@ -1,4 +1,4 @@
-.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup
+.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check
 
 # Format code with ruff
 fmt:
@@ -25,8 +25,12 @@ test:
 test-graph:
 	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parmem.py
 
+# Typecheck, lint, and unit-test the visualizer (bun)
+visualizer-check:
+	cd visualizer && bunx tsc --noEmit && bun run lint && bun test
+
 # Run all checks in sequence: format check, lint, typecheck, test
-checkall: fmt-check lint typecheck test test-graph checkall-mcp
+checkall: fmt-check lint typecheck test test-graph visualizer-check checkall-mcp
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
