@@ -94,8 +94,11 @@ class TestGraphVizSection:
         assert "## Graph & Visualization" in doc
         assert "par-mem ui" in doc
 
-    def test_doc_records_deferred_graph_json_decision(self) -> None:
+    def test_doc_documents_graph_enrichment(self) -> None:
         doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "## Graph enrichment" in doc
         assert "graph.json" in doc
         assert "build_graph.py" in doc
-        assert "Deferred" in doc
+        assert "par-mem doc-links --json --targets doc --limit 20000" in doc
+        assert "--no-parmem" in doc
+        assert "parmem_body_links" in doc

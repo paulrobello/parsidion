@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **vault-explorer code-memory bridge** — the agent now also consults par-mem's code graph (`par-mem find-code`/`find-symbol`) for code-shaped questions, merging hits into its `## Answer`/`## Sources` response alongside vault notes.
 - **parsidion-mcp `code_search` tool** — exposes the par-mem code-memory bridge to Claude Desktop and other MCP clients, with backend-aware pre-checks that raise a clear error instead of degrading silently (MCP callers can choose another tool).
 - **docs/PAR-MEM.md** — the full integration guide: configuration, requirements, score semantics, degradation matrix, index freshness, and troubleshooting.
+- **graph.json body-link enrichment** — `build_graph.py` merges par-mem's in-body doc links (`par-mem doc-links`) into wiki edges when the integration is enabled; `--no-parmem` opts out.
 
 ## [0.12.2] - 2026-07-12
 

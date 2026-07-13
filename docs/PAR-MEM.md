@@ -190,13 +190,41 @@ parsidion's own Sigma.js visualizer (see [docs/VISUALIZER.md](VISUALIZER.md)).
 semantic-similarity edges — which independence preserves anyway — and
 parsidion-derived wiki edges for structure.
 
-**Deferred decision (revisit with evidence):** optionally merging par-mem's
-in-body markdown-link edges — which parsidion's `related:`-frontmatter-only
-wiki edges miss — into `graph.json` as `kind: "wiki"` edges. Deferred
-because it would add a par-mem read dependency to `build_graph.py` for a
-cosmetic gain; if body-link coverage proves valuable, the enrichment belongs
-in `build_graph.py` behind the same `resolve_parmem_backend()` gate with a
-silent skip when par-mem is absent.
+**Shipped:** merging par-mem's in-body markdown-link edges — which
+parsidion's `related:`-frontmatter-only wiki edges miss — into `graph.json`
+as extra `kind: "wiki"` edges. See "Graph enrichment" below.
+
+## Graph enrichment
+
+`build_graph.py` optionally enriches its `kind: "wiki"` edges with par-mem's
+in-body doc links. Frontmatter `related:` parsing (the always-on source)
+only sees links declared in a note's frontmatter; par-mem's markdown
+indexer additionally extracts `[[wikilinks]]` and markdown links written in
+a note's body, which `build_graph.py` cannot see on its own.
+
+On every run (unless `--no-parmem` is passed), `build_graph.py` calls
+`resolve_parmem_backend()` — the same availability probe search uses (config
+gate + binary on `PATH` + daemon `/health`; see "Troubleshooting" below) —
+and, when it succeeds, runs:
+
+```bash
+par-mem doc-links --json --targets doc --limit 20000
+```
+
+against the vault. Each returned `source_path`/`target_path` pair that
+resolves to two distinct, known note stems becomes an extra
+`{"s", "t", "w": 1.0, "kind": "wiki"}` edge, deduplicated against the
+frontmatter-derived wiki edges (and against itself). When one or more edges
+were added, the output `graph.json`'s `meta` gains a `parmem_body_links`
+count; when none were added — par-mem unavailable, no body links found, or
+`--no-parmem` was passed — the key is omitted entirely (not written as
+zero), and the `nodes`/`edges` content matches the pre-integration output.
+
+- **Opt out:** `build_graph.py --no-parmem` skips the enrichment
+  unconditionally.
+- **Troubleshooting:** enrichment silently contributes zero edges whenever
+  the standard availability probe fails — same probe as search; see
+  "Troubleshooting" above for how to diagnose it.
 
 ## Related Documentation
 

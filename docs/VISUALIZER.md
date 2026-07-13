@@ -523,6 +523,8 @@ make stop-visualizer          # Kill the process on port 3999
 
 The `graph.json` file is a pre-computed snapshot of vault relationships stored in the vault root (e.g. `~/ParsidionVault/graph.json`). Each vault has its own `graph.json`; the file is gitignored and rebuilt locally. Rebuild it whenever notes are added, removed, or embeddings are updated.
 
+Frontmatter `related:` fields are the always-on source of wiki edges; when the optional [par-mem integration](PAR-MEM.md) is enabled, wiki edges also include par-mem's in-body `[[wikilinks]]`/markdown-link extraction (`--no-parmem` opts out) — edge kinds are unchanged either way (`kind: 'wiki'`).
+
 ### Prerequisites
 
 1. Vault must have embeddings built:
