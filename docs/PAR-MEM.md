@@ -208,7 +208,7 @@ gate + binary on `PATH` + daemon `/health`; see "Troubleshooting" below) —
 and, when it succeeds, runs:
 
 ```bash
-par-mem doc-links --json --targets doc --limit 20000
+par-mem doc-links --json --targets doc --limit 200000
 ```
 
 against the vault. Each returned `source_path`/`target_path` pair that
@@ -225,6 +225,10 @@ zero), and the `nodes`/`edges` content matches the pre-integration output.
 - **Troubleshooting:** enrichment silently contributes zero edges whenever
   the standard availability probe fails — same probe as search; see
   "Troubleshooting" above for how to diagnose it.
+- **Freshness:** enrichment reads par-mem's index as-is, not a live
+  recompute — a body link written moments before a `graph.json` rebuild may
+  not appear until the *next* rebuild, since the background reindex and the
+  graph build are decoupled by design.
 
 ## Related Documentation
 

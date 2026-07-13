@@ -99,6 +99,6 @@ class TestGraphVizSection:
         assert "## Graph enrichment" in doc
         assert "graph.json" in doc
         assert "build_graph.py" in doc
-        assert "par-mem doc-links --json --targets doc --limit 20000" in doc
+        assert "par-mem doc-links --json --targets doc --limit 200000" in doc
         assert "--no-parmem" in doc
         assert "parmem_body_links" in doc

@@ -23,7 +23,7 @@ test:
 # Run build_graph.py's par-mem body-link enrichment tests (numpy-gated,
 # skipped under `test`/`checkall`'s numpy-free default suite)
 test-graph:
-	uv run --with numpy pytest tests/test_build_graph_parmem.py
+	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parmem.py
 
 # Run all checks in sequence: format check, lint, typecheck, test
 checkall: fmt-check lint typecheck test test-graph checkall-mcp

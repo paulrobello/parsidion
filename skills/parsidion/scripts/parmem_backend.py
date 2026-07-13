@@ -290,7 +290,7 @@ def doc_links_raw(
     timeout: float | None = None,
     vault: Path | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Run ``par-mem doc-links --json --targets doc --limit 20000``.
+    """Run ``par-mem doc-links --json --targets doc --limit 200000``.
 
     Returns the MCP ``links`` array verbatim (items carry vault-root-relative
     ``source_path``/``target_path``, ``target_is_doc``, and a section-level
@@ -307,7 +307,7 @@ def doc_links_raw(
         eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
         started = time.monotonic()
         reason, result = _run_parmem(
-            ["doc-links", "--json", "--targets", "doc", "--limit", "20000"],
+            ["doc-links", "--json", "--targets", "doc", "--limit", "200000"],
             cwd=cwd,
             timeout=eff_timeout,
             vault=vault,
@@ -339,6 +339,8 @@ def doc_links_raw(
                 started,
             )
             return None
+        if isinstance(payload, dict) and payload.get("truncated"):
+            _log_event(vault, "doc-links", f"truncated:{payload.get('total')}", started)
         return [link for link in links if isinstance(link, dict)]
     except Exception:  # noqa: BLE001 — contract: never raises
         return None

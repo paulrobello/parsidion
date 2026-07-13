@@ -546,6 +546,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py [OPTIONS]
 Options:
   --include-daily        Include Daily folder notes (default; flag kept for backward compatibility)
   --no-daily             Exclude Daily folder notes
+  --no-parmem            Skip par-mem in-body wiki-edge enrichment
   --min-threshold FLOAT  Minimum cosine similarity for semantic edges (default: 0.70)
   --output PATH          Output path for graph.json (default: {vault}/graph.json)
   --vault PATH           Custom vault root path

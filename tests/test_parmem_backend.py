@@ -181,8 +181,29 @@ class TestDocLinksRaw:
             "--targets",
             "doc",
             "--limit",
-            "20000",
+            "200000",
         ]
+
+    def test_doc_links_raw_truncated_returns_links_and_logs(
+        self, tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
+    ) -> None:
+        links = [
+            {
+                "source_path": "Debugging/a.md",
+                "target_path": "Patterns/b.md",
+                "target_is_doc": True,
+                "count": 2,
+            }
+        ]
+        fake_parmem.configure(
+            doc_links={"links": links, "total": 200500, "truncated": True}
+        )
+        result = parmem_backend.doc_links_raw(vault=tmp_vault)
+        assert result == links
+        log = (tmp_vault / "hook_events.log").read_text(encoding="utf-8")
+        event = json.loads(log.strip().splitlines()[-1])
+        assert event["hook"] == "ParMemBackend"
+        assert event["detail"].startswith("truncated:200500")
 
     def test_doc_links_raw_nonzero_exit_returns_none(
         self, tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
