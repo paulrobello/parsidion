@@ -16,6 +16,7 @@ def test_all_tool_modules_importable() -> None:
     server.py imports cleanly and mcp.tool()(fn) raised no error at
     module load time, all tools are registered.
     """
+    from parsidion_mcp.tools.code_search import code_search
     from parsidion_mcp.tools.context import vault_context
     from parsidion_mcp.tools.notes import vault_read, vault_write
     from parsidion_mcp.tools.ops import rebuild_index, vault_doctor
@@ -28,5 +29,6 @@ def test_all_tool_modules_importable() -> None:
         vault_context,
         rebuild_index,
         vault_doctor,
+        code_search,
     ]:
         assert callable(fn)

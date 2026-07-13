@@ -326,3 +326,35 @@ class TestInteractiveBackend:
         vault_search.main()
         assert len(calls) == 1
         assert calls[0]["backend"] == "embeddings"
+
+    def test_search_notes_gate_serves_parmem_when_db_missing(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
+        """Stale pre-check fix: _search_notes must attempt semantic search
+        even when embeddings.db is absent, as long as par-mem can serve."""
+        import vault_tui
+
+        assert not vault_common.get_embeddings_db_path(tmp_vault).exists()
+        results = vault_tui._search_notes("q", tmp_vault)
+        assert [r["stem"] for r in results] == ["hit-note"]
+
+    def test_search_notes_gate_falls_back_when_both_backends_unavailable(
+        self,
+        tmp_vault: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No embeddings.db and no par-mem -- title-substring fallback still
+        runs (the gate must not suppress the pre-existing fallback path)."""
+        import vault_tui
+
+        empty = tmp_path / "empty-bin-tui"
+        empty.mkdir()
+        monkeypatch.setenv("PATH", str(empty))
+        assert not vault_common.get_embeddings_db_path(tmp_vault).exists()
+
+        note = tmp_vault / "my-note.md"
+        note.write_text("# My Note\nBody.\n", encoding="utf-8")
+
+        results = vault_tui._search_notes("my-note", tmp_vault)
+        assert [r["stem"] for r in results] == ["my-note"]

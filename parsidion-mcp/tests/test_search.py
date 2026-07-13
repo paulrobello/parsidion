@@ -62,6 +62,42 @@ def test_semantic_search_missing_db_raises(tmp_path: Path) -> None:
             vault_search(query="anything")
 
 
+def test_semantic_search_missing_db_but_parmem_available_delegates(
+    tmp_path: Path,
+) -> None:
+    """Stale pre-check fix: a missing embeddings.db must not block a par-mem-
+    backed search -- vault_search.search() routes per config on its own."""
+    absent_db = tmp_path / "missing.db"
+
+    with (
+        patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.search.parmem_backend") as mock_pb,
+        patch("parsidion_mcp.tools.search._vault_search_module") as mock_vs,
+    ):
+        mock_vc.get_embeddings_db_path.return_value = absent_db
+        mock_pb.resolve_parmem_backend.return_value = True
+        mock_vs.search.return_value = [_FAKE_NOTE]
+
+        result = vault_search(query="python patterns")
+
+    parsed = json.loads(result)
+    assert parsed[0]["stem"] == "my-note"
+    mock_vs.search.assert_called_once_with("python patterns", top=10, min_score=0.45)
+
+
+def test_semantic_search_missing_db_and_no_parmem_raises(tmp_path: Path) -> None:
+    absent_db = tmp_path / "missing.db"
+
+    with (
+        patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.search.parmem_backend") as mock_pb,
+    ):
+        mock_vc.get_embeddings_db_path.return_value = absent_db
+        mock_pb.resolve_parmem_backend.return_value = False
+        with pytest.raises(ValueError, match="embeddings DB not found"):
+            vault_search(query="anything")
+
+
 def test_semantic_search_respects_top_k_and_min_score(tmp_path: Path) -> None:
     db = tmp_path / "embeddings.db"
     db.touch()

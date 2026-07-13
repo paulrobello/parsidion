@@ -20,6 +20,7 @@ import subprocess as _sp
 from pathlib import Path
 from typing import Any
 
+import parmem_backend
 import vault_common
 
 
@@ -43,7 +44,7 @@ def _search_notes(
     if not q.strip():
         return []
     db_path = vault_common.get_embeddings_db_path(vault)
-    if db_path.exists():
+    if db_path.exists() or parmem_backend.resolve_parmem_backend(vault):
         try:
             # Lazy import to avoid pulling fastembed at module level
             import vault_search  # noqa: PLC0415
