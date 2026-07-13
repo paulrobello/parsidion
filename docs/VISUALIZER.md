@@ -215,6 +215,7 @@ The default mode when opening a note. Provides a distraction-free reading experi
   - Click → open in current tab
   - Cmd+click → open in new tab
 - Related notes section extracted from YAML frontmatter
+- Linked Notes section: notes connected by wiki edges in `graph.json` (frontmatter `related:` plus par-mem in-body links when the [par-mem integration](PAR-MEM.md) is enabled) — undirected, deduplicated against the Related row
 - **Inline editing**: toggle edit mode to modify note body and frontmatter
   - FrontmatterEditor provides structured editing of type, date, confidence, tags, project, sources, and related links with tag autocomplete from the graph
   - Save and delete operations via the note CRUD API
@@ -341,7 +342,7 @@ Floating overlay in the bottom-left of the graph canvas. Draggable via its title
 - Visible node count
 - Visible edge count
 - Average semantic similarity score
-- Expandable detail panel: average degree, max degree, graph density, connected component count, top 5 hub nodes by degree
+- Expandable detail panel: average degree, max degree, graph density, connected component count, top 5 hub nodes by degree, and a `body links` chip when `graph.json` carries `meta.parmem_body_links`
 
 **Temperature Bar**
 - Visual indicator of simulation energy (0 to 1.0)
@@ -380,13 +381,15 @@ Activated with **⌘K** — three modes selectable by prefix:
 | *(none)* | Title | Fuzzy match on note titles and stem IDs |
 | `#tag` | Tag | Exact tag match |
 | `/path` | Folder | Prefix match on vault-relative path |
+| `?query` | Semantic | Meaning-based search via `vault_search.py` (par-mem backend when available, embeddings fallback) — debounced, shows note summaries |
 
 - Up to 8 results shown per query
 - Each result: colored type dot, title with match highlighting, folder path, tags
 - Keyboard navigation: ↑↓ to move, ⏎ to open, ⌘⏎ for new tab
 - Click → open in current tab; Cmd+click → new tab
 - In Graph mode: opening a result flies camera to that node
-- All data served from `graph.json` — no server round-trips
+- Lexical modes are served from `graph.json` with no server round-trips; `?semantic` calls `GET /api/search`
+- Semantic mode requires the parsidion scripts to be installed (or a source checkout); when the backend is unavailable the dropdown shows an error row and the lexical modes keep working. Results are limited to notes present in `graph.json`.
 
 ### Keyboard Shortcuts
 
@@ -486,6 +489,7 @@ All API routes accept an optional `vault` query parameter:
 | `GET /api/stats?vault=<name>` | Pending summary count for the vault |
 | `POST /api/summarize?vault=<name>` | Spawn the summarizer subprocess for the vault (auth required) |
 | `GET /api/summarizer/status?vault=<name>` | Live summarizer run progress (processed/written/skipped/errors, pct) |
+| `GET /api/search?vault=<name>&q=<query>&top=<n>` | Semantic search via `vault_search.py` (spawned subprocess) |
 
 **Fallback Behavior**
 
@@ -618,6 +622,7 @@ graph LR
     note_count: number
     edge_count: number
     min_semantic_threshold: number
+    parmem_body_links?: number  // wiki edges added by par-mem body-link enrichment (absent when skipped/zero)
   }
   nodes: NoteNode[]
   edges: GraphEdge[]
@@ -713,6 +718,17 @@ Body: `{ path: string, content: string }`. Returns 409 if the note already exist
 | `vault` | string | No | Vault name (from vaults.yaml) |
 
 **Response (200):** `{ running: boolean, error?: string, progress: Progress | null, pendingSummaries: number }` where `Progress` is `{ total, processed, written, skipped, errors, current, pct }`.
+
+**`GET /api/search?q=<query>`** — Semantic vault search. Spawns `vault_search.py --json` (par-mem daemon backend when available, embeddings fallback — see [PAR-MEM.md](PAR-MEM.md)).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `q` | string | Yes | Natural-language query (trimmed, max 512 chars) |
+| `top` | number | No | Max results, clamped 1–20 (default 8) |
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200):** `{ results: [{ stem, title, folder, path, tags, note_type, score, summary }], tookMs }` — `path` is vault-relative.
+**Errors:** 400 invalid query/vault · 429 concurrent-search limit · 502 search failed · 503 `vault_search.py` not found.
 
 **`GET /api/files`** — Returns the complete vault file tree.
 

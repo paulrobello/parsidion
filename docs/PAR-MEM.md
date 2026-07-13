@@ -230,6 +230,13 @@ zero), and the `nodes`/`edges` content matches the pre-integration output.
   not appear until the *next* rebuild, since the background reindex and the
   graph build are decoupled by design.
 
+The visualizer surfaces the integration three ways: the `?` search prefix runs
+semantic search through `vault_search.py` (par-mem's warm daemon when enabled,
+embeddings fallback otherwise), the Reading Pane's **Linked Notes** section is
+completed by the in-body links this enrichment contributes, and the graph HUD's
+Graph Analysis panel shows a `body links` chip when `graph.json` carries
+`meta.parmem_body_links`.
+
 ## Related Documentation
 
 - [README.md](../README.md) — project overview and optional external tools

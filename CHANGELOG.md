@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **parsidion-mcp `code_search` tool** — exposes the par-mem code-memory bridge to Claude Desktop and other MCP clients, with backend-aware pre-checks that raise a clear error instead of degrading silently (MCP callers can choose another tool).
 - **docs/PAR-MEM.md** — the full integration guide: configuration, requirements, score semantics, degradation matrix, index freshness, and troubleshooting.
 - **graph.json body-link enrichment** — `build_graph.py` merges par-mem's in-body doc links (`par-mem doc-links`) into wiki edges when the integration is enabled; `--no-parmem` opts out.
+- Visualizer: semantic vault search behind the `?` search prefix (`GET /api/search` → `vault_search.py`, par-mem backend with embeddings fallback), Linked Notes section in the reading pane (wiki-edge neighbors incl. par-mem body links), `body links` HUD stat from `meta.parmem_body_links`, and a `make visualizer-check` gate (tsc + eslint + bun test) wired into `make checkall`.
 
 ## [0.12.2] - 2026-07-12
 
