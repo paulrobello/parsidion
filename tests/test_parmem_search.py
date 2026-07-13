@@ -238,6 +238,17 @@ class TestParmemSearchMapping:
         argv = cast(list[str], call["argv"])
         assert argv[-2:] == ["--limit", "30"]
 
+    def test_overfetch_clamped_to_server_limit(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
+        # find-code's server-side --limit ceiling is 1000; a large caller
+        # top_k must not produce a rejected over-fetch request.
+        _make_note_index(tmp_vault)
+        parmem_backend.parmem_search("q", top_k=500, vault=tmp_vault)
+        call = ready.wait_for_call("find-code")
+        argv = cast(list[str], call["argv"])
+        assert argv[-2:] == ["--limit", "1000"]
+
     def test_caps_at_top_k(self, tmp_vault: Path, ready: FakeParMem) -> None:
         _make_note_index(tmp_vault)
         items = []
@@ -356,6 +367,51 @@ class TestParmemSearchMapping:
         score = cast(float, results[0]["score"])
         assert float(score) == pytest.approx(expected, rel=1e-3)
         assert float(score) < 0.08
+
+    def test_aggregation_with_decay_applies_once_to_aggregated_max(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
+        # Pins current behavior: decay must be applied ONCE, to the
+        # already-aggregated per-note max score — not per hit before
+        # aggregation. note-a has two heading-section hits (0.05, 0.09); its
+        # decayed score must equal decay(max=0.09), not e.g. a decayed sum
+        # or a decayed average of both hits. note-b has a single hit and a
+        # different mtime so the two notes' decay factors differ.
+        import vault_search
+
+        _write_config(tmp_vault, "")  # decay enabled (default)
+        _make_note_index(tmp_vault)
+        now = time.time()
+        mtime_a = now - 90 * 86400.0  # exactly one half-life old
+        mtime_b = now - 30 * 86400.0
+        _insert_note(tmp_vault, stem="note-a", title="Note A", mtime=mtime_a)
+        _insert_note(
+            tmp_vault, stem="note-b", folder="Debugging", title="Note B", mtime=mtime_b
+        )
+        ready.configure(
+            find_code={
+                "results": [
+                    {"file_path": "Patterns/note-a.md", "score": 0.05},
+                    {"file_path": "Debugging/note-b.md", "score": 0.07},
+                    {"file_path": "Patterns/note-a.md", "score": 0.09},
+                ]
+            }
+        )
+        results = parmem_backend.parmem_search("q", top_k=10, vault=tmp_vault)
+        assert results is not None
+        assert [r["stem"] for r in results] == ["note-a", "note-b"]
+        expected_a = vault_search._apply_decay(0.09, mtime_a, time.time())
+        expected_b = vault_search._apply_decay(0.07, mtime_b, time.time())
+        score_a = cast(float, results[0]["score"])
+        score_b = cast(float, results[1]["score"])
+        assert float(score_a) == pytest.approx(expected_a, rel=1e-3)
+        assert float(score_b) == pytest.approx(expected_b, rel=1e-3)
+        # Not decayed per-hit-then-summed (0.05 and 0.09 each decayed and
+        # added) — the aggregated max alone drives the decayed score.
+        wrong_summed = vault_search._apply_decay(
+            0.05, mtime_a, time.time()
+        ) + vault_search._apply_decay(0.09, mtime_a, time.time())
+        assert float(score_a) != pytest.approx(wrong_summed, rel=1e-3)
 
     def test_fallback_mapping_without_note_index(
         self, tmp_vault: Path, ready: FakeParMem

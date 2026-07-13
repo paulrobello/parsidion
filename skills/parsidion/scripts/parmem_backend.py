@@ -398,8 +398,9 @@ def parmem_search(
     """Vault semantic search served by par-mem's hybrid retrieval.
 
     Runs ``find-code --diagnostics`` over the indexed vault (over-fetching
-    3x *top_k* because par-mem returns heading-section hits, several per
-    note), aggregates to one row per note (max score per hit — a hit's own
+    3x *top_k*, clamped to find-code's server-side 1000 limit ceiling,
+    because par-mem returns heading-section hits, several per note),
+    aggregates to one row per note (max score per hit — a hit's own
     RRF score when present, else a rank-preserving synthetic value derived
     from its position in par-mem's response, so a score-less hit still
     contributes its relevance order through aggregation/decay/sort instead
@@ -413,7 +414,7 @@ def parmem_search(
     try:
         vault = vault or vault_common.resolve_vault()
         hits = find_code_raw(
-            query, top_k=top_k * 3, cwd=vault, timeout=timeout, vault=vault
+            query, top_k=min(top_k * 3, 1000), cwd=vault, timeout=timeout, vault=vault
         )
         if hits is None:
             return None
@@ -486,6 +487,7 @@ def spawn_background_index(vault: Path | None = None) -> bool:
         log = open(_LOG_DIR / _LOG_NAME, "a", encoding="utf-8")  # noqa: SIM115
         subprocess.Popen(
             [binary, "index", str(vault), "--json"],
+            stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
             env=vault_common.env_without_claudecode(vault=vault),
@@ -517,6 +519,7 @@ def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool
         log = open(_LOG_DIR / _LOG_NAME, "a", encoding="utf-8")  # noqa: SIM115
         subprocess.Popen(
             [binary, verb, str(vault), "--hold-token", f"parsidion-{token}"],
+            stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
             env=vault_common.env_without_claudecode(vault=vault),
