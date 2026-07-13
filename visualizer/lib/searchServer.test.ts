@@ -69,4 +69,22 @@ describe('runVaultSearch', () => {
       .rejects.toBeInstanceOf(SearchBusyError)
     await Promise.allSettled([p1, p2])
   }, 20000)
+
+  test('an aborted search kills the subprocess and frees its concurrency slot', async () => {
+    useFixture('slow')
+    const controller = new AbortController()
+    const aborted = runVaultSearch('/tmp/v', 'q', 8, { signal: controller.signal })
+    setTimeout(() => controller.abort(), 100)
+    await expect(aborted).rejects.toBeInstanceOf(SearchFailedError)
+
+    // If the abort had leaked the concurrency slot, one of these would
+    // reject with SearchBusyError instead of running to completion.
+    const results = await Promise.allSettled([
+      runVaultSearch('/tmp/v', 'q', 8),
+      runVaultSearch('/tmp/v', 'q', 8),
+    ])
+    for (const r of results) {
+      if (r.status === 'rejected') expect(r.reason).not.toBeInstanceOf(SearchBusyError)
+    }
+  }, 20000)
 })

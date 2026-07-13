@@ -33,15 +33,19 @@ export async function runVaultSearch(
   vaultPath: string,
   query: string,
   top: number,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<SemanticSearchResult[]> {
   const scriptPath = findParsidionScript('vault_search.py')
   if (!scriptPath) throw new ScriptMissingError('vault_search.py not found')
+  if (opts?.signal?.aborted) {
+    throw new SearchFailedError('semantic search aborted')
+  }
   if (inFlight >= MAX_CONCURRENT_SEARCHES) {
     throw new SearchBusyError('too many concurrent searches')
   }
 
   const timeoutMs = opts?.timeoutMs ?? SEARCH_TIMEOUT_MS
+  const signal = opts?.signal
   // `--` terminates argparse option parsing so a query starting with `-`
   // cannot be read as a flag by vault_search.py.
   const args = [
@@ -51,17 +55,26 @@ export async function runVaultSearch(
   ]
 
   inFlight++
+  let stderr = ''
   try {
     const stdout = await new Promise<string>((resolve, reject) => {
       const proc = spawn('uv', args, { stdio: ['ignore', 'pipe', 'pipe'] })
       let out = ''
-      let stderr = ''
       let stderrBytes = 0
       let timedOut = false
+      let aborted = false
       const timer = setTimeout(() => {
         timedOut = true
         proc.kill('SIGKILL')
       }, timeoutMs)
+
+      // Client is gone — kill the subprocess so it doesn't hold a concurrency
+      // slot for up to SEARCH_TIMEOUT_MS after the response is moot.
+      const onAbort = () => {
+        aborted = true
+        proc.kill('SIGKILL')
+      }
+      signal?.addEventListener('abort', onAbort)
 
       proc.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString() })
       proc.stderr?.on('data', (chunk: Buffer) => {
@@ -75,6 +88,8 @@ export async function runVaultSearch(
 
       proc.on('close', code => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        if (aborted) return reject(new SearchFailedError('semantic search aborted'))
         if (timedOut) return reject(new SearchFailedError('semantic search timed out'))
         if (code !== 0) {
           // SEC-003: log stderr server-side only.
@@ -86,6 +101,7 @@ export async function runVaultSearch(
 
       proc.on('error', err => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
         reject(new SearchFailedError(`spawn failed: ${err.message}`))
       })
     })
@@ -94,9 +110,11 @@ export async function runVaultSearch(
     try {
       rows = JSON.parse(stdout)
     } catch {
+      if (stderr) console.error('[searchServer] vault_search.py produced invalid JSON; stderr:', stderr)
       throw new SearchFailedError('invalid JSON from vault_search.py')
     }
     if (!Array.isArray(rows)) {
+      if (stderr) console.error('[searchServer] vault_search.py returned non-array JSON; stderr:', stderr)
       throw new SearchFailedError('unexpected JSON shape from vault_search.py')
     }
     return rows.map(r => mapRow(r as Record<string, unknown>, vaultPath))

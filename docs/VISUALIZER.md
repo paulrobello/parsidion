@@ -374,7 +374,7 @@ Floating overlay in the bottom-left of the graph canvas. Draggable via its title
 
 ### Unified Search
 
-Activated with **⌘K** — three modes selectable by prefix:
+Activated with **⌘K** — four modes selectable by prefix:
 
 | Prefix | Mode | Description |
 |--------|------|-------------|

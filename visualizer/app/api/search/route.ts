@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 
   const started = Date.now()
   try {
-    const results = await runVaultSearch(vaultPath, q, top)
+    const results = await runVaultSearch(vaultPath, q, top, { signal: req.signal })
     return NextResponse.json({ results, tookMs: Date.now() - started })
   } catch (err) {
     if (err instanceof SearchBusyError) {
