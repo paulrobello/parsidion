@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tomllib
 from pathlib import Path
@@ -154,6 +155,63 @@ class TestPackaging:
             (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         )
         assert "parmem_backend" in pyproject["tool"]["setuptools"]["py-modules"]
+
+
+class TestDocLinksRaw:
+    def test_doc_links_raw_happy_path(
+        self, tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
+    ) -> None:
+        links = [
+            {
+                "source_path": "Debugging/a.md",
+                "target_path": "Patterns/b.md",
+                "target_is_doc": True,
+                "count": 2,
+            }
+        ]
+        fake_parmem.configure(
+            doc_links={"links": links, "total": 1, "truncated": False}
+        )
+        result = parmem_backend.doc_links_raw(vault=tmp_vault)
+        assert result == links
+        call = fake_parmem.wait_for_call("doc-links")
+        assert call["argv"] == [
+            "doc-links",
+            "--json",
+            "--targets",
+            "doc",
+            "--limit",
+            "20000",
+        ]
+
+    def test_doc_links_raw_nonzero_exit_returns_none(
+        self, tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
+    ) -> None:
+        fake_parmem.configure(exit_codes={"doc-links": 1})
+        assert parmem_backend.doc_links_raw(vault=tmp_vault) is None
+        log = (tmp_vault / "hook_events.log").read_text(encoding="utf-8")
+        event = json.loads(log.strip().splitlines()[-1])
+        assert event["hook"] == "ParMemBackend"
+        assert event["detail"].startswith("exit:1")
+
+    def test_doc_links_raw_bad_json_returns_none(
+        self, tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
+    ) -> None:
+        fake_parmem.configure(stdout_override="not json")
+        assert parmem_backend.doc_links_raw(vault=tmp_vault) is None
+
+    def test_doc_links_raw_missing_links_key_returns_none(
+        self, tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
+    ) -> None:
+        fake_parmem.configure(doc_links={"total": 0})
+        assert parmem_backend.doc_links_raw(vault=tmp_vault) is None
+
+    def test_doc_links_raw_unavailable_returns_none(
+        self, tmp_vault: Path, fake_parmem: FakeParMem
+    ) -> None:
+        # No health fixture: autouse isolation points at an unreachable port.
+        assert parmem_backend.doc_links_raw(vault=tmp_vault) is None
+        fake_parmem.assert_no_call("doc-links", settle=0.1)
 
 
 class TestSafeEnv:

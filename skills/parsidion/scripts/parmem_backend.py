@@ -285,6 +285,65 @@ def find_code_raw(
         return None
 
 
+def doc_links_raw(
+    cwd: Path | None = None,
+    timeout: float | None = None,
+    vault: Path | None = None,
+) -> list[dict[str, Any]] | None:
+    """Run ``par-mem doc-links --json --targets doc --limit 20000``.
+
+    Returns the MCP ``links`` array verbatim (items carry vault-root-relative
+    ``source_path``/``target_path``, ``target_is_doc``, and a section-level
+    ``count``), or None on any failure: backend unavailable, launch failure,
+    timeout, nonzero exit (including an older binary without the subcommand),
+    or unparseable output. Failures are logged via ``write_hook_event`` with
+    the module's standard reason tags. Never raises.
+    """
+    try:
+        vault = vault or vault_common.resolve_vault()
+        cwd = cwd or vault
+        if _resolve_binary(vault) is None:
+            return None
+        eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
+        started = time.monotonic()
+        reason, result = _run_parmem(
+            ["doc-links", "--json", "--targets", "doc", "--limit", "20000"],
+            cwd=cwd,
+            timeout=eff_timeout,
+            vault=vault,
+        )
+        if result is None:
+            _log_event(vault, "doc-links", reason, started)
+            return None
+        if result.returncode != 0:
+            _log_event(
+                vault,
+                "doc-links",
+                _sanitize_detail(f"exit:{result.returncode}", result.stderr),
+                started,
+            )
+            return None
+        try:
+            payload = json.loads(result.stdout)
+        except (json.JSONDecodeError, ValueError):
+            _log_event(
+                vault, "doc-links", _sanitize_detail("bad-json", result.stderr), started
+            )
+            return None
+        links = payload.get("links") if isinstance(payload, dict) else None
+        if not isinstance(links, list):
+            _log_event(
+                vault,
+                "doc-links",
+                _sanitize_detail("missing-links", result.stderr),
+                started,
+            )
+            return None
+        return [link for link in links if isinstance(link, dict)]
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return None
+
+
 def _load_note_index_rows(
     stems: list[str], vault: Path
 ) -> dict[str, dict[str, Any]] | None:

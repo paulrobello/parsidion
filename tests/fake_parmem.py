@@ -38,6 +38,10 @@ elif sub == "repos":
     sys.stdout.write(
         json.dumps(cfg.get("repos", {"repositories": [], "_meta": {"count": 0}}))
     )
+elif sub == "doc-links":
+    sys.stdout.write(
+        json.dumps(cfg.get("doc_links", {"links": [], "total": 0, "truncated": False}))
+    )
 # index / watch / unwatch need no stdout for the backend's purposes.
 stderr_output = cfg.get("stderr_output")
 if stderr_output:
@@ -73,6 +77,7 @@ class FakeParMem:
         *,
         find_code: object = None,
         repos: object = None,
+        doc_links: object = None,
         exit_code: int = 0,
         exit_codes: dict[str, int] | None = None,
         delay: float = 0.0,
@@ -87,6 +92,9 @@ class FakeParMem:
             repos: JSON payload printed for `repos` (default
                 {"repositories": [], "_meta": {"count": 0}} — the MCP
                 list_indexed_repositories shape).
+            doc_links: JSON payload printed for `doc-links` (default
+                {"links": [], "total": 0, "truncated": False} — the MCP
+                doc-links shape).
             exit_code: exit code for every subcommand without an override.
             exit_codes: per-subcommand exit-code overrides, e.g. {"find-code": 1}.
             delay: seconds to sleep before responding (timeout tests; keep <= 3).
@@ -102,6 +110,9 @@ class FakeParMem:
                     "repos": repos
                     if repos is not None
                     else {"repositories": [], "_meta": {"count": 0}},
+                    "doc_links": doc_links
+                    if doc_links is not None
+                    else {"links": [], "total": 0, "truncated": False},
                     "exit_code": exit_code,
                     "exit_codes": exit_codes or {},
                     "delay": delay,
