@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 import ai_backend
+import parmem_backend
 import vault_common
 
 _DEFAULT_AI_MODEL: str = vault_common.get_config(
@@ -322,6 +323,17 @@ def main() -> None:
 
         transcript_path_str = str(input_data.get("transcript_path", ""))
         cwd = str(input_data.get("cwd", ""))
+
+        # Release the par-mem watch hold taken at SessionStart. Runs before
+        # the transcript early-returns so the hold is released even for
+        # sessions with nothing to summarize; server-side TTL covers crashed
+        # sessions. Fire-and-forget — failures land in
+        # ~/.claude/logs/parsidion-parmem.log, never in the hook.
+        session_id = str(input_data.get("session_id", "") or "")
+        if session_id:
+            parmem_backend.spawn_unwatch(
+                vault_common.resolve_vault(cwd=cwd), session_id
+            )
 
         if not transcript_path_str:
             print(

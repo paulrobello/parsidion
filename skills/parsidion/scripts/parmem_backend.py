@@ -447,6 +447,46 @@ def spawn_background_index(vault: Path | None = None) -> bool:
         return False
 
 
+def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool:
+    """Fire-and-forget ``par-mem <verb> <vault> --hold-token parsidion-<id>``.
+
+    Detached Popen (never blocks the calling hook); stdout/stderr append to
+    ``~/.claude/logs/parsidion-parmem.log``. The daemon refcounts holds and
+    expires them by TTL server-side, so a crashed session cannot leak one.
+    Never raises.
+    """
+    try:
+        vault = vault or vault_common.resolve_vault()
+        token = session_id.strip()
+        if not token:
+            return False
+        binary = _resolve_binary(vault)
+        if binary is None:
+            return False
+        _LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        log = open(_LOG_DIR / _LOG_NAME, "a", encoding="utf-8")  # noqa: SIM115
+        subprocess.Popen(
+            [binary, verb, str(vault), "--hold-token", f"parsidion-{token}"],
+            stdout=log,
+            stderr=log,
+            env=vault_common.env_without_claudecode(vault=vault),
+            start_new_session=True,
+        )
+        return True
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return False
+
+
+def spawn_watch(vault: Path | None, session_id: str) -> bool:
+    """Hold a par-mem live-reindex watch on the vault for this session."""
+    return _spawn_watch_command("watch", vault, session_id)
+
+
+def spawn_unwatch(vault: Path | None, session_id: str) -> bool:
+    """Release this session's par-mem watch hold on the vault."""
+    return _spawn_watch_command("unwatch", vault, session_id)
+
+
 def _vault_repo_state(payload: object, vault: Path) -> str:
     """Classify *vault* in a verbatim `par-mem repos --json` payload.
 

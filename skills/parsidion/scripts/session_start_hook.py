@@ -22,6 +22,7 @@ from io import TextIOWrapper
 from pathlib import Path
 
 import ai_backend
+import parmem_backend
 import vault_common
 
 _DEFAULT_AI_MODEL: str = vault_common.get_config(
@@ -1152,6 +1153,14 @@ def main() -> None:
             chars=len(context),
             vault=vault_path,
         )
+
+        # par-mem watch hold: fire-and-forget so live vault edits reindex in
+        # par-mem while this session is active. Released in session_stop_hook;
+        # server-side TTL covers crashed sessions. No-op when the backend is
+        # unavailable — must never block or fail the hook.
+        session_id = str(input_data.get("session_id", "") or "")
+        if session_id:
+            parmem_backend.spawn_watch(vault_path, session_id)
 
         if debug:
             _write_debug_log(

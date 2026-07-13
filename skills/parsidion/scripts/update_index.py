@@ -37,6 +37,8 @@ from vault_common import (
 )
 from vault_index import drain_parse_warnings, record_parse_warning
 
+import parmem_backend
+
 # Canonical folder order for index sections
 FOLDER_ORDER: list[str] = [
     "Daily",
@@ -897,6 +899,14 @@ def main() -> None:
                 start_new_session=True,
             )
             print(f"Embeddings: {label} rebuild launched in background")
+
+    # par-mem freshness trigger: when the optional par-mem backend resolves,
+    # kick a detached incremental `par-mem index` so the code-memory graph
+    # tracks the vault without blocking this run (see docs/PAR-MEM.md).
+    # Independent of embeddings.enabled — par-mem is its own index.
+    if parmem_backend.resolve_parmem_backend(vault_path):
+        if parmem_backend.spawn_background_index(vault_path):
+            print("par-mem: background index launched")
 
     if args.rebuild_graph:
         _rebuild_graph(include_daily=args.graph_include_daily)
