@@ -60,3 +60,16 @@ class TestParMemDoc:
     def test_readme_mentions_par_mem(self) -> None:
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         assert "docs/PAR-MEM.md" in readme
+
+
+class TestGraphVizSection:
+    def test_doc_documents_par_mem_ui(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "## Graph & Visualization" in doc
+        assert "par-mem ui" in doc
+
+    def test_doc_records_deferred_graph_json_decision(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "graph.json" in doc
+        assert "build_graph.py" in doc
+        assert "Deferred" in doc

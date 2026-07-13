@@ -142,6 +142,35 @@ degrading silently, because MCP callers can choose another tool.)
 - **Custom daemon URL:** set `PARMEM_MCP_URL` (it passes through to child
   processes via parsidion's safe-env allowlist).
 
+## Graph & Visualization
+
+Once the vault is indexed, par-mem's built-in real-time 3D visualizer works
+over it with **zero parsidion changes**:
+
+```bash
+par-mem ui        # prints/opens the daemon's UI endpoint
+```
+
+The visualizer renders the vault as a force-directed 3D knowledge graph —
+notes as heading-section document nodes, `[[wikilinks]]` / `related:` /
+`sources:` frontmatter and in-body markdown links as edges — with live
+updates while a `par-mem watch` hold is active (parsidion's SessionStart
+hook holds one automatically). It complements, rather than replaces,
+parsidion's own Sigma.js visualizer (see [docs/VISUALIZER.md](VISUALIZER.md)).
+
+**Parsidion's `graph.json` stays local.** The Sigma.js visualizer's
+`graph.json` build (`build_graph.py`) keeps using `embeddings.db` for its
+semantic-similarity edges — which independence preserves anyway — and
+parsidion-derived wiki edges for structure.
+
+**Deferred decision (revisit with evidence):** optionally merging par-mem's
+in-body markdown-link edges — which parsidion's `related:`-frontmatter-only
+wiki edges miss — into `graph.json` as `kind: "wiki"` edges. Deferred
+because it would add a par-mem read dependency to `build_graph.py` for a
+cosmetic gain; if body-link coverage proves valuable, the enrichment belongs
+in `build_graph.py` behind the same `resolve_parmem_backend()` gate with a
+silent skip when par-mem is absent.
+
 ## Related Documentation
 
 - [README.md](../README.md) — project overview and optional external tools
