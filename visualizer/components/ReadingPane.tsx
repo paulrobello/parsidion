@@ -30,9 +30,11 @@ interface Props {
   refreshTrigger?: number
   /** Whether this pane is currently visible (not hidden behind graph view) — gates the ⌘E shortcut. */
   visible?: boolean
+  /** Stems wiki-linked to this note (undirected; from graph.json edges). */
+  linkedStems?: string[]
 }
 
-export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0, visible = true }: Props) {
+export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0, visible = true, linkedStems = [] }: Props) {
   const [content, setContent] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -234,6 +236,11 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     while ((m = re.exec(relatedLine[1])) !== null) stems.push(m[1])
     return [...new Set(stems)]
   })()
+  // Not a useMemo: this runs after the early `if (!node)` return above, so a
+  // hook here would be called conditionally, violating Rules of Hooks. It's a
+  // plain derived const like relatedStems/displayContent below it.
+  const relatedSet = new Set(relatedStems)
+  const linkedOnly = linkedStems.filter(s => !relatedSet.has(s) && s !== node.id)
 
   const displayContent = content
     .replace(/^---[\s\S]*?---\n/, '')
@@ -510,6 +517,32 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
             }}>Related</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {relatedStems.map(stem => (
+                <span
+                  key={stem}
+                  className="wikilink"
+                  onClick={(e) => handleWikilink(stem, e)}
+                  style={{ fontSize: 12 }}
+                >
+                  {stem}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isPending && !error && linkedOnly.length > 0 && (
+          <div style={{
+            marginBottom: 16, padding: '8px 12px',
+            background: 'rgba(0,255,200,0.05)',
+            border: '1px solid rgba(0,255,200,0.12)',
+            borderRadius: 6,
+          }}>
+            <div style={{
+              fontSize: 9, fontFamily: "'Oxanium', sans-serif", color: '#6b7a99',
+              textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
+            }}>Linked Notes ({linkedOnly.length})</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {linkedOnly.map(stem => (
                 <span
                   key={stem}
                   className="wikilink"

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { loadGraphData } from '@/lib/graph'
 import type { GraphData, NoteNode } from '@/lib/graph'
+import { computeLinkedStems } from '@/lib/linkedNotes'
 import type { GraphCanvasHandle } from '@/components/GraphCanvas'
 import { useVisualizerState } from '@/lib/useVisualizerState'
 import { useVaultFiles } from '@/lib/useVaultFiles'
@@ -130,6 +131,11 @@ export default function Home() {
       mtime: 0,
     }
   }, [state.activeNode, state.activeTab, vaultFileMap, vaultFileByPath, selectedVaultPath])
+
+  const linkedStems = useMemo(
+    () => (graphData && activeNode ? computeLinkedStems(graphData.edges, activeNode.id) : []),
+    [graphData, activeNode],
+  )
 
   // Auto-collapse sidebar on narrow viewports
   useEffect(() => {
@@ -368,6 +374,7 @@ export default function Home() {
                       nodes={graphData.nodes}
                       refreshTrigger={noteRefreshTrigger}
                       visible={state.viewMode === 'read'}
+                      linkedStems={linkedStems}
                     />
                   </div>
 
@@ -492,6 +499,7 @@ export default function Home() {
                       onNodeColorModeChange={state.setNodeColorMode}
                       nodeSizeComputing={state.nodeSizeComputing}
                       graphStats={state.graphStats}
+                      parmemBodyLinks={graphData.meta.parmem_body_links ?? null}
                     />
                   </div>
                 </>

@@ -22,6 +22,8 @@ export interface GraphData {
     note_count: number
     edge_count: number
     min_semantic_threshold: number
+    /** Wiki edges contributed by par-mem body-link enrichment; absent when the enrichment was skipped or added nothing. */
+    parmem_body_links?: number
   }
   nodes: NoteNode[]
   edges: GraphEdge[]
