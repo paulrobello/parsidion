@@ -34,6 +34,16 @@ class TestParMemDoc:
         ):
             assert token in doc, f"missing {token!r} in docs/PAR-MEM.md"
 
+    def test_doc_pins_requirements_section(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "## Requirements" in doc
+        for subcommand in ("repos", "watch", "unwatch"):
+            assert f"`{subcommand}`" in doc, (
+                f"missing subcommand {subcommand!r} in docs/PAR-MEM.md"
+            )
+        assert "spec 15" in doc
+        assert "par-mem repos --json" in doc
+
     def test_doc_states_score_semantics(self) -> None:
         doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
         assert "min_score" in doc

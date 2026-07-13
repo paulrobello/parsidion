@@ -29,13 +29,13 @@ as optional external CLIs.
 
 parsidion's integration talks to par-mem exclusively through its **CLI
 daemon-proxy surface** — the `repos`/`watch`/`unwatch` subcommands and
-daemon-proxied `find-code --json` — which requires a par-mem build from
-**2026-07 or later**. A stock older par-mem binary fails gracefully: every
-probe or subprocess call errors or exits nonzero, so parsidion falls
-straight back to embeddings, but the integration provides no benefit until
-par-mem is updated. There is no partial/degraded proxy mode to opt into —
-either the daemon-proxy surface is present, or par-mem is treated as
-unavailable.
+daemon-proxied `find-code --json` — which requires a par-mem build with
+**spec 15 (CLI daemon-proxy) merged — 2026-07 or later**. A stock older
+par-mem binary fails gracefully: every probe or subprocess call errors or
+exits nonzero, so parsidion falls straight back to embeddings, but the
+integration provides no benefit until par-mem is updated. There is no
+partial/degraded proxy mode to opt into — either the daemon-proxy surface
+is present, or par-mem is treated as unavailable.
 
 ## Installation
 
@@ -137,8 +137,10 @@ degrading silently, because MCP callers can choose another tool.)
   (NDJSON progress events and watch/unwatch output).
 - **Backend failures:** logged to `<vault>/hook_events.log` as
   `"hook": "ParMemBackend"` entries (`vault-stats --hooks 20` surfaces them).
-- **CLI exit codes:** 0 ok, 1 failed, 2 daemon-unreachable, 4 wait-timeout.
-  parsidion treats every nonzero exit as "fall back to embeddings".
+- **CLI exit codes:** 0 ok, 1 failed, 2 daemon-unreachable, 3 owner-lock
+  conflict (`par-mem index` run without the daemon while another process
+  owns the store), 4 wait-timeout. parsidion treats every nonzero exit as
+  "fall back to embeddings".
 - **Custom daemon URL:** set `PARMEM_MCP_URL` (it passes through to child
   processes via parsidion's safe-env allowlist).
 
