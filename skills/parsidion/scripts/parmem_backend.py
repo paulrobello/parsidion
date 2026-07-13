@@ -11,8 +11,13 @@ their embeddings/metadata fallback paths. Stdlib only. See docs/PAR-MEM.md.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import signal
+import sqlite3
+import subprocess
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -109,3 +114,306 @@ def resolve_parmem_backend(vault: Path | None = None) -> bool:
     health check), so an absent par-mem costs nothing after the first call.
     """
     return _resolve_binary(vault) is not None
+
+
+# Generated vault index files that are indexed by par-mem but are not notes.
+_GENERATED_NOTE_NAMES = frozenset({"CLAUDE.md", "TAGS.md", "MANIFEST.md"})
+
+
+def _log_event(vault: Path, action: str, detail: str, started: float) -> None:
+    """Best-effort failure log via write_hook_event; never raises.
+
+    Entries land in ``<vault>/hook_events.log`` with ``hook="ParMemBackend"``
+    so `vault-stats --hooks N` surfaces backend failures.
+    """
+    try:
+        vault_common.write_hook_event(
+            hook="ParMemBackend",
+            project=vault.name,
+            duration_ms=(time.monotonic() - started) * 1000,
+            vault=vault,
+            action=action,
+            detail=detail,
+        )
+    except Exception:  # noqa: BLE001 — logging must never raise
+        pass
+
+
+def _run_parmem(
+    cli_args: list[str],
+    *,
+    cwd: Path,
+    timeout: float,
+    vault: Path | None,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run the par-mem CLI; None on launch failure or timeout.
+
+    Uses a new session + process-group kill on timeout (the ai_backend
+    discipline) so a hung daemon proxy can never orphan children.
+    """
+    binary = _resolve_binary(vault)
+    if binary is None:
+        return None
+    cmd = [binary, *cli_args]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(cwd),
+            env=vault_common.env_without_claudecode(vault=vault),
+            start_new_session=True,
+        )
+    except OSError:
+        return None
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            pgid = os.getpgid(proc.pid)
+        except (ProcessLookupError, OSError):
+            pgid = proc.pid
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pgid, sig)
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return None
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return None
+    return subprocess.CompletedProcess(
+        cmd,
+        proc.returncode if proc.returncode is not None else 0,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
+def find_code_raw(
+    query: str,
+    top_k: int = 10,
+    cwd: Path | None = None,
+    timeout: float | None = None,
+    vault: Path | None = None,
+) -> list[dict[str, Any]] | None:
+    """Run ``par-mem find-code <query> --json --limit <top_k>`` with cwd=*cwd*.
+
+    Returns the MCP find_code ``results`` array verbatim (items carry a
+    repo-relative ``file_path`` and an RRF ``score`` that may be null), or
+    None on any failure: backend unavailable, launch failure, timeout,
+    nonzero exit, or unparseable output. Failures (other than plain
+    unavailability) are logged via ``write_hook_event``. Never raises.
+    """
+    try:
+        vault = vault or vault_common.resolve_vault()
+        cwd = cwd or vault
+        if not query.strip():
+            return None
+        if _resolve_binary(vault) is None:
+            return None
+        eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
+        started = time.monotonic()
+        result = _run_parmem(
+            ["find-code", query, "--json", "--limit", str(top_k)],
+            cwd=cwd,
+            timeout=eff_timeout,
+            vault=vault,
+        )
+        if result is None:
+            _log_event(vault, "find-code", "spawn-or-timeout", started)
+            return None
+        if result.returncode != 0:
+            _log_event(vault, "find-code", f"exit:{result.returncode}", started)
+            return None
+        try:
+            payload = json.loads(result.stdout)
+        except (json.JSONDecodeError, ValueError):
+            _log_event(vault, "find-code", "bad-json", started)
+            return None
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            _log_event(vault, "find-code", "missing-results", started)
+            return None
+        return [hit for hit in results if isinstance(hit, dict)]
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return None
+
+
+def _load_note_index_rows(
+    stems: list[str], vault: Path
+) -> dict[str, dict[str, Any]] | None:
+    """Fetch note_index rows for *stems*; None when the DB/table is absent.
+
+    SECURITY: the IN clause is built only from ``?`` placeholders — every
+    value is a bound parameter; no identifiers derive from external input.
+    """
+    if not stems:
+        return {}
+    db_path = vault_common.get_embeddings_db_path(vault)
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        conn.row_factory = sqlite3.Row
+        if (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+            ).fetchone()
+            is None
+        ):
+            return None
+        placeholders = ",".join("?" for _ in stems)
+        rows = conn.execute(
+            f"SELECT stem, path, folder, title, summary, tags, note_type, project, "
+            f"confidence, mtime, related, is_stale, incoming_links "
+            f"FROM note_index WHERE stem IN ({placeholders})",
+            list(stems),
+        ).fetchall()
+        return {str(row["stem"]): dict(row) for row in rows}
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
+def _decayed_score(score: float, mtime: object, vault: Path) -> float:
+    """Apply parsidion's temporal decay when enabled and mtime is known.
+
+    Reuses ``vault_search._apply_decay`` (lazy import: vault_search imports
+    this module at its top level, so a top-level import here would cycle).
+    """
+    if _config_value("embeddings", "decay_enabled", True, vault=vault) is not True:
+        return score
+    if not isinstance(mtime, (int, float)) or not mtime:
+        return score
+    import vault_search  # lazy — see docstring
+
+    return vault_search._apply_decay(score, float(mtime), time.time())
+
+
+def _result_from_index_row(row: dict[str, Any], score: float) -> dict[str, object]:
+    """Build an embeddings-shape result dict from a note_index row."""
+    tags_str = str(row.get("tags") or "")
+    related_str = str(row.get("related") or "")
+    return {
+        "score": round(float(score), 4),
+        "stem": row.get("stem", ""),
+        "title": row.get("title", ""),
+        "folder": row.get("folder", ""),
+        "tags": [t.strip() for t in tags_str.split(",") if t.strip()],
+        "path": row.get("path", ""),
+        "summary": row.get("summary", ""),
+        "note_type": row.get("note_type", ""),
+        "project": row.get("project", ""),
+        "confidence": row.get("confidence", ""),
+        "mtime": row.get("mtime"),
+        "related": [r.strip() for r in related_str.split(",") if r.strip()],
+        "is_stale": bool(row.get("is_stale", 0)),
+        "incoming_links": row.get("incoming_links", 0),
+    }
+
+
+def _result_from_path(
+    note_path: Path, vault: Path, score: float, mtime: float | None
+) -> dict[str, object]:
+    """Build a minimal embeddings-shape result dict straight from a file.
+
+    Used only when note_index is absent (embeddings-disabled vault); mirrors
+    vault_search._get_all_notes_as_results' file-walk fallback shape.
+    """
+    folder = note_path.parent.name if note_path.parent != vault else ""
+    return {
+        "score": round(float(score), 4),
+        "stem": note_path.stem,
+        "title": note_path.stem.replace("-", " ").title(),
+        "folder": folder,
+        "tags": [],
+        "path": str(note_path),
+        "summary": "",
+        "note_type": "",
+        "project": "",
+        "confidence": "",
+        "mtime": mtime,
+        "related": [],
+        "is_stale": False,
+        "incoming_links": 0,
+    }
+
+
+def parmem_search(
+    query: str,
+    top_k: int = 10,
+    vault: Path | None = None,
+    timeout: float | None = None,
+) -> list[dict[str, object]] | None:
+    """Vault semantic search served by par-mem's hybrid retrieval.
+
+    Runs ``find-code`` over the indexed vault (over-fetching 3x *top_k*
+    because par-mem returns heading-section hits, several per note),
+    aggregates to one row per note (max RRF score; a null score ranks
+    lowest, as 0.0), enriches metadata from note_index (no extra
+    round-trips), applies parsidion's temporal decay, and returns dicts
+    shaped exactly like vault_search.search()'s embeddings results.
+    ``min_score`` deliberately does NOT apply — RRF scores are rank-fusion
+    values, not cosines. Returns None on any failure so the caller falls
+    back to embeddings. Never raises.
+    """
+    try:
+        vault = vault or vault_common.resolve_vault()
+        hits = find_code_raw(
+            query, top_k=top_k * 3, cwd=vault, timeout=timeout, vault=vault
+        )
+        if hits is None:
+            return None
+        best: dict[str, tuple[float, str]] = {}
+        for hit in hits:
+            rel = hit.get("file_path")
+            raw_score = hit.get("score")
+            if not isinstance(rel, str) or not rel.lower().endswith(".md"):
+                continue
+            if raw_score is None:
+                score = 0.0  # verified contract: null score ranks lowest
+            elif isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
+                continue
+            else:
+                score = float(raw_score)
+            stem = Path(rel).stem
+            prev = best.get(stem)
+            if prev is None or score > prev[0]:
+                best[stem] = (score, rel)
+        if not best:
+            return []
+        index_rows = _load_note_index_rows(list(best.keys()), vault)
+        scored: list[tuple[float, dict[str, object]]] = []
+        for stem, (raw_score, rel) in best.items():
+            if index_rows is not None:
+                row = index_rows.get(stem)
+                if row is None:
+                    continue  # not a vault note (MANIFEST.md, TAGS.md, ...)
+                final = _decayed_score(raw_score, row.get("mtime"), vault)
+                scored.append((final, _result_from_index_row(row, final)))
+            else:
+                note_path = vault / rel
+                if note_path.name in _GENERATED_NOTE_NAMES or not note_path.is_file():
+                    continue
+                try:
+                    file_mtime: float | None = note_path.stat().st_mtime
+                except OSError:
+                    file_mtime = None
+                final = _decayed_score(raw_score, file_mtime, vault)
+                scored.append(
+                    (final, _result_from_path(note_path, vault, final, file_mtime))
+                )
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [entry for _, entry in scored[:top_k]]
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return None
