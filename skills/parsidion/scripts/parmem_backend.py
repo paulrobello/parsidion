@@ -222,7 +222,13 @@ def find_code_raw(
     timeout: float | None = None,
     vault: Path | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Run ``par-mem find-code <query> --json --limit <top_k>`` with cwd=*cwd*.
+    """Run ``par-mem find-code <query> --json --diagnostics --limit <top_k>``.
+
+    ``--diagnostics`` asks the daemon for per-result RRF scores (without it,
+    ``score`` is null on every result). An older par-mem binary that
+    predates the flag rejects it and exits nonzero, which falls through the
+    existing failure path below (logged, returns None) — the documented
+    graceful degradation.
 
     Returns the MCP find_code ``results`` array verbatim (items carry a
     repo-relative ``file_path`` and an RRF ``score`` that may be null), or
@@ -242,7 +248,7 @@ def find_code_raw(
         eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
         started = time.monotonic()
         reason, result = _run_parmem(
-            ["find-code", query, "--json", "--limit", str(top_k)],
+            ["find-code", query, "--json", "--diagnostics", "--limit", str(top_k)],
             cwd=cwd,
             timeout=eff_timeout,
             vault=vault,
@@ -391,10 +397,13 @@ def parmem_search(
 ) -> list[dict[str, object]] | None:
     """Vault semantic search served by par-mem's hybrid retrieval.
 
-    Runs ``find-code`` over the indexed vault (over-fetching 3x *top_k*
-    because par-mem returns heading-section hits, several per note),
-    aggregates to one row per note (max RRF score; a null score ranks
-    lowest, as 0.0), enriches metadata from note_index (no extra
+    Runs ``find-code --diagnostics`` over the indexed vault (over-fetching
+    3x *top_k* because par-mem returns heading-section hits, several per
+    note), aggregates to one row per note (max score per hit — a hit's own
+    RRF score when present, else a rank-preserving synthetic value derived
+    from its position in par-mem's response, so a score-less hit still
+    contributes its relevance order through aggregation/decay/sort instead
+    of collapsing to a tie), enriches metadata from note_index (no extra
     round-trips), applies parsidion's temporal decay, and returns dicts
     shaped exactly like vault_search.search()'s embeddings results.
     ``min_score`` deliberately does NOT apply — RRF scores are rank-fusion
@@ -409,13 +418,19 @@ def parmem_search(
         if hits is None:
             return None
         best: dict[str, tuple[float, str]] = {}
-        for hit in hits:
+        for idx, hit in enumerate(hits):
             rel = hit.get("file_path")
             raw_score = hit.get("score")
             if not isinstance(rel, str) or not rel.lower().endswith(".md"):
                 continue
             if raw_score is None:
-                score = 0.0  # verified contract: null score ranks lowest
+                # Rank-preserving fallback: a hit without a score (older
+                # daemon predating --diagnostics, or a lane that omits one)
+                # still carries relevance information in its position in
+                # par-mem's response — synthesize from that instead of
+                # flooring to 0.0, so aggregation/decay/sort don't collapse
+                # score-less hits into an arbitrary tie.
+                score = 1.0 / (1.0 + idx)
             elif isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
                 continue
             else:

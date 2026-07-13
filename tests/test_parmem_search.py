@@ -133,7 +133,14 @@ class TestFindCodeRaw:
         result = parmem_backend.find_code_raw("where is foo", top_k=7, cwd=tmp_vault)
         assert result == items
         call = ready.wait_for_call("find-code")
-        assert call["argv"] == ["find-code", "where is foo", "--json", "--limit", "7"]
+        assert call["argv"] == [
+            "find-code",
+            "where is foo",
+            "--json",
+            "--diagnostics",
+            "--limit",
+            "7",
+        ]
         assert Path(str(call["cwd"])).resolve() == tmp_vault.resolve()
 
     def test_unavailable_backend_returns_none(
@@ -263,31 +270,65 @@ class TestParmemSearchMapping:
         assert results is not None
         assert [r["stem"] for r in results] == ["real-note"]
 
-    def test_skips_non_markdown_and_null_score_ranks_lowest(
+    def test_skips_non_markdown_and_null_score_gets_rank_preserving_fallback(
         self, tmp_vault: Path, ready: FakeParMem
     ) -> None:
-        # Verified contract: `score` may be null — treat null as lowest, not
-        # as a reason to drop the hit. Non-.md hits are still skipped.
+        # Verified contract: `score` may be null — a null score is NOT
+        # floored to 0.0 (that would let any note with even a tiny real
+        # score leapfrog a note par-mem actually ranked higher but returned
+        # without diagnostics). Instead it gets a synthetic value from its
+        # position in par-mem's response (earlier position, higher value).
+        # Non-.md hits are still skipped, and a real score wins outright
+        # when it beats every synthetic value in play.
         _make_note_index(tmp_vault)
-        _insert_note(tmp_vault, stem="real-note")
-        _insert_note(tmp_vault, stem="null-note")
+        _insert_note(tmp_vault, stem="scored-note")
+        _insert_note(tmp_vault, stem="first-note")
+        _insert_note(tmp_vault, stem="second-note")
         ready.configure(
             find_code={
                 "results": [
-                    {"file_path": "config.yaml", "score": 0.9},
-                    {"file_path": "Patterns/null-note.md", "score": None},
-                    {"file_path": "Patterns/real-note.md", "score": None},
-                    {"file_path": "Patterns/real-note.md", "score": 0.04},
+                    {"file_path": "config.yaml", "score": 0.9},  # not .md, skipped
+                    {"file_path": "Patterns/scored-note.md", "score": 0.6},
+                    {"file_path": "Patterns/first-note.md", "score": None},
+                    {"file_path": "Patterns/second-note.md", "score": None},
                 ]
             }
         )
         results = parmem_backend.parmem_search("q", vault=tmp_vault)
         assert results is not None
-        # Max aggregation: real-note's 0.04 beats its own null (0.0); the
-        # null-only note survives with score 0.0 and sorts last.
-        assert [r["stem"] for r in results] == ["real-note", "null-note"]
-        assert results[0]["score"] == pytest.approx(0.04)
-        assert results[1]["score"] == pytest.approx(0.0)
+        assert [r["stem"] for r in results] == [
+            "scored-note",
+            "first-note",
+            "second-note",
+        ]
+        assert results[0]["score"] == pytest.approx(0.6)
+        assert results[1]["score"] == pytest.approx(1 / 3, abs=1e-4)  # idx 2: 1/(1+2)
+        assert results[2]["score"] == pytest.approx(0.25)  # idx 3: 1/(1+3)
+
+    def test_rank_preserving_fallback_beats_null_floor_to_zero(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
+        # Regression for the live-verified bug: flooring a null score to
+        # 0.0 let ANY note with a nonzero real score outrank a note par-mem
+        # actually ranked first but returned with no score — inverting
+        # relevance order. Crafted mtimes rule out decay/recency as an
+        # alternative explanation for the (correct) result order.
+        _write_config(tmp_vault, "")  # decay enabled (default)
+        _make_note_index(tmp_vault)
+        now = time.time()
+        _insert_note(tmp_vault, stem="top-note", mtime=now - 1 * 86400.0)
+        _insert_note(tmp_vault, stem="weak-note", mtime=now - 400 * 86400.0)
+        ready.configure(
+            find_code={
+                "results": [
+                    {"file_path": "Patterns/top-note.md", "score": None},
+                    {"file_path": "Patterns/weak-note.md", "score": 0.001},
+                ]
+            }
+        )
+        results = parmem_backend.parmem_search("q", vault=tmp_vault)
+        assert results is not None
+        assert [r["stem"] for r in results] == ["top-note", "weak-note"]
 
     def test_empty_results_returns_empty_list(
         self, tmp_vault: Path, ready: FakeParMem

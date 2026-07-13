@@ -81,6 +81,9 @@ values, typically small (≈0.01–0.10), NOT cosine similarities. The
 `embeddings.min_score` config knob therefore applies to the
 **embeddings backend only**; par-mem results gate by rank and `top_k`.
 Temporal decay (`embeddings.decay_*`) applies to both backends identically.
+parsidion requests per-result RRF scores via `find-code --diagnostics`;
+without them (older par-mem), ordering falls back to par-mem's returned
+rank.
 
 ## Index freshness
 
