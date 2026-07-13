@@ -144,7 +144,7 @@ export function Toolbar({
         >
           +
         </button>
-        <UnifiedSearch nodes={nodes} onSelect={onSearchSelect} />
+        <UnifiedSearch nodes={nodes} vault={selectedVault} onSelect={onSearchSelect} />
       </div>
     </div>
   )
