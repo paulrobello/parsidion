@@ -19,3 +19,44 @@ class TestVaultExplorerBridge:
         assert "Never treat par-mem absence" in agent
         # Hits merge into the standard sections.
         assert "## Answer" in agent and "## Sources" in agent
+
+
+class TestParMemDoc:
+    def test_doc_exists_and_covers_config_keys(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        for token in (
+            "par_mem:",
+            "enabled",
+            "binary",
+            "timeout_s",
+            "backend: auto",
+            "PARMEM_MCP_URL",
+        ):
+            assert token in doc, f"missing {token!r} in docs/PAR-MEM.md"
+
+    def test_doc_states_score_semantics(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "min_score" in doc
+        assert "embeddings backend only" in doc
+
+    def test_doc_carries_full_degradation_matrix(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        for row in (
+            "par_mem.enabled: false",
+            "binary missing / health probe fails",
+            "vault not yet indexed",
+            "subprocess timeout / nonzero exit / garbage JSON",
+            "par-mem index job fails server-side",
+            "par-mem AND embeddings both unavailable",
+        ):
+            assert row in doc, f"degradation row missing: {row!r}"
+
+    def test_doc_has_troubleshooting(self) -> None:
+        doc = (REPO_ROOT / "docs" / "PAR-MEM.md").read_text(encoding="utf-8")
+        assert "## Troubleshooting" in doc
+        assert "parsidion-parmem.log" in doc
+        assert "hook_events.log" in doc
+
+    def test_readme_mentions_par_mem(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        assert "docs/PAR-MEM.md" in readme

@@ -45,6 +45,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
 - **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server; used by the research agent as a fallback search gateway (see [docs/MCPL.md](docs/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
+- **[par-mem](https://github.com/paulrobello/par-mem)** (optional) -- Rust code-memory daemon; when installed, vault semantic search upgrades to hybrid BM25+vector+graph retrieval with silent fallback to local embeddings, and agents gain a cross-repo code-memory bridge (see [docs/PAR-MEM.md](docs/PAR-MEM.md))
 
 > **Platform support:** Works on macOS, Linux, and Windows. On Windows, the installer gracefully falls back from symlinks to directory copies when elevated privileges are unavailable.
 
@@ -1055,6 +1056,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 - [docs/EMBEDDINGS.md](docs/EMBEDDINGS.md) -- Semantic search setup, embeddings database, and evaluation
 - [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md) -- Evaluation harness for benchmarking embedding models and chunking strategies
 - [docs/MCPL.md](docs/MCPL.md) -- MCP Launchpad CLI: installation, configuration, and integration with Claude Code
+- [docs/PAR-MEM.md](docs/PAR-MEM.md) -- par-mem code-memory backend: optional hybrid vault search, code-memory bridge, and 3D vault visualization
 - [docs/AGENTCHROME.md](docs/AGENTCHROME.md) -- AgentChrome browser control CLI: installation, capabilities, and integration with the research agent
 - [docs/VISUALIZER.md](docs/VISUALIZER.md) -- Vault Visualizer: architecture, graph engine, data model, and configuration
 - [docs/DOCUMENTATION_STYLE_GUIDE.md](docs/DOCUMENTATION_STYLE_GUIDE.md) -- Documentation standards for this project
