@@ -21,7 +21,6 @@ ideas.md
 .DS_Store
 .pi/extensions/discord-relay/state.json
 docs/superpowers/
-graphify-out/
 .claude/worktrees/
 
 # parsidion trigger-eval output (regenerated each eval run)
