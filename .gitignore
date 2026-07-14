@@ -26,3 +26,6 @@ docs/superpowers/
 # parsidion trigger-eval output (regenerated each eval run)
 skills/parsidion/eval_results.json
 visualizer/docs/superpowers/
+
+# graphify code-graph generator output (regenerated each run)
+graphify-out/
