@@ -124,12 +124,13 @@ uv run install.py disconnect codex    # remove Codex CLI integration
 | `--skip-agent` | Do not install any agents |
 | `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml`, uses the configured prompt AI backend, and sets SessionStart timeout to 30 s |
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
-| `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, and `vault-merge` as global CLI commands via `uv tool install` |
+| `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, and `vault-conflicts` as global CLI commands via `uv tool install` |
 | `--schedule-summarizer` | Generate a launchd plist (macOS) or cron job (Linux) for nightly auto-summarization |
 | `--summarizer-hour N` | Hour (0-23) for the scheduled summarizer job (default: 3) |
 | `--rebuild-graph` | Add `--rebuild-graph` to the scheduled command so `graph.json` is regenerated each night (default: on; use with `--schedule-summarizer`) |
 | `--no-rebuild-graph` | Disable graph rebuild in the scheduled summarizer |
 | `--graph-include-daily` | Include Daily folder notes in the nightly graph rebuild (use with `--rebuild-graph`) |
+| `--vault-username NAME` | Username suffix for per-user daily notes (`Daily/YYYY-MM/DD-{username}.md`); written to `vault.username` in `config.yaml` so it persists across sessions. Defaults to `$USER` when not set. The interactive installer prompts for this |
 | `--create-vaults-config` | Create `~/.config/parsidion/vaults.yaml` for multi-vault support (see [Multi-Vault Support](#multi-vault-support)) |
 | `--migrate-vault` | Rename legacy `~/ClaudeVault` to `~/ParsidionVault` and leave `~/ClaudeVault` as a compatibility symlink |
 | `--no-legacy-vault-symlink` | With `--migrate-vault`, skip creating the compatibility symlink |
@@ -163,7 +164,7 @@ Gemini runtime hooks are separate from prompt AI backend selection. `--runtime g
 
 During interactive installation, the installer prompts for three optional features:
 
-1. **"Install CLI tools?"** (default: yes) — runs `uv tool install --editable ".[tools]"` to register `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, and `vault-merge` as global commands. Use `--install-tools` to enable this non-interactively (e.g. with `--yes`).
+1. **"Install CLI tools?"** (default: yes) — runs `uv tool install --editable ".[tools]"` to register `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, and `vault-conflicts` as global commands. Use `--install-tools` to enable this non-interactively (e.g. with `--yes`).
 2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml` and sets the SessionStart hook timeout to 30 s, enabling the configured prompt AI backend to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`).
 3. **"Enable embeddings?"** (default: yes) — writes `embeddings.enabled = true` to `config.yaml`, enabling the vector index used by `vault-search` semantic mode and `session_start_hook` with `use_embeddings`. Requires ~67 MB model download on first run. Use `--enable-embeddings` to enable this non-interactively (e.g. with `--yes`).
 
@@ -301,6 +302,10 @@ Technical research agent that searches the vault first, conducts web research, a
 ### Vault Deduplicator Agent (`~/.claude/agents/vault-deduplicator.md`)
 
 A Haiku-powered agent that scans the vault for near-duplicate note pairs via `vault-merge --scan`, batches them into parallel subagents for evaluation and merging with `--no-index`, and runs one final index rebuild. See [CHANGELOG.md](CHANGELOG.md) for details.
+
+### Project Explorer Agent (`~/.claude/agents/project-explorer.md`)
+
+A read-only agent dispatched when the user asks to explore, analyze, or document a project's architecture, features, and patterns for cross-project vault reference. It walks the target repo, summarizes the architecture and notable patterns, and saves a structured project note under `<resolved vault>/Projects/` so future sessions can recall what the project does without re-reading it.
 
 ### HTML to Markdown (`skills/parsidion/scripts/html-to-md.py`)
 
@@ -676,12 +681,12 @@ vault-new --type pattern --title "My Pattern" --vault personal
 # View stats for work vault
 vault-stats --summary --vault work
 
-# Run doctor on a specific vault
-vault-doctor --vault work --dry-run
+# Run doctor on a specific vault (script — not a global CLI)
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --vault work --dry-run
 
-# Build embeddings for a vault
-build_embeddings.py --vault work
-update_index.py --vault work
+# Build embeddings / rebuild index for a vault
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py --vault work
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault work
 ```
 
 ### Vault-Aware Tools
@@ -694,6 +699,7 @@ update_index.py --vault work
 | `vault-review` | ✅ |
 | `vault-export` | ✅ |
 | `vault-merge` | ✅ |
+| `vault-conflicts` | ✅ |
 | `vault-doctor` | ✅ |
 | `build_embeddings.py` | ✅ |
 | `update_index.py` | ✅ |

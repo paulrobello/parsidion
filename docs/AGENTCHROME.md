@@ -27,32 +27,33 @@ A fast native Rust CLI that lets AI coding agents control a Chrome or Chromium b
 
 ## Why AgentChrome
 
-The research agent and other web-fetching workflows in Parsidion use agentchrome to fetch and convert web pages into clean, noise-free markdown for LLM consumption. The built-in `agentchrome markdown` command handles conversion natively; the `dom get-html | html-to-md.py` pipeline remains available for custom post-processing.
+The research agent and other web-fetching workflows in Parsidion use agentchrome to fetch rendered HTML from JavaScript-heavy pages, then convert it to clean, noise-free markdown for LLM consumption. The primary pipeline runs `agentchrome dom get-html` output through `~/.claude/skills/parsidion/scripts/html-to-md.py`; the built-in `agentchrome markdown` command is an alternative that performs the conversion natively without a separate script.
 
 ```mermaid
 graph LR
     Agent[Research Agent]
-    MD[agentchrome markdown]
     AC[agentchrome dom get-html]
     H2M[html-to-md.py]
+    MD[agentchrome markdown]
     Vault[Vault Note]
 
-    Agent --> MD
-    MD --> Vault
-    Agent --> AC
+    Agent -->|primary| AC
     AC --> H2M
     H2M --> Vault
+    Agent -.->|alternative| MD
+    MD --> Vault
 
     class Agent external
-    class MD primary
     class AC primary
     class H2M data
+    class MD neutral
     class Vault active
 
     classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
     classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
     classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
 ```
 
 Without AgentChrome, the research agent falls back to `curl` or the built-in Claude Code Web Fetch tool, piping the raw HTML through `html-to-md.py` — which works but skips JavaScript rendering. AgentChrome returns the fully rendered DOM after JavaScript execution, which is essential for single-page applications and documentation sites that rely on client-side rendering.
@@ -142,7 +143,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 
 ### Research Agent Page Fetching
 
-The primary use case is fetching pages for the research agent. Connect once per session, then navigate and extract content:
+The primary use case is fetching pages for the research agent. Connect once per session, then navigate and extract content. The research agent itself uses the `html-to-md.py` pipeline below; the built-in `agentchrome markdown` command is shown as an alternative:
 
 ```bash
 # Connect once per research session (launch headless Chrome)
@@ -151,16 +152,14 @@ agentchrome connect --launch --headless
 # Navigate to a URL
 agentchrome navigate "https://example.com/docs" --wait-until networkidle
 
-# Option A: Built-in markdown conversion (no external script needed)
-agentchrome markdown --plain
-
-# Option B: Raw HTML piped through html-to-md.py for more control
+# Primary: Raw HTML piped through html-to-md.py (used by the research agent)
 agentchrome dom get-html "css:html" | uv run --script ~/.claude/skills/parsidion/scripts/html-to-md.py - --url "https://example.com/docs" > /tmp/page-content.md
+
+# Alternative: Built-in markdown conversion (no external script needed)
+agentchrome markdown --plain
 ```
 
-The built-in `agentchrome markdown` command handles HTML-to-Markdown conversion natively. For cases requiring custom post-processing (link stripping, image handling), the `dom get-html | html-to-md.py` pipeline remains available.
-
-The research agent (`~/.claude/agents/research-agent.md`) uses this pipeline automatically when agentchrome is available, falling back to `curl` otherwise.
+The research agent (`~/.claude/agents/research-agent.md`) runs the `dom get-html | html-to-md.py` pipeline automatically when agentchrome is available, falling back to `curl` piped through the same script otherwise. The `--url` flag improves relative-link resolution in the markdown output.
 
 ### Manual Page Inspection
 
@@ -186,7 +185,7 @@ agentchrome diagnose --current
 
 ### Built-in Markdown Conversion vs html-to-md.py
 
-AgentChrome v1.62+ includes a built-in `agentchrome markdown` command that handles HTML-to-Markdown conversion natively:
+AgentChrome includes a built-in `agentchrome markdown` command that handles HTML-to-Markdown conversion natively:
 
 ```bash
 # Built-in: convert the current browser page to Markdown
@@ -199,7 +198,7 @@ agentchrome markdown --url https://docs.example.com/api --plain
 cat page.html | agentchrome markdown --stdin --base-url https://docs.example.com/api --plain
 ```
 
-The `html-to-md.py` script remains available for cases requiring custom post-processing:
+The `html-to-md.py` script is what the research agent actually invokes. It is kept for its tighter control over noise stripping (navigation, banners, cookie notices, script/style blocks) and code-fence preservation:
 
 ```bash
 # Navigate then fetch and convert to markdown

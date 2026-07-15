@@ -894,7 +894,7 @@ For local (2-hop) view:
 | Tested vault size | 1000+ notes |
 | Semantic edges at 0.70 threshold | ~19,000 |
 | Rendering | WebGL via Sigma.js — ~1000 nodes at 60 fps |
-| Physics | Custom Newtonian loop, O(N²) per iteration (pairwise repulsion) with velocity tracking |
+| Physics | Custom Newtonian loop with velocity tracking; exact O(N²) pairwise repulsion up to 1000 visible nodes, approximate O(N) uniform-grid repulsion above that (`BARNES_HUT_THRESHOLD` in `lib/useForceLayout.ts`) |
 | Content loading | Cached per-tab after first fetch |
 
 ## Configuration
@@ -929,6 +929,7 @@ parsidion/
 │   │   ├── api/vault/events/route.ts    # SSE stream of file/create/modify/delete + graph:rebuilt (GET)
 │   │   ├── api/graph/route.ts           # Serve graph.json from vault (GET)
 │   │   ├── api/graph/rebuild/route.ts   # Trigger graph.json rebuild (POST)
+│   │   ├── api/search/route.ts          # Semantic vault search via vault_search.py (GET)
 │   │   ├── api/stats/route.ts           # Pending-summary count for VaultStats (GET)
 │   │   ├── api/summarize/route.ts       # Spawn the summarizer subprocess (POST, auth)
 │   │   └── api/summarizer/status/route.ts # Live summarizer run progress (GET)
@@ -964,6 +965,15 @@ parsidion/
 │   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side graph:rebuilt events
 │   │   ├── vaultStatsServer.ts       # Summarizer spawn/status + pending-summary counting (server-side)
 │   │   ├── graphDelta.ts             # Graph diff/merge helpers for incremental updates
+│   │   ├── graphDelta.test.ts        # Unit tests for graphDelta
+│   │   ├── linkedNotes.ts            # Wiki-edge "linked notes" computation (undirected, used by ReadingPane)
+│   │   ├── linkedNotes.test.ts       # Unit tests for linkedNotes
+│   │   ├── searchServer.ts           # Server-side vault_search.py subprocess runner (concurrency-capped)
+│   │   ├── searchServer.test.ts      # Unit tests for searchServer
+│   │   ├── semanticSearch.ts         # Client-side helper for GET /api/search
+│   │   ├── semanticSearch.test.ts    # Unit tests for semanticSearch
+│   │   ├── scriptResolver.ts         # Locate parsidion scripts (env override → installed → source repo)
+│   │   ├── scriptResolver.test.ts    # Unit tests for scriptResolver
 │   │   ├── apiAuth.ts                # Shared auth + same-origin guards for mutating/SSE routes
 │   │   ├── parseDiff.ts              # Client-side unified diff parser (DiffHunk, DiffLine)
 │   │   ├── parseDiff.test.ts         # Unit tests for parseDiff

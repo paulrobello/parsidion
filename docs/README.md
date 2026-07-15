@@ -24,6 +24,7 @@ below with its intended audience and purpose.
 | [MCP.md](MCP.md) | parsidion-mcp server: FastMCP-based MCP server that exposes vault read, write, search, and maintenance operations to Claude Desktop and MCP-capable clients. |
 | [AGENTCHROME.md](AGENTCHROME.md) | AgentChrome browser control CLI: installation, capabilities, and integration with the research agent for fetching fully-rendered pages. |
 | [MCPL.md](MCPL.md) | MCP Launchpad CLI: installation, configuration, and use as a fallback search gateway when the research agent exhausts other search options. |
+| [PAR-MEM.md](PAR-MEM.md) | Optional par-mem code-memory backend: when its daemon is running, vault semantic search is served by par-mem's hybrid BM25+vector+graph retrieval instead of the local embeddings pipeline, and a code-memory bridge is exposed to the vault-explorer agent and parsidion-mcp. |
 | [VISUALIZER.md](VISUALIZER.md) | Vault Visualizer: interactive web app for reading and graph-exploring vault notes — architecture, graph engine, data model, and configuration. |
 | [VAULT_SYNC.md](VAULT_SYNC.md) | Multi-machine vault sync: strategies, recommended git-based setup, post-merge hook, conflict handling, and troubleshooting. |
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
@@ -37,6 +38,7 @@ below with its intended audience and purpose.
 - **Evaluating which embedding model to use?** See [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md).
 - **Using the MCP server with Claude Desktop?** See [MCP.md](MCP.md).
 - **Sharing the vault across machines?** See [VAULT_SYNC.md](VAULT_SYNC.md).
+- **Using par-mem as the vault search backend?** See [PAR-MEM.md](PAR-MEM.md).
 - **Exploring the vault visually?** See [VISUALIZER.md](VISUALIZER.md).
 - **Writing or updating documentation?** Follow [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md).
 

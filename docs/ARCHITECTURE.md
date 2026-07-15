@@ -449,9 +449,10 @@ An on-demand diagnostic and repair tool that scans vault notes for structural is
 | `INVALID_DATE` | warning | `date` not in YYYY-MM-DD format |
 | `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field; repaired with semantic candidates from `vault-search` |
 | `BROKEN_WIKILINK` | warning | Link target not found in vault; auto-repaired via exact stem match or `vault-search` semantic lookup; removed if no match found |
+| `SELF_REF` | warning | Note's `related` field contains a wikilink to itself (skipped for daily notes) |
+| `HEADING_MISMATCH` | warning | No `# heading` in body; first `##` heading promoted to `#` when `--fix-headings` is enabled (default) |
 | `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
 | `PREFIX_CLUSTER` | info | 3+ flat notes share a common prefix and could be reorganized into a subfolder |
-| `MISSING_H1` | warning | No `# heading` in body; first `##` heading promoted to `#` when `--fix-headings` is enabled (default) |
 
 Daily notes are exempt from `confidence`, `related`, and orphan checks.
 
@@ -475,15 +476,18 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--fix-frontmatter` | off | Apply Claude-suggested frontmatter repairs |
-| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolders) |
+| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration); implies `--execute` |
 | `--fix-tags` | off | Detect and merge duplicate tags; use `--execute` to apply |
+| `--fix-sessions` | off | Detect notes sharing the same `session_id` and suggest consolidation (manual or via vault-deduplicator) |
 | `--fix-headings` | on | Promote first `##` to `#` when no `#` heading exists |
 | `--no-fix-headings` | — | Disable heading promotion |
 | `--strip-prefixes` | off | Strip redundant subfolder prefixes from filenames |
 | `--migrate-subfolders` | off | Detect prefix clusters; use `--execute` to move files |
-| `--execute` | off | Apply changes for `--migrate-subfolders` and `--fix-tags` |
+| `--migrate-daily-notes` | off | Rename legacy `Daily/YYYY-MM/DD.md` to `DD-{username}.md`; use `--execute` to apply |
+| `--daily-username` | `$USER` | Username suffix for `--migrate-daily-notes` (defaults to `vault.username` config, then `$USER`) |
+| `--execute` | off | Apply changes for `--migrate-subfolders`, `--fix-tags`, and `--migrate-daily-notes` |
 | `--jobs N` | `3` | Number of parallel repair workers |
-| `--timeout SECS` | `30` | Timeout per Claude repair call |
+| `--timeout SECS` | `120` | Timeout per Claude repair call |
 | `--limit N` | `0` | Max notes to repair (0 = unlimited) |
 | `--errors-only` | off | Only report/repair notes with errors (skip warnings) |
 | `--no-state` | off | Ignore state file and rescan all notes |
@@ -607,7 +611,7 @@ A Claude Code agent definition (runs on Haiku) that scans `~/ParsidionVault/` fo
 3. **Batch into parallel groups** — groups independent pairs (no shared stems) into batches of up to 5, dispatched as parallel subagents (Haiku); for each pair: reads both notes, evaluates overlap (same `session_id`, timestamped variant, body subset), executes `vault-merge NOTE_A NOTE_B --no-index --execute` if confirmed, or skips if content is genuinely distinct
 4. **Rebuild index** — after all subagents complete, runs `update_index.py` once
 
-**Default scan threshold:** `0.92` (higher than the `vault-merge --scan` default of `0.85` to avoid false positives).
+**Default scan threshold:** `0.92` (matches the `vault-merge --scan` default; the agent supplies it explicitly for deterministic results).
 
 **Relationship to other tools:** Delegates the actual merge and index operations to `vault-merge` and `update_index.py`. Preferred NOTE_A is the base name (no timestamp suffix) so it survives the merge.
 
@@ -727,6 +731,8 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 | `--type TYPE` | `-k` | Filter by `note_type` field |
 | `--project PROJECT` | `-p` | Filter by `project` field |
 | `--recent-days N` | `-d` | Notes modified within N days |
+| `--changed-since DATE` | `-c` | Notes modified on/after `YYYY-MM-DD` (file mtime) |
+| `--as-of DATE` | `-A` | Point-in-time view: notes whose frontmatter `date` is on/before `YYYY-MM-DD` |
 | `--limit N` | `-l` | Max results for metadata mode (default: 50) |
 
 **Semantic-mode flags:**
@@ -736,6 +742,7 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 | `--top N` | `-n` | Max results (default: `embeddings.top_k` in config) |
 | `--min-score F` | `-s` | Minimum cosine similarity threshold |
 | `--model ID` | `-m` | fastembed model ID |
+| `--backend` | `-B` | Backend override: `auto` (default), `par-mem`, `embeddings`, or `none` |
 
 **Environment variables** (`VAULT_SEARCH_*` prefix; precedence: CLI flag > env var > config.yaml > default):
 
@@ -849,7 +856,7 @@ Without `--execute`, prints the proposed merged content and exits. With `--execu
 
 **Scan usage:** `vault-merge --scan [--threshold SCORE] [--top N]`
 
-Scans all vault notes for near-duplicate pairs using embedding similarity. Reports candidate pairs above `--threshold` (default `0.85`), limited to `--top` pairs (default `10`).
+Scans all vault notes for near-duplicate pairs using embedding similarity. Reports candidate pairs above `--threshold` (default `0.92`), limited to `--top` pairs (default `50`).
 
 #### vault-conflicts
 
@@ -959,9 +966,9 @@ The `update_index.py` indexer and `summarize_sessions.py` summarizer both accept
 
 A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vault read, write, search, and maintenance operations to Claude Desktop and any MCP-capable client. Documented in detail in [MCP.md](MCP.md).
 
-**Purpose:** Claude Desktop has no native mechanism to access the vault. `parsidion-mcp` bridges this gap by running as a local stdio MCP server, wrapping `vault_common` and `vault_search` behind six MCP tools.
+**Purpose:** Claude Desktop has no native mechanism to access the vault. `parsidion-mcp` bridges this gap by running as a local stdio MCP server, wrapping `vault_common` and `vault_search` behind seven MCP tools.
 
-**Six tools exposed:**
+**Seven tools exposed:**
 
 | Tool | Description |
 |------|-------------|
@@ -971,6 +978,7 @@ A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vau
 | `vault_context` | Session-start-style context injection (compact index or full summaries) |
 | `rebuild_index` | Trigger `update_index.py` from within a conversation |
 | `vault_doctor` | Run vault health scan and automated repair |
+| `code_search` | Hybrid BM25+vector+graph code search via the par-mem backend |
 
 **Installation:**
 
@@ -1239,6 +1247,7 @@ parsidion/
 │   ├── test_vault_common.py
 │   ├── test_vault_dirs_sync.py
 │   ├── test_vault_search.py
+│   ├── test_vault_search_backend.py
 │   ├── test_vault_stats.py
 │   ├── test_vault_conflicts.py
 │   ├── test_vault_export.py
@@ -1258,6 +1267,7 @@ parsidion/
 │   ├── test_connect.py
 │   ├── test_summarize_sessions.py
 │   ├── test_vault_doctor.py
+│   ├── test_vault_doctor_fixes.py
 │   ├── test_atomic_write_fixes.py
 │   ├── test_config_local_overlay.py
 │   ├── test_dead_letter.py
@@ -1269,7 +1279,14 @@ parsidion/
 │   ├── test_parser_index_fixes.py
 │   ├── test_summarizer_queue_fixes.py
 │   ├── test_tui_fixes.py
-│   └── test_vault_doctor_fixes.py
+│   ├── test_build_graph_parmem.py
+│   ├── test_parmem_backend.py
+│   ├── test_parmem_docs.py
+│   ├── test_parmem_freshness.py
+│   ├── test_parmem_index.py
+│   ├── test_parmem_integration.py
+│   ├── test_parmem_search.py
+│   └── test_fake_parmem_fixture.py
 └── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
@@ -1291,6 +1308,7 @@ parsidion/
     │   ├── vault_conflicts.py       # CLI to detect contradictory notes (vault-conflicts)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli)
+    │   ├── parmem_backend.py        # Optional par-mem code-memory backend (availability probe + subprocess transport)
     │   ├── html-to-md.py            # HTML → clean markdown (PEP 723; used by research agent)
     │   ├── session_start_hook.py    # SessionStart hook
     │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
@@ -1441,6 +1459,7 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [EMBEDDINGS.md](EMBEDDINGS.md) - Embedding system: build pipeline, search, and evaluation
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) - Embedding search quality evaluation results
 - [MCPL.md](MCPL.md) - MCP Launchpad integration and usage
+- [PAR-MEM.md](PAR-MEM.md) - par-mem code-memory backend: configuration, score semantics, and degradation matrix
 - [VAULT_SYNC.md](VAULT_SYNC.md) - Multi-machine vault sync: git-based setup and conflict handling
 - [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) - Documentation formatting standards
 - [SKILL.md](../skills/parsidion/SKILL.md) - Vault philosophy, conventions, and anti-patterns

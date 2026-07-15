@@ -28,10 +28,11 @@ as optional external CLIs.
 
 ## Requirements
 
-parsidion's integration talks to par-mem exclusively through its **CLI
-daemon-proxy surface** — the `repos`/`watch`/`unwatch` subcommands and
-daemon-proxied `find-code --json` — which requires a par-mem build with
-**spec 15 (CLI daemon-proxy) merged — 2026-07 or later**. A stock older
+parsidion's integration talks to par-mem through its **CLI daemon-proxy
+surface** — the daemon-proxied `repos`/`watch`/`unwatch`/`find-code`/`doc-links`
+subcommands (plus the standalone `index` subcommand, which does not need the
+daemon) — which requires a par-mem build with **spec 15 (CLI daemon-proxy)
+merged — 2026-07 or later**. A stock older
 par-mem binary fails gracefully: every probe or subprocess call errors or
 exits nonzero, so parsidion falls straight back to embeddings, but the
 integration provides no benefit until par-mem is updated. There is no
@@ -82,8 +83,10 @@ values, typically small (≈0.01–0.10), NOT cosine similarities. The
 **embeddings backend only**; par-mem results gate by rank and `top_k`.
 Temporal decay (`embeddings.decay_*`) applies to both backends identically.
 parsidion requests per-result RRF scores via `find-code --diagnostics`;
-without them (older par-mem), ordering falls back to par-mem's returned
-rank.
+without them (older par-mem, or a lane that omits one) each scoreless hit
+gets a rank-preserving synthesized score (`1/(1+position)`) so it still
+flows through aggregation/decay/sort instead of collapsing to a tie — the
+final ordering therefore matches par-mem's returned rank.
 
 ## Index freshness
 
