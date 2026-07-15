@@ -124,27 +124,51 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 
-def read_last_n_lines(filepath: Path, n: int) -> list[str]:
-    """Read the last *n* lines of a file.
+def read_last_n_lines(
+    filepath: Path, n: int, max_bytes: int | None = None
+) -> list[str]:
+    """Read the last *n* lines of a file, optionally bounded by total bytes.
 
     Uses ``collections.deque(maxlen=n)`` to avoid loading the entire file
     into memory -- only the last *n* lines are retained.  See ARC-014.
 
+    When *max_bytes* is given, oldest lines are dropped until the retained
+    tail totals at most *max_bytes* (the most recent line is always kept).
+    This bounds transcripts whose few lines are individually huge -- e.g.
+    codex subagent rollouts whose 300-ish lines can total megabytes because
+    each line carries large tool outputs -- so downstream cleaning/chunking
+    does not explode.  See the ``transcript_tail_bytes`` summarizer config.
+
     Args:
         filepath: Path to the file.
         n: Number of trailing lines to return.
+        max_bytes: Optional ceiling on total bytes of returned lines.
 
     Returns:
-        A list of the last n lines (or fewer if the file is shorter).
+        A list of the last n lines (or fewer if the file is shorter, or if
+        truncated to fit *max_bytes*).
     """
     from collections import deque
 
     try:
         with open(filepath, encoding="utf-8", errors="replace") as f:
             tail = deque(f, maxlen=n)
-        return list(tail)
     except (OSError, UnicodeDecodeError):
         return []
+
+    lines = list(tail)
+    if not max_bytes or max_bytes <= 0:
+        return lines
+
+    # Drop oldest lines until the retained tail fits the byte budget; always
+    # keep the most recent line so a single over-budget line is not lost.
+    sizes = [len(ln.encode("utf-8", "replace")) for ln in lines]
+    total = sum(sizes)
+    start = 0
+    while len(lines) - start > 1 and total > max_bytes:
+        total -= sizes[start]
+        start += 1
+    return lines[start:]
 
 
 def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:

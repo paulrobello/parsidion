@@ -175,6 +175,10 @@ def _clear_progress() -> None:
 
 _DEFAULT_MAX_PARALLEL = 5
 _DEFAULT_TRANSCRIPT_TAIL_LINES = 400
+# Byte ceiling on the raw transcript tail, applied in addition to
+# transcript_tail_lines. Bounds transcripts whose few lines are individually
+# huge (e.g. codex subagent rollouts) so cleaning/chunking cannot explode.
+_DEFAULT_TRANSCRIPT_TAIL_BYTES = 262_144
 _DEFAULT_MAX_CLEANED_CHARS = 12_000
 
 # Map note type values to vault folders
@@ -228,6 +232,7 @@ def preprocess_transcript(
     transcript_path_str: str,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
     max_chars: int | None = _DEFAULT_MAX_CLEANED_CHARS,
+    tail_bytes: int | None = _DEFAULT_TRANSCRIPT_TAIL_BYTES,
 ) -> str:
     """Pre-process a transcript JSONL file into a cleaned human/assistant dialogue.
 
@@ -238,6 +243,8 @@ def preprocess_transcript(
         transcript_path_str: String path to the transcript JSONL file.
         tail_lines: Number of trailing transcript lines to read.
         max_chars: Maximum output characters, or ``None`` to return all cleaned text.
+        tail_bytes: Byte ceiling on the raw tail (see ``read_last_n_lines``); bounds
+            transcripts with few-but-huge lines before cleaning.
 
     Returns:
         Cleaned dialogue string, truncated to *max_chars* when provided.
@@ -247,7 +254,7 @@ def preprocess_transcript(
         return ""
 
     try:
-        tail = vault_common.read_last_n_lines(transcript_path, tail_lines)
+        tail = vault_common.read_last_n_lines(transcript_path, tail_lines, tail_bytes)
     except OSError:
         return ""
 
@@ -1029,6 +1036,7 @@ async def preprocess_transcript_hierarchical(
     max_cleaned_chars: int,
     cluster_model: str | None,
     vault: Path,
+    tail_bytes: int | None = None,
 ) -> str:
     """Pre-process a transcript, using hierarchical summarization for long ones.
 
@@ -1041,13 +1049,14 @@ async def preprocess_transcript_hierarchical(
         transcript_path_str: String path to the transcript JSONL file.
         tail_lines: Number of trailing transcript lines to read.
         max_cleaned_chars: Maximum characters threshold.
+        tail_bytes: Byte ceiling on the raw tail, bounding huge-line transcripts.
         cluster_model: Model ID to use for chunk summarization.
         vault: Vault path used for chunk summarization backend calls.
 
     Returns:
         Cleaned dialogue string, or hierarchical summary string for long sessions.
     """
-    cleaned = preprocess_transcript(transcript_path_str, tail_lines, None)
+    cleaned = preprocess_transcript(transcript_path_str, tail_lines, None, tail_bytes)
     if len(cleaned) <= max_cleaned_chars:
         return cleaned
 
@@ -1210,6 +1219,7 @@ async def summarize_one(
     persist: bool,
     vault: Path,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
+    tail_bytes: int | None = _DEFAULT_TRANSCRIPT_TAIL_BYTES,
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
     cluster_model: str | None = None,
     vault_notes: list[Path] | None = None,
@@ -1226,6 +1236,7 @@ async def summarize_one(
         vault: Path to the vault directory.
         tail_lines: Number of transcript lines to read.
         max_cleaned_chars: Maximum characters after cleaning.
+        tail_bytes: Byte ceiling on the raw tail, bounding huge-line transcripts.
         cluster_model: Model ID for hierarchical chunk summarization, or ``None``
             for the backend small-model default.
         vault_notes: Pre-collected list of all vault note paths.  Passed
@@ -1259,7 +1270,12 @@ async def summarize_one(
             return entry, _STALE
 
         cleaned = await preprocess_transcript_hierarchical(
-            transcript_path_str, tail_lines, max_cleaned_chars, cluster_model, vault
+            transcript_path_str,
+            tail_lines,
+            max_cleaned_chars,
+            cluster_model,
+            vault,
+            tail_bytes,
         )
         if not cleaned:
             print(
@@ -1416,6 +1432,7 @@ async def run_all(
     vault: Path,
     max_parallel: int = _DEFAULT_MAX_PARALLEL,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
+    tail_bytes: int | None = _DEFAULT_TRANSCRIPT_TAIL_BYTES,
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
     cluster_model: str | None = None,
 ) -> list[tuple[dict[str, object], Path | str | None]]:
@@ -1429,6 +1446,7 @@ async def run_all(
         vault: Path to the vault directory.
         max_parallel: Maximum concurrent summarization tasks.
         tail_lines: Transcript tail lines per entry.
+        tail_bytes: Byte ceiling on the raw tail per entry.
         max_cleaned_chars: Max cleaned chars per entry.
         cluster_model: Model ID for hierarchical chunk summarization, or ``None``
             for the backend small-model default.
@@ -1481,6 +1499,7 @@ async def run_all(
             persist,
             vault,
             tail_lines,
+            tail_bytes,
             max_cleaned_chars,
             cluster_model,
             vault_notes=vault_notes,
@@ -1860,6 +1879,11 @@ def main() -> None:
         "transcript_tail_lines",
         _DEFAULT_TRANSCRIPT_TAIL_LINES,
     )
+    tail_bytes: int | None = vault_common.get_config(
+        "summarizer",
+        "transcript_tail_bytes",
+        _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+    )
     max_cleaned_chars: int = vault_common.get_config(
         "summarizer",
         "max_cleaned_chars",
@@ -1930,6 +1954,7 @@ def main() -> None:
             vault_path,
             max_parallel,
             tail_lines,
+            tail_bytes,
             max_cleaned_chars,
             cluster_model,
         ),

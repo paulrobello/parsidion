@@ -178,7 +178,7 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
     calls: list[dict[str, object]] = []
 
     def fake_preprocess_transcript(
-        transcript_path_str: str, tail_lines: int, max_chars: int | None
+        transcript_path_str: str, tail_lines: int, max_chars: int | None, tail_bytes: int | None
     ) -> str:
         return "line\n" * 10
 
@@ -569,6 +569,7 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
         vault_path: Path,
         max_parallel: int,
         tail_lines: int,
+        tail_bytes: int | None,
         max_cleaned_chars: int,
         cluster_model: str | None,
     ) -> list[tuple[dict[str, object], Path | str | None]]:
@@ -656,6 +657,7 @@ def test_main_removes_write_gate_skips_from_default_pending_queue(
         vault_path: Path,
         max_parallel: int,
         tail_lines: int,
+        tail_bytes: int | None,
         max_cleaned_chars: int,
         cluster_model: str | None,
     ) -> list[tuple[dict[str, object], Path | str | None]]:
@@ -734,6 +736,7 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
         vault_path: Path,
         max_parallel: int,
         tail_lines: int,
+        tail_bytes: int | None,
         max_cleaned_chars: int,
         cluster_model: str | None,
     ) -> list[tuple[dict[str, object], Path | str | None]]:

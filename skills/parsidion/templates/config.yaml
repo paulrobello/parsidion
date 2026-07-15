@@ -50,6 +50,7 @@ summarizer:
   model: claude-sonnet-4-6
   max_parallel: 5          # Concurrent summarization tasks
   transcript_tail_lines: 400
+  transcript_tail_bytes: 262144  # Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts) so cleaning/chunking cannot explode
   max_cleaned_chars: 12000
   persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization; used when a transcript exceeds max_cleaned_chars

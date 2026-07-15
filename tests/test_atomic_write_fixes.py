@@ -382,3 +382,32 @@ class TestFullRebuildTransactional:
         count = conn.execute("SELECT COUNT(*) FROM note_embeddings").fetchone()[0]
         conn.close()
         assert count == 0
+
+
+def test_read_last_n_lines_byte_bound_drops_oldest(tmp_path: Path) -> None:
+    """``max_bytes`` drops oldest lines until the retained tail fits."""
+    line = "x" * 49 + "\n"  # 50 bytes
+    f = tmp_path / "tail.log"
+    f.write_text(line * 5, encoding="utf-8")  # 250 bytes, 5 lines
+
+    assert len(vault_fs.read_last_n_lines(f, 400)) == 5  # no bound -> all
+    bounded = vault_fs.read_last_n_lines(f, 400, max_bytes=110)  # keep newest <=110B
+    assert len(bounded) == 2
+    assert sum(len(ln.encode()) for ln in bounded) <= 110
+
+
+def test_read_last_n_lines_byte_bound_keeps_most_recent(tmp_path: Path) -> None:
+    """``max_bytes`` below a single line still keeps the most recent line."""
+    f = tmp_path / "big.log"
+    f.write_text("y" * 5000 + "\n", encoding="utf-8")
+    got = vault_fs.read_last_n_lines(f, 400, max_bytes=10)
+    assert len(got) == 1  # never returns empty when the file has content
+
+
+def test_read_last_n_lines_byte_bound_none_is_backward_compatible(
+    tmp_path: Path,
+) -> None:
+    """``max_bytes=None`` matches the legacy two-arg call."""
+    f = tmp_path / "lines.log"
+    f.write_text("a\nb\nc\n", encoding="utf-8")
+    assert vault_fs.read_last_n_lines(f, 400, max_bytes=None) == ["a\n", "b\n", "c\n"]
