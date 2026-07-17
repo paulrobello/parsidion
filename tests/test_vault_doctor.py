@@ -290,6 +290,35 @@ class TestCheckNote:
         codes = [i.code for i in issues]
         assert "BROKEN_WIKILINK" in codes
 
+    def test_broken_wikilink_ignores_code_blocks(self, vault: Path) -> None:
+        # Regression: [[bin]] / [[licenses.exceptions]] inside a fenced code
+        # block is TOML array-of-tables syntax, not a wikilink. The scanner
+        # must skip fenced and inline code so config syntax isn't flagged.
+        real = _write_note(
+            vault,
+            "Patterns/real-note.md",
+            "---\ndate: 2026-01-01\ntype: pattern\n---\n",
+        )
+        content = (
+            "---\n"
+            "date: 2026-03-25\n"
+            "type: tool\n"
+            "confidence: high\n"
+            'related: ["[[real-note]]"]\n'
+            "---\n\n"
+            "# Cargo config\n\n"
+            "```toml\n"
+            "[[bin]]\n"
+            'name = "mybin"\n'
+            "```\n\n"
+            "Inline: use `[[licenses.exceptions]]` sparingly.\n"
+        )
+        note = _write_note(vault, "Tools/cargo.md", content)
+        note_map = vault_doctor.build_note_map([note, real])
+        issues = vault_doctor.check_note(note, note_map, vault)
+        codes = [i.code for i in issues]
+        assert "BROKEN_WIKILINK" not in codes
+
     def test_heading_mismatch(self, vault: Path) -> None:
         content = '---\ndate: 2026-03-25\ntype: pattern\nconfidence: high\nrelated: ["[[x]]"]\n---\n\n## Only H2 Heading\n'
         x = _write_note(

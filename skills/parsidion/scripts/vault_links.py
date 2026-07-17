@@ -25,6 +25,7 @@ __all__ = [
     "add_backlinks_to_existing",
     "sub_wikilinks_outside_code",
     "replace_wikilinks_outside_code",
+    "strip_unresolved_wikilinks",
 ]
 
 
@@ -169,6 +170,79 @@ def replace_wikilinks_outside_code(content: str, replacements: dict[str, str]) -
 
     new_content, _ = sub_wikilinks_outside_code(content, pattern, _repl)
     return new_content
+
+
+def strip_unresolved_wikilinks(content: str, vault: Path) -> tuple[str, int]:
+    """Remove ``[[link]]`` wikilinks that don't resolve to a vault note.
+
+    Used at note-write time to drop dangling links the summarizer backend
+    invents — the common ``[[<project>]]`` "hub" link that mirrors the
+    ``project:`` field but points at a note that doesn't exist. Only text
+    outside fenced/inline code is considered, so a code example that happens
+    to contain ``[[brackets]]`` is left untouched.
+
+    The ``related:`` frontmatter array is re-emitted with non-resolving
+    entries dropped; elsewhere (body prose) a non-resolving ``[[stem]]`` /
+    ``[[stem|alias]]`` is replaced by its display text so the sentence still
+    reads. The ``related:`` pass runs first, so its now-all-valid entries are
+    left untouched by the body pass.
+
+    Args:
+        content: Full note content (frontmatter + body).
+        vault: Vault root, used to build the set of valid note stems.
+
+    Returns:
+        ``(new_content, removed_count)``.
+    """
+    valid = {p.stem.lower() for p in vault_common.all_vault_notes(vault)}
+
+    def _resolves(target: str) -> bool:
+        t = target.split("|")[0].split("#")[0].strip().split("/")[-1].lower()
+        if t.endswith((".md", ".markdown")):
+            t = t.rsplit(".", 1)[0]
+        return bool(t) and t in valid
+
+    removed = 0
+
+    # 1) related: field — drop non-resolving entries, keep valid ones.
+    fm_match = _FRONTMATTER_RE.match(content)
+    if fm_match:
+        inner_s, inner_e = fm_match.start(1), fm_match.end(1)
+        fm_inner = content[inner_s:inner_e]
+        rel_re = re.compile(r"^(related:\s*)(\[.*?\])\s*$", re.MULTILINE)
+        rel_m = rel_re.search(fm_inner)
+        if rel_m:
+            entries = re.findall(r'"(\[\[[^\]]+\]\])"', rel_m.group(2))
+            kept: list[str] = []
+            for raw_entry in entries:
+                em = re.match(r"\[\[([^\]]+)\]\]", raw_entry)
+                if em and _resolves(em.group(1)):
+                    kept.append(f'"{raw_entry}"')
+                elif em:
+                    removed += 1
+                else:
+                    kept.append(f'"{raw_entry}"')  # malformed entry: keep as-is
+            new_line = f"{rel_m.group(1)}[{', '.join(kept)}]"
+            fm_inner = rel_re.sub(lambda _: new_line, fm_inner, count=1)
+            if not fm_inner.endswith("\n"):
+                fm_inner += "\n"
+            content = content[:inner_s] + fm_inner + content[inner_e:]
+
+    # 2) Body prose — non-resolving [[x]] -> display text (alias or stem).
+    link_re = re.compile(r"\[\[([^\]\n]+)\]\]")
+
+    def _body_repl(m: re.Match[str]) -> str:
+        nonlocal removed
+        inner = m.group(1)
+        target = inner.split("|")[0].split("#")[0]
+        if _resolves(target):
+            return m.group(0)
+        removed += 1
+        alias = inner.split("|", 1)[1] if "|" in inner else target
+        return alias.split("#")[0].strip()
+
+    content, _ = sub_wikilinks_outside_code(content, link_re, _body_repl)
+    return content, removed
 
 
 def find_related_by_tags(

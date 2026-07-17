@@ -56,7 +56,11 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
         ),
     )
     sys.modules.pop("summarize_sessions", None)
-    return importlib.import_module("summarize_sessions")
+    mod = importlib.import_module("summarize_sessions")
+    # Unit tests simulate completed/idle sessions; disable the active-session
+    # guard by default. Tests that exercise the guard re-enable it explicitly.
+    monkeypatch.setattr(mod, "_ACTIVE_SESSION_GRACE_SECS", 0)
+    return mod
 
 
 def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
@@ -410,6 +414,42 @@ def test_summarize_one_preserves_skip_write_gate(
     assert len(calls) == 1
     assert calls[0]["model"] == "summary-model"
     assert "session-1234" in str(calls[0]["prompt"])
+
+
+def test_summarize_one_defers_active_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A transcript still being written (mtime within the grace window) is
+    deferred — left in the queue untouched — rather than summarized mid-flight."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Re-enable the guard (the shared helper disables it for unit tests).
+    monkeypatch.setattr(summarize_sessions, "_ACTIVE_SESSION_GRACE_SECS", 120)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"user","content":"in progress"}\n', encoding="utf-8"
+    )
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    async def run() -> tuple[dict[str, object], Path | str | None]:
+        return await summarize_sessions.summarize_one(
+            {
+                "transcript_path": str(transcript_path),
+                "project": "parsidion",
+                "categories": [],
+                "session_id": "session-active",
+            },
+            None,
+            False,
+            summarize_sessions.anyio.Semaphore(1),
+            [],
+            False,
+            vault,
+            cluster_model=None,
+        )
+
+    _entry, written = asyncio.run(run())
+    assert written == summarize_sessions._DEFERRED
 
 
 def test_summarize_one_preserves_skip_write_gate_when_fenced(

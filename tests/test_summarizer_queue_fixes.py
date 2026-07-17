@@ -63,7 +63,11 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
         ),
     )
     sys.modules.pop("summarize_sessions", None)
-    return importlib.import_module("summarize_sessions")
+    mod = importlib.import_module("summarize_sessions")
+    # Unit tests simulate completed/idle sessions; disable the active-session
+    # guard by default. Tests that exercise the guard re-enable it explicitly.
+    monkeypatch.setattr(mod, "_ACTIVE_SESSION_GRACE_SECS", 0)
+    return mod
 
 
 def _write_pending(path: Path, entries: list[dict[str, object]]) -> None:
@@ -397,3 +401,33 @@ def test_backfill_type_alone_suffices_when_project_unknown(
     out = mod._backfill_tags_if_empty(_note("pattern", "tags: []\n"), "unknown", [])
     assert "tags: [pattern]" in out
     assert mod._validate_frontmatter(out) is None
+
+
+def test_summarize_one_purges_dead_lettered_requeue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A session already in dead_letters.jsonl (prior failure or write-gate
+    skip) that a stop hook re-queued must not be re-processed — it is purged
+    via the _DEAD path instead of re-billing an AI call."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text('{"type":"user","content":"x"}\n', encoding="utf-8")
+    # Pretend a prior run already dead-lettered this session.
+    (vault / "dead_letters.jsonl").write_text(
+        json.dumps({"session_id": "dead-1", "project": "p"}) + "\n",
+        encoding="utf-8",
+    )
+    entry = {
+        "transcript_path": str(transcript),
+        "project": "p",
+        "categories": [],
+        "session_id": "dead-1",
+    }
+
+    _entry, written = asyncio.run(
+        mod.summarize_one(entry, None, False, mod.anyio.Semaphore(1), [], False, vault)
+    )
+
+    assert written == mod._DEAD

@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import traceback
 from datetime import date, datetime
 from functools import partial
@@ -83,6 +84,22 @@ _STALE = "__STALE__"
 # Sentinel: returned as written_path when the write-gate decides a session is
 # transient. Skipped entries are also purged so they are not reprocessed forever.
 _SKIPPED = "__SKIPPED__"
+
+# Sentinel: a session already recorded in dead_letters.jsonl (prior failure or
+# write-gate skip) that a stop hook re-queued. Re-processing it would re-bill an
+# AI call for a session already judged not worth a note, so it is purged on sight
+# via the same path as _STALE.
+_DEAD = "__DEAD__"
+
+# Sentinel: a session whose transcript is still being written (an active
+# session). Summarizing a mutating transcript is racy, so it is left in the
+# queue untouched for a later run once it is genuinely idle.
+_DEFERRED = "__DEFERRED__"
+
+# A transcript whose mtime is within this window is treated as an active session
+# and deferred. Long enough to absorb a just-ended session flushing its final
+# lines, short enough that a genuinely idle queued session is processed promptly.
+_ACTIVE_SESSION_GRACE_SECS = 120
 
 # Dead-letter cap: a queue entry that fails this many times is purged from
 # pending_summaries.jsonl instead of retrying (and re-billing an AI call) on
@@ -1269,6 +1286,33 @@ async def summarize_one(
             )
             return entry, _STALE
 
+        # A session already recorded in dead_letters (prior failure or
+        # write-gate skip) must not be re-processed even if a stop hook
+        # re-queued it — that would re-bill an AI call for a session already
+        # judged not worth a note. Purge on sight.
+        if session_id in _dead_lettered_ids(vault):
+            print(
+                f"  Purging re-queued dead-lettered session {session_id[:8]}",
+                file=sys.stderr,
+            )
+            return entry, _DEAD
+
+        # Active-session guard: a transcript still being written (this very
+        # session, or one whose process is still flushing) is mutating under us.
+        # Summarizing it mid-flight is racy and yields partial notes, so defer
+        # it — leave it in the queue for a later run once it's genuinely idle.
+        try:
+            _transcript_age = time.time() - Path(transcript_path_str).stat().st_mtime
+        except OSError:
+            _transcript_age = float("inf")
+        if _transcript_age < _ACTIVE_SESSION_GRACE_SECS:
+            print(
+                f"  Deferring active session {session_id[:8]} "
+                f"(transcript modified {int(_transcript_age)}s ago)",
+                file=sys.stderr,
+            )
+            return entry, _DEFERRED
+
         cleaned = await preprocess_transcript_hierarchical(
             transcript_path_str,
             tail_lines,
@@ -1376,7 +1420,16 @@ async def summarize_one(
                             _mark_failure(entry, reason)
                             return entry, None
                         new_content = _normalize_related_field(new_content)
+                        new_content, _stripped = vault_links.strip_unresolved_wikilinks(
+                            new_content, vault
+                        )
                         target_path.write_text(new_content, encoding="utf-8")
+                        if _stripped:
+                            print(
+                                f"  [links] Stripped {_stripped} "
+                                f"non-resolving wikilink(s)",
+                                file=sys.stderr,
+                            )
                         print(
                             f"  [dedup-merge] Updated [[{target_stem}]] "
                             f"instead of creating new note"
@@ -1394,6 +1447,23 @@ async def summarize_one(
 
         # Automated backlink suggestion
         if written is not None:
+            # Strip wikilinks the backend invented that resolve to no vault note
+            # — the recurring [[<project>]] "hub" link that mirrors the project
+            # field but points at nothing. Runs before backlinks so the note only
+            # ever holds real, resolving links; write_note stays a pure writer.
+            try:
+                _written_text = written.read_text(encoding="utf-8")
+                _written_text, _stripped = vault_links.strip_unresolved_wikilinks(
+                    _written_text, vault
+                )
+                if _stripped:
+                    written.write_text(_written_text, encoding="utf-8")
+                    print(
+                        f"  [links] Stripped {_stripped} non-resolving wikilink(s)",
+                        file=sys.stderr,
+                    )
+            except (OSError, UnicodeDecodeError):
+                pass  # best-effort; never fail the main flow
             try:
                 new_fm = vault_common.parse_frontmatter(
                     written.read_text(encoding="utf-8")
@@ -1507,8 +1577,10 @@ async def run_all(
         results.append(result)
         _progress_counters[0] += 1  # processed
         _, written_path = result
-        if written_path in (_STALE, _SKIPPED):
-            _progress_counters[2] += 1  # skipped (stale or write-gate)
+        if written_path in (_STALE, _SKIPPED, _DEAD):
+            _progress_counters[2] += 1  # skipped/purged (stale, write-gate, dead)
+        elif written_path == _DEFERRED:
+            pass  # deferred active session — left in queue, not an error
         elif written_path is not None:
             _progress_counters[1] += 1  # written
         else:
@@ -1526,6 +1598,34 @@ async def run_all(
             tg.start_soon(_run_one, entry)
 
     return results
+
+
+def _dead_lettered_ids(vault: Path) -> set[str]:
+    """Return session_ids already recorded in ``dead_letters.jsonl``.
+
+    A re-queued dead-lettered session (prior failure or write-gate skip) must
+    not be re-processed. Best-effort: any read error yields an empty set so a
+    missing/unreadable file never blocks summarization.
+    """
+    ids: set[str] = set()
+    path = vault / "dead_letters.jsonl"
+    if not path.is_file():
+        return ids
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            sid = str(record.get("session_id", ""))
+            if sid:
+                ids.add(sid)
+    except OSError:
+        pass
+    return ids
 
 
 def _append_dead_letter(
@@ -1968,11 +2068,18 @@ def main() -> None:
     stale_entries: list[dict[str, object]] = []
     skipped_entries: list[dict[str, object]] = []
     failed_entries: list[dict[str, object]] = []
+    deferred_entries: list[dict[str, object]] = []
     for entry, written_path in results:
         if written_path == _STALE:
             stale_entries.append(entry)
         elif written_path == _SKIPPED:
             skipped_entries.append(entry)
+        elif written_path == _DEAD:
+            # Re-queued dead-lettered session — purge like stale.
+            stale_entries.append(entry)
+        elif written_path == _DEFERRED:
+            # Active session — leave in queue for a later run.
+            deferred_entries.append(entry)
         elif written_path is not None:
             print(f"  Written: {written_path}")
             successful_entries.append(entry)
@@ -1981,6 +2088,7 @@ def main() -> None:
 
     skipped_count = len(skipped_entries)
     failed_count = len(failed_entries)
+    deferred_count = len(deferred_entries)
 
     if not args.dry_run:
         # Remove processed, stale, and write-gate skipped entries from pending
@@ -1994,6 +2102,19 @@ def main() -> None:
             for e in failed_entries
         }
         if not args.sessions:
+            # Make write-gate skips sticky: record them in dead_letters so a
+            # future stop-hook re-queue is caught by the _DEAD guard instead of
+            # re-billing an AI call to re-evaluate a session already judged
+            # transient. (Skips are also dequeued below via `removable`.)
+            for entry in skipped_entries:
+                _raw_attempts = entry.get("attempts")
+                _attempts = _raw_attempts if isinstance(_raw_attempts, int) else 0
+                _append_dead_letter(
+                    source_path,
+                    entry,
+                    _attempts,
+                    "write-gate skip (transient)",
+                )
             if failed_reasons:
                 remove_processed(source_path, removable, failed=failed_reasons)
             elif removable:
@@ -2022,9 +2143,11 @@ def main() -> None:
 
     summary_parts = [f"{len(successful_entries)} written"]
     if stale_entries:
-        summary_parts.append(f"{len(stale_entries)} purged (stale)")
+        summary_parts.append(f"{len(stale_entries)} purged (stale/dead-lettered)")
     if skipped_count:
         summary_parts.append(f"{skipped_count} skipped by write-gate")
+    if deferred_count:
+        summary_parts.append(f"{deferred_count} deferred (active)")
     if failed_count:
         summary_parts.append(f"{failed_count} failed")
     print(f"Done. {len(entries)} session(s) processed: {', '.join(summary_parts)}.")

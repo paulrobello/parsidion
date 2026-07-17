@@ -125,6 +125,33 @@ class TestReplaceWikilinksOutsideCode:
         assert vault_links.replace_wikilinks_outside_code(content, {}) == content
 
 
+class TestStripUnresolvedWikilinks:
+    def test_drops_non_resolving_related_and_body_links(self, vault: Path) -> None:
+        _note(
+            vault,
+            "Patterns/real.md",
+            "---\ndate: 2026-01-01\ntype: pattern\n---\n\n# Real\n",
+        )
+        content = (
+            "---\ndate: 2026-07-01\ntype: pattern\n"
+            'related: ["[[real]]", "[[par-bobble]]"]\n'
+            "---\n\n# Title\n\nSee [[real]] and [[par-bobble]].\n"
+        )
+        out, removed = vault_links.strip_unresolved_wikilinks(content, vault)
+        assert removed == 2  # [[par-bobble]] in related + body
+        assert "[[real]]" in out
+        assert "[[par-bobble]]" not in out
+        assert "par-bobble" in out  # body link reduced to display text
+        assert 'related: ["[[real]]"]' in out  # related keeps only resolving entry
+
+    def test_preserves_links_inside_code_blocks(self, vault: Path) -> None:
+        content = "```toml\n[[licenses.exceptions]]\n```\nSee `[[inline-code]]` too.\n"
+        out, removed = vault_links.strip_unresolved_wikilinks(content, vault)
+        assert removed == 0
+        assert "[[licenses.exceptions]]" in out
+        assert "[[inline-code]]" in out
+
+
 # ---------------------------------------------------------------------------
 # sub_wikilinks_outside_code (general primitive used by vault_merge)
 # ---------------------------------------------------------------------------
