@@ -178,7 +178,10 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
     calls: list[dict[str, object]] = []
 
     def fake_preprocess_transcript(
-        transcript_path_str: str, tail_lines: int, max_chars: int | None, tail_bytes: int | None
+        transcript_path_str: str,
+        tail_lines: int,
+        max_chars: int | None,
+        tail_bytes: int | None,
     ) -> str:
         return "line\n" * 10
 
