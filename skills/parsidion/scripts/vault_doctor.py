@@ -1026,12 +1026,22 @@ def check_note(
                 )
             )
 
-    # Broken wikilinks anywhere in the document.
-    # Exclude newlines from the match to avoid capturing cross-line false positives
-    # (e.g. truncated MANIFEST table cells in daily notes).
-    # Also skip links containing shell metacharacters (bash [[ ]] conditionals).
+    # Broken wikilinks anywhere in the document, EXCEPT inside fenced code
+    # blocks or inline code. Code examples routinely contain [[...]] tokens
+    # that are legitimate config syntax (TOML array-of-tables like [[bin]] or
+    # [[licenses.exceptions]], not wikilinks); scanning the raw document flagged
+    # those as broken links. Only the text outside protected code regions is
+    # scanned, reusing the same fence/inline-code tracker as the migration
+    # rewriter so the two never disagree about what counts as a link.
+    # Newlines are excluded from the match to avoid cross-line false positives
+    # (e.g. truncated MANIFEST table cells in daily notes), and links containing
+    # shell metacharacters are skipped (bash [[ ]] conditionals).
     _SHELL_META = re.compile(r"[!$<>|&;{}\n]")
-    for link in re.findall(r"\[\[([^\]\n]+)\]\]", content):
+    _scannable = "".join(
+        content[start:end]
+        for start, end in vault_links._iter_unprotected_spans(content)
+    )
+    for link in re.findall(r"\[\[([^\]\n]+)\]\]", _scannable):
         clean = link.split("|")[0].split("#")[0].strip()
         if not clean or _SHELL_META.search(clean):
             continue
