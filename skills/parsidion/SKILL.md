@@ -248,6 +248,10 @@ This scans all vault folders, reads frontmatter, and produces:
 - **Per-folder `MANIFEST.md` files** — table-format indexes (Note | Tags | Summary) written inside each subfolder for quick orientation without loading the full root index
 - **Staleness markers** — notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in the index (surfaced for review, never auto-deleted)
 
+When `git.auto_commit` is enabled, the rebuild commits only the generated
+`CLAUDE.md`, `TAGS.md`, and `MANIFEST.md` files. Any unrelated work that was
+already staged remains staged and is not included in the index commit.
+
 Confirm to the user when the rebuild is complete.
 
 ## Summarizing Pending Sessions

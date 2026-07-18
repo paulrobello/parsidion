@@ -206,6 +206,45 @@ class TestGitCommitVault:
         )
         assert "config.yaml" in _git_ls_files(git_repo)
 
+    def test_explicit_paths_do_not_commit_pre_staged_changes(
+        self, git_repo: Path
+    ) -> None:
+        baseline = git_repo / "README.md"
+        baseline.write_text("# Vault\n", encoding="utf-8")
+        _git(["add", "README.md"], git_repo)
+        _git(["commit", "-m", "baseline"], git_repo)
+
+        unrelated = git_repo / "unrelated.md"
+        unrelated.write_text("pending work\n", encoding="utf-8")
+        _git(["add", "unrelated.md"], git_repo)
+
+        generated = git_repo / "MANIFEST.md"
+        generated.write_text("# Manifest\n", encoding="utf-8")
+        assert (
+            vault_fs.git_commit_vault(
+                "rebuild index", vault=git_repo, paths=[generated]
+            )
+            is True
+        )
+
+        committed = subprocess.run(
+            ["git", "show", "--pretty=format:", "--name-only", "HEAD"],
+            cwd=str(git_repo),
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        assert committed == ["MANIFEST.md"]
+
+        still_staged = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=str(git_repo),
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        assert still_staged == ["unrelated.md"]
+
 
 # ---------------------------------------------------------------------------
 # vault_hooks — write_hook_event atomic rotation

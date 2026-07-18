@@ -426,7 +426,8 @@ def git_commit_vault(
     Args:
         message: Commit message.
         vault: Optional vault path. Defaults to resolve_vault().
-        paths: Specific paths to stage. If None, stages all changes (``git add -A``).
+        paths: Specific paths to stage and commit. If None, stages and commits all
+            changes (``git add -A``).
 
     Returns:
         True if the commit succeeded, False otherwise.
@@ -464,8 +465,23 @@ def git_commit_vault(
         # Commit -- exit code 1 with "nothing to commit" is not an error
         # SEC-002: message is caller-controlled but project names embedded in it
         # are sanitized by callers using safe_project (see git_commit_vault usages).
+        if paths:
+            # Scope the commit as well as the preceding add. A vault can already
+            # contain staged work from another session, which must remain staged.
+            commit_args = [
+                "git",
+                "commit",
+                "--only",
+                "-m",
+                message,
+                "--",
+                *[str(p) for p in paths],
+            ]
+        else:
+            commit_args = ["git", "commit", "-m", message]
+
         result = subprocess.run(
-            ["git", "commit", "-m", message],
+            commit_args,
             cwd=str(vault),
             capture_output=True,
             text=True,
