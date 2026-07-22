@@ -34,7 +34,7 @@ import subprocess
 import sys
 import time
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import cast
@@ -105,6 +105,12 @@ _ACTIVE_SESSION_GRACE_SECS = 120
 # pending_summaries.jsonl instead of retrying (and re-billing an AI call) on
 # every run forever. Tracked via the optional "attempts" field (absent = 0).
 _MAX_ATTEMPTS = 3
+
+# Dead-letter retention (days): entries in dead_letters.jsonl older than this
+# are pruned on each run. write-gate skips are made sticky (a re-queue is caught
+# by the _DEAD guard), so without retention the file grows without bound. <= 0
+# disables pruning. Configurable via summarizer.dead_letter_retention_days.
+_DEAD_LETTER_RETENTION_DAYS = 7
 
 
 def _strip_code_fence(text: str) -> str:
@@ -1666,6 +1672,67 @@ def _append_dead_letter(
         print(f"Warning: could not write dead-letter record: {e}", file=sys.stderr)
 
 
+def _prune_dead_letters(vault: Path, retention_days: int) -> int:
+    """Drop ``dead_letters.jsonl`` entries older than ``retention_days``.
+
+    write-gate skips are made sticky so a stop-hook re-queue is caught by the
+    ``_DEAD`` guard, which means dead_letters.jsonl otherwise grows without
+    bound (every transient session is retained forever). This bounds it: each
+    run, entries whose ``dead_lettered_at`` is older than the retention window
+    are removed. Best-effort and never raises; reuses the exclusive-flock +
+    0o600 convention from ``_append_dead_letter``. Entries with a missing or
+    unparseable timestamp are kept (cannot be dated safely). Returns the number
+    of entries pruned. ``retention_days <= 0`` disables pruning.
+    """
+    if retention_days <= 0:
+        return 0
+    path = vault / "dead_letters.jsonl"
+    if not path.is_file():
+        return 0
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    kept: list[str] = []
+    pruned = 0
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    for raw in raw_lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            record = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            kept.append(raw)
+            continue
+        ts = record.get("dead_lettered_at")
+        try:
+            when = datetime.fromisoformat(str(ts)) if ts else None
+        except ValueError:
+            when = None
+        if when is not None and when < cutoff:
+            pruned += 1
+            continue
+        kept.append(raw)
+    if pruned == 0:
+        return 0
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+        with open(fd, "r+", encoding="utf-8") as f:
+            _flock_exclusive(f)
+            try:
+                f.seek(0)
+                f.truncate()
+                if kept:
+                    f.write("\n".join(kept) + "\n")
+            finally:
+                _funlock(f)
+    except OSError as e:
+        print(f"Warning: could not prune dead-letter records: {e}", file=sys.stderr)
+        return 0
+    return pruned
+
+
 def remove_processed(
     pending_path: Path,
     processed_entries: list[dict[str, object]],
@@ -2016,6 +2083,23 @@ def main() -> None:
     if not claim_summarizer_lock(vault_path):
         sys.exit(1)
     atexit.register(release_summarizer_lock, vault_path)
+
+    # Retention: prune dead-letter records older than the configured window so
+    # dead_letters.jsonl (which accumulates every sticky write-gate skip) stays
+    # bounded. Runs every invocation regardless of pending work.
+    _retention_days = int(
+        vault_common.get_config(
+            "summarizer",
+            "dead_letter_retention_days",
+            _DEAD_LETTER_RETENTION_DAYS,
+        )
+    )
+    _pruned_dl = _prune_dead_letters(vault_path, _retention_days)
+    if _pruned_dl:
+        print(
+            f"Pruned {_pruned_dl} dead-letter record(s) older than "
+            f"{_retention_days} day(s)"
+        )
 
     # Optionally run vault_doctor first (--fix-all: frontmatter, tags, subfolders)
     if args.run_doctor:

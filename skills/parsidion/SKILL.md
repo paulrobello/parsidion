@@ -531,6 +531,7 @@ summarizer:
   max_cleaned_chars: 12000
   persist: false           # Legacy no-op; retained for CLI compatibility
   cluster_model: null  # null = ai_models.<backend>.small
+  dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days each run (<=0 disables)
 
 ai:
   backend: auto            # auto | claude-cli | codex-cli | none

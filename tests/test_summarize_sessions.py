@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 import types
 from collections.abc import Callable, Coroutine
@@ -1104,3 +1105,69 @@ def test_write_note_normalizes_malformed_related(
     # Malformed entries repaired to clean [[wikilinks]].
     assert 'related: ["[[real-note]]", "[[other-note]]"]' in written
     assert '[["real-note"]' not in written
+
+
+def test_prune_dead_letters_respects_retention_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    entries = [
+        {
+            "session_id": "old",
+            "last_failure": "no result",
+            "dead_lettered_at": (now - timedelta(days=30)).isoformat(),
+        },
+        {
+            "session_id": "recent",
+            "last_failure": "no result",
+            "dead_lettered_at": now.isoformat(),
+        },
+        {"session_id": "undated", "last_failure": "no result"},  # no ts -> kept
+        {  # unparseable ts -> kept
+            "session_id": "badts",
+            "last_failure": "no result",
+            "dead_lettered_at": "not-a-date",
+        },
+    ]
+    dl = tmp_path / "dead_letters.jsonl"
+    dl.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
+
+    pruned = summarize_sessions._prune_dead_letters(tmp_path, 7)
+    assert pruned == 1  # only the 30-day-old entry
+
+    remaining = {
+        json.loads(line)["session_id"]
+        for line in dl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    assert remaining == {"recent", "undated", "badts"}
+
+
+def test_prune_dead_letters_disabled_and_missing_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    dl = tmp_path / "dead_letters.jsonl"
+    dl.write_text(
+        json.dumps(
+            {
+                "session_id": "ancient",
+                "dead_lettered_at": (now - timedelta(days=99)).isoformat(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # retention_days <= 0 disables pruning entirely.
+    assert summarize_sessions._prune_dead_letters(tmp_path, 0) == 0
+    assert "ancient" in dl.read_text(encoding="utf-8")
+
+    # Missing file is a safe no-op.
+    assert summarize_sessions._prune_dead_letters(tmp_path / "nope", 7) == 0

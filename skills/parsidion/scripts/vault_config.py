@@ -400,6 +400,7 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "persist": (bool,),
         "cluster_model": (str, type(None)),
         "dedup_threshold": (float, int),
+        "dead_letter_retention_days": (int,),
     },
     "embeddings": {
         "enabled": (bool,),

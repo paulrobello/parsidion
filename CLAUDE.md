@@ -195,7 +195,7 @@ Config sections:
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after` | `session_stop_hook.py` |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
-| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `persist`, `cluster_model`, `dedup_threshold`, `rebuild_graph`, `graph_include_daily` | `summarize_sessions.py` |
+| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `persist`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily` | `summarize_sessions.py` |
 | `defaults` | `haiku_model`, `sonnet_model` | all scripts that call Claude |
 | `embeddings` | `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor` | `build_embeddings.py`, `vault_search.py` |
 | `git` | `auto_commit` | `vault_common.git_commit_vault()` |
