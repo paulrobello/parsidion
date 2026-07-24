@@ -114,7 +114,7 @@ graph TD
 
 The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
 
-Script paths for `rebuild_index` and `vault_doctor` use `vault_common.SCRIPTS_DIR` — a constant defined in `vault_path.py` alongside `TEMPLATES_DIR`. Both resolve to `~/.claude/skills/parsidion/templates/` and `~/.claude/skills/parsidion/scripts/` respectively. `ops.py` imports `SCRIPTS_DIR` directly from `vault_common`. These paths hold regardless of custom vault path configuration.
+Script paths for `rebuild_index` and `vault_doctor` use `vault_common.SCRIPTS_DIR` — a constant defined in `vault_path.py` alongside `TEMPLATES_DIR`. `SCRIPTS_DIR` resolves to `~/.claude/skills/parsidion/scripts/`; the sibling `TEMPLATES_DIR` resolves to `~/.claude/skills/parsidion/templates/`. `ops.py` imports `SCRIPTS_DIR` directly from `vault_common`. These paths hold regardless of custom vault path configuration.
 
 ## Installation
 
@@ -122,7 +122,7 @@ Script paths for `rebuild_index` and `vault_doctor` use `vault_common.SCRIPTS_DI
 
 - Python 3.13 or later
 - `uv` (the package manager — install from [docs.astral.sh/uv](https://docs.astral.sh/uv))
-- `parsidion` installed as an editable package with the `[search]` extra. The editable install exposes the `vault_common` and `vault_search` py-modules; the `[search]` extra pulls in `fastembed`, `sqlite-vec`, and `pillow`
+- `parsidion` installed as an editable package with the `[search]` extra. The editable install exposes the `vault_common`, `vault_search`, and `parmem_backend` py-modules; the `[search]` extra pulls in `fastembed`, `sqlite-vec`, and `pillow`
 
 > **📝 Note:** Both `parsidion` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion`.
 

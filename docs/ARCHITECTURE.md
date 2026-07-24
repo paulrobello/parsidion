@@ -59,7 +59,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - `uv` for script execution
 - [Obsidian](https://obsidian.md/) for vault browsing and graph view (optional; not required for any core functionality)
 
-**Configuration:** All hooks and the summarizer read `~/ParsidionVault/config.yaml` for tuneable settings. A reference config with all defaults is shipped as `templates/config.yaml`. Precedence: script defaults → config.yaml → CLI arguments.
+**Configuration:** All hooks and the summarizer read `~/ParsidionVault/config.yaml` for tuneable settings. A reference config with all defaults is shipped as `templates/config.yaml`. An optional `config.local.yaml` overlay (same vault directory, always gitignored) is deep-merged over `config.yaml`. Precedence: script defaults → `config.yaml` → `config.local.yaml` → CLI arguments.
 
 ## System Architecture
 
@@ -222,7 +222,7 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop`/`SubagentStop` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
+Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop`/`SubagentStop` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → config.local.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
 
 Transcript compatibility:
 - Claude Code JSONL (`type: "assistant" | "user"`)
@@ -405,7 +405,7 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 
 An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. Claude-backed runs use `claude -p`; Codex-backed runs use `codex exec`. Gemini runtime hooks can queue transcripts, but there is no Gemini prompt backend yet. No Claude Agent SDK or Codex SDK is required for this path.
 
-**CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`
+**CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`, `--run-doctor`, `--rebuild-graph`, `--graph-include-daily`, `--vault PATH`
 
 **Configurable options** (section `summarizer` in `config.yaml`):
 
@@ -414,10 +414,12 @@ An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summa
 | `model` | `claude-sonnet-4-6` | Explicit large-model override; defaults to `defaults.sonnet_model` |
 | `max_parallel` | `5` | Concurrent summarization tasks |
 | `transcript_tail_lines` | `400` | Transcript lines to read per entry |
+| `transcript_tail_bytes` | `262144` | Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts) so cleaning/chunking cannot explode |
 | `max_cleaned_chars` | `12000` | Maximum characters after cleaning |
 | `persist` | `false` | Accepted for backwards compatibility; CLI backends control persistence via backend config |
 | `cluster_model` | `claude-haiku-4-5-20251001` | Chunk-model for hierarchical summarization; defaults to `defaults.haiku_model` |
 | `dedup_threshold` | `0.80` | Cosine similarity above which a note is considered a near-duplicate and skipped |
+| `dead_letter_retention_days` | `7` | Prune `dead_letters.jsonl` entries older than N days each run (write-gate skips are sticky, so the file grows without this); `<=0` disables pruning |
 | `rebuild_graph` | `false` | Rebuild visualizer `graph.json` after indexing (same as `--rebuild-graph` CLI flag) |
 | `graph_include_daily` | `false` | Include Daily notes in graph rebuild (same as `--graph-include-daily` CLI flag) |
 
@@ -673,7 +675,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `TRANSCRIPT_CATEGORIES` | Keyword lists for four learning categories (error_fix, research, pattern, config_setup) |
 | `TRANSCRIPT_CATEGORY_LABELS` | Human-readable labels for category keys |
 
-**Configuration system:** `load_config()` reads `~/ParsidionVault/config.yaml` on first call and caches the result for the process lifetime. The file is parsed by `_parse_config_yaml()`, a stdlib-only YAML parser that handles one level of nesting (section headers with nested key-value pairs). `_strip_inline_comment()` handles trailing `# comment` syntax. `get_config(section, key, default)` provides the lookup API used by all hooks and the summarizer. Anthropic-compatible transport settings can also be defined in `anthropic_env` using their real env var names (for example `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `API_TIMEOUT_MS`), with precedence **environment > `anthropic_env` > default behavior**.
+**Configuration system:** `load_config()` reads `~/ParsidionVault/config.yaml` on first call, deep-merges an optional `config.local.yaml` overlay (always gitignored) over it section-by-section, and caches the merged result for the process lifetime via `functools.lru_cache`. The file is parsed by `_parse_config_yaml()`, a stdlib-only YAML parser that handles one level of nesting (section headers with nested key-value pairs). `_strip_inline_comment()` handles trailing `# comment` syntax. `get_config(section, key, default)` provides the lookup API used by all hooks and the summarizer; `validate_config()` is available as a standalone helper that returns a list of human-readable warnings. Anthropic-compatible transport settings can also be defined in `anthropic_env` using their real env var names (for example `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `API_TIMEOUT_MS`), with precedence **environment > `anthropic_env` > default behavior**.
 
 **Design decisions:**
 - No external dependencies (stdlib only) for maximum portability in hook contexts
@@ -1009,9 +1011,9 @@ The default vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrad
 
 ## Configuration
 
-All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. The pi adapter extension may inspect `anthropic_env` for `/parsidion` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
+All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. An optional `config.local.yaml` overlay (same vault directory, always gitignored by the installer) is deep-merged over `config.yaml` section-by-section, so secrets or machine-specific overrides can live in the local-only file while a secret-free `config.yaml` is git-synced (or vice versa). The pi adapter extension may inspect `anthropic_env` for `/parsidion` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
 
-**Precedence:** script defaults → `config.yaml` → CLI arguments.
+**Precedence:** script defaults → `config.yaml` → `config.local.yaml` → CLI arguments.
 
 **Sections:**
 
@@ -1051,10 +1053,12 @@ summarizer:          # summarize_sessions.py
   model: claude-sonnet-4-6  # Large model for final note generation
   max_parallel: 5
   transcript_tail_lines: 400
+  transcript_tail_bytes: 262144  # Byte ceiling on raw tail; bounds huge-line transcripts
   max_cleaned_chars: 12000
   persist: false     # accepted for backwards compatibility
   cluster_model: claude-haiku-4-5-20251001  # Small model for hierarchical chunk summarization
   dedup_threshold: 0.80  # Cosine similarity above which a near-duplicate note is detected and skipped
+  dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days; <=0 disables
   rebuild_graph: false                     # Rebuild visualizer graph.json after indexing
   graph_include_daily: false               # Include Daily notes in graph rebuild
 
@@ -1070,6 +1074,14 @@ embeddings:          # build_embeddings.py, vault_search.py
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
+
+par_mem:             # Optional par-mem code-memory backend (external CLI + daemon)
+  enabled: true            # Probe for par-mem when available; false = never probe
+  binary: par-mem          # PATH lookup or absolute path to the par-mem CLI
+  timeout_s: 10            # Per-query subprocess timeout in seconds
+
+search:              # vault_search.py backend selection
+  backend: auto            # auto | par-mem | embeddings | none
 
 git:
   auto_commit: true  # Auto-commit vault changes after writes
@@ -1209,10 +1221,20 @@ sequenceDiagram
 ```text
 parsidion/
 ├── README.md
-├── install.py                       # Installer: symlinks skills/agents/hooks to ~/.claude/ (copies on Windows)
+├── install.py                       # Installer entry point: re-exports the installer/ package
+├── installer/                       # Installer package (ARC-005-style split of install.py)
+│   ├── colors.py                    # ANSI colour helpers (NO_COLOR-aware)
+│   ├── ui.py                        # Interactive print/prompt helpers
+│   ├── paths.py                     # Path constants, VAULT_DIRS, runtime predicates
+│   ├── hooks.py                     # Hook merge/remove for Claude, Codex, Gemini
+│   ├── schedule.py                  # launchd/cron nightly-summarizer scheduler
+│   ├── vault.py                     # Vault dir creation, git setup, config.yaml, vaults.yaml
+│   └── skill.py                     # Skill/agent/script install, AI mode, legacy cleanup, uninstall
 ├── CLAUDE-VAULT.md                  # Always-on vault-first guidance (installed to ~/.claude/)
 ├── pyproject.toml
 ├── Makefile
+├── extensions/
+│   └── pi/parsidion/                # pi agent adapter extension (parsidion.ts, parsidion.md, lib/parsidion-status.ts)
 ├── scripts/
 │   ├── show-context                 # CLI: preview session start context for any project
 │   └── install-pi-extension        # Install parsidion pi extension into ~/.pi/agent/extensions

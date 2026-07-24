@@ -492,7 +492,7 @@ See [docs/VISUALIZER.md](docs/VISUALIZER.md) for the full architecture, data mod
 
 An optional MCP server that exposes Parsidion vault operations to **Claude Desktop** (and any other MCP-compatible client) over stdio. It lives in the `parsidion-mcp/` subdirectory and is installed independently from the main skill.
 
-**Six tools:**
+**Seven tools:**
 
 | Tool | Description |
 |------|-------------|
@@ -502,6 +502,7 @@ An optional MCP server that exposes Parsidion vault operations to **Claude Deskt
 | `vault_context` | Return a session-start-style context block (compact index or verbose summaries) |
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
 | `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
+| `code_search` | Search a par-mem-indexed repository's code graph by natural language; requires the [par-mem](docs/PAR-MEM.md) backend (returns a clear error if par-mem is unavailable) |
 
 **Install:**
 

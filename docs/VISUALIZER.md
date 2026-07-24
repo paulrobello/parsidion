@@ -295,9 +295,19 @@ Interactive force-directed graph for exploring note relationships:
 
 **Interactions**
 - Click node → opens note in current tab and highlights selection
-- Right-click node → context menu: "Open in Reading Pane" / "View History"
+- Right-click node → context menu: "Open in Reading Pane" / "View History", plus the Path Finder controls (see below)
 - Drag node → pins position, reheats physics simulation
 - Hover node → shows label (if labels-on-hover mode is active)
+
+#### Path Finder
+
+A node-right-click menu item traces the shortest wiki-link path between two notes. The path is computed by BFS over non-overlay wiki edges only (`findWikiPath` in `components/GraphCanvas.tsx`); semantic edges are ignored so routes reflect explicit structural links.
+
+- **◎ Set Path Origin** — mark the right-clicked node as the path source (its stem is held in a ref, not component state, so it survives re-renders without re-running layout)
+- **⚡ Find Path Here** — shown on every other node once an origin is set; clicks run the BFS, highlight the resulting node/edge set on the canvas, and surface a toast breadcrumb of the form `Note A → Note B → Note C`
+- **✕ Clear Path Origin** — shown when the right-clicked node is the current origin; clears the source and any highlighted path
+
+If no wiki-link path exists between the two notes, a "No wiki-link path found" toast appears and the origin stays set so a different destination can be tried.
 
 #### HUD Panel
 
