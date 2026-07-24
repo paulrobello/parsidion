@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-24
+
 ### Added
 - **Optional par-mem code-memory search backend** — vault semantic search can now be served by [par-mem](docs/PAR-MEM.md), a local Rust code-memory daemon, instead of the local embeddings-only cosine search. `search.backend` selects `auto` (par-mem when available and indexed, silent fallback to embeddings — the default), `par-mem` (par-mem only, no fallback), `embeddings` (today's path unconditionally), or `none`; a new `par_mem:` config section (`enabled`/`binary`/`timeout_s`) and a `vault-search --backend/-B` flag control it per query. par-mem absent means parsidion behaves byte-for-byte as before.
 - **Hybrid BM25+vector+graph vault search** — when routed to par-mem, queries hit its always-on daemon (MCP over HTTP) instead of the local `embeddings.db` cosine index, and results are enriched from `note_index` and re-scored with parsidion's existing temporal decay.
@@ -16,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **docs/PAR-MEM.md** — the full integration guide: configuration, requirements, score semantics, degradation matrix, index freshness, and troubleshooting.
 - **graph.json body-link enrichment** — `build_graph.py` merges par-mem's in-body doc links (`par-mem doc-links`) into wiki edges when the integration is enabled; `--no-parmem` opts out.
 - Visualizer: semantic vault search behind the `?` search prefix (`GET /api/search` → `vault_search.py`, par-mem backend with embeddings fallback), Linked Notes section in the reading pane (wiki-edge neighbors incl. par-mem body links), `body links` HUD stat from `meta.parmem_body_links`, and a `make visualizer-check` gate (tsc + eslint + bun test) wired into `make checkall`.
+- **Configurable dead-letter retention** — `dead_letters.jsonl` no longer grows without bound: write-gate-skipped sessions are now sticky (a stop-hook re-queue is caught by the `_DEAD` guard), so every transient session was retained forever. A new `summarizer.dead_letter_retention_days` config (default `7`; `<=0` disables) prunes entries older than N days once per summarizer run.
+
+### Fixed
+- **Summarizer chunk explosion on huge-line transcripts** — large codex subagent transcripts with few-but-huge lines (e.g. a 9.2 MB rollout across 339 lines) bypassed `transcript_tail_lines` and produced hundreds of hierarchical chunks, timing out the AI backend ("no result") and dead-lettering the session after 3 attempts. A new `transcript_tail_bytes` config (default `262144`) bounds the raw tail by bytes (`read_last_n_lines` drops oldest lines until the budget is met, always keeping the most recent line), collapsing ~325 chunks to ~10 on the worst case.
+- **vault-doctor flagged fenced/inline code as broken wikilinks** — the `BROKEN_WIKILINK` scanner ran over the entire document including code blocks, so legitimate config syntax (TOML array-of-tables like `[[bin]]`, `[[keys.command]]`) was reported as broken links — 11 false-positive warnings and 3 spurious repair "failures" every run. It now scans only text outside protected regions, sharing the `vault_links._iter_unprotected_spans` tracker so the scanner and the migration rewriter never disagree about what counts as a link.
+- **Dangling wikilinks, in-flight transcripts, and sticky dead-letters** — three recurring queue/link-hygiene fixes: (1) a post-write validator strips `[[link]]` wikilinks the summarizer backend invents that resolve to no vault note (the recurring `[[<project>]]` "hub" link that mirrors the `project` field but points at nothing), dropping them from `related:` and reducing body links to display text outside code; (2) a transcript whose mtime is within a 120 s grace window is treated as still being written and deferred to a later run, stopping racy partial notes from resumed/long-lived sessions; (3) write-gate-skipped sessions are now recorded in `dead_letters.jsonl` so a stop-hook re-queue is caught by a new `_DEAD` guard instead of re-billing an AI call to re-evaluate a session already judged transient.
+- **Vault auto-commit clobbered unrelated staged changes** — committing vault writes staged and committed changes that were already staged for an unrelated reason; it now preserves unrelated staged work.
+
+### Changed
+- **Documentation synced to the implementation** — `CLAUDE.md`, `README.md`, and the `docs/` set were verified against the codebase: corrected vault path defaults (`~/ParsidionVault/` with legacy `~/ClaudeVault/` fallback), the `parsidion-mcp` tool count (six → seven, +`code_search`), `config.local.yaml` precedence, the `vault_common` ARC-005 module split, the Makefile target list, and the reversed `SCRIPTS_DIR`/`TEMPLATES_DIR` mapping; documented the visualizer Path Finder (BFS wiki-link path tracing).
 
 ## [0.12.2] - 2026-07-12
 
@@ -682,7 +694,9 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/paulrobello/parsidion/compare/v0.12.2...v0.13.0
+[0.12.2]: https://github.com/paulrobello/parsidion/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/paulrobello/parsidion/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/paulrobello/parsidion/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/paulrobello/parsidion/compare/v0.11.0...v0.11.1
