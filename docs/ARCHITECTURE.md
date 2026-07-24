@@ -758,7 +758,7 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 
 **Graceful degradation:** returns `[]` when `embeddings.db` is absent or `note_index` table does not exist.
 
-**Optional par-mem backend:** when the external par-mem code-memory daemon is installed and the vault is indexed, `search.backend: auto` (default) routes semantic-mode queries to par-mem's hybrid BM25+vector+graph retrieval instead of this local cosine-similarity path, with silent fallback to embeddings on any failure. See [docs/PAR-MEM.md](PAR-MEM.md) for configuration, score semantics, and the degradation matrix.
+**Optional par-mem backend:** when the external par-mem code-memory daemon is installed and the vault is indexed, `search.backend: auto` (default) routes semantic-mode queries to par-mem's hybrid BM25+vector+graph retrieval instead of this local cosine-similarity path, with silent fallback to embeddings on any failure. See [docs/PAR-MEM.md](PAR-MEM.md) for configuration, score semantics, and the degradation matrix. _(par-mem itself is not yet publicly available — coming soon; the local embeddings path is the always-on default until it ships.)_
 
 **Global CLI:** installed via `uv tool install --editable ".[tools]"` from the repo root, or `uv run install.py --install-tools`. Places `vault-search` in `~/.local/bin/` (Linux/macOS) or `%APPDATA%\Python\Scripts` (Windows).
 

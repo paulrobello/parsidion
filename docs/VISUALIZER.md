@@ -215,7 +215,7 @@ The default mode when opening a note. Provides a distraction-free reading experi
   - Click → open in current tab
   - Cmd+click → open in new tab
 - Related notes section extracted from YAML frontmatter
-- Linked Notes section: notes connected by wiki edges in `graph.json` (frontmatter `related:` plus par-mem in-body links when the [par-mem integration](PAR-MEM.md) is enabled) — undirected, deduplicated against the Related row
+- Linked Notes section: notes connected by wiki edges in `graph.json` (frontmatter `related:` plus par-mem in-body links when the [par-mem integration](PAR-MEM.md) is enabled — par-mem itself is coming soon / not yet public) — undirected, deduplicated against the Related row
 - **Inline editing**: toggle edit mode to modify note body and frontmatter
   - FrontmatterEditor provides structured editing of type, date, confidence, tags, project, sources, and related links with tag autocomplete from the graph
   - Save and delete operations via the note CRUD API

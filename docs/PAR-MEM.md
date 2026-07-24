@@ -1,5 +1,12 @@
 # par-mem Code-Memory Backend
 
+> **Status — par-mem is not yet publicly available (coming soon).**
+> The integration documented here is fully built and tested, and switches on
+> automatically the moment par-mem ships and you install it. Until then
+> parsidion behaves **exactly as it would without par-mem** — every feature
+> works via the local embeddings fallback, and there is no par-mem download to
+> install today.
+
 An **optional** integration: when the par-mem code-memory system (local
 install; see its own README for installation) is installed and its daemon
 is running, parsidion's vault semantic search is served by par-mem's
@@ -41,7 +48,8 @@ is present, or par-mem is treated as unavailable.
 
 ## Installation
 
-parsidion never installs or requires par-mem. To opt in:
+parsidion never installs or requires par-mem. To opt in (once par-mem is
+released — it is **not yet publicly available**; see the status note above):
 
 1. Install the `par-mem` CLI and start its daemon (an always-on launchd
    agent serving MCP over HTTP at `127.0.0.1:4848` — see the par-mem

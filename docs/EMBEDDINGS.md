@@ -51,6 +51,8 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 > the default), falling back to this local embeddings pipeline silently when par-mem is
 > absent. The embeddings pipeline is always on regardless. Metadata and grep modes always
 > use the local `note_index` table. See [PAR-MEM.md](PAR-MEM.md) for the par-mem integration.
+> _(par-mem itself is not yet publicly available — coming soon; this embeddings pipeline is
+> the always-on default until it ships.)_
 
 **Key capabilities:**
 
