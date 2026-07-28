@@ -51,6 +51,15 @@ py-modules = [
     "vault_export",
     "vault_merge",
     "vault_conflicts",
+    # ARC-001: modules imported by vault_common / vault_merge / vault_conflicts.
+    # Without these, a non-editable wheel install fails on first import.
+    "vault_config",
+    "vault_path",
+    "vault_fs",
+    "vault_index",
+    "vault_hooks",
+    "vault_adaptive",
+    "ai_backend",
 ]
 
 [tool.setuptools.package-dir]
