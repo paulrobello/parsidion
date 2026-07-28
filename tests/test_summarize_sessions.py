@@ -1247,3 +1247,101 @@ def test_arc010_prompt_lists_knowledge_type(monkeypatch: pytest.MonkeyPatch) -> 
     for t in summarize_sessions._VALID_NOTE_TYPES:
         assert t in prompt, f"prompt missing type {t!r}"
 
+
+# --- ARC-012: task-group boundary isolates failures -------------------------
+
+
+@pytest.mark.skipif(
+    not importlib.util.find_spec("anyio"),
+    reason="anyio is a PEP 723 inline dep, not under the test extras",
+)
+def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ARC-012: an unhandled exception inside summarize_one must not cancel
+    its siblings via anyio.create_task_group()'s cancel-on-raise semantics.
+
+    Regression for the original bug: an unguarded write path raised inside
+    one task and the task group cancelled every sibling, leaving the queue
+    uncleaned and the index not rebuilt. The test fakes three entries whose
+    summarize_one raises/returns in turn and confirms all three still appear
+    in the results list with the failing one mapped to the failure sentinel.
+
+    Skipped when ``anyio`` is not installed in the test environment (it is a
+    PEP 723 inline dependency, not declared under the test extras). The bug
+    only manifests with a real task group; the sequential fake used by other
+    tests does not propagate cancellation, so it cannot reproduce the issue.
+    """
+    try:
+        import anyio as real_anyio  # noqa: PLC0415
+    except ImportError:
+        pytest.skip("anyio not installed in this environment")
+
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    entries: list[dict[str, object]] = [
+        {"session_id": "ok-1", "project": "p1"},
+        {"session_id": "boom", "project": "p1"},
+        {"session_id": "ok-2", "project": "p2"},
+    ]
+    written_path = tmp_path / "note.md"
+    written_path.write_text("# x\n", encoding="utf-8")
+
+    async def fake_summarize_one(entry, *args, **kwargs):  # type: ignore[no-untyped-def]
+        sid = entry.get("session_id")
+        if sid == "boom":
+            raise RuntimeError("simulated unguarded write failure")
+        return entry, written_path
+
+    # Restore the real anyio and reload the summarizer so its module-level
+    # ``anyio`` references resolve to the real package, not the stub.
+    monkeypatch.setitem(sys.modules, "anyio", real_anyio)
+    sys.modules.pop("summarize_sessions", None)
+    summarize_sessions = importlib.import_module("summarize_sessions")
+    monkeypatch.setattr(summarize_sessions, "summarize_one", fake_summarize_one)
+    monkeypatch.setattr(summarize_sessions, "_ACTIVE_SESSION_GRACE_SECS", 0)
+    monkeypatch.setattr(
+        summarize_sessions.vault_common,
+        "all_vault_notes",
+        lambda *a, **kw: [],
+    )
+    monkeypatch.setattr(summarize_sessions, "read_existing_tags", lambda v: [])
+    monkeypatch.setattr(summarize_sessions, "read_project_names", lambda **kw: set())
+    monkeypatch.setattr(summarize_sessions, "_write_progress", lambda **kw: None)
+
+    results = real_anyio.run(
+        summarize_sessions.run_all,
+        entries,
+        None,           # model
+        True,           # dry_run
+        False,          # persist
+        vault,
+        2,              # max_parallel
+        400,            # tail_lines
+        262_144,        # tail_bytes
+        12_000,         # max_cleaned_chars
+        None,           # cluster_model
+    )
+
+    # All three entries appear in results; the raising one became (entry, None).
+    sids = [r[0].get("session_id") for r in results]
+    assert sorted(sids) == ["boom", "ok-1", "ok-2"]
+    by_sid = {r[0].get("session_id"): r[1] for r in results}
+    assert by_sid["ok-1"] == written_path
+    assert by_sid["ok-2"] == written_path
+    assert by_sid["boom"] is None, "raising entry must map to failure sentinel"
+
+    captured = capsys.readouterr()
+    assert "Unhandled failure" in captured.err
+    # _mark_failure must have set the failure-reason key so the dead-letter
+    # warning at remove_processed time can report the real reason.
+    boom_entry = next(r[0] for r in results if r[0].get("session_id") == "boom")
+    assert boom_entry.get(summarize_sessions._FAILURE_REASON_KEY), (
+        "_mark_failure did not fire on the unhandled exception"
+    )
+
+

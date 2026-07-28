@@ -1555,7 +1555,13 @@ async def run_all(
     ]  # [processed, written, skipped, errors]
 
     async def _run_one(entry: dict[str, object]) -> None:
-        """Wrapper that collects the result of summarize_one into *results*."""
+        """Wrapper that collects the result of summarize_one into *results*.
+
+        ARC-012: catches every unhandled exception so one malformed session
+        cannot cancel its siblings through ``anyio.create_task_group()``'s
+        default cancellation semantics. Cancellation (Ctrl-C) is still
+        propagated by re-raising ``anyio.get_cancelled_exc_class()``.
+        """
         project = str(entry.get("project", "?"))
         session_id = str(entry.get("session_id", ""))[:8]
         current = f"{project} [{session_id}]"
@@ -1568,20 +1574,39 @@ async def run_all(
             current=current,
         )
 
-        result = await summarize_one(
-            entry,
-            model,
-            dry_run,
-            semaphore,
-            semantic_tags,
-            persist,
-            vault,
-            tail_lines,
-            tail_bytes,
-            max_cleaned_chars,
-            cluster_model,
-            vault_notes=vault_notes,
-        )
+        try:
+            result = await summarize_one(
+                entry,
+                model,
+                dry_run,
+                semaphore,
+                semantic_tags,
+                persist,
+                vault,
+                tail_lines,
+                tail_bytes,
+                max_cleaned_chars,
+                cluster_model,
+                vault_notes=vault_notes,
+            )
+        except anyio.get_cancelled_exc_class():
+            # Ctrl-C / task cancellation must propagate so the user can
+            # abort a run. Do NOT swallow it.
+            raise
+        except Exception as exc:  # noqa: BLE001 — task-group boundary
+            # Catch every unhandled exception: an unguarded write path
+            # inside summarize_one would otherwise cancel all siblings
+            # via anyio.create_task_group()'s cancel-on-raise semantics,
+            # leaving the queue uncleaned and the index not rebuilt.
+            print(
+                f" Unhandled failure for session {session_id} "
+                f"(project {project}): {exc}",
+                file=sys.stderr,
+            )
+            traceback.print_exc()
+            _mark_failure(entry, f"unhandled: {exc}")
+            result = (entry, None)
+
         results.append(result)
         _progress_counters[0] += 1  # processed
         _, written_path = result
