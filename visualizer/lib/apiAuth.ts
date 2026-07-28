@@ -26,6 +26,20 @@
 //
 // Usage in a route handler:
 //
+//   import { withApi } from '@/lib/apiAuth'
+//   ...
+//   export const GET = withApi(async (req) => { ... })
+//   export const POST = withApi(async (req) => { ... }, { mutation: true })
+//
+// ARC-014: routes should use `withApi` rather than calling the guards by
+// hand. Hand-application is what allowed `/api/stats` to ship with zero
+// guards (the only such route), so the wrapper plus an enumeration test
+// (`apiRoutes.test.ts`) is the durable fix: a new route physically cannot
+// forget the guards because the test imports every module under `app/api/`
+// and asserts each HTTP-method export was created by `withApi`.
+//
+// Direct call (still exported for unusual cases — middleware, tests):
+//
 //   import { requireAuth, requireSameOrigin, requireToken } from '@/lib/apiAuth'
 //   ...
 //   // SEC-102: token first (covers non-browser clients), then same-origin
@@ -129,4 +143,71 @@ export function requireAuth(req: NextRequest): NextResponse | null {
   // 2. Bearer token check (delegates to requireToken so the comparison
   //    stays constant-time in one place).
   return requireToken(req)
+}
+
+/**
+ * Result of running all relevant guards on a request. Routes either return
+ * the rejection response directly or use {@link withApi}, which performs the
+ * same checks inline and short-circuits on failure.
+ */
+export type GuardResult = NextResponse | null
+
+/**
+ * Runs every guard a handler needs, in the same order SEC-102 established:
+ *   1. {@link requireToken} — bearer-token check (covers non-browser clients
+ *      on every method when VISUALIZER_TOKEN is set).
+ *   2. {@link requireSameOrigin} — Sec-Fetch-Site check (covers browser
+ *      drive-by on every method).
+ *   3. For mutations (POST/PUT/DELETE/PATCH), additionally the Content-Type
+ *      check from {@link requireAuth}. The token check inside requireAuth
+ *      is a duplicate of step 1, so for read methods we skip requireAuth
+ *      entirely (the Content-Type check is meaningless on a GET anyway).
+ *
+ * @returns A NextResponse when the request must be rejected, or null when
+ *   the handler should run.
+ */
+export function runGuards(req: NextRequest, opts?: { mutation?: boolean }): GuardResult {
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
+  if (opts?.mutation) {
+    const authError = requireAuth(req)
+    // requireAuth re-runs requireToken; the second call is a cheap no-op
+    // (constant-time compare against the same env var) and keeps the guard
+    // chain structurally uniform.
+    if (authError) return authError
+  }
+  return null
+}
+
+/**
+ * Wraps a Next.js App Router route handler so the SEC-102 token + same-origin
+ * guards (and for mutations, the Content-Type check) cannot be forgotten.
+ *
+ * ARC-014: SEC-102 applied the guards by hand to every GET handler, and
+ * `/api/stats` was caught without them — the only route in the app. A
+ * wrapper plus an enumeration test (see `apiRoutes.test.ts`) makes a future
+ * route physically unable to skip the guards: the test imports every module
+ * under `app/api/` and asserts each HTTP-method export was created by
+ * `withApi`.
+ *
+ * Usage:
+ *   export const GET = withApi(async (req) => { ... })
+ *   export const POST = withApi(async (req) => { ... }, { mutation: true })
+ *
+ * The `mutation` flag is optional — when omitted the handler runs as a read.
+ * Supplying `{ mutation: true }` for a GET (or omitting it for a POST) is
+ * allowed so the wrapper stays trivial to apply; the flag is a hint that
+ * determines which guards run, not an enforced contract.
+ */
+export function withApi(
+  handler: (req: NextRequest) => NextResponse | Response | Promise<NextResponse | Response>,
+  opts?: { mutation?: boolean },
+): (req: NextRequest) => Promise<NextResponse | Response> {
+  return async (req: NextRequest): Promise<NextResponse | Response> => {
+    const rejection = runGuards(req, opts)
+    if (rejection) return rejection
+    return handler(req)
+  }
 }

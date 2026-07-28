@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
-import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -29,11 +29,7 @@ export interface CommitEntry {
   message: string
 }
 
-export async function GET(req: NextRequest) {
-  const tokenError = requireToken(req)
-  if (tokenError) return tokenError
-  const originError = requireSameOrigin(req)
-  if (originError) return originError
+export const GET = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')
   const notPathParam = req.nextUrl.searchParams.get('path')
   const vault = req.nextUrl.searchParams.get('vault')
@@ -105,4 +101,4 @@ export async function GET(req: NextRequest) {
       resolve(NextResponse.json({ error: err.message }, { status: 500 }))
     })
   })
-}
+})

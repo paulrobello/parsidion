@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs/promises'
 import path from 'path'
 import { resolveVault, guardPath } from '@/lib/vaultResolver'
-import { requireAuth, requireSameOrigin, requireToken } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 
 // QA-006: Replaced all synchronous fs calls with async fs.promises equivalents.
 // findNote is now async to avoid blocking the Node.js event loop during
@@ -26,11 +26,7 @@ async function findNote(dir: string, stemToFind: string): Promise<string | null>
   return null
 }
 
-export async function GET(req: NextRequest) {
-  const tokenError = requireToken(req)
-  if (tokenError) return tokenError
-  const originError = requireSameOrigin(req)
-  if (originError) return originError
+export const GET = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')
   const relPath = req.nextUrl.searchParams.get('path')
   const vault = req.nextUrl.searchParams.get('vault')
@@ -70,11 +66,9 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Failed to read note' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: NextRequest) {
-  const authError = requireAuth(req)
-  if (authError) return authError
+export const POST = withApi(async (req: NextRequest) => {
   const body = await req.json()
   // ARC-002: accept vault from EITHER the query string or the JSON body
   // (query string wins for backward compat). The client puts the selected
@@ -145,11 +139,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Failed to write note' }, { status: 500 })
   }
-}
+}, { mutation: true })
 
-export async function PUT(req: NextRequest) {
-  const authError = requireAuth(req)
-  if (authError) return authError
+export const PUT = withApi(async (req: NextRequest) => {
   const body = await req.json()
   // ARC-002: accept vault from EITHER the query string or the JSON body
   // (query string wins for backward compat). See POST handler for rationale.
@@ -194,11 +186,9 @@ export async function PUT(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Failed to create note' }, { status: 500 })
   }
-}
+}, { mutation: true })
 
-export async function DELETE(req: NextRequest) {
-  const authError = requireAuth(req)
-  if (authError) return authError
+export const DELETE = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')
   const relPath = req.nextUrl.searchParams.get('path')
   const vault = req.nextUrl.searchParams.get('vault')
@@ -239,4 +229,4 @@ export async function DELETE(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Failed to delete note' }, { status: 500 })
   }
-}
+}, { mutation: true })

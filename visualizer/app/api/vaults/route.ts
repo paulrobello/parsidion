@@ -1,9 +1,9 @@
 // app/api/vaults/route.ts
 // Lists available vaults from vaults.yaml configuration.
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { listNamedVaults, getDefaultVault } from '@/lib/vaultResolver'
-import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 
 export interface VaultInfo {
   name: string
@@ -11,11 +11,7 @@ export interface VaultInfo {
   isDefault: boolean
 }
 
-export async function GET(req: NextRequest) {
-  const tokenError = requireToken(req)
-  if (tokenError) return tokenError
-  const originError = requireSameOrigin(req)
-  if (originError) return originError
+export const GET = withApi(async () => {
   const namedVaults = listNamedVaults()
   const defaultVaultPath = getDefaultVault()
 
@@ -46,4 +42,4 @@ export async function GET(req: NextRequest) {
     vaults,
     defaultVault: vaults.find(v => v.isDefault)?.name || vaults[0]?.name || 'default'
   })
-}
+})

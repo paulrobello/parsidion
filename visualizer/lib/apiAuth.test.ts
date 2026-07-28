@@ -13,8 +13,8 @@
 //     requireToken: same-origin alone is bypassable by any local client.
 
 import { describe, it, expect, afterEach } from 'bun:test'
-import { NextRequest } from 'next/server'
-import { requireToken, requireSameOrigin, requireAuth } from './apiAuth'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireToken, requireSameOrigin, requireAuth, withApi, runGuards } from './apiAuth'
 
 function makeRequest(headers: Record<string, string> = {}, method = 'GET'): NextRequest {
   const url = 'http://localhost:3999/api/stats'
@@ -149,5 +149,84 @@ describe('requireAuth (mutations)', () => {
       'POST',
     )
     expect(requireAuth(req)).toBeNull()
+  })
+})
+
+describe('withApi / runGuards (ARC-014)', () => {
+  const originalToken = process.env.VISUALIZER_TOKEN
+
+  afterEach(() => {
+    if (originalToken === undefined) {
+      delete process.env.VISUALIZER_TOKEN
+    } else {
+      process.env.VISUALIZER_TOKEN = originalToken
+    }
+  })
+
+  it('withApi returns an anonymous function (the wrapper signature)', () => {
+    // ARC-014 enumeration test relies on this: a wrapped export's `name` is
+    // empty because `withApi` returns an arrow expression. A plain
+    // `export async function GET` would keep its name. Pin the contract so
+    // a future refactor of withApi cannot silently break the enumeration test.
+    const wrapped = withApi(() => NextResponse.json({ ok: true }))
+    expect(typeof wrapped).toBe('function')
+    expect(wrapped.name).toBe('')
+  })
+
+  it('withApi delegates to the handler when guards pass', async () => {
+    delete process.env.VISUALIZER_TOKEN
+    const req = makeRequest({})
+    const handler = withApi(() => NextResponse.json({ ok: true }))
+    const res = await handler(req)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+  })
+
+  it('withApi short-circuits on token failure (401) without calling handler', async () => {
+    process.env.VISUALIZER_TOKEN = 'secret'
+    const req = makeRequest({})
+    let called = false
+    const handler = withApi(() => {
+      called = true
+      return NextResponse.json({ ok: true })
+    })
+    const res = await handler(req)
+    expect(res.status).toBe(401)
+    expect(called).toBe(false)
+  })
+
+  it('withApi short-circuits on cross-site (403) without calling handler', async () => {
+    delete process.env.VISUALIZER_TOKEN
+    const req = makeRequest({ 'sec-fetch-site': 'cross-site' })
+    let called = false
+    const handler = withApi(() => {
+      called = true
+      return NextResponse.json({ ok: true })
+    })
+    const res = await handler(req)
+    expect(res.status).toBe(403)
+    expect(called).toBe(false)
+  })
+
+  it('withApi mutation also runs requireAuth Content-Type check', async () => {
+    delete process.env.VISUALIZER_TOKEN
+    const req = makeRequest({}, 'POST')
+    let called = false
+    const handler = withApi(() => {
+      called = true
+      return NextResponse.json({ ok: true })
+    }, { mutation: true })
+    const res = await handler(req)
+    expect(res.status).toBe(415)
+    expect(called).toBe(false)
+  })
+
+  it('runGuards returns null when everything passes', () => {
+    delete process.env.VISUALIZER_TOKEN
+    const req = makeRequest(
+      { 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+      'POST',
+    )
+    expect(runGuards(req, { mutation: true })).toBeNull()
   })
 })

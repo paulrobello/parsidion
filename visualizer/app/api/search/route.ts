@@ -1,7 +1,7 @@
 // app/api/search/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
-import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 import {
   runVaultSearch,
   ScriptMissingError,
@@ -11,12 +11,7 @@ import {
 
 const MAX_QUERY_LENGTH = 512
 
-export async function GET(req: NextRequest) {
-  const tokenError = requireToken(req)
-  if (tokenError) return tokenError
-  const originError = requireSameOrigin(req)
-  if (originError) return originError
-
+export const GET = withApi(async (req: NextRequest) => {
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim()
   if (!q || q.length > MAX_QUERY_LENGTH) {
     return NextResponse.json({ error: 'Invalid query' }, { status: 400 })
@@ -54,4 +49,4 @@ export async function GET(req: NextRequest) {
     }
     throw err
   }
-}
+})

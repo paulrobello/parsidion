@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import type { VaultFile } from '@/lib/vaultFile'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
-import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 
 const EXCLUDED_DIRS = new Set(['.obsidian', 'Templates', '.git', '.trash', 'TagsRoutes'])
 
@@ -40,11 +40,7 @@ async function walkVault(dir: string, vaultRoot: string, results: VaultFile[]): 
   }
 }
 
-export async function GET(req: NextRequest) {
-  const tokenError = requireToken(req)
-  if (tokenError) return tokenError
-  const originError = requireSameOrigin(req)
-  if (originError) return originError
+export const GET = withApi(async (req: NextRequest) => {
   const vault = req.nextUrl.searchParams.get('vault')
   let vaultRoot: string
   try {
@@ -58,4 +54,4 @@ export async function GET(req: NextRequest) {
   const files: VaultFile[] = []
   await walkVault(vaultRoot, vaultRoot, files)
   return NextResponse.json({ files })
-}
+})

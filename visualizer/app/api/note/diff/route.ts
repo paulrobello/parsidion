@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
-import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -24,11 +24,7 @@ function findNote(dir: string, stemToFind: string): string | null {
 
 const MAX_DIFF_LINES = 5000
 
-export async function GET(req: NextRequest) {
-  const tokenError = requireToken(req)
-  if (tokenError) return tokenError
-  const originError = requireSameOrigin(req)
-  if (originError) return originError
+export const GET = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')
   const notePathParam = req.nextUrl.searchParams.get('path')
   const from = req.nextUrl.searchParams.get('from')
@@ -106,4 +102,4 @@ export async function GET(req: NextRequest) {
       resolve(NextResponse.json({ error: err.message }, { status: 500 }))
     })
   })
-}
+})

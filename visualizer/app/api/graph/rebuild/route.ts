@@ -5,15 +5,13 @@ import path from 'path'
 import fs from 'fs'
 import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
-import { requireAuth } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 import { findParsidionScript } from '@/lib/scriptResolver'
 
 // SEC-014: Cap stderr accumulation to avoid unbounded memory growth.
 const MAX_STDERR_BYTES = 64 * 1024
 
-export async function POST(req: NextRequest) {
-  const authError = requireAuth(req)
-  if (authError) return authError
+export const POST = withApi(async (req: NextRequest) => {
   const vault = req.nextUrl.searchParams.get('vault')
 
   // SEC-005: Validate vault path before passing it to the subprocess.
@@ -78,4 +76,4 @@ export async function POST(req: NextRequest) {
       resolve(NextResponse.json({ error: 'Failed to start graph rebuild' }, { status: 500 }))
     })
   })
-}
+}, { mutation: true })

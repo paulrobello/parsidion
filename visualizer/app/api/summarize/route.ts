@@ -2,13 +2,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
-import { requireAuth } from '@/lib/apiAuth'
+import { withApi } from '@/lib/apiAuth'
 import { spawnSummarizer } from '@/lib/vaultStatsServer'
 
-export async function POST(req: NextRequest) {
-  const authError = requireAuth(req)
-  if (authError) return authError
-
+export const POST = withApi(async (req: NextRequest) => {
   const vault = req.nextUrl.searchParams.get('vault')
 
   // SEC-005: Validate vault path before spawning the subprocess.
@@ -37,4 +34,4 @@ export async function POST(req: NextRequest) {
     console.error('[summarize] spawn failed:', message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
-}
+}, { mutation: true })
