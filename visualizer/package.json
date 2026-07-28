@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1 --port 3999",
     "kill": "lsof -ti:3999 | xargs kill -9 2>/dev/null || true",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "chokidar": "^5.0.0",

@@ -25,9 +25,10 @@ test:
 test-graph:
 	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parmem.py
 
-# Typecheck, lint, and unit-test the visualizer (bun)
+# Typecheck, lint, unit-test, and build the visualizer (bun)
+# 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses
 visualizer-check:
-	cd visualizer && bunx tsc --noEmit && bun run lint && bun test
+	cd visualizer && bunx tsc --noEmit && bun run lint && bun test && bun run build
 
 # Run all checks in sequence: format check, lint, typecheck, test
 checkall: fmt-check lint typecheck test test-graph visualizer-check checkall-mcp
