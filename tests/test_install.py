@@ -26,6 +26,22 @@ class TestParseArgs:
         assert args.uninstall_hooks is True
         assert args.uninstall is False
 
+    def test_parse_args_supports_purge_config(self, monkeypatch) -> None:
+        # ARC-003: --purge-config gates vaults.yaml deletion
+        monkeypatch.setattr(sys, "argv", ["install.py", "--purge-config"])
+
+        args = install.parse_args()
+
+        assert args.purge_config is True
+
+    def test_parse_args_purge_config_defaults_false(self, monkeypatch) -> None:
+        # ARC-003: vaults.yaml must not be deletable under --yes alone
+        monkeypatch.setattr(sys, "argv", ["install.py", "--yes"])
+
+        args = install.parse_args()
+
+        assert args.purge_config is False
+
     def test_parse_args_supports_migrate_vault(self, monkeypatch) -> None:
         monkeypatch.setattr(
             sys,
@@ -925,6 +941,201 @@ class TestFullUninstall:
         assert not skill_link.exists()
         assert not skill_link.is_symlink()
         assert real_skill_dir.exists()
+
+
+class TestUninstallGuardsSharedInfrastructure:
+    """ARC-003: 'disconnect codex|gemini' must not tear down shared global
+    infrastructure that the still-connected Claude install depends on.
+
+    Three teardown actions used to fire at function-body indentation outside
+    every runtime guard: remove_vault_post_merge_hook, unschedule_summarizer,
+    and unlink(~/.config/parsidion/vaults.yaml). The first two now require
+    is_full_teardown (Claude is being removed); the third additionally
+    requires --purge-config.
+
+    uninstall() does function-local imports of unschedule_summarizer and
+    remove_vault_post_merge_hook, so we patch them on their source modules
+    (installer.schedule / installer.vault) — not on installer.skill — to
+    intercept the lookup.
+    """
+
+    @staticmethod
+    def _patch_shared_infra(monkeypatch) -> tuple[list, list]:
+        """Patch unschedule_summarizer and remove_vault_post_merge_hook on
+        their source modules and return (unschedule_calls, remove_hook_calls)
+        recording lists."""
+        from installer import schedule as schedule_mod
+        from installer import vault as vault_mod
+
+        unschedule_calls: list[bool] = []
+        remove_hook_calls: list[Path] = []
+
+        monkeypatch.setattr(
+            schedule_mod,
+            "unschedule_summarizer",
+            lambda dry_run=False: unschedule_calls.append(dry_run),
+        )
+        monkeypatch.setattr(
+            vault_mod,
+            "remove_vault_post_merge_hook",
+            lambda vault_root, dry_run=False: remove_hook_calls.append(vault_root),
+        )
+        return unschedule_calls, remove_hook_calls
+
+    def test_disconnect_codex_does_not_touch_shared_infrastructure(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        unschedule_calls, remove_hook_calls = self._patch_shared_infra(monkeypatch)
+
+        vaults_config = tmp_path / ".config" / "parsidion" / "vaults.yaml"
+        vaults_config.parent.mkdir(parents=True)
+        vaults_config.write_text("default: ~/ParsidionVault\n", encoding="utf-8")
+
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        claude_dir.mkdir(parents=True)
+        settings_file.write_text("{}", encoding="utf-8")
+
+        install.uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            yes=True,
+            hooks_only=False,
+            runtime="codex",
+            codex_home=tmp_path / ".codex",
+            gemini_home=tmp_path / ".gemini",
+            purge_config=True,  # even with purge_config, codex disconnect must not fire
+        )
+
+        assert unschedule_calls == [], (
+            "disconnect codex must not unschedule the summarizer"
+        )
+        assert remove_hook_calls == [], (
+            "disconnect codex must not remove the vault post-merge hook"
+        )
+        assert vaults_config.exists(), (
+            "disconnect codex must not delete vaults.yaml even with --purge-config"
+        )
+
+    def test_disconnect_gemini_does_not_touch_shared_infrastructure(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        unschedule_calls, remove_hook_calls = self._patch_shared_infra(monkeypatch)
+
+        vaults_config = tmp_path / ".config" / "parsidion" / "vaults.yaml"
+        vaults_config.parent.mkdir(parents=True)
+        vaults_config.write_text("default: ~/ParsidionVault\n", encoding="utf-8")
+
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        claude_dir.mkdir(parents=True)
+        settings_file.write_text("{}", encoding="utf-8")
+
+        install.uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            yes=True,
+            hooks_only=False,
+            runtime="gemini",
+            codex_home=tmp_path / ".codex",
+            gemini_home=tmp_path / ".gemini",
+            purge_config=True,
+        )
+
+        assert unschedule_calls == []
+        assert remove_hook_calls == []
+        assert vaults_config.exists()
+
+    def test_full_uninstall_without_purge_config_preserves_vaults_yaml(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """--yes alone must NOT delete vaults.yaml; --purge-config is required."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        self._patch_shared_infra(monkeypatch)
+
+        vaults_config = tmp_path / ".config" / "parsidion" / "vaults.yaml"
+        vaults_config.parent.mkdir(parents=True)
+        vaults_config.write_text("default: ~/ParsidionVault\n", encoding="utf-8")
+
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        claude_dir.mkdir(parents=True)
+        settings_file.write_text("{}", encoding="utf-8")
+
+        install.uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            yes=True,  # no --purge-config → must preserve
+            hooks_only=False,
+            runtime="claude",
+            purge_config=False,
+        )
+
+        assert vaults_config.exists(), (
+            "full Claude uninstall with --yes but no --purge-config must preserve vaults.yaml"
+        )
+
+    def test_full_uninstall_with_purge_config_removes_vaults_yaml(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        self._patch_shared_infra(monkeypatch)
+
+        vaults_config = tmp_path / ".config" / "parsidion" / "vaults.yaml"
+        vaults_config.parent.mkdir(parents=True)
+        vaults_config.write_text("default: ~/ParsidionVault\n", encoding="utf-8")
+
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        claude_dir.mkdir(parents=True)
+        settings_file.write_text("{}", encoding="utf-8")
+
+        install.uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            yes=True,
+            hooks_only=False,
+            runtime="claude",
+            purge_config=True,
+        )
+
+        assert not vaults_config.exists(), (
+            "full Claude uninstall with --purge-config must remove vaults.yaml"
+        )
+
+    def test_full_uninstall_fires_summarizer_and_post_merge_hook(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Converse of the disconnect tests: a real Claude teardown still fires
+        both shared-infrastructure teardown actions."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        unschedule_calls, remove_hook_calls = self._patch_shared_infra(monkeypatch)
+
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+        claude_dir.mkdir(parents=True)
+        settings_file.write_text("{}", encoding="utf-8")
+
+        install.uninstall(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            yes=True,
+            hooks_only=False,
+            runtime="claude",
+            purge_config=True,
+        )
+
+        assert len(unschedule_calls) == 1, "Claude uninstall must unschedule summarizer"
+        assert len(remove_hook_calls) == 1, (
+            "Claude uninstall must remove the vault post-merge hook"
+        )
 
 
 class TestParsidionRenamePaths:

@@ -688,6 +688,17 @@ def parse_args() -> argparse.Namespace:
         help="Remove only installed hook registrations from settings.json",
     )
     parser.add_argument(
+        "--purge-config",
+        action="store_true",
+        help=(
+            "During uninstall, also remove ~/.config/parsidion/vaults.yaml. "
+            "Has no effect unless --uninstall (or 'disconnect <agent>') is also "
+            "removing the Claude integration. Required to delete vaults.yaml even "
+            "under --yes; without it, vaults.yaml is always preserved. "
+            "(ARC-003: previously 'disconnect codex --yes' silently deleted it.)"
+        ),
+    )
+    parser.add_argument(
         "--enable-ai",
         action="store_true",
         help=(
@@ -829,6 +840,7 @@ def main() -> None:
                 runtime=runtime,
                 codex_home=codex_home,
                 gemini_home=gemini_home,
+                purge_config=args.purge_config,
             )
             return
         # connect == targeted install for one runtime
@@ -909,6 +921,7 @@ def main() -> None:
             runtime=runtime,
             codex_home=codex_home,
             gemini_home=gemini_home,
+            purge_config=args.purge_config,
         )
         sys.exit(0)
 

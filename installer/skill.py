@@ -470,6 +470,7 @@ def uninstall(
     runtime: str = "claude",
     codex_home: Path | None = None,
     gemini_home: Path | None = None,
+    purge_config: bool = False,
 ) -> None:
     """Remove installed Parsidion assets or only managed hooks."""
     import os
@@ -611,23 +612,35 @@ def uninstall(
     if uninstall_gemini_runtime:
         remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
 
-    vault_root = _resolve_vault_root_for_uninstall()
-    remove_vault_post_merge_hook(vault_root, dry_run=dry_run)
+    # ARC-003: the post-merge hook, summarizer schedule, and vaults.yaml are
+    # shared global infrastructure that the Claude install depends on. Only
+    # tear them down when the Claude integration itself is being removed
+    # (runtime contains "claude"). A targeted 'disconnect codex' or
+    # 'disconnect gemini' must not touch them.
+    is_full_teardown = uninstall_claude_runtime
 
-    unschedule_summarizer(dry_run=dry_run)
+    if is_full_teardown:
+        vault_root = _resolve_vault_root_for_uninstall()
+        remove_vault_post_merge_hook(vault_root, dry_run=dry_run)
 
+        unschedule_summarizer(dry_run=dry_run)
+
+    # vaults.yaml additionally requires an explicit --purge-config, even under
+    # --yes. Without --purge-config it is always preserved.
     vaults_config = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
-    if vaults_config.exists():
-        from installer.ui import _confirm
-
-        if yes or _confirm(f"Remove {vaults_config}?", default=False):
-            _step(f"Remove {vaults_config}", dry_run=dry_run)
-            if not dry_run:
-                try:
-                    vaults_config.unlink()
-                    _ok(f"Removed {vaults_config}")
-                except OSError as exc:
-                    _warn(f"Could not remove {vaults_config}: {exc}")
+    if vaults_config.exists() and is_full_teardown and purge_config:
+        _step(f"Remove {vaults_config}", dry_run=dry_run)
+        if not dry_run:
+            try:
+                vaults_config.unlink()
+                _ok(f"Removed {vaults_config}")
+            except OSError as exc:
+                _warn(f"Could not remove {vaults_config}: {exc}")
+    elif vaults_config.exists() and is_full_teardown and not purge_config:
+        _step(
+            f"Preserving {vaults_config} (use --purge-config to remove)",
+            dry_run=dry_run,
+        )
 
     if not dry_run:
         print()
