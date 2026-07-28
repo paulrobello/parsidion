@@ -1171,3 +1171,79 @@ def test_prune_dead_letters_disabled_and_missing_file(
 
     # Missing file is a safe no-op.
     assert summarize_sessions._prune_dead_letters(tmp_path / "nope", 7) == 0
+
+
+# --- ARC-010: knowledge type parity ----------------------------------------
+
+
+def test_arc010_valid_note_types_match_vault_doctor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ARC-010 guard: summarizer type enum must match vault_doctor's.
+
+    Without this assertion the two constants drift silently -- exactly the
+    original bug where `knowledge` was missing from the summarizer but
+    present everywhere else.
+    """
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    import vault_doctor
+
+    assert set(summarize_sessions._VALID_NOTE_TYPES) == set(vault_doctor.VALID_TYPES), (
+        f"summarizer types: {sorted(summarize_sessions._VALID_NOTE_TYPES)}\n"
+        f"vault_doctor types: {sorted(vault_doctor.VALID_TYPES)}\n"
+        "These constants must agree so a `type: knowledge` model response is "
+        "validated identically on both sides."
+    )
+
+
+def test_arc010_type_folders_cover_every_valid_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every valid note type must route to a vault folder."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    missing = sorted(
+        t for t in summarize_sessions._VALID_NOTE_TYPES
+        if t not in summarize_sessions._TYPE_FOLDERS
+    )
+    assert not missing, (
+        f"_VALID_NOTE_TYPES entries missing from _TYPE_FOLDERS: {missing}"
+    )
+
+
+def test_arc010_knowledge_type_routes_to_knowledge_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A note with `type: knowledge` must route to Knowledge/."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    assert summarize_sessions._TYPE_FOLDERS["knowledge"] == "Knowledge"
+
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = (
+        "---\n"
+        "date: 2026-07-28\n"
+        "type: knowledge\n"
+        "tags: [arc-010]\n"
+        "related: [\"[[some-note]]\"]\n"
+        "---\n\n"
+        "# Knowledge Note\n\n## Summary\nRoutes correctly.\n"
+    )
+    written = summarize_sessions.write_note(note, dry_run=False, vault=vault,
+                                            project="arc-010", categories=[])
+    assert written is not None
+    assert written.parent.name == "Knowledge"
+    assert written.exists()
+
+
+def test_arc010_prompt_lists_knowledge_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The prompt's type list must include `knowledge` and be interpolated."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    prompt = summarize_sessions.build_prompt(
+        project="proj",
+        categories=["general"],
+        cleaned_transcript="Human: did a thing",
+        existing_tags=[],
+        session_id="abc-123",
+    )
+    # The prompt must enumerate every valid type — including knowledge — so
+    # the model can emit one. The interpolation must come from the constant.
+    assert "knowledge" in prompt
+    for t in summarize_sessions._VALID_NOTE_TYPES:
+        assert t in prompt, f"prompt missing type {t!r}"
+

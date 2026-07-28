@@ -214,6 +214,7 @@ _TYPE_FOLDERS: dict[str, str] = {
     "language": "Languages",
     "project": "Projects",
     "daily": "Daily",
+    "knowledge": "Knowledge",
 }
 
 # Fallback folder when type is unrecognized
@@ -499,7 +500,7 @@ If transient (skip), respond with ONLY this JSON (no other text):
 If learnable (save), write the full vault note as specified below.
 
 Write a complete markdown vault note. Requirements:
-- YAML frontmatter: date ({today}), type (debugging|research|pattern|tool|framework|language|project),
+- YAML frontmatter: date ({today}), type (one of: {", ".join(sorted(_VALID_NOTE_TYPES))}),
 {tags_instruction},
   project (if project-specific), confidence (high|medium|low),
   sources ([] or URLs mentioned),
@@ -614,6 +615,7 @@ _VALID_NOTE_TYPES: frozenset[str] = frozenset(
         "language",
         "project",
         "daily",
+        "knowledge",
     }
 )
 
