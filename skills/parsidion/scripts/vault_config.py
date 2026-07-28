@@ -383,6 +383,8 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "ai_timeout": (int, float),
         "auto_summarize": (bool,),
         "auto_summarize_after": (int, type(None)),
+        "transcript_tail_lines": (int,),
+        "pi_transcript_tail_lines": (int,),
     },
     "subagent_stop_hook": {
         "enabled": (bool,),
@@ -396,11 +398,15 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "model": (str, type(None)),
         "max_parallel": (int,),
         "transcript_tail_lines": (int,),
+        "transcript_tail_bytes": (int,),
         "max_cleaned_chars": (int,),
         "persist": (bool,),
         "cluster_model": (str, type(None)),
         "dedup_threshold": (float, int),
         "dead_letter_retention_days": (int,),
+        "rebuild_graph": (bool,),
+        "graph_include_daily": (bool,),
+        "ai_timeout": (int, float, type(None)),
     },
     "embeddings": {
         "enabled": (bool,),
@@ -436,11 +442,11 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     },
     "defaults": {
         "haiku_model": (str,),
-        "sonnet_model": (str,),
     },
     "event_log": {
         "enabled": (bool,),
         "max_lines": (int,),
+        "path": (str, type(None)),
     },
     "adaptive_context": {
         "enabled": (bool,),

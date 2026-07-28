@@ -89,6 +89,12 @@ def write_hook_event(
     event.update(extra)
 
     log_path = vault / _HOOK_EVENTS_FILENAME
+    # ARC-011: honour ``event_log.path`` from config (absolute path override).
+    # When set to a non-empty string, use it instead of the vault-relative
+    # default. None / empty falls through to ``<vault>/hook_events.log``.
+    configured_path = get_config("event_log", "path", None)
+    if isinstance(configured_path, str) and configured_path.strip():
+        log_path = Path(configured_path).expanduser()
     max_lines: int = int(
         get_config("event_log", "max_lines", _HOOK_EVENTS_MAX_LINES_DEFAULT)
     )

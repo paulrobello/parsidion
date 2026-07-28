@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import vault_config
 
 
@@ -174,3 +176,79 @@ class TestLoadConfigCacheBehaviour:
         vault_config.load_config.cache_clear()
         fresh = vault_config.load_config(tmp_vault)
         assert fresh["git"]["auto_commit"] is False
+
+
+# Path to the shipped template relative to the tests/ directory.
+_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "skills"
+    / "parsidion"
+    / "templates"
+    / "config.yaml"
+)
+
+
+class TestShippedTemplateIsValid:
+    """ARC-011: the shipped templates/config.yaml must validate cleanly.
+
+    Every key in the template must be in ``_CONFIG_SCHEMA`` and have the
+    declared type. When this test fails it pinpoints the exact drift --
+    historically the template and schema evolved independently and every
+    user who copied the template saw six spurious warnings at session start.
+    """
+
+    def test_shipped_template_validates_with_no_warnings(
+        self, tmp_vault: Path
+    ) -> None:
+        assert _TEMPLATE_PATH.is_file(), (
+            f"templates/config.yaml not found at {_TEMPLATE_PATH}"
+        )
+        # Copy the shipped template into the temp vault as config.yaml so
+        # load_config()/validate_config() read it (no config.local.yaml).
+        (tmp_vault / "config.yaml").write_text(
+            _TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        vault_config.load_config.cache_clear()
+
+        warnings = vault_config.validate_config()
+        assert warnings == [], (
+            "Shipped templates/config.yaml produced validation warnings -- the "
+            "template and _CONFIG_SCHEMA have drifted:\n  - "
+            + "\n  - ".join(warnings)
+        )
+
+    def test_event_log_path_override_is_honoured(
+        self, tmp_vault: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """ARC-011 step 4: event_log.path is implemented (not inert)."""
+        import os
+        import vault_hooks  # noqa: PLC0415
+
+        custom_log = tmp_vault / "custom_hook_events.log"
+        (tmp_vault / "config.yaml").write_text(
+            "event_log:\n  enabled: true\n  path: "
+            f"'{custom_log}'\n",
+            encoding="utf-8",
+        )
+        vault_config.load_config.cache_clear()
+        vault_hooks.write_hook_event(
+            hook="SessionStart",
+            project="test-project",
+            duration_ms=1.0,
+            vault=tmp_vault,
+        )
+        assert custom_log.is_file(), (
+            "event_log.path override was not honoured -- write_hook_event wrote "
+            "to the default vault-relative path instead"
+        )
+        # Verify content is the structured event we wrote.
+        first_line = custom_log.read_text(encoding="utf-8").splitlines()[0]
+        import json
+
+        evt = json.loads(first_line)
+        assert evt["hook"] == "SessionStart"
+        assert evt["project"] == "test-project"
+        # Mask any pre-existing umask effect for the assertion; the test
+        # isolates the file, not its mode (mode is enforced elsewhere).
+        _ = os  # silence linter when imported only for clarity
+

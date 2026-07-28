@@ -1,6 +1,6 @@
-# Claude Vault Configuration
+# Parsidion Vault Configuration
 #
-# Place at ~/ClaudeVault/config.yaml
+# Place at ~/ParsidionVault/config.yaml
 # Values here override script defaults. CLI arguments override these values.
 # Precedence: defaults → config.yaml → config.local.yaml → CLI args
 #
@@ -52,12 +52,46 @@ summarizer:
   transcript_tail_lines: 400
   transcript_tail_bytes: 262144  # Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts) so cleaning/chunking cannot explode
   max_cleaned_chars: 12000
+  ai_timeout: 120          # Per-summarizer-prompt timeout in seconds (null = backend default)
   persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization; used when a transcript exceeds max_cleaned_chars
   dedup_threshold: 0.80                    # Cosine similarity threshold for near-duplicate detection (0.0-1.0); set to 1.0 to disable
   dead_letter_retention_days: 7            # Prune dead_letters.jsonl entries older than N days each run (write-gate skips are sticky, so the file grows without this); <=0 disables
   rebuild_graph: false                     # Rebuild visualizer graph.json after indexing (same as --rebuild-graph CLI flag)
   graph_include_daily: false               # Include Daily notes in graph rebuild (same as --graph-include-daily CLI flag)
+
+# AI backend selection (ai_backend.py). Chooses which prompt backend the
+# hooks and the summarizer use for AI calls. Default ``auto`` picks the
+# first available backend: claude-cli on a Claude Code machine, codex-cli
+# where ``codex`` is on PATH. ``none`` disables AI features entirely.
+ai:
+  backend: auto            # auto | claude-cli | codex-cli | none
+
+# Per-backend model configuration. Each backend has a ``small`` and
+# ``large`` tier: hooks use ``small`` (haiku-equivalent) for fast
+# classification; the summarizer uses ``large`` (sonnet-equivalent) for
+# note generation. Values are passed verbatim to the backend CLI.
+ai_models:
+  claude:
+    small: claude-haiku-4-5-20251001
+    large: claude-sonnet-4-6
+  codex:
+    small: gpt-5.5
+    large: gpt-5.5
+
+# Codex CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
+# ``codex-cli`` (or ``auto`` resolves to it). ``command`` defaults to the
+# first of ``codex`` on PATH; setting it to an absolute path bypasses the
+# PATH lookup. ``sandbox`` mirrors codex's own ``--sandbox`` flag and is
+# passed verbatim; ``danger-full-access`` requires an explicit opt-in
+# (SEC-117).
+codex_cli:
+  command: codex           # PATH lookup or absolute path to the codex CLI
+  timeout: 60              # Per-prompt timeout in seconds
+  sandbox: read-only       # read-only | workspace-write | danger-full-access
+  ephemeral: false         # Start each prompt with no session state
+  skip_git_repo_check: false
+  suppress_notify: false
 
 # Embeddings / semantic search (build_embeddings.py, vault_search.py)
 embeddings:
@@ -126,15 +160,17 @@ anthropic_env:
 #   ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1
 #   ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1
 
-# Default model IDs — override once here instead of editing each script
+# Default model ID — override once here instead of editing each script.
+# Note: only ``haiku_model`` is read from this section. Per-tier overrides
+# for any backend live in ``ai_models.<backend>`` above (DOC-010).
 defaults:
   haiku_model: claude-haiku-4-5-20251001   # Used by session hooks, vault_doctor repair
-  sonnet_model: claude-sonnet-4-6          # Used by summarize_sessions.py
 
 # Hook event log (session_start_hook.py, session_stop_hook.py, subagent_stop_hook.py)
 event_log:
   enabled: true            # Write structured JSON events to hook_events.log (#1)
-  path: null               # Override log path (null = ~/ClaudeVault/hook_events.log)
+  max_lines: 10000         # Rotate (keep second half) when the log exceeds this many lines
+  path: null               # Absolute path override (null = <vault>/hook_events.log)
 
 # Adaptive context tracking (#17) — derank notes never referenced by Claude
 adaptive_context:

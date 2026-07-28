@@ -24,11 +24,13 @@ _DEFAULT_CODEX_TIMEOUT: int = 60
 # ARC-006: These hardcoded model identifiers are deprecation risks — Anthropic
 # periodically retires dated model snapshots (e.g. ``-20251001`` suffixes).
 # Override them without touching this file by setting either:
-#   • ``defaults.haiku_model`` / ``defaults.sonnet_model`` in config.yaml, or
+#   • ``defaults.haiku_model`` in config.yaml, or
 #   • the standard Anthropic env vars: ``ANTHROPIC_DEFAULT_HAIKU_MODEL``,
 #     ``ANTHROPIC_DEFAULT_SONNET_MODEL`` (honoured by the claude CLI).
 # The ``ai_models.claude`` config section (``small``/``large`` keys) also
 # takes precedence over these defaults via ``_model_from_config()``.
+# Note: ``defaults.sonnet_model`` is no longer read -- use ``ai_models.<backend>.large``
+# instead (DOC-010).
 _DEFAULT_CLAUDE_MODELS: dict[ModelTier, str] = {
     "small": "claude-haiku-4-5-20251001",
     "large": "claude-sonnet-4-6",
