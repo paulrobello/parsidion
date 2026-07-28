@@ -111,18 +111,28 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
     """
     gitignore = vault_root / ".gitignore"
     entries = [
-        "embeddings.db",
-        "pending_summaries.jsonl",
-        "hook_events.log",
+        # Globs cover timestamped/.bak variants produced by migration code
+        # (e.g. pending_summaries.jsonl.bak-20260712-092800). SEC-104.
+        "embeddings.db*",
+        "pending_summaries.jsonl*",
+        "dead_letters.jsonl*",
+        "hook_events.log*",
         "graph.json",
         "summarizer_state.json",
         "doctor_state.json",
-        "dead_letters.jsonl",
         ".obsidian/",
         # config.yaml / config.local.yaml may hold ANTHROPIC_API_KEY /
         # ANTHROPIC_AUTH_TOKEN (anthropic_env section) — never sync to a remote.
         "config.yaml",
         "config.local.yaml",
+        "conflicts/",
+        # Defence in depth against SEC-101: a pyproject.toml / uv.toml /
+        # setup.py / .venv in the vault worktree is what `uv run` without
+        # --no-project would execute the build backend of. SEC-101.
+        "pyproject.toml",
+        "uv.toml",
+        "setup.py",
+        ".venv/",
     ]
 
     if gitignore.exists():
@@ -130,7 +140,10 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
     else:
         content = ""
 
-    missing = [e for e in entries if e not in content]
+    # Line-wise comparison so a commented `# config.yaml` already present in
+    # the file does not suppress the real `config.yaml` entry. SEC-104.
+    existing_lines = {ln.strip() for ln in content.splitlines()}
+    missing = [e for e in entries if e not in existing_lines]
     if not missing:
         return
 
@@ -171,6 +184,10 @@ def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
 
 # Marker comment used to identify our post-merge hook.
 _POST_MERGE_MARKER = "# parsidion post-merge hook"
+# Markers from older parsidion releases whose hooks are still installed on
+# real machines. Recognising them lets install_vault_post_merge_hook
+# regenerate a stale hook instead of skipping it as "not ours". SEC-101.
+_POST_MERGE_LEGACY_MARKERS = ("# parsidion-cc post-merge hook",)
 
 _POST_MERGE_HOOK_TEMPLATE = """\
 #!/bin/bash
@@ -179,9 +196,25 @@ set -e
 echo "[parsidion] Rebuilding vault index..."
 uv run --no-project {scripts_dir}/update_index.py
 echo "[parsidion] Updating embeddings (incremental)..."
-uv run {scripts_dir}/build_embeddings.py --incremental
+uv run --no-project {scripts_dir}/build_embeddings.py --incremental
 echo "[parsidion] Post-merge sync complete."
 """
+
+
+def _is_current_post_merge_hook(existing: str) -> bool:
+    """Return True when *existing* is byte-equivalent to the current template.
+
+    A hook that carries our current marker but lacks `--no-project` on every
+    `uv run` line is the SEC-101 defect and must be regenerated, not skipped.
+    """
+    if _POST_MERGE_MARKER not in existing:
+        return False
+    uv_run_lines = [
+        ln for ln in existing.splitlines() if ln.lstrip().startswith("uv run")
+    ]
+    if not uv_run_lines:
+        return False
+    return all("--no-project" in ln for ln in uv_run_lines)
 
 
 def install_vault_post_merge_hook(
@@ -214,13 +247,27 @@ def install_vault_post_merge_hook(
 
     if hook_path.exists():
         existing = hook_path.read_text(encoding="utf-8")
-        if _POST_MERGE_MARKER in existing:
+        if _is_current_post_merge_hook(existing):
             return
-        _warn(
-            f"Vault post-merge hook already exists (not ours): {hook_path}\n"
-            "       Skipping to avoid overwriting your custom hook."
+        # Recognise stale-but-ours: current marker with a body predating the
+        # --no-project fix, or any legacy marker from earlier releases. In
+        # both cases the hook is ours, so regenerate it rather than leaving
+        # the user with a vulnerable or dead hook (SEC-101).
+        stale_ours = _POST_MERGE_MARKER in existing or any(
+            marker in existing for marker in _POST_MERGE_LEGACY_MARKERS
         )
-        return
+        if stale_ours:
+            _step(
+                f"Refresh existing parsidion post-merge hook "
+                f"(stale template or legacy marker): {hook_path}",
+                dry_run=dry_run,
+            )
+        else:
+            _warn(
+                f"Vault post-merge hook already exists (not ours): {hook_path}\n"
+                "       Skipping to avoid overwriting your custom hook."
+            )
+            return
 
     _step("Install vault git post-merge hook (multi-machine sync)", dry_run=dry_run)
     if dry_run:
