@@ -99,17 +99,32 @@ git:
 # section (or just the secret keys within it) into config.local.yaml instead
 # -- it is always gitignored and is deep-merged over config.yaml at load
 # time, so the rest of your config can stay tracked in git.
+#
+# SEC-103: defaults below route to the real Anthropic endpoint with Anthropic
+# model IDs (null = the API's own default for that tier). To route traffic
+# through a gateway instead, uncomment the Example block and adjust. Never
+# commit a real API key.
 anthropic_env:
   ANTHROPIC_API_KEY: null
   ANTHROPIC_AUTH_TOKEN: null
-  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+  ANTHROPIC_BASE_URL: null
   ANTHROPIC_CUSTOM_HEADERS: null
-  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO
-  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1
-  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001
+  ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-6
+  ANTHROPIC_DEFAULT_OPUS_MODEL: null
   API_TIMEOUT_MS: 3000000
   HTTPS_PROXY: null
   HTTP_PROXY: null
+# Example: routing through a gateway (e.g. Z.ai / GLM). Uncomment and adjust
+# to send traffic to a third-party Anthropic-compatible endpoint. Be aware
+# that doing so routes full nightly summarization transcripts — including
+# source code and file contents — to that endpoint with whatever credential
+# is configured, so use it only with endpoints you trust.
+# anthropic_env:
+#   ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+#   ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO
+#   ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1
+#   ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1
 
 # Default model IDs — override once here instead of editing each script
 defaults:
