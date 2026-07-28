@@ -11,7 +11,9 @@ Stdlib-only — no third-party dependencies.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 
 from installer.paths import (
@@ -23,6 +25,44 @@ from installer.paths import (
     SKILL_NAME,
 )
 from installer.ui import _err, _ok, _print, _step, _warn
+
+# ---------------------------------------------------------------------------
+# Atomic JSON write helper (SEC-105 / ARC-018)
+# ---------------------------------------------------------------------------
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Write *data* to *path* via tmp + ``os.replace`` so a crash mid-write
+    cannot truncate the destination.
+
+    Preserves the existing file's mode when *path* already exists (so a
+    0600 ``settings.json`` stays 0600). The tmp file is created in the same
+    directory so ``os.replace`` is atomic on POSIX and Windows. Reused by
+    ARC-018 for the remaining config-write sites.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, indent=2) + "\n"
+    mode = 0o644
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except OSError:
+        # Destination does not exist yet — fall back to default umask-derived.
+        pass
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp:
+            tmp.write(payload)
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
 
 # ---------------------------------------------------------------------------
 # Hook command builders
@@ -555,16 +595,36 @@ def merge_hooks(
     dry_run: bool = False,
     verbose: bool = False,
 ) -> None:
-    """Load settings.json, add vault hooks if missing, write back."""
+    """Load settings.json, add vault hooks if missing, write back.
+
+    SEC-105: a parse failure on a pre-existing settings.json is a hard
+    bail-out that leaves the file untouched — never a reset to ``{}``. The
+    previous behaviour silently discarded the user's ``permissions.allow``,
+    ``permissions.deny``, ``env``, ``statusLine``, MCP servers, and every
+    non-parsidion hook behind a single yellow warning on every install.
+    """
     from installer.colors import bold, dim
 
+    pre_existing = settings_file.exists()
+    original_bytes: bytes | None = None
     settings: dict = {}
-    if settings_file.exists():
+    if pre_existing:
         try:
-            settings = json.loads(settings_file.read_text(encoding="utf-8"))
+            original_bytes = settings_file.read_bytes()
+            settings = json.loads(original_bytes.decode("utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            _warn(f"Could not read {settings_file}: {exc}")
-            settings = {}
+            # Bail out: do NOT reset to {} and do NOT write. Mirrors the
+            # Codex/Gemini readers at _read_codex_hooks/_read_gemini_settings
+            # and remove_installed_hooks. SEC-105.
+            _err(
+                f"Could not parse {settings_file}: {exc}\n"
+                "       Leaving it untouched. Fix the syntax (often a stray "
+                "trailing comma) and re-run."
+            )
+            return
+        if not isinstance(settings, dict):
+            _err(f"{settings_file} is not a JSON object; leaving it untouched.")
+            return
     else:
         _warn(f"{settings_file} not found — creating a minimal one")
 
@@ -619,11 +679,25 @@ def merge_hooks(
         return
 
     if added:
+        # SEC-105: before the first mutation of a pre-existing settings.json,
+        # snapshot it to settings.json.bak so a botched merge is recoverable.
+        # Overwrites any prior .bak. The write itself goes through
+        # _atomic_write_json (tmp + os.replace, mode-preserving).
+        if pre_existing and original_bytes is not None:
+            backup = settings_file.with_suffix(settings_file.suffix + ".bak")
+            try:
+                backup.write_bytes(original_bytes)
+                _print(
+                    dim(f"  Backup of prior settings → {backup}"),
+                    verbose_only=True,
+                    verbose=verbose,
+                )
+            except OSError as exc:
+                # Non-fatal: the atomic write below still protects against
+                # truncation. We just lose the convenience recovery file.
+                _warn(f"Could not write backup {backup}: {exc}")
         try:
-            settings_file.parent.mkdir(parents=True, exist_ok=True)
-            settings_file.write_text(
-                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-            )
+            _atomic_write_json(settings_file, settings)
             _ok(f"Updated {settings_file}")
         except OSError as exc:
             _err(f"Could not write {settings_file}: {exc}")
