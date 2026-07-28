@@ -11,6 +11,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { findParsidionScript } from './scriptResolver'
 
 const HOME = os.homedir()
 export const SECURE_LOG_DIR = path.join(HOME, '.claude', 'logs')
@@ -40,16 +41,6 @@ export function countPendingSummaries(vaultPath: string): number {
     }
   }
   return count
-}
-
-/** Locate a parsidion script by filename — installed skill dir first, then the
- *  source repo (app lives at <repo>/visualizer/, scripts at <repo>/skills/parsidion/scripts/). */
-export function findParsidionScript(name: string): string | null {
-  const installed = path.join(HOME, '.claude', 'skills', 'parsidion', 'scripts', name)
-  if (fs.existsSync(installed)) return installed
-  const source = path.join(process.cwd(), '..', 'skills', 'parsidion', 'scripts', name)
-  if (fs.existsSync(source)) return source
-  return null
 }
 
 /** True if a process with the given PID is currently alive (signal 0 probe). */
