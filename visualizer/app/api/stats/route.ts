@@ -2,8 +2,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 import { countPendingSummaries } from '@/lib/vaultStatsServer'
+import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
 
 export async function GET(req: NextRequest) {
+  // SEC-102 / SEC-118 / QA-011: previously this route imported neither guard
+  // — the only route in the app without them. Token first, then same-origin.
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
   const vault = req.nextUrl.searchParams.get('vault')
   let vaultPath: string
   try {

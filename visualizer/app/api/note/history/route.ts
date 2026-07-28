@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
-import { requireSameOrigin } from '@/lib/apiAuth'
+import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -30,6 +30,8 @@ export interface CommitEntry {
 }
 
 export async function GET(req: NextRequest) {
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
   const originError = requireSameOrigin(req)
   if (originError) return originError
   const stem = req.nextUrl.searchParams.get('stem')

@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3999",
+    "dev": "next dev -H 127.0.0.1 --port 3999",
     "build": "next build",
-    "start": "next start --port 3999",
+    "start": "next start -H 127.0.0.1 --port 3999",
     "kill": "lsof -ti:3999 | xargs kill -9 2>/dev/null || true",
     "lint": "eslint"
   },

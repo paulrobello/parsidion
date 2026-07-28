@@ -1,7 +1,7 @@
 // app/api/search/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
-import { requireSameOrigin } from '@/lib/apiAuth'
+import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
 import {
   runVaultSearch,
   ScriptMissingError,
@@ -12,6 +12,8 @@ import {
 const MAX_QUERY_LENGTH = 512
 
 export async function GET(req: NextRequest) {
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
   const originError = requireSameOrigin(req)
   if (originError) return originError
 

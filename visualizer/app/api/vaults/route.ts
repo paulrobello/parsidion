@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { listNamedVaults, getDefaultVault } from '@/lib/vaultResolver'
-import { requireSameOrigin } from '@/lib/apiAuth'
+import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
 
 export interface VaultInfo {
   name: string
@@ -12,6 +12,8 @@ export interface VaultInfo {
 }
 
 export async function GET(req: NextRequest) {
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
   const originError = requireSameOrigin(req)
   if (originError) return originError
   const namedVaults = listNamedVaults()

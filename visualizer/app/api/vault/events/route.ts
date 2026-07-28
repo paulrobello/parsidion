@@ -9,7 +9,7 @@ import fs from 'fs'
 import path from 'path'
 import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
-import { requireSameOrigin } from '@/lib/apiAuth'
+import { requireSameOrigin, requireToken } from '@/lib/apiAuth'
 
 const EXCLUDED_DIRS = new Set(['.obsidian', 'Templates', '.git', '.trash', 'TagsRoutes'])
 
@@ -109,6 +109,11 @@ function releaseWatcher(vaultPath: string, subscriber: Subscriber): void {
 }
 
 export async function GET(req: NextRequest) {
+  // SEC-102: bearer token first — EventSource cannot set custom headers from
+  // page script, but a non-browser client on the same network can open this
+  // stream without one. The same-origin check below handles cross-site pages.
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
   // SSE equivalent of the WS Origin check in server.ts: same-origin
   // EventSource requests send Sec-Fetch-Site: same-origin, so this doesn't
   // affect the app; a cross-site page's EventSource is rejected.

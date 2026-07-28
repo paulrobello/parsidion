@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs/promises'
 import path from 'path'
 import { resolveVault, guardPath } from '@/lib/vaultResolver'
-import { requireAuth, requireSameOrigin } from '@/lib/apiAuth'
+import { requireAuth, requireSameOrigin, requireToken } from '@/lib/apiAuth'
 
 // QA-006: Replaced all synchronous fs calls with async fs.promises equivalents.
 // findNote is now async to avoid blocking the Node.js event loop during
@@ -27,6 +27,8 @@ async function findNote(dir: string, stemToFind: string): Promise<string | null>
 }
 
 export async function GET(req: NextRequest) {
+  const tokenError = requireToken(req)
+  if (tokenError) return tokenError
   const originError = requireSameOrigin(req)
   if (originError) return originError
   const stem = req.nextUrl.searchParams.get('stem')
