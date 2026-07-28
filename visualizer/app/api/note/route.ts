@@ -75,13 +75,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const authError = requireAuth(req)
   if (authError) return authError
-  const vault = req.nextUrl.searchParams.get('vault')
   const body = await req.json()
+  // ARC-002: accept vault from EITHER the query string or the JSON body
+  // (query string wins for backward compat). The client puts the selected
+  // vault in body.vault (useVisualizerState.ts); discarding it caused silent
+  // cross-vault writes and a defunct mtime conflict check.
+  const vaultParam = req.nextUrl.searchParams.get('vault') ?? body.vault ?? null
   const { stem, path: relPath, content, baseMtimeMs } = body as {
     stem?: string
     path?: string
     content?: string
     baseMtimeMs?: number
+    vault?: string
   }
   if ((!stem && !relPath) || content === undefined) {
     return NextResponse.json({ error: 'stem or path, and content required' }, { status: 400 })
@@ -89,7 +94,7 @@ export async function POST(req: NextRequest) {
 
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vault)
+    vaultRoot = resolveVault(vaultParam)
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
@@ -145,9 +150,15 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const authError = requireAuth(req)
   if (authError) return authError
-  const vault = req.nextUrl.searchParams.get('vault')
   const body = await req.json()
-  const { path: relPath, content } = body as { path?: string; content?: string }
+  // ARC-002: accept vault from EITHER the query string or the JSON body
+  // (query string wins for backward compat). See POST handler for rationale.
+  const vaultParam = req.nextUrl.searchParams.get('vault') ?? body.vault ?? null
+  const { path: relPath, content } = body as {
+    path?: string
+    content?: string
+    vault?: string
+  }
   if (!relPath || content === undefined) {
     return NextResponse.json({ error: 'path and content required' }, { status: 400 })
   }
@@ -159,7 +170,7 @@ export async function PUT(req: NextRequest) {
 
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vault)
+    vaultRoot = resolveVault(vaultParam)
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
