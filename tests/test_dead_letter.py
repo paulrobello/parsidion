@@ -180,6 +180,106 @@ def test_dead_letter_write_failure_is_best_effort(
 
 
 # ---------------------------------------------------------------------------
+# ARC-013 / SEC-129: prune must hold the lock around the read
+# ---------------------------------------------------------------------------
+
+
+def test_arc013_prune_does_not_lose_concurrent_append(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A concurrent _append_dead_letter during _prune_dead_letters is preserved.
+
+    Reproduces the original race: the unlocked read at the old :1695-1698 ran
+    before LOCK_EX was taken at :1720. An _append_dead_letter landing in that
+    window was destroyed by the subsequent truncate. Now the read happens
+    inside the lock, so concurrent appends serialize and are preserved.
+
+    We exercise this with a thread that hammers _append_dead_letter while a
+    prune loop runs; every appended entry must survive.
+    """
+    import threading
+
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path
+    dl = vault / "dead_letters.jsonl"
+
+    # Seed an old entry that will be pruned.
+    from datetime import datetime, timedelta
+
+    old_ts = (datetime.now() - timedelta(days=30)).isoformat()
+    _write_pending(
+        dl,
+        [{"session_id": "old", "dead_lettered_at": old_ts}],
+    )
+
+    stop = threading.Event()
+    appended: list[str] = []
+    errors: list[str] = []
+
+    def appender() -> None:
+        i = 0
+        while not stop.is_set():
+            entry = {
+                "session_id": f"concurrent-{i}",
+                "dead_lettered_at": datetime.now().isoformat(),
+            }
+            try:
+                mod._append_dead_letter(dl, entry, 0, "x")
+                appended.append(entry["session_id"])
+                i += 1
+            except Exception as e:  # noqa: BLE001
+                errors.append(str(e))
+
+    t = threading.Thread(target=appender, daemon=True)
+    t.start()
+    # Run prune several times concurrently with the appender.
+    for _ in range(5):
+        mod._prune_dead_letters(vault, retention_days=7)
+    stop.set()
+    t.join(timeout=5)
+
+    # All appends that succeeded must appear in the final file. Under the
+    # original unlocked-read bug, some were lost to the in-place truncate.
+    remaining_sids = {
+        json.loads(line).get("session_id")
+        for line in dl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    lost = [s for s in appended if s not in remaining_sids]
+    assert not lost, (
+        f"{len(lost)} appended entries lost during concurrent prune: {lost[:3]}..."
+    )
+    # The old entry should always have been pruned (it's well past retention).
+    assert "old" not in remaining_sids
+
+
+def test_arc013_prune_preserves_0600_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SEC-109 / ARC-013: pruned dead_letters.jsonl stays at mode 0o600."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path
+    dl = vault / "dead_letters.jsonl"
+
+    from datetime import datetime, timedelta
+
+    old_ts = (datetime.now() - timedelta(days=30)).isoformat()
+    new_ts = datetime.now().isoformat()
+    # Create with 0600 to mirror the production creation path.
+    import os as _os
+
+    fd = _os.open(str(dl), _os.O_CREAT | _os.O_WRONLY, 0o600)
+    with open(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"session_id": "old", "dead_lettered_at": old_ts}) + "\n")
+        f.write(json.dumps({"session_id": "new", "dead_lettered_at": new_ts}) + "\n")
+
+    pruned = mod._prune_dead_letters(vault, retention_days=7)
+    assert pruned == 1
+    mode = dl.stat().st_mode & 0o777
+    assert mode == 0o600, f"dead_letters.jsonl mode regressed to {oct(mode)}"
+
+
+# ---------------------------------------------------------------------------
 # vault_metrics.collect_dead_letters
 # ---------------------------------------------------------------------------
 
