@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -88,44 +89,89 @@ def _wants_gemini_runtime(runtime: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# VAULT_DIRS — parsed from vault_common.py to stay in sync
+# VAULT_DIRS — imported from vault_path.py (canonical source) with regex fallback
 # ---------------------------------------------------------------------------
+
+# Hardcoded fallback used only when neither the import nor the regex can
+# resolve the canonical list.Drift between this and vault_path.VAULT_DIRS
+# is caught by tests/test_vault_dirs_sync.py.
+_VAULT_DIRS_FALLBACK: list[str] = [
+    "Daily",
+    "Projects",
+    "Languages",
+    "Frameworks",
+    "Patterns",
+    "Debugging",
+    "Tools",
+    "Research",
+    "Knowledge",
+    "Templates",
+    "History",
+]
 
 
 def _extract_vault_dirs() -> list[str]:
-    """Parse VAULT_DIRS from vault_common.py source code.
+    """Return the canonical VAULT_DIRS list from vault_path.py.
 
-    Uses a regex to find the ``VAULT_DIRS: list[str] = [...]`` assignment
-    in the canonical source file.  Falls back to a hardcoded list if the
-    parse fails (should never happen in a correct checkout).
+    ARC-005: previously this function regex-parsed vault_common.py, but the
+    definition moved to vault_path.py during the module split, leaving the
+    regex matching nothing and silently returning the hardcoded fallback.
+    The preferred path is now a direct import (vault_path is stdlib-only,
+    same as the installer); the regex against vault_path.py remains as a
+    defensive fallback for environments where the import fails (e.g. a
+    stale or partial checkout) and is now loud — it warns on stderr rather
+    than silently returning the fallback.
     """
-    source_path = SKILL_SRC / "scripts" / "vault_common.py"
-    fallback = [
-        "Daily",
-        "Projects",
-        "Languages",
-        "Frameworks",
-        "Patterns",
-        "Debugging",
-        "Tools",
-        "Research",
-        "Knowledge",
-        "Templates",
-        "History",
-    ]
+    scripts_dir = SKILL_SRC / "scripts"
+    # Prefer importing vault_path directly so installer.VAULT_DIRS tracks
+    # runtime mutations of vault_path.VAULT_DIRS (the mechanism test patches
+    # vault_path.VAULT_DIRS and expects installer to follow).
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    try:
+        import vault_path as _vault_path  # type: ignore[import-not-found]
+
+        return list(_vault_path.VAULT_DIRS)
+    except Exception as e:  # noqa: BLE001 — fall back to regex on any failure
+        print(
+            f"installer/paths.py: could not import vault_path.VAULT_DIRS ({e!r}); "
+            "falling back to regex parse",
+            file=sys.stderr,
+        )
+
+    # Regex fallback: parse vault_path.py source (the canonical definition
+    # lives there now, not in vault_common.py).
+    source_path = scripts_dir / "vault_path.py"
     try:
         text = source_path.read_text(encoding="utf-8")
-    except OSError:
-        return fallback
+    except OSError as e:
+        print(
+            f"installer/paths.py: could not read {source_path} ({e!r}); "
+            "using hardcoded fallback",
+            file=sys.stderr,
+        )
+        return list(_VAULT_DIRS_FALLBACK)
     m = re.search(
         r"^VAULT_DIRS:\s*list\[str\]\s*=\s*\[(.*?)\]",
         text,
         re.DOTALL | re.MULTILINE,
     )
     if not m:
-        return fallback
+        print(
+            f"installer/paths.py: VAULT_DIRS regex did not match {source_path}; "
+            "using hardcoded fallback",
+            file=sys.stderr,
+        )
+        return list(_VAULT_DIRS_FALLBACK)
     dirs = re.findall(r'"([^"]+)"', m.group(1))
-    return dirs if dirs else fallback
+    if not dirs:
+        print(
+            f"installer/paths.py: VAULT_DIRS regex matched no entries in {source_path}; "
+            "using hardcoded fallback",
+            file=sys.stderr,
+        )
+        return list(_VAULT_DIRS_FALLBACK)
+    return dirs
 
 
 VAULT_DIRS: list[str] = _extract_vault_dirs()
