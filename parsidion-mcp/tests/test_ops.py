@@ -4,6 +4,7 @@ ARC-008: Updated to expect OpsToolError instead of sentinel error strings.
 """
 
 import subprocess
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -129,3 +130,101 @@ def test_vault_doctor_timeout_is_120s() -> None:
         vault_doctor()
 
     assert mock_run.call_args[1]["timeout"] == 120
+
+
+# ---------------------------------------------------------------------------
+# ARC-021: SCRIPTS_DIR resolved from imported package + vault parameter
+# ---------------------------------------------------------------------------
+
+
+class TestScriptsDirFromImportedPackage:
+    """ARC-021: SCRIPTS_DIR must come from the imported vault_path.__file__,
+    not the hardwired ~/.claude path. On Unix this matches the symlinked
+    install; on Windows (where the installer copies) it follows whatever
+    the editable install points at — keeping import and subprocess consistent.
+    """
+
+    def test_scripts_dir_is_inside_imported_package(self) -> None:
+        import vault_path
+
+        from parsidion_mcp.tools.ops import SCRIPTS_DIR
+
+        # SCRIPTS_DIR must be the parent of vault_path.py — the file the
+        # process is actually importing. A drift here would mean we are
+        # subprocess-ing a different copy of the code than the one we import.
+        expected_parent = Path(vault_path.__file__).resolve().parent
+        assert SCRIPTS_DIR == expected_parent
+
+    def test_scripts_dir_not_hardwired_to_home_claude(self, monkeypatch) -> None:
+        # Even if ~/.claude/skills/parsidion/scripts does not exist, SCRIPTS_DIR
+        # must still resolve (because it derives from __file__, not from $HOME).
+        import os
+
+        monkeypatch.setenv("HOME", "/nonexistent-home-" + str(os.getpid()))
+        # Force a re-import to re-evaluate SCRIPTS_DIR (cached at module load).
+        import importlib
+
+        import parsidion_mcp.tools.ops as ops_mod
+
+        importlib.reload(ops_mod)
+        try:
+            assert ops_mod.SCRIPTS_DIR.exists(), (
+                f"SCRIPTS_DIR {ops_mod.SCRIPTS_DIR} does not exist; "
+                "the resolution is not from the imported package"
+            )
+            assert (
+                "vault_path" in str(ops_mod.SCRIPTS_DIR)
+                or ops_mod.SCRIPTS_DIR.name == "scripts"
+            )
+        finally:
+            # Restore the original module so other tests don't see the reload.
+            importlib.reload(ops_mod)
+
+
+class TestVaultParameterReachesArgv:
+    """ARC-021: the optional *vault* parameter must reach the subprocess argv."""
+
+    def test_rebuild_index_without_vault_omits_vault_flag(self) -> None:
+        with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+            mock_run.return_value = _make_proc(stdout="Index rebuilt.")
+            rebuild_index()
+
+        cmd = mock_run.call_args[0][0]
+        assert "--vault" not in cmd
+
+    def test_rebuild_index_with_vault_appends_vault_flag(self) -> None:
+        with (
+            patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run,
+            patch("parsidion_mcp.tools.ops.vault_common") as mock_vc,
+        ):
+            mock_run.return_value = _make_proc(stdout="Index rebuilt.")
+            mock_vc.resolve_vault.return_value = Path("/tmp/my-vault")
+            rebuild_index(vault="my-vault")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--vault" in cmd
+        assert "/tmp/my-vault" in cmd
+        # resolve_vault was called with the explicit reference.
+        mock_vc.resolve_vault.assert_called_once_with(explicit="my-vault")
+
+    def test_vault_doctor_without_vault_omits_vault_flag(self) -> None:
+        with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+            mock_run.return_value = _make_proc(stdout="ok")
+            vault_doctor()
+
+        cmd = mock_run.call_args[0][0]
+        assert "--vault" not in cmd
+
+    def test_vault_doctor_with_vault_appends_vault_flag(self) -> None:
+        with (
+            patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run,
+            patch("parsidion_mcp.tools.ops.vault_common") as mock_vc,
+        ):
+            mock_run.return_value = _make_proc(stdout="ok")
+            mock_vc.resolve_vault.return_value = Path("/tmp/work")
+            vault_doctor(vault="work")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--vault" in cmd
+        assert "/tmp/work" in cmd
+        mock_vc.resolve_vault.assert_called_once_with(explicit="work")

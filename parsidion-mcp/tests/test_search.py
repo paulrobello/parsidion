@@ -50,7 +50,10 @@ def test_semantic_search_returns_json(tmp_path: Path) -> None:
     parsed = json.loads(result)
     assert len(parsed) == 1
     assert parsed[0]["stem"] == "my-note"
-    mock_vs.search.assert_called_once_with("python patterns", top=10, min_score=0.45)
+    # ARC-021: vault=None is now threaded through to the underlying search.
+    mock_vs.search.assert_called_once_with(
+        "python patterns", top=10, min_score=0.45, vault=None
+    )
 
 
 def test_semantic_search_missing_db_raises(tmp_path: Path) -> None:
@@ -82,7 +85,9 @@ def test_semantic_search_missing_db_but_parmem_available_delegates(
 
     parsed = json.loads(result)
     assert parsed[0]["stem"] == "my-note"
-    mock_vs.search.assert_called_once_with("python patterns", top=10, min_score=0.45)
+    mock_vs.search.assert_called_once_with(
+        "python patterns", top=10, min_score=0.45, vault=None
+    )
 
 
 def test_semantic_search_missing_db_and_no_parmem_raises(tmp_path: Path) -> None:
@@ -110,7 +115,7 @@ def test_semantic_search_respects_top_k_and_min_score(tmp_path: Path) -> None:
         mock_vs.search.return_value = []
         vault_search(query="q", top_k=5, min_score=0.6)
 
-    mock_vs.search.assert_called_once_with("q", top=5, min_score=0.6)
+    mock_vs.search.assert_called_once_with("q", top=5, min_score=0.6, vault=None)
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +137,7 @@ def test_metadata_search_returns_json() -> None:
         project=None,
         recent_days=None,
         limit=10,
+        vault=None,
     )
 
 
