@@ -1,16 +1,15 @@
 // app/api/graph/rebuild/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
 import { findParsidionScript } from '@/lib/scriptResolver'
+import { runScript, ScriptFailedError } from '@/lib/runScript'
 
-// SEC-014: Cap stderr accumulation to avoid unbounded memory growth.
-const MAX_STDERR_BYTES = 64 * 1024
-
+// ARC-015 step 5: broadcast includes the resolved vault path so SSE clients
+// scoped to a different vault can ignore the rebuild instead of refetching.
 export const POST = withApi(async (req: NextRequest) => {
   const vault = req.nextUrl.searchParams.get('vault')
 
@@ -42,38 +41,32 @@ export const POST = withApi(async (req: NextRequest) => {
   const outputPath = path.join(vaultPath, 'graph.json')
   const args = ['run', '--no-project', scriptPath, '--vault', vaultPath, '--output', outputPath]
 
-  return new Promise<NextResponse>(resolve => {
-    const proc = spawn('uv', args, { stdio: 'pipe' })
-
-    // SEC-014: Cap stderr accumulation to avoid unbounded memory growth.
-    let stderrBytes = 0
-    let stderr = ''
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      const remaining = MAX_STDERR_BYTES - stderrBytes
-      if (remaining > 0) {
-        const slice = chunk.slice(0, remaining)
-        stderr += slice.toString()
-        stderrBytes += slice.length
-      }
+  // ARC-036: shared subprocess wrapper — timeout, abort-on-client-disconnect,
+  // capped stderr. Replaces a hand-rolled spawn here. The build can take long
+  // on a large vault, so allow up to 5 minutes; aborts when the client closes
+  // the POST connection (req.signal).
+  try {
+    await runScript('uv', args, {
+      signal: req.signal,
+      timeoutMs: 5 * 60_000,
     })
+  } catch (err) {
+    if (err instanceof ScriptFailedError) {
+      console.error('[graph/rebuild] build_graph.py', err.message, ':', err.stderr)
+      return NextResponse.json(
+        { error: `Graph rebuild failed (exit code ${err.exitCode})` },
+        { status: 500 },
+      )
+    }
+    console.error('[graph/rebuild] error:', err)
+    return NextResponse.json(
+      { error: 'Graph rebuild failed (timeout or client aborted)' },
+      { status: 500 },
+    )
+  }
 
-    proc.on('close', code => {
-      if (code === 0) {
-        vaultBroadcast.emit('graph:rebuilt')
-        resolve(NextResponse.json({ ok: true }))
-      } else {
-        // SEC-003: Log stderr server-side; return a generic error to the client.
-        console.error('[graph/rebuild] build_graph.py exited', code, ':', stderr)
-        resolve(NextResponse.json(
-          { error: `Graph rebuild failed (exit code ${code})` },
-          { status: 500 }
-        ))
-      }
-    })
-
-    proc.on('error', err => {
-      console.error('[graph/rebuild] spawn error:', err.message)
-      resolve(NextResponse.json({ error: 'Failed to start graph rebuild' }, { status: 500 }))
-    })
-  })
+  // ARC-015 step 5: include the resolved vault in the broadcast payload so
+  // tabs on a different vault can ignore the rebuild instead of refetching.
+  vaultBroadcast.emit('graph:rebuilt', { vault: vaultPath })
+  return NextResponse.json({ ok: true })
 }, { mutation: true })

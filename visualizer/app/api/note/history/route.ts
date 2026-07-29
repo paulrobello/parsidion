@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
+import { runScript, ScriptFailedError } from '@/lib/runScript'
 import type { CommitEntry } from '@/lib/types'
 
 // Re-export for backward compatibility — existing imports from
@@ -61,43 +61,35 @@ export const GET = withApi(async (req: NextRequest) => {
 
   const relPath = path.relative(vaultRoot, notePath)
 
-  return new Promise<NextResponse>(resolve => {
-    const proc = spawn('git', ['log', '--follow', '--format=%H|%ai|%s', '--', relPath], {
-      cwd: vaultRoot,
-      stdio: 'pipe',
-    })
+  let stdout: string
+  try {
+    ({ stdout } = await runScript(
+      'git',
+      ['log', '--follow', '--format=%H|%ai|%s', '--', relPath],
+      { cwd: vaultRoot, signal: req.signal },
+    ))
+  } catch (err) {
+    if (err instanceof ScriptFailedError) {
+      // SEC-003: Log stderr server-side; return a generic error to the client.
+      console.error('[note/history] git log failed:', err.stderr)
+    } else {
+      console.error('[note/history] git log error:', err)
+    }
+    return NextResponse.json({ error: 'Failed to retrieve commit history' }, { status: 500 })
+  }
 
-    let stdout = ''
-    let stderr = ''
-    proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-    proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-
-    proc.on('close', code => {
-      if (code !== 0) {
-        // SEC-003: Log stderr server-side; return a generic error to the client.
-        console.error('[note/history] git log failed:', stderr)
-        resolve(NextResponse.json({ error: 'Failed to retrieve commit history' }, { status: 500 }))
-        return
+  const commits: CommitEntry[] = stdout
+    .split('\n')
+    .filter(Boolean)
+    .map(line => {
+      const [hash, date, ...msgParts] = line.split('|')
+      return {
+        hash,
+        shortHash: hash.slice(0, 7),
+        date,
+        message: msgParts.join('|'),
       }
-
-      const commits: CommitEntry[] = stdout
-        .split('\n')
-        .filter(Boolean)
-        .map(line => {
-          const [hash, date, ...msgParts] = line.split('|')
-          return {
-            hash,
-            shortHash: hash.slice(0, 7),
-            date,
-            message: msgParts.join('|'),
-          }
-        })
-
-      resolve(NextResponse.json({ commits }))
     })
 
-    proc.on('error', err => {
-      resolve(NextResponse.json({ error: err.message }, { status: 500 }))
-    })
-  })
+  return NextResponse.json({ commits })
 })

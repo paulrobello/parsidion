@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
+import { runScript, ScriptFailedError } from '@/lib/runScript'
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -69,37 +69,32 @@ export const GET = withApi(async (req: NextRequest) => {
     ? ['diff', from, '--', relPath]
     : ['diff', from, to, '--', relPath]
 
-  return new Promise<NextResponse>(resolve => {
-    const proc = spawn('git', gitArgs, { cwd: vaultRoot, stdio: 'pipe' })
+  // ARC-036: shared subprocess wrapper — enforces timeout, aborts on client
+  // disconnect, caps stderr. `git diff` exits 1 for "differences found",
+  // which is a success, so pass it through successExitCodes.
+  let stdout: string
+  try {
+    ({ stdout } = await runScript('git', gitArgs, {
+      cwd: vaultRoot,
+      signal: req.signal,
+      successExitCodes: [0, 1],
+    }))
+  } catch (err) {
+    if (err instanceof ScriptFailedError) {
+      console.error('[note/diff] git diff failed:', err.stderr)
+    } else {
+      console.error('[note/diff] git diff error:', err)
+    }
+    return NextResponse.json({ error: 'Failed to compute diff' }, { status: 500 })
+  }
 
-    let stdout = ''
-    let stderr = ''
-    proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-    proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-
-    proc.on('close', code => {
-      // git diff exits 0 (no diff) or 1 (has diff) — both are success
-      if (code !== 0 && code !== 1) {
-        // SEC-003: Log stderr server-side; return a generic error to the client.
-        console.error('[note/diff] git diff failed:', stderr)
-        resolve(NextResponse.json({ error: 'Failed to compute diff' }, { status: 500 }))
-        return
-      }
-
-      // Truncate very large diffs
-      const lines = stdout.split('\n')
-      let diff = stdout
-      let truncated = false
-      if (lines.length > MAX_DIFF_LINES) {
-        diff = lines.slice(0, MAX_DIFF_LINES).join('\n')
-        truncated = true
-      }
-
-      resolve(NextResponse.json({ diff, truncated }))
-    })
-
-    proc.on('error', err => {
-      resolve(NextResponse.json({ error: err.message }, { status: 500 }))
-    })
-  })
+  // Truncate very large diffs
+  const lines = stdout.split('\n')
+  let diff = stdout
+  let truncated = false
+  if (lines.length > MAX_DIFF_LINES) {
+    diff = lines.slice(0, MAX_DIFF_LINES).join('\n')
+    truncated = true
+  }
+  return NextResponse.json({ diff, truncated })
 })

@@ -4,11 +4,20 @@
 // this module never implements search or backend logic itself.
 //
 // ARC-041: structural server-only guard — this module spawns subprocesses.
+// ARC-036: subprocess plumbing now delegates to lib/runScript.ts so the
+// timeout / abort / stderr-cap behavior is shared with the git-spawning
+// routes rather than re-implemented here.
 import 'server-only'
 
-import { spawn } from 'child_process'
 import path from 'path'
 import { findParsidionScript } from './scriptResolver'
+import {
+  runScript,
+  ScriptAbortedError,
+  ScriptTimeoutError,
+  ScriptFailedError,
+  DEFAULT_TIMEOUT_MS,
+} from './runScript'
 
 export interface SemanticSearchResult {
   stem: string
@@ -26,9 +35,6 @@ export class ScriptMissingError extends Error {}
 export class SearchBusyError extends Error {}
 export class SearchFailedError extends Error {}
 
-// SEC-014: cap stderr accumulation (same limit as the rebuild route).
-const MAX_STDERR_BYTES = 64 * 1024
-const SEARCH_TIMEOUT_MS = 30_000
 const MAX_CONCURRENT_SEARCHES = 2
 
 let inFlight = 0
@@ -48,8 +54,7 @@ export async function runVaultSearch(
     throw new SearchBusyError('too many concurrent searches')
   }
 
-  const timeoutMs = opts?.timeoutMs ?? SEARCH_TIMEOUT_MS
-  const signal = opts?.signal
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS
   // `--` terminates argparse option parsing so a query starting with `-`
   // cannot be read as a flag by vault_search.py.
   const args = [
@@ -59,56 +64,24 @@ export async function runVaultSearch(
   ]
 
   inFlight++
-  let stderr = ''
   try {
-    const stdout = await new Promise<string>((resolve, reject) => {
-      const proc = spawn('uv', args, { stdio: ['ignore', 'pipe', 'pipe'] })
-      let out = ''
-      let stderrBytes = 0
-      let timedOut = false
-      let aborted = false
-      const timer = setTimeout(() => {
-        timedOut = true
-        proc.kill('SIGKILL')
-      }, timeoutMs)
-
-      // Client is gone — kill the subprocess so it doesn't hold a concurrency
-      // slot for up to SEARCH_TIMEOUT_MS after the response is moot.
-      const onAbort = () => {
-        aborted = true
-        proc.kill('SIGKILL')
+    let stdout = ''
+    let stderr = ''
+    try {
+      ({ stdout, stderr } = await runScript('uv', args, {
+        timeoutMs,
+        signal: opts?.signal,
+      }))
+    } catch (err) {
+      if (err instanceof ScriptAbortedError) throw new SearchFailedError('semantic search aborted')
+      if (err instanceof ScriptTimeoutError) throw new SearchFailedError('semantic search timed out')
+      if (err instanceof ScriptFailedError) {
+        // SEC-003: log stderr server-side only.
+        console.error('[searchServer] vault_search.py', err.message, ':', err.stderr)
+        throw new SearchFailedError(`vault_search.py ${err.message}`)
       }
-      signal?.addEventListener('abort', onAbort)
-
-      proc.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString() })
-      proc.stderr?.on('data', (chunk: Buffer) => {
-        const remaining = MAX_STDERR_BYTES - stderrBytes
-        if (remaining > 0) {
-          const slice = chunk.slice(0, remaining)
-          stderr += slice.toString()
-          stderrBytes += slice.length
-        }
-      })
-
-      proc.on('close', code => {
-        clearTimeout(timer)
-        signal?.removeEventListener('abort', onAbort)
-        if (aborted) return reject(new SearchFailedError('semantic search aborted'))
-        if (timedOut) return reject(new SearchFailedError('semantic search timed out'))
-        if (code !== 0) {
-          // SEC-003: log stderr server-side only.
-          console.error('[searchServer] vault_search.py exited', code, ':', stderr)
-          return reject(new SearchFailedError(`vault_search.py exited ${code}`))
-        }
-        resolve(out)
-      })
-
-      proc.on('error', err => {
-        clearTimeout(timer)
-        signal?.removeEventListener('abort', onAbort)
-        reject(new SearchFailedError(`spawn failed: ${err.message}`))
-      })
-    })
+      throw err
+    }
 
     let rows: unknown
     try {
