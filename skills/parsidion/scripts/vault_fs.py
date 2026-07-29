@@ -270,6 +270,7 @@ def append_to_pending(
     # check below provides best-effort guard.  msvcrt.locking() is not
     # used here because it locks byte ranges (not the whole file) and would
     # require careful size tracking — too complex for stdlib-only code.
+    dropped_after_retries = True  # set False on a successful write/dedup hit
     try:
         # migrate_pending_paths() rewrites the queue via tmp + atomic replace
         # while holding the same flock. If that replace happens while we are
@@ -304,14 +305,38 @@ def append_to_pending(
                         except (json.JSONDecodeError, ValueError):
                             continue
                     if session_id in existing_ids:
+                        dropped_after_retries = False
                         return  # Already queued
                     f.seek(0, 2)
                     f.write(json.dumps(entry) + "\n")
+                    dropped_after_retries = False
                     return
                 finally:
                     funlock(f)
     except OSError:
         pass
+    # ARC-048(b): the entry is silently lost when 5 inode-retry attempts all
+    # see a replaced queue (or the OSError path swallowed the write). Surface
+    # it via write_hook_event so vault-stats --hooks N can show the drop and
+    # the user can tell a missing session from a transient bug — without this
+    # the queue can shed entries with zero observable signal anywhere.
+    if dropped_after_retries:
+        try:
+            from vault_hooks import write_hook_event  # noqa: PLC0415
+
+            write_hook_event(
+                hook="PendingQueueDrop",
+                project=str(project),
+                duration_ms=0.0,
+                vault=vault,
+                action="append_to_pending_dropped",
+                detail=(
+                    f"session {session_id} dropped after 5 inode-retry attempts "
+                    f"(concurrent rewrite race); queue entry lost"
+                ),
+            )
+        except Exception:  # noqa: BLE001 — never raise on a best-effort log
+            pass
 
 
 def migrate_pending_paths(dry_run: bool = False, vault: Path | None = None) -> int:

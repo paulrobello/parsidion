@@ -2619,10 +2619,19 @@ def main() -> None:
                     _attempts,
                     "write-gate skip (transient)",
                 )
-            if failed_reasons:
-                remove_processed(source_path, removable, failed=failed_reasons)
-            elif removable:
-                remove_processed(source_path, removable)
+        # ARC-048(d): always honor the dequeue lifecycle (queue OR --sessions
+        # FILE). Previously --sessions skipped this block entirely, so a re-run
+        # of the same FILE re-processed every entry, re-billed an AI call for
+        # each, and (because write_note merges on slug collision) appended a
+        # fresh ``## Session update`` block to each note — quietly compounding
+        # duplicate content on every invocation. The sticky dead-letter write
+        # above remains queue-only (it writes a sibling dead_letters.jsonl and
+        # would litter an arbitrary source directory); --sessions mode still
+        # dequeues via ``removable`` without that side effect.
+        if failed_reasons:
+            remove_processed(source_path, removable, failed=failed_reasons)
+        elif removable:
+            remove_processed(source_path, removable)
 
         # Rebuild vault index and commit all new notes + updated index
         if successful_entries:
