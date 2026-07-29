@@ -94,6 +94,7 @@ ignore = [
 [tool.pyright]
 extraPaths = [
     "skills/parsidion/scripts",
+    "tools",
 ]
 exclude = [
     "parsidion-mcp",

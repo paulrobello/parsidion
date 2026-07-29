@@ -1589,7 +1589,7 @@ def test_summarize_one_merge_valid_content_backs_up_target_and_writes_atomically
 
     entry, written = asyncio.run(run())
 
-    assert written is not None
+    assert isinstance(written, Path)
     assert written.name == "real-note.md"
     # The target was overwritten with the new (valid) content.
     assert "Updated insight." in written.read_text(encoding="utf-8")
