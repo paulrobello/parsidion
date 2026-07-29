@@ -147,7 +147,14 @@ export const GET = withApi(async (req: NextRequest) => {
 
       acquireWatcher(vaultPath, send)
 
-      const onRebuilt = () => send({ type: 'graph:rebuilt' })
+      // ARC-015 step 5: forward the broadcast payload (which carries the
+      // rebuilt vault path) so SSE subscribers scoped to a different vault
+      // can no-op instead of refetching. The legacy payload (no argument)
+      // is treated as "unknown vault, refetch" for backward compatibility.
+      const onRebuilt = (payload?: { vault?: string }) => {
+        if (payload && payload.vault && payload.vault !== vaultPath) return
+        send({ type: 'graph:rebuilt', vault: payload?.vault ?? vaultPath })
+      }
       vaultBroadcast.on('graph:rebuilt', onRebuilt)
 
       req.signal.addEventListener('abort', () => {

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { loadGraphData } from '@/lib/graph'
+import { loadGraphData, loadGraphDelta, applyGraphDelta } from '@/lib/graph'
 import type { GraphData, NoteNode } from '@/lib/graph'
 import { computeLinkedStems } from '@/lib/linkedNotes'
 import type { GraphCanvasHandle } from '@/components/GraphCanvas'
@@ -76,12 +76,33 @@ export default function Home() {
 
   const handleGraphRebuilt = useCallback(async () => {
     try {
+      // ARC-015 step 4: ask the server for a delta first. Falls back to a
+      // full refetch when the server signals `full: true` (baseline evicted,
+      // unknown timestamp, or the delta would exceed ~40% turnover). The
+      // 47.5 MB graph.json used to be re-fetched in full on every rebuild;
+      // a single new note now produces a tiny addedNodes=[1] payload.
+      const baseline = graphData
+      if (baseline) {
+        const result = await loadGraphDelta(baseline.meta.generated, state.selectedVault)
+        if ('delta' in result) {
+          const next = applyGraphDelta(baseline, result.delta)
+          if (next) {
+            setGraphData(next)
+            return
+          }
+        }
+        // Server said full (or applyGraphDelta returned null) → full refetch.
+        const fresh = await loadGraphData(state.selectedVault)
+        setGraphData(fresh)
+        return
+      }
+      // No baseline yet (first load races with a rebuild event) → full fetch.
       const fresh = await loadGraphData(state.selectedVault)
       setGraphData(fresh)
     } catch (err) {
       console.warn('[page] graph refetch failed:', err)
     }
-  }, [state.selectedVault])
+  }, [state.selectedVault, graphData])
 
   const { fileTree, wsStatus, totalFiles } = useVaultFiles({
     onNoteModified: handleNoteModified,
