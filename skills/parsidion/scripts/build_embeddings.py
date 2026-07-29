@@ -21,11 +21,24 @@ Usage:
 import argparse
 import sqlite3
 import struct
+import sys
 import time
 from pathlib import Path
 
-import sqlite_vec  # type: ignore[import-untyped]
-from fastembed import TextEmbedding  # type: ignore[import-untyped]
+# QA-009: guard the optional-dependency imports so a user without the
+# `search` extra sees an actionable error rather than a raw traceback.
+# Matches the pattern in vault_search.py:64-71.
+try:
+    import sqlite_vec  # type: ignore[import-untyped]
+    from fastembed import TextEmbedding  # type: ignore[import-untyped]
+except ImportError:
+    print(
+        "build_embeddings: required extra 'search' is not installed.\n"
+        "  Fix: uv tool install --editable '.[search]'\n"
+        "  (or: uv run --with fastembed --with sqlite-vec build_embeddings.py)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 import vault_common
 

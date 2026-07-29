@@ -875,6 +875,16 @@ def main() -> None:
     # ARC-011: stderr is redirected to a log file so silent failures are
     # visible.  Check ~/.claude/logs/parsidion-embed.log when embeddings
     # seem stale.
+    #
+    # QA-009: a user without the `search` extra sees a cheerful "launched"
+    # banner while the child exits 1 with an ImportError in the log file and
+    # embeddings silently never build. After spawning, poll() briefly — if the
+    # child died within the grace window it almost certainly failed to import
+    # (a real embed run takes seconds), so report that explicitly and surface
+    # the log path instead of the false success banner.
+    # QA-021: close the parent's copy of `_embed_log` after spawn. The fd is
+    # intentionally inherited by the detached child, but the parent leaking
+    # its own handle is unnecessary.
     if get_config("embeddings", "enabled", True):
         db_path = get_embeddings_db_path(vault=vault_path)
         build_script = Path(__file__).parent / "build_embeddings.py"
@@ -892,13 +902,32 @@ def main() -> None:
                 "a",
                 encoding="utf-8",
             )
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=_embed_log,
                 start_new_session=True,
             )
-            print(f"Embeddings: {label} rebuild launched in background")
+            # Give the child a short grace window. A successful embedding run
+            # takes seconds (loads a ~67 MB ONNX model); if it has already
+            # exited within 1 s, it almost certainly failed to import.
+            import time as _time
+
+            _time.sleep(1.0)
+            if proc.poll() is None:
+                print(f"Embeddings: {label} rebuild launched in background")
+            else:
+                print(
+                    f"Embeddings: {label} rebuild FAILED to start "
+                    f"(child exited {proc.returncode}). "
+                    f"See {_embed_log_dir / 'parsidion-embed.log'}. "
+                    f"Hint: uv tool install --editable '.[search]'",
+                    file=sys.stderr,
+                )
+            try:
+                _embed_log.close()
+            except OSError:
+                pass
 
     # par-mem freshness trigger: when the optional par-mem backend resolves,
     # kick a detached incremental `par-mem index` so the code-memory graph

@@ -23,15 +23,26 @@ import time
 from pathlib import Path
 from typing import Any
 
-import sqlite_vec  # type: ignore[import-untyped]
-from fastembed import TextEmbedding  # type: ignore[import-untyped]
-from rich.progress import (  # type: ignore[import-untyped]
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+# QA-009: guard the optional-dependency imports so a user without the `eval`
+# extra sees an actionable error rather than a raw traceback. Matches the
+# pattern in vault_search.py:64-71 and build_embeddings.py.
+try:
+    import sqlite_vec  # type: ignore[import-untyped]
+    from fastembed import TextEmbedding  # type: ignore[import-untyped]
+    from rich.progress import (  # type: ignore[import-untyped]
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeElapsedColumn,
+    )
+except ImportError:
+    print(
+        "embed_eval_run: required extra 'eval' is not installed.\n"
+        "  Fix: uv tool install --editable '.[eval]'",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # Ensure sibling scripts are importable
 _SCRIPT_DIR = str(Path(__file__).resolve().parent)
