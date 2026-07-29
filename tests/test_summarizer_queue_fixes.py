@@ -173,7 +173,9 @@ def test_run_all_classifies_progress_counters(
     mod = _fresh_summarize_sessions(monkeypatch)
     monkeypatch.setattr(mod.vault_common, "all_vault_notes", lambda vault: [])
     monkeypatch.setattr(mod, "read_existing_tags", lambda vault: [])
-    monkeypatch.setattr(mod, "read_project_names", lambda vault_notes=None: set())
+    monkeypatch.setattr(
+        mod, "read_project_names", lambda vault_notes=None, vault=None: set()
+    )
 
     outcomes: dict[str, object] = {
         "a": tmp_path / "note.md",  # written

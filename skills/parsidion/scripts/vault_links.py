@@ -355,17 +355,26 @@ def find_related_by_semantic(
     query = f"{new_note_path.stem.replace('-', ' ')} {tag_part}".strip()
 
     try:
+        # ARC-027(b): forward --vault so multi-vault setups compute backlinks
+        # against the right vault. Without this, vault_search.py resolved
+        # the DEFAULT vault (~ /ParsidionVault) regardless of which vault
+        # owned the note, so links computed against the wrong corpus were
+        # then stripped by strip_unresolved_wikilinks() because they didn't
+        # resolve in the right vault either — masking the bug entirely.
+        search_argv = [
+            "uv",
+            "run",
+            "--no-project",
+            str(vault_search_script),
+            query,
+            "--top",
+            str(max_links + 1),
+            "--vault",
+            str(vault),
+            "--json",
+        ]
         result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--no-project",
-                str(vault_search_script),
-                query,
-                "--top",
-                str(max_links + 1),
-                "--json",
-            ],
+            search_argv,
             capture_output=True,
             text=True,
             timeout=15,

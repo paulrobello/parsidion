@@ -27,6 +27,7 @@ vault_links.py.  This file now imports and delegates to that module.
 
 import argparse
 import atexit
+import contextlib
 import enum
 import json
 import os
@@ -446,22 +447,62 @@ def preprocess_transcript(
     return cleaned[:max_chars]
 
 
-def read_project_names(vault_notes: list[Path] | None = None) -> set[str]:
+def read_project_names(
+    vault_notes: list[Path] | None = None,
+    vault: Path | None = None,
+) -> set[str]:
     """Collect all project field values from vault note frontmatter.
 
     Used to filter project names out of the existing-tags list shown to the
     model, since project tags are injected deterministically post-generation.
 
+    ARC-028: tries the ``note_index`` DB first (one ``SELECT DISTINCT project``
+    — the column is already maintained by update_index.py and is what every
+    other consumer of project metadata reads). Falls back to a full vault walk
+    only when the DB or its ``project`` column is unavailable, so an
+    embeddings-disabled vault keeps working.
+
     Args:
-        vault_notes: Pre-collected list of vault note paths.  When ``None``
-            (default), calls ``vault_common.all_vault_notes()`` to collect
-            them — callers that already have the list should pass it to avoid
-            a redundant vault walk.  See ARC-010.
+        vault_notes: Pre-collected list of vault note paths. Used only by the
+            fallback path. When ``None`` and the fallback runs, calls
+            ``vault_common.all_vault_notes(vault)``.
+        vault: Optional vault path used to locate embeddings.db. Defaults to
+            ``resolve_vault()``.
 
     Returns:
         Set of project name strings found across all vault notes.
     """
-    notes = vault_notes if vault_notes is not None else vault_common.all_vault_notes()
+    # ARC-028: DB-first path — the project column is maintained by update_index
+    # and is already what every other code path reads. This replaces an O(N)
+    # file walk + per-note frontmatter parse with one indexed SELECT.
+    try:
+        import sqlite3 as _sqlite3
+
+        resolved_vault = vault or vault_common.resolve_vault()
+        db_path = vault_common.get_embeddings_db_path(resolved_vault)
+        if db_path.exists():
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                # Defensive: an older note_index schema lacking `project`
+                # would raise OperationalError; treat that as "DB not usable"
+                # and fall through to the file walk.
+                rows = conn.execute(
+                    "SELECT DISTINCT project FROM note_index "
+                    "WHERE project IS NOT NULL AND project != ''"
+                ).fetchall()
+                projects = {str(row[0]) for row in rows if row and row[0]}
+                if projects:
+                    return projects
+            except _sqlite3.Error:
+                pass  # fall through to the file walk
+            finally:
+                conn.close()
+    except (OSError, ValueError):
+        pass
+
+    notes = (
+        vault_notes if vault_notes is not None else vault_common.all_vault_notes(vault)
+    )
     projects: set[str] = set()
     for note_path in notes:
         try:
@@ -1357,7 +1398,7 @@ async def summarize_one(
     entry: dict[str, object],
     model: str | None,
     dry_run: bool,
-    semaphore: anyio.Semaphore,
+    semaphore: anyio.Semaphore | None,
     existing_tags: list[str],
     persist: bool,
     vault: Path,
@@ -1366,6 +1407,7 @@ async def summarize_one(
     max_cleaned_chars: int = _DEFAULT_MAX_CLEANED_CHARS,
     cluster_model: str | None = None,
     vault_notes: list[Path] | None = None,
+    dead_lettered_ids: set[str] | None = None,
 ) -> tuple[dict[str, object], Path | str | None]:
     """Summarize one pending session entry.
 
@@ -1394,7 +1436,12 @@ async def summarize_one(
     """
     del persist
 
-    async with semaphore:
+    # ARC-048(c): semaphore may be ``None`` when the caller has already
+    # acquired it (run_all's _run_one wrapper does this so it can write the
+    # progress ``current`` field AFTER acquisition — see _run_one). Use a
+    # nullcontext so this function still works either way.
+    semaphore_cm = semaphore if semaphore is not None else contextlib.nullcontext()
+    async with semaphore_cm:
         transcript_path_str = str(entry.get("transcript_path", ""))
         project = str(entry.get("project", "unknown"))
         raw_cats = entry.get("categories") or []
@@ -1416,7 +1463,16 @@ async def summarize_one(
         # write-gate skip) must not be re-processed even if a stop hook
         # re-queued it — that would re-bill an AI call for a session already
         # judged not worth a note. Purge on sight.
-        if session_id in _dead_lettered_ids(vault):
+        # ARC-028: callers fan out many summarize_one calls in parallel; the
+        # dead-letter set is read ONCE per run (see run_all) and passed in to
+        # avoid re-reading the file once per entry. Tests and one-shot callers
+        # that omit the parameter fall back to a single read here.
+        dead_ids = (
+            dead_lettered_ids
+            if dead_lettered_ids is not None
+            else _dead_lettered_ids(vault)
+        )
+        if session_id in dead_ids:
             print(
                 f"  Purging re-queued dead-lettered session {session_id[:8]}",
                 file=sys.stderr,
@@ -1715,9 +1771,14 @@ async def run_all(
     # function so we don't call all_vault_notes() up to 3x per entry.
     vault_notes: list[Path] = vault_common.all_vault_notes(vault)
     existing_tags = read_existing_tags(vault)
-    project_names = read_project_names(vault_notes=vault_notes)
+    project_names = read_project_names(vault_notes=vault_notes, vault=vault)
     # Filter project names out -- they're injected post-generation, not chosen by the model
     semantic_tags = [t for t in existing_tags if t not in project_names]
+    # ARC-028: read the dead-letter set ONCE per run instead of once per entry.
+    # At max_parallel=5 with 50 entries the previous code re-parsed
+    # dead_letters.jsonl 50 times; the file grows monotonically so the cost
+    # compounded across a long run.
+    dead_lettered = _dead_lettered_ids(vault)
     semaphore = anyio.Semaphore(max_parallel)
     results: list[tuple[dict[str, object], Path | str | None]] = []
     total = len(entries)
@@ -1744,66 +1805,77 @@ async def run_all(
         project = str(entry.get("project", "?"))
         session_id = str(entry.get("session_id", ""))[:8]
         current = f"{project} [{session_id}]"
-        _write_progress(
-            total=total,
-            processed=_progress_counters[0],
-            written=_progress_counters[1],
-            skipped=_progress_counters[2],
-            errors=_progress_counters[3],
-            current=current,
-        )
 
-        try:
-            result = await summarize_one(
-                entry,
-                model,
-                dry_run,
-                semaphore,
-                semantic_tags,
-                persist,
-                vault,
-                tail_lines,
-                tail_bytes,
-                max_cleaned_chars,
-                cluster_model,
-                vault_notes=vault_notes,
+        # ARC-048(c): acquire the semaphore HERE and write the progress
+        # ``current`` field only after acquisition. Previously the progress
+        # write happened before summarize_one awaited the semaphore, so
+        # ``vault-stats --summarizer-progress`` named the last-*queued*
+        # session rather than the one actually being processed — at
+        # max_parallel=5 every queued entry showed as "current" until the
+        # semaphore drained. summarize_one now accepts ``semaphore=None``
+        # and uses a nullcontext when called this way.
+        async with semaphore:
+            _write_progress(
+                total=total,
+                processed=_progress_counters[0],
+                written=_progress_counters[1],
+                skipped=_progress_counters[2],
+                errors=_progress_counters[3],
+                current=current,
             )
-        except anyio.get_cancelled_exc_class():
-            # Ctrl-C / task cancellation must propagate so the user can
-            # abort a run. Do NOT swallow it.
-            raise
-        except Exception as exc:  # noqa: BLE001 — task-group boundary
-            # Catch every unhandled exception: an unguarded write path
-            # inside summarize_one would otherwise cancel all siblings
-            # via anyio.create_task_group()'s cancel-on-raise semantics,
-            # leaving the queue uncleaned and the index not rebuilt.
-            print(
-                f" Unhandled failure for session {session_id} "
-                f"(project {project}): {exc}",
-                file=sys.stderr,
-            )
-            traceback.print_exc()
-            _mark_failure(entry, FailureReason.UNHANDLED, str(exc))
-            result = (entry, None)
 
-        results.append(result)
-        _progress_counters[0] += 1  # processed
-        _, written_path = result
-        if written_path in (_STALE, _SKIPPED, _DEAD):
-            _progress_counters[2] += 1  # skipped/purged (stale, write-gate, dead)
-        elif written_path == _DEFERRED:
-            pass  # deferred active session — left in queue, not an error
-        elif written_path is not None:
-            _progress_counters[1] += 1  # written
-        else:
-            _progress_counters[3] += 1  # errors
-        _write_progress(
-            total=total,
-            processed=_progress_counters[0],
-            written=_progress_counters[1],
-            skipped=_progress_counters[2],
-            errors=_progress_counters[3],
-        )
+            try:
+                result = await summarize_one(
+                    entry,
+                    model,
+                    dry_run,
+                    None,  # semaphore already acquired above
+                    semantic_tags,
+                    persist,
+                    vault,
+                    tail_lines,
+                    tail_bytes,
+                    max_cleaned_chars,
+                    cluster_model,
+                    vault_notes=vault_notes,
+                    dead_lettered_ids=dead_lettered,
+                )
+            except anyio.get_cancelled_exc_class():
+                # Ctrl-C / task cancellation must propagate so the user can
+                # abort a run. Do NOT swallow it.
+                raise
+            except Exception as exc:  # noqa: BLE001 — task-group boundary
+                # Catch every unhandled exception: an unguarded write path
+                # inside summarize_one would otherwise cancel all siblings
+                # via anyio.create_task_group()'s cancel-on-raise semantics,
+                # leaving the queue uncleaned and the index not rebuilt.
+                print(
+                    f" Unhandled failure for session {session_id} "
+                    f"(project {project}): {exc}",
+                    file=sys.stderr,
+                )
+                traceback.print_exc()
+                _mark_failure(entry, FailureReason.UNHANDLED, str(exc))
+                result = (entry, None)
+
+            results.append(result)
+            _progress_counters[0] += 1  # processed
+            _, written_path = result
+            if written_path in (_STALE, _SKIPPED, _DEAD):
+                _progress_counters[2] += 1  # skipped/purged (stale, write-gate, dead)
+            elif written_path == _DEFERRED:
+                pass  # deferred active session — left in queue, not an error
+            elif written_path is not None:
+                _progress_counters[1] += 1  # written
+            else:
+                _progress_counters[3] += 1  # errors
+            _write_progress(
+                total=total,
+                processed=_progress_counters[0],
+                written=_progress_counters[1],
+                skipped=_progress_counters[2],
+                errors=_progress_counters[3],
+            )
 
     async with anyio.create_task_group() as tg:
         for entry in entries:
@@ -2107,19 +2179,63 @@ def remove_processed(
         print(f"Warning: could not update pending file: {e}", file=sys.stderr)
 
 
+def _resolve(
+    cli_value: bool | None,
+    section: str,
+    key: str,
+    default: bool,
+) -> bool:
+    """Resolve a tri-state CLI bool against config and a default.
+
+    ARC-042: centralises the "CLI overrides config overrides default" pattern
+    that ``main`` previously inlined three times with subtly different shapes.
+    Used for ``--rebuild-graph``, ``--graph-include-daily``, and ``--persist``
+    so a YAML ``true`` can be overridden off from the CLI via ``--no-<flag>``
+    (previously impossible: the ``or`` short-circuit meant CLI ``False`` was
+    treated the same as "absent").
+
+    Args:
+        cli_value: The CLI-provided value, or ``None`` when the flag was not
+            given (i.e. argparse ``default=None`` with ``BooleanOptionalAction``).
+        section: Config section name (e.g. ``"summarizer"``).
+        key: Key within the section (e.g. ``"rebuild_graph"``).
+        default: Final fallback when neither CLI nor config provides a value.
+
+    Returns:
+        The resolved bool. Config values that are not bools fall back to
+        *default* (defensive against a misconfigured YAML scalar).
+    """
+    if cli_value is not None:
+        return cli_value
+    configured = vault_common.get_config(section, key, default)
+    if isinstance(configured, bool):
+        return configured
+    return default
+
+
 def rebuild_index(
     vault: Path,
-    rebuild_graph: bool = False,
-    graph_include_daily: bool = False,
+    rebuild_graph: bool | None = None,
+    graph_include_daily: bool | None = None,
 ) -> None:
     """Run update_index.py to rebuild the vault index.
+
+    ARC-027(a): the ``uv run`` invocation now passes ``--no-project`` so
+    ``uv`` does not walk up from the inherited cwd (the user's project
+    directory, for the auto-launch path) looking for a ``pyproject.toml``
+    and syncing an unrelated project's dependencies. Without ``--no-project``
+    the index rebuild fails when launched from inside a project whose own
+    deps conflict; the failure was swallowed into a warning at the caller so
+    the index silently went stale while the run reported success.
 
     Args:
         vault: Path to the vault directory.
         rebuild_graph: When True, pass ``--rebuild-graph`` to update_index.py
             so the visualizer graph.json is regenerated after indexing.
+            ``None`` means "no flag" (leave update_index's own default).
         graph_include_daily: When True, also pass ``--graph-include-daily``
-            (only meaningful when ``rebuild_graph`` is True).
+            (only meaningful when ``rebuild_graph`` is True). ``None`` means
+            "no flag".
     """
     index_script = Path(__file__).parent / "update_index.py"
     if not index_script.exists():
@@ -2138,7 +2254,9 @@ def rebuild_index(
             file=sys.stderr,
         )
         return
-    cmd = ["uv", "run", str(index_script), "--vault", str(vault)]
+    # ARC-027(a): --no-project prevents uv from discovering a pyproject.toml
+    # in the inherited cwd and syncing an unrelated project's dependencies.
+    cmd = ["uv", "run", "--no-project", str(index_script), "--vault", str(vault)]
     if rebuild_graph:
         cmd.append("--rebuild-graph")
     if graph_include_daily:
@@ -2291,15 +2409,24 @@ def main() -> None:
     )
     parser.add_argument(
         "--rebuild-graph",
-        action="store_true",
-        default=False,
-        help="Rebuild visualizer graph.json after indexing (passed to update_index.py --rebuild-graph).",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Rebuild visualizer graph.json after indexing (passed to update_index.py "
+            "--rebuild-graph). Tri-state: --rebuild-graph forces on, --no-rebuild-graph "
+            "forces off (overrides a config 'true'), unset reads "
+            "summarizer.rebuild_graph from config (default false)."
+        ),
     )
     parser.add_argument(
         "--graph-include-daily",
-        action="store_true",
-        default=False,
-        help="Include Daily folder notes in the graph (only used with --rebuild-graph).",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include Daily folder notes in the graph (only used with --rebuild-graph). "
+            "Same tri-state semantics as --rebuild-graph; reads "
+            "summarizer.graph_include_daily from config when unset."
+        ),
     )
     parser.add_argument(
         "--vault",
@@ -2318,11 +2445,11 @@ def main() -> None:
         model = configured_model
     else:
         model = None
-    persist: bool = (
-        args.persist
-        if args.persist is not None
-        else vault_common.get_config("summarizer", "persist", False)
-    )
+    # ARC-042: route tri-state bools through _resolve so a config 'true' can be
+    # overridden off via --no-<flag>; the previous `or` short-circuit treated
+    # an absent CLI flag the same as `--flag False`, so once config was true
+    # there was no way to disable from the CLI for a single run.
+    persist: bool = _resolve(args.persist, "summarizer", "persist", False)
     max_parallel: int = vault_common.get_config(
         "summarizer",
         "max_parallel",
@@ -2355,11 +2482,11 @@ def main() -> None:
         else None
     )
 
-    rebuild_graph: bool = args.rebuild_graph or vault_common.get_config(
-        "summarizer", "rebuild_graph", False
+    rebuild_graph: bool | None = _resolve(
+        args.rebuild_graph, "summarizer", "rebuild_graph", False
     )
-    graph_include_daily: bool = args.graph_include_daily or vault_common.get_config(
-        "summarizer", "graph_include_daily", False
+    graph_include_daily: bool | None = _resolve(
+        args.graph_include_daily, "summarizer", "graph_include_daily", False
     )
 
     # Resolve vault
