@@ -65,6 +65,7 @@ from vault_path import (  # noqa: F401
 from vault_fs import (  # noqa: F401
     append_session_to_daily,
     append_to_pending,
+    atomic_write_text,
     create_daily_note_if_missing,
     ensure_vault_dirs,
     flock_exclusive,
@@ -186,6 +187,7 @@ __all__: list[str] = [
     "flock_exclusive",
     "flock_shared",
     "funlock",
+    "atomic_write_text",
     # Transcript helpers
     "extract_text_from_content",
     "allowed_transcript_roots",

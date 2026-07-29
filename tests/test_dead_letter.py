@@ -162,8 +162,19 @@ def test_dead_letter_write_failure_is_best_effort(
         pending, [{"session_id": "dead2", "project": "myproj", "attempts": 2}]
     )
 
+    # SEC-109: remove_processed now creates its queue tmp via os.open (0o600
+    # perms) too, so a global os.open patch would break the queue rewrite as
+    # well. Capture the real os.open before patching and only fail opens that
+    # target dead_letters.jsonl; the queue rewrite (.jsonl.tmp) keeps working,
+    # preserving the test's original intent ("dead-letter write failure does
+    # not resurrect the queue entry").
+    _real_os_open = mod.os.open
+
     def _boom(*args: object, **kwargs: object) -> int:
-        raise OSError("disk full")
+        path_arg = str(args[0]) if args else ""
+        if "dead_letters.jsonl" in path_arg:
+            raise OSError("disk full")
+        return _real_os_open(*args, **kwargs)
 
     monkeypatch.setattr(mod.os, "open", _boom)
 

@@ -30,6 +30,7 @@ import atexit
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -879,6 +880,27 @@ def _backfill_tags_if_empty(
     return note_content
 
 
+def _backup_note(note_path: Path, vault: Path) -> None:
+    """Copy *note_path* to today's pre-mutation backup dir, best-effort.
+
+    SEC-107: mirrors ``vault_doctor._backup_note`` so the merge path defends
+    a trusted, frequently-retrieved note the same way doctor's repair path
+    does. First version of the day wins (an existing backup is not replaced).
+    Raises ``OSError`` on copy failure so the caller can choose to abort the
+    merge — unlike doctor's "never raise" contract, the merge caller already
+    has a fallback (return None and let the attempts cap dead-letter it).
+    """
+    try:
+        rel = note_path.relative_to(vault)
+    except ValueError:
+        return  # outside the vault -- nothing to back up
+    dest = vault / ".trash" / "backup" / date.today().isoformat() / rel
+    if dest.exists():
+        return  # first version of the day already saved
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(note_path, dest)
+
+
 def write_note(
     note_content: str,
     dry_run: bool,
@@ -960,7 +982,11 @@ def write_note(
     resolved = (target_dir / f"{slug}.md").resolve()
     if not resolved.is_relative_to(vault.resolve()):
         raise ValueError(f"Refusing to write outside vault: {resolved}")
-    target_path = target_dir / f"{slug}.md"
+    # SEC-125: assign target_path := resolved so the validated path is the one
+    # written. The previous code kept the un-resolved ``target_dir / f"{slug}.md"``
+    # and validated ``resolved``, leaving a TOCTOU window between the check and
+    # the write (a symlink or .. component inserted at write time escaped containment).
+    target_path = resolved
 
     if dry_run:
         print(f"[dry-run] Would write: {target_path}")
@@ -986,8 +1012,10 @@ def write_note(
             + _note_body(note_content)
             + "\n"
         )
+        # SEC-127: route through vault_fs.atomic_write_text so the rewrite is
+        # crash-atomic and preserves the existing file's mode.
         try:
-            target_path.write_text(merged, encoding="utf-8")
+            vault_common.atomic_write_text(target_path, merged)
             print(
                 f"  [dedup] Slug collision: merged into existing "
                 f"{target_path.name} (no duplicate created)",
@@ -998,8 +1026,10 @@ def write_note(
             print(f"Error merging {target_path}: {e}", file=sys.stderr)
             return None
 
+    # SEC-127: route through vault_fs.atomic_write_text (the create path was a
+    # bare write_text; the merge path now uses the same primitive).
     try:
-        target_path.write_text(note_content, encoding="utf-8")
+        vault_common.atomic_write_text(target_path, note_content)
         return target_path
     except OSError as e:
         print(f"Error writing {target_path}: {e}", file=sys.stderr)
@@ -1431,7 +1461,54 @@ async def summarize_one(
                         new_content, _stripped = vault_links.strip_unresolved_wikilinks(
                             new_content, vault
                         )
-                        target_path.write_text(new_content, encoding="utf-8")
+                        # SEC-107: validate AI-generated merge content the same
+                        # way write_note validates a freshly created note. A
+                        # crafted transcript could otherwise steer the model
+                        # into emitting decision JSON whose ``new_content``
+                        # overwrites a trusted, frequently-retrieved note with
+                        # arbitrary/invalid frontmatter. Abort the merge (return
+                        # the failure sentinel) when validation fails so the
+                        # attempts cap in remove_processed bounds retries.
+                        merge_fm_error = _validate_frontmatter(new_content)
+                        if merge_fm_error:
+                            print(
+                                f"  Refusing to merge into [[{target_stem}]]: "
+                                f"{merge_fm_error}",
+                                file=sys.stderr,
+                            )
+                            _mark_failure(entry, f"merge validation: {merge_fm_error}")
+                            return entry, None
+                        # SEC-107 / SEC-125: containment re-check on the resolved
+                        # target so a symlinked or path-traversal target cannot
+                        # escape the vault at write time. ``_resolve_note_stem``
+                        # currently returns indexed paths so containment holds
+                        # today, but the model output (and therefore the target
+                        # wikilink) is attacker-influenced — check anyway.
+                        resolved_target = target_path.resolve()
+                        if not resolved_target.is_relative_to(vault.resolve()):
+                            reason = (
+                                f"merge target [[{target_stem}]] resolves "
+                                f"outside vault: {resolved_target}"
+                            )
+                            print(f"  {reason}", file=sys.stderr)
+                            _mark_failure(entry, reason)
+                            return entry, None
+                        # SEC-107: back up the existing note before overwriting,
+                        # mirroring vault_doctor._backup_note. A failed merge
+                        # must never destroy the only copy of a trusted note.
+                        try:
+                            _backup_note(target_path, vault)
+                        except OSError as backup_err:
+                            print(
+                                f"  Warning: merge backup failed for "
+                                f"[[{target_stem}]]: {backup_err}",
+                                file=sys.stderr,
+                            )
+                            _mark_failure(entry, f"backup failed: {backup_err}")
+                            return entry, None
+                        # SEC-127: atomic write preserves the existing mode and
+                        # is crash-safe (the create path uses the same primitive).
+                        vault_common.atomic_write_text(resolved_target, new_content)
                         if _stripped:
                             print(
                                 f"  [links] Stripped {_stripped} "
@@ -1442,7 +1519,7 @@ async def summarize_one(
                             f"  [dedup-merge] Updated [[{target_stem}]] "
                             f"instead of creating new note"
                         )
-                        return entry, target_path
+                        return entry, resolved_target
             except (json.JSONDecodeError, ValueError):
                 pass  # Not a structured decision — treat as normal note
 
@@ -1465,7 +1542,9 @@ async def summarize_one(
                     _written_text, vault
                 )
                 if _stripped:
-                    written.write_text(_written_text, encoding="utf-8")
+                    # SEC-127: route through atomic_write_text so the link
+                    # rewrite is crash-atomic and preserves the note's mode.
+                    vault_common.atomic_write_text(written, _written_text)
                     print(
                         f"  [links] Stripped {_stripped} non-resolving wikilink(s)",
                         file=sys.stderr,
@@ -1892,11 +1971,19 @@ def remove_processed(
                 # Crash-atomic rewrite: write survivors to a sibling .tmp and
                 # swap it over the original (same pattern as
                 # _write_summarizer_state / vault_fs.migrate_pending_paths).
-                # A kill mid-rewrite can no longer truncate the queue.
+                # SEC-109: create the tmp with mode 0o600 via os.open+os.fdopen
+                # so the queue's owner-only protection survives the replace
+                # (a plain ``tmp.write_text`` honours the process umask and
+                # leaves the file world-readable, silently undoing the
+                # 0o600 set on first creation by vault_fs.append_to_pending).
                 tmp = pending_path.with_suffix(".jsonl.tmp")
-                tmp.write_text(
-                    "".join(line + "\n" for line in remaining), encoding="utf-8"
+                tmp_fd = os.open(
+                    str(tmp),
+                    os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
+                    0o600,
                 )
+                with open(tmp_fd, "w", encoding="utf-8") as out:
+                    out.write("".join(line + "\n" for line in remaining))
                 tmp.replace(pending_path)
             finally:
                 _funlock(f)

@@ -93,11 +93,20 @@ _HOOK_ERROR_LOG_MAX_LINES: int = 2000
 def secure_log_dir() -> Path:
     """Return ``~/.claude/logs/``, creating it with mode 0o700 if absent.
 
+    SEC-110: ``Path.mkdir(mode=...)`` is ignored when the directory already
+    exists, so the 0o700 intent never applied to a pre-existing ``~/.claude/logs``
+    (typically created world-readable by ``session_stop_wrapper.sh``'s plain
+    ``mkdir -p``). Re-chmod explicitly so an existing dir is repaired on every call.
+
     Returns:
         Absolute Path to the secure log directory.
     """
     log_dir = Path.home() / ".claude" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(log_dir, 0o700)
+    except OSError:
+        pass
     return log_dir
 
 

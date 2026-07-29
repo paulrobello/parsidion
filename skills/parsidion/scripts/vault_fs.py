@@ -560,7 +560,9 @@ def create_daily_note_if_missing(vault: Path | None = None) -> Path:
             f"## Sessions\n\n## Key Decisions\n\n## Problems Solved\n\n## Open Questions\n"
         )
 
-    daily_path.write_text(content, encoding="utf-8")
+    # SEC-127: atomic write so a half-written daily note is never observable
+    # by session_start_hook at the next session start.
+    atomic_write_text(daily_path, content)
     return daily_path
 
 
@@ -625,7 +627,9 @@ def append_session_to_daily(
     else:
         updated = existing + "\n## Sessions\n" + section
 
-    daily_path.write_text(updated, encoding="utf-8")
+    # SEC-127: atomic write so a concurrent session_start_hook read never sees
+    # a half-appended Sessions section.
+    atomic_write_text(daily_path, updated)
 
 
 # ---------------------------------------------------------------------------
@@ -636,11 +640,23 @@ def append_session_to_daily(
 def ensure_vault_dirs(vault: Path | None = None) -> None:
     """Create any missing vault directories.
 
+    SEC-114: the vault root holds ``embeddings.db`` (37 MB+ of indexed note
+    text) plus ``pending_summaries.jsonl``, ``dead_letters.jsonl``,
+    ``hook_events.log``, and ``config.yaml`` — all 0644 by default and
+    world-readable under a default ``umask 022``. ``mkdir(mode=...)`` is
+    ignored when the dir exists, so a one-time ``mkdir -m 700`` on the root
+    is far cheaper than chmod-ing thousands of notes, and closes the same
+    confidentiality class as SEC-007/SEC-110 by restricting the whole root.
+
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
     """
     vault = vault or resolve_vault()
-    vault.mkdir(parents=True, exist_ok=True)
+    vault.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(vault, 0o700)
+    except OSError:
+        pass
     for dirname in VAULT_DIRS:
         (vault / dirname).mkdir(exist_ok=True)
 

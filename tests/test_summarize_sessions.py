@@ -1342,3 +1342,191 @@ def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
     assert boom_entry.get(summarize_sessions._FAILURE_REASON_KEY), (
         "_mark_failure did not fire on the unhandled exception"
     )
+
+
+# ---------------------------------------------------------------------------
+# SEC-107: merge path must validate AI-generated content + back up the target
+# ---------------------------------------------------------------------------
+
+
+def test_summarize_one_merge_rejects_invalid_frontmatter_leaves_target_byte_identical(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SEC-107: an AI merge decision whose ``new_content`` has invalid
+    frontmatter must NOT overwrite the target note — the existing file is
+    left byte-identical and the entry is marked failed (not merged)."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"user","content":"Investigate prior insight"}\n'
+        '{"type":"assistant","content":"Follow up"}\n',
+        encoding="utf-8",
+    )
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    original = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Real Note\n\nTrusted content.\n"
+    )
+    target = debugging / "real-note.md"
+    target.write_text(original, encoding="utf-8")
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+        # Malicious/corrupted merge decision: new_content lacks required fields
+        # and would corrupt the trusted note if written unchecked.
+        return json.dumps(
+            {
+                "decision": "merge",
+                "target": "[[real-note]]",
+                "new_content": (
+                    "---\n"
+                    "date: 2026-07-29\n"
+                    # type and tags intentionally missing
+                    "---\n"
+                    "# Real Note\n\nHostile takeover.\n"
+                ),
+            }
+        )
+
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+    )
+
+    async def run() -> tuple[dict[str, object], Path | str | None]:
+        return await summarize_sessions.summarize_one(
+            {
+                "transcript_path": str(transcript_path),
+                "project": "parsidion",
+                "categories": ["testing"],
+                "session_id": "session-merge-attack",
+            },
+            "summary-model",
+            False,
+            summarize_sessions.anyio.Semaphore(1),
+            ["testing"],
+            False,
+            vault,
+            cluster_model=None,
+        )
+
+    entry, written = asyncio.run(run())
+
+    # The merge was refused: written is None and a failure reason was recorded.
+    assert written is None
+    assert entry.get(summarize_sessions._FAILURE_REASON_KEY), (
+        "merge refusal must mark_failure() so the attempts cap can dead-letter it"
+    )
+    # SEC-107 core invariant: the target note is byte-identical to the original.
+    assert target.read_text(encoding="utf-8") == original
+    # No backup directory was created (validation runs before backup).
+    assert not (vault / ".trash").exists()
+
+
+def test_summarize_one_merge_valid_content_backs_up_target_and_writes_atomically(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SEC-107: a VALID merge decision still triggers the backup-then-write
+    sequence. The pre-existing note is preserved in .trash/backup/<today>/ and
+    the target is overwritten with the new content."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"user","content":"Investigate"}\n'
+        '{"type":"assistant","content":"More"}\n',
+        encoding="utf-8",
+    )
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    original = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Real Note\n\nOriginal insight.\n"
+    )
+    target = debugging / "real-note.md"
+    target.write_text(original, encoding="utf-8")
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    new_content = (
+        "---\n"
+        "date: 2026-07-29\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        'related: ["[[some-other]]"]\n'
+        "---\n"
+        "# Real Note\n\nUpdated insight.\n"
+    )
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+        return json.dumps(
+            {
+                "decision": "merge",
+                "target": "[[real-note]]",
+                "new_content": new_content,
+            }
+        )
+
+    monkeypatch.setattr(
+        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+    )
+    monkeypatch.setattr(
+        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+    )
+    # Force strip_unresolved_wikilinks to be a no-op so [[some-other]] stays
+    # (the test exercises the merge write path, not link stripping).
+    monkeypatch.setattr(
+        summarize_sessions.vault_links,
+        "strip_unresolved_wikilinks",
+        lambda content, v: (content, 0),
+    )
+
+    async def run() -> tuple[dict[str, object], Path | str | None]:
+        return await summarize_sessions.summarize_one(
+            {
+                "transcript_path": str(transcript_path),
+                "project": "parsidion",
+                "categories": ["testing"],
+                "session_id": "session-merge-ok",
+            },
+            "summary-model",
+            False,
+            summarize_sessions.anyio.Semaphore(1),
+            ["testing"],
+            False,
+            vault,
+            cluster_model=None,
+        )
+
+    entry, written = asyncio.run(run())
+
+    assert written is not None
+    assert written.name == "real-note.md"
+    # The target was overwritten with the new (valid) content.
+    assert "Updated insight." in written.read_text(encoding="utf-8")
+    # SEC-107: the original is preserved in the .trash backup directory.
+    today = summarize_sessions.date.today().isoformat()
+    backup = vault / ".trash" / "backup" / today / "Debugging" / "real-note.md"
+    assert backup.is_file(), "merge backup must be created before the overwrite"
+    assert backup.read_text(encoding="utf-8") == original
