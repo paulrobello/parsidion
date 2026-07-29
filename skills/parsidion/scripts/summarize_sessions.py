@@ -1800,9 +1800,7 @@ def _prune_dead_letters(vault: Path, retention_days: int) -> int:
             # crash-atomic and could leave the file truncated on Ctrl-C.
             tmp = path.with_suffix(".jsonl.tmp")
             try:
-                tmp_fd = os.open(
-                    str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600
-                )
+                tmp_fd = os.open(str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
                 with open(tmp_fd, "w", encoding="utf-8") as out:
                     if kept:
                         out.write("\n".join(kept) + "\n")

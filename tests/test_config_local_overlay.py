@@ -197,9 +197,7 @@ class TestShippedTemplateIsValid:
     user who copied the template saw six spurious warnings at session start.
     """
 
-    def test_shipped_template_validates_with_no_warnings(
-        self, tmp_vault: Path
-    ) -> None:
+    def test_shipped_template_validates_with_no_warnings(self, tmp_vault: Path) -> None:
         assert _TEMPLATE_PATH.is_file(), (
             f"templates/config.yaml not found at {_TEMPLATE_PATH}"
         )
@@ -213,8 +211,7 @@ class TestShippedTemplateIsValid:
         warnings = vault_config.validate_config()
         assert warnings == [], (
             "Shipped templates/config.yaml produced validation warnings -- the "
-            "template and _CONFIG_SCHEMA have drifted:\n  - "
-            + "\n  - ".join(warnings)
+            "template and _CONFIG_SCHEMA have drifted:\n  - " + "\n  - ".join(warnings)
         )
 
     def test_event_log_path_override_is_honoured(
@@ -226,8 +223,7 @@ class TestShippedTemplateIsValid:
 
         custom_log = tmp_vault / "custom_hook_events.log"
         (tmp_vault / "config.yaml").write_text(
-            "event_log:\n  enabled: true\n  path: "
-            f"'{custom_log}'\n",
+            f"event_log:\n  enabled: true\n  path: '{custom_log}'\n",
             encoding="utf-8",
         )
         vault_config.load_config.cache_clear()
@@ -251,4 +247,3 @@ class TestShippedTemplateIsValid:
         # Mask any pre-existing umask effect for the assertion; the test
         # isolates the file, not its mode (mode is enforced elsewhere).
         _ = os  # silence linter when imported only for clarity
-

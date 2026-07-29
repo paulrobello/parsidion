@@ -1176,7 +1176,9 @@ def test_prune_dead_letters_disabled_and_missing_file(
 # --- ARC-010: knowledge type parity ----------------------------------------
 
 
-def test_arc010_valid_note_types_match_vault_doctor(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_arc010_valid_note_types_match_vault_doctor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """ARC-010 guard: summarizer type enum must match vault_doctor's.
 
     Without this assertion the two constants drift silently -- exactly the
@@ -1194,11 +1196,14 @@ def test_arc010_valid_note_types_match_vault_doctor(monkeypatch: pytest.MonkeyPa
     )
 
 
-def test_arc010_type_folders_cover_every_valid_type(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_arc010_type_folders_cover_every_valid_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Every valid note type must route to a vault folder."""
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     missing = sorted(
-        t for t in summarize_sessions._VALID_NOTE_TYPES
+        t
+        for t in summarize_sessions._VALID_NOTE_TYPES
         if t not in summarize_sessions._TYPE_FOLDERS
     )
     assert not missing, (
@@ -1220,12 +1225,13 @@ def test_arc010_knowledge_type_routes_to_knowledge_folder(
         "date: 2026-07-28\n"
         "type: knowledge\n"
         "tags: [arc-010]\n"
-        "related: [\"[[some-note]]\"]\n"
+        'related: ["[[some-note]]"]\n'
         "---\n\n"
         "# Knowledge Note\n\n## Summary\nRoutes correctly.\n"
     )
-    written = summarize_sessions.write_note(note, dry_run=False, vault=vault,
-                                            project="arc-010", categories=[])
+    written = summarize_sessions.write_note(
+        note, dry_run=False, vault=vault, project="arc-010", categories=[]
+    )
     assert written is not None
     assert written.parent.name == "Knowledge"
     assert written.exists()
@@ -1251,10 +1257,6 @@ def test_arc010_prompt_lists_knowledge_type(monkeypatch: pytest.MonkeyPatch) -> 
 # --- ARC-012: task-group boundary isolates failures -------------------------
 
 
-@pytest.mark.skipif(
-    not importlib.util.find_spec("anyio"),
-    reason="anyio is a PEP 723 inline dep, not under the test extras",
-)
 def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1274,10 +1276,7 @@ def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
     only manifests with a real task group; the sequential fake used by other
     tests does not propagate cancellation, so it cannot reproduce the issue.
     """
-    try:
-        import anyio as real_anyio  # noqa: PLC0415
-    except ImportError:
-        pytest.skip("anyio not installed in this environment")
+    real_anyio = pytest.importorskip("anyio")  # PEP 723 inline dep; skip if absent
 
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     vault = tmp_path / "vault"
@@ -1316,15 +1315,15 @@ def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
     results = real_anyio.run(
         summarize_sessions.run_all,
         entries,
-        None,           # model
-        True,           # dry_run
-        False,          # persist
+        None,  # model
+        True,  # dry_run
+        False,  # persist
         vault,
-        2,              # max_parallel
-        400,            # tail_lines
-        262_144,        # tail_bytes
-        12_000,         # max_cleaned_chars
-        None,           # cluster_model
+        2,  # max_parallel
+        400,  # tail_lines
+        262_144,  # tail_bytes
+        12_000,  # max_cleaned_chars
+        None,  # cluster_model
     )
 
     # All three entries appear in results; the raising one became (entry, None).
@@ -1343,5 +1342,3 @@ def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
     assert boom_entry.get(summarize_sessions._FAILURE_REASON_KEY), (
         "_mark_failure did not fire on the unhandled exception"
     )
-
-
