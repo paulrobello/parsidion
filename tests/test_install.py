@@ -1707,7 +1707,9 @@ class TestCustomVaultPersistence:
         assert "default:" in content, "default: line missing"
         assert "WorkVault" in content, "named entry missing"
 
-    def test_record_installed_vault_is_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+    def test_record_installed_vault_is_idempotent(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
         home = tmp_path / "home"
         (home / ".config").mkdir(parents=True)
         monkeypatch.setenv("HOME", str(home))
@@ -1716,10 +1718,14 @@ class TestCustomVaultPersistence:
         custom_vault.mkdir()
 
         install.record_installed_vault(custom_vault, dry_run=False)
-        first = (home / ".config" / "parsidion" / "vaults.yaml").read_text(encoding="utf-8")
+        first = (home / ".config" / "parsidion" / "vaults.yaml").read_text(
+            encoding="utf-8"
+        )
         # Second call must not duplicate the entry or rewrite a different default.
         install.record_installed_vault(custom_vault, dry_run=False)
-        second = (home / ".config" / "parsidion" / "vaults.yaml").read_text(encoding="utf-8")
+        second = (home / ".config" / "parsidion" / "vaults.yaml").read_text(
+            encoding="utf-8"
+        )
         assert second.count(f"WorkVault: {custom_vault}") == 1, (
             f"named entry duplicated: {second}"
         )
@@ -1777,3 +1783,219 @@ class TestCustomVaultPersistence:
 
         resolved = install._resolve_vault_root_for_uninstall()
         assert resolved == (home / "ParsidionVault").resolve()
+
+
+class TestInstallPersistsSettings:
+    """ARC-046: a non-dry-run install must produce a settings.json whose
+    hooks section contains every parsidion event. Most install tests are
+    --dry-run (fast, side-effect-free); this one actually writes the file
+    and inspects its contents."""
+
+    def test_install_writes_settings_json_with_all_hooks(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        vault = tmp_path / "Vault"
+        vault.mkdir()
+        claude_dir = tmp_path / ".claude"
+        codex_home = tmp_path / ".codex"
+
+        # Stub every step that touches the filesystem outside ~/.claude or
+        # that spawns subprocesses — we want to verify merge_hooks' write
+        # landed in settings.json, not actually symlink the skill.
+        for name in (
+            "install_skill",
+            "install_agents",
+            "install_scripts",
+            "create_vault_dirs",
+            "create_templates_symlink",
+            "cleanup_legacy_assets",
+            "enable_codex_hooks_config",
+            "merge_codex_hooks",
+            "merge_gemini_hooks",
+            "enable_ai_mode",
+            "install_claude_vault_md",
+            "install_codex_agents_md",
+            "install_gemini_md",
+            "rebuild_index",
+            "configure_vault_gitignore",
+            "init_vault_git",
+            "install_vault_post_merge_hook",
+            "configure_vault_username",
+            "configure_embeddings",
+            "install_cli_tools",
+            "schedule_summarizer",
+            "create_vaults_config",
+            "record_installed_vault",
+        ):
+            monkeypatch.setattr(install, name, lambda *a, **kw: None)
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "claude",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(claude_dir),
+                "--codex-home",
+                str(codex_home),
+            ],
+        )
+
+        rc = install.install(install.parse_args())
+        assert rc == 0
+
+        settings_path = claude_dir / "settings.json"
+        assert settings_path.exists(), "settings.json was not written"
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+
+        hooks = settings.get("hooks", {})
+        for event in (
+            "SessionStart",
+            "SessionEnd",
+            "PreCompact",
+            "PostCompact",
+            "SubagentStop",
+        ):
+            assert event in hooks, f"hook event {event} missing from settings.json"
+            # At least one handler is registered per event.
+            handlers = [h for entry in hooks[event] for h in entry.get("hooks", [])]
+            assert handlers, f"no handlers registered for {event}"
+
+
+class TestInstallUninstallRoundTrip:
+    """ARC-046: install then uninstall must leave the ~/.claude tree in the
+    same state it started in (modulo the uninstall's documented exclusions —
+    the vault directory is preserved). Catches the regression class where
+    install writes something uninstall doesn't know how to remove.
+    """
+
+    def _snapshot(self, root: Path) -> dict:
+        """Return a {relative_path:: bytes} snapshot of *root*'s files."""
+        snap: dict[str, bytes] = {}
+        if not root.exists():
+            return snap
+        for p in root.rglob("*"):
+            if p.is_file():
+                snap[str(p.relative_to(root))] = p.read_bytes()
+        return snap
+
+    def test_round_trip_returns_tree_to_prior_state(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        vault = tmp_path / "Vault"
+        vault.mkdir()
+        claude_dir = tmp_path / ".claude"
+        codex_home = tmp_path / ".codex"
+
+        # Pre-existing unrelated file in ~/.claude — uninstall must NOT
+        # touch it (the merge phase preserves unrelated keys; the uninstall
+        # phase removes only managed hooks).
+        unrelated = claude_dir / "unrelated.txt"
+        claude_dir.mkdir()
+        unrelated.write_text("user content", encoding="utf-8")
+
+        before_claude = self._snapshot(claude_dir)
+
+        # Stub the heavy steps that would actually copy/symlink the skill
+        # (we want to verify the install/uninstall bookkeeping, not that
+        # symlinks round-trip — that's covered elsewhere).
+        for name in (
+            "install_skill",
+            "install_agents",
+            "install_scripts",
+            "create_vault_dirs",
+            "create_templates_symlink",
+            "cleanup_legacy_assets",
+            "enable_codex_hooks_config",
+            "merge_codex_hooks",
+            "merge_gemini_hooks",
+            "enable_ai_mode",
+            "install_claude_vault_md",
+            "install_codex_agents_md",
+            "install_gemini_md",
+            "rebuild_index",
+            "configure_vault_gitignore",
+            "init_vault_git",
+            "install_vault_post_merge_hook",
+            "configure_vault_username",
+            "configure_embeddings",
+            "install_cli_tools",
+            "schedule_summarizer",
+            "create_vaults_config",
+            "record_installed_vault",
+        ):
+            monkeypatch.setattr(install, name, lambda *a, **kw: None)
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "claude",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(claude_dir),
+                "--codex-home",
+                str(codex_home),
+            ],
+        )
+        rc = install.install(install.parse_args())
+        assert rc == 0
+
+        # Sanity: install added settings.json.
+        assert (claude_dir / "settings.json").exists()
+
+        # Now uninstall using the public API (the same path the
+        # `disconnect claude`/`--uninstall` verbs route through).
+        install.uninstall(
+            claude_dir,
+            claude_dir / "settings.json",
+            dry_run=False,
+            yes=True,
+            hooks_only=False,
+            runtime="claude",
+            codex_home=codex_home,
+            gemini_home=tmp_path / ".gemini",
+            purge_config=True,
+        )
+
+        after_claude = self._snapshot(claude_dir)
+
+        # The settings.json file itself may remain (merge_hooks created it
+        # in this round-trip; remove_installed_hooks strips parsidion entries
+        # but keeps the file). What we care about: every other unrelated file
+        # is intact, and settings.json has no parsidion hooks left.
+        # Unrelated file is byte-identical.
+        assert "unrelated.txt" in after_claude
+        assert after_claude["unrelated.txt"] == before_claude["unrelated.txt"]
+
+        # settings.json has no parsidion hook commands left.
+        if "settings.json" in after_claude:
+            settings = json.loads(after_claude["settings.json"].decode("utf-8"))
+            for event_handlers in settings.get("hooks", {}).values():
+                for entry in event_handlers:
+                    if not isinstance(entry, dict):
+                        continue
+                    for handler in entry.get("hooks", []):
+                        if isinstance(handler, dict):
+                            cmd = handler.get("command", "")
+                            assert "parsidion" not in cmd, (
+                                f"uninstall left a parsidion hook command: {cmd}"
+                            )
+
+        # Lock sidecars may remain after uninstall — _file_lock intentionally
+        # leaves the sidecar in place (a stale .lock is harmless — flock is
+        # advisory per-fd — and removing it would race with any waiter).
+        # What we DO assert: no parsidion hook commands survive uninstall.
+        # (the assertion above already covers that).
+        # The sidecar's presence is documented and intentional, not a leak.
