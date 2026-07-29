@@ -166,3 +166,129 @@ class TestAtomicWriteJson:
         hooks_mod._atomic_write_json(path, {"x": 1})
         leftovers = [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
         assert leftovers == []
+
+
+class TestConcurrentMergeHooksSerialized:
+    """ARC-018: two concurrent merge_hooks calls must not lose either side's
+    changes. The flock sidecar (``settings.json.lock``) serialises the two
+    read-modify-write cycles — without it the second writer would clobber the
+    first writer's hook additions on read.
+    """
+
+    def test_two_concurrent_calls_keep_both_changes(self, tmp_path: Path) -> None:
+        import threading
+
+        from installer.hooks import _HOOK_SCRIPTS
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}\n", encoding="utf-8")
+
+        # The first call registers parsidion's hooks; the second call (which
+        # would be a no-op on its own) runs concurrently and must observe the
+        # first call's writes via the lock — both calls return without either
+        # side's state being lost.
+        errors: list[BaseException] = []
+
+        def _run() -> None:
+            try:
+                install.merge_hooks(
+                    claude_dir, settings_file, dry_run=False, verbose=False
+                )
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_run) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert errors == [], f"concurrent merge_hooks raised: {errors}"
+
+        merged = json.loads(settings_file.read_text(encoding="utf-8"))
+        # Every managed event must be present (no lost write).
+        events = set(_HOOK_SCRIPTS.keys())
+        assert set(merged.get("hooks", {}).keys()) >= events, (
+            f"lost a hook event under concurrent merge: missing={events - set(merged.get('hooks', {}).keys())}"
+        )
+
+    def test_lock_sidecar_is_created_and_reused(self, tmp_path: Path) -> None:
+        # The lock sidecar is a sibling of the target. It must be created on
+        # first call and left in place (a stale .lock is harmless — flock is
+        # per-fd — and removing it would race with any waiter).
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}\n", encoding="utf-8")
+
+        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+
+        lock = settings_file.parent / (settings_file.name + ".lock")
+        assert lock.exists(), "flock sidecar was not created"
+
+        # A second call must reuse it, not error and not duplicate.
+        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        locks = [p for p in settings_file.parent.iterdir() if p.name.endswith(".lock")]
+        assert len(locks) == 1, f"expected exactly one lock sidecar, got {locks}"
+
+
+class TestEnableAiModeMergeIntegration:
+    """ARC-025: enable_ai_mode's settings.json mutation is now merged into
+    merge_hooks (``enable_ai_mode=True``). The vault-config half of the
+    AI-mode flow still exists in installer.skill.enable_ai_mode — covered
+    here by asserting the merge writes a 30000ms SessionStart timeout in a
+    single write."""
+
+    def test_enable_ai_mode_raises_sessionstart_timeout_in_single_write(
+        self, tmp_path: Path
+    ) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}\n", encoding="utf-8")
+
+        install.merge_hooks(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            verbose=False,
+            enable_ai_mode=True,
+        )
+
+        merged = json.loads(settings_file.read_text(encoding="utf-8"))
+        session_start_handlers = merged.get("hooks", {}).get("SessionStart", [])
+        timeouts = [
+            h.get("timeout")
+            for entry in session_start_handlers
+            for h in entry.get("hooks", [])
+        ]
+        assert 30000 in timeouts, (
+            f"enable_ai_mode=True did not raise SessionStart timeout to 30000ms; "
+            f"got timeouts={timeouts}"
+        )
+
+    def test_enable_ai_mode_false_keeps_default_timeout(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}\n", encoding="utf-8")
+
+        install.merge_hooks(
+            claude_dir,
+            settings_file,
+            dry_run=False,
+            verbose=False,
+            enable_ai_mode=False,
+        )
+
+        merged = json.loads(settings_file.read_text(encoding="utf-8"))
+        session_start_handlers = merged.get("hooks", {}).get("SessionStart", [])
+        timeouts = [
+            h.get("timeout")
+            for entry in session_start_handlers
+            for h in entry.get("hooks", [])
+        ]
+        assert 30000 not in timeouts
+        assert 10000 in timeouts

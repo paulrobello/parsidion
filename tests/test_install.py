@@ -953,30 +953,29 @@ class TestUninstallGuardsSharedInfrastructure:
     is_full_teardown (Claude is being removed); the third additionally
     requires --purge-config.
 
-    uninstall() does function-local imports of unschedule_summarizer and
-    remove_vault_post_merge_hook, so we patch them on their source modules
-    (installer.schedule / installer.vault) — not on installer.skill — to
-    intercept the lookup.
+    ARC-025: uninstall() moved from installer.skill to installer.uninstall
+    and now does MODULE-LEVEL imports of unschedule_summarizer and
+    remove_vault_post_merge_hook. Patch them on installer.uninstall (the
+    names bound there) — not on the source modules — to intercept the call.
     """
 
     @staticmethod
     def _patch_shared_infra(monkeypatch) -> tuple[list, list]:
         """Patch unschedule_summarizer and remove_vault_post_merge_hook on
-        their source modules and return (unschedule_calls, remove_hook_calls)
-        recording lists."""
-        from installer import schedule as schedule_mod
-        from installer import vault as vault_mod
+        installer.uninstall (the binding site) and return
+        (unschedule_calls, remove_hook_calls) recording lists."""
+        from installer import uninstall as uninstall_mod
 
         unschedule_calls: list[bool] = []
         remove_hook_calls: list[Path] = []
 
         monkeypatch.setattr(
-            schedule_mod,
+            uninstall_mod,
             "unschedule_summarizer",
             lambda dry_run=False: unschedule_calls.append(dry_run),
         )
         monkeypatch.setattr(
-            vault_mod,
+            uninstall_mod,
             "remove_vault_post_merge_hook",
             lambda vault_root, dry_run=False: remove_hook_calls.append(vault_root),
         )

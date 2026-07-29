@@ -3,29 +3,33 @@
 Handles installing the skill (symlink or copy), agents, scripts, CLI tools,
 CLAUDE-VAULT.md, vault index rebuild, AI mode configuration, and legacy
 asset cleanup.
-Stdlib-only — no third-party dependencies.
+
+ARC-025: ``uninstall()`` moved to ``installer/uninstall.py`` so this module
+no longer needs to import from ``hooks``/``schedule``/``vault`` at function
+call time — the install path depends only on ``paths``/``ui``/``hooks`` at
+module load. Stdlib-only — no third-party dependencies.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from installer.colors import dim
+from installer.hooks import _atomic_write_text, remove_legacy_hooks
 from installer.paths import (
     AGENT_INSTRUCTIONS_SRC,
     AGENT_SRCS,
     CLAUDE_VAULT_MD_SRC,
     LEGACY_SKILL_NAME,
-    PROJECT_NAME,
     SCRIPTS_SRC,
     SKILL_NAME,
     SKILL_SRC,
 )
-from installer.ui import _ok, _print, _step, _warn
+from installer.ui import _confirm, _ok, _print, _step, _warn
 
 # ---------------------------------------------------------------------------
 # Skill installation
@@ -62,8 +66,6 @@ def install_skill(
 
     Returns the installed skill path.
     """
-    from installer.ui import _confirm, dim
-
     dest = claude_dir / "skills" / SKILL_NAME
     use_symlink = sys.platform != "win32" or _can_symlink(dest)
 
@@ -205,8 +207,6 @@ def install_claude_vault_md(
     verbose: bool = False,
 ) -> None:
     """Copy CLAUDE-VAULT.md to claude_dir and ensure CLAUDE.md imports it."""
-    from installer.ui import dim
-
     if not CLAUDE_VAULT_MD_SRC.exists():
         _warn(f"CLAUDE-VAULT.md not found at {CLAUDE_VAULT_MD_SRC} — skipping")
         return
@@ -237,10 +237,7 @@ def install_claude_vault_md(
     _step(f"Append @CLAUDE-VAULT.md import to {claude_md}", dry_run=dry_run)
     if not dry_run:
         suffix = "" if content.endswith("\n") else "\n"
-        claude_md.write_text(
-            content + suffix + _CLAUDE_VAULT_MD_IMPORT + "\n",
-            encoding="utf-8",
-        )
+        _atomic_write_text(claude_md, content + suffix + _CLAUDE_VAULT_MD_IMPORT + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +250,6 @@ _END_MARKER = "<!-- END parsidion -->"
 
 def _inject_instructions_block(dest: Path, dry_run: bool, verbose: bool) -> None:
     """Idempotently inject the parsidion instructions section into *dest*."""
-    from installer.ui import dim
-
     if not AGENT_INSTRUCTIONS_SRC.exists():
         _warn(f"AGENT_INSTRUCTIONS.md not found at {AGENT_INSTRUCTIONS_SRC} — skipping")
         return
@@ -275,7 +270,7 @@ def _inject_instructions_block(dest: Path, dry_run: bool, verbose: bool) -> None
     if not dry_run:
         suffix = "" if existing.endswith("\n") or existing == "" else "\n"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(existing + suffix + section, encoding="utf-8")
+        _atomic_write_text(dest, existing + suffix + section)
 
 
 def install_codex_agents_md(
@@ -338,14 +333,19 @@ def rebuild_index(
 
 
 def enable_ai_mode(
-    settings_file: Path,
     vault_root: Path,
-    claude_dir: Path,
     dry_run: bool = False,
 ) -> None:
-    """Write ai_model to vault config.yaml and set SessionStart timeout to 30s."""
-    from installer.hooks import _hook_command
+    """Write ``ai_model`` into the vault ``config.yaml``.
 
+    ARC-025: this function previously *also* edited ``settings.json`` to
+    raise the SessionStart hook timeout to 30000ms — that second RMW has
+    been merged into ``hooks.merge_hooks`` (pass ``enable_ai_mode=True``)
+    so the file is written once per install instead of twice via two
+    independent read-modify-write cycles. The vault-config half stayed
+    here because it is the only place that knows the AI model id and the
+    YAML section shape.
+    """
     config_path = vault_root / "config.yaml"
     ai_model = "claude-haiku-4-5-20251001"
 
@@ -381,34 +381,9 @@ def enable_ai_mode(
     if not dry_run:
         try:
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(new_content, encoding="utf-8")
+            _atomic_write_text(config_path, new_content)
         except OSError as exc:
             _warn(f"Could not write {config_path}: {exc}")
-
-    if not settings_file.exists():
-        return
-    try:
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-
-    command = _hook_command(claude_dir, "SessionStart")
-    modified = False
-    for entry in settings.get("hooks", {}).get("SessionStart", []):
-        for handler in entry.get("hooks", []):
-            if handler.get("command") == command and handler.get("timeout") != 30000:
-                _step("Set SessionStart hook timeout to 30000ms", dry_run=dry_run)
-                if not dry_run:
-                    handler["timeout"] = 30000
-                    modified = True
-
-    if modified and not dry_run:
-        try:
-            settings_file.write_text(
-                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-            )
-        except OSError as exc:
-            _warn(f"Could not update {settings_file}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +401,6 @@ def cleanup_legacy_assets(
 
     This preserves user vault contents and unrelated Claude settings.
     """
-    from installer.hooks import remove_legacy_hooks
-    from installer.ui import dim
-
     changed = False
 
     if remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run):
@@ -454,194 +426,3 @@ def cleanup_legacy_assets(
         )
 
     return changed
-
-
-# ---------------------------------------------------------------------------
-# Full uninstall
-# ---------------------------------------------------------------------------
-
-
-def uninstall(
-    claude_dir: Path,
-    settings_file: Path,
-    dry_run: bool = False,
-    yes: bool = False,
-    hooks_only: bool = False,
-    runtime: str = "claude",
-    codex_home: Path | None = None,
-    gemini_home: Path | None = None,
-    purge_config: bool = False,
-) -> None:
-    """Remove installed Parsidion assets or only managed hooks."""
-    import os
-
-    from installer.hooks import (
-        remove_codex_hooks,
-        remove_gemini_hooks,
-        remove_installed_hooks,
-        remove_legacy_hooks,
-    )
-    from installer.paths import (
-        _resolve_vault_root_for_uninstall,
-        _wants_claude_runtime,
-        _wants_codex_runtime,
-        _wants_gemini_runtime,
-    )
-    from installer.schedule import unschedule_summarizer
-    from installer.vault import remove_vault_post_merge_hook
-
-    codex_home = (
-        codex_home
-        or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser().resolve()
-    )
-    gemini_home = gemini_home or (Path.home() / ".gemini")
-    uninstall_claude_runtime = _wants_claude_runtime(runtime)
-    uninstall_codex_runtime = _wants_codex_runtime(runtime)
-    uninstall_gemini_runtime = _wants_gemini_runtime(runtime)
-
-    from installer.colors import bold
-
-    if hooks_only:
-        print(bold("\nRemoving Parsidion hooks..."))
-        if runtime == "none":
-            _warn("Runtime selection is none; no runtime hooks will be removed.")
-        removed_hooks = False
-        if uninstall_claude_runtime:
-            removed_hooks = (
-                remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
-                or removed_hooks
-            )
-            removed_hooks = (
-                remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
-                or removed_hooks
-            )
-        if uninstall_codex_runtime:
-            removed_hooks = (
-                remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
-                or removed_hooks
-            )
-        if uninstall_gemini_runtime:
-            removed_hooks = (
-                remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
-                or removed_hooks
-            )
-        if not dry_run:
-            print()
-            _ok("Hook uninstall complete.")
-        return
-
-    print(bold("\nUninstalling Parsidion..."))
-
-    if uninstall_claude_runtime:
-        skill_dir = claude_dir / "skills" / SKILL_NAME
-
-        if skill_dir.exists() or skill_dir.is_symlink():
-            _step(f"Remove skill directory: {skill_dir}", dry_run=dry_run)
-            if not dry_run:
-                if skill_dir.is_symlink() or skill_dir.is_file():
-                    skill_dir.unlink()
-                else:
-                    shutil.rmtree(skill_dir)
-        else:
-            _warn(f"Skill directory not found: {skill_dir}")
-
-        legacy_skill_dir = claude_dir / "skills" / LEGACY_SKILL_NAME
-        if legacy_skill_dir.exists() or legacy_skill_dir.is_symlink():
-            _step(f"Remove legacy skill {legacy_skill_dir}", dry_run=dry_run)
-            if not dry_run:
-                try:
-                    if legacy_skill_dir.is_symlink() or legacy_skill_dir.is_file():
-                        legacy_skill_dir.unlink()
-                    else:
-                        shutil.rmtree(legacy_skill_dir)
-                except OSError as exc:
-                    _warn(f"Could not remove legacy skill {legacy_skill_dir}: {exc}")
-
-        for agent_src in AGENT_SRCS:
-            agent_dest = claude_dir / "agents" / agent_src.name
-            if agent_dest.exists():
-                _step(f"Remove agent: {agent_dest}", dry_run=dry_run)
-                if not dry_run:
-                    agent_dest.unlink()
-            else:
-                _warn(f"Agent not found: {agent_dest}")
-
-        scripts_dir = claude_dir / "scripts"
-        if SCRIPTS_SRC.exists() and scripts_dir.exists():
-            for script in SCRIPTS_SRC.iterdir():
-                if script.is_file():
-                    script_dest = scripts_dir / script.name
-                    if script_dest.exists():
-                        _step(f"Remove script: {script_dest}", dry_run=dry_run)
-                        if not dry_run:
-                            script_dest.unlink()
-
-    if uninstall_claude_runtime:
-        remove_installed_hooks(claude_dir, settings_file, dry_run=dry_run)
-        remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run)
-
-        claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
-        if claude_vault_md.exists():
-            _step(f"Remove {claude_vault_md}", dry_run=dry_run)
-            if not dry_run:
-                claude_vault_md.unlink()
-        else:
-            _warn(f"CLAUDE-VAULT.md not found: {claude_vault_md}")
-
-        claude_md = claude_dir / "CLAUDE.md"
-        if claude_md.exists():
-            content = claude_md.read_text(encoding="utf-8")
-            if _CLAUDE_VAULT_MD_IMPORT in content:
-                _step(
-                    f"Remove @CLAUDE-VAULT.md import from {claude_md}", dry_run=dry_run
-                )
-                if not dry_run:
-                    cleaned = "\n".join(
-                        line
-                        for line in content.splitlines()
-                        if line.strip() != _CLAUDE_VAULT_MD_IMPORT
-                    )
-                    if content.endswith("\n"):
-                        cleaned += "\n"
-                    claude_md.write_text(cleaned, encoding="utf-8")
-
-    if uninstall_codex_runtime:
-        remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
-    elif runtime == "none":
-        _warn("Runtime selection is none; no runtime hooks will be removed.")
-    if uninstall_gemini_runtime:
-        remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
-
-    # ARC-003: the post-merge hook, summarizer schedule, and vaults.yaml are
-    # shared global infrastructure that the Claude install depends on. Only
-    # tear them down when the Claude integration itself is being removed
-    # (runtime contains "claude"). A targeted 'disconnect codex' or
-    # 'disconnect gemini' must not touch them.
-    is_full_teardown = uninstall_claude_runtime
-
-    if is_full_teardown:
-        vault_root = _resolve_vault_root_for_uninstall()
-        remove_vault_post_merge_hook(vault_root, dry_run=dry_run)
-
-        unschedule_summarizer(dry_run=dry_run)
-
-    # vaults.yaml additionally requires an explicit --purge-config, even under
-    # --yes. Without --purge-config it is always preserved.
-    vaults_config = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
-    if vaults_config.exists() and is_full_teardown and purge_config:
-        _step(f"Remove {vaults_config}", dry_run=dry_run)
-        if not dry_run:
-            try:
-                vaults_config.unlink()
-                _ok(f"Removed {vaults_config}")
-            except OSError as exc:
-                _warn(f"Could not remove {vaults_config}: {exc}")
-    elif vaults_config.exists() and is_full_teardown and not purge_config:
-        _step(
-            f"Preserving {vaults_config} (use --purge-config to remove)",
-            dry_run=dry_run,
-        )
-
-    if not dry_run:
-        print()
-        _ok("Uninstall complete. Your resolved vault directory was not removed.")

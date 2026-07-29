@@ -155,7 +155,7 @@ from installer.vault import (  # noqa: F401
     remove_vault_post_merge_hook,
 )
 
-# skill / uninstall
+# skill / uninstall (ARC-025: uninstall lives in installer.uninstall now)
 from installer.skill import (  # noqa: F401
     _CLAUDE_VAULT_MD_IMPORT,
     _can_symlink,
@@ -169,8 +169,8 @@ from installer.skill import (  # noqa: F401
     install_scripts,
     install_skill,
     rebuild_index,
-    uninstall,
 )
+from installer.uninstall import uninstall  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Functions that call _ask or _FORBIDDEN_PREFIXES must live HERE so that
@@ -487,6 +487,10 @@ def install(args: argparse.Namespace) -> int:
     )
 
     # 6. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
+    # ARC-025: pass enable_ai_mode through to merge_hooks so settings.json is
+    # written once (the SessionStart timeout raise happens in the same RMW as
+    # the hook registration instead of a second independent write). The
+    # vault-config half of the AI-mode flow still runs separately below.
     if install_claude_runtime and not args.skip_hooks:
         cleanup_legacy_assets(
             claude_dir,
@@ -494,7 +498,13 @@ def install(args: argparse.Namespace) -> int:
             dry_run=dry_run,
             verbose=verbose,
         )
-        merge_hooks(claude_dir, settings_file, dry_run=dry_run, verbose=verbose)
+        merge_hooks(
+            claude_dir,
+            settings_file,
+            dry_run=dry_run,
+            verbose=verbose,
+            enable_ai_mode=enable_ai,
+        )
 
     if install_codex_runtime and not args.skip_hooks:
         enable_codex_hooks_config(codex_home, dry_run=dry_run, yes=args.yes)
@@ -503,9 +513,10 @@ def install(args: argparse.Namespace) -> int:
     if install_gemini_runtime and not args.skip_hooks:
         merge_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run, verbose=verbose)
 
-    # 6b. Enable AI mode if requested
+    # 6b. Write ai_model to vault config.yaml (the settings.json half of the
+    # AI-mode flow is now merged into merge_hooks above). ARC-025.
     if enable_ai and install_claude_runtime and not args.skip_hooks:
-        enable_ai_mode(settings_file, vault_root, claude_dir, dry_run=dry_run)
+        enable_ai_mode(vault_root, dry_run=dry_run)
 
     # 7. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
     if install_claude_runtime:

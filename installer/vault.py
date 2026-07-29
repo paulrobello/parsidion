@@ -13,10 +13,13 @@ import re
 import subprocess
 from pathlib import Path
 
+from installer.colors import bold, dim
+from installer.hooks import _atomic_write_text
 from installer.paths import (
     DEFAULT_VAULT_NAME,
     LEGACY_DEFAULT_VAULT_NAME,
     PROJECT_NAME,
+    SKILL_NAME,
     VAULT_DIRS,
 )
 from installer.ui import _err, _ok, _print, _step, _warn
@@ -28,8 +31,6 @@ from installer.ui import _err, _ok, _print, _step, _warn
 
 def create_vault_dirs(vault_root: Path, dry_run: bool = False) -> None:
     """Create required vault subdirectories and the Templates symlink."""
-    from installer.ui import dim
-
     _step(f"Create vault directories in {vault_root}/", dry_run=dry_run)
     if dry_run:
         for d in VAULT_DIRS:
@@ -47,10 +48,13 @@ def create_templates_symlink(
     dry_run: bool = False,
     verbose: bool = False,
 ) -> None:
-    """Create/update the Templates symlink in the vault."""
-    import shutil
+    """Create/update the Templates symlink in the vault.
 
-    from installer.ui import dim
+    ARC-022: the ``unlink`` / ``rmdir`` that prepares the destination are
+    inside the surrounding ``try`` so an ``OSError`` warns and aborts cleanly
+    rather than killing the process mid-install with a traceback.
+    """
+    import shutil
 
     link = vault_root / "Templates"
 
@@ -65,10 +69,15 @@ def create_templates_symlink(
             return
         _step(f"Update Templates symlink → {templates_src}", dry_run=dry_run)
         if not dry_run:
-            link.unlink()
+            # ARC-022: unlink inside the try so a failure (race with another
+            # process, read-only mount, etc.) warns instead of raising.
             try:
+                link.unlink()
                 link.symlink_to(templates_src)
-            except OSError:
+            except OSError as exc:
+                _warn(
+                    f"Could not replace Templates symlink ({exc}); falling back to copy"
+                )
                 shutil.copytree(templates_src, link, dirs_exist_ok=True)
     elif link.exists():
         try:
@@ -81,10 +90,14 @@ def create_templates_symlink(
                 dry_run=dry_run,
             )
             if not dry_run:
-                link.rmdir()
+                # ARC-022: rmdir inside the try for the same reason as above.
                 try:
+                    link.rmdir()
                     link.symlink_to(templates_src)
-                except OSError:
+                except OSError as exc:
+                    _warn(
+                        f"Could not replace Templates dir ({exc}); falling back to copy"
+                    )
                     shutil.copytree(templates_src, link, dirs_exist_ok=True)
         else:
             _warn("Templates/ exists and is non-empty; skipping symlink creation")
@@ -154,7 +167,7 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
 
     if not dry_run:
         addition = "\n".join(missing) + "\n"
-        gitignore.write_text(content + addition, encoding="utf-8")
+        _atomic_write_text(gitignore, content + addition)
 
 
 def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
@@ -229,8 +242,6 @@ def install_vault_post_merge_hook(
         claude_dir: Path to the Claude configuration directory.
         dry_run: If True, print what would be done without writing.
     """
-    from installer.paths import SKILL_NAME
-
     git_dir = vault_root / ".git"
     if not git_dir.is_dir():
         return
@@ -278,7 +289,9 @@ def install_vault_post_merge_hook(
         marker=_POST_MERGE_MARKER,
         scripts_dir=scripts_rel,
     )
-    hook_path.write_text(hook_content, encoding="utf-8")
+    # ARC-018: atomic write + chmod via tmp so a crash mid-write cannot leave
+    # the hook half-written (the prior write_text was non-atomic).
+    _atomic_write_text(hook_path, hook_content)
     hook_path.chmod(0o755)
 
 
@@ -367,7 +380,7 @@ def configure_vault_username(
 
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(new_content, encoding="utf-8")
+        _atomic_write_text(config_path, new_content)
     except OSError as exc:
         _warn(f"Could not write vault.username to {config_path}: {exc}")
 
@@ -475,7 +488,7 @@ def configure_embeddings(
 
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(new_content, encoding="utf-8")
+        _atomic_write_text(config_path, new_content)
     except OSError as exc:
         _warn(f"Could not write embeddings.enabled to {config_path}: {exc}")
 
@@ -519,7 +532,7 @@ vaults:
         return
 
     config_dir.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(content, encoding="utf-8")
+    _atomic_write_text(config_path, content)
     _ok(f"Created {config_path}")
 
 
@@ -539,8 +552,6 @@ def migrate_default_vault(
     Returns:
         Process-style status code: 0 on success/no-op, 2 for unsafe states.
     """
-    from installer.colors import bold, dim
-
     root = home or Path.home()
     legacy = root / LEGACY_DEFAULT_VAULT_NAME
     current = root / DEFAULT_VAULT_NAME

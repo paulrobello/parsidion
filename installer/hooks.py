@@ -10,25 +10,42 @@ Stdlib-only — no third-party dependencies.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import tempfile
 from pathlib import Path
 
+from installer.colors import bold, dim
 from installer.paths import (
     _CODEX_HOOK_SCRIPTS,
     _GEMINI_HOOK_NAMES,
     _GEMINI_HOOK_SCRIPTS,
     _HOOK_OPTIONS,
     _HOOK_SCRIPTS,
+    LEGACY_SKILL_NAME,
     SKILL_NAME,
 )
-from installer.ui import _err, _ok, _print, _step, _warn
+from installer.ui import _confirm, _err, _ok, _print, _step, _warn
 
 # ---------------------------------------------------------------------------
-# Atomic JSON write helper (SEC-105 / ARC-018)
+# Atomic-write + flock helpers (SEC-105 / ARC-018)
 # ---------------------------------------------------------------------------
+#
+# Two composition primitives used by every config read-modify-write cycle:
+#   * ``_atomic_write_*`` — crash-safe writes (tmp + os.replace, mode-preserving).
+#   * ``_file_lock`` — POSIX flock sidecar serialising concurrent installers.
+#
+# Windows has no fcntl.flock; on that platform the context manager is a no-op
+# (the tmp+replace write still protects against crash truncation, just not
+# against a concurrent installer process — which is rare on Windows where
+# symlinks aren't used and ``install_skill`` copytree is the slower path).
+
+try:
+    import fcntl as _fcntl
+except ImportError:  # Windows
+    _fcntl = None  # type: ignore[assignment]
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -62,6 +79,62 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def _atomic_write_text(path: Path, data: str) -> None:
+    """Write text *data* to *path* atomically (tmp + os.replace).
+
+    Mirror of ``_atomic_write_json`` for non-JSON text files (TOML, YAML,
+    shell hooks, markdown). Mode-preserving on an existing destination.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = 0o644
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except OSError:
+        pass
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp:
+            tmp.write(data)
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+@contextlib.contextmanager
+def _file_lock(target: Path):
+    """Hold an exclusive flock on ``<target>.lock`` for the duration of a RMW.
+
+    Creates the sidecar lock file as a sibling of *target* (so they share a
+    directory and therefore a lock namespace). No-op on Windows where
+    ``fcntl`` is unavailable — the atomic write still guards against
+    truncation, only the cross-process serialisation is lost.
+
+    The sidecar is intentionally not removed on release: a stale ``.lock``
+    file is harmless (flock is advisory and per-fd) and removing it would
+    race with any waiter.
+    """
+    lock_path = target.parent / (target.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        if _fcntl is not None:
+            _fcntl.flock(fd, _fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if _fcntl is not None:
+                _fcntl.flock(fd, _fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +193,6 @@ def _managed_gemini_hook_command(claude_dir: Path, event: str) -> str:
 
 def _legacy_hook_command(claude_dir: Path, event: str) -> str:
     """Return the legacy managed hook command string for a given event."""
-    from installer.paths import LEGACY_SKILL_NAME
-
     return _managed_hook_command(claude_dir, LEGACY_SKILL_NAME, event)
 
 
@@ -272,56 +343,54 @@ def merge_codex_hooks(
 ) -> None:
     """Merge Parsidion-managed Codex hooks into CODEX_HOME/hooks.json."""
     hooks_file = _codex_hooks_file(codex_home)
-    hooks = _read_codex_hooks(hooks_file)
-    if hooks is None:
-        return
+    with _file_lock(hooks_file):
+        hooks = _read_codex_hooks(hooks_file)
+        if hooks is None:
+            return
 
-    hooks_section: dict = hooks["hooks"]
-    added: list[str] = []
-    skipped: list[str] = []
+        hooks_section: dict = hooks["hooks"]
+        added: list[str] = []
+        skipped: list[str] = []
 
-    for event in _CODEX_HOOK_SCRIPTS:
-        command = _managed_codex_hook_command(claude_dir, event)
-        event_hooks = hooks_section.setdefault(event, [])
-        if not isinstance(event_hooks, list):
-            _warn(f"Codex hook event {event} is not a list; skipping")
-            continue
-        if _hook_already_registered(event_hooks, command):
-            _print(
-                f"  Codex hook {event} already registered",
-                verbose_only=True,
-                verbose=verbose,
-            )
-            skipped.append(event)
-            continue
+        for event in _CODEX_HOOK_SCRIPTS:
+            command = _managed_codex_hook_command(claude_dir, event)
+            event_hooks = hooks_section.setdefault(event, [])
+            if not isinstance(event_hooks, list):
+                _warn(f"Codex hook event {event} is not a list; skipping")
+                continue
+            if _hook_already_registered(event_hooks, command):
+                _print(
+                    f"  Codex hook {event} already registered",
+                    verbose_only=True,
+                    verbose=verbose,
+                )
+                skipped.append(event)
+                continue
 
-        from installer.colors import bold, dim
+            # Codex's "timeout" field is in SECONDS (Duration::from_secs in
+            # codex-rs/hooks), not milliseconds like Claude's settings.json.
+            # 60s is generous for the non-AI parsidion hooks (codex's own default
+            # for SessionStart/Stop is 600s).
+            new_entry = {
+                "matcher": "",
+                "hooks": [{"type": "command", "command": command, "timeout": 60}],
+            }
+            _step(f"Register Codex hook {bold(event)}: {dim(command)}", dry_run=dry_run)
+            if not dry_run:
+                event_hooks.append(new_entry)
+            added.append(event)
 
-        # Codex's "timeout" field is in SECONDS (Duration::from_secs in
-        # codex-rs/hooks), not milliseconds like Claude's settings.json.
-        # 60s is generous for the non-AI parsidion hooks (codex's own default
-        # for SessionStart/Stop is 600s).
-        new_entry = {
-            "matcher": "",
-            "hooks": [{"type": "command", "command": command, "timeout": 60}],
-        }
-        _step(f"Register Codex hook {bold(event)}: {dim(command)}", dry_run=dry_run)
-        if not dry_run:
-            event_hooks.append(new_entry)
-        added.append(event)
+        if dry_run:
+            return
 
-    if dry_run:
-        return
-
-    if added:
-        try:
-            hooks_file.parent.mkdir(parents=True, exist_ok=True)
-            hooks_file.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
-            _ok(f"Updated {hooks_file}")
-        except OSError as exc:
-            _err(f"Could not write {hooks_file}: {exc}")
-    elif skipped:
-        _ok("All Codex hooks already registered")
+        if added:
+            try:
+                _atomic_write_json(hooks_file, hooks)
+                _ok(f"Updated {hooks_file}")
+            except OSError as exc:
+                _err(f"Could not write {hooks_file}: {exc}")
+        elif skipped:
+            _ok("All Codex hooks already registered")
 
 
 def remove_codex_hooks(
@@ -331,44 +400,43 @@ def remove_codex_hooks(
 ) -> bool:
     """Remove only Parsidion-managed Codex hook commands from hooks.json."""
     hooks_file = _codex_hooks_file(codex_home)
-    hooks = _read_codex_hooks(hooks_file)
-    if hooks is None:
-        return False
-    if not hooks_file.exists():
-        _warn(f"Codex hooks.json not found: {hooks_file}")
-        return False
+    with _file_lock(hooks_file):
+        hooks = _read_codex_hooks(hooks_file)
+        if hooks is None:
+            return False
+        if not hooks_file.exists():
+            _warn(f"Codex hooks.json not found: {hooks_file}")
+            return False
 
-    from installer.colors import bold
+        hooks_section: dict = hooks["hooks"]
+        changed = False
+        for event in _CODEX_HOOK_SCRIPTS:
+            command = _managed_codex_hook_command(claude_dir, event)
+            event_hooks = hooks_section.get(event, [])
+            if not isinstance(event_hooks, list):
+                continue
+            filtered, event_changed = _filter_hook_entries(
+                event_hooks,
+                lambda hook, command=command: hook.get("command", "") == command,
+            )
+            if event_changed:
+                _step(f"Remove Codex hook {bold(event)}", dry_run=dry_run)
+                changed = True
+                if filtered:
+                    hooks_section[event] = filtered
+                elif event in hooks_section:
+                    del hooks_section[event]
 
-    hooks_section: dict = hooks["hooks"]
-    changed = False
-    for event in _CODEX_HOOK_SCRIPTS:
-        command = _managed_codex_hook_command(claude_dir, event)
-        event_hooks = hooks_section.get(event, [])
-        if not isinstance(event_hooks, list):
-            continue
-        filtered, event_changed = _filter_hook_entries(
-            event_hooks,
-            lambda hook, command=command: hook.get("command", "") == command,
-        )
-        if event_changed:
-            _step(f"Remove Codex hook {bold(event)}", dry_run=dry_run)
-            changed = True
-            if filtered:
-                hooks_section[event] = filtered
-            elif event in hooks_section:
-                del hooks_section[event]
+        if changed and not dry_run:
+            try:
+                _atomic_write_json(hooks_file, hooks)
+                _ok(f"Updated {hooks_file}")
+            except OSError as exc:
+                _err(f"Could not write {hooks_file}: {exc}")
+        elif not changed:
+            _warn("No Parsidion Codex hook registrations found.")
 
-    if changed and not dry_run:
-        try:
-            hooks_file.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
-            _ok(f"Updated {hooks_file}")
-        except OSError as exc:
-            _err(f"Could not write {hooks_file}: {exc}")
-    elif not changed:
-        _warn("No Parsidion Codex hook registrations found.")
-
-    return changed
+        return changed
 
 
 # ---------------------------------------------------------------------------
@@ -384,61 +452,60 @@ def merge_gemini_hooks(
 ) -> None:
     """Merge Parsidion-managed Gemini hooks into GEMINI_HOME/settings.json."""
     settings_file = _gemini_settings_file(gemini_home)
-    settings = _read_gemini_settings(settings_file)
-    if settings is None:
-        return
+    with _file_lock(settings_file):
+        settings = _read_gemini_settings(settings_file)
+        if settings is None:
+            return
 
-    hooks_section: dict = settings["hooks"]
-    added: list[str] = []
-    skipped: list[str] = []
+        hooks_section: dict = settings["hooks"]
+        added: list[str] = []
+        skipped: list[str] = []
 
-    for event in _GEMINI_HOOK_SCRIPTS:
-        command = _managed_gemini_hook_command(claude_dir, event)
-        event_hooks = hooks_section.setdefault(event, [])
-        if not isinstance(event_hooks, list):
-            _warn(f"Gemini hook event {event} is not a list; skipping")
-            continue
-        if _hook_already_registered(event_hooks, command):
-            _print(
-                f"  Gemini hook {event} already registered",
-                verbose_only=True,
-                verbose=verbose,
+        for event in _GEMINI_HOOK_SCRIPTS:
+            command = _managed_gemini_hook_command(claude_dir, event)
+            event_hooks = hooks_section.setdefault(event, [])
+            if not isinstance(event_hooks, list):
+                _warn(f"Gemini hook event {event} is not a list; skipping")
+                continue
+            if _hook_already_registered(event_hooks, command):
+                _print(
+                    f"  Gemini hook {event} already registered",
+                    verbose_only=True,
+                    verbose=verbose,
+                )
+                skipped.append(event)
+                continue
+
+            new_entry = {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "name": _GEMINI_HOOK_NAMES[event],
+                        "type": "command",
+                        "command": command,
+                        "timeout": 10000,
+                    }
+                ],
+            }
+            _step(
+                f"Register Gemini hook {bold(event)}: {dim(command)}",
+                dry_run=dry_run,
             )
-            skipped.append(event)
-            continue
+            if not dry_run:
+                event_hooks.append(new_entry)
+            added.append(event)
 
-        from installer.colors import bold, dim
+        if dry_run:
+            return
 
-        new_entry = {
-            "matcher": "*",
-            "hooks": [
-                {
-                    "name": _GEMINI_HOOK_NAMES[event],
-                    "type": "command",
-                    "command": command,
-                    "timeout": 10000,
-                }
-            ],
-        }
-        _step(f"Register Gemini hook {bold(event)}: {dim(command)}", dry_run=dry_run)
-        if not dry_run:
-            event_hooks.append(new_entry)
-        added.append(event)
-
-    if dry_run:
-        return
-
-    if added:
-        try:
-            settings_file.parent.mkdir(parents=True, exist_ok=True)
-            settings_file.write_text(
-                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-            )
-            _ok(f"Updated {settings_file}")
-        except OSError as exc:
-            _err(f"Could not write {settings_file}: {exc}")
-    elif skipped:
-        _ok("All Gemini hooks already registered")
+        if added:
+            try:
+                _atomic_write_json(settings_file, settings)
+                _ok(f"Updated {settings_file}")
+            except OSError as exc:
+                _err(f"Could not write {settings_file}: {exc}")
+        elif skipped:
+            _ok("All Gemini hooks already registered")
 
 
 def remove_gemini_hooks(
@@ -448,46 +515,43 @@ def remove_gemini_hooks(
 ) -> bool:
     """Remove only Parsidion-managed Gemini hook commands from settings.json."""
     settings_file = _gemini_settings_file(gemini_home)
-    settings = _read_gemini_settings(settings_file)
-    if settings is None:
-        return False
-    if not settings_file.exists():
-        _warn(f"Gemini settings.json not found: {settings_file}")
-        return False
+    with _file_lock(settings_file):
+        settings = _read_gemini_settings(settings_file)
+        if settings is None:
+            return False
+        if not settings_file.exists():
+            _warn(f"Gemini settings.json not found: {settings_file}")
+            return False
 
-    from installer.colors import bold
-
-    hooks_section: dict = settings["hooks"]
-    changed = False
-    for event in _GEMINI_HOOK_SCRIPTS:
-        command = _managed_gemini_hook_command(claude_dir, event)
-        event_hooks = hooks_section.get(event, [])
-        if not isinstance(event_hooks, list):
-            continue
-        filtered, event_changed = _filter_hook_entries(
-            event_hooks,
-            lambda hook, command=command: hook.get("command", "") == command,
-        )
-        if event_changed:
-            _step(f"Remove Gemini hook {bold(event)}", dry_run=dry_run)
-            changed = True
-            if filtered:
-                hooks_section[event] = filtered
-            elif event in hooks_section:
-                del hooks_section[event]
-
-    if changed and not dry_run:
-        try:
-            settings_file.write_text(
-                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+        hooks_section: dict = settings["hooks"]
+        changed = False
+        for event in _GEMINI_HOOK_SCRIPTS:
+            command = _managed_gemini_hook_command(claude_dir, event)
+            event_hooks = hooks_section.get(event, [])
+            if not isinstance(event_hooks, list):
+                continue
+            filtered, event_changed = _filter_hook_entries(
+                event_hooks,
+                lambda hook, command=command: hook.get("command", "") == command,
             )
-            _ok(f"Updated {settings_file}")
-        except OSError as exc:
-            _err(f"Could not write {settings_file}: {exc}")
-    elif not changed:
-        _warn("No Parsidion Gemini hook registrations found.")
+            if event_changed:
+                _step(f"Remove Gemini hook {bold(event)}", dry_run=dry_run)
+                changed = True
+                if filtered:
+                    hooks_section[event] = filtered
+                elif event in hooks_section:
+                    del hooks_section[event]
 
-    return changed
+        if changed and not dry_run:
+            try:
+                _atomic_write_json(settings_file, settings)
+                _ok(f"Updated {settings_file}")
+            except OSError as exc:
+                _err(f"Could not write {settings_file}: {exc}")
+        elif not changed:
+            _warn("No Parsidion Gemini hook registrations found.")
+
+        return changed
 
 
 # ---------------------------------------------------------------------------
@@ -497,8 +561,6 @@ def remove_gemini_hooks(
 
 def _set_codex_hooks_in_features_section(content: str, *, yes: bool) -> str | None:
     """Return updated Codex config text, or None when no safe edit is available."""
-    from installer.ui import _confirm
-
     lines = content.splitlines()
     if not lines:
         return "[features]\nhooks = true\n"
@@ -576,12 +638,12 @@ def enable_codex_hooks_config(
     _step(f"Enable Codex hooks in {config_file}", dry_run=dry_run)
     if dry_run:
         return
-    try:
-        config_file.parent.mkdir(parents=True, exist_ok=True)
-        config_file.write_text(updated, encoding="utf-8")
-        _ok(f"Updated {config_file}")
-    except OSError as exc:
-        _err(f"Could not write {config_file}: {exc}")
+    with _file_lock(config_file):
+        try:
+            _atomic_write_text(config_file, updated)
+            _ok(f"Updated {config_file}")
+        except OSError as exc:
+            _err(f"Could not write {config_file}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +656,7 @@ def merge_hooks(
     settings_file: Path,
     dry_run: bool = False,
     verbose: bool = False,
+    enable_ai_mode: bool = False,
 ) -> None:
     """Load settings.json, add vault hooks if missing, write back.
 
@@ -602,107 +665,123 @@ def merge_hooks(
     previous behaviour silently discarded the user's ``permissions.allow``,
     ``permissions.deny``, ``env``, ``statusLine``, MCP servers, and every
     non-parsidion hook behind a single yellow warning on every install.
+
+    ARC-018: the entire RMW cycle runs under a flock sidecar
+    (``settings.json.lock``) so two concurrent installers — or an installer
+    racing Claude Code's own settings write — cannot lose either side's
+    changes. The write itself is the SEC-105 atomic tmp+replace.
+
+    ARC-025: when *enable_ai_mode* is True the SessionStart hook's timeout
+    is raised to 30000ms inside this same RMW cycle, so the file is written
+    once per install instead of twice via two independent RMWs (the former
+    ``enable_ai_mode`` helper did its own read/write).
     """
-    from installer.colors import bold, dim
-
-    pre_existing = settings_file.exists()
-    original_bytes: bytes | None = None
-    settings: dict = {}
-    if pre_existing:
-        try:
-            original_bytes = settings_file.read_bytes()
-            settings = json.loads(original_bytes.decode("utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            # Bail out: do NOT reset to {} and do NOT write. Mirrors the
-            # Codex/Gemini readers at _read_codex_hooks/_read_gemini_settings
-            # and remove_installed_hooks. SEC-105.
-            _err(
-                f"Could not parse {settings_file}: {exc}\n"
-                "       Leaving it untouched. Fix the syntax (often a stray "
-                "trailing comma) and re-run."
-            )
-            return
-        if not isinstance(settings, dict):
-            _err(f"{settings_file} is not a JSON object; leaving it untouched.")
-            return
-    else:
-        _warn(f"{settings_file} not found — creating a minimal one")
-
-    hooks_section: dict = settings.setdefault("hooks", {})
-    added: list[str] = []
-    skipped: list[str] = []
-
-    for event, _script_name in _HOOK_SCRIPTS.items():
-        command = _hook_command(claude_dir, event)
-        event_hooks: list[dict] = hooks_section.setdefault(event, [])
-        desired_options = _HOOK_OPTIONS.get(event, {})
-
-        existing_handler = _find_hook_handler(event_hooks, command)
-        if existing_handler is not None:
-            needs_update = any(
-                existing_handler.get(k) != v for k, v in desired_options.items()
-            )
-            if not needs_update:
-                _print(
-                    dim(f"  Hook {event} already registered"),
-                    verbose_only=True,
-                    verbose=verbose,
-                )
-                skipped.append(event)
-                continue
-            _step(
-                f"Update hook {bold(event)} options: {dim(', '.join(f'{k}={v}' for k, v in desired_options.items()))}",
-                dry_run=dry_run,
-            )
-            if not dry_run:
-                existing_handler.update(desired_options)
-            added.append(event)
-            continue
-
-        hook_handler: dict = {
-            "type": "command",
-            "command": command,
-            "timeout": 10000,
-        }
-        hook_handler.update(desired_options)
-
-        new_entry: dict = {
-            "matcher": "",
-            "hooks": [hook_handler],
-        }
-        _step(f"Register hook {bold(event)}: {dim(command)}", dry_run=dry_run)
-        if not dry_run:
-            event_hooks.append(new_entry)
-        added.append(event)
-
-    if dry_run:
-        return
-
-    if added:
-        # SEC-105: before the first mutation of a pre-existing settings.json,
-        # snapshot it to settings.json.bak so a botched merge is recoverable.
-        # Overwrites any prior .bak. The write itself goes through
-        # _atomic_write_json (tmp + os.replace, mode-preserving).
-        if pre_existing and original_bytes is not None:
-            backup = settings_file.with_suffix(settings_file.suffix + ".bak")
+    with _file_lock(settings_file):
+        pre_existing = settings_file.exists()
+        original_bytes: bytes | None = None
+        settings: dict = {}
+        if pre_existing:
             try:
-                backup.write_bytes(original_bytes)
-                _print(
-                    dim(f"  Backup of prior settings → {backup}"),
-                    verbose_only=True,
-                    verbose=verbose,
+                original_bytes = settings_file.read_bytes()
+                settings = json.loads(original_bytes.decode("utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                # Bail out: do NOT reset to {} and do NOT write. Mirrors the
+                # Codex/Gemini readers at _read_codex_hooks/_read_gemini_settings
+                # and remove_installed_hooks. SEC-105.
+                _err(
+                    f"Could not parse {settings_file}: {exc}\n"
+                    "       Leaving it untouched. Fix the syntax (often a stray "
+                    "trailing comma) and re-run."
                 )
+                return
+            if not isinstance(settings, dict):
+                _err(f"{settings_file} is not a JSON object; leaving it untouched.")
+                return
+        else:
+            _warn(f"{settings_file} not found — creating a minimal one")
+
+        hooks_section: dict = settings.setdefault("hooks", {})
+        added: list[str] = []
+        skipped: list[str] = []
+
+        for event, _script_name in _HOOK_SCRIPTS.items():
+            command = _hook_command(claude_dir, event)
+            event_hooks: list[dict] = hooks_section.setdefault(event, [])
+            desired_options = _HOOK_OPTIONS.get(event, {})
+            # ARC-025: when AI mode is enabled, the SessionStart handler needs
+            # a 30s timeout (vs the default 10s) so claude-haiku can finish.
+            if enable_ai_mode and event == "SessionStart":
+                desired_options = {**desired_options, "timeout": 30000}
+
+            existing_handler = _find_hook_handler(event_hooks, command)
+            if existing_handler is not None:
+                needs_update = any(
+                    existing_handler.get(k) != v for k, v in desired_options.items()
+                )
+                if not needs_update:
+                    _print(
+                        dim(f"  Hook {event} already registered"),
+                        verbose_only=True,
+                        verbose=verbose,
+                    )
+                    skipped.append(event)
+                    continue
+                _step(
+                    f"Update hook {bold(event)} options: "
+                    f"{dim(', '.join(f'{k}={v}' for k, v in desired_options.items()))}",
+                    dry_run=dry_run,
+                )
+                if not dry_run:
+                    existing_handler.update(desired_options)
+                added.append(event)
+                continue
+
+            hook_handler: dict = {
+                "type": "command",
+                "command": command,
+                "timeout": 30000
+                if (enable_ai_mode and event == "SessionStart")
+                else 10000,
+            }
+            hook_handler.update(desired_options)
+
+            new_entry: dict = {
+                "matcher": "",
+                "hooks": [hook_handler],
+            }
+            _step(f"Register hook {bold(event)}: {dim(command)}", dry_run=dry_run)
+            if not dry_run:
+                event_hooks.append(new_entry)
+            added.append(event)
+
+        if dry_run:
+            return
+
+        if added:
+            # SEC-105: before the first mutation of a pre-existing settings.json,
+            # snapshot it to settings.json.bak so a botched merge is recoverable.
+            # Overwrites any prior .bak. The write itself goes through
+            # _atomic_write_json (tmp + os.replace, mode-preserving).
+            if pre_existing and original_bytes is not None:
+                backup = settings_file.with_suffix(settings_file.suffix + ".bak")
+                try:
+                    backup.write_bytes(original_bytes)
+                    _print(
+                        dim(f"  Backup of prior settings → {backup}"),
+                        verbose_only=True,
+                        verbose=verbose,
+                    )
+                except OSError as exc:
+                    # Non-fatal: the atomic write below still protects against
+                    # truncation. We just lose the convenience recovery file.
+                    _warn(f"Could not write backup {backup}: {exc}")
+            try:
+                _atomic_write_json(settings_file, settings)
+                _ok(f"Updated {settings_file}")
             except OSError as exc:
-                # Non-fatal: the atomic write below still protects against
-                # truncation. We just lose the convenience recovery file.
-                _warn(f"Could not write backup {backup}: {exc}")
-        try:
-            _atomic_write_json(settings_file, settings)
-            _ok(f"Updated {settings_file}")
-        except OSError as exc:
-            _err(f"Could not write {settings_file}: {exc}")
-    elif skipped:
-        _ok("All hooks already registered")
+                _err(f"Could not write {settings_file}: {exc}")
+        elif skipped:
+            _ok("All hooks already registered")
 
 
 def remove_installed_hooks(
@@ -714,48 +793,45 @@ def remove_installed_hooks(
 
     Returns True when at least one managed hook registration was found.
     """
-    from installer.colors import bold
+    with _file_lock(settings_file):
+        if not settings_file.exists():
+            _warn(f"settings.json not found: {settings_file}")
+            return False
 
-    if not settings_file.exists():
-        _warn(f"settings.json not found: {settings_file}")
-        return False
-
-    try:
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        _warn(f"Could not read settings.json: {exc}")
-        return False
-
-    hooks_section: dict = settings.get("hooks", {})
-    changed = False
-
-    for event, _script_name in _HOOK_SCRIPTS.items():
-        command = _hook_command(claude_dir, event)
-        event_hooks: list[dict] = hooks_section.get(event, [])
-        filtered, event_changed = _filter_hook_entries(
-            event_hooks,
-            lambda hook, command=command: hook.get("command", "") == command,
-        )
-        if event_changed:
-            _step(f"Remove hook {bold(event)}", dry_run=dry_run)
-            changed = True
-            if filtered:
-                hooks_section[event] = filtered
-            elif event in hooks_section:
-                del hooks_section[event]
-
-    if changed and not dry_run:
         try:
-            settings_file.write_text(
-                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-            )
-            _ok(f"Updated {settings_file}")
-        except OSError as exc:
-            _err(f"Could not write {settings_file}: {exc}")
-    elif not changed:
-        _warn("No Parsidion hook registrations found.")
+            settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            _warn(f"Could not read settings.json: {exc}")
+            return False
 
-    return changed
+        hooks_section: dict = settings.get("hooks", {})
+        changed = False
+
+        for event, _script_name in _HOOK_SCRIPTS.items():
+            command = _hook_command(claude_dir, event)
+            event_hooks: list[dict] = hooks_section.get(event, [])
+            filtered, event_changed = _filter_hook_entries(
+                event_hooks,
+                lambda hook, command=command: hook.get("command", "") == command,
+            )
+            if event_changed:
+                _step(f"Remove hook {bold(event)}", dry_run=dry_run)
+                changed = True
+                if filtered:
+                    hooks_section[event] = filtered
+                elif event in hooks_section:
+                    del hooks_section[event]
+
+        if changed and not dry_run:
+            try:
+                _atomic_write_json(settings_file, settings)
+                _ok(f"Updated {settings_file}")
+            except OSError as exc:
+                _err(f"Could not write {settings_file}: {exc}")
+        elif not changed:
+            _warn("No Parsidion hook registrations found.")
+
+        return changed
 
 
 def remove_legacy_hooks(
@@ -764,43 +840,40 @@ def remove_legacy_hooks(
     dry_run: bool = False,
 ) -> bool:
     """Remove managed legacy parsidion-cc hook registrations from settings.json."""
-    from installer.colors import bold
+    with _file_lock(settings_file):
+        if not settings_file.exists():
+            return False
 
-    if not settings_file.exists():
-        return False
-
-    try:
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        _warn(f"Could not read settings.json for legacy cleanup: {exc}")
-        return False
-
-    hooks_section: dict = settings.get("hooks", {})
-    changed = False
-
-    for event, _script_name in _HOOK_SCRIPTS.items():
-        event_hooks: list[dict] = hooks_section.get(event, [])
-        filtered, event_changed = _filter_hook_entries(
-            event_hooks,
-            lambda hook, event=event: _is_legacy_managed_hook_command(
-                str(hook.get("command", "")), claude_dir, event
-            ),
-        )
-        if event_changed:
-            _step(f"Remove legacy hook {bold(event)}", dry_run=dry_run)
-            changed = True
-            if filtered:
-                hooks_section[event] = filtered
-            elif event in hooks_section:
-                del hooks_section[event]
-
-    if changed and not dry_run:
         try:
-            settings_file.write_text(
-                json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-            )
-            _ok(f"Updated {settings_file}")
-        except OSError as exc:
-            _err(f"Could not write {settings_file}: {exc}")
+            settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            _warn(f"Could not read settings.json for legacy cleanup: {exc}")
+            return False
 
-    return changed
+        hooks_section: dict = settings.get("hooks", {})
+        changed = False
+
+        for event, _script_name in _HOOK_SCRIPTS.items():
+            event_hooks: list[dict] = hooks_section.get(event, [])
+            filtered, event_changed = _filter_hook_entries(
+                event_hooks,
+                lambda hook, event=event: _is_legacy_managed_hook_command(
+                    str(hook.get("command", "")), claude_dir, event
+                ),
+            )
+            if event_changed:
+                _step(f"Remove legacy hook {bold(event)}", dry_run=dry_run)
+                changed = True
+                if filtered:
+                    hooks_section[event] = filtered
+                elif event in hooks_section:
+                    del hooks_section[event]
+
+        if changed and not dry_run:
+            try:
+                _atomic_write_json(settings_file, settings)
+                _ok(f"Updated {settings_file}")
+            except OSError as exc:
+                _err(f"Could not write {settings_file}: {exc}")
+
+        return changed
