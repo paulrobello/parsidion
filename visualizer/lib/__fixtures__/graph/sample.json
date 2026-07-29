@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "generated": "2026-07-29T00:00:00Z",
+    "note_count": 2,
+    "edge_count": 2,
+    "min_semantic_threshold": 0.6,
+    "parmem_body_links": 1
+  },
+  "nodes": [
+    {
+      "id": "alpha",
+      "title": "Alpha Note",
+      "type": "pattern",
+      "folder": "Patterns",
+      "path": "Patterns/alpha.md",
+      "tags": ["tag1", "tag2"],
+      "incoming_links": 1,
+      "mtime": 1722200000
+    },
+    {
+      "id": "beta",
+      "title": "Beta Note",
+      "type": "research",
+      "folder": "Research",
+      "path": "Research/beta.md",
+      "tags": [],
+      "incoming_links": 0,
+      "mtime": 1722300000
+    }
+  ],
+  "edges": [
+    { "s": "alpha", "t": "beta", "w": 0.85, "kind": "semantic" },
+    { "s": "alpha", "t": "beta", "w": 1.0, "kind": "wiki" }
+  ]
+}
