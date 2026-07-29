@@ -81,8 +81,6 @@ def test_vault_context_with_explicit_vault_restores_root(tmp_path: Path) -> None
     note = tmp_path / "note.md"
     note.write_text("---\ntags: []\n---\n# Note\n", encoding="utf-8")
 
-    from unittest.mock import MagicMock
-
     sentinel_root = Path("/tmp/sentinel-default-root")
     with patch("parsidion_mcp.tools.context.vault_common") as mock_vc:
         # Initial VAULT_ROOT (what the server "had" before the call).
