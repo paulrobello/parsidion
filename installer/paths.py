@@ -217,20 +217,62 @@ def _default_vault_path(home: Path | None = None) -> Path:
 def _resolve_vault_root_for_uninstall() -> Path:
     """Best-effort vault root resolution for uninstall (no args available).
 
-    Checks the default vault's ``config.yaml`` first, then falls back to the
-    default path (``~/ParsidionVault`` or legacy ``~/ClaudeVault`` if present).
+    ARC-019: repointed at ``~/.config/parsidion/vaults.yaml``. The previous
+    implementation parsed a ``vault_root:`` key from the default vault's
+    ``config.yaml`` — but nothing in the repo ever *wrote* that key, so the
+    branch was unreachable and uninstall always fell back to the default
+    vault root. ``record_installed_vault`` (the install-time helper) now
+    writes both a named entry and a ``default:`` line into vaults.yaml
+    whenever ``install.py --vault /custom/path`` is used, so reading the
+    ``default:`` here finds what install put down.
+
+    Resolution order:
+      1. ``default:`` line in vaults.yaml (set by ``record_installed_vault``)
+      2. First named entry in vaults.yaml (fallback if only ``vaults:`` set)
+      3. ``~/ParsidionVault`` (or legacy ``~/ClaudeVault`` if it exists)
     """
     default = _default_vault_path()
-    config = default / "config.yaml"
-    if not config.exists():
+    config_path = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
+    if not config_path.exists():
         return default
     try:
-        for line in config.read_text(encoding="utf-8").splitlines():
-            stripped = line.split("#", 1)[0].strip()
-            if stripped.startswith("vault_root:"):
-                val = stripped.split(":", 1)[1].strip().strip("'\"")
-                if val:
-                    return Path(val).expanduser().resolve()
+        content = config_path.read_text(encoding="utf-8")
     except OSError:
-        pass
+        return default
+
+    named: dict[str, str] = {}
+    default_ref = ""
+    in_vaults = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "vaults:" or stripped.startswith("vaults:"):
+            in_vaults = True
+            continue
+        if in_vaults and line and not line[0].isspace() and ":" in stripped:
+            in_vaults = False
+        if in_vaults and ":" in stripped:
+            name, _, rest = stripped.partition(":")
+            name = name.strip().strip("'\"")
+            rest = rest.strip().strip("'\"")
+            if name and rest:
+                named[name] = rest
+        if stripped.startswith("default:") and not in_vaults:
+            default_ref = stripped.split(":", 1)[1].strip().strip("'\"")
+
+    if default_ref:
+        try:
+            resolved = Path(default_ref).expanduser().resolve()
+            if resolved.exists():
+                return resolved
+        except OSError:
+            pass
+    for path_str in named.values():
+        try:
+            resolved = Path(path_str).expanduser().resolve()
+            if resolved.exists():
+                return resolved
+        except OSError:
+            continue
     return default

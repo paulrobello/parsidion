@@ -152,6 +152,7 @@ from installer.vault import (  # noqa: F401
     init_vault_git,
     install_vault_post_merge_hook,
     migrate_default_vault,
+    record_installed_vault,
     remove_vault_post_merge_hook,
 )
 
@@ -654,6 +655,18 @@ def install(args: argparse.Namespace) -> int:
     # 12. Create vaults.yaml config template (optional, --create-vaults-config)
     if args.create_vaults_config:
         _run_step("create_vaults_config", lambda: create_vaults_config(dry_run=dry_run))
+
+    # 12b. ARC-019: persist a non-default --vault into vaults.yaml so the
+    # installed hooks (which call resolve_vault() with no explicit arg) can
+    # find it. Without this, ``install.py --vault ~/WorkVault`` populated
+    # the vault while every hook kept reading ~/ParsidionVault.
+    if not dry_run:
+        from installer.vault import record_installed_vault
+
+        _run_step(
+            "record_installed_vault",
+            lambda: record_installed_vault(vault_root, dry_run=dry_run),
+        )
 
     # ARC-022: surface failed steps and return non-zero so make/CI can detect
     # a broken install. The prior unconditional ``return 0`` masked every

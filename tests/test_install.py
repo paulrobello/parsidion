@@ -1675,3 +1675,105 @@ class TestInstallFailureHandling:
 
         rc = install.install(install.parse_args())
         assert rc == 0
+
+
+class TestCustomVaultPersistence:
+    """ARC-019: ``install.py --vault /custom/path`` must persist the chosen
+    path into ``~/.config/parsidion/vaults.yaml`` so the resolver chain can
+    find it. The runtime ``resolve_vault()`` lives in skills/ (separate agent)
+    and will read the ``default:`` and named entries this test pins; the
+    installer-side reader is ``_resolve_vault_root_for_uninstall`` in
+    installer/paths.py, which is what uninstall uses to find the vault whose
+    post-merge hook it must remove.
+    """
+
+    def test_record_installed_vault_writes_named_entry_and_default(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Redirect HOME so the file lands inside the test's tmp_path.
+        home = tmp_path / "home"
+        (home / ".config").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        custom_vault = tmp_path / "WorkVault"
+        custom_vault.mkdir()
+
+        install.record_installed_vault(custom_vault, dry_run=False)
+
+        vaults_yaml = home / ".config" / "parsidion" / "vaults.yaml"
+        assert vaults_yaml.exists(), "record_installed_vault did not create vaults.yaml"
+        content = vaults_yaml.read_text(encoding="utf-8")
+        assert str(custom_vault) in content, "vault path not written to vaults.yaml"
+        assert "default:" in content, "default: line missing"
+        assert "WorkVault" in content, "named entry missing"
+
+    def test_record_installed_vault_is_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        (home / ".config").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        custom_vault = tmp_path / "WorkVault"
+        custom_vault.mkdir()
+
+        install.record_installed_vault(custom_vault, dry_run=False)
+        first = (home / ".config" / "parsidion" / "vaults.yaml").read_text(encoding="utf-8")
+        # Second call must not duplicate the entry or rewrite a different default.
+        install.record_installed_vault(custom_vault, dry_run=False)
+        second = (home / ".config" / "parsidion" / "vaults.yaml").read_text(encoding="utf-8")
+        assert second.count(f"WorkVault: {custom_vault}") == 1, (
+            f"named entry duplicated: {second}"
+        )
+        assert second.count(f"default: {custom_vault}") == 1, (
+            f"default line duplicated: {second}"
+        )
+        # Content is stable.
+        assert first == second
+
+    def test_record_installed_vault_skips_default_vault(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Writing the default ~/ParsidionVault into vaults.yaml would be
+        # noise — branch 4 of resolve_vault already finds it. record_installed_vault
+        # must detect this and no-op.
+        home = tmp_path / "home"
+        (home / ".config").mkdir(parents=True)
+        (home / "ParsidionVault").mkdir()
+        monkeypatch.setenv("HOME", str(home))
+
+        default_vault = home / "ParsidionVault"
+        install.record_installed_vault(default_vault, dry_run=False)
+
+        vaults_yaml = home / ".config" / "parsidion" / "vaults.yaml"
+        assert not vaults_yaml.exists(), (
+            "record_installed_vault wrote vaults.yaml for the default vault"
+        )
+
+    def test_resolve_vault_root_for_uninstall_reads_vaults_yaml_default(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The whole point of ARC-019: after install --vault /custom/path,
+        # uninstall can find the custom vault via vaults.yaml.
+        home = tmp_path / "home"
+        (home / ".config").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        custom_vault = tmp_path / "WorkVault"
+        custom_vault.mkdir()
+
+        install.record_installed_vault(custom_vault, dry_run=False)
+        # Resolve via the installer-side reader.
+        resolved = install._resolve_vault_root_for_uninstall()
+        assert resolved == custom_vault.resolve(), (
+            f"uninstall resolver did not find custom vault; got {resolved}"
+        )
+
+    def test_resolve_vault_root_for_uninstall_falls_back_to_default(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Without vaults.yaml, the resolver falls back to ~/ParsidionVault.
+        home = tmp_path / "home"
+        (home / "ParsidionVault").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+
+        resolved = install._resolve_vault_root_for_uninstall()
+        assert resolved == (home / "ParsidionVault").resolve()

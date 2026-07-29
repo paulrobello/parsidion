@@ -536,6 +536,218 @@ vaults:
     _ok(f"Created {config_path}")
 
 
+def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
+    """Persist *vault_root* into ``~/.config/parsidion/vaults.yaml``.
+
+    ARC-019: when ``install.py --vault /custom/path`` populates a non-default
+    vault, the chosen path was previously written into *none* of the four
+    channels ``resolve_vault()`` reads (explicit arg, ``.claude/vault`` file,
+    ``$CLAUDE_VAULT``, default root). Every installed hook therefore kept
+    reading ``~/ParsidionVault`` while the user had explicitly installed
+    elsewhere. This function records the install path both as a named entry
+    under ``vaults:`` (named after the directory stem — e.g. ``WorkVault``)
+    and as the ``default:`` so subsequent ``resolve_vault()`` calls land on
+    it without any extra env var.
+
+    Creates the file when absent — does *not* require ``--create-vaults-config``.
+    No-op when *vault_root* already matches the default vault path (the
+    common case — there's nothing to persist).
+    """
+    # Avoid touching the file for the default-vault install: the resolver's
+    # branch 4 already finds ~/ParsidionVault and writing a `default:` for
+    # it would just add noise.
+    if vault_root == _default_vault_path():
+        return
+
+    config_dir = Path.home() / ".config" / PROJECT_NAME
+    config_path = config_dir / "vaults.yaml"
+
+    # Stable-ish name from the directory stem — what a human would pick.
+    vault_name = vault_root.name or "custom"
+
+    if config_path.exists():
+        try:
+            content = config_path.read_text(encoding="utf-8")
+        except OSError:
+            content = ""
+    else:
+        content = ""
+
+    vaults_lines, default_line = _parse_vaults_yaml_for_record(content)
+    vault_path_str = str(vault_root)
+
+    # Idempotency: if both the named entry and default already point at this
+    # path, there's nothing to do.
+    if (
+        vaults_lines.get(vault_name) == vault_path_str
+        and default_line == vault_path_str
+    ):
+        return
+
+    new_content = _render_vaults_yaml_for_record(
+        vaults_lines, default_line, vault_name, vault_path_str, content
+    )
+
+    _step(
+        f"Record vault {vault_name} → {vault_root} in {config_path}",
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _atomic_write_text(config_path, new_content)
+        _ok(f"Recorded {vault_name} as default vault in {config_path}")
+    except OSError as exc:
+        _warn(f"Could not record vault in {config_path}: {exc}")
+
+
+def _default_vault_path() -> Path:
+    """Return the default vault root, mirroring ``vault_path.default_vault_root``.
+
+    Local copy (rather than importing vault_path) so the installer keeps its
+    stdlib-only constraint — vault_path imports fine standalone, but the
+    installer layering rule is to depend only on installer.colors/paths/ui.
+    """
+    root = Path.home()
+    current = root / DEFAULT_VAULT_NAME
+    legacy = root / LEGACY_DEFAULT_VAULT_NAME
+    if legacy.exists() and not current.exists():
+        return legacy
+    return current
+
+
+def _parse_vaults_yaml_for_record(content: str) -> tuple[dict[str, str], str]:
+    """Extract existing ``vaults:`` entries and the ``default:`` value.
+
+    Returns ``(vaults, default_path)`` where *default_path* is the empty
+    string when the file has no ``default:`` key. Comments and unrelated
+    top-level keys are preserved verbatim by the caller's renderer.
+    """
+    vaults: dict[str, str] = {}
+    default = ""
+    in_vaults = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "vaults:" or stripped.startswith("vaults:"):
+            in_vaults = True
+            continue
+        # End of vaults: section on a new top-level key.
+        if in_vaults and line and not line[0].isspace() and ":" in stripped:
+            in_vaults = False
+        if in_vaults and ":" in stripped:
+            name, _, rest = stripped.partition(":")
+            name = name.strip().strip("'\"")
+            rest = rest.strip().strip("'\"")
+            if name and rest:
+                vaults[name] = rest
+        if stripped.startswith("default:") and not in_vaults:
+            default = stripped.split(":", 1)[1].strip().strip("'\"")
+    return vaults, default
+
+
+def _render_vaults_yaml_for_record(
+    vaults: dict[str, str],
+    default: str,
+    vault_name: str,
+    vault_path_str: str,
+    original: str,
+) -> str:
+    """Return the new vaults.yaml content with *vault_name* and default set.
+
+    Preserves the file's existing structure (comments, the ``vaults:``
+    section, the ``default:`` line, other top-level keys) and only mutates
+    the two relevant lines. Falls back to a fresh template when the file is
+    empty or has no recognised ``vaults:`` section.
+    """
+    vaults[vault_name] = vault_path_str
+    new_default = vault_path_str
+
+    has_vaults_section = "\nvaults:" in ("\n" + original) or original.startswith(
+        "vaults:"
+    )
+    if not has_vaults_section:
+        # Build a minimal file from scratch.
+        lines = ["# Named vaults for parsidion"]
+        lines.append("# Populated by `install.py --vault` (ARC-019).")
+        lines.append("")
+        lines.append("vaults:")
+        for name, path in vaults.items():
+            lines.append(f"  {name}: {path}")
+        lines.append("")
+        lines.append(f"default: {new_default}")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Rewrite line-by-line, inserting/updating the named entry and the
+    # default line. Idempotent on a second run.
+    out: list[str] = []
+    in_vaults = False
+    inserted_named = False
+    wrote_default = False
+    for line in original.splitlines():
+        stripped = line.strip()
+        if stripped == "vaults:" or stripped.startswith("vaults:"):
+            out.append(line)
+            in_vaults = True
+            # If we're updating an existing entry, ensure the new value lands
+            # inside the section even when the original section is empty.
+            if vault_name not in vaults:
+                continue
+            # Emit our entry first if not already present later.
+            if not any(
+                ln.strip().startswith(f"{vault_name}:") for ln in original.splitlines()
+            ):
+                out.append(f"  {vault_name}: {vault_path_str}")
+                inserted_named = True
+            continue
+        if in_vaults and line and not line[0].isspace():
+            # Leaving the vaults: section.
+            if not inserted_named and vault_name not in {
+                ln.strip().split(":", 1)[0].strip()
+                for ln in out
+                if ln.startswith("  ") and ":" in ln
+            }:
+                # Didn't find a slot above; append at section end.
+                insert_at = len(out)
+                while insert_at > 0 and out[insert_at - 1].strip() == "":
+                    insert_at -= 1
+                out.insert(insert_at, f"  {vault_name}: {vault_path_str}")
+            in_vaults = False
+        if in_vaults and stripped.startswith(f"{vault_name}:"):
+            out.append(f"  {vault_name}: {vault_path_str}")
+            inserted_named = True
+            continue
+        if stripped.startswith("default:") and not in_vaults:
+            out.append(f"default: {new_default}")
+            wrote_default = True
+            continue
+        out.append(line)
+
+    if not inserted_named:
+        # The vaults: section was non-empty but had no slot for our name
+        # (e.g. it only had comments). Append at the end of the section.
+        for i, ln in enumerate(out):
+            if ln.strip() == "vaults:" or ln.strip().startswith("vaults:"):
+                # Insert after the last consecutive indented entry.
+                j = i + 1
+                while j < len(out) and (
+                    out[j].startswith("  ") or out[j].strip() == ""
+                ):
+                    j += 1
+                out.insert(j, f"  {vault_name}: {vault_path_str}")
+                inserted_named = True
+                break
+    if not wrote_default:
+        out.append(f"default: {new_default}")
+    if not out[-1].endswith("\n"):
+        out.append("")
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------------------
 # Vault migration
 # ---------------------------------------------------------------------------
