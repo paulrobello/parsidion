@@ -254,7 +254,9 @@ export function useVisualizerState(graphData: GraphData | null) {
     else params.set('stem', stem)
     if (selectedVault) params.set('vault', selectedVault)
     const res = await fetch(`/api/note?${params.toString()}`)
-    const data = await res.json()
+    // ARC-040: surface non-2xx responses. A 5xx with a malformed body would
+    // otherwise throw inside res.json() with a confusing parse error.
+    const data = res.ok ? await res.json().catch(() => ({ error: 'Invalid server response' })) : { error: `Failed to fetch note (${res.status})` }
     if (data.error) throw new Error(data.error as string)
     const content = data.content as string
     const mtimeMs = data.mtimeMs as number
@@ -281,12 +283,17 @@ export function useVisualizerState(graphData: GraphData | null) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    const data = await res.json() as { error?: string; conflict?: boolean; serverContent?: string; ok?: boolean; mtimeMs?: number }
-    if (data.error) throw new Error(data.error)
-    if (data.conflict === true) {
-      return { conflict: true, serverContent: data.serverContent ?? '', mtimeMs: data.mtimeMs ?? 0 }
+    // ARC-040: a 409 conflict response is expected and must be parsed so the
+    // caller can react; other non-2xx statuses are surfaced as errors.
+    const data = (res.status === 409 || res.ok)
+      ? await res.json().catch(() => ({ error: 'Invalid server response' }))
+      : { error: `Failed to save note (${res.status})` }
+    const payload = data as { error?: string; conflict?: boolean; serverContent?: string; ok?: boolean; mtimeMs?: number }
+    if (payload.error && payload.conflict !== true) throw new Error(payload.error)
+    if (payload.conflict === true) {
+      return { conflict: true, serverContent: payload.serverContent ?? '', mtimeMs: payload.mtimeMs ?? 0 }
     }
-    const newMtimeMs = data.mtimeMs ?? 0
+    const newMtimeMs = payload.mtimeMs ?? 0
     // Cache under both stem and path so fetches always hit
     contentCache.current.set(stem, content)
     mtimeCache.current.set(stem, newMtimeMs)
@@ -314,7 +321,7 @@ export function useVisualizerState(graphData: GraphData | null) {
     else params.set('stem', stem)
     if (selectedVault) params.set('vault', selectedVault)
     const res = await fetch(`/api/note?${params.toString()}`, { method: 'DELETE' })
-    const data = await res.json()
+    const data = res.ok ? await res.json().catch(() => ({ error: 'Invalid server response' })) : { error: `Failed to delete note (${res.status})` }
     if (data.error) throw new Error(data.error as string)
   }, [selectedVault])
 
@@ -327,7 +334,7 @@ export function useVisualizerState(graphData: GraphData | null) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    const data = await res.json()
+    const data = res.ok ? await res.json().catch(() => ({ error: 'Invalid server response' })) : { error: `Failed to create note (${res.status})` }
     if (data.error) throw new Error(data.error as string)
   }, [selectedVault])
 

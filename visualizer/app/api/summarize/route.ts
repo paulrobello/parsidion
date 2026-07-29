@@ -26,7 +26,13 @@ export const POST = withApi(async (req: NextRequest) => {
   try {
     const result = spawnSummarizer(vaultPath)
     if ('alreadyRunning' in result) {
-      return NextResponse.json({ alreadyRunning: true }, { status: 409 })
+      // ARC-040: 409 + {error, ...} so the conflict encoding matches the
+      // note/route.ts PUT/POST conflicts. `alreadyRunning` is retained for
+      // backward compatibility with existing clients.
+      return NextResponse.json(
+        { error: 'Summarizer already running', alreadyRunning: true },
+        { status: 409 },
+      )
     }
     return NextResponse.json({ started: true, pid: result.pid })
   } catch (err) {

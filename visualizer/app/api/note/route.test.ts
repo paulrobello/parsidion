@@ -260,4 +260,82 @@ describe('ARC-002 / note route — vault from body', () => {
       expect(fs.existsSync(path.join(secondaryVault, relPath))).toBe(false)
     })
   })
+
+  // ARC-040: standardize conflict encoding (HTTP 409 + {error, conflict, ...}),
+  // wrap req.json() so malformed bodies return 400 instead of 500, and type-
+  // validate `content` (non-string → 400, not a runtime throw deep in fs).
+  describe('ARC-040 — conflict semantics + body validation', () => {
+    it('POST mtime conflict returns 409 with {error, conflict, serverContent, mtimeMs}', async () => {
+      const relPath = 'Patterns/arc040-conflict.md'
+      const notePath = path.join(defaultVault, relPath)
+      fs.writeFileSync(notePath, '# v1\n')
+      const stale = fs.statSync(notePath).mtimeMs
+      // Wait so the file's mtime is strictly greater than baseMtimeMs after
+      // we re-write it. baseMtimeMs < next mtime ⇒ conflict branch fires.
+      await new Promise(r => setTimeout(r, 20))
+      fs.writeFileSync(notePath, '# v2 — externally edited\n')
+      const newerStat = fs.statSync(notePath)
+      // Caller still holds the older mtime token (stale).
+      const req = makePostRequest({
+        path: relPath,
+        content: '# client overwrote v1 — should be rejected\n',
+        baseMtimeMs: stale,
+      })
+      const res = await POST(req)
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.error).toBe('Note modified externally')
+      expect(json.conflict).toBe(true)
+      expect(json.serverContent).toContain('# v2 — externally edited')
+      expect(json.mtimeMs).toBe(newerStat.mtimeMs)
+      // The client's content was NOT written.
+      expect(fs.readFileSync(notePath, 'utf-8')).toBe('# v2 — externally edited\n')
+    })
+
+    it('PUT "note already exists" returns 409 with {error}', async () => {
+      const relPath = 'Patterns/arc040-existing.md'
+      fs.writeFileSync(path.join(defaultVault, relPath), '# original\n')
+      const req = makePutRequest({ path: relPath, content: '# duplicate\n' })
+      const res = await PUT(req)
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.error).toBe('Note already exists')
+    })
+
+    it('POST with malformed JSON body returns 400 (not 500)', async () => {
+      const req = new NextRequest('http://localhost:3999/api/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not valid json',
+      })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toContain('Invalid JSON')
+    })
+
+    it('PUT with malformed JSON body returns 400 (not 500)', async () => {
+      const req = new NextRequest('http://localhost:3999/api/note', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: '}{ malformed',
+      })
+      const res = await PUT(req)
+      expect(res.status).toBe(400)
+    })
+
+    it('POST with non-string content returns 400 (type validation)', async () => {
+      const req = makePostRequest({ path: 'Patterns/x.md', content: { bad: 'object' } })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toContain('string content required')
+    })
+
+    it('PUT with non-string content returns 400 (type validation)', async () => {
+      const req = makePutRequest({ path: 'Patterns/y.md', content: 42 })
+      const res = await PUT(req)
+      expect(res.status).toBe(400)
+    })
+  })
 })

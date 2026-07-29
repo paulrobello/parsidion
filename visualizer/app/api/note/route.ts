@@ -69,21 +69,29 @@ export const GET = withApi(async (req: NextRequest) => {
 })
 
 export const POST = withApi(async (req: NextRequest) => {
-  const body = await req.json()
+  // ARC-040: wrap req.json() so malformed bodies return 400 instead of 500.
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
   // ARC-002: accept vault from EITHER the query string or the JSON body
   // (query string wins for backward compat). The client puts the selected
   // vault in body.vault (useVisualizerState.ts); discarding it caused silent
   // cross-vault writes and a defunct mtime conflict check.
-  const vaultParam = req.nextUrl.searchParams.get('vault') ?? body.vault ?? null
+  const vaultParam = req.nextUrl.searchParams.get('vault') ?? (body as { vault?: string } | null)?.vault ?? null
   const { stem, path: relPath, content, baseMtimeMs } = body as {
     stem?: string
     path?: string
-    content?: string
+    content?: unknown
     baseMtimeMs?: number
     vault?: string
   }
-  if ((!stem && !relPath) || content === undefined) {
-    return NextResponse.json({ error: 'stem or path, and content required' }, { status: 400 })
+  // ARC-040: type-validate content — must be a string. Without this an object
+  // or array body would reach fs.writeFile and throw at runtime → 500.
+  if ((!stem && !relPath) || typeof content !== 'string') {
+    return NextResponse.json({ error: 'stem or path, and string content required' }, { status: 400 })
   }
 
   let vaultRoot: string
@@ -120,12 +128,18 @@ export const POST = withApi(async (req: NextRequest) => {
   // externally since then — return the current content instead of saving. This
   // compares server mtimes only, never a client wall-clock timestamp, so it is
   // immune to clock skew between the browser and the machine running the vault.
+  //
+  // ARC-040: HTTP 409 + {error, conflict, ...} so the encoding is uniform
+  // with the PUT "already exists" conflict below. DOC-006 documents 409.
   if (baseMtimeMs !== undefined) {
     try {
       const stat = await fs.stat(notePath)
       if (stat.mtimeMs > baseMtimeMs) {
         const serverContent = await fs.readFile(notePath, 'utf-8')
-        return NextResponse.json({ conflict: true, serverContent, mtimeMs: stat.mtimeMs })
+        return NextResponse.json(
+          { error: 'Note modified externally', conflict: true, serverContent, mtimeMs: stat.mtimeMs },
+          { status: 409 },
+        )
       }
     } catch {
       // If stat fails, proceed with the save
@@ -142,17 +156,23 @@ export const POST = withApi(async (req: NextRequest) => {
 }, { mutation: true })
 
 export const PUT = withApi(async (req: NextRequest) => {
-  const body = await req.json()
+  // ARC-040: wrap req.json() so malformed bodies return 400, not 500.
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
   // ARC-002: accept vault from EITHER the query string or the JSON body
   // (query string wins for backward compat). See POST handler for rationale.
-  const vaultParam = req.nextUrl.searchParams.get('vault') ?? body.vault ?? null
+  const vaultParam = req.nextUrl.searchParams.get('vault') ?? (body as { vault?: string } | null)?.vault ?? null
   const { path: relPath, content } = body as {
     path?: string
-    content?: string
+    content?: unknown
     vault?: string
   }
-  if (!relPath || content === undefined) {
-    return NextResponse.json({ error: 'path and content required' }, { status: 400 })
+  if (!relPath || typeof content !== 'string') {
+    return NextResponse.json({ error: 'path and string content required' }, { status: 400 })
   }
 
   // SEC-002: Only .md files may be created through this endpoint.
