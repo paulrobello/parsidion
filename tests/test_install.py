@@ -1542,3 +1542,28 @@ class TestEmbeddingsPreservedOnYesSync:
         install.install(install.parse_args())
 
         assert captured.get("enabled") is True
+
+
+class TestAgentSrcsCoversAllAgentFiles:
+    """ARC-033: AGENT_SRCS must list every agents/*.md so new agents cannot
+    silently drift out of the installed-agents manifest again."""
+
+    def test_every_agent_md_is_listed_in_agent_srcs(self) -> None:
+        from pathlib import Path
+
+        import install
+
+        repo_root = Path(install.__file__).resolve().parent
+        agents_dir = repo_root / "agents"
+        on_disk = {p.name for p in agents_dir.glob("*.md")}
+        listed = {p.name for p in install.AGENT_SRCS if p.name.endswith(".md")}
+        missing = on_disk - listed
+        assert not missing, (
+            f"agents/*.md not in AGENT_SRCS (installer will not install them): {sorted(missing)}"
+        )
+
+    def test_every_listed_agent_src_exists_on_disk(self) -> None:
+        import install
+
+        missing = [str(p) for p in install.AGENT_SRCS if not p.exists()]
+        assert not missing, f"AGENT_SRCS points at non-existent files: {missing}"

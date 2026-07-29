@@ -30,6 +30,7 @@ AGENT_SRCS: list[Path] = [
     REPO_ROOT / "agents" / "research-agent.md",
     REPO_ROOT / "agents" / "vault-explorer.md",
     REPO_ROOT / "agents" / "project-explorer.md",
+    REPO_ROOT / "agents" / "vault-deduplicator.md",
 ]
 SCRIPTS_SRC: Path = REPO_ROOT / "scripts"
 CLAUDE_VAULT_MD_SRC: Path = REPO_ROOT / "CLAUDE-VAULT.md"
