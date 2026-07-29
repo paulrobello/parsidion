@@ -1566,3 +1566,112 @@ class TestAgentSrcsCoversAllAgentFiles:
 
         missing = [str(p) for p in install.AGENT_SRCS if not p.exists()]
         assert not missing, f"AGENT_SRCS points at non-existent files: {missing}"
+
+
+class TestInstallFailureHandling:
+    """ARC-022: install() must surface failed steps and return non-zero.
+
+    Previously every step swallowed errors into _warn(...) and returned None,
+    and install() always returned 0 — so a broken install (e.g. merge_hooks
+    could not write settings.json) printed "Installation complete!" and the
+    shell saw exit 0, hiding the failure from CI and ``make install``.
+    """
+
+    def _stub_light_steps(self, monkeypatch) -> None:
+        """Stub every install step except merge_hooks so the test can isolate
+        the failing-step behaviour without depending on the rest."""
+        for name in (
+            "install_skill",
+            "install_agents",
+            "install_scripts",
+            "create_vault_dirs",
+            "create_templates_symlink",
+            "cleanup_legacy_assets",
+            "enable_codex_hooks_config",
+            "merge_codex_hooks",
+            "merge_gemini_hooks",
+            "enable_ai_mode",
+            "install_claude_vault_md",
+            "install_codex_agents_md",
+            "install_gemini_md",
+            "rebuild_index",
+            "configure_vault_gitignore",
+            "init_vault_git",
+            "install_vault_post_merge_hook",
+            "configure_vault_username",
+            "configure_embeddings",
+            "install_cli_tools",
+            "schedule_summarizer",
+            "create_vaults_config",
+        ):
+            monkeypatch.setattr(install, name, lambda *a, **kw: None)
+
+    def test_failing_merge_hooks_returns_nonzero(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        self._stub_light_steps(monkeypatch)
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(install, "merge_hooks", boom)
+
+        vault = tmp_path / "Vault"
+        vault.mkdir()
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "claude",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(tmp_path / ".claude"),
+                "--codex-home",
+                str(tmp_path / ".codex"),
+            ],
+        )
+
+        rc = install.install(install.parse_args())
+
+        assert rc != 0, "failing merge_hooks must propagate a non-zero exit code"
+        err = capsys.readouterr().err
+        # The user/CI must be told which step failed.
+        assert "merge_hooks" in err
+        assert "disk full" in err
+
+    def test_all_steps_succeeding_returns_zero(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Positive control: with every step stubbed to no-op, install()
+        # returns 0 (so the non-zero path above is genuinely tied to the
+        # failure, not a baseline return value change).
+        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        self._stub_light_steps(monkeypatch)
+        monkeypatch.setattr(install, "merge_hooks", lambda *a, **kw: None)
+
+        vault = tmp_path / "Vault"
+        vault.mkdir()
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "install.py",
+                "--yes",
+                "--runtime",
+                "claude",
+                "--vault",
+                str(vault),
+                "--claude-dir",
+                str(tmp_path / ".claude"),
+                "--codex-home",
+                str(tmp_path / ".codex"),
+            ],
+        )
+
+        rc = install.install(install.parse_args())
+        assert rc == 0
