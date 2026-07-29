@@ -10,7 +10,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 
 > **New in 0.13.0:** optional [par-mem](docs/PAR-MEM.md) code-memory search backend — vault semantic search can be served by a local Rust daemon (hybrid BM25+vector+graph) with byte-for-byte identical behavior when par-mem is absent, plus a `code_search` MCP tool and visualizer semantic vault search (`?` prefix) with a Linked Notes panel. **Note:** par-mem itself is not yet publicly released (coming soon); the integration is ready in parsidion and activates once it ships, and parsidion works fully without it in the meantime. Queue-hygiene fixes bound huge-line transcripts by bytes, strip dangling wikilinks, defer in-flight sessions, and add configurable dead-letter retention. 0.12.2 salvaged notes the model emitted with empty/absent `tags` so dense audit/review transcripts stop dead-lettering. See the [Changelog](CHANGELOG.md).
 
-![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/parsidion-architecture.png)
+![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
 > [View the interactive architecture slideshow](https://paulrobello.github.io/parsidion/vault-architecture-slideshow.html) for a detailed walkthrough of every component.
 >
@@ -40,6 +40,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 
 - **Python 3.13+**
 - **[uv](https://docs.astral.sh/uv/)** -- Python package runner and manager
+- **[bun](https://bun.sh/)** -- JavaScript runtime and package manager for the Vault Visualizer and its quality gate (`make visualizer-check` is part of `make checkall`)
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
 - **Claude Code, Codex CLI, and/or Gemini CLI** -- runtime integration target(s) selected during install
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
@@ -47,7 +48,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
 - **par-mem** (optional; **coming soon — not yet publicly available**) -- Rust code-memory daemon; when released and installed, vault semantic search upgrades to hybrid BM25+vector+graph retrieval with silent fallback to local embeddings, and agents gain a cross-repo code-memory bridge (see [docs/PAR-MEM.md](docs/PAR-MEM.md)). parsidion works fully without it today.
 
-> **Platform support:** Works on macOS, Linux, and Windows. On Windows, the installer gracefully falls back from symlinks to directory copies when elevated privileges are unavailable.
+> **Platform support:** Works on macOS, Linux, and Windows. On macOS and Linux the installer **symlinks** `~/.claude/skills/parsidion` back to this repo, so edits under `skills/` are live in the installed location without a reinstall. On Windows the installer **copies** the skill files (symlinks require elevated privileges or Developer Mode), so edits under `skills/` are *not* picked up live — re-run `uv run install.py --force --yes` after every source change. This symlink-vs-copy split is the source of the "two copies of the same codebase" concern (ARC-021); it is real only on Windows.
 
 ## Quick Start
 
@@ -216,7 +217,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `vault_new.py` | CLI to scaffold new vault notes from templates -- `vault-new --type pattern --title "My Note" --project myproj --tags python,vault --open`; available as `vault-new` global command with `--install-tools` |
 | `vault_stats.py` | Analytics CLI for vault health and activity -- modes: `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags` (tag cloud), `--pending` (pending queue status), `--graph` (knowledge graph metrics), `--hooks N` (last N hook events), `--weekly` (weekly rollup note), `--monthly` (monthly rollup note), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (live summarizer status), `--dashboard` (all modes combined); available as `vault-stats` global command with `--install-tools` |
 | `vault_review.py` | Interactive TUI for inspecting and approving/rejecting pending sessions before AI summarization; available as `vault-review` global command |
-| `vault_export.py` | Export vault to HTML static site, filtered zip, or PDF via pandoc; available as `vault-export` global command |
+| `vault_export.py` | Export vault to HTML static site or filtered zip; available as `vault-export` global command |
 | `vault_merge.py` | Backend-aware AI-assisted merging of near-duplicate notes with automatic backlink updates; `--scan` finds near-duplicate pairs via embedding similarity; `--no-index` skips per-merge index rebuild for batch workflows; available as `vault-merge` global command |
 | `vault_conflicts.py` | Detects contradictions between similar notes (embedding-similarity pairs) and resolves them interactively via the configured prompt AI backend; `--scan-only` lists pairs, `--json` emits machine-readable output, `--no-ai` skips AI resolution; available as `vault-conflicts` global command (companion to `vault-merge`) |
 | `update_index.py` | Rebuilds the resolved vault's `CLAUDE.md` index and populates the `note_index` SQLite table; includes tag cloud and vault health from `doctor_state.json` |
@@ -540,9 +541,14 @@ cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 >
 > **Anthropic-compatible transport settings:** You can also define `ANTHROPIC_*`
 > and `API_TIMEOUT_MS` values in `config.yaml` under `anthropic_env:` using the
-> real env var names as keys. This is useful for GLM/Z.AI-compatible setups.
-> Precedence for those values is: **real environment variable > `anthropic_env`
-> in `config.yaml` > script default behavior**.
+> real env var names as keys. The shipped template leaves every key `null` so
+> traffic routes to the real Anthropic endpoint with Anthropic model IDs — useful
+> as a baseline and for org-key / proxy / Bedrock overrides. To route traffic
+> through a third-party Anthropic-compatible gateway instead (e.g. Z.ai / GLM),
+> set `ANTHROPIC_BASE_URL` and the model overrides, and be aware that nightly
+> summarization transcripts — including source code and file contents — will
+> flow to that endpoint. Precedence for these values is: **real environment
+> variable > `anthropic_env` in `config.yaml` > script default behavior**.
 >
 > The pi `/parsidion` command reports the effective source for these values
 > (`env`, `vault config`, or `unset`) and masks secret previews, but Python hook
@@ -606,16 +612,17 @@ codex_cli:
 anthropic_env:
   ANTHROPIC_API_KEY: null
   ANTHROPIC_AUTH_TOKEN: null
-  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+  ANTHROPIC_BASE_URL: null              # null = the real Anthropic endpoint; set to route through a gateway
   ANTHROPIC_CUSTOM_HEADERS: null
-  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO
-  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1
-  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001
+  ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-6
+  ANTHROPIC_DEFAULT_OPUS_MODEL: null
   API_TIMEOUT_MS: 3000000
+  HTTPS_PROXY: null
+  HTTP_PROXY: null
 
 defaults:
-  haiku_model: claude-haiku-4-5-20251001   # Centralized haiku model ID used across hooks
-  sonnet_model: claude-sonnet-4-6          # Centralized sonnet model ID used across scripts
+  haiku_model: claude-haiku-4-5-20251001   # Centralized haiku model ID used across hooks (sonnet_model is no longer read — use ai_models.<backend>.large)
 
 embeddings:
   model: BAAI/bge-small-en-v1.5  # fastembed model for semantic search
@@ -729,11 +736,21 @@ When no explicit vault is specified, tools use this resolution order:
 
 The vault supports optional git version control. When `<resolved vault>/.git` exists, scripts automatically stage and commit changes after every write (daily notes, index rebuilds, session notes). Controlled by `git.auto_commit` in config.
 
+The installer initialises the vault as a git repo on first install and writes a `.gitignore` covering every machine-local and secret-bearing file: `.obsidian/`, `embeddings.db`, `pending_summaries.jsonl`, `dead_letters.jsonl`, `hook_events.log`, `graph.json`, `summarizer_state.json`, `doctor_state.json`, and (since 0.12.0) `config.yaml` / `config.local.yaml` so API keys never enter git history. The auto-commit pathspec explicitly skips the vault-root `config.yaml`. Do **not** overwrite the installer-managed `.gitignore` with `echo "..." > .gitignore` — that truncates the protective list and lets `git add -A` stage secrets. Append with `>>` if you need extra entries.
+
 ```bash
 cd ~/ParsidionVault
-git init
-echo ".obsidian/" > .gitignore
+git init                                  # already done by the installer; run manually only for a pre-existing vault
+# Verify the installer-managed .gitignore is in place (do NOT truncate it):
+cat .gitignore
 git add -A && git commit -m "chore(vault): initial commit"
+```
+
+If you are migrating a vault that predates the config.yaml gitignore, verify it is untracked:
+
+```bash
+git -C ~/ParsidionVault ls-files config.yaml    # any output = tracked; untrack with:
+git -C ~/ParsidionVault rm --cached config.yaml
 ```
 
 If no `.git` directory is present, all git operations are silent no-ops.
@@ -858,12 +875,18 @@ summarize_sessions.py --approved-only  # only process sessions approved by vault
 ```bash
 vault-export --html ~/vault-site   # export to HTML static site
 vault-export --zip ~/vault.zip     # export filtered subset as zip
-vault-export --pdf ~/vault.pdf     # export via pandoc to PDF
 ```
 
 **Merge near-duplicate notes:**
 ```bash
-vault-merge                        # AI-assisted: detect and merge near-duplicate notes, update backlinks
+# Backend-aware: uses the configured prompt AI backend (claude -p or codex exec).
+# NOTE_A survives; NOTE_B is moved to .trash/.
+vault-merge --scan                                # list near-duplicate pairs (no merge)
+vault-merge NOTE_A NOTE_B --execute               # merge two notes
+vault-merge NOTE_A NOTE_B --no-index --execute    # batch mode: skip per-merge index rebuild
+vault-merge NOTE_A NOTE_B --execute --from-preview  # reuse cached dry-run merge output
+vault-merge NOTE_A NOTE_B --dry-run               # preview merged body without writing
+# Other flags: --vault/-V, --output PATH, --threshold SCORE, --top N, --no-ai (naive concat)
 ```
 
 **Detect and resolve conflicting notes:**

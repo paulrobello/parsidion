@@ -15,6 +15,7 @@ Thank you for your interest in contributing to Parsidion. This guide covers the 
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/) for script execution and package management
+- [bun](https://bun.sh/) for the Vault Visualizer — `make checkall` runs `make visualizer-check`, which runs `bunx tsc --noEmit`, `bun run lint`, and `bun test`. Without bun the gate cannot pass locally.
 - [Obsidian](https://obsidian.md/) (optional, for vault browsing and graph view)
 
 ## Development Setup
@@ -50,11 +51,27 @@ Thank you for your interest in contributing to Parsidion. This guide covers the 
 
 ### stdlib-only rule
 
-Any script under `skills/parsidion/scripts/` **must use Python stdlib exclusively**, except the four PEP 723 scripts (`summarize_sessions.py`, `build_embeddings.py`, `vault_search.py`, `vault_new.py`) which declare their own inline dependencies. `install.py` at the repo root follows the same stdlib-only constraint. No `pip install`, no `uv add`. The `pyproject.toml` intentionally has no runtime dependencies.
+Any script under `skills/parsidion/scripts/` **must use Python stdlib exclusively**, except the **eleven** PEP 723 scripts listed below, which declare their own inline dependencies via a `# /// script` block. `install.py` at the repo root follows the same stdlib-only constraint. No `pip install`, no `uv add`. The `pyproject.toml` intentionally has no runtime dependencies.
 
 **Why:** Hook scripts run inside Claude Code's lifecycle events. Adding third-party dependencies would break the zero-dependency guarantee and complicate installation.
 
-**Exception:** The four PEP 723 scripts listed above have inline dependency declarations (e.g. `anyio`, `fastembed`). Their dependencies are installed automatically by `uv run` into an isolated environment.
+**PEP 723 exception list** (verified by `grep -lE "^# /// script" skills/parsidion/scripts/*.py`):
+
+| Script | Inline dep |
+|---|---|
+| `summarize_sessions.py` | `anyio` |
+| `build_embeddings.py` | `fastembed`, `sqlite-vec`, `pillow` |
+| `vault_search.py` | `fastembed`, `sqlite-vec` |
+| `vault_stats.py` | (PEP 723 metadata-only; no third-party runtime imports) |
+| `build_graph.py` | `numpy` |
+| `html-to-md.py` | `beautifulsoup4`, `html2text` |
+| `embed_eval.py` | `fastembed`, `sqlite-vec`, `rich` |
+| `embed_eval_common.py` | (shared inline metadata) |
+| `embed_eval_generate.py` | (shared inline metadata) |
+| `embed_eval_report.py` | (shared inline metadata) |
+| `embed_eval_run.py` | `fastembed`, `sqlite-vec` |
+
+`vault_new.py` is **not** on this list — it is stdlib-only and has no `# /// script` block. If you add a new PEP 723 script, append it here and update `CLAUDE.md`'s "Exceptions" bullet to match.
 
 ### Type annotations
 

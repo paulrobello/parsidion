@@ -1,15 +1,24 @@
-# ARC-015: Custom Express Server Evaluation
+# ARC-015: Custom WebSocket Server Evaluation (historical)
 
 **Date:** 2026-06-12
 **Status:** Implemented (2026-07-02) — the custom `server.ts` has been removed. The app now
 runs on plain `next dev` / `next start` with live vault updates delivered by
-[`app/api/vault/events/route.ts`](../app/api/vault/events/route.ts). The sections below are
-kept as the original analysis and migration record; see the "Implementation Notes" section
-at the end for what changed versus the sketch.
+[`app/api/vault/events/route.ts`](../app/api/vault/events/route.ts) over Server-Sent Events.
+The sections below are kept as the original analysis and migration record; see the
+"Implementation Notes" section at the end for what changed versus the sketch.
+
+> **Historical context.** The removed `server.ts` was a Node.js entry point (`tsx server.ts`)
+> that wrapped Next.js with a `ws`-based WebSocket server for `/ws/vault` and a per-vault
+> `chokidar` watcher. It was **never** an Express server — the original title said "Express"
+> by mistake. The verbs below are in the present tense because the file was written before
+> the SSE migration landed; treat them as describing the deleted `server.ts`, not the current
+> app. The current SSE route handler lives at
+> [`app/api/vault/events/route.ts`](../app/api/vault/events/route.ts) and is documented in
+> [`docs/VISUALIZER.md`](../../docs/VISUALIZER.md).
 
 ---
 
-## What `server.ts` does
+## Historical Context: What `server.ts` did
 
 `server.ts` is a Node.js entry point (`tsx server.ts`) that wraps Next.js with four
 responsibilities beyond what `next dev` / `next start` provide:

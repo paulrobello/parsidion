@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Next.js 16.2.10 → 16.2.11** (`8e5d549`) — visualizer dependency bump tracking the upstream security release.
+
+### Changed
+- **par-mem flagged as coming soon across docs** (`66c06f5`) — the README, hook reference, and visualizer docs now state plainly that par-mem itself is not yet publicly available. The integration is ready in parsidion and activates once par-mem ships; parsidion works fully without it.
+
+> Internal-only refactors and audit-remediation work (ARC, SEC, DOC series) since `v0.13.0` will be summarised in the next release notes. See the git log for the per-commit record.
+
 ## [0.13.0] - 2026-07-24
 
 ### Added

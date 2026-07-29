@@ -27,9 +27,11 @@ below with its intended audience and purpose.
 | [PAR-MEM.md](PAR-MEM.md) | Optional par-mem code-memory backend (**par-mem itself is coming soon — not yet publicly available**): when its daemon is running, vault semantic search is served by par-mem's hybrid BM25+vector+graph retrieval instead of the local embeddings pipeline, and a code-memory bridge is exposed to the vault-explorer agent and parsidion-mcp. |
 | [VISUALIZER.md](VISUALIZER.md) | Vault Visualizer: interactive web app for reading and graph-exploring vault notes — architecture, graph engine, data model, and configuration. |
 | [VAULT_SYNC.md](VAULT_SYNC.md) | Multi-machine vault sync: strategies, recommended git-based setup, post-merge hook, conflict handling, and troubleshooting. |
+| [CLAUDE.md](CLAUDE.md) | AI-assistant guidance specific to working in the `docs/` directory: points at the style guide and this index. |
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
 | [superpowers/](superpowers/) | Implementation plans (`superpowers/plans/`) and design specs (`superpowers/specs/`) for major features (vault-explorer agent, subagent stop hook, parsidion-mcp, visualizer redesign, git diff viewer, multi-vault support, graph features, Codex/Gemini runtime hooks, and more). |
-| [ideas.md](ideas.md) | Visualizer enhancement ideas and feature proposals generated from analysis of the current vault visualizer. |
+
+> **Note:** `ideas.md` is gitignored locally (it is a personal scratchpad of visualizer enhancement ideas) and is intentionally not published to GitHub Pages or linked from this index.
 
 ## Where to Start
 

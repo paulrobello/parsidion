@@ -231,7 +231,7 @@ Browse the git commit history of any vault note and compare any two versions wit
 
 **Layout:**
 
-```
+```text
 ┌─ Toolbar (← Back  stem — Version History  [UNIFIED|SPLIT|WORDS]) ──┐
 ├─────────────────────────────────────────────────────────────────────┤
 │  CommitList (240px)    │  DiffViewer (flex 1)                       │
@@ -533,6 +533,30 @@ cd visualizer && bun start    # Start production server on port 3999
 make stop-visualizer          # Kill the process on port 3999
 ```
 
+### Authentication and Network Exposure
+
+The visualizer is the only network-facing component in the project. It binds to loopback (`127.0.0.1`) in dev (`bun dev`) and listens on port 3999. Every API route is wrapped by `withApi` (`lib/apiAuth.ts`), which applies three guards in this order:
+
+| Guard | What it covers | Default behaviour |
+|---|---|---|
+| `requireToken` | Every method (GET and mutation) | No-op unless `VISUALIZER_TOKEN` is set at server start. When set, every request must carry `Authorization: Bearer <token>`; comparison is constant-time. Returns 401 on missing/mismatched token. |
+| `requireSameOrigin` | Every method | Rejects any request with `Sec-Fetch-Site: cross-site` (a drive-by page cannot trigger server-side side effects like recursive directory walks). Returns 403. Non-browser clients typically omit the header and are allowed through (then gated by `requireToken` if a token is configured). |
+| `requireAuth` (mutation methods only) | POST/PUT/DELETE/PATCH | Rejects the request if `Content-Type` is not `application/json` (defeats cross-site form CSRF that would bypass the preflight). Returns 415. |
+
+**SEC-102 note:** `requireToken` runs on GET handlers as well as mutations — earlier releases only checked the token inside `requireAuth`, which read routes did not call. Setting `VISUALIZER_TOKEN` now gates both reads and writes.
+
+Configure the token by exporting it before starting the server, or by placing it in `visualizer/.env.local` (Next.js loads `.env.local` automatically):
+
+```bash
+# visualizer/.env.local
+VISUALIZER_TOKEN=<long-random-string>
+VAULT_ROOT=/Users/yourname/ParsidionVault
+```
+
+The shipped example file is `visualizer/.env.local.example`. Note that its `VAULT_ROOT` default is `~/ParsidionVault` (the legacy `~/ClaudeVault` value shown in older copies is stale — the resolved vault is `~/ParsidionVault` for new installs, with legacy fallback handled in code).
+
+If you expose the visualizer beyond loopback (LAN, tunnel), set `VISUALIZER_TOKEN`. The same-origin guard prevents browser drive-by attacks; the token prevents non-browser clients from reading or mutating the vault.
+
 ## Building Graph Data
 
 The `graph.json` file is a pre-computed snapshot of vault relationships stored in the vault root (e.g. `~/ParsidionVault/graph.json`). Each vault has its own `graph.json`; the file is gitignored and rebuilt locally. Rebuild it whenever notes are added, removed, or embeddings are updated.
@@ -672,13 +696,13 @@ Returns the Markdown content for a note identified by its stem ID.
 **Response (404):** JSON error — note not found
 
 **`POST /api/note`** — Update (overwrite) an existing note. Accepts `vault` query parameter.
-Body: `{ stem: string, content: string, lastModified?: number }`
-- If `lastModified` is provided, server checks for conflicts (409 if note was modified externally)
-- Response (409): `{ conflict: true, serverContent: string }` — conflict detected
-- Response (200): `{ ok: true }`
+Body: `{ stem: string, content: string, baseMtimeMs?: number, vault?: string }`
+- If `baseMtimeMs` is provided, the server compares it to the file's current `mtimeMs`. If the file's mtime is strictly greater, the note was modified externally and the save is refused with HTTP 409.
+- Response (200): `{ ok: true, mtimeMs: number }` — save succeeded; the returned `mtimeMs` becomes the caller's next `baseMtimeMs`.
+- Response (409): `{ error: "...", conflict: true, serverContent: string, mtimeMs: number }` — conflict detected. The client should offer to merge or overwrite using `serverContent` as the new base. (Per ARC-040, the body is being normalized to the `{error, ...}` shape across all conflict responses.)
 
 **`PUT /api/note`** — Create a new note at a vault-relative path.
-Body: `{ path: string, content: string }`. Returns 409 if the note already exists.
+Body: `{ path: string, content: string }`. Returns 409 (`{ error: "Note already exists" }`) if the note already exists. Only `.md` files may be created.
 
 **`DELETE /api/note?stem=<stem>`** — Delete a note by stem.
 
@@ -925,7 +949,7 @@ All graph controls and UI layout are persisted to `localStorage` using the `vv:`
 
 ## File Structure
 
-```
+```text
 parsidion/
 ├── visualizer/                       # Next.js App Router root (plain next dev/start, no custom server)
 │   ├── app/

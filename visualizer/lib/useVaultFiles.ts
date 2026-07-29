@@ -10,7 +10,12 @@ export type VaultFileTree = Map<string, Map<string, VaultFile[]>>
 interface Opts {
   /** Called when a vault .md file is modified externally. Receives the vault-relative path. */
   onNoteModified: (notePath: string) => void
-  /** Called when the server emits graph:rebuilt — caller should refetch graph.json. */
+  /**
+   * Called when the server emits graph:rebuilt for THIS vault. Caller should
+   * fetch a delta (or full refetch as a fallback). ARC-015 step 5: the server
+   * now tags the event with the rebuilt vault path, so events for other vaults
+   * no longer trigger a refetch.
+   */
   onGraphRebuilt: () => void
   /** Vault name or path to connect to. If not specified, uses default vault. */
   vault?: string | null

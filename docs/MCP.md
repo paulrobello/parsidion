@@ -50,16 +50,16 @@ The diagram below shows the full component topology: Claude Desktop communicates
 ```mermaid
 graph TD
     Desktop["Claude Desktop"]
-    MCP["parsidion-mcp\n(FastMCP / stdio)"]
-    VaultSearch["vault_search\n(semantic + metadata)"]
-    VaultCommon["vault_common\n(shared library)"]
-    ParmemBackend["parmem_backend\n(par-mem bridge, optional)"]
-    ParmemDaemon["par-mem daemon\n(local HTTP)"]
+    MCP["parsidion-mcp<br/>(FastMCP / stdio)"]
+    VaultSearch["vault_search<br/>(semantic + metadata)"]
+    VaultCommon["vault_common<br/>(shared library)"]
+    ParmemBackend["parmem_backend<br/>(par-mem bridge, optional)"]
+    ParmemDaemon["par-mem daemon<br/>(local HTTP)"]
     ScriptsDir["~/.claude/skills/parsidion/scripts/"]
-    UpdateIndex["update_index.py\n(subprocess)"]
-    VaultDoctor["vault_doctor.py\n(subprocess)"]
-    EmbeddingsDB["embeddings.db\n(SQLite + sqlite-vec)"]
-    VaultRoot["~/ParsidionVault/\n(or ~/ClaudeVault/ for legacy installs)"]
+    UpdateIndex["update_index.py<br/>(subprocess)"]
+    VaultDoctor["vault_doctor.py<br/>(subprocess)"]
+    EmbeddingsDB["embeddings.db<br/>(SQLite + sqlite-vec)"]
+    VaultRoot["~/ParsidionVault/<br/>(or ~/ClaudeVault/ for legacy installs)"]
 
     Desktop -->|"stdio (MCP protocol)"| MCP
 
@@ -147,9 +147,9 @@ uv tool install --editable .
 ```bash
 which parsidion-mcp
 # Expected: /Users/<username>/.local/bin/parsidion-mcp
-
-parsidion-mcp --help
 ```
+
+> **Note:** `parsidion-mcp --help` does **not** work — `server.py:main()` calls `mcp.run()` directly with no `argv` handling, so any flag is ignored and the server blocks on stdin waiting for MCP traffic. To verify the server is callable, use `which parsidion-mcp` (above) and then add it to your MCP client config; the client's tool-discovery handshake is the real smoke test.
 
 ## Configuration
 
@@ -473,7 +473,7 @@ This runs formatting (`ruff format`), linting (`ruff check`), type checking (`py
 
 ### Package Structure
 
-```
+```text
 parsidion-mcp/
 ├── pyproject.toml
 ├── Makefile

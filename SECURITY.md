@@ -16,11 +16,12 @@ Security policy, scope statement, and vulnerability disclosure process for Parsi
 
 Parsidion installs runtime adapters with hook scripts that execute during coding-agent
 lifecycle events. The Claude Code adapter runs on Claude lifecycle events (SessionStart,
-SessionEnd, PreCompact, PostCompact, SubagentStop), and the Codex adapter registers native
-Codex session lifecycle hooks (SessionStart and Stop). These adapters run with the same
-privileges as the user's agent process and have read/write access to the markdown vault
-and their configuration directories (`~/.claude/` and `~/.codex/`). This makes the hook
-execution surface security-sensitive.
+SessionEnd, PreCompact, PostCompact, SubagentStop), the Codex adapter registers native
+Codex session lifecycle hooks (SessionStart, Stop, SubagentStop), and the Gemini adapter
+registers Gemini CLI `SessionStart` / `SessionEnd` hooks in `~/.gemini/settings.json`.
+These adapters run with the same privileges as the user's agent process and have read/write
+access to the markdown vault and their configuration directories (`~/.claude/`, `~/.codex/`,
+`~/.gemini/`). This makes the hook execution surface security-sensitive.
 
 ## Scope
 
@@ -28,18 +29,20 @@ The following components are in scope for security reports:
 
 | Component | Location | Risk surface |
 |-----------|----------|--------------|
-| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py` | Executed on Claude Code lifecycle events and Codex SessionStart/Stop hooks |
+| Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py`, `codex_subagent_stop_hook.py`, `gemini_session_start_hook.py`, `gemini_session_end_hook.py` | Executed on Claude Code, Codex CLI, and Gemini CLI lifecycle events |
 | Shared library | `skills/parsidion/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
-| Installer | `install.py` | Writes to `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.codex/config.toml`; copies files into the user's Claude config directory |
+| Installer | `install.py` | Writes to `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.codex/config.toml`, and `~/.gemini/settings.json`; copies files into the user's agent config directory |
 | Session summarizer | `skills/parsidion/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
 | Vault index | `skills/parsidion/scripts/update_index.py` | Reads all vault notes; writes SQLite database |
 | Semantic search | `skills/parsidion/scripts/vault_search.py`, `build_embeddings.py` | Reads SQLite database; returns paths for injection into session context |
+| Vault Visualizer | `visualizer/app/api/**/*.ts`, `visualizer/lib/apiAuth.ts` | The only network-facing component: a local Next.js server (port 3999) with read/write API routes over the vault directory. Same-origin (`Sec-Fetch-Site`) guard on every route; optional `VISUALIZER_TOKEN` bearer-token auth that gates both reads and writes (SEC-102); vault path validated against an allowlist (`resolveVault`) |
 
 ## Stdlib-Only Hook Constraint
 
 All hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`,
 `post_compact_hook.py`, `subagent_stop_hook.py`, `codex_session_start_hook.py`,
-`codex_stop_hook.py`, `vault_common.py`, `update_index.py`) use only the **Python standard
+`codex_stop_hook.py`, `codex_subagent_stop_hook.py`, `gemini_session_start_hook.py`,
+`gemini_session_end_hook.py`, `vault_common.py`, `update_index.py`) use only the **Python standard
 library**. No third-party packages are imported at runtime.
 
 This constraint is intentional and security-relevant:
@@ -54,6 +57,12 @@ This constraint is intentional and security-relevant:
 **Exception:** `summarize_sessions.py` and `build_embeddings.py` are PEP 723 scripts with
 inline dependency declarations. They run in isolated `uv` environments and are never executed
 automatically by hook events — they require explicit user invocation.
+
+The Gemini adapter hooks (`gemini_session_start_hook.py`, `gemini_session_end_hook.py`) are
+likewise stdlib-only; the existing guarantee carries over to the Gemini surface. The Vault
+Visualizer is a TypeScript/Next.js component (not Python) and is therefore out of scope for
+the stdlib-only constraint, but its network-facing routes are listed above and are covered
+by the same vulnerability-disclosure process.
 
 Any contribution that adds a third-party import to a hook script or to `vault_common.py`
 will be rejected on security grounds, even if the package is widely trusted.

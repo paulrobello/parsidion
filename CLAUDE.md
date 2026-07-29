@@ -19,6 +19,13 @@ Parsidion is the source repository for an agent-agnostic markdown knowledge vaul
 | Agent extensions | `extensions/<agent>/` (e.g. `extensions/pi/parsidion/`) | agent-specific integrations |
 | Vault | (generated) | `~/ParsidionVault/` (legacy `~/ClaudeVault/` fallback; or custom path) |
 
+**Install model (ARC-026):** The skill install differs by platform.
+
+- **macOS / Linux** — `installer/skill.py:install_skill()` symlinks `~/.claude/skills/parsidion` back to this repo (`skills/parsidion/`), so edits to source files are live in the installed location without a reinstall. The same applies to the visualizer's vault hooks, which can import `vault_common` directly from the repo.
+- **Windows** — symlinks require elevated privileges or a Developer-mode opt-in, so the installer falls back to `shutil.copytree`. Edits under `skills/` are **not** picked up live; re-run `uv run install.py --force --yes` after every source change.
+
+The same `~/.claude/skills/parsidion` target is used either way, so callers see a single installed location regardless of platform. The symlink-vs-copy split is the source of ARC-021's "two copies of the same codebase" concern: it is real only on Windows.
+
 Use `install.py` to sync changes from this repo to the installed locations. After editing source files, run:
 
 ```bash
@@ -67,6 +74,9 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild
 # Summarize queued sessions (from a terminal outside Claude Code)
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --dry-run
+# Other flags: --sessions FILE (process explicit JSONL), --model MODEL,
+#               --persist (legacy no-op), --run-doctor, --rebuild-graph,
+#               --graph-include-daily, --vault/-V PATH|NAME
 
 # Summarize from inside a Claude Code session (unset CLAUDECODE to allow nesting)
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
@@ -82,6 +92,13 @@ vault-search --grep "FLOCK" --grep-case      # full-text body search (case-sensi
 vault-search --changed-since 2026-06-01      # temporal: notes modified on/after a date (mtime)
 vault-search --as-of 2026-06-01              # temporal: notes dated on/before a date (frontmatter date)
 vault-search --interactive                   # interactive curses TUI
+# Per-query overrides (0.13.0 flagship flag is --backend/-B):
+vault-search -B par-mem "query"              # force par-mem hybrid backend (silent fallback off)
+vault-search -B embeddings "query"           # force local embeddings pipeline
+vault-search -s 0.5 "query"                  # min cosine similarity
+vault-search -m BAAI/bge-small-en-v1.5 "q"   # fastembed model override
+vault-search -l 50 -f Patterns               # max metadata results
+vault-search -V ~/MyVault "query"            # target a specific vault (path or name)
 VAULT_SEARCH_FORMAT=rich VAULT_SEARCH_MIN_SCORE=0.5 vault-search "query"  # env vars
 
 # Scaffold a new vault note (after uv tool install --editable ".[tools]")
@@ -110,10 +127,16 @@ vault-review                       # interactive TUI: approve/reject sessions
 # Export vault (after uv tool install --editable ".[tools]")
 vault-export --html ~/vault-site   # HTML static site
 vault-export --zip ~/vault.zip     # filtered zip
-vault-export --pdf ~/vault.pdf     # PDF via pandoc
 
 # Merge near-duplicate notes (after uv tool install --editable ".[tools]")
-vault-merge                        # AI-assisted note merging with backlink updates
+# Backend-aware: uses the configured prompt AI backend (claude -p or codex exec).
+# NOTE_A survives; NOTE_B is moved to .trash/.
+vault-merge --scan                                # list near-duplicate pairs (no merge)
+vault-merge NOTE_A NOTE_B --execute               # merge two notes
+vault-merge NOTE_A NOTE_B --no-index --execute    # batch mode: skip per-merge index rebuild
+vault-merge NOTE_A NOTE_B --execute --from-preview  # reuse cached dry-run merge output
+vault-merge NOTE_A NOTE_B --dry-run               # preview merged body without writing
+# Other flags: --vault/-V, --output PATH, --threshold SCORE, --top N, --no-ai (naive concat)
 
 # Detect contradictory notes (after uv tool install --editable ".[tools]")
 vault-conflicts                    # scan for contradictions, then interactive TUI review
@@ -139,8 +162,14 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate
 
 # Vault doctor — fix everything in one pass (used by nightly cron)
 # Note: --fix-headings is enabled by default (promotes ## to # when no # heading exists)
-# Note: --fix-all includes --migrate-daily-notes (uses vault.username / $USER)
+# Note: --fix-all implies --execute and ALL fix flags (frontmatter, tags, subfolder
+#       migration, daily-note migration) AND --strip-prefixes (a bulk file rename that
+#       rewrites wikilinks vault-wide). Run on a clean git tree so a rename can be reverted.
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
+# Other flags: --fix (alias for --fix-frontmatter), --errors-only, --no-state,
+#               --jobs/-j N (parallel workers, default 3), --timeout SECS (default 120),
+#               --limit N, --model MODEL, --strip-prefixes (off unless --fix-all),
+#               --vault/-V PATH|NAME, plus a `notes` positional (specific notes to check).
 
 # Run the skill trigger accuracy eval (MUST be from a separate terminal, not inside Claude Code)
 bash ~/.claude/skills/parsidion/scripts/run_trigger_eval.sh
@@ -184,7 +213,7 @@ by the installer. `load_config()` deep-merges it over `config.yaml` section-by-s
 This lets you keep secrets or machine-specific overrides in `config.local.yaml` while
 choosing to git-sync a secret-free `config.yaml`, or vice versa.
 
-A template with all options and their defaults is at `skills/parsidion/templates/config.yaml`.
+A template with all options documented is shipped at `skills/parsidion/templates/config.yaml`.
 Copy it to the vault root to get started:
 
 ```bash
@@ -199,15 +228,18 @@ Config sections:
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `pi_transcript_tail_lines` | `session_stop_hook.py` |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
-| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `persist`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily` | `summarize_sessions.py` |
-| `defaults` | `haiku_model`, `sonnet_model` | all scripts that call Claude |
+| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `persist`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily` | `summarize_sessions.py` |
+| `ai` | `backend` (`auto` \| `claude-cli` \| `codex-cli` \| `none`) | `ai_backend.py` — selects which prompt backend the hooks and summarizer use for AI calls |
+| `ai_models` | `claude.{small,large}`, `codex.{small,large}` | `ai_backend.py` — per-backend model tiers; `summarizer.model=null` falls back to `<backend>.large` |
+| `codex_cli` | `command`, `timeout`, `sandbox`, `ephemeral`, `skip_git_repo_check`, `suppress_notify` | `ai_backend.py` — only used when `ai.backend` resolves to `codex-cli` |
+| `defaults` | `haiku_model` | All scripts that call Claude; superseded by `ai_models.<backend>` for tier-specific overrides. (`sonnet_model` is no longer read — use `ai_models.<backend>.large`.) |
 | `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor` | `build_embeddings.py`, `vault_search.py` |
 | `par_mem` | `enabled`, `binary`, `timeout_s` | `parmem_backend.py`, `vault_search.py` (see `docs/PAR-MEM.md`) |
 | `search` | `backend` (`auto` \| `par-mem` \| `embeddings` \| `none`) | `vault_search.py` |
-| `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` (real env vars win over this section) | `vault_common._safe_env()` |
+| `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` (real env vars win over this section) | `vault_hooks.env_without_claudecode()` / `vault_hooks._configured_env_defaults()` |
 | `git` | `auto_commit` | `vault_common.git_commit_vault()` |
-| `event_log` | `enabled`, `max_lines`, `path` | `vault_common.write_hook_event()` (all hooks) |
-| `adaptive_context` | `enabled`, `decay_days` | `session_start_hook.py`, `vault_common.py` |
+| `event_log` | `enabled`, `max_lines`, `path` | `vault_hooks.write_hook_event()` (all hooks). `path` is an absolute-path override (null = `<vault>/hook_events.log`). |
+| `adaptive_context` | `enabled`, `decay_days` | `session_start_hook.py`, `vault_adaptive.py` |
 | `vault` | `username` | daily note filename suffix (`DD-{username}.md`); auto-set by installer to `$USER` |
 
 The config is parsed by `vault_common.load_config()` (simple stdlib YAML parser — supports
@@ -272,8 +304,17 @@ EOF
 - `summarize_sessions.py` is a PEP 723 script with an inline `anyio` dependency. Run it with `uv run` — deps are installed automatically into an isolated environment. It uses Parsidion's configured prompt AI backend (`claude -p` or `codex exec`), not the Claude Agent SDK.
 - `build_embeddings.py`, `vault_search.py`, and `embed_eval_run.py` import `fastembed` (and `sqlite-vec`) — these run under the `search`/`tools`/`eval` extras and degrade gracefully when the libs are absent.
 
-## Makefile Targets
+## Pre-Commit Hooks
 
+The repo ships a `.pre-commit-config.yaml` that runs `gitleaks` (secret scanning) and `detect-private-key` on every commit, plus `ruff format --check` so a commit triggers the same formatting gate as `make fmt-check`. Install once with `uv run pre-commit install` (see `CONTRIBUTING.md`). Run all hooks manually:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+A failed gitleaks/detect-private-key hook is a hard block — never bypass it. If a secret has already been committed, rotate it; do not simply remove the line.
+
+## Makefile Targets
 | Target | Command | Notes |
 |---|---|---|
 | `make install` | `uv run install.py --force --yes` | Sync source → `~/.claude/` |
@@ -283,13 +324,13 @@ EOF
 | `make typecheck` | `uv run pyright .` | Type-check Python |
 | `make test` | `uv run pytest tests/` | Run unit test suite (numpy-free) |
 | `make test-graph` | `uv run --with numpy pytest tests/test_build_graph_parmem.py` | par-mem body-link enrichment tests (numpy-gated) |
-| `make checkall` | fmt-check + lint + typecheck + test + test-graph + visualizer-check + checkall-mcp | Full quality gate |
+| `make checkall` | fmt-check + lint + typecheck + test + test-graph + visualizer-check + checkall-mcp | Full quality gate. Non-mutating (uses `fmt-check`, not `fmt`); CI runs the same targets via separate jobs (see `.github/workflows/ci.yml`). |
 | `make checkall-mcp` | `$(MAKE) -C parsidion-mcp checkall` | parsidion-mcp sub-project gate |
 | `make visualizer-check` | `cd visualizer && bunx tsc --noEmit && bun run lint && bun test` | Visualizer typecheck + lint + unit tests |
 | `make build` | no-op | Managed configuration — no compile step |
 | `make clean` | removes `__pycache__` and `*.pyc` | Clean generated artifacts |
-| `make graph` | `uv run skills/parsidion/scripts/build_graph.py` | Rebuild `graph.json` (excludes Daily notes) |
-| `make graph-with-daily` | same + `--include-daily` | Rebuild `graph.json` including Daily notes |
+| `make graph` | `uv run skills/parsidion/scripts/build_graph.py` | Rebuild `graph.json` (Daily notes **included** by default) |
+| `make graph-with-daily` | alias for `make graph` | Historical target kept for backwards compatibility; Daily inclusion is now the default |
 | `make visualizer` | `cd visualizer && bun dev` | Start visualizer dev server on port 3999 |
 | `make build-visualizer` | `cd visualizer && bun run build` | Build visualizer for production |
 | `make stop-visualizer` | kills port 3999 | Stop dev server |
@@ -305,11 +346,14 @@ The system has eleven components:
    - `pre_compact_hook.py`: Snapshots current task state before context compaction. Extracts the current task by scanning backwards through the last 200 transcript lines for the most recent user text message. Extracts recently-touched files by parsing `tool_use` blocks from assistant messages (Read/Write/Edit/Grep/NotebookEdit tools). Also captures **git branch** (`git branch --show-current`) and **uncommitted files** (`git status --short`) so Claude knows the exact working tree state after compaction.
    - `post_compact_hook.py`: Restores working context after compaction. Reads today's daily note, finds the most recent `## Pre-Compact Snapshot` section written by `pre_compact_hook.py`, and returns it as `additionalContext` so Claude can resume the session without re-reading files.
    - `subagent_stop_hook.py`: Registered under the `SubagentStop` hook with `async: true` (non-blocking). Reads the subagent's own `agent_transcript_path`, skips agents listed in `excluded_agents` (default: `vault-explorer`, `research-agent`), and queues the transcript to `pending_summaries.jsonl` with `source: "subagent"` and `agent_type` metadata. Uses `agent_id` as the dedup key. Configurable via `subagent_stop_hook` section in `config.yaml`.
+   - **Runtime adapter hooks** (registered by `install.py connect <agent>`): `codex_session_start_hook.py` / `codex_stop_hook.py` / `codex_subagent_stop_hook.py` wrap the same context-builder and queue path for Codex CLI (registered in `~/.codex/hooks.json`, native Codex hook lifecycle); `gemini_session_start_hook.py` / `gemini_session_end_hook.py` do the same for Gemini CLI (registered in `~/.gemini/settings.json`). pi uses a TypeScript extension (`extensions/pi/parsidion/`) that shells out to the same Python scripts. All adapters write to the same `pending_summaries.jsonl` queue and produce identical vault notes.
    - All hooks append a structured JSON line to `<vault>/hook_events.log` via `vault_common.write_hook_event()`. The log is rotated when it exceeds `event_log.max_lines` (default 10,000). Viewable with `vault-stats --hooks N`.
 
 2. **`summarize_sessions.py`** — On-demand PEP 723 script (requires `anyio`). Reads `pending_summaries.jsonl`, pre-processes transcripts, and calls the configured prompt AI backend (`claude -p` or `codex exec`, up to 5 parallel sessions) to generate structured vault notes. Features: **write-gate filter** (the backend decides per-session if insights are reusable before generating a note), **hierarchical summarization** (transcripts exceeding `max_cleaned_chars` are chunked and summarized by the backend small model first), **semantic dedup** (before writing a note, checks for near-duplicates using `vault_search.py`; controlled by `summarizer.dedup_threshold` in config, default `0.80`), **automated backlinks** (via `vault_links.py` — injects bidirectional wikilinks after each note write). Cleans processed entries from the queue and rebuilds the index when done.
 
-3. **`vault_common.py`** — Shared library imported by all hooks. The implementation has been split (ARC-005) into focused modules — `vault_config.py` (config loading/merge), `vault_path.py` (paths, `VAULT_ROOT`, `EXCLUDE_DIRS`, log rotation), `vault_fs.py` (filesystem traversal, note search), `vault_index.py` (`note_index` schema, `query_note_index()`, `build_compact_index()`), `vault_hooks.py` (hook-event logging, `write_hook_event()`), `vault_adaptive.py` (adaptive-context decay), plus `vault_metrics.py` and `vault_tui.py` for stats/TUI helpers. `vault_common.py` re-exports the public API, so existing `import vault_common` callers keep working. `_SAFE_ENV_KEYS` (in `vault_hooks.py`) controls which env vars are forwarded to `claude -p` subprocess calls; includes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so non-default API configurations (proxy, org key, Bedrock, corporate network) work correctly. `build_compact_index()` was moved here from `session_start_hook.py` and is also used by `parsidion-mcp`. All vault operations go through this module surface.
+3. **`vault_common.py`** — Shared library imported by all hooks. The implementation has been split (ARC-005) into focused modules — `vault_config.py` (config loading/merge), `vault_path.py` (paths, `VAULT_ROOT`, `EXCLUDE_DIRS`, log rotation), `vault_fs.py` (file locking, pending queue, git commit, daily notes), `vault_index.py` (`note_index` schema, `query_note_index()`, `build_compact_index()`, the `find_notes_by_*` family), `vault_hooks.py` (hook-event logging, `write_hook_event()`), `vault_adaptive.py` (adaptive-context decay), plus `vault_metrics.py` and `vault_tui.py` for stats/TUI helpers. `vault_common.py` re-exports the public API, so existing `import vault_common` callers keep working. `_SAFE_ENV_KEYS` (in `vault_hooks.py`) controls which env vars are forwarded to `claude -p` subprocess calls; includes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, and `HTTPS_PROXY`/`HTTP_PROXY` so non-default API configurations (proxy, org key, Bedrock, corporate network) work correctly. `build_compact_index()` was moved here from `session_start_hook.py` and is also used by `parsidion-mcp`. All vault operations go through this module surface.
+
+   **Related helper modules** (used by the components below): `ai_backend.py` — backend-neutral prompt AI helpers used by `session_start_hook.py`, `summarize_sessions.py`, `vault_doctor.py`, `vault_merge.py`, and `embed_eval*.py`; selects between `claude-cli` and `codex-cli` based on the `ai.backend` config and runtime hints, with per-backend model tiers from `ai_models`. `build_graph.py` — rebuilds `<vault>/graph.json` from `embeddings.db` (Daily notes included by default; `--no-daily` excludes them). `check_graph_coverage.py` — audits vault tags vs Obsidian `graph.json` color groups. `parmem_backend.py` — optional par-mem code-memory daemon bridge (subprocess transport + availability probe).
 
 4. **`vault_search.py`** — Unified search CLI with four modes. **Semantic mode** (positional `QUERY`): fastembed + sqlite-vec cosine similarity search. **Metadata mode** (filter flags `--tag`/`-T`, `--folder`/`-f`, `--type`/`-k`, `--project`/`-p`, `--recent-days`/`-d`, no query): SQL query against `note_index` table. **Full-text body search** (`--grep`/`-G` flag): scans note bodies for a regex pattern; `--grep-case` enables case-sensitive matching. **Interactive TUI** (`--interactive`/`-i`): curses-based interface with real-time results, navigation, and editor integration. All modes output identical JSON with a `score` field (`null` for metadata/grep). Three output formats: `--json`/`-j` (default), `--text`/`-t` (human-readable), `--rich`/`-r` (Rich-colorized one-line-per-note). All flags have short options; defaults configurable via `VAULT_SEARCH_*` environment variables. Installed globally as `vault-search` via `uv tool install`. Used by `vault-explorer` agent for both Tier 1 and Tier 2 search.
 
@@ -319,13 +363,13 @@ The system has eleven components:
 
 7. **`vault_review.py`** — Interactive TUI (`vault-review` global command) for inspecting and cleaning the pending-sessions queue. Flags: `--vault`/`-V`, `--list` (print sessions without launching the TUI), `--clear` (empty the queue with confirmation).
 
-8. **`vault_export.py`** — Export tool (`vault-export` global command). Supports HTML static site, filtered zip, and PDF via pandoc.
+8. **`vault_export.py`** — Export tool (`vault-export` global command). Supports HTML static site and filtered zip.
 
 9. **`vault_merge.py`** — AI-assisted note merging tool (`vault-merge` global command). Detects near-duplicate notes, merges their content via Claude haiku, and updates all bidirectional backlinks.
 
 10. **`vault_conflicts.py`** — Contradiction detector (`vault-conflicts` global command, companion to `vault-merge`). Where `vault-merge` collapses near-duplicate notes saying the *same* thing, `vault-conflicts` surfaces semantically-similar pairs saying *opposite* things. Default behavior: scan the vault (embedding-similarity candidate clustering) then drop into an interactive TUI for review. Flags: `--threshold` (cosine cutoff), `--top` (max pairs), `--vault`/`-V`, `--scan-only` (write `conflicts/report.json` and exit, no TUI), `--json` (print report and exit), `--no-ai` (cluster only, skip the AI backend — dry run). Read-only: it detects and reports; it does not mutate notes.
 
-11. **`~/ParsidionVault/`** (legacy `~/ClaudeVault/`) — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
+11. **`~/ParsidionVault/`** (legacy `~/ClaudeVault/`) — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `History/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
 
 ## Vault Note Conventions
 
@@ -366,10 +410,15 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 
 ## Key File Paths in Code
 
-Throughout this section `<vault>` is the resolved vault root (`~/ParsidionVault/`, or legacy `~/ClaudeVault/` if that is what exists; overridable via `--vault`/`VAULT_PATH`/multi-vault `vaults.yaml`).
+Throughout this section `<vault>` is the resolved vault root (`~/ParsidionVault/`, or legacy `~/ClaudeVault/` if that is what exists). Vault resolution order (see `vault_path.py:resolve_vault()`):
 
-- `VAULT_ROOT` = `<vault>` (module-level constant in `vault_path.py`, re-exported from `vault_common.py`, patched by installer for custom vault paths)
-- `TEMPLATES_DIR` = `~/.claude/skills/parsidion/templates/` (module-level constant in `vault_path.py`, re-exported from `vault_common.py`, patched by installer)
+1. `--vault PATH_OR_NAME` CLI flag (path or name from `~/.config/parsidion/vaults.yaml`)
+2. `<cwd>/.claude/vault` file (path or configured name)
+3. `CLAUDE_VAULT` environment variable (path or configured name)
+4. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
+
+- `VAULT_ROOT` = module-level constant in `vault_path.py` holding the *default* vault path (used as a fallback by `resolve_vault()`). Re-exported from `vault_common.py` for backwards compatibility with external callers (e.g. parsidion-mcp, tests). **Not patched by the installer** (ARC-001) — code should call `resolve_vault()` / `resolve_templates_dir()` rather than reading the constant directly.
+- `TEMPLATES_DIR` = module-level constant in `vault_path.py` defaulting to `~/.claude/skills/parsidion/templates/`. Re-exported from `vault_common.py`. **Not patched by the installer** (ARC-001) — code should call `resolve_templates_dir()`.
 - `pending_summaries.jsonl` = `<vault>/pending_summaries.jsonl` — queue of sessions awaiting AI summarization. Each line: `{"session_id": "...", "transcript_path": "...", "project": "...", "categories": [...], "timestamp": "..."}`. Deduplicated by `session_id`.
 - `embeddings.db` = `<vault>/embeddings.db` — SQLite database with two tables: `note_embeddings` (384-dim float32 vectors built by `build_embeddings.py`) and `note_index` (per-note metadata built by `update_index.py`). Queried by `vault_search.py` (both modes) and `vault_common.query_note_index()`. All callers fall back gracefully when absent.
 - `EXCLUDE_DIRS` = set of folder names skipped by the indexer and vault traversal (defined in `vault_path.py`, re-exported from `vault_common.py`). Currently: `.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`.

@@ -1,6 +1,6 @@
 # Parsidion Visualizer
 
-Interactive web UI for browsing a Parsidion vault as both a file tree and a knowledge graph. It renders vault notes from `graph.json`, supports live file updates over WebSocket, and lets you read, edit, diff, and create markdown notes without leaving the browser.
+Interactive web UI for browsing a Parsidion vault as both a file tree and a knowledge graph. It renders vault notes from `graph.json`, supports live file updates over Server-Sent Events (SSE), and lets you read, edit, diff, and create markdown notes without leaving the browser.
 
 The default vault path is `~/ParsidionVault` for new installs, with automatic fallback to an existing legacy `~/ClaudeVault`; the UI is runtime-agnostic: notes captured from Claude Code, Codex CLI, Gemini CLI, pi, or manual editing all appear through the same vault files and graph snapshot.
 
@@ -56,16 +56,17 @@ Agent/runtime provenance filters are not implemented yet. If future notes includ
 
 ## Architecture
 
-- `server.ts` — custom Next.js dev server with WebSocket vault file watching.
-- `app/` — Next.js App Router pages and metadata.
+The app runs on plain `next dev` / `next start` — there is no custom Node server. Live vault updates are delivered by the Server-Sent Events route handler at `app/api/vault/events/route.ts` (a reference-counted per-vault `chokidar` watcher, same-origin `Sec-Fetch-Site` guard, optional `VISUALIZER_TOKEN` bearer auth). The previous `ws`-based `server.ts` was retired in 0.12.0.
+
+- `app/` — Next.js App Router pages and API routes (including the SSE events stream).
 - `components/` — React UI components, including the sigma.js graph canvas.
-- `lib/` — graph loading, vault resolution, file APIs, and local UI state helpers.
+- `lib/` — graph loading, vault resolution, file APIs, local UI state helpers, and `apiAuth.ts` (guard helpers).
 
 ## Commands
 
 ```bash
-bun dev        # Start the dev server
-bun run build  # Build Next.js and the custom server
+bun dev        # Start the dev server (next dev, port 3999)
+bun run build  # Build Next.js for production (next build)
 bun run lint   # Run ESLint
 bun run kill   # Kill the dev server on port 3999
 ```

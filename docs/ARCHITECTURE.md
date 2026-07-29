@@ -9,7 +9,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
   - [CLAUDE-VAULT.md — Always-On Guidance](#claude-vaultmd--always-on-guidance)
   - [Parsidion vault Skill](#parsidion-vault-skill)
   - [Hook Scripts](#hook-scripts)
-  - [SubagentStop Hook](#subagent-stop-hook)
+  - [SubagentStop Hook](#subagentstop-hook)
   - [Session Summarizer](#session-summarizer)
   - [Vault Doctor](#vault-doctor)
   - [Graph Coverage Checker](#graph-coverage-checker)
@@ -19,7 +19,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
   - [Vault Deduplicator Agent](#vault-deduplicator-agent)
   - [Vault Common Library](#vault-common-library)
   - [Index Generator](#index-generator)
-  - [Metadata Query CLI](#metadata-query-cli)
+  - [Metadata Query (vault-search filter mode)](#metadata-query-vault-search-filter-mode)
   - [Vault Links Library](#vault-links-library)
   - [CLI Utilities](#cli-utilities)
   - [Trigger Evaluation](#trigger-evaluation)
@@ -478,7 +478,7 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--fix-frontmatter` | off | Apply Claude-suggested frontmatter repairs |
-| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration); implies `--execute` |
+| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration, **and `--strip-prefixes`**); implies `--execute`. Because `--strip-prefixes` rewrites filenames and updates `[[wikilinks]]` vault-wide, run `--fix-all` on a clean git tree so a rename can be reverted. Used by the nightly cron. |
 | `--fix-tags` | off | Detect and merge duplicate tags; use `--execute` to apply |
 | `--fix-sessions` | off | Detect notes sharing the same `session_id` and suggest consolidation (manual or via vault-deduplicator) |
 | `--fix-headings` | on | Promote first `##` to `#` when no `#` heading exists |
@@ -772,10 +772,10 @@ A shared stdlib-only module that encapsulates all backlink operations. Refactore
 
 | Function | Purpose |
 |----------|---------|
-| `find_related_by_tags(note_path, vault_root, limit)` | Returns candidate wikilinks by tag overlap with the given note |
-| `find_related_by_semantic(title, vault_root, limit)` | Returns candidate wikilinks using `vault-search` semantic query; falls back gracefully when `embeddings.db` is absent |
-| `inject_related_links(note_path, links)` | Adds wikilinks to the `related` frontmatter field of a note, avoiding duplicates |
-| `add_backlinks_to_existing(new_note_path, vault_root)` | After writing a new note, scans existing vault notes for tag overlap and injects bidirectional `[[wikilinks]]` into both the new note and matching existing notes |
+| `find_related_by_tags(new_note_path, new_tags, max_links=5, vault_notes=None, vault=None)` | Returns candidate `[[wikilinks]]` by tag overlap with the new note's tags; pass `vault_notes` to avoid a redundant vault walk (ARC-010) |
+| `find_related_by_semantic(new_note_path, vault_root=None, max_links=5, tag_strs=None, vault=None)` | Returns candidate wikilinks via a `vault-search` subprocess; falls back gracefully when `vault_search.py` or `embeddings.db` is absent. `vault_root` is a deprecated alias for `vault` |
+| `inject_related_links(note_path, new_links)` | Adds `[[wikilinks]]` to the `related` frontmatter field of `note_path`, skipping duplicates; atomic write |
+| `add_backlinks_to_existing(new_note_path, related_notes, vault_notes=None, vault=None)` | For each `[[stem]]` in `related_notes`, locates the corresponding note file and injects a back-reference to `new_note_path` via `inject_related_links()`. Pass `vault_notes` to avoid a per-call vault walk (ARC-010) |
 
 **Design:** stdlib-only for maximum portability. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent.
 
@@ -1011,7 +1011,7 @@ The default vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrad
 
 ## Configuration
 
-All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all defaults documented is shipped at `templates/config.yaml` and copied to the vault during installation. An optional `config.local.yaml` overlay (same vault directory, always gitignored by the installer) is deep-merged over `config.yaml` section-by-section, so secrets or machine-specific overrides can live in the local-only file while a secret-free `config.yaml` is git-synced (or vice versa). The pi adapter extension may inspect `anthropic_env` for `/parsidion` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
+All hooks and the summarizer support a centralized configuration file at `~/ParsidionVault/config.yaml`. A reference template with all options documented is shipped at `templates/config.yaml`; copy it into the vault to get started (`cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml`). The installer does **not** copy the template automatically — it only writes individual keys into an existing `config.yaml` (for `--enable-ai`, `--enable-embeddings`, `--vault-username`, etc.). A missing `config.yaml` is a normal state: every option has a built-in default, and the file is created on first use of those flags. An optional `config.local.yaml` overlay (same vault directory, always gitignored by the installer) is deep-merged over `config.yaml` section-by-section, so secrets or machine-specific overrides can live in the local-only file while a secret-free `config.yaml` is git-synced (or vice versa). The pi adapter extension may inspect `anthropic_env` for `/parsidion` status display, but it does not apply runtime overrides itself; Python remains the runtime authority.
 
 **Precedence:** script defaults → `config.yaml` → `config.local.yaml` → CLI arguments.
 
@@ -1089,12 +1089,12 @@ git:
 anthropic_env:       # Optional: Anthropic-compatible transport settings
   ANTHROPIC_API_KEY: null
   ANTHROPIC_AUTH_TOKEN: null
-  ANTHROPIC_BASE_URL: null   # Override API base URL
+  ANTHROPIC_BASE_URL: null   # null = the real Anthropic endpoint; set to route through a gateway
   ANTHROPIC_CUSTOM_HEADERS: null
-  ANTHROPIC_DEFAULT_HAIKU_MODEL: null
-  ANTHROPIC_DEFAULT_SONNET_MODEL: null
-  ANTHROPIC_DEFAULT_OPUS_MODEL: null
-  API_TIMEOUT_MS: null
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001   # null = the API's own haiku-tier default
+  ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-6          # null = the API's own sonnet-tier default
+  ANTHROPIC_DEFAULT_OPUS_MODEL: null                         # null = the API's own opus-tier default
+  API_TIMEOUT_MS: 3000000
   HTTPS_PROXY: null
   HTTP_PROXY: null
 
@@ -1258,7 +1258,7 @@ parsidion/
 │   ├── MCPL.md                      # MCP Launchpad integration
 │   ├── VAULT_SYNC.md                # Multi-machine vault sync guide
 │   ├── README.md                    # Documentation index
-│   ├── ideas.md                     # Feature ideas and planning
+│   ├── CLAUDE.md                    # Doc-folder AI guidance
 │   └── superpowers/                 # Superpowers skill documentation
 ├── agents/
 │   ├── research-agent.md
@@ -1393,7 +1393,7 @@ parsidion/
 ~/ParsidionVault/                       # Markdown vault (open in Obsidian for graph view — optional)
 ├── .obsidian/
 │   └── graph.json                   # Graph view color config
-├── config.yaml                      # User config (copied from templates/config.yaml)
+├── config.yaml                      # User config (copy templates/config.yaml here to override defaults; installer writes only individual keys, not the file)
 ├── CLAUDE.md                        # Auto-generated lean index (stats, conventions, recent activity, folder pointers)
 ├── TAGS.md                          # Auto-generated full tag cloud + tag list (for summarizer tag reuse)
 ├── embeddings.db                    # SQLite: note_embeddings (vectors) + note_index (metadata)

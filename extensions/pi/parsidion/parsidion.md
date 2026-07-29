@@ -17,10 +17,13 @@ From the `parsidion` repo root:
 Manual install (without helper):
 
 ```bash
-mkdir -p ~/.pi/agent/extensions
+mkdir -p ~/.pi/agent/extensions/lib
 cp extensions/pi/parsidion/parsidion.ts ~/.pi/agent/extensions/parsidion.ts
 cp extensions/pi/parsidion/parsidion.md ~/.pi/agent/extensions/parsidion.md
+cp extensions/pi/parsidion/lib/parsidion-status.ts ~/.pi/agent/extensions/lib/parsidion-status.ts
 ```
+
+The third copy is required: `parsidion.ts` imports `./lib/parsidion-status`, so omitting `lib/parsidion-status.ts` produces a broken extension that fails to load.
 
 If the extension cannot find Parsidion scripts automatically, set one of:
 

@@ -90,19 +90,19 @@ graph TB
     end
 
     subgraph "Index Builders"
-        BE[build_embeddings.py\nVector builder]
-        IDX[update_index.py\nMetadata builder]
-        MODEL[BAAI/bge-small-en-v1.5\nfastembed · 384-dim · CPU]
+        BE[build_embeddings.py<br/>Vector builder]
+        IDX[update_index.py<br/>Metadata builder]
+        MODEL[BAAI/bge-small-en-v1.5<br/>fastembed · 384-dim · CPU]
     end
 
     subgraph "Storage"
-        DB[(embeddings.db\nnote_embeddings + note_index)]
+        DB[(embeddings.db<br/>note_embeddings + note_index)]
     end
 
     subgraph "Search Layer"
-        VS[vault_search.py\nSemantic + metadata search]
-        VI[vault_index.py\nquery_note_index]
-        VC[vault_common.py\nRe-export facade]
+        VS[vault_search.py<br/>Semantic + metadata search]
+        VI[vault_index.py<br/>query_note_index]
+        VC[vault_common.py<br/>Re-export facade]
     end
 
     subgraph "Consumers"
@@ -244,7 +244,8 @@ uv run ~/.claude/skills/parsidion/scripts/vault_search.py -f Debugging --as-of 2
 ### Querying via Python
 
 ```python
-import sys; sys.path.insert(0, '~/.claude/skills/parsidion/scripts')
+import os, sys
+sys.path.insert(0, os.path.expanduser('~/.claude/skills/parsidion/scripts'))
 import vault_common
 
 # DB-first: returns None if DB absent (signal to fall back to file walk)
@@ -253,7 +254,7 @@ if paths is None:
     paths = vault_common.find_notes_by_tag("python")  # file walk fallback
 ```
 
-The four `find_notes_by_*` functions in `vault_common` already apply this pattern automatically.
+`sys.path.insert` does not expand `~` — `os.path.expanduser` (or a `Path.home()`-built string) is required. The three `find_notes_by_*` helpers in `vault_common` (`find_notes_by_tag`, `find_notes_by_project`, `find_notes_by_type`) apply this DB-first-then-walk pattern automatically.
 
 ### Relationship to Embeddings
 
@@ -612,17 +613,18 @@ vault, while preserving full coverage for novel topics.
 `update_index.py` automatically triggers an incremental embeddings rebuild in the background
 after every vault index regeneration:
 
-```
+```text
 Note written → update_index.py runs → embeddings rebuild launched (background)
 ```
 
 This means `embeddings.db` stays current without any manual intervention. The rebuild is
 fire-and-forget: `update_index.py` returns immediately and the embedding runs in a separate
-process. Only new or changed notes are re-embedded — a typical post-session rebuild takes
-a few seconds for a handful of new notes.
-
-The automatic rebuild is skipped silently when `embeddings.db` does not yet exist. To create
-the database for the first time, run `build_embeddings.py` manually (see [Quick Start](#quick-start)).
+process. The spawned `build_embeddings.py` picks **incremental** mode when `embeddings.db`
+already exists (only new or changed notes — a typical post-session rebuild takes a few
+seconds for a handful of new notes) and **full** mode when the database does not yet exist,
+so the first rebuild bootstraps the file rather than skipping silently. If you need a clean
+rebuild from scratch, delete `embeddings.db` and re-run `update_index.py`, or invoke
+`build_embeddings.py` directly (see [Quick Start](#quick-start)).
 
 In the same pass, `update_index.py` also kicks a detached `par-mem index` so the code-memory
 graph stays current. That kick is independent of `embeddings.enabled` because par-mem maintains

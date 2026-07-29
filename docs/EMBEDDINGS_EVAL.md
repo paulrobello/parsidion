@@ -83,8 +83,8 @@ The harness is split across five modules:
 flowchart TD
     subgraph Phase1["Phase 1 — Ground Truth Generation"]
         VN[Vault Notes]
-        SAMPLE[Sample N notes\nexcluding Daily]
-        CLAUDE[prompt AI backend\nK queries per note]
+        SAMPLE[Sample N notes<br/>excluding Daily]
+        CLAUDE[prompt AI backend<br/>K queries per note]
         YAML[(embed_eval_queries.yaml)]
 
         VN --> SAMPLE
@@ -94,7 +94,7 @@ flowchart TD
 
     subgraph Phase2["Phase 2 — Evaluation Matrix"]
         YAML2[(embed_eval_queries.yaml)]
-        TPE[ThreadPoolExecutor\none thread per model]
+        TPE[ThreadPoolExecutor<br/>one thread per model]
 
         subgraph M1["Model Thread 1"]
             M1W[whole]
@@ -114,7 +114,7 @@ flowchart TD
             M3S[sliding_512_128]
         end
 
-        METRICS[Metrics per combo\nRecall@1/5/K · MRR · Q/s · Chunks]
+        METRICS[Metrics per combo<br/>Recall@1/5/K · MRR · Q/s · Chunks]
         JSON[(embed_eval_YYYYMMDD_HHMMSS.json)]
         HTML[(embed_eval_YYYYMMDD_HHMMSS.html)]
         TABLE[Rich Terminal Table]
@@ -129,28 +129,24 @@ flowchart TD
 
     Phase1 --> Phase2
 
-    style VN fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style SAMPLE fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style CLAUDE fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style YAML fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style YAML2 fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style TPE fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style M1 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style M2 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style M3 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style M1W fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M1P fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M1S fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M2W fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M2P fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M2S fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M3W fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M3P fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style M3S fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style METRICS fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
-    style JSON fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style HTML fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style TABLE fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef metrics fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef warning fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+
+    class VN,SAMPLE,M1W,M1P,M1S,M2W,M2P,M2S,M3W,M3P,M3S neutral
+    class CLAUDE external
+    class YAML,YAML2,JSON,HTML data
+    class TPE primary
+    class M1,M2,M3 active
+    class METRICS metrics
+    class TABLE warning
+
 ```
 
 **Data flow summary:**
@@ -279,8 +275,8 @@ significant saving for larger models that take several seconds to initialize.
 
 ```mermaid
 flowchart LR
-    GT[(Ground Truth\nYAML)]
-    TPE[ThreadPoolExecutor\n--workers N]
+    GT[(Ground Truth<br/>YAML)]
+    TPE[ThreadPoolExecutor<br/>--workers N]
 
     subgraph T1["Thread: bge-small"]
         direction TB
@@ -312,23 +308,21 @@ flowchart LR
     GT --> TPE
     TPE --> T1 & T2 & T3
 
-    style GT fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style TPE fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style T1 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style T2 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style T3 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style L1 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style L2 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style L3 fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S1A fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S1B fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S1C fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S2A fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S2B fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S2C fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S3A fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S3B fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style S3C fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef metrics fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    classDef data fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef warning fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+
+    class GT data
+    class TPE primary
+    class T1,T2,T3 active
+    class L1,L2,L3,S1A,S1B,S1C,S2A,S2B,S2C,S3A,S3B,S3C neutral
+
 ```
 
 ### Per-Combo Flow
