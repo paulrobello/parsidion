@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
 import { runScript, ScriptFailedError } from '@/lib/runScript'
+import { findNote } from '@/lib/findNote'
 
-function findNote(dir: string, stemToFind: string): string | null {
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        const found = findNote(full, stemToFind)
-        if (found) return found
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        if (entry.name.replace(/\.md$/, '') === stemToFind) return full
-      }
-    }
-  } catch { /* skip */ }
-  return null
-}
+// QA-006: findNote now imported from @/lib/findNote (async). The previous
+// sync readdirSync copy blocked the event loop on every diff request.
 
 const MAX_DIFF_LINES = 5000
 
@@ -53,7 +39,7 @@ export const GET = withApi(async (req: NextRequest) => {
   // Prefer explicit vault-relative path (avoids stem collision for MANIFEST.md etc.)
   const notePath = notePathParam
     ? path.join(vaultRoot, notePathParam)
-    : findNote(vaultRoot, stem!)
+    : await findNote(vaultRoot, stem!)
   if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 
   if (!guardPath(notePath, vaultRoot)) {

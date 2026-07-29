@@ -3,28 +3,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import { resolveVault, guardPath } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
+import { findNote } from '@/lib/findNote'
 
-// QA-006: Replaced all synchronous fs calls with async fs.promises equivalents.
-// findNote is now async to avoid blocking the Node.js event loop during
-// recursive directory walks.
-
-async function findNote(dir: string, stemToFind: string): Promise<string | null> {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        const found = await findNote(full, stemToFind)
-        if (found) return found
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        const fileStem = entry.name.replace(/\.md$/, '')
-        if (fileStem === stemToFind) return full
-      }
-    }
-  } catch { /* skip unreadable dirs */ }
-  return null
-}
+// QA-006: findNote moved to lib/findNote.ts so note/, note/history/, and
+// note/diff/ share one async implementation. The previous triplicated copies
+// had already diverged once (the first async conversion only updated this
+// file); centralising prevents the next drift.
 
 export const GET = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')

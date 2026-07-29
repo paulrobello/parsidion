@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
+import fs from 'fs/promises'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
 import { runScript, ScriptFailedError } from '@/lib/runScript'
+import { findNote } from '@/lib/findNote'
 import type { CommitEntry } from '@/lib/types'
 
 // Re-export for backward compatibility — existing imports from
@@ -11,28 +12,15 @@ import type { CommitEntry } from '@/lib/types'
 // should import from '@/lib/types' directly. ARC-041.
 export type { CommitEntry }
 
-function findNote(dir: string, stemToFind: string): string | null {
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        const found = findNote(full, stemToFind)
-        if (found) return found
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        if (entry.name.replace(/\.md$/, '') === stemToFind) return full
-      }
-    }
-  } catch { /* skip */ }
-  return null
-}
+// QA-006: findNote now imported from @/lib/findNote (async). The previous
+// sync readdirSync copy blocked the event loop on every history request.
+// QA-018: rename notPathParam → notePathParam to match diff/route.ts.
 
 export const GET = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')
-  const notPathParam = req.nextUrl.searchParams.get('path')
+  const notePathParam = req.nextUrl.searchParams.get('path')
   const vault = req.nextUrl.searchParams.get('vault')
-  if (!stem && !notPathParam) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
+  if (!stem && !notePathParam) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
 
   let vaultRoot: string
   try {
@@ -44,9 +32,9 @@ export const GET = withApi(async (req: NextRequest) => {
     return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
   }
   // Prefer explicit vault-relative path (avoids stem collision for MANIFEST.md etc.)
-  const notePath = notPathParam
-    ? path.join(vaultRoot, notPathParam)
-    : findNote(vaultRoot, stem!)
+  const notePath = notePathParam
+    ? path.join(vaultRoot, notePathParam)
+    : await findNote(vaultRoot, stem!)
   if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 
   if (!guardPath(notePath, vaultRoot)) {
@@ -55,7 +43,9 @@ export const GET = withApi(async (req: NextRequest) => {
 
   // Check git is available
   const gitDir = path.join(vaultRoot, '.git')
-  if (!fs.existsSync(gitDir)) {
+  try {
+    await fs.access(gitDir)
+  } catch {
     return NextResponse.json({ commits: [] })
   }
 
