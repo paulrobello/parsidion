@@ -558,7 +558,7 @@ export function HUDPanel({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <span style={{ color: '#6B7A99', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>Force Layout</span>
-                <Tip text="ForceAtlas2 physics simulation. Runs continuously until paused or converged." />
+                <Tip text="Newtonian physics simulation (gravity + Coulomb repulsion + Hooke attraction). Runs continuously until paused or converged." />
               </div>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button

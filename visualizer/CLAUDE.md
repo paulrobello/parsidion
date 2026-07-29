@@ -55,7 +55,7 @@ for the analysis behind the migration.
   bridges `graph:rebuilt` events from `lib/vaultBroadcast.server.ts`
 - **`app/`** — Next.js App Router pages
 - **`components/`** — React components; sigma.js canvas rendering lives here
-- **`lib/`** — graph layout utilities (graphology + ForceAtlas2)
+- **`lib/`** — graph layout utilities (graphology + custom Newtonian physics loop in `useForceLayout.ts`; does NOT use ForceAtlas2 despite the legacy `Force Layout` HUD label)
 - **`{vault}/graph.json`** — vault graph snapshot (nodes = notes, edges = wikilinks)
 
 ## Key Dependencies
@@ -64,6 +64,5 @@ for the analysis behind the migration.
 |---|---|
 | `sigma` | WebGL graph rendering |
 | `graphology` | Graph data structure |
-| `graphology-layout-forceatlas2` | Force-directed layout |
 | `next` | React framework (App Router) |
 | `chokidar` | File-watching for live reload |
