@@ -119,6 +119,74 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
     ]
 
 
+def test_build_prompt_loads_template_and_substitutes_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ARC-029: build_prompt loads note_writing.txt as a string.Template and
+    substitutes every placeholder. No ``$token`` should leak through to the
+    rendered prompt, and the dynamically-built tag/dedup blocks must appear."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Empty similar_notes -> no dedup block; existing_tags -> "STRONGLY prefer" branch.
+    prompt = summarize_sessions.build_prompt(
+        project="parsidion",
+        categories=["testing", "refactor"],
+        cleaned_transcript="transcript body goes here",
+        existing_tags=["python", "hook"],
+        session_id="abc-123",
+        similar_notes=None,
+    )
+    # All template substitutions resolved — no leftover $placeholders.
+    assert "$" not in prompt, f"unfilled template placeholder: {prompt}"
+    # Static anchor lines from the template survived intact.
+    assert "SYSTEM: You are a vault-note-writing API." in prompt
+    assert "Project: parsidion" in prompt
+    assert "session_id: abc-123" in prompt
+    # ARC-010: valid_types interpolated from the _VALID_NOTE_TYPES constant,
+    # so 'knowledge' must appear (it was previously missing — see ARC-010).
+    assert "knowledge" in prompt
+    # ARC-029: tag-rules instruction came from _render_tags_instruction; the
+    # STRONGLY-prefer branch fires when existing_tags is non-empty.
+    assert "STRONGLY prefer existing tags: python, hook" in prompt
+    # The shared kebab-case rule is present in BOTH branches via the helper.
+    assert "NEVER use underscores — always kebab-case" in prompt
+    # No dedup_block when similar_notes is None/empty.
+    assert "IMPORTANT: The following existing vault notes" not in prompt
+
+
+def test_build_prompt_renders_dedup_block_when_similar_notes_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ARC-029: the dedup block (now built by _render_dedup_block) still
+    injects correctly when similar_notes is provided."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    similar = [("existing-note", 0.91, "summary of existing note")]
+    prompt = summarize_sessions.build_prompt(
+        project="parsidion",
+        categories=["x"],
+        cleaned_transcript="body",
+        existing_tags=[],
+        session_id="sid-1",
+        similar_notes=similar,
+    )
+    assert "IMPORTANT: The following existing vault notes" in prompt
+    assert "[[existing-note]] (similarity 0.91)" in prompt
+    # JSON example with literal braces is preserved verbatim (string.Template).
+    assert '"decision": "merge"' in prompt
+
+
+def test_load_prompt_template_caches_per_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ARC-029: _load_prompt_template caches the parsed Template so a
+    summarizer run with N entries reads each prompt file once."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Clear any cache inherited from an earlier import.
+    summarize_sessions._PROMPT_TEMPLATE_CACHE.clear()
+    a1 = summarize_sessions._load_prompt_template("note_writing.txt")
+    a2 = summarize_sessions._load_prompt_template("note_writing.txt")
+    assert a1 is a2, "template not cached across calls"
+
+
 def test_summarize_chunk_uses_small_tier_backend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
