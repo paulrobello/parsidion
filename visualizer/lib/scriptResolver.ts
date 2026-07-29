@@ -1,4 +1,10 @@
 // lib/scriptResolver.ts
+// Resolves paths under the user's installed skills directory or source repo.
+// Server-only: the resolved paths are only meaningful to subprocess-spawning
+// server code (searchServer, vaultStatsServer, graph/rebuild route), and the
+// resolver itself touches `fs.existsSync`. ARC-041.
+import 'server-only'
+
 import path from 'path'
 import fs from 'fs'
 

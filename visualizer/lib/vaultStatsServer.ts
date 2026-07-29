@@ -7,6 +7,11 @@
 // exit code in parsidion-summarizer-visualizer.json so a crash (stale progress file, dead
 // PID) is distinguishable from a long in-progress run, and so runs started from the CLI
 // (no recorded PID) are still detected via progress-file freshness.
+//
+// ARC-041: structural server-only guard. See lib/vaultResolver.ts for the
+// rationale; the same hazard applies here (spawns `uv`).
+import 'server-only'
+
 import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'

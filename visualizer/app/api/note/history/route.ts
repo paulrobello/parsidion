@@ -4,6 +4,12 @@ import fs from 'fs'
 import path from 'path'
 import { resolveVault, VaultConfigError, guardPath } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
+import type { CommitEntry } from '@/lib/types'
+
+// Re-export for backward compatibility — existing imports from
+// '@/app/api/note/history/route' (type-only) keep working. New consumers
+// should import from '@/lib/types' directly. ARC-041.
+export type { CommitEntry }
 
 function findNote(dir: string, stemToFind: string): string | null {
   try {
@@ -20,13 +26,6 @@ function findNote(dir: string, stemToFind: string): string | null {
     }
   } catch { /* skip */ }
   return null
-}
-
-export interface CommitEntry {
-  hash: string
-  shortHash: string
-  date: string
-  message: string
 }
 
 export const GET = withApi(async (req: NextRequest) => {

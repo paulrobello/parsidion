@@ -5,7 +5,7 @@ import { CommitList } from './CommitList'
 import { DiffViewer } from './DiffViewer'
 import type { DiffMode } from './DiffViewer'
 import { parseDiff } from '@/lib/parseDiff'
-import type { CommitEntry } from '@/app/api/note/history/route'
+import type { CommitEntry } from '@/lib/types'
 import type { NoteNode } from '@/lib/graph'
 
 interface Props {

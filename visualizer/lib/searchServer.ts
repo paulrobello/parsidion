@@ -2,6 +2,10 @@
 // Mirrors the graph-rebuild/vaultStatsServer subprocess pattern: parsidion's
 // Python layer owns backend selection (par-mem daemon → embeddings fallback);
 // this module never implements search or backend logic itself.
+//
+// ARC-041: structural server-only guard — this module spawns subprocesses.
+import 'server-only'
+
 import { spawn } from 'child_process'
 import path from 'path'
 import { findParsidionScript } from './scriptResolver'

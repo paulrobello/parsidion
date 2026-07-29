@@ -1,0 +1,8 @@
+[test]
+# ARC-041: preload a stub for the `server-only` marker package so that modules
+# guarded by `import 'server-only'` (vaultResolver, vaultStatsServer,
+# scriptResolver, searchServer — and every API route.ts that imports them) can
+# be loaded by `bun test` for enumeration/shape assertions. `next build` still
+# enforces the real client/server boundary at bundle time, which is the actual
+# guarantee the guard provides.
+preload = ["./bun.test.setup.ts"]

@@ -6,6 +6,14 @@
 // vault_common.py:resolve_vault().  Both implementations must stay in sync.
 // Long-term plan: serve vault resolution through the parsidion-mcp server
 // so only the Python implementation is canonical.  See AUDIT.md [QA-012].
+//
+// ARC-041: `import 'server-only'` makes the server-only-ness structural
+// rather than convention-enforced. Next.js swaps this import for a throw at
+// bundle time when a Client Component graph pulls this file in, so dropping
+// the `import type` keyword in a client component can no longer silently
+// drag `fs` (or, transitively via route.ts files, `child_process`) into the
+// browser bundle.
+import 'server-only'
 
 import fs from 'fs'
 import os from 'os'

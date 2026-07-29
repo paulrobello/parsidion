@@ -1,6 +1,6 @@
 'use client'
 
-import type { CommitEntry } from '@/app/api/note/history/route'
+import type { CommitEntry } from '@/lib/types'
 
 interface Props {
   commits: CommitEntry[]
