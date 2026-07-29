@@ -291,10 +291,14 @@ def test_merge_with_unresolvable_target_fails_with_real_reason(
     assert written is None  # failure form: preserved for retry, attempts-capped
     err = capsys.readouterr().err
     assert "merge target [[missing-note]] could not be resolved" in err
-    assert (
-        entry[mod._FAILURE_REASON_KEY]
-        == "merge target [[missing-note]] could not be resolved"
-    )
+    # ARC-030: _FAILURE_REASON_KEY is now a structured record carrying the
+    # classified kind + retryable flag (non-retryable for merge-unresolvable)
+    # rather than a free-text string.
+    record = entry[mod._FAILURE_REASON_KEY]
+    assert isinstance(record, dict)
+    assert record["kind"] == "merge_unresolvable"
+    assert record["retryable"] is False
+    assert "merge target [[missing-note]] could not be resolved" in record["detail"]
 
 
 def test_merge_with_missing_fields_fails_with_real_reason(
@@ -318,9 +322,12 @@ def test_merge_with_missing_fields_fails_with_real_reason(
     assert written is None
     err = capsys.readouterr().err
     assert "merge decision missing target or new_content" in err
-    assert entry[mod._FAILURE_REASON_KEY] == (
-        "merge decision missing target or new_content"
-    )
+    # ARC-030: structured record, classified merge_malformed (non-retryable).
+    record = entry[mod._FAILURE_REASON_KEY]
+    assert isinstance(record, dict)
+    assert record["kind"] == "merge_malformed"
+    assert record["retryable"] is False
+    assert record["detail"] == "merge decision missing target or new_content"
 
 
 # ---------------------------------------------------------------------------

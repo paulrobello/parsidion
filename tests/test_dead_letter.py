@@ -471,3 +471,94 @@ def test_no_dead_letter_notice_when_file_absent(
     context, _count = session_start_hook.build_session_context(cwd=str(vault))
 
     assert "dead-lettered" not in context
+
+
+# ---------------------------------------------------------------------------
+# ARC-030: non-retryable failures dead-letter on attempt 1
+# ---------------------------------------------------------------------------
+
+
+def test_arc030_non_retryable_failure_dead_letters_on_attempt_1(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A failure marked retryable=False must dead-letter on the FIRST attempt,
+    not after _MAX_ATTEMPTS retries. Re-billing an AI call to re-derive the
+    same validation failure wastes money and re-touches the same target note."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    # Fresh entry with no prior attempts counter.
+    _write_pending(pending, [{"session_id": "v1", "project": "p"}])
+
+    # Structured record carrying retryable=False (the shape produced by
+    # _mark_failure for FailureReason.MERGE_VALIDATION).
+    failed = {
+        "v1": {
+            "kind": "merge_validation",
+            "retryable": False,
+            "detail": "Note has no YAML frontmatter block",
+        }
+    }
+
+    mod.remove_processed(pending, [], failed=failed)
+
+    dead_letter_path = tmp_path / "dead_letters.jsonl"
+    assert dead_letter_path.exists(), (
+        "non-retryable failure must dead-letter immediately"
+    )
+    record = json.loads(dead_letter_path.read_text(encoding="utf-8").splitlines()[0])
+    assert record["session_id"] == "v1"
+    # attempts=1 (the dead-letter write captures the current attempt count)
+    assert record["attempts"] == 1
+    # The structured detail surfaces in last_failure for human inspection.
+    assert "merge_validation" in record["last_failure"]
+    assert "no YAML frontmatter" in record["last_failure"]
+    # Entry was purged from the queue.
+    assert _read_pending_lines(pending) == []
+    err = capsys.readouterr().err
+    assert "non-retryable" in err
+
+
+def test_arc030_retryable_failure_still_uses_attempts_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A retryable=True failure must still wait for _MAX_ATTEMPTS before being
+    dead-lettered (preserves the existing behavior for transient errors)."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    _write_pending(pending, [{"session_id": "r1", "project": "p"}])
+
+    failed = {
+        "r1": {
+            "kind": "ai_backend_error",
+            "retryable": True,
+            "detail": "connection reset",
+        }
+    }
+    mod.remove_processed(pending, [], failed=failed)
+
+    # NOT dead-lettered yet — entry remains in queue with attempts=1.
+    assert not (tmp_path / "dead_letters.jsonl").exists()
+    remaining = _read_pending_lines(pending)
+    assert len(remaining) == 1
+    record = json.loads(remaining[0])
+    assert record["attempts"] == 1
+
+
+def test_arc030_legacy_string_failure_treated_as_retryable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Entries queued by pre-ARC-030 code carry a plain-string failure reason
+    and no retryable field. These must continue to get the _MAX_ATTEMPTS retry
+    budget rather than being dead-lettered on sight."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    _write_pending(pending, [{"session_id": "legacy1", "project": "p"}])
+
+    failed = {"legacy1": "some legacy reason string"}
+    mod.remove_processed(pending, [], failed=failed)
+
+    assert not (tmp_path / "dead_letters.jsonl").exists()
+    remaining = _read_pending_lines(pending)
+    assert len(remaining) == 1

@@ -27,6 +27,7 @@ vault_links.py.  This file now imports and delegates to that module.
 
 import argparse
 import atexit
+import enum
 import json
 import os
 import re
@@ -142,9 +143,96 @@ def _strip_code_fence(text: str) -> str:
 _FAILURE_REASON_KEY = "_failure_reason"
 
 
-def _mark_failure(entry: dict[str, object], reason: str) -> None:
-    """Record why *entry* failed so the dead-letter purge warning can report it."""
-    entry[_FAILURE_REASON_KEY] = reason
+class FailureReason(enum.Enum):
+    """Classified failure kind for a summarization attempt.
+
+    ARC-030: replaces the free-text ``reason`` string so ``remove_processed``
+    can decide retry-vs-dead-letter from the failure class rather than burning
+    ``_MAX_ATTEMPTS`` AI calls on a deterministic failure. Each member carries
+    ``retryable``: when False, the entry is dead-lettered on the FIRST failed
+    attempt instead of being re-queued.
+
+    Classifications:
+    - Transient (retryable=True): the next run might succeed — network blip,
+      transient FS error, model-side hiccup, or unhandled exception that may
+      not reproduce.
+    - Deterministic (retryable=False): the same model output / config / target
+      will fail the same way on every retry. Re-billing an AI call to re-derive
+      the same failure wastes money and (for merge decisions) re-touches a
+      trusted note. Validation/containment failures also indicate either a code
+      defect or a crafted transcript — both warrant human attention, not silent
+      retries.
+    """
+
+    TRANSCRIPT_READ = ("transcript_read", True)
+    AI_BACKEND_ERROR = ("ai_backend_error", True)
+    NO_RESULT = ("no_result", True)
+    BACKUP_FAILED = ("backup_failed", True)
+    UNHANDLED = ("unhandled", True)
+    MERGE_MALFORMED = ("merge_malformed", False)
+    MERGE_UNRESOLVABLE = ("merge_unresolvable", False)
+    MERGE_VALIDATION = ("merge_validation", False)
+    MERGE_CONTAINMENT = ("merge_containment", False)
+    NOTE_VALIDATION = ("note_validation", False)
+
+    def __init__(self, kind: str, retryable: bool) -> None:
+        self.kind = kind
+        self.retryable = retryable
+
+
+def _mark_failure(
+    entry: dict[str, object],
+    reason: FailureReason,
+    detail: str = "",
+) -> None:
+    """Record why *entry* failed so the dead-letter purge can classify it.
+
+    Stores a structured record under ``_FAILURE_REASON_KEY``:
+    ``{"kind": "merge_validation", "retryable": False, "detail": "..."}``.
+    ``remove_processed`` reads ``retryable`` to decide whether to dead-letter
+    on attempt 1 (deterministic) or after ``_MAX_ATTEMPTS`` retries.
+
+    Args:
+        entry: The pending-queue entry that failed.
+        reason: Classified failure kind (member of :class:`FailureReason`).
+        detail: Optional human-readable detail (exception text, validation
+            error message, etc.) included in the dead-letter warning.
+    """
+    entry[_FAILURE_REASON_KEY] = {
+        "kind": reason.kind,
+        "retryable": reason.retryable,
+        "detail": detail or reason.kind,
+    }
+
+
+def _format_failure_record(record: object, default: str = "unknown failure") -> str:
+    """Render a stored failure record (dict or legacy string) for display.
+
+    Accepts both the structured dict produced by :func:`_mark_failure` and
+    legacy plain-string reasons (e.g. older tests that built the value by
+    hand), so callers downstream of the public queue API keep working.
+    """
+    if isinstance(record, dict):
+        detail = str(record.get("detail") or record.get("kind") or default)
+        kind = str(record.get("kind") or "")
+        return f"{kind}: {detail}" if kind and kind != detail else detail
+    if isinstance(record, str) and record:
+        return record
+    return default
+
+
+def _failure_record_retryable(record: object) -> bool:
+    """Return whether *record* is retryable. Defaults to True when unknown.
+
+    A legacy plain-string record (no ``retryable`` field) is treated as
+    retryable so old queued entries that pre-date ARC-030 still get the
+    ``_MAX_ATTEMPTS`` retry budget rather than being dead-lettered on sight.
+    """
+    if isinstance(record, dict):
+        value = record.get("retryable")
+        if isinstance(value, bool):
+            return value
+    return True
 
 
 # Progress tracking (#13)
@@ -1364,7 +1452,7 @@ async def summarize_one(
                 f"  Skipping {transcript_path_str}: could not read transcript",
                 file=sys.stderr,
             )
-            _mark_failure(entry, "could not read transcript")
+            _mark_failure(entry, FailureReason.TRANSCRIPT_READ, transcript_path_str)
             return entry, None
 
         # Semantic dedup: find near-duplicate notes before calling the backend
@@ -1403,7 +1491,7 @@ async def summarize_one(
             # QA-009: return None (not _STALE/_SKIPPED) so the queue entry is
             # preserved and retried on the next run. Only purge for known-stale
             # or write-gate-skipped cases.
-            _mark_failure(entry, f"AI backend error: {e}")
+            _mark_failure(entry, FailureReason.AI_BACKEND_ERROR, str(e))
             return entry, None
 
         if not result_text:
@@ -1411,7 +1499,7 @@ async def summarize_one(
                 f"  No result from AI backend for {transcript_path_str}",
                 file=sys.stderr,
             )
-            _mark_failure(entry, "no result from AI backend")
+            _mark_failure(entry, FailureReason.NO_RESULT, transcript_path_str)
             return entry, None
 
         # Write-gate: check if the backend decided this session is not worth
@@ -1442,7 +1530,7 @@ async def summarize_one(
                         if not new_content or not target_wikilink:
                             reason = "merge decision missing target or new_content"
                             print(f"  {reason}", file=sys.stderr)
-                            _mark_failure(entry, reason)
+                            _mark_failure(entry, FailureReason.MERGE_MALFORMED, reason)
                             return entry, None
                         # Extract stem from [[stem]] wikilink
                         target_stem = target_wikilink.strip("[]")
@@ -1455,7 +1543,9 @@ async def summarize_one(
                                 f"merge target [[{target_stem}]] could not be resolved"
                             )
                             print(f"  {reason}", file=sys.stderr)
-                            _mark_failure(entry, reason)
+                            _mark_failure(
+                                entry, FailureReason.MERGE_UNRESOLVABLE, reason
+                            )
                             return entry, None
                         new_content = _normalize_related_field(new_content)
                         new_content, _stripped = vault_links.strip_unresolved_wikilinks(
@@ -1476,7 +1566,11 @@ async def summarize_one(
                                 f"{merge_fm_error}",
                                 file=sys.stderr,
                             )
-                            _mark_failure(entry, f"merge validation: {merge_fm_error}")
+                            _mark_failure(
+                                entry,
+                                FailureReason.MERGE_VALIDATION,
+                                merge_fm_error,
+                            )
                             return entry, None
                         # SEC-107 / SEC-125: containment re-check on the resolved
                         # target so a symlinked or path-traversal target cannot
@@ -1491,7 +1585,9 @@ async def summarize_one(
                                 f"outside vault: {resolved_target}"
                             )
                             print(f"  {reason}", file=sys.stderr)
-                            _mark_failure(entry, reason)
+                            _mark_failure(
+                                entry, FailureReason.MERGE_CONTAINMENT, reason
+                            )
                             return entry, None
                         # SEC-107: back up the existing note before overwriting,
                         # mirroring vault_doctor._backup_note. A failed merge
@@ -1504,7 +1600,9 @@ async def summarize_one(
                                 f"[[{target_stem}]]: {backup_err}",
                                 file=sys.stderr,
                             )
-                            _mark_failure(entry, f"backup failed: {backup_err}")
+                            _mark_failure(
+                                entry, FailureReason.BACKUP_FAILED, str(backup_err)
+                            )
                             return entry, None
                         # SEC-127: atomic write preserves the existing mode and
                         # is crash-safe (the create path uses the same primitive).
@@ -1528,7 +1626,9 @@ async def summarize_one(
         if written is None and not dry_run:
             # write_note already printed the specific refusal (frontmatter
             # validation, daily-note skip, ...) to stderr.
-            _mark_failure(entry, "note validation or write failed")
+            _mark_failure(
+                entry, FailureReason.NOTE_VALIDATION, "write_note returned None"
+            )
 
         # Automated backlink suggestion
         if written is not None:
@@ -1683,7 +1783,7 @@ async def run_all(
                 file=sys.stderr,
             )
             traceback.print_exc()
-            _mark_failure(entry, f"unhandled: {exc}")
+            _mark_failure(entry, FailureReason.UNHANDLED, str(exc))
             result = (entry, None)
 
         results.append(result)
@@ -1899,7 +1999,7 @@ def _prune_dead_letters(vault: Path, retention_days: int) -> int:
 def remove_processed(
     pending_path: Path,
     processed_entries: list[dict[str, object]],
-    failed: dict[str, str] | None = None,
+    failed: dict[str, object] | None = None,
 ) -> None:
     """Remove successfully processed entries from the pending file.
 
@@ -1908,11 +2008,22 @@ def remove_processed(
     (dead-lettered) with a stderr warning so a deterministic failure cannot
     retry — and re-bill an AI call — on every run forever.
 
+    ARC-030: when a failed entry's record carries ``retryable: False`` (a
+    :class:`FailureReason` member marked non-retryable), the entry is
+    dead-lettered on the FIRST failed attempt rather than after _MAX_ATTEMPTS
+    retries — a deterministic model-output failure (MERGE_VALIDATION,
+    NOTE_VALIDATION, MERGE_CONTAINMENT, ...) would re-bill an AI call and
+    re-touch the same target note on every retry, so it should surface
+    immediately as a dead-letter warning instead.
+
     Args:
         pending_path: Path to the pending JSONL file.
         processed_entries: Entries that were successfully processed.
-        failed: Map of session_id/transcript_path key -> last failure reason
-            for entries that failed this run.
+        failed: Map of session_id/transcript_path key -> failure record. The
+            record is the structured dict produced by :func:`_mark_failure`
+            (``{"kind", "retryable", "detail"}``). A legacy plain-string value
+            is still accepted for backward compatibility and treated as
+            retryable.
     """
     if not pending_path.exists():
         return
@@ -1948,21 +2059,26 @@ def remove_processed(
                     if key in processed_ids:
                         continue
                     if key in failed:
+                        record = failed[key]
+                        retryable = _failure_record_retryable(record)
                         raw_attempts = entry.get("attempts")
                         attempts = (
                             raw_attempts if isinstance(raw_attempts, int) else 0
                         ) + 1
-                        if attempts >= _MAX_ATTEMPTS:
+                        # ARC-030: non-retryable failures dead-letter on the
+                        # first attempt; retryable ones wait for _MAX_ATTEMPTS.
+                        dead_letter_now = (not retryable) or attempts >= _MAX_ATTEMPTS
+                        if dead_letter_now:
+                            label = _format_failure_record(record)
                             print(
                                 f"Warning: dead-letter purge of session "
                                 f"{entry.get('session_id') or entry.get('transcript_path', '?')} "
-                                f"(project: {entry.get('project', 'unknown')}) after "
-                                f"{attempts} failed attempts; last failure: {failed[key]}",
+                                f"(project: {entry.get('project', 'unknown')}) "
+                                f"{'(non-retryable) ' if not retryable else f'after {attempts} failed attempts '}"
+                                f"last failure: {label}",
                                 file=sys.stderr,
                             )
-                            _append_dead_letter(
-                                pending_path, entry, attempts, failed[key]
-                            )
+                            _append_dead_letter(pending_path, entry, attempts, label)
                             continue
                         entry["attempts"] = attempts
                         remaining.append(json.dumps(entry))
@@ -2348,11 +2464,17 @@ def main() -> None:
     if not args.dry_run:
         # Remove processed, stale, and write-gate skipped entries from pending
         # file; failed entries get their attempts counter bumped (and are
-        # dead-lettered at _MAX_ATTEMPTS).
+        # dead-lettered at _MAX_ATTEMPTS, or on attempt 1 when the failure is
+        # classified non-retryable — see ARC-030).
         removable = successful_entries + stale_entries + skipped_entries
-        failed_reasons = {
-            str(e.get("session_id") or e.get("transcript_path", "")): str(
-                e.get(_FAILURE_REASON_KEY, "unknown failure")
+        # ARC-030: pass the structured failure record (dict) through to
+        # remove_processed so it can honor the retryable flag. Fall back to
+        # the legacy plain-string shape for entries queued by older code.
+        failed_reasons: dict[str, object] = {
+            str(e.get("session_id") or e.get("transcript_path", "")): (
+                e[_FAILURE_REASON_KEY]
+                if isinstance(e.get(_FAILURE_REASON_KEY), dict)
+                else _format_failure_record(e.get(_FAILURE_REASON_KEY))
             )
             for e in failed_entries
         }

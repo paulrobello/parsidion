@@ -132,9 +132,20 @@ export const GET = withApi(async (req: NextRequest) => {
 
   const encoder = new TextEncoder()
 
+  // ARC-039: hoisted so the cancel() method can run the same cleanup the
+  // abort handler does. `teardownRef` is assigned inside start() once the
+  // closure variables it needs (controller, listeners, timers) exist.
+  let teardownRef: (() => void) | null = null
+
   const stream = new ReadableStream({
     start(controller) {
       let closed = false
+      // ARC-039: keepalive heartbeat. EventSource clients time out after a
+      // short idle window on some proxies (notably nginx's
+      // proxy_read_timeout, default 60s); a periodic `: keepalive\n\n`
+      // comment frame resets that timer without triggering a client-side
+      // message handler. The interval is well under the 60s proxy default.
+      const KEEPALIVE_INTERVAL_MS = 15_000
 
       function send(data: object): void {
         if (closed) return
@@ -145,8 +156,6 @@ export const GET = withApi(async (req: NextRequest) => {
         }
       }
 
-      acquireWatcher(vaultPath, send)
-
       // ARC-015 step 5: forward the broadcast payload (which carries the
       // rebuilt vault path) so SSE subscribers scoped to a different vault
       // can no-op instead of refetching. The legacy payload (no argument)
@@ -155,11 +164,15 @@ export const GET = withApi(async (req: NextRequest) => {
         if (payload && payload.vault && payload.vault !== vaultPath) return
         send({ type: 'graph:rebuilt', vault: payload?.vault ?? vaultPath })
       }
-      vaultBroadcast.on('graph:rebuilt', onRebuilt)
 
-      req.signal.addEventListener('abort', () => {
+      // Defined later (after keepaliveTimer); the teardown closure captures
+      // it by reference, so the `let` binding must exist first.
+      let keepaliveTimer: ReturnType<typeof setInterval> | null = null
+
+      function teardown(): void {
         if (closed) return
         closed = true
+        if (keepaliveTimer !== null) clearInterval(keepaliveTimer)
         vaultBroadcast.off('graph:rebuilt', onRebuilt)
         releaseWatcher(vaultPath, send)
         try {
@@ -167,7 +180,35 @@ export const GET = withApi(async (req: NextRequest) => {
         } catch {
           // Already closed.
         }
-      })
+      }
+      teardownRef = teardown
+
+      acquireWatcher(vaultPath, send)
+      vaultBroadcast.on('graph:rebuilt', onRebuilt)
+
+      keepaliveTimer = setInterval(() => {
+        if (closed) return
+        try {
+          // SSE comment frame — clients ignore it but the bytes reset
+          // intermediary idle timers.
+          controller.enqueue(encoder.encode(': keepalive\n\n'))
+        } catch {
+          // Controller closed mid-write; tear down so we don't keep firing.
+          teardown()
+        }
+      }, KEEPALIVE_INTERVAL_MS)
+
+      // Client disconnect (fetch/EventSource drop) — the canonical teardown
+      // path. The cancel() hook below is the safety net for streams torn
+      // down through other routes.
+      req.signal.addEventListener('abort', teardown)
+    },
+    cancel() {
+      // ARC-039: stream cancelled directly (e.g. by the runtime pulling the
+      // body away). Release the chokidar watcher and the EventEmitter
+      // listener so they don't leak across reconnects. Without this, a
+      // teardown path that bypassed req.signal would accumulate watchers.
+      teardownRef?.()
     },
   })
 
