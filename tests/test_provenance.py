@@ -11,6 +11,13 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+# ARC-043: migrate_memory.py and migrate_research.py moved from
+# skills/parsidion/scripts/ to tools/. Add the new location to sys.path so
+# the existing test imports keep resolving.
+_TOOLS_DIR = Path(__file__).resolve().parent.parent / "tools"
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
 import vault_new  # noqa: E402
 
 _TEMPLATES_DIR = (
