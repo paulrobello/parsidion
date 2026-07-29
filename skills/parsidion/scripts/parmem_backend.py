@@ -25,6 +25,7 @@ from typing import Any
 
 import vault_common
 import vault_config
+from vault_config import apply_decay_score
 
 _DEFAULT_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
@@ -389,16 +390,16 @@ def _load_note_index_rows(
 def _decayed_score(score: float, mtime: object, vault: Path) -> float:
     """Apply parsidion's temporal decay when enabled and mtime is known.
 
-    Reuses ``vault_search._apply_decay`` (lazy import: vault_search imports
-    this module at its top level, so a top-level import here would cycle).
+    ARC-023: ``apply_decay_score`` now lives on ``vault_config`` (a leaf module
+    this file already depends on), so the previous lazy ``import vault_search``
+    — required because vault_search top-level imports parmem_backend — is gone.
+    The cycle is broken at the import-graph level, not by deferring the import.
     """
     if _config_value("embeddings", "decay_enabled", True, vault=vault) is not True:
         return score
     if not isinstance(mtime, (int, float)) or not mtime:
         return score
-    import vault_search  # lazy — see docstring
-
-    return vault_search._apply_decay(score, float(mtime), time.time())
+    return apply_decay_score(score, float(mtime), time.time())
 
 
 def _result_from_index_row(row: dict[str, Any], score: float) -> dict[str, object]:

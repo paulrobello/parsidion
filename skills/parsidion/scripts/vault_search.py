@@ -28,7 +28,6 @@ field (cosine similarity); metadata results set ``score`` to ``null``.
 
 import argparse
 import json
-import math
 import os
 import re
 import sqlite3
@@ -41,6 +40,7 @@ from typing import Any
 
 import parmem_backend
 import vault_common
+from vault_config import apply_decay_score
 
 _DEFAULT_MODEL: str = vault_common.get_config(
     "embeddings", "model", "BAAI/bge-small-en-v1.5"
@@ -91,31 +91,14 @@ def _pack_vector(vec: list[float]) -> bytes:
 def _apply_decay(score: float, mtime: float, now: float) -> float:
     """Apply temporal decay to a semantic search score.
 
-    Uses exponential decay: score * (min_factor + (1 - min_factor) * e^(-lambda * age_days))
-    where lambda = ln(2) / half_life_days.
-
-    Args:
-        score: Raw cosine similarity score.
-        mtime: File modification time (Unix timestamp).
-        now: Current Unix timestamp.
-
-    Returns:
-        Decay-adjusted score.
+    ARC-023: thin wrapper around ``vault_config.apply_decay_score`` (the
+    canonical implementation moved there to break the vault_search ↔
+    parmem_backend top-level cycle). Kept as a private alias so existing
+    internal call sites and parmem_backend's lazy import (if any older copy of
+    the module still references it) keep resolving during the transition.
+    New code should call ``vault_config.apply_decay_score`` directly.
     """
-    half_life: float = vault_common.get_config(
-        "embeddings",
-        "decay_half_life_days",
-        90.0,
-    )
-    min_factor: float = vault_common.get_config(
-        "embeddings",
-        "decay_min_factor",
-        0.5,
-    )
-    age_days = max(0.0, (now - mtime) / 86400.0)
-    lam = math.log(2) / half_life
-    decay = min_factor + (1.0 - min_factor) * math.exp(-lam * age_days)
-    return score * decay
+    return apply_decay_score(score, mtime, now)
 
 
 def _search_embeddings(
@@ -210,17 +193,114 @@ def _search_embeddings(
 
 _VALID_BACKENDS: frozenset[str] = frozenset({"auto", "par-mem", "embeddings", "none"})
 
-# Name of the backend that served the most recent search() call in this
-# process ("par-mem" | "embeddings" | "none"); read by main() for the --rich
-# backend label. None until search() has run.
-LAST_BACKEND: str | None = None
-
 
 def _configured_search_backend() -> str:
     """Return the validated ``search.backend`` config value (default: auto)."""
     value = vault_common.get_config("search", "backend", "auto")
     normalized = str(value).strip().lower() if value is not None else "auto"
     return normalized if normalized in _VALID_BACKENDS else "auto"
+
+
+# ARC-031: ``SearchResultEnvelope`` replaces the ``global LAST_BACKEND`` module
+# attribute. The global conflated "which backend served the most recent call"
+# into process-wide state, making it unsafe to call ``search()`` concurrently
+# (two threads would clobber each other's backend label) and forcing every
+# caller that wanted the backend to first call ``search()`` and then read the
+# global. The envelope returns both pieces from a single call, and the
+# ``score_kind`` discriminator lets callers apply ``min_score`` correctly
+# (cosines vs RRF rank-fusion values are not comparable on the same scale).
+class SearchResultEnvelope(tuple):
+    """Named-tuple-style envelope: ``(results, backend, score_kind)``.
+
+    ``backend`` is one of ``"par-mem" | "embeddings" | "none"``.
+    ``score_kind`` is ``"cosine"`` for the embeddings backend, ``"rrf"`` for
+    par-mem, and ``None`` when no results were produced (``backend == "none"``).
+    """
+
+    __slots__ = ()
+
+    def __new__(
+        cls,
+        results: list[dict[str, object]],
+        backend: str,
+        score_kind: str | None,
+    ) -> "SearchResultEnvelope":
+        return tuple.__new__(cls, (results, backend, score_kind))
+
+    @property
+    def results(self) -> list[dict[str, object]]:
+        return self[0]  # type: ignore[return-value]
+
+    @property
+    def backend(self) -> str:
+        return self[1]  # type: ignore[return-value]
+
+    @property
+    def score_kind(self) -> str | None:
+        return self[2]  # type: ignore[return-value]
+
+
+def search_with_meta(
+    query: str,
+    top: int = 10,
+    min_score: float = 0.45,
+    model_name: str = _DEFAULT_MODEL,
+    vault: Path | None = None,
+    backend: str | None = None,
+) -> SearchResultEnvelope:
+    """Search the vault and return ``(results, backend, score_kind)``.
+
+    Same routing as :func:`search` (par-mem when available + selected, falling
+    back to embeddings); additionally reports which backend served the call
+    and what its ``score`` field means. Use this when you need to render a
+    backend label, gate on score scale (``min_score`` is meaningful only for
+    ``score_kind == "cosine"``), or call search concurrently.
+
+    Args:
+        query: Natural language query string.
+        top: Maximum number of results to return.
+        min_score: Minimum cosine similarity (embeddings backend only).
+        model_name: fastembed model ID used when the index was built.
+        vault: Optional vault path. Defaults to resolve_vault().
+        backend: ``auto | par-mem | embeddings | none`` override; None reads
+            the ``search.backend`` config key (default ``auto``).
+
+    Returns:
+        A :class:`SearchResultEnvelope` whose ``results`` is the list of dicts
+        with keys: score, stem, title, folder, tags, path, summary, note_type,
+        project, confidence, mtime, related, is_stale, incoming_links (sorted
+        by score descending); ``backend`` names the serving path; and
+        ``score_kind`` discriminates cosine vs RRF.
+    """
+    selected = (backend or "").strip().lower() or _configured_search_backend()
+    if selected not in _VALID_BACKENDS:
+        selected = "auto"
+
+    if selected == "none":
+        return SearchResultEnvelope([], "none", None)
+
+    if selected in ("auto", "par-mem"):
+        available = parmem_backend.resolve_parmem_backend(vault)
+        if available and parmem_backend.ensure_vault_indexed(vault):
+            parmem_results = parmem_backend.parmem_search(query, top_k=top, vault=vault)
+            if parmem_results is not None:
+                return SearchResultEnvelope(parmem_results, "par-mem", "rrf")
+        if selected == "par-mem":
+            # Explicit par-mem: no embeddings fallback (testing/debug affordance).
+            return SearchResultEnvelope([], "par-mem", "rrf")
+
+    embeddings_results = _search_embeddings(
+        query=query, top=top, min_score=min_score, model_name=model_name, vault=vault
+    )
+    return SearchResultEnvelope(embeddings_results, "embeddings", "cosine")
+
+
+# ARC-031 back-compat shim: tests and a couple of callers still read this name
+# to render the --rich backend label. It is set as a side-effect of search()
+# for that narrow purpose; new code should call search_with_meta() instead and
+# read .backend off the envelope. The shim will go away once the remaining
+# readers migrate.
+LAST_BACKEND: str | None = None
 
 
 def search(
@@ -239,6 +319,11 @@ def search(
     the embeddings backend — par-mem RRF scores are rank-fusion values, not
     cosines, and gate by rank/``top`` instead.
 
+    ARC-031: this thin wrapper preserves the list-returning public API by
+    delegating to :func:`search_with_meta` and stamping the deprecated
+    ``LAST_BACKEND`` module attribute. Callers that need the backend or
+    score-kind should call ``search_with_meta()`` directly.
+
     Args:
         query: Natural language query string.
         top: Maximum number of results to return.
@@ -254,30 +339,16 @@ def search(
         is_stale, incoming_links. Sorted by score descending.
     """
     global LAST_BACKEND
-    selected = (backend or "").strip().lower() or _configured_search_backend()
-    if selected not in _VALID_BACKENDS:
-        selected = "auto"
-
-    if selected == "none":
-        LAST_BACKEND = "none"
-        return []
-
-    if selected in ("auto", "par-mem"):
-        available = parmem_backend.resolve_parmem_backend(vault)
-        if available and parmem_backend.ensure_vault_indexed(vault):
-            parmem_results = parmem_backend.parmem_search(query, top_k=top, vault=vault)
-            if parmem_results is not None:
-                LAST_BACKEND = "par-mem"
-                return parmem_results
-        if selected == "par-mem":
-            # Explicit par-mem: no embeddings fallback (testing/debug affordance).
-            LAST_BACKEND = "par-mem"
-            return []
-
-    LAST_BACKEND = "embeddings"
-    return _search_embeddings(
-        query=query, top=top, min_score=min_score, model_name=model_name, vault=vault
+    envelope = search_with_meta(
+        query=query,
+        top=top,
+        min_score=min_score,
+        model_name=model_name,
+        vault=vault,
+        backend=backend,
     )
+    LAST_BACKEND = envelope.backend
+    return envelope.results
 
 
 # ---------------------------------------------------------------------------

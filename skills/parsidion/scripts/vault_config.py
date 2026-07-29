@@ -10,6 +10,7 @@ are re-exported from ``vault_common`` for backward compatibility.
 from __future__ import annotations
 
 import functools
+import math
 import re
 import sys
 from pathlib import Path
@@ -28,6 +29,9 @@ __all__: list[str] = [
     "_load_config_cached",
     "_clear_config_cache",
     "get_config",
+    # Embedding-score temporal decay (ARC-023: leaf location so vault_search
+    # and parmem_backend can both import it top-level without forming a cycle)
+    "apply_decay_score",
     # Config validation
     "validate_config",
     "_CONFIG_SCHEMA",
@@ -340,6 +344,47 @@ def get_config(section: str, key: str, default: Any = None) -> Any:
         if key in section_dict:
             return section_dict[key]
     return default
+
+
+# ---------------------------------------------------------------------------
+# Embedding-score temporal decay
+# ---------------------------------------------------------------------------
+#
+# ARC-023: this helper previously lived on vault_search.py as ``_apply_decay``
+# and was lazy-imported by parmem_backend._decayed_score to avoid the
+# vault_search ↔ parmem_backend top-level import cycle (vault_search imports
+# parmem_backend at module top; parmem_backend needed vault_search._apply_decay).
+# Moving it here — a true leaf module both files already depend on — lets both
+# callers import it at module top level and drops the lazy import.
+
+
+def apply_decay_score(score: float, mtime: float, now: float) -> float:
+    """Apply exponential temporal decay to an embedding/RRF search score.
+
+    Reads ``embeddings.decay_half_life_days`` (default 90) and
+    ``embeddings.decay_min_factor`` (default 0.5) from config. The decay factor
+    is ``min_factor + (1 - min_factor) * e^(-lambda * age_days)`` where
+    ``lambda = ln(2) / half_life_days`` — so a note exactly ``half_life_days``
+    old decays to the midpoint between 1.0 and ``min_factor``.
+
+    Args:
+        score: Raw similarity / RRF score.
+        mtime: Note file modification time (Unix timestamp).
+        now: Reference timestamp (typically ``time.time()``); pass 0.0 to skip
+            decay (used when the caller has already decided decay is disabled).
+
+    Returns:
+        Decay-adjusted score. When ``mtime`` is 0/missing the score is returned
+        unchanged (the original code path that gated on ``if mtime``).
+    """
+    half_life: float = get_config("embeddings", "decay_half_life_days", 90.0)
+    min_factor: float = get_config("embeddings", "decay_min_factor", 0.5)
+    if not mtime:
+        return score
+    age_days = max(0.0, (now - mtime) / 86400.0)
+    lam = math.log(2) / half_life
+    decay = min_factor + (1.0 - min_factor) * math.exp(-lam * age_days)
+    return score * decay
 
 
 # ---------------------------------------------------------------------------
