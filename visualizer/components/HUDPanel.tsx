@@ -89,7 +89,7 @@ interface Props {
 }
 
 export function HUDPanel({
-  threshold, onThresholdChange,
+  threshold: thresholdProp, onThresholdChange,
   graphSource, onGraphSourceChange,
   showOverlayEdges, onToggleOverlayEdges,
   filterNodesBySimilarity, onToggleFilterNodesBySimilarity,
@@ -119,6 +119,32 @@ export function HUDPanel({
   const dragging = useRef(false)
   const dragOffset = useRef({ x: 0, y: 0 })
   const panelRef = useRef<HTMLDivElement>(null)
+
+  // ARC-037: local fast state for the similarity-threshold slider. The
+  // parent's onThresholdChange triggers a graph.clearEdges() + re-add
+  // across 376k edges plus a layout reheat per tick — running that on every
+  // drag tick (60+ Hz during a drag) freezes the UI for ~150 ms each. The
+  // slider updates locally per onChange (responsive), and a 120 ms
+  // debounce coalesces rapid-fire changes into a single parent commit.
+  // The local value syncs from the prop when the parent's value changes
+  // for any other reason (e.g. reset).
+  const [thresholdLocal, setThresholdLocal] = useState(thresholdProp)
+  useEffect(() => { setThresholdLocal(thresholdProp) }, [thresholdProp])
+  const thresholdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (thresholdTimerRef.current !== null) clearTimeout(thresholdTimerRef.current)
+  }, [])
+  const onThresholdSliderChange = useCallback((v: number) => {
+    setThresholdLocal(v)
+    if (thresholdTimerRef.current !== null) clearTimeout(thresholdTimerRef.current)
+    thresholdTimerRef.current = setTimeout(() => {
+      thresholdTimerRef.current = null
+      onThresholdChange(v)
+    }, 120)
+  }, [onThresholdChange])
+  // The display value uses the local state so the slider thumb tracks the
+  // mouse smoothly even before the parent commits.
+  const threshold = thresholdLocal
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     dragging.current = true
@@ -409,7 +435,7 @@ export function HUDPanel({
               <input
                 type="range" min={0.60} max={0.99} step={0.01}
                 value={threshold}
-                onChange={e => onThresholdChange(parseFloat(e.target.value))}
+                onChange={e => onThresholdSliderChange(parseFloat(e.target.value))}
                 style={{ width: '100%', accentColor: '#00FFC8', cursor: 'pointer' }}
               />
             </div>

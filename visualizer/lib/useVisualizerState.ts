@@ -5,6 +5,7 @@ import { useLocalStorage } from '@/lib/useLocalStorage'
 import type { GraphData, GraphSource, NoteNode } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
 import { TYPE_COLORS, EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
+import { computeBetweenness } from '@/lib/betweenness'
 
 const SIM_DEFAULTS = {
   scalingRatio: 10,
@@ -20,58 +21,6 @@ const MAX_TABS = 20
 export interface TabInfo {
   stem: string
   node: NoteNode
-}
-
-function computeBetweenness(nodes: string[], wikiAdj: Map<string, string[]>): Map<string, number> {
-  const bc = new Map<string, number>()
-  for (const n of nodes) bc.set(n, 0)
-
-  for (const s of nodes) {
-    const stack: string[] = []
-    const pred = new Map<string, string[]>()
-    for (const n of nodes) pred.set(n, [])
-    const sigma = new Map<string, number>()
-    for (const n of nodes) sigma.set(n, 0)
-    sigma.set(s, 1)
-    const dist = new Map<string, number>()
-    for (const n of nodes) dist.set(n, -1)
-    dist.set(s, 0)
-    const queue: string[] = [s]
-
-    while (queue.length > 0) {
-      const v = queue.shift()!
-      stack.push(v)
-      for (const w of (wikiAdj.get(v) ?? [])) {
-        if (dist.get(w) === -1) {
-          queue.push(w)
-          dist.set(w, dist.get(v)! + 1)
-        }
-        if (dist.get(w) === dist.get(v)! + 1) {
-          sigma.set(w, sigma.get(w)! + sigma.get(v)!)
-          pred.get(w)!.push(v)
-        }
-      }
-    }
-
-    const delta = new Map<string, number>()
-    for (const n of nodes) delta.set(n, 0)
-    while (stack.length > 0) {
-      const w = stack.pop()!
-      for (const v of (pred.get(w) ?? [])) {
-        const ratio = (sigma.get(v)! / sigma.get(w)!) * (1 + delta.get(w)!)
-        delta.set(v, delta.get(v)! + ratio)
-      }
-      if (w !== s) bc.set(w, bc.get(w)! + delta.get(w)!)
-    }
-  }
-
-  // Normalize to [2, 14]
-  let maxVal = 0
-  for (const v of bc.values()) if (v > maxVal) maxVal = v
-  if (maxVal === 0) maxVal = 1
-  const result = new Map<string, number>()
-  for (const [id, val] of bc) result.set(id, 2 + (val / maxVal) * 12)
-  return result
 }
 
 export interface GraphStats {
