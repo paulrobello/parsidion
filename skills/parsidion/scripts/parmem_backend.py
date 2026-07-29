@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import signal
 import sqlite3
 import subprocess
 import time
@@ -25,6 +24,7 @@ from typing import Any
 
 import vault_common
 import vault_config
+from subproc_util import run_with_pgkill
 from vault_config import apply_decay_score
 
 _DEFAULT_BINARY = "par-mem"
@@ -158,50 +158,20 @@ def _run_parmem(
     those cases (the process never finished), so callers logging failure
     detail should only look at ``proc.stderr`` when ``proc`` is not None.
 
-    Uses a new session + process-group kill on timeout (the ai_backend
-    discipline) so a hung daemon proxy can never orphan children.
+    SEC-122 / ARC-048f: delegates to ``subproc_util.run_with_pgkill`` —
+    the shared process-group-kill implementation extracted from this and
+    ``ai_backend._run_prompt_subprocess`` (which had drifted). The 3a wave
+    should repoint ai_backend at the same helper.
     """
     binary = _resolve_binary(vault)
     if binary is None:
         return "launch", None
     cmd = [binary, *cli_args]
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=str(cwd),
-            env=vault_common.env_without_claudecode(vault=vault),
-            start_new_session=True,
-        )
-    except OSError:
-        return "launch", None
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            pgid = os.getpgid(proc.pid)
-        except (ProcessLookupError, OSError):
-            pgid = proc.pid
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(pgid, sig)
-            except (ProcessLookupError, OSError):
-                pass
-            try:
-                proc.wait(timeout=5)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-        return "timeout", None
-    except Exception:  # noqa: BLE001 — contract: never raises
-        return "launch", None
-    return "ok", subprocess.CompletedProcess(
+    return run_with_pgkill(
         cmd,
-        proc.returncode if proc.returncode is not None else 0,
-        stdout=stdout,
-        stderr=stderr,
+        cwd=cwd,
+        timeout=timeout,
+        env=vault_common.env_without_claudecode(vault=vault),
     )
 
 
