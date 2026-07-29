@@ -165,7 +165,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
         colon_idx = stripped.find(":")
         if colon_idx == -1:
             print(
-                f"vault_common: ignoring unparsable config line: {stripped!r}",
+                f"vault_config: ignoring unparsable config line: {stripped!r}",
                 file=sys.stderr,
             )
             continue
@@ -175,7 +175,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
 
         if not key:
             print(
-                f"vault_common: ignoring config line with empty key: {stripped!r}",
+                f"vault_config: ignoring config line with empty key: {stripped!r}",
                 file=sys.stderr,
             )
             continue
@@ -216,7 +216,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                         # nested dict's leaf keys) would silently flatten
                         # into the 2nd-level dict -- skip it visibly instead.
                         print(
-                            "vault_common: config nesting deeper than 2 levels "
+                            "vault_config: config nesting deeper than 2 levels "
                             f"is not supported; key '{key}' (line {lineno}) ignored",
                             file=sys.stderr,
                         )
@@ -237,7 +237,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
         elif indent > 0:
             # Indented line outside any section -- likely a typo
             print(
-                f"vault_common: ignoring indented config line outside any section: {stripped!r}",
+                f"vault_config: ignoring indented config line outside any section: {stripped!r}",
                 file=sys.stderr,
             )
 
@@ -270,7 +270,7 @@ def _merge_config_dicts(
     return merged
 
 
-@functools.lru_cache(maxsize=1)
+@functools.lru_cache(maxsize=8)
 def load_config(vault: Path | None = None) -> dict[str, Any]:
     """Load ``config.yaml`` from the vault, layered with ``config.local.yaml``.
 
@@ -284,6 +284,12 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
     are read within the same cached call, so the cache covers them jointly --
     call ``load_config.cache_clear()`` to invalidate the cache in tests (or
     after either file changes) when the vault path has been changed.
+
+    ARC-034: returns a deep copy so a caller that mutates the returned dict
+    (e.g. ``config["summarizer"]["model"] = "claude-..."``) cannot corrupt the
+    cached values for the rest of the process. The cache cap was also raised
+    from 1 to 8 so alternating vaults (multi-vault setups, tests with
+    ``tmp_vault`` plus the real vault) stop evicting each other on every call.
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
@@ -314,7 +320,23 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
         except (OSError, UnicodeDecodeError):
             pass
 
-    return config
+    return _deep_copy_config(config)
+
+
+def _deep_copy_config(obj: Any) -> Any:
+    """Return a recursive copy of a config-derived value.
+
+    Mirrors the shape ``_parse_config_yaml`` can produce: dicts at up to two
+    nested levels (section -> nested_section -> scalar), lists only inside
+    ``related``/``tags`` frontmatter (not in config), and scalars (str/int/
+    float/bool/None). Handled without ``copy.deepcopy`` so the cost is
+    proportional to the (small) config tree, not a generic Python object walk.
+    """
+    if isinstance(obj, dict):
+        return {k: _deep_copy_config(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_deep_copy_config(v) for v in obj]
+    return obj
 
 
 # QA-015: Keep backward-compatible aliases for callers that used the old names.
