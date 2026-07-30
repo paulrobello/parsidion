@@ -347,6 +347,70 @@ class TestBacklinkBugFixes:
         assert "[[note-a]]" not in a_content
 
 
+class TestBacklinkRewriteAtomicity:
+    """QA-010: the backlink rewrite is atomic and preserves file mode.
+
+    Pre-fix, the rewrite loop called ``path.write_text`` non-atomically — an
+    interrupt mid-write truncated a note that was merely a *link target* of
+    the merge (collateral damage the user never asked for). The repo's atomic-
+    write discipline is otherwise consistent; these tests pin that the
+    backlink rewrite honours it.
+    """
+
+    def test_rewrite_leaves_no_tmp_residue(self, vault: Path) -> None:
+        # note-c references [[note-b]]; merging note-b into note-a rewrites
+        # the [[note-b]] reference inside note-c. (note-a is the keeper and
+        # is skipped by the self-reference guard.)
+        note_c = _note(vault, "Patterns/note-c.md", "# C\n\nSee [[note-b]].\n")
+        _note(vault, "Patterns/note-a.md", "# A\n")
+        _note(vault, "Patterns/note-b.md", "# B\n")
+        vault_merge._update_wikilinks_in_vault("note-b", "note-a", vault)
+
+        # No .tmp file should remain in the vault after the atomic write.
+        leftovers = list(vault.rglob("*.tmp"))
+        assert leftovers == []
+
+        # And the rewrite must have actually happened (sanity check).
+        assert "[[note-a]]" in note_c.read_text(encoding="utf-8")
+
+    def test_rewrite_preserves_file_mode(self, vault: Path) -> None:
+        import os
+        import stat
+
+        note_c = _note(vault, "Patterns/note-c.md", "# C\n\nSee [[note-b]].\n")
+        _note(vault, "Patterns/note-a.md", "# A\n")
+        _note(vault, "Patterns/note-b.md", "# B\n")
+        # Pin a non-default mode (group/other read) and verify the rewrite
+        # preserves it. atomic_write_text copies existing mode onto the tmp
+        # before the rename — without that, the rewrite would silently chmod
+        # the file back to the process umask default.
+        os.chmod(note_c, 0o644)
+        original_mode = stat.S_IMODE(os.stat(note_c).st_mode)
+        vault_merge._update_wikilinks_in_vault("note-b", "note-a", vault)
+        new_mode = stat.S_IMODE(os.stat(note_c).st_mode)
+        assert new_mode == original_mode
+
+    def test_rewrite_failure_leaves_original_intact(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If atomic_write_text's Path.replace raises, the file is untouched."""
+
+        def _boom_replace(_self: Path, _other: Path) -> None:
+            raise OSError("simulated mid-rename failure")
+
+        note_c = _note(vault, "Patterns/note-c.md", "# C\n\nSee [[note-b]].\n")
+        _note(vault, "Patterns/note-a.md", "# A\n")
+        _note(vault, "Patterns/note-b.md", "# B\n")
+        original = note_c.read_text(encoding="utf-8")
+
+        monkeypatch.setattr(Path, "replace", _boom_replace)
+        with pytest.raises(OSError):
+            vault_merge._update_wikilinks_in_vault("note-b", "note-a", vault)
+
+        # The original content is byte-identical — no half-written file.
+        assert note_c.read_text(encoding="utf-8") == original
+
+
 class TestScanExcludesDailyNotes:
     """Daily notes are excluded from duplicate scanning.
 
@@ -356,25 +420,19 @@ class TestScanExcludesDailyNotes:
     """
 
     def test_daily_folder_excluded(self) -> None:
-        assert vault_merge._is_excluded_from_scan(
-            "Daily/2026-05/15-probello.md", "Daily"
-        )
+        assert vault_merge._is_excluded_from_scan("Daily/2026-05/15-user.md")
 
     def test_daily_path_excluded_regardless_of_folder(self) -> None:
-        assert vault_merge._is_excluded_from_scan("Daily/2026-03/16-probello.md", "")
+        assert vault_merge._is_excluded_from_scan("Daily/2026-03/16-user.md")
 
     def test_absolute_path_with_month_folder_excluded(self) -> None:
         # The embeddings store absolute paths and folder as the month (YYYY-MM),
         # NOT "Daily" — the original exclusion missed this format entirely.
-        assert vault_merge._is_excluded_from_scan(
-            "/Users/probello/ParsidionVault/Daily/2026-06/15-probello.md",
-            "2026-06",
-        )
+        # QA-020: avoid hardcoding one developer's home directory into the
+        # assertion — the function is pure string logic and passes the same
+        # way for any /tmp/vault root.
+        assert vault_merge._is_excluded_from_scan("/tmp/vault/Daily/2026-06/15-user.md")
 
     def test_non_daily_not_excluded(self) -> None:
-        assert not vault_merge._is_excluded_from_scan(
-            "Patterns/some-pattern.md", "Patterns"
-        )
-        assert not vault_merge._is_excluded_from_scan(
-            "Debugging/some-bug.md", "Debugging"
-        )
+        assert not vault_merge._is_excluded_from_scan("Patterns/some-pattern.md")
+        assert not vault_merge._is_excluded_from_scan("Debugging/some-bug.md")

@@ -35,6 +35,7 @@ from pathlib import Path
 import ai_backend
 import vault_common
 import vault_config
+import vault_fs
 import vault_links
 
 try:
@@ -600,7 +601,11 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
                 content, old_pattern, replacement
             )
         if n > 0:
-            path.write_text(new_content, encoding="utf-8")
+            # QA-010: atomic write so an interrupt during backlink rewrite
+            # cannot truncate a note that is merely a link target of the
+            # merge (collateral damage the user never asked for). Matches the
+            # repo's otherwise-consistent atomic-write discipline.
+            vault_fs.atomic_write_text(path, new_content)
             updated += 1
     return updated
 
@@ -668,7 +673,7 @@ _DEFAULT_SCAN_THRESHOLD = 0.92
 _DEFAULT_SCAN_TOP = 50
 
 
-def _is_excluded_from_scan(path: str, folder: str) -> bool:  # noqa: ARG001
+def _is_excluded_from_scan(path: str) -> bool:
     """Return True for notes excluded from duplicate scanning.
 
     Daily notes share a templated session-list structure and the ``NN-probello``
@@ -730,7 +735,7 @@ def _scan_duplicates(
         conn.close()
         sys.exit(1)
 
-    rows = [r for r in rows if not _is_excluded_from_scan(str(r[1]), str(r[2]))]
+    rows = [r for r in rows if not _is_excluded_from_scan(str(r[1]))]
 
     if not rows:
         conn.close()
