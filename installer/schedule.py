@@ -43,6 +43,16 @@ def _build_launchd_plist(
         extra_args += "\n        <string>--rebuild-graph</string>"
     if graph_include_daily:
         extra_args += "\n        <string>--graph-include-daily</string>"
+    # SEC-124: XML-escape the user-supplied paths so a non-standard HOME
+    # or scripts_dir containing <, >, &, " cannot break the plist.
+    from xml.sax.saxutils import escape as _xml_escape
+
+    uv_path_safe = _xml_escape(uv_path)
+    script_path_safe = _xml_escape(str(script_path))
+    log_path_safe = _xml_escape(
+        str(Path.home() / ".claude" / "logs" / "parsidion-summarizer.log")
+    )
+    home_safe = _xml_escape(str(Path.home()))
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -52,10 +62,10 @@ def _build_launchd_plist(
     <string>{_LAUNCHD_PLIST_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{uv_path}</string>
+        <string>{uv_path_safe}</string>
         <string>run</string>
         <string>--no-project</string>
-        <string>{script_path}</string>
+        <string>{script_path_safe}</string>
         <string>--run-doctor</string>{extra_args}
     </array>
     <key>StartCalendarInterval</key>
@@ -66,13 +76,13 @@ def _build_launchd_plist(
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>{Path.home() / ".claude" / "logs" / "parsidion-summarizer.log"}</string>
+    <string>{log_path_safe}</string>
     <key>StandardErrorPath</key>
-    <string>{Path.home() / ".claude" / "logs" / "parsidion-summarizer.log"}</string>
+    <string>{log_path_safe}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
-        <string>{Path.home()}</string>
+        <string>{home_safe}</string>
     </dict>
     <key>RunAtLoad</key>
     <false/>
@@ -177,9 +187,12 @@ def _schedule_summarizer_cron(
     if graph_include_daily:
         extra += " --graph-include-daily"
     _cron_log = Path.home() / ".claude" / "logs" / "parsidion-summarizer.log"
+    # SEC-124: quote paths in the cron line so spaces/special characters
+    # in the user's HOME or install dir cannot split them into separate
+    # arguments or break the redirection target.
     cron_line = (
-        f"0 {hour} * * * {uv_path} run --no-project {script_path} --run-doctor{extra}"
-        f" >> {_cron_log} 2>&1  {_CRON_MARKER}"
+        f'0 {hour} * * * "{uv_path}" run --no-project "{script_path}" --run-doctor{extra}'
+        f' >> "{_cron_log}" 2>&1  {_CRON_MARKER}'
     )
     _step(f"Schedule nightly summarizer via cron (hour={hour})", dry_run=dry_run)
     if dry_run:
@@ -193,7 +206,29 @@ def _schedule_summarizer_cron(
             capture_output=True,
             text=True,
         )
-        existing = result.stdout if result.returncode == 0 else ""
+        # SEC-127b: a non-zero ``crontab -l`` exit is *normal* when the
+        # user has no crontab — returncode 1 with stderr "no crontab for
+        # <user>" means exactly that, and the install path must treat it
+        # as "no existing lines". But a non-zero exit with an UNEXPECTED
+        # stderr (permission denied, broken binary, anything that is not
+        # the "no crontab" message) must NOT silently proceed, because
+        # that path replaces the user's entire crontab with just our
+        # line — clobbering real entries the install could not read. The
+        # uninstall path bails on any non-zero exit; install matches it
+        # unless we can prove the failure is the no-crontab case.
+        if result.returncode == 0:
+            existing = result.stdout
+        else:
+            stderr_lower = (result.stderr or "").lower()
+            if "no crontab" in stderr_lower or "crontab: no" in stderr_lower:
+                existing = ""
+            else:
+                _warn(
+                    f"crontab -l failed unexpectedly (rc={result.returncode}, "
+                    f"stderr={result.stderr.strip()!r}); not installing to avoid "
+                    "overwriting the existing crontab."
+                )
+                return
         lines = [ln for ln in existing.splitlines() if _CRON_MARKER not in ln]
         lines.append(cron_line)
         new_crontab = "\n".join(lines) + "\n"

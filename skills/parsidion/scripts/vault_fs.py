@@ -673,29 +673,68 @@ def append_session_to_daily(
         f"- **Summary**: {summary_text}\n"
     )
 
+    # SEC-126b: the wrapper's detached ``nohup`` makes concurrent writers
+    # routine (parallel Claude sessions ending at the same time both call
+    # session_stop_hook, which both call this). The previous read-modify-
+    # write was unlocked — two writers could read the same ``existing``,
+    # both append, and the second write would clobber the first. Hold an
+    # exclusive lock on the daily note across read + write so concurrent
+    # appends are serialized.
     try:
-        existing = daily_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        existing = ""
+        with open(daily_path, "a", encoding="utf-8") as lock_fh:
+            flock_exclusive(lock_fh)
+            try:
+                existing = daily_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                existing = ""
 
-    # Append under the ## Sessions heading if it exists, else append at end
-    if "## Sessions" in existing:
-        sessions_idx = existing.index("## Sessions")
-        rest = existing[sessions_idx + len("## Sessions") :]
+            # Append under the ## Sessions heading if it exists, else append at end
+            if "## Sessions" in existing:
+                sessions_idx = existing.index("## Sessions")
+                rest = existing[sessions_idx + len("## Sessions") :]
 
-        # Find the next ## heading after Sessions
-        next_heading_match = re.search(r"\n## ", rest)
-        if next_heading_match:
-            insert_pos = sessions_idx + len("## Sessions") + next_heading_match.start()
-            updated = existing[:insert_pos] + section + existing[insert_pos:]
+                # Find the next ## heading after Sessions
+                next_heading_match = re.search(r"\n## ", rest)
+                if next_heading_match:
+                    insert_pos = (
+                        sessions_idx + len("## Sessions") + next_heading_match.start()
+                    )
+                    updated = existing[:insert_pos] + section + existing[insert_pos:]
+                else:
+                    updated = existing + section
+            else:
+                updated = existing + "\n## Sessions\n" + section
+
+            # SEC-127: atomic write so a concurrent session_start_hook read
+            # never sees a half-appended Sessions section. The atomic
+            # replace creates a new inode; the lock on the original inode
+            # stays live until ``lock_fh`` goes out of scope, so any other
+            # writer that opened the same path before our replace is still
+            # blocked.
+            atomic_write_text(daily_path, updated)
+    except OSError:
+        # If we cannot even open the daily note for locking, fall back to
+        # the prior best-effort path — the atomic_write_text call inside
+        # the lock is still safer than nothing, and creating a missing
+        # daily note should not be fatal.
+        try:
+            existing = daily_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            existing = ""
+        if "## Sessions" in existing:
+            sessions_idx = existing.index("## Sessions")
+            rest = existing[sessions_idx + len("## Sessions") :]
+            next_heading_match = re.search(r"\n## ", rest)
+            if next_heading_match:
+                insert_pos = (
+                    sessions_idx + len("## Sessions") + next_heading_match.start()
+                )
+                updated = existing[:insert_pos] + section + existing[insert_pos:]
+            else:
+                updated = existing + section
         else:
-            updated = existing + section
-    else:
-        updated = existing + "\n## Sessions\n" + section
-
-    # SEC-127: atomic write so a concurrent session_start_hook read never sees
-    # a half-appended Sessions section.
-    atomic_write_text(daily_path, updated)
+            updated = existing + "\n## Sessions\n" + section
+        atomic_write_text(daily_path, updated)
 
 
 # ---------------------------------------------------------------------------

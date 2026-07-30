@@ -49,6 +49,7 @@ from anyio import to_thread  # type: ignore[import-untyped]
 import ai_backend
 import vault_common
 import vault_links
+from vault_path import is_path_inside_vault
 
 # File locking imported from vault_common (canonical implementation)
 _flock_exclusive = vault_common.flock_exclusive
@@ -1131,7 +1132,9 @@ def write_note(
         slug = "session-note"
     target_dir = vault / folder_name
     resolved = (target_dir / f"{slug}.md").resolve()
-    if not resolved.is_relative_to(vault.resolve()):
+    # SEC-130: route through vault_path.is_path_inside_vault so this check
+    # cannot drift from the other three containment sites.
+    if not is_path_inside_vault(resolved, vault):
         raise ValueError(f"Refusing to write outside vault: {resolved}")
     # SEC-125: assign target_path := resolved so the validated path is the one
     # written. The previous code kept the un-resolved ``target_dir / f"{slug}.md"``
@@ -1366,12 +1369,16 @@ def _find_dedup_candidates(
                 "run",
                 "--no-project",
                 str(vault_search_script),
-                topic_query,
                 "--top",
                 str(top_k),
                 "--json",
                 "--vault",
                 str(vault),
+                # SEC-128: ``--`` separates flags from the note-derived
+                # positional so a topic_query beginning with "--" cannot
+                # parse as a vault-search flag.
+                "--",
+                topic_query,
             ],
             capture_output=True,
             text=True,
@@ -1657,7 +1664,7 @@ async def summarize_one(
                         # today, but the model output (and therefore the target
                         # wikilink) is attacker-influenced — check anyway.
                         resolved_target = target_path.resolve()
-                        if not resolved_target.is_relative_to(vault.resolve()):
+                        if not is_path_inside_vault(resolved_target, vault):
                             reason = (
                                 f"merge target [[{target_stem}]] resolves "
                                 f"outside vault: {resolved_target}"
@@ -2544,7 +2551,22 @@ def main() -> None:
 
         _doctor = Path(__file__).parent / "vault_doctor.py"
         print("Running vault_doctor --fix-all before summarizing…")
-        _sp.run([_sys.executable, str(_doctor), "--fix-all"], check=False)
+        # QA-005: bound the run so a hung vault_doctor cannot stall the
+        # summarizer indefinitely. vault_doctor --fix-all is bounded work
+        # (a few seconds on a small vault, ~1 min on a large one); 10
+        # minutes is a generous ceiling for the rare AI-driven repair.
+        try:
+            _sp.run(
+                [_sys.executable, str(_doctor), "--fix-all"],
+                check=False,
+                timeout=600,
+            )
+        except _sp.TimeoutExpired:
+            print(
+                "Warning: vault_doctor --fix-all timed out after 600s; "
+                "continuing with summarization.",
+                file=sys.stderr,
+            )
 
     # Determine source file
     if args.sessions:

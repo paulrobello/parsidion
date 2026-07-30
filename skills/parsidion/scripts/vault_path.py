@@ -36,6 +36,7 @@ __all__: list[str] = [
     "resolve_templates_dir",
     "get_embeddings_db_path",
     "is_symlink_inside_vault",
+    "is_path_inside_vault",
     # Internal (re-exported for backward compat)
     "_VAULT_FORBIDDEN_PREFIXES",
     "_validate_vault_path",
@@ -276,6 +277,30 @@ def is_symlink_inside_vault(path: Path, vault_root: Path) -> bool:
     except OSError:
         return False
     return resolved.is_relative_to(vault_root)
+
+
+def is_path_inside_vault(path: Path, vault_root: Path) -> bool:
+    """Return True if *path*'s resolved location is inside *vault_root*.
+
+    SEC-130: consolidates the four hand-rolled
+    ``path.resolve().is_relative_to(vault.resolve())`` checks that had
+    been duplicated across ``vault_index``, ``session_start_hook``,
+    ``summarize_sessions``, and ``vault_path``. Both *path* and
+    *vault_root* are resolved before comparison, so a symlinked vault
+    root or a symlinked target cannot defeat the check. ``OSError`` from
+    ``resolve()`` (broken symlink, permission) returns False — callers
+    should treat that as "outside" and refuse to read/write the path.
+
+    For the symlink-specific ``is the symlink target safe to follow``
+    question used by vault walks, prefer :func:`is_symlink_inside_vault`
+    — it returns True for non-symlinks without paying for a ``resolve()``.
+    """
+    try:
+        resolved = path.resolve()
+        root_resolved = vault_root.resolve()
+    except OSError:
+        return False
+    return resolved.is_relative_to(root_resolved)
 
 
 def _resolve_vault_reference(reference: str) -> Path:

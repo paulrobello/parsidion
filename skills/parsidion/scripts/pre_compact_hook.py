@@ -375,7 +375,11 @@ def main() -> None:
 
         if transcript_path_str:
             transcript_path = Path(transcript_path_str)
-            if transcript_path.is_file():
+            # SEC-121: use the shared allowlist guard like the other four
+            # transcript readers (session_stop, subagent_stop, etc.) instead
+            # of a bare ``is_file()`` so a tampered payload cannot point us
+            # at an arbitrary file outside the allowed transcript roots.
+            if vault_common.is_allowed_transcript_path(transcript_path, cwd=cwd):
                 # SEC-111: bound the tail by bytes as well as lines so a
                 # single newline-free multi-MB line cannot drag the whole
                 # file into memory through ``deque(maxlen=n)``.

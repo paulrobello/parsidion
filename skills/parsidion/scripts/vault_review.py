@@ -69,17 +69,36 @@ def _read_entries() -> list[dict]:
 def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
     """Atomically write entries back to pending_summaries.jsonl.
 
+    SEC-126: the lock must be on the REAL queue file so concurrent
+    writers (session_stop_hook, subagent_stop_hook) cannot interleave.
+    The previous implementation locked only the private ``.jsonl.tmp``
+    file, which excluded nobody — the lock was effectively a no-op.
+
+    The lock is held across the tmp-write + atomic replace. The replace
+    itself is atomic on POSIX; the lock protects the read-modify-write
+    window against a concurrent appender that would otherwise be lost.
+
     Args:
         entries: List of JSON-serialisable dicts to persist.
         vault_path: Path to the vault root.
     """
     pp = _pending_path()
+    pp.parent.mkdir(parents=True, exist_ok=True)
     tmp = pp.with_suffix(".jsonl.tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        vault_common.flock_exclusive(fh)
-        for entry in entries:
-            fh.write(json.dumps(entry) + "\n")
-    tmp.replace(pp)
+    # Open the real queue (creating if needed) and lock it exclusively
+    # before touching the tmp file. ``"a"`` keeps the existing content
+    # intact and lets us create the file if it is absent.
+    with open(pp, "a", encoding="utf-8") as real_fh:
+        vault_common.flock_exclusive(real_fh)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry) + "\n")
+        # Replace while still holding the lock. After ``replace`` the
+        # ``real_fh`` fd refers to the now-unlinked old inode; the lock
+        # stays live on it (POSIX flock follows the fd, not the path),
+        # blocking any concurrent appender that opened the same path
+        # before we replaced it.
+        tmp.replace(pp)
 
 
 def _fmt_timestamp(ts: str) -> str:

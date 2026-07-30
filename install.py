@@ -870,6 +870,7 @@ def parse_args() -> argparse.Namespace:
         "--summarizer-hour",
         type=int,
         default=3,
+        choices=range(24),
         metavar="HOUR",
         help="Hour of day (0-23) to run the scheduled summarizer (default: 3 = 3 AM)",
     )

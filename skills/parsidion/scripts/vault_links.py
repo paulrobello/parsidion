@@ -366,12 +366,16 @@ def find_related_by_semantic(
             "run",
             "--no-project",
             str(vault_search_script),
-            query,
             "--top",
             str(max_links + 1),
             "--vault",
             str(vault),
             "--json",
+            # SEC-128: ``--`` separates flags from the note-derived
+            # positional so a query beginning with "--" or "[[--help]]"
+            # cannot parse as a vault-search flag.
+            "--",
+            query,
         ]
         result = subprocess.run(
             search_argv,

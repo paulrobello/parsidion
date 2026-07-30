@@ -207,9 +207,9 @@ _POST_MERGE_HOOK_TEMPLATE = """\
 {marker} — rebuilds vault index and embeddings after pull
 set -e
 echo "[parsidion] Rebuilding vault index..."
-uv run --no-project {scripts_dir}/update_index.py
+uv run --no-project "{scripts_dir}/update_index.py"
 echo "[parsidion] Updating embeddings (incremental)..."
-uv run --no-project {scripts_dir}/build_embeddings.py --incremental
+uv run --no-project "{scripts_dir}/build_embeddings.py" --incremental
 echo "[parsidion] Post-merge sync complete."
 """
 

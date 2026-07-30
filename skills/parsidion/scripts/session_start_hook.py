@@ -24,6 +24,7 @@ from pathlib import Path
 import ai_backend
 import parmem_backend
 import vault_common
+from vault_path import is_path_inside_vault
 
 _DEFAULT_AI_MODEL: str = vault_common.get_config(
     "defaults", "haiku_model", "claude-haiku-4-5-20251001"
@@ -208,10 +209,14 @@ def _run_semantic_search(
                 "run",
                 "--no-project",
                 str(vault_search_script),
-                query,
                 "--top",
                 str(top),
                 "--json",
+                # SEC-128: ``--`` separates flags from the note-derived
+                # positional so a vault note named "[[--help]]" or
+                # "--top" cannot parse as a vault-search flag.
+                "--",
+                query,
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -527,7 +532,7 @@ def _graph_neighbors(
             continue
         path = Path(str(meta.get("path", "")))
         try:
-            if not path.exists() or not path.resolve().is_relative_to(vault_root):
+            if not path.exists() or not is_path_inside_vault(path, vault_root):
                 continue
         except OSError:
             continue

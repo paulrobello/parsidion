@@ -24,6 +24,7 @@ from vault_path import (
     EXCLUDE_DIRS,
     VAULT_DIRS,
     get_embeddings_db_path,
+    is_path_inside_vault,
     is_symlink_inside_vault,
     resolve_vault,
 )
@@ -455,12 +456,14 @@ def query_note_index(
         rows = conn.execute(sql, params).fetchall()
         # SEC-005: Reject any path that resolves outside the vault -- guards
         # against a tampered embeddings.db injecting arbitrary file paths.
+        # SEC-130: consolidated into vault_path.is_path_inside_vault so the
+        # same containment check used elsewhere cannot drift from this one.
         vault_root_resolved = resolve_vault().resolve()
         return [
             p
             for (path_str,) in rows
             if (p := Path(path_str)).exists()
-            and p.resolve().is_relative_to(vault_root_resolved)
+            and is_path_inside_vault(p, vault_root_resolved)
         ]
     except sqlite3.Error:
         return None
