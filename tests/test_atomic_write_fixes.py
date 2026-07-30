@@ -76,7 +76,15 @@ class TestVaultAdaptive:
         vault_adaptive.save_last_seen("proj2")  # must not raise
         assert vault_adaptive.load_last_seen() == original
 
-    def test_lock_failure_is_nonfatal(self, fake_home: Path) -> None:
+    def test_lock_failure_is_nonfatal_preserves_state(self, fake_home: Path) -> None:
+        """A read-only ~/.claude must not raise, must leave the existing
+        state file byte-identical, and must leave no .tmp residue from the
+        aborted atomic write."""
+        # Pre-seed known state so we can verify it survives the failed write.
+        vault_adaptive.save_last_seen("proj-seed", ts="2026-01-01T00:00:00")
+        last_seen_path = vault_adaptive.get_last_seen_path()
+        original = last_seen_path.read_text(encoding="utf-8")
+
         claude_dir = fake_home / ".claude"
         claude_dir.chmod(0o500)
         try:
@@ -84,6 +92,12 @@ class TestVaultAdaptive:
             vault_adaptive.update_usefulness_scores({"a"}, ["a"])  # must not raise
         finally:
             claude_dir.chmod(0o700)
+
+        # The aborted write did not corrupt the existing state file.
+        assert last_seen_path.read_text(encoding="utf-8") == original
+        # No .tmp residue left behind by the failed atomic write.
+        leftovers = [p.name for p in claude_dir.iterdir()]
+        assert not any(name.endswith(".tmp") for name in leftovers)
 
 
 # ---------------------------------------------------------------------------
