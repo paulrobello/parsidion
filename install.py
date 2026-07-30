@@ -276,60 +276,25 @@ def resolve_runtime_choice(
 # ---------------------------------------------------------------------------
 
 
-def install(args: argparse.Namespace) -> int:
-    """Run the full installation. Returns an exit code.
+def _collect_install_options(
+    args: argparse.Namespace,
+    *,
+    install_claude_runtime: bool,
+    vault_root: Path,
+) -> tuple[bool, bool, bool, bool, str]:
+    """Resolve the four interactive install options plus vault username.
 
-    ARC-022: each install step runs inside a try/except so a single failure
-    no longer aborts the entire run silently while ``install()`` returns 0.
-    Failures are accumulated into ``failed_steps`` and surfaced in a summary
-    at the end; the function returns 1 if any step failed.
+    Pulled out of ``install()`` (ARC-017) so the prompt logic is individually
+    testable and ``install()``'s cyclomatic complexity drops. Returns
+    ``(install_tools, enable_ai, enable_embeddings, do_schedule,
+    vault_username)``. Prompt helpers (``_ask`` / ``_confirm``) and
+    ``read_embeddings_enabled`` are resolved through THIS module's globals so
+    the test suite's ``monkeypatch.setattr(install, ...)`` keeps working.
+
+    --yes short-circuits every prompt; the embeddings branch under --yes
+    intentionally PRESERVES the existing config setting rather than clobbering
+    it (regression guard).
     """
-    claude_dir: Path = Path(args.claude_dir).expanduser().resolve()
-    settings_file: Path = claude_dir / "settings.json"
-    dry_run: bool = args.dry_run
-    verbose: bool = args.verbose
-
-    # ARC-017 / QA-002: install() drives an ordered :class:`StepList`
-    # (installer/steps.py). Each step runs inside its own try/except inside
-    # ``StepList.run_all``; failures are accumulated into ``steps.failed_steps``
-    # and surfaced in a summary before install() returns, preserving the
-    # ARC-022 contract that a broken install is diagnosed from the
-    # exit-code-1 message rather than from a missing settings.json that the
-    # prior unconditional ``return 0`` hid. The same Step abstraction backs
-    # uninstall()'s reverse-order undo() so the two flows cannot drift.
-    steps: StepList = StepList()
-
-    print()
-    print(bold("Parsidion Installer"))
-    print(dim("Skills, hooks, and knowledge vault for coding agents"))
-    print()
-
-    # --- Determine vault path ---
-    if args.vault:
-        vault_root, error = validate_vault_path(args.vault)
-        if error:
-            _err(error)
-            return 2
-        if vault_root.exists() and not vault_root.is_dir():
-            _err(f"Vault path is not a directory: {vault_root}")
-            return 2
-    else:
-        default_vault = _default_vault_path()
-        if args.yes:
-            vault_root = default_vault
-        else:
-            vault_root = prompt_vault_path(default_vault)
-
-    runtime = resolve_runtime_choice(
-        args.runtime, yes=args.yes, interactive=not args.yes
-    )
-    codex_home: Path = Path(args.codex_home).expanduser().resolve()
-    gemini_home: Path = Path(args.gemini_home).expanduser().resolve()
-    install_claude_runtime = _wants_claude_runtime(runtime)
-    install_codex_runtime = _wants_codex_runtime(runtime)
-    install_gemini_runtime = _wants_gemini_runtime(runtime)
-    install_runtime_hooks = runtime != "none" and not args.skip_hooks
-
     # --- CLI tools prompt ---
     install_tools: bool = args.install_tools
     if not args.yes and not install_tools:
@@ -419,6 +384,37 @@ def install(args: argparse.Namespace) -> int:
     if not vault_username:
         vault_username = _detected_user
 
+    return install_tools, enable_ai, enable_embeddings, do_schedule, vault_username
+
+
+def _print_install_plan(
+    *,
+    runtime: str,
+    install_claude_runtime: bool,
+    install_codex_runtime: bool,
+    install_gemini_runtime: bool,
+    install_runtime_hooks: bool,
+    claude_dir: Path,
+    codex_home: Path,
+    gemini_home: Path,
+    settings_file: Path,
+    vault_root: Path,
+    vault_username: str,
+    install_tools: bool,
+    do_schedule: bool,
+    enable_ai: bool,
+    enable_embeddings: bool,
+    summarizer_hour: int,
+    rebuild_graph: bool,
+    skip_agent: bool,
+    skip_hooks: bool,
+    dry_run: bool,
+) -> None:
+    """Print the ``Installation Plan`` block verbatim.
+
+    Extracted from ``install()`` (ARC-017) for testability and CC reduction.
+    Output must stay byte-identical — the dry-run baseline diff gates this.
+    """
     print()
     print(bold("Installation Plan"))
     print(f"  {dim('Runtime     :')} {runtime}")
@@ -432,9 +428,9 @@ def install(args: argparse.Namespace) -> int:
     if install_tools:
         print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
     if do_schedule:
-        graph_suffix = " + graph rebuild" if args.rebuild_graph else ""
+        graph_suffix = " + graph rebuild" if rebuild_graph else ""
         print(
-            f"  {dim('Scheduler    :')} nightly summarizer at {args.summarizer_hour:02d}:00 "
+            f"  {dim('Scheduler    :')} nightly summarizer at {summarizer_hour:02d}:00 "
             f"({'launchd' if sys.platform == 'darwin' else 'cron'}){graph_suffix}"
         )
     if enable_ai:
@@ -444,7 +440,7 @@ def install(args: argparse.Namespace) -> int:
     if install_claude_runtime:
         print(f"  {dim('Settings     :')} {settings_file}")
     print(f"  {dim('Install skill:')} {claude_dir / 'skills' / SKILL_NAME}")
-    if install_claude_runtime and not args.skip_agent:
+    if install_claude_runtime and not skip_agent:
         for agent_src in AGENT_SRCS:
             print(f"  {dim('Install agent:')} {claude_dir / 'agents' / agent_src.name}")
     if install_runtime_hooks:
@@ -464,6 +460,94 @@ def install(args: argparse.Namespace) -> int:
         )
     if dry_run:
         print(f"\n  {yellow('[DRY RUN — no changes will be made]')}")
+
+
+def install(args: argparse.Namespace) -> int:
+    """Run the full installation. Returns an exit code.
+
+    ARC-022: each install step runs inside a try/except so a single failure
+    no longer aborts the entire run silently while ``install()`` returns 0.
+    Failures are accumulated into ``failed_steps`` and surfaced in a summary
+    at the end; the function returns 1 if any step failed.
+    """
+    claude_dir: Path = Path(args.claude_dir).expanduser().resolve()
+    settings_file: Path = claude_dir / "settings.json"
+    dry_run: bool = args.dry_run
+    verbose: bool = args.verbose
+
+    # ARC-017 / QA-002: install() drives an ordered :class:`StepList`
+    # (installer/steps.py). Each step runs inside its own try/except inside
+    # ``StepList.run_all``; failures are accumulated into ``steps.failed_steps``
+    # and surfaced in a summary before install() returns, preserving the
+    # ARC-022 contract that a broken install is diagnosed from the
+    # exit-code-1 message rather than from a missing settings.json that the
+    # prior unconditional ``return 0`` hid. The same Step abstraction backs
+    # uninstall()'s reverse-order undo() so the two flows cannot drift.
+    steps: StepList = StepList()
+
+    print()
+    print(bold("Parsidion Installer"))
+    print(dim("Skills, hooks, and knowledge vault for coding agents"))
+    print()
+
+    # --- Determine vault path ---
+    if args.vault:
+        vault_root, error = validate_vault_path(args.vault)
+        if error:
+            _err(error)
+            return 2
+        if vault_root.exists() and not vault_root.is_dir():
+            _err(f"Vault path is not a directory: {vault_root}")
+            return 2
+    else:
+        default_vault = _default_vault_path()
+        if args.yes:
+            vault_root = default_vault
+        else:
+            vault_root = prompt_vault_path(default_vault)
+
+    runtime = resolve_runtime_choice(
+        args.runtime, yes=args.yes, interactive=not args.yes
+    )
+    codex_home: Path = Path(args.codex_home).expanduser().resolve()
+    gemini_home: Path = Path(args.gemini_home).expanduser().resolve()
+    install_claude_runtime = _wants_claude_runtime(runtime)
+    install_codex_runtime = _wants_codex_runtime(runtime)
+    install_gemini_runtime = _wants_gemini_runtime(runtime)
+    install_runtime_hooks = runtime != "none" and not args.skip_hooks
+
+    # --- Interactive option prompts (CLI tools, AI mode, embeddings, scheduler,
+    # vault username). Extracted to _collect_install_options for testability.
+    install_tools, enable_ai, enable_embeddings, do_schedule, vault_username = (
+        _collect_install_options(
+            args,
+            install_claude_runtime=install_claude_runtime,
+            vault_root=vault_root,
+        )
+    )
+
+    _print_install_plan(
+        runtime=runtime,
+        install_claude_runtime=install_claude_runtime,
+        install_codex_runtime=install_codex_runtime,
+        install_gemini_runtime=install_gemini_runtime,
+        install_runtime_hooks=install_runtime_hooks,
+        claude_dir=claude_dir,
+        codex_home=codex_home,
+        gemini_home=gemini_home,
+        settings_file=settings_file,
+        vault_root=vault_root,
+        vault_username=vault_username,
+        install_tools=install_tools,
+        do_schedule=do_schedule,
+        enable_ai=enable_ai,
+        enable_embeddings=enable_embeddings,
+        summarizer_hour=args.summarizer_hour,
+        rebuild_graph=args.rebuild_graph,
+        skip_agent=args.skip_agent,
+        skip_hooks=args.skip_hooks,
+        dry_run=dry_run,
+    )
 
     print()
 
