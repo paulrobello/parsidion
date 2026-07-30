@@ -267,117 +267,117 @@ def _extract_wikilink_stems(related: object) -> list[str]:
     return stems
 
 
-def build_index(
-    vault: Path,
-) -> tuple[
-    str,
-    int,
-    int,
-    dict[str, list[tuple[str, str, str, list[str], bool]]],
-    list[NoteEntry],
-    Counter[str],
-]:
-    """Build the full CLAUDE.md index content.
+class NoteRecord(NamedTuple):
+    """First-pass parsed fields for a single note.
 
-    Returns:
-        A tuple of (index_content, note_count, tag_count, folder_notes_extended, db_rows, tag_counter).
-        folder_notes_extended maps folder name to a list of
-        (wikilink, title, summary, tags, is_stale) tuples.
-        db_rows is a list of NoteEntry records ready to upsert into the note_index table.
-        tag_counter is the Counter[str] used to build TAGS.md separately.
+    Produced by ``_parse_note_record`` and consumed by ``build_index`` to
+    update its accumulators (``tag_counter``, ``per_note_data``,
+    ``note_contents``, ``recent_notes``).
     """
-    ensure_vault_dirs(vault=vault)
-    notes: list[Path] = all_vault_notes()
 
-    now: datetime = datetime.now()
-    now_str: str = now.strftime("%Y-%m-%d %H:%M")
-    cutoff_ts: float = (now - timedelta(days=RECENT_DAYS)).timestamp()
-    stale_cutoff_ts: float = (now - timedelta(days=STALE_DAYS)).timestamp()
+    content: str
+    frontmatter: dict[str, object]
+    title: str
+    summary: str
+    folder: str
+    tags: list[str]
+    mtime: float
+    related_stems: list[str]
 
-    # Collected data per note
-    tag_counter: Counter[str] = Counter()
-    recent_notes: list[
-        tuple[float, Path, str, str]
-    ] = []  # (mtime, path, folder, summary)
 
-    # Extended folder_notes: folder -> [(wikilink, title, summary, tags, is_stale)]
-    folder_notes: dict[str, list[tuple[str, str, str, list[str], bool]]] = {}
+def _parse_note_record(note_path: Path) -> NoteRecord | None:
+    """Read and parse a single note, returning its fields.
 
-    # Per-note data needed for staleness: stem -> (mtime, related_stems)
-    # We collect this in the first pass and compute link_count after.
-    per_note_data: dict[
-        str, tuple[float, list[str]]
-    ] = {}  # stem -> (mtime, related_stems)
+    Returns ``None`` when the file cannot be read (matching the original
+    first-pass skip-on-``OSError``/``UnicodeDecodeError`` behaviour).
 
-    # First pass: read all notes, collect data
-    note_contents: dict[Path, tuple[str, dict, str, str, str, float, list[str]]] = {}
-    # path -> (content, fm, title, summary, folder, mtime, tags_list)
+    Non-string tags from a legacy parser are coerced to ``str(tag)`` with a
+    stderr warning (mirroring ``build_embeddings.py``) so the note_index and
+    note_embeddings tables never desync; the caller counts the returned tags.
+    """
+    try:
+        content: str = note_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
 
-    for note_path in notes:
-        try:
-            content: str = note_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+    fm: dict[str, object] = parse_frontmatter(content)
+    title: str = _extract_title(content, note_path.stem)
+    summary: str = _extract_summary(content)
+    folder: str = _folder_name(note_path)
 
-        fm: dict[str, object] = parse_frontmatter(content)
-        title: str = _extract_title(content, note_path.stem)
-        summary: str = _extract_summary(content)
-        folder: str = _folder_name(note_path)
+    # Collect tags
+    tags_raw: object = fm.get("tags")
+    tags_list: list[str] = []
+    if isinstance(tags_raw, list):
+        for tag in tags_raw:
+            if not isinstance(tag, str) and tag is not None:
+                # Defensive: numeric-looking tags (e.g. `tags: [2026]`)
+                # coerced by older parsers must not be silently dropped --
+                # build_embeddings.py writes str(t), so dropping here would
+                # desync the note_index and note_embeddings tables.
+                _tag_warning = (
+                    f"update_index: coercing non-string tag {tag!r} "
+                    f"to string in {note_path}"
+                )
+                print(_tag_warning, file=sys.stderr)
+                record_parse_warning(_tag_warning)
+                tag = str(tag)
+            if isinstance(tag, str) and tag:
+                tags_list.append(tag)
 
-        # Collect tags
-        tags_raw: object = fm.get("tags")
-        tags_list: list[str] = []
-        if isinstance(tags_raw, list):
-            for tag in tags_raw:
-                if not isinstance(tag, str) and tag is not None:
-                    # Defensive: numeric-looking tags (e.g. `tags: [2026]`)
-                    # coerced by older parsers must not be silently dropped --
-                    # build_embeddings.py writes str(t), so dropping here would
-                    # desync the note_index and note_embeddings tables.
-                    _tag_warning = (
-                        f"update_index: coercing non-string tag {tag!r} "
-                        f"to string in {note_path}"
-                    )
-                    print(_tag_warning, file=sys.stderr)
-                    record_parse_warning(_tag_warning)
-                    tag = str(tag)
-                if isinstance(tag, str) and tag:
-                    tag_counter[tag] += 1
-                    tags_list.append(tag)
+    # Mtime
+    try:
+        mtime: float = note_path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
 
-        # Mtime
-        try:
-            mtime: float = note_path.stat().st_mtime
-        except OSError:
-            mtime = 0.0
+    # Collect wikilink stems from related field
+    related_stems: list[str] = _extract_wikilink_stems(fm.get("related"))
 
-        # Collect wikilink stems from related field
-        related_stems: list[str] = _extract_wikilink_stems(fm.get("related"))
+    return NoteRecord(
+        content=content,
+        frontmatter=fm,
+        title=title,
+        summary=summary,
+        folder=folder,
+        tags=tags_list,
+        mtime=mtime,
+        related_stems=related_stems,
+    )
 
-        per_note_data[note_path.stem] = (mtime, related_stems)
-        note_contents[note_path] = (
-            content,
-            fm,
-            title,
-            summary,
-            folder,
-            mtime,
-            tags_list,
-        )
 
-        if mtime >= cutoff_ts:
-            recent_notes.append((mtime, note_path, folder, summary))
-
-    # Build reverse link count: stem -> number of incoming wikilinks
+def _compute_incoming_link_counts(
+    per_note_data: dict[str, tuple[float, list[str]]],
+) -> dict[str, int]:
+    """Build the reverse link count: stem -> number of incoming wikilinks."""
     link_count: dict[str, int] = {stem: 0 for stem in per_note_data}
     for _stem, (_, related_stems) in per_note_data.items():
         for target_stem in related_stems:
             if target_stem in link_count:
                 link_count[target_stem] += 1
+    return link_count
 
-    # Second pass: group by folder, compute staleness, collect DB rows
+
+def _build_note_db_rows(
+    note_contents: dict[
+        Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
+    ],
+    per_note_data: dict[str, tuple[float, list[str]]],
+    link_count: dict[str, int],
+    stale_cutoff_ts: float,
+) -> tuple[
+    list[NoteEntry],
+    dict[str, list[tuple[str, str, str, list[str], bool]]],
+    int,
+]:
+    """Second pass: compute staleness, build NoteEntry rows, group by folder.
+
+    Returns ``(db_rows, folder_notes, stale_count)``.
+    """
     stale_count: int = 0
     db_rows: list[NoteEntry] = []
+    # Extended folder_notes: folder -> [(wikilink, title, summary, tags, is_stale)]
+    folder_notes: dict[str, list[tuple[str, str, str, list[str], bool]]] = {}
     for note_path, (
         _content,
         fm,
@@ -419,6 +419,85 @@ def build_index(
             folder_notes.setdefault(folder, []).append(
                 (_wikilink(note_path), title, summary, tags_list, is_stale)
             )
+
+    return db_rows, folder_notes, stale_count
+
+
+def build_index(
+    vault: Path,
+) -> tuple[
+    str,
+    int,
+    int,
+    dict[str, list[tuple[str, str, str, list[str], bool]]],
+    list[NoteEntry],
+    Counter[str],
+]:
+    """Build the full CLAUDE.md index content.
+
+    Returns:
+        A tuple of (index_content, note_count, tag_count, folder_notes_extended, db_rows, tag_counter).
+        folder_notes_extended maps folder name to a list of
+        (wikilink, title, summary, tags, is_stale) tuples.
+        db_rows is a list of NoteEntry records ready to upsert into the note_index table.
+        tag_counter is the Counter[str] used to build TAGS.md separately.
+    """
+    ensure_vault_dirs(vault=vault)
+    notes: list[Path] = all_vault_notes()
+
+    now: datetime = datetime.now()
+    now_str: str = now.strftime("%Y-%m-%d %H:%M")
+    cutoff_ts: float = (now - timedelta(days=RECENT_DAYS)).timestamp()
+    stale_cutoff_ts: float = (now - timedelta(days=STALE_DAYS)).timestamp()
+
+    # Collected data per note
+    tag_counter: Counter[str] = Counter()
+    recent_notes: list[
+        tuple[float, Path, str, str]
+    ] = []  # (mtime, path, folder, summary)
+
+    # Per-note data needed for staleness: stem -> (mtime, related_stems)
+    # We collect this in the first pass and compute link_count after.
+    per_note_data: dict[
+        str, tuple[float, list[str]]
+    ] = {}  # stem -> (mtime, related_stems)
+
+    # First pass: read all notes, collect data
+    note_contents: dict[
+        Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
+    ] = {}
+    # path -> (content, fm, title, summary, folder, mtime, tags_list)
+
+    for note_path in notes:
+        record: NoteRecord | None = _parse_note_record(note_path)
+        if record is None:
+            continue
+
+        for tag in record.tags:
+            tag_counter[tag] += 1
+        per_note_data[note_path.stem] = (record.mtime, record.related_stems)
+        note_contents[note_path] = (
+            record.content,
+            record.frontmatter,
+            record.title,
+            record.summary,
+            record.folder,
+            record.mtime,
+            record.tags,
+        )
+
+        if record.mtime >= cutoff_ts:
+            recent_notes.append(
+                (record.mtime, note_path, record.folder, record.summary)
+            )
+
+    # Build reverse link count: stem -> number of incoming wikilinks
+    link_count: dict[str, int] = _compute_incoming_link_counts(per_note_data)
+
+    # Second pass: group by folder, compute staleness, collect DB rows
+    db_rows, folder_notes, stale_count = _build_note_db_rows(
+        note_contents, per_note_data, link_count, stale_cutoff_ts
+    )
 
     # Sort recent by mtime descending, limit
     recent_notes.sort(key=lambda x: x[0], reverse=True)
