@@ -9,11 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - **Next.js 16.2.10 → 16.2.11** (`8e5d549`) — visualizer dependency bump tracking the upstream security release.
+- **Audit remediation (SEC-101…132)** — closed a remote-code-execution path in the vault git `post-merge` hook (`--no-project` now on every `uv run`; stale `parsidion-cc` hooks now regenerate instead of being skipped); made the visualizer no longer expose unauthenticated vault read/write to the LAN (token enforced on every route, server bound to loopback); reverted the shipped config template's default AI endpoint to Anthropic (was a third-party gateway); and hardened `~/.claude/settings.json` handling (bail on parse error instead of reset-to-`{}`; atomic write + `.bak`), vault `.gitignore` (globs so `.bak`/`conflicts/` are covered), filesystem permissions (0600 on the queue/logs/configs, 0700 on the vault root + logs dir), injected-note untrusted-content framing, subprocess argv/`codex_cli` injection guards, symlink-escape prevention in vault walks, and ~15 lower-severity items. The shipped config template no longer routes nightly summarization to a third-party endpoint.
+
+### Fixed
+- **`make checkall` no longer rewrites source files** (`ARC-006`) — the `parsidion-mcp` gate now uses non-mutating `fmt-check`/`lint`, so the project's own verification command can be run read-only (unblocking every fix that follows).
+- **Non-editable installs import cleanly** (`ARC-001`) — the 7 modules omitted from `[tool.setuptools] py-modules` are now declared; a clean-room `pip install` of the wheel imports `vault_common`/`vault_search`/`vault_links`/`ai_backend` successfully (CI smoke test added).
+- **Visualizer note writes no longer target the wrong vault** (`ARC-002`) — POST/PUT now read the vault from the request body as well as the query string, eliminating a silent cross-vault overwrite path.
+- **`disconnect codex|gemini` no longer tears down shared infrastructure** (`ARC-003`) — the nightly summarizer schedule, the vault `post-merge` hook, and `vaults.yaml` are now preserved unless the full Claude uninstall runs (and `vaults.yaml` needs an explicit `--purge-config`).
+- **Summarizer correctness** (`ARC-010/012/013/027/030`) — the `knowledge` note type is now writable; one raising session no longer cancels its siblings via the task group; dead-letter pruning is lock-safe; non-retryable failures dead-letter on attempt 1 instead of burning 3 AI calls; `--no-project`/`--vault` are forwarded to spawned subprocesses so the index stops going stale / backlinks stop hitting the wrong vault.
+- **Custom `--vault` installs are now persisted** (`ARC-019`) — written to `~/.config/parsidion/vaults.yaml` so installed hooks resolve the chosen vault instead of silently falling back to the default.
+- **Visualizer performance/robustness** (`ARC-015/036/039/040/041`) — the 47.5 MB `graph.json` is streamed with an mtime ETag (304 on match) plus a delta endpoint; git subprocesses are bounded (timeout/abort/stderr cap); SSE has a cancel handler + keepalive; conflicts return a consistent HTTP 409; server-only modules carry `import 'server-only'`.
+- **`vault_doctor --fix-all`** adds a permission-repair pass (0600/0700) and writes generated index files atomically; `vault-merge` writes atomically and inlines note bodies instead of handing a child agent filesystem access.
+- **Lifecycle hooks** bound transcript reads by bytes (not just lines) and re-add the transcript-path allowlist.
+- Numerous documentation corrections across `CLAUDE.md`, `README.md`, `docs/`, `SECURITY.md`, and `CONTRIBUTING.md` (`DOC-001…040`) — phantom flags, dead symbol references, reversed behavior descriptions, and stale signatures fixed against the current code.
+
+### Added
+- **Tests** — Python suite grew 840 → 1010 and the visualizer suite 60 → 226: first-ever coverage for the `SubagentStop`/`PostCompact` lifecycle hooks, every visualizer API route, the vault path-traversal guards (`vaultResolver`), the `vault-review` destructive paths, and a per-route auth-enforcement test that prevents a new route from forgetting its guards.
+- **Shared modules** — `agent_adapter` registry (the 5 codex/gemini agent-extension hooks collapse to thin shims and now emit hook events), `subproc_util.run_with_pgkill` (one process-group-kill implementation shared by the Claude and Codex backends), async `findNote` (de-triplicated across note routes), a bounded `runScript` helper, and an extracted Brandes-betweenness utility.
 
 ### Changed
 - **par-mem flagged as coming soon across docs** (`66c06f5`) — the README, hook reference, and visualizer docs now state plainly that par-mem itself is not yet publicly available. The integration is ready in parsidion and activates once par-mem ships; parsidion works fully without it.
-
-> Internal-only refactors and audit-remediation work (ARC, SEC, DOC series) since `v0.13.0` will be summarised in the next release notes. See the git log for the per-commit record.
+- **Config schema reconciled** (`ARC-011`) — the six keys the code genuinely reads are now declared in `_CONFIG_SCHEMA` (eliminating six spurious validation warnings at every session start); the `ai`/`ai_models`/`codex_cli` backend-selection sections are documented in the shipped template.
 
 ## [0.13.0] - 2026-07-24
 
