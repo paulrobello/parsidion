@@ -747,7 +747,12 @@ def _rebuild_graph(include_daily: bool) -> None:
     """Run build_graph.py synchronously and print its output.
 
     Args:
-        include_daily: When True, pass ``--include-daily`` to build_graph.py.
+        include_daily: When True, pass ``--include-daily`` to build_graph.py;
+            when False, pass ``--no-daily``. build_graph.py defaults to
+            ``include_daily=True`` (build_graph.py:44), so omitting the flag
+            entirely produces the *with*-Daily behavior regardless of the
+            caller's intent — DOC-003 caught this exact bug (the message said
+            'without Daily notes' while the build was including them).
     """
     graph_script = _find_build_graph_script()
     if graph_script is None:
@@ -759,8 +764,10 @@ def _rebuild_graph(include_daily: bool) -> None:
         return
 
     cmd = ["uv", "run", "--no-project", str(graph_script)]
-    if include_daily:
-        cmd.append("--include-daily")
+    # DOC-003: pass --no-daily when False — build_graph.py defaults to
+    # include_daily=True, so without an explicit flag the index would include
+    # Daily notes regardless of the caller's request.
+    cmd.append("--include-daily" if include_daily else "--no-daily")
 
     print(
         f"Graph: rebuilding graph.json ({'with' if include_daily else 'without'} Daily notes)..."
