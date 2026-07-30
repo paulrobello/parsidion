@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -260,14 +261,34 @@ class TestConstants:
 
 
 class TestDisplayResults:
-    """Tests for report display functions."""
+    """Tests for report display functions.
 
-    def test_display_empty_results(self) -> None:
-        """display_results should handle empty list without error."""
+    Rich's ``Console`` captured ``sys.stdout`` at import time, so capsys
+    cannot see its output by default. Each test re-points
+    ``report.console.file`` at the current (captured) ``sys.stdout`` before
+    invoking ``display_results``.
+    """
+
+    def test_display_empty_results(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """On empty input, display_results emits the explicit 'No results'
+        banner rather than silently returning."""
+        monkeypatch.setattr(report.console, "file", sys.stdout)
         report.display_results([], top_k=10)
+        out = capsys.readouterr().out
+        assert "No results to display" in out
 
-    def test_display_results_with_data(self) -> None:
-        """display_results should render without error."""
+    def test_display_results_with_data(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """display_results renders each row's short-form model name,
+        chunking label, and the top_k-reflecting table title."""
+        monkeypatch.setattr(report.console, "file", sys.stdout)
         results = [
             common.ComboResult(
                 model="BAAI/bge-small-en-v1.5",
@@ -296,8 +317,16 @@ class TestDisplayResults:
                 chunk_count=150,
             ),
         ]
-        # Should not raise
         report.display_results(results, top_k=10)
+        out = capsys.readouterr().out
+        # Short-form model names (last path component) are rendered.
+        assert "bge-small-en-v1.5" in out
+        assert "nomic-embed-text-v1.5" in out
+        # Chunking column labels are rendered.
+        assert "whole" in out
+        assert "paragraph" in out
+        # Table title reflects the top_k argument.
+        assert "top_k=10" in out
 
 
 # ---------------------------------------------------------------------------
