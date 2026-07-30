@@ -21,6 +21,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 import vault_common
+from vault_path import is_symlink_inside_vault
 
 
 # ---------------------------------------------------------------------------
@@ -513,7 +514,11 @@ def collect_timeline(
     else:
         vault = vault or vault_common.resolve_vault()
         if vault.exists():
+            vault_root_resolved = vault.resolve()
             for md in vault.rglob("*.md"):
+                # SEC-106: skip symlinked .md files whose target escapes the vault.
+                if not is_symlink_inside_vault(md, vault_root_resolved):
+                    continue
                 try:
                     mtime = md.stat().st_mtime
                 except OSError:
@@ -584,9 +589,13 @@ def collect_no_db_summary(vault: Path | None = None) -> dict:
     if not vault.exists():
         return {"vault_exists": False, "total": 0, "by_folder": []}
 
+    vault_root_resolved = vault.resolve()
     counts: dict[str, int] = {}
     total = 0
     for md in vault.rglob("*.md"):
+        # SEC-106: skip symlinked .md files whose target escapes the vault.
+        if not is_symlink_inside_vault(md, vault_root_resolved):
+            continue
         folder = md.parent.name if md.parent != vault else "(root)"
         counts[folder] = counts.get(folder, 0) + 1
         total += 1

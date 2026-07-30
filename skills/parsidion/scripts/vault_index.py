@@ -24,6 +24,7 @@ from vault_path import (
     EXCLUDE_DIRS,
     VAULT_DIRS,
     get_embeddings_db_path,
+    is_symlink_inside_vault,
     resolve_vault,
 )
 
@@ -483,6 +484,12 @@ def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
     if not vault.is_dir():
         return notes
 
+    # SEC-106: resolve once so the symlink guard is not defeated by a
+    # symlinked vault root. ``Templates/`` is excluded via EXCLUDE_DIRS
+    # *before* the symlink guard runs, so the intentional
+    # ``Templates -> skills/parsidion/templates`` symlink is preserved.
+    vault_root_resolved = vault.resolve()
+
     for dirpath, dirnames, filenames in os.walk(vault):
         # Prune excluded directories in-place so os.walk skips them
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
@@ -494,7 +501,12 @@ def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
                 continue
             if fname == "MANIFEST.md":
                 continue
-            notes.append(Path(dirpath) / fname)
+            p = Path(dirpath) / fname
+            # SEC-106: skip symlinked .md files whose target escapes the
+            # vault; ``os.walk`` lists them like regular files.
+            if not is_symlink_inside_vault(p, vault_root_resolved):
+                continue
+            notes.append(p)
 
     return notes
 

@@ -35,6 +35,7 @@ __all__: list[str] = [
     "default_vault_root",
     "resolve_templates_dir",
     "get_embeddings_db_path",
+    "is_symlink_inside_vault",
     # Internal (re-exported for backward compat)
     "_VAULT_FORBIDDEN_PREFIXES",
     "_validate_vault_path",
@@ -255,6 +256,26 @@ def _validate_vault_path(resolved: Path) -> None:
             raise VaultConfigError(
                 f"Vault path resolves to a forbidden location: {resolved}"
             )
+
+
+def is_symlink_inside_vault(path: Path, vault_root: Path) -> bool:
+    """Return True if *path* is a symlink whose target stays inside *vault_root*.
+
+    SEC-106: ``os.walk`` does not follow symlinked *directories* but it does
+    list symlinked *files*, so a shared-vault committer can plant
+    ``Patterns/evil.md -> ~/.ssh/id_ed25519`` and have the indexer read it.
+    Non-symlinks are always considered safe. Symlinks whose ``resolve()``
+    raises ``OSError`` or escapes *vault_root* are unsafe. Callers must
+    ``resolve()`` *vault_root* once before the walk and pass the resolved
+    value here, so the comparison is not defeated by a symlinked vault root.
+    """
+    if not path.is_symlink():
+        return True
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    return resolved.is_relative_to(vault_root)
 
 
 def _resolve_vault_reference(reference: str) -> Path:
