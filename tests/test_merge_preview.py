@@ -303,11 +303,17 @@ class TestMergeLock:
     def test_lock_released_after_successful_execute_allows_next_merge(
         self, vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _make_pair(vault)
+        path_a, path_b = _make_pair(vault)
         monkeypatch.setattr(
             vault_merge.ai_backend, "run_ai_prompt", lambda *a, **k: _AI_BODY_V1
         )
         _run_main(monkeypatch, vault, "--execute")
+
+        # The execute actually merged: keeper holds the AI body, loser trashed.
+        merged = path_a.read_text(encoding="utf-8")
+        assert "Merged content covering both notes, version one." in merged
+        assert not path_b.exists()
+        assert (vault / ".trash" / "note-b.md").exists()
 
         # Lock must be released; a fresh acquire attempt must not block/fail.
         lock_path = vault / ".merge_previews" / ".merge.lock"
