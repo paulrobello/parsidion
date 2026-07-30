@@ -50,6 +50,7 @@ never block a fix; prune ``.trash/backup/`` freely whenever you like.
 import argparse
 import atexit
 import concurrent.futures
+import errno
 import json
 import os
 import re
@@ -1108,13 +1109,16 @@ def _find_link_replacement(
 
     # 3. Semantic fallback
     try:
+        # SEC-128: insert `--` before the note-derived positional so a
+        # wikilink like [[--help]] cannot parse as a vault-search flag.
         result = subprocess.run(
             [
                 "vault-search",
-                link_text,
                 "--json",
                 "--top=2",
                 f"--min-score={min_score}",
+                "--",
+                link_text,
             ],
             env=vault_common.env_without_claudecode(),
             capture_output=True,
@@ -1258,8 +1262,11 @@ def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
     query = title_match.group(1).strip() if title_match else path.stem.replace("-", " ")
 
     try:
+        # SEC-128: insert `--` before the note-derived query so an H1
+        # starting with `--` (e.g. '# --verbose flag') cannot parse as a
+        # vault-search flag.
         result = subprocess.run(
-            ["vault-search", query, "--json", f"--top={top_k + 1}"],
+            ["vault-search", "--json", f"--top={top_k + 1}", "--", query],
             capture_output=True,
             text=True,
             timeout=30,
@@ -2872,6 +2879,118 @@ def run_scan_and_repair(
         _run_reindex(vault)
 
 
+# ---------------------------------------------------------------------------
+# SEC-109/110/112/114 migration: tighten permissions on sensitive vault files
+# ---------------------------------------------------------------------------
+
+# Files inside the vault that may carry secrets or session-derived PII.
+# Chmod'd to 0600 (owner read/write only) by run_fix_permissions so a shared
+# vault (rare but supported) cannot leak them to other accounts.
+_SECRET_FILES: tuple[str, ...] = (
+    "pending_summaries.jsonl",
+    "dead_letters.jsonl",
+    "config.yaml",
+    "config.local.yaml",
+)
+
+# Glob patterns matching backup variants of the secret files (atomic-write
+# leftovers, manual backups, the rotate-on-size copies vault_fs produces).
+_SECRET_FILE_GLOBS: tuple[str, ...] = (
+    "pending_summaries.jsonl.bak*",
+    "pending_summaries.jsonl.tmp",
+    "dead_letters.jsonl.bak*",
+    "dead_letters.jsonl.tmp",
+)
+
+_FILE_MODE = 0o600
+_DIR_MODE = 0o700
+
+
+def _chmod_if_exists(path: Path, mode: int) -> bool:
+    """Chmod *path* to *mode* when it exists. Best-effort; never raises.
+
+    Returns True when the mode was applied, False otherwise (missing file,
+    permission error, etc.). Errors are reported once via stderr so an
+    unattended ``--fix-all`` run still surfaces them.
+    """
+    try:
+        path.chmod(mode)
+        return True
+    except OSError as exc:
+        # File-not-found is expected — many of the glob targets only exist
+        # transiently. Anything else is a real environment problem worth a
+        # stderr line.
+        if exc.errno != errno.ENOENT:
+            print(
+                f"  permission repair: could not chmod {path}: {exc}",
+                file=sys.stderr,
+            )
+        return False
+
+
+def run_fix_permissions(
+    vault_path: Path | None = None, *, dry_run: bool = False
+) -> int:
+    """Tighten permissions on sensitive vault files and key directories.
+
+    Migrates older installs where the files below were created with the
+    process umask default (typically 0644 for files / 0755 for dirs), making
+    them readable to other accounts on a shared host. The current code paths
+    create them at the tighter modes (SEC-109/110/112/114 closed the
+    creation gaps); this function repairs pre-existing files to match.
+
+    Targets:
+      Files (chmod 0600): ``pending_summaries.jsonl``, ``dead_letters.jsonl``,
+        their ``.bak*`` / ``.tmp`` variants, ``config.yaml`` and
+        ``config.local.yaml`` (which may carry ANTHROPIC_API_KEY).
+      Dirs (chmod 0700): the vault root and ``~/.claude/logs``.
+
+    Args:
+        vault_path: Vault root. Defaults to the active vault.
+        dry_run: When True, report what would change without chmod'ing.
+
+    Returns:
+        Number of files/dirs repaired (0 in dry-run mode even if work exists).
+    """
+    if vault_path is None:
+        vault_path = _active_vault()
+
+    targets: list[tuple[Path, int]] = []
+
+    # Vault secret files + glob variants
+    for name in _SECRET_FILES:
+        targets.append((vault_path / name, _FILE_MODE))
+    for pattern in _SECRET_FILE_GLOBS:
+        for match in vault_path.glob(pattern):
+            targets.append((match, _FILE_MODE))
+
+    # ~/.claude/logs is created by the hooks (parsidion-hook-errors.log,
+    # parsidion-embed.log) and by the embedding-rebuild spawn. Pre-SEC-114
+    # installs may have it at 0755.
+    logs_dir = Path.home() / ".claude" / "logs"
+    targets.append((logs_dir, _DIR_MODE))
+
+    # The vault root itself — pre-SEC-109 installs created it at 0755.
+    targets.append((vault_path, _DIR_MODE))
+
+    repaired = 0
+    print("\nPermission repair:")
+    for target, mode in targets:
+        if not target.exists():
+            continue
+        if dry_run:
+            print(f"  would chmod {target} → {oct(mode)[2:]}")
+            continue
+        if _chmod_if_exists(target, mode):
+            print(f"  chmod {target} → {oct(mode)[2:]}")
+            repaired += 1
+    if dry_run:
+        print(f"  (dry-run: 0 of {len(targets)} targets chmod'd)")
+    else:
+        print(f"  Done: {repaired} path(s) repaired.")
+    return repaired
+
+
 def main() -> None:
     """Parse CLI arguments, acquire the singleton PID lock, and dispatch to the requested repair mode."""
     _backed_up_this_run.clear()  # defensive: fresh dedup set for this run
@@ -3034,6 +3153,18 @@ def main() -> None:
             "Shows candidates by default; use --execute to apply."
         ),
     )
+    parser.add_argument(
+        "--fix-permissions",
+        action="store_true",
+        help=(
+            "Tighten permissions on sensitive vault files: chmod 0600 "
+            "pending_summaries.jsonl, dead_letters.jsonl, their .bak/.tmp "
+            "variants, config.yaml, config.local.yaml; chmod 0700 the vault "
+            "root and ~/.claude/logs. Closes SEC-109/110/112/114 for "
+            "pre-existing files left at the umask default. Included in "
+            "--fix-all."
+        ),
+    )
     args = parser.parse_args()
 
     # Resolve vault path
@@ -3093,6 +3224,7 @@ def main() -> None:
         args.strip_prefixes = True
         args.migrate_subfolders = True
         args.migrate_daily_notes = True
+        args.fix_permissions = True
         args.execute = True
 
     # ── --fix-tags mode ────────────────────────────────────────────────────
@@ -3122,6 +3254,16 @@ def main() -> None:
     if args.migrate_daily_notes:
         dry = not args.execute
         run_migrate_daily_notes(_vault_path, dry_run=dry, username=args.daily_username)
+        if not args.fix_all:
+            return
+
+    # ── --fix-permissions mode ─────────────────────────────────────────────
+    # SEC-109/110/112/114 migration: chmod sensitive files to 0600, vault
+    # root and ~/.claude/logs to 0700. Runs as part of --fix-all (unattended
+    # nightly) and standalone via --fix-permissions.
+    if args.fix_permissions:
+        dry = not args.execute
+        run_fix_permissions(_vault_path, dry_run=dry)
         if not args.fix_all:
             return
 

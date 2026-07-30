@@ -262,3 +262,138 @@ class TestStripPrefixesRenameFailure:
         captured = capsys.readouterr()
         assert "No files were renamed." in captured.out
         assert captured.err.count("rename failed") == 2
+
+
+# ---------------------------------------------------------------------------
+# SEC-109/110/112/114 — vault_doctor.run_fix_permissions migration
+# ---------------------------------------------------------------------------
+
+
+class TestRunFixPermissions:
+    """Permission-repair migration in vault_doctor --fix-all (and standalone
+    via --fix-permissions). Closes SEC-109/110/112/114 for pre-existing
+    files that were created at the umask default before those fixes landed.
+    """
+
+    def test_chmods_secret_files_to_0600(self, vault: Path) -> None:
+        import os
+        import stat
+
+        # Pre-fix state: pending_summaries.jsonl and config.yaml exist at
+        # 0644 (the umask default).
+        pending = vault / "pending_summaries.jsonl"
+        pending.write_text("{}\n", encoding="utf-8")
+        os.chmod(pending, 0o644)
+        config = vault / "config.yaml"
+        config.write_text("vault:\n  username: x\n", encoding="utf-8")
+        os.chmod(config, 0o644)
+
+        repaired = vault_doctor.run_fix_permissions(vault)
+        assert repaired >= 1
+
+        assert stat.S_IMODE(os.stat(pending).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(config).st_mode) == 0o600
+
+    def test_chmods_dead_letter_and_bak_variants(self, vault: Path) -> None:
+        import os
+        import stat
+
+        dead = vault / "dead_letters.jsonl"
+        dead.write_text("[]\n", encoding="utf-8")
+        os.chmod(dead, 0o644)
+        bak = vault / "dead_letters.jsonl.bak1"
+        bak.write_text("[]\n", encoding="utf-8")
+        os.chmod(bak, 0o644)
+
+        vault_doctor.run_fix_permissions(vault)
+
+        assert stat.S_IMODE(os.stat(dead).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(bak).st_mode) == 0o600
+
+    def test_chmods_vault_root_to_0700(self, vault: Path) -> None:
+        import os
+        import stat
+
+        os.chmod(vault, 0o755)
+        vault_doctor.run_fix_permissions(vault)
+        assert stat.S_IMODE(os.stat(vault).st_mode) == 0o700
+
+    def test_dry_run_does_not_chmod(self, vault: Path) -> None:
+        import os
+        import stat
+
+        pending = vault / "pending_summaries.jsonl"
+        pending.write_text("{}\n", encoding="utf-8")
+        os.chmod(pending, 0o644)
+
+        repaired = vault_doctor.run_fix_permissions(vault, dry_run=True)
+        assert repaired == 0
+        # Mode unchanged
+        assert stat.S_IMODE(os.stat(pending).st_mode) == 0o644
+
+    def test_missing_files_are_skipped_silently(self, vault: Path) -> None:
+        # No pending_summaries.jsonl, no config.yaml — should not raise.
+        result = vault_doctor.run_fix_permissions(vault)
+        # Only the vault root exists for sure; result is at least 0.
+        assert isinstance(result, int)
+        assert result >= 0
+
+    def test_chmod_failure_does_not_raise(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failing chmod must not abort the whole run."""
+
+        def boom(self: Path, mode: int) -> None:  # noqa: ARG001
+            raise OSError("permission denied")
+
+        pending = vault / "pending_summaries.jsonl"
+        pending.write_text("{}\n", encoding="utf-8")
+        monkeypatch.setattr(Path, "chmod", boom)
+        # Should not raise
+        vault_doctor.run_fix_permissions(vault)
+
+
+# ---------------------------------------------------------------------------
+# SEC-128 — `--` before note-derived positionals in vault-search subprocess
+# ---------------------------------------------------------------------------
+
+
+class TestVaultSearchSeparator:
+    """SEC-128: insert `--` before note-derived positionals so a wikilink or
+    H1 like ``[[--help]]`` cannot parse as a vault-search flag."""
+
+    def test_find_link_recovery_passes_separator(self, vault: Path) -> None:
+        """Verify the argv passed to subprocess.run carries a `--` separator
+        before the user-derived positional."""
+        captured_argv: list[list[str]] = []
+
+        def fake_run(argv: list[str], **_kwargs: object) -> object:
+            captured_argv.append(argv)
+
+            # Simulate vault-search returning no results
+            class _FakeCompleted:
+                returncode = 0
+                stdout = "[]"
+
+            return _FakeCompleted()
+
+        original_run = vault_doctor.subprocess.run
+        vault_doctor.subprocess.run = fake_run  # type: ignore[assignment]
+
+        try:
+            vault_doctor._find_link_replacement(
+                "[[--help]]",
+                {},
+                exclude_path=None,
+                min_score=0.5,
+            )
+        finally:
+            vault_doctor.subprocess.run = original_run  # type: ignore[assignment]
+
+        assert captured_argv, "subprocess.run was not invoked"
+        argv = captured_argv[0]
+        # The `--` must be present and the user-derived positional must be
+        # AFTER it (so it cannot be parsed as a flag).
+        assert "--" in argv
+        separator_idx = argv.index("--")
+        assert argv[separator_idx + 1 :] == ["[[--help]]"]
