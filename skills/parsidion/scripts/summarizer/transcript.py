@@ -49,6 +49,73 @@ def _strip_code_fence(text: str) -> str:
     return inner.strip()
 
 
+def _extract_role_and_content(entry: dict[str, object]) -> tuple[str | None, object]:
+    """Detect the role and content for a single transcript JSONL line.
+
+    Tries the Claude ``message.role`` shape, the legacy top-level ``type``
+    shape, and finally the Codex ``payload.type == "message"`` shape. Returns
+    ``(role, content)`` where ``role`` is ``None`` when no shape matched.
+    """
+    role: str | None = None
+    content: object = None
+
+    message = entry.get("message")
+    if isinstance(message, dict):
+        role_raw = message.get("role")
+        if isinstance(role_raw, str):
+            role = role_raw
+        content = message.get("content")
+
+    if role is None:
+        msg_type = entry.get("type")
+        if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
+            role = msg_type
+            content = entry.get("content")
+
+    # Codex format: type="response_item", payload.type="message",
+    # payload.role="user"/"assistant", payload.content=[{type:"input_text"/"output_text"}]
+    if role is None:
+        payload = entry.get("payload")
+        if isinstance(payload, dict) and payload.get("type") == "message":
+            role_raw = payload.get("role")
+            if isinstance(role_raw, str) and role_raw in {"user", "assistant"}:
+                role = role_raw
+                content = payload.get("content")
+
+    return role, content
+
+
+def _extract_text(role: str, content: object) -> str:
+    """Extract visible text from a transcript line's ``content``.
+
+    Strings pass through stripped. Lists keep only text blocks, dropping tool
+    results (for user messages) and tool calls (for assistant messages). Any
+    other content shape returns an empty string so the caller's truthiness
+    check skips the line.
+    """
+    # Extract text blocks only
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            # For user messages, skip tool result blocks.
+            # For assistant messages, skip tool call/use blocks.
+            block_type = block.get("type", "")
+            if role == "user" and block_type in {"tool_result", "toolResult"}:
+                continue
+            if role == "assistant" and block_type in {"tool_use", "toolCall"}:
+                continue
+            if block_type in {"text", "input_text", "output_text"}:
+                t = block.get("text", "")
+                if isinstance(t, str) and t.strip():
+                    parts.append(t.strip())
+        return "\n".join(parts).strip()
+    return ""
+
+
 def preprocess_transcript(
     transcript_path_str: str,
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
@@ -90,57 +157,12 @@ def preprocess_transcript(
         except (json.JSONDecodeError, ValueError):
             continue
 
-        role: str | None = None
-        content: object = None
-
-        message = entry.get("message")
-        if isinstance(message, dict):
-            role_raw = message.get("role")
-            if isinstance(role_raw, str):
-                role = role_raw
-            content = message.get("content")
-
-        if role is None:
-            msg_type = entry.get("type")
-            if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
-                role = msg_type
-                content = entry.get("content")
-
-        # Codex format: type="response_item", payload.type="message",
-        # payload.role="user"/"assistant", payload.content=[{type:"input_text"/"output_text"}]
-        if role is None:
-            payload = entry.get("payload")
-            if isinstance(payload, dict) and payload.get("type") == "message":
-                role_raw = payload.get("role")
-                if isinstance(role_raw, str) and role_raw in {"user", "assistant"}:
-                    role = role_raw
-                    content = payload.get("content")
+        role, content = _extract_role_and_content(entry)
 
         if role not in {"user", "assistant"} or not content:
             continue
 
-        # Extract text blocks only
-        if isinstance(content, str):
-            text = content.strip()
-        elif isinstance(content, list):
-            parts: list[str] = []
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                # For user messages, skip tool result blocks.
-                # For assistant messages, skip tool call/use blocks.
-                block_type = block.get("type", "")
-                if role == "user" and block_type in {"tool_result", "toolResult"}:
-                    continue
-                if role == "assistant" and block_type in {"tool_use", "toolCall"}:
-                    continue
-                if block_type in {"text", "input_text", "output_text"}:
-                    t = block.get("text", "")
-                    if isinstance(t, str) and t.strip():
-                        parts.append(t.strip())
-            text = "\n".join(parts).strip()
-        else:
-            continue
+        text = _extract_text(role, content)
 
         if not text:
             continue
