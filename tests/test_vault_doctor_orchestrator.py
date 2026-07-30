@@ -20,12 +20,13 @@ from pathlib import Path
 import pytest
 
 # Make the scripts dir importable.
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "scripts"
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "scripts"
+)
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import vault_doctor  # noqa: E402
-from doctor._state import Issue  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -63,10 +64,10 @@ def _write_note(
     if not body.lstrip().startswith("---"):
         fm = (
             "---\n"
-            f"date: 2026-07-28\n"
-            f"type: pattern\n"
-            f"confidence: high\n"
-            f'related: ["[[other-note]]"]\n'
+            "date: 2026-07-28\n"
+            "type: pattern\n"
+            "confidence: high\n"
+            'related: ["[[other-note]]"]\n'
             "---\n"
             "# Heading\n"
             "body\n"
@@ -85,7 +86,10 @@ class TestScanDryRunIsReadOnly:
     """ARC-008 acceptance: dry-run must not touch the filesystem."""
 
     def test_dry_run_leaves_notes_unchanged(
-        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         # Plant a note with a BROKEN_WIKILINK + ORPHAN_NOTE so the scanner has
         # something to report — but dry-run must not write a fix.
@@ -272,11 +276,7 @@ class TestScanManualOnlySkipsState:
         flat = tmp_vault / "Daily" / "2026-07-28.md"
         flat.parent.mkdir(parents=True, exist_ok=True)
         flat.write_text(
-            "---\n"
-            "date: 2026-07-28\n"
-            "type: daily\n"
-            "---\n"
-            "# Today\n",
+            "---\ndate: 2026-07-28\ntype: daily\n---\n# Today\n",
             encoding="utf-8",
         )
         monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
@@ -430,16 +430,16 @@ class TestFixModeRegistry:
     same registry."""
 
     def test_fix_mode_is_frozen_dataclass(self) -> None:
+        from dataclasses import FrozenInstanceError
+
         from doctor.protocol import FixMode
 
         m = FixMode("fix_x", lambda v, d: None, "label")
         # Frozen: callers can't mutate the registry in place.
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             m.flag = "fix_y"  # type: ignore[misc]
 
-    def test_run_fix_modes_dispatches_selected(
-        self, tmp_vault: Path
-    ) -> None:
+    def test_run_fix_modes_dispatches_selected(self, tmp_vault: Path) -> None:
         from doctor.protocol import FixMode, run_fix_modes
 
         called: list[str] = []
@@ -463,9 +463,7 @@ class TestFixModeRegistry:
         assert standalone_ran is True
         assert called == [f"{tmp_vault.name}:False"]
 
-    def test_run_fix_modes_fix_all_runs_every_selected(
-        self, tmp_vault: Path
-    ) -> None:
+    def test_run_fix_modes_fix_all_runs_every_selected(self, tmp_vault: Path) -> None:
         from doctor.protocol import FixMode, run_fix_modes
 
         called: list[str] = []
@@ -473,9 +471,7 @@ class TestFixModeRegistry:
         def runner(vault: Path, dry: bool) -> None:
             called.append(vault.name)
 
-        modes = tuple(
-            FixMode(f"fix_{n}", runner, str(n)) for n in ("a", "b", "c")
-        )
+        modes = tuple(FixMode(f"fix_{n}", runner, str(n)) for n in ("a", "b", "c"))
 
         class Args:
             fix_all = True
