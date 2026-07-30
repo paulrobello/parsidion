@@ -297,5 +297,9 @@ class TestSec116RevertCodexHooksFlag:
     def test_missing_config_is_noop(self, tmp_path: Path) -> None:
         codex_home = tmp_path / ".codex"
         codex_home.mkdir()
-        # No exception.
+        config = codex_home / "config.toml"
+        # No-op contract on a missing config: must not raise, and must not
+        # create a config the user never had. (disable_codex_hooks_config
+        # returns early when config.toml is absent.)
         hooks.disable_codex_hooks_config(codex_home)
+        assert not config.exists()

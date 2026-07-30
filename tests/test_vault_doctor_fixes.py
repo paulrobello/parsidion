@@ -349,8 +349,11 @@ class TestRunFixPermissions:
         pending = vault / "pending_summaries.jsonl"
         pending.write_text("{}\n", encoding="utf-8")
         monkeypatch.setattr(Path, "chmod", boom)
-        # Should not raise
-        vault_doctor.run_fix_permissions(vault)
+        # Nonfatal: every chmod raises, but the run still completes and
+        # returns a sane count instead of aborting partway.
+        result = vault_doctor.run_fix_permissions(vault)
+        assert isinstance(result, int)
+        assert result >= 0
 
 
 # ---------------------------------------------------------------------------
