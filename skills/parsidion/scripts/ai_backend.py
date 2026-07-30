@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import subproc_util
-import vault_common
 import vault_config
+from vault_hooks import env_without_claudecode
 
 AiBackend = Literal["claude-cli", "codex-cli", "none"]
 ModelTier = Literal["small", "large"]
@@ -265,7 +265,7 @@ def _run_claude_prompt(
             cmd,
             timeout=timeout if timeout is not None else _DEFAULT_CLAUDE_TIMEOUT,
             cwd=str(cwd) if cwd is not None else None,
-            env=vault_common.env_without_claudecode(vault=vault),
+            env=env_without_claudecode(vault=vault),
             stdin=prompt,
         )
     except subprocess.TimeoutExpired as exc:

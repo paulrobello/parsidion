@@ -19,6 +19,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 session_start_hook = importlib.import_module("session_start_hook")
+import vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
 
 
 def _write_codex_config(vault: Path) -> None:
@@ -50,15 +51,13 @@ def _run_session_start_main_for_codex(
     note.write_text("# Codex Note\nUse Codex backend defaults.\n", encoding="utf-8")
     _write_codex_config(vault)
 
-    session_start_hook.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    session_start_hook.vault_common._clear_config_cache()
+    session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_common._clear_config_cache()
     monkeypatch.setenv("CLAUDE_VAULT", str(vault))
     monkeypatch.setattr(
         session_start_hook, "_build_candidates", lambda *_args, **_kwargs: [note]
     )
-    monkeypatch.setattr(
-        session_start_hook.vault_common, "write_hook_event", lambda **_kwargs: None
-    )
+    monkeypatch.setattr(session_start_hook, "write_hook_event", lambda **_kwargs: None)
 
     calls: list[list[str]] = []
 
@@ -91,7 +90,7 @@ class TestAiSelectionSafety:
         tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 True
@@ -133,7 +132,7 @@ class TestAiSelectionSafety:
         tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 True
@@ -157,7 +156,7 @@ class TestAiSelectionSafety:
 
         monkeypatch.setattr(session_start_hook, "_release_ai_lock", _release)
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "read_note_summary",
             lambda path, max_lines=6: "Useful summary",
         )
@@ -192,7 +191,7 @@ class TestAiSelectionSafety:
         tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 False
@@ -236,7 +235,7 @@ class TestAiSelectionSafety:
         tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 False
@@ -310,7 +309,7 @@ class TestAiSelectionSafety:
         tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 False
@@ -328,7 +327,7 @@ class TestAiSelectionSafety:
             lambda vault_path: False,
         )
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "read_note_summary",
             lambda path, max_lines=6: "Useful summary",
         )
@@ -374,7 +373,7 @@ class TestAiCooldownHelpers:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 30
@@ -389,7 +388,7 @@ class TestAiCooldownHelpers:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 30
@@ -405,7 +404,7 @@ class TestAiCooldownHelpers:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "get_config",
             lambda section, key, default=None: (
                 0
@@ -455,7 +454,7 @@ class TestBuildDeltaSection:
     def test_includes_new_notes_after_cutoff(self, tmp_path: Path) -> None:
         # Create vault structure
         vault = tmp_path
-        for d in session_start_hook.vault_common.VAULT_DIRS:
+        for d in vault_common.VAULT_DIRS:
             (vault / d).mkdir(exist_ok=True)
 
         # Write a note with a current mtime
@@ -471,7 +470,7 @@ class TestBuildDeltaSection:
 
     def test_excludes_notes_before_cutoff(self, tmp_path: Path) -> None:
         vault = tmp_path
-        for d in session_start_hook.vault_common.VAULT_DIRS:
+        for d in vault_common.VAULT_DIRS:
             (vault / d).mkdir(exist_ok=True)
 
         note = vault / "Patterns" / "old-note.md"
@@ -486,7 +485,7 @@ class TestBuildDeltaSection:
 
     def test_caps_results_at_ten(self, tmp_path: Path) -> None:
         vault = tmp_path
-        for d in session_start_hook.vault_common.VAULT_DIRS:
+        for d in vault_common.VAULT_DIRS:
             (vault / d).mkdir(exist_ok=True)
 
         # Write 15 notes
@@ -509,16 +508,16 @@ class TestBuildDeltaSection:
 
 def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
     """Point vault_common at *vault* and clear the resolver/config caches."""
-    monkeypatch.setattr(session_start_hook.vault_common, "VAULT_ROOT", vault)
-    session_start_hook.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    session_start_hook.vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
-    session_start_hook.vault_common._clear_config_cache()
+    monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
+    session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common._clear_config_cache()
 
 
 def _make_note_index(vault: Path) -> sqlite3.Connection:
     """Create embeddings.db with the canonical note_index schema."""
     conn = sqlite3.connect(str(vault / "embeddings.db"))
-    session_start_hook.vault_common.ensure_note_index_schema(conn)
+    vault_common.ensure_note_index_schema(conn)
     return conn
 
 
@@ -582,14 +581,14 @@ class TestLoadGraphMetadata:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _use_vault(monkeypatch, tmp_path)
-        assert session_start_hook.vault_common.load_graph_metadata() is None
+        assert session_start_hook.load_graph_metadata() is None
 
     def test_returns_none_when_table_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _use_vault(monkeypatch, tmp_path)
         sqlite3.connect(str(tmp_path / "embeddings.db")).close()
-        assert session_start_hook.vault_common.load_graph_metadata() is None
+        assert session_start_hook.load_graph_metadata() is None
 
     def test_loads_related_incoming_links_and_tags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -605,7 +604,7 @@ class TestLoadGraphMetadata:
             tags="python, hook",
         )
         conn.close()
-        meta = session_start_hook.vault_common.load_graph_metadata()
+        meta = session_start_hook.load_graph_metadata()
         assert meta is not None
         assert meta["seed"]["related"] == "nbr-a, nbr-b"
         assert meta["seed"]["incoming_links"] == 4
@@ -729,7 +728,7 @@ class TestGraphExpansionIntegration:
         graph_expand: bool = True,
     ) -> tuple[Path, Path, Path]:
         vault = tmp_path / "vault"
-        for d in session_start_hook.vault_common.VAULT_DIRS:
+        for d in vault_common.VAULT_DIRS:
             (vault / d).mkdir(parents=True, exist_ok=True)
         seed = vault / "Patterns" / "seed.md"
         nbr = vault / "Patterns" / "neighbor.md"
@@ -768,13 +767,11 @@ class TestGraphExpansionIntegration:
         )
         _use_vault(monkeypatch, vault)
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "find_notes_by_project",
             lambda project: [seed],
         )
-        monkeypatch.setattr(
-            session_start_hook.vault_common, "find_recent_notes", lambda days=3: []
-        )
+        monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )
@@ -890,7 +887,7 @@ class TestGraphRerankIntegration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         vault = tmp_path / "vault"
-        for d in session_start_hook.vault_common.VAULT_DIRS:
+        for d in vault_common.VAULT_DIRS:
             (vault / d).mkdir(parents=True, exist_ok=True)
         seed = vault / "Patterns" / "seed.md"
         nbr_a = vault / "Patterns" / "nbr-a.md"  # shares python tag
@@ -937,13 +934,11 @@ class TestGraphRerankIntegration:
         )
         _use_vault(monkeypatch, vault)
         monkeypatch.setattr(
-            session_start_hook.vault_common,
+            session_start_hook,
             "find_notes_by_project",
             lambda project: [seed],
         )
-        monkeypatch.setattr(
-            session_start_hook.vault_common, "find_recent_notes", lambda days=3: []
-        )
+        monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )
@@ -966,7 +961,7 @@ def _setup_graph_vault(
     recent note. The neighbor is neither recent nor project-scoped, so it only
     surfaces via graph expansion."""
     vault = tmp_path / "vault"
-    for d in session_start_hook.vault_common.VAULT_DIRS:
+    for d in vault_common.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     proj = vault / "Projects" / "proj-note.md"
     nbr = vault / "Projects" / "neighbor.md"
@@ -1017,7 +1012,7 @@ class TestBuildCandidatesGraphEnrichment:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         vault, _proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
-        meta = session_start_hook.vault_common.load_graph_metadata()
+        meta = session_start_hook.load_graph_metadata()
         result = session_start_hook._build_candidates(
             "vault", vault, graph_meta=meta, graph_expand_max=8
         )
@@ -1040,7 +1035,7 @@ class TestBuildCandidatesGraphEnrichment:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         vault, _proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
-        meta = session_start_hook.vault_common.load_graph_metadata()
+        meta = session_start_hook.load_graph_metadata()
         result = session_start_hook._build_candidates(
             "vault", vault, graph_meta=meta, graph_expand_max=0
         )
@@ -1052,7 +1047,7 @@ class TestBuildCandidatesGraphEnrichment:
         # neighbor is also a recent note here -> already in the base list; it
         # must not be duplicated by enrichment.
         vault = tmp_path / "vault"
-        for d in session_start_hook.vault_common.VAULT_DIRS:
+        for d in vault_common.VAULT_DIRS:
             (vault / d).mkdir(parents=True, exist_ok=True)
         proj = vault / "Projects" / "proj-note.md"
         nbr = vault / "Projects" / "neighbor.md"
@@ -1079,7 +1074,7 @@ class TestBuildCandidatesGraphEnrichment:
         )
         conn.close()
         _use_vault(monkeypatch, vault)
-        meta = session_start_hook.vault_common.load_graph_metadata()
+        meta = session_start_hook.load_graph_metadata()
         result = session_start_hook._build_candidates(
             "vault", vault, graph_meta=meta, graph_expand_max=8
         )
@@ -1105,8 +1100,8 @@ class TestAiBranchGraphEnrichment:
             "  track_delta: false\n",
             encoding="utf-8",
         )
-        session_start_hook.vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
-        session_start_hook.vault_common._clear_config_cache()
+        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common._clear_config_cache()
         captured: dict[str, list[str]] = {}
 
         def fake_select(

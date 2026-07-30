@@ -23,16 +23,42 @@ from pathlib import Path
 
 import ai_backend
 import parmem_backend
-import vault_common
-from vault_path import is_path_inside_vault
+from vault_adaptive import (
+    load_last_seen,
+    load_usefulness_scores,
+    save_injected_notes,
+    save_last_seen,
+)
+from vault_config import get_config, validate_config
+from vault_fs import ensure_vault_dirs, today_daily_path
+from vault_hooks import env_without_claudecode, get_project_name, write_hook_event
+from vault_index import (
+    all_vault_notes,
+    build_compact_index,
+    build_context_block,
+    find_notes_by_project,
+    find_recent_notes,
+    load_graph_metadata,
+    parse_frontmatter,
+    parse_related_stems,
+    query_note_index,
+    read_note_summary,
+)
+from vault_path import (
+    get_embeddings_db_path,
+    is_path_inside_vault,
+    resolve_vault,
+    rotate_log_file,
+    secure_log_dir,
+)
 
-_DEFAULT_AI_MODEL: str = vault_common.get_config(
+_DEFAULT_AI_MODEL: str = get_config(
     "defaults", "haiku_model", "claude-haiku-4-5-20251001"
 )
 _DEFAULT_AI_TIMEOUT = 25  # seconds; hook timeout in settings.json should be >= 30000ms
 _BACKEND_DEFAULT_AI_MODEL = "__parsidion_backend_default__"
 _DEFAULT_MAX_CHARS = 4000
-_DEBUG_FILE = vault_common.secure_log_dir() / "parsidion-session-start-debug.log"
+_DEBUG_FILE = secure_log_dir() / "parsidion-session-start-debug.log"
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
@@ -83,7 +109,7 @@ def _build_candidates(
     Args:
         project_name: The current project name (used to prioritize notes).
         vault_path: The vault root path.
-        graph_meta: Optional output of ``vault_common.load_graph_metadata()``.
+        graph_meta: Optional output of ``vault_index.load_graph_metadata()``.
         graph_expand_max: Max graph neighbours to splice in (0 = disabled).
 
     Returns:
@@ -91,8 +117,8 @@ def _build_candidates(
         then other notes by mtime.
     """
     # ARC-011: Try SQLite first for project notes (O(1) index lookup)
-    db_project_notes = vault_common.query_note_index(project=project_name, limit=500)
-    db_recent_notes = vault_common.query_note_index(recent_days=30, limit=500)
+    db_project_notes = query_note_index(project=project_name, limit=500)
+    db_recent_notes = query_note_index(recent_days=30, limit=500)
 
     if db_project_notes is not None and db_recent_notes is not None:
         # SQLite path: fast, no file reads needed for candidate list
@@ -108,7 +134,7 @@ def _build_candidates(
         )
 
     # Fallback: full filesystem walk (when embeddings.db is absent)
-    all_notes = vault_common.all_vault_notes(vault=vault_path)
+    all_notes = all_vault_notes(vault=vault_path)
     project_lower = project_name.lower()
 
     project_notes: list[Path] = []
@@ -119,7 +145,7 @@ def _build_candidates(
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        fm = vault_common.parse_frontmatter(content)
+        fm = parse_frontmatter(content)
         proj_val = fm.get("project")
         if isinstance(proj_val, str) and proj_val.lower() == project_lower:
             project_notes.append(note_path)
@@ -192,7 +218,7 @@ def _run_semantic_search(
     if not vault_search_script.exists():
         return []
 
-    db_path = vault_common.get_embeddings_db_path(vault=vault_path)
+    db_path = get_embeddings_db_path(vault=vault_path)
     if not db_path.exists():
         return []
 
@@ -222,7 +248,7 @@ def _run_semantic_search(
             stderr=subprocess.PIPE,
             text=True,
             start_new_session=True,  # new process group — enables killpg
-            env=vault_common.env_without_claudecode(),
+            env=env_without_claudecode(),
         )
         try:
             stdout, _ = proc.communicate(timeout=_SEMANTIC_TIMEOUT)
@@ -274,10 +300,10 @@ def _select_context_with_ai(
         Formatted context string chosen by the AI, or empty string on failure.
     """
     if vault_path is None:
-        vault_path = vault_common.resolve_vault(cwd=cwd)
+        vault_path = resolve_vault(cwd=cwd)
 
     lock_handle: TextIOWrapper | None = None
-    if vault_common.get_config(
+    if get_config(
         "session_start_hook",
         "ai_single_flight",
         _DEFAULT_AI_SINGLE_FLIGHT,
@@ -301,7 +327,7 @@ def _select_context_with_ai(
             except ValueError:
                 rel = Path(note_path.parent.name) / note_path.name
 
-            summary = vault_common.read_note_summary(note_path, max_lines=6)
+            summary = read_note_summary(note_path, max_lines=6)
             if not summary:
                 continue
 
@@ -344,9 +370,7 @@ def _select_context_with_ai(
             prompt,
             model=model,
             model_tier="small",
-            timeout=vault_common.get_config(
-                "session_start_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT
-            ),
+            timeout=get_config("session_start_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT),
             cwd=cwd,
             purpose="session-start-selection",
             vault=vault_path,
@@ -392,7 +416,7 @@ def _ai_stamp_path(vault_path: Path) -> Path:
 
 def _is_ai_cooldown_active(vault_path: Path) -> bool:
     """Return True when AI SessionStart ran too recently for this vault."""
-    cooldown_seconds = vault_common.get_config(
+    cooldown_seconds = get_config(
         "session_start_hook",
         "ai_cooldown_seconds",
         _DEFAULT_AI_COOLDOWN_SECONDS,
@@ -436,10 +460,6 @@ def _kill_process_group(proc: subprocess.Popen[str]) -> None:
     proc.wait()
 
 
-# Canonical implementation lives in vault_common; re-export for backwards compatibility.
-build_compact_index = vault_common.build_compact_index
-
-
 def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
     """Re-rank *notes* by usefulness score (adaptive context #17).
 
@@ -453,7 +473,7 @@ def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
     Returns:
         Re-ranked list of the same paths.
     """
-    scores = vault_common.load_usefulness_scores()
+    scores = load_usefulness_scores()
 
     def _score(path: Path) -> float:
         """Return a Laplace-smoothed usefulness score in [0, 1] for *path*.
@@ -495,7 +515,7 @@ def _graph_neighbors(
 
     Args:
         seed_paths: Already-selected note paths (excluded from results).
-        meta_map: Output of ``vault_common.load_graph_metadata()``, or ``None``.
+        meta_map: Output of ``vault_index.load_graph_metadata()``, or ``None``.
         vault_path: Vault root for path-containment validation.
         max_add: Maximum number of neighbour paths to return.
 
@@ -505,7 +525,7 @@ def _graph_neighbors(
     if not meta_map or max_add <= 0:
         return []
 
-    parse_related = vault_common.parse_related_stems
+    parse_related = parse_related_stems
     related_sets: dict[str, set[str]] = {
         stem: set(parse_related(str(meta.get("related", ""))))
         for stem, meta in meta_map.items()
@@ -565,7 +585,7 @@ def _rank_by_graph(
     Args:
         notes: Candidate note paths to re-rank.
         seed_paths: The pre-expansion seed notes defining the tag cluster.
-        meta_map: Output of ``vault_common.load_graph_metadata()``, or ``None``.
+        meta_map: Output of ``vault_index.load_graph_metadata()``, or ``None``.
 
     Returns:
         Re-ranked list of the same paths.
@@ -673,7 +693,7 @@ def _build_delta_section(
     cutoff_ts = last_seen_dt.timestamp()
     new_notes: list[tuple[float, str, str]] = []  # (mtime, stem, folder)
 
-    for note_path in vault_common.all_vault_notes(vault=vault_path):
+    for note_path in all_vault_notes(vault=vault_path):
         try:
             mtime = note_path.stat().st_mtime
         except OSError:
@@ -734,14 +754,14 @@ def build_session_context(
     Returns:
         Tuple of (formatted context string, number of notes injected).
     """
-    project_name: str = vault_common.get_project_name(cwd)
+    project_name: str = get_project_name(cwd)
     today_str: str = date.today().isoformat()
 
     # Resolve vault path from cwd (supports multi-vault)
-    vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+    vault_path: Path = resolve_vault(cwd=cwd)
 
     # Ensure vault directories exist and create today's daily note
-    vault_common.ensure_vault_dirs(vault=vault_path)
+    ensure_vault_dirs(vault=vault_path)
 
     header: str = f"# Vault Context for {project_name}\n**Date:** {today_str}\n\n"
 
@@ -757,12 +777,12 @@ def build_session_context(
 
     # --- Cross-session delta (#10) ---
     delta_section = ""
-    if vault_common.get_config("session_start_hook", "track_delta", True):
-        last_seen_map = vault_common.load_last_seen(vault=vault_path)
+    if get_config("session_start_hook", "track_delta", True):
+        last_seen_map = load_last_seen(vault=vault_path)
         last_seen_ts = last_seen_map.get(project_name)
         delta_section = _build_delta_section(project_name, last_seen_ts, vault_path)
     # Update last-seen timestamp for this project
-    vault_common.save_last_seen(project_name, vault=vault_path)
+    save_last_seen(project_name, vault=vault_path)
 
     notes_injected = 0
 
@@ -770,15 +790,13 @@ def build_session_context(
         # Phase 3: widen the AI's candidate pool with 1-hop graph neighbours of
         # the project notes so the selector sees related prior art.  Tier 2
         # rerank is intentionally not applied -- the selector ranks the pool.
-        ai_graph_meta = vault_common.load_graph_metadata()
+        ai_graph_meta = load_graph_metadata()
         ai_max_add = 0
         if (
-            vault_common.get_config(
-                "session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND
-            )
+            get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
             and ai_graph_meta is not None
         ):
-            ai_max_add = vault_common.get_config(
+            ai_max_add = get_config(
                 "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
             )
         candidates = _build_candidates(
@@ -801,10 +819,10 @@ def build_session_context(
         # AI failed — fall through to standard behaviour
 
     # Standard behaviour: project notes + recent notes + today's daily note
-    daily_path: Path = vault_common.today_daily_path(vault=vault_path)
+    daily_path: Path = today_daily_path(vault=vault_path)
     if not daily_path.exists():
         # Create daily note if missing
-        vault_common.ensure_vault_dirs(vault=vault_path)
+        ensure_vault_dirs(vault=vault_path)
         from datetime import date as _date
 
         _month = f"{_date.today().year:04d}-{_date.today().month:02d}"
@@ -812,9 +830,9 @@ def build_session_context(
         daily_dir.mkdir(parents=True, exist_ok=True)
         daily_path.touch()
 
-    project_notes: list[Path] = vault_common.find_notes_by_project(project_name)
-    recent_days: int = vault_common.get_config("session_start_hook", "recent_days", 3)
-    recent_notes: list[Path] = vault_common.find_recent_notes(days=recent_days)
+    project_notes: list[Path] = find_notes_by_project(project_name)
+    recent_days: int = get_config("session_start_hook", "recent_days", 3)
+    recent_notes: list[Path] = find_recent_notes(days=recent_days)
 
     # Deduplicate: merge project and recent notes, preserving order
     seen: set[Path] = set()
@@ -833,11 +851,9 @@ def build_session_context(
             all_notes.append(note)
 
     # Blend semantic search results when embeddings.db is available
-    use_embeddings: bool = vault_common.get_config(
-        "session_start_hook", "use_embeddings", True
-    )
+    use_embeddings: bool = get_config("session_start_hook", "use_embeddings", True)
     if use_embeddings:
-        db_path = vault_common.get_embeddings_db_path(vault=vault_path)
+        db_path = get_embeddings_db_path(vault=vault_path)
         if db_path.exists():
             vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
             semantic_notes = _run_semantic_search(
@@ -859,15 +875,13 @@ def build_session_context(
     # The seed snapshot is captured BEFORE expansion so the tag cluster used
     # for reranking reflects the intentional selection, not the added neighbours.
     seed_snapshot: list[Path] = list(all_notes)
-    graph_meta = vault_common.load_graph_metadata()
+    graph_meta = load_graph_metadata()
 
     if (
-        vault_common.get_config(
-            "session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND
-        )
+        get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
         and graph_meta is not None
     ):
-        max_add = vault_common.get_config(
+        max_add = get_config(
             "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
         )
         for note in _graph_neighbors(seed_snapshot, graph_meta, vault_path, max_add):
@@ -877,18 +891,14 @@ def build_session_context(
                 all_notes.append(note)
 
     if (
-        vault_common.get_config(
-            "session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK
-        )
+        get_config("session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK)
         and graph_meta is not None
         and all_notes
     ):
         all_notes = _rank_by_graph(all_notes, seed_snapshot, graph_meta)
 
     # Adaptive context (#17): re-rank notes by usefulness when enabled
-    adaptive_enabled: bool = vault_common.get_config(
-        "adaptive_context", "enabled", False
-    )
+    adaptive_enabled: bool = get_config("adaptive_context", "enabled", False)
     if adaptive_enabled and all_notes:
         all_notes = _rank_by_usefulness(all_notes)
 
@@ -905,9 +915,7 @@ def build_session_context(
     if not verbose_mode:
         context_body: str = build_compact_index(all_notes, max_chars=max_body_chars)
     else:
-        context_body = vault_common.build_context_block(
-            all_notes, max_chars=max_body_chars
-        )
+        context_body = build_context_block(all_notes, max_chars=max_body_chars)
 
     if not context_body:
         context = _assemble_context(
@@ -918,7 +926,7 @@ def build_session_context(
     # Save injected stems for usefulness tracking
     if adaptive_enabled:
         injected_stems = [p.stem for p in all_notes]
-        vault_common.save_injected_notes(project_name, injected_stems)
+        save_injected_notes(project_name, injected_stems)
 
     context = _assemble_context(header, context_body, pending_notice, delta_section)
     return context, notes_injected
@@ -1044,7 +1052,7 @@ def _write_debug_log(
         pass  # debug logging is best-effort
 
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
+_HOOK_ERROR_LOG = secure_log_dir() / "parsidion-hook-errors.log"
 
 
 def _log_hook_error(hook_name: str) -> None:
@@ -1062,7 +1070,7 @@ def _log_hook_error(hook_name: str) -> None:
         ts = datetime.now().isoformat(timespec="seconds")
         tb = traceback.format_exc()
         entry = f"[{ts}] {hook_name}\n{tb}\n"
-        vault_common.rotate_log_file(_HOOK_ERROR_LOG)
+        rotate_log_file(_HOOK_ERROR_LOG)
         with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
             fh.write(entry)
     except Exception:  # noqa: BLE001 — logging must never raise
@@ -1126,7 +1134,7 @@ def main() -> None:
             cwd = str(Path.cwd())
 
         # Resolve vault path from cwd (supports multi-vault)
-        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+        vault_path: Path = resolve_vault(cwd=cwd)
 
         # Resolve options: defaults → config → CLI args
         ai_model: str | None
@@ -1138,27 +1146,25 @@ def main() -> None:
             ai_model = args.ai
             ai_enabled = True
         else:
-            ai_model = vault_common.get_config("session_start_hook", "ai_model")
+            ai_model = get_config("session_start_hook", "ai_model")
             ai_enabled = ai_model is not None
         max_chars: int = (
             args.max_chars
             if args.max_chars is not None
-            else vault_common.get_config(
-                "session_start_hook", "max_chars", _DEFAULT_MAX_CHARS
-            )
+            else get_config("session_start_hook", "max_chars", _DEFAULT_MAX_CHARS)
         )
-        verbose_mode: bool = args.verbose or vault_common.get_config(
+        verbose_mode: bool = args.verbose or get_config(
             "session_start_hook", "verbose_mode", False
         )
         # args.debug is always a bool (BooleanOptionalAction); OR with config so
         # either --debug CLI flag or config.yaml debug:true enables it, while
         # --no-debug explicitly overrides config.
         debug: bool = args.debug or bool(
-            vault_common.get_config("session_start_hook", "debug", False)
+            get_config("session_start_hook", "debug", False)
         )
 
         # Config validation (#5) — warn on startup for typos
-        config_warnings = vault_common.validate_config()
+        config_warnings = validate_config()
         for warning in config_warnings:
             print(f"[session_start_hook] {warning}", file=sys.stderr)
 
@@ -1172,10 +1178,10 @@ def main() -> None:
         )
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
 
-        project_name = vault_common.get_project_name(cwd)
+        project_name = get_project_name(cwd)
 
         # Hook event log (#1)
-        vault_common.write_hook_event(
+        write_hook_event(
             hook="SessionStart",
             project=project_name,
             duration_ms=elapsed_ms,
