@@ -730,6 +730,96 @@ def _build_delta_section(
     return "\n".join(lines)
 
 
+def _select_seed_notes(
+    project_name: str,
+    vault_path: Path,
+    daily_path: Path,
+) -> tuple[list[Path], set[Path]]:
+    """Collect and de-duplicate the seed note set for the standard context path.
+
+    Merges project notes, recent notes, and semantic-search blends (when
+    ``embeddings.db`` is present), then ensures today's daily note is included.
+    Order is preserved. The returned ``seen`` set carries resolved paths so
+    graph-neighbour expansion (:func:`_apply_graph_retrieval`) dedups against
+    the same index.
+    """
+    project_notes: list[Path] = find_notes_by_project(project_name)
+    recent_days: int = get_config("session_start_hook", "recent_days", 3)
+    recent_notes: list[Path] = find_recent_notes(days=recent_days)
+
+    seen: set[Path] = set()
+    all_notes: list[Path] = []
+
+    for note in (*project_notes, *recent_notes):
+        resolved = note.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            all_notes.append(note)
+
+    use_embeddings: bool = get_config("session_start_hook", "use_embeddings", True)
+    if use_embeddings:
+        db_path = get_embeddings_db_path(vault=vault_path)
+        if db_path.exists():
+            vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
+            semantic_notes = _run_semantic_search(
+                project_name, _SEMANTIC_TOP_N, vault_search_script, vault_path
+            )
+            for note in semantic_notes:
+                resolved = note.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
+                    all_notes.append(note)
+
+    daily_resolved = daily_path.resolve()
+    if daily_resolved not in seen:
+        all_notes.append(daily_path)
+
+    return all_notes, seen
+
+
+def _apply_graph_retrieval(
+    all_notes: list[Path],
+    seen: set[Path],
+    graph_meta: dict[str, dict[str, object]] | None,
+    vault_path: Path,
+    adaptive_enabled: bool,
+) -> list[Path]:
+    """Tier 1: expand the seed set with 1-hop wikilink neighbours.
+
+    Tier 2: re-rank by seed-cluster tag overlap + hubness. Then an adaptive
+    usefulness rerank when enabled. The seed snapshot is captured BEFORE
+    expansion so the Tier 2 cluster reflects the intentional selection, not
+    the added neighbours. ``seen`` is mutated in place so neighbour dedup
+    shares the seed set's resolved-path index.
+    """
+    seed_snapshot: list[Path] = list(all_notes)
+
+    if (
+        get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
+        and graph_meta is not None
+    ):
+        max_add = get_config(
+            "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
+        )
+        for note in _graph_neighbors(seed_snapshot, graph_meta, vault_path, max_add):
+            resolved = note.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                all_notes.append(note)
+
+    if (
+        get_config("session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK)
+        and graph_meta is not None
+        and all_notes
+    ):
+        all_notes = _rank_by_graph(all_notes, seed_snapshot, graph_meta)
+
+    if adaptive_enabled and all_notes:
+        all_notes = _rank_by_usefulness(all_notes)
+
+    return all_notes
+
+
 def build_session_context(
     cwd: str,
     ai_model: str | None = None,
@@ -830,77 +920,16 @@ def build_session_context(
         daily_dir.mkdir(parents=True, exist_ok=True)
         daily_path.touch()
 
-    project_notes: list[Path] = find_notes_by_project(project_name)
-    recent_days: int = get_config("session_start_hook", "recent_days", 3)
-    recent_notes: list[Path] = find_recent_notes(days=recent_days)
+    all_notes, seen = _select_seed_notes(project_name, vault_path, daily_path)
 
-    # Deduplicate: merge project and recent notes, preserving order
-    seen: set[Path] = set()
-    all_notes: list[Path] = []
-
-    for note in project_notes:
-        resolved: Path = note.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            all_notes.append(note)
-
-    for note in recent_notes:
-        resolved = note.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            all_notes.append(note)
-
-    # Blend semantic search results when embeddings.db is available
-    use_embeddings: bool = get_config("session_start_hook", "use_embeddings", True)
-    if use_embeddings:
-        db_path = get_embeddings_db_path(vault=vault_path)
-        if db_path.exists():
-            vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
-            semantic_notes = _run_semantic_search(
-                project_name, _SEMANTIC_TOP_N, vault_search_script, vault_path
-            )
-            for note in semantic_notes:
-                resolved = note.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    all_notes.append(note)
-
-    # Ensure today's daily note is included
-    daily_resolved: Path = daily_path.resolve()
-    if daily_resolved not in seen:
-        all_notes.append(daily_path)
-
-    # Graph retrieval: expand the seed set with 1-hop wikilink neighbours
-    # (Tier 1) and re-rank by seed-cluster tag overlap + hubness (Tier 2).
-    # The seed snapshot is captured BEFORE expansion so the tag cluster used
-    # for reranking reflects the intentional selection, not the added neighbours.
-    seed_snapshot: list[Path] = list(all_notes)
-    graph_meta = load_graph_metadata()
-
-    if (
-        get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
-        and graph_meta is not None
-    ):
-        max_add = get_config(
-            "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
-        )
-        for note in _graph_neighbors(seed_snapshot, graph_meta, vault_path, max_add):
-            resolved = note.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                all_notes.append(note)
-
-    if (
-        get_config("session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK)
-        and graph_meta is not None
-        and all_notes
-    ):
-        all_notes = _rank_by_graph(all_notes, seed_snapshot, graph_meta)
-
-    # Adaptive context (#17): re-rank notes by usefulness when enabled
+    # Graph retrieval (Tier 1 neighbour expansion + Tier 2 tag/hubness rerank)
+    # plus the adaptive usefulness rerank. The seed snapshot is captured inside
+    # the helper BEFORE expansion, so Tier 2 reflects the intentional selection.
     adaptive_enabled: bool = get_config("adaptive_context", "enabled", False)
-    if adaptive_enabled and all_notes:
-        all_notes = _rank_by_usefulness(all_notes)
+    graph_meta = load_graph_metadata()
+    all_notes = _apply_graph_retrieval(
+        all_notes, seen, graph_meta, vault_path, adaptive_enabled
+    )
 
     notes_injected = len(all_notes)
 
