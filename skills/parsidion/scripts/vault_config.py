@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from vault_path import resolve_vault
+
 __all__: list[str] = [
     # YAML parsing helpers (also used by vault_index for frontmatter)
     "_parse_scalar",
@@ -297,9 +299,6 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
     Returns an empty dict when both files are missing or unreadable.
     """
     if vault is None:
-        # Lazy import to avoid circular dependency with vault_path
-        from vault_path import resolve_vault
-
         vault = resolve_vault()
 
     config: dict[str, Any] = {}

@@ -32,6 +32,7 @@ __all__: list[str] = [
     # File I/O
     "read_last_n_lines",
     "atomic_write_text",
+    "write_hook_event",
     # Pending queue
     "append_to_pending",
     "migrate_pending_paths",
@@ -310,6 +311,101 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
 
 
 # ---------------------------------------------------------------------------
+# Hook event log (ARC-023: moved here from vault_hooks so vault_fs no longer
+# imports vault_hooks, breaking the vault_fs <-> vault_hooks cycle. This is
+# pure log I/O — append a JSON line to hook_events.log with rotation — so it
+# belongs in the filesystem layer. vault_hooks re-exports it for backward
+# compatibility, so all existing callers (vault_common, from-imports) are
+# unchanged.)
+# ---------------------------------------------------------------------------
+
+_HOOK_EVENTS_FILENAME = "hook_events.log"
+_HOOK_EVENTS_MAX_LINES_DEFAULT = 10000
+
+
+def write_hook_event(
+    hook: str,
+    project: str,
+    duration_ms: float,
+    vault: Path | None = None,
+    **extra: object,
+) -> None:
+    """Append a structured JSON event line to ``vault/hook_events.log``.
+
+    Best-effort -- never raises. Controlled by ``event_log.enabled`` config
+    (default: ``true``). Rotates (keeps last *max_lines*) when the file
+    exceeds ``event_log.max_lines`` (default: 10 000).
+
+    Args:
+        hook: Hook name, e.g. ``"SessionEnd"``.
+        project: Project name.
+        duration_ms: Hook wall-clock time in milliseconds.
+        vault: Optional vault path. Defaults to resolve_vault().
+        **extra: Additional key-value pairs to include in the event object.
+    """
+    vault = vault or resolve_vault()
+    if not get_config("event_log", "enabled", True):
+        return
+
+    event: dict[str, object] = {
+        "hook": hook,
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "project": project,
+        "duration_ms": round(duration_ms, 1),
+    }
+    event.update(extra)
+
+    log_path = vault / _HOOK_EVENTS_FILENAME
+    # ARC-011: honour ``event_log.path`` from config (absolute path override).
+    # When set to a non-empty string, use it instead of the vault-relative
+    # default. None / empty falls through to ``<vault>/hook_events.log``.
+    configured_path = get_config("event_log", "path", None)
+    if isinstance(configured_path, str) and configured_path.strip():
+        log_path = Path(configured_path).expanduser()
+    max_lines: int = int(
+        get_config("event_log", "max_lines", _HOOK_EVENTS_MAX_LINES_DEFAULT)
+    )
+
+    try:
+        vault.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(event) + "\n"
+
+        # SEC-008: Create the log file with mode 0o600 (owner read/write only)
+        # so hook events are not world-readable. os.open with O_CREAT | O_RDWR
+        # sets the mode atomically on first creation; subsequent opens inherit
+        # the existing file mode unchanged (chmod is not called on existing files
+        # to avoid a TOCTOU race and to respect deliberate admin changes).
+        fd = os.open(str(log_path), os.O_CREAT | os.O_RDWR, 0o600)
+        # Atomic append with optional rotation
+        with open(fd, "r+", encoding="utf-8") as f:
+            flock_exclusive(f)
+            try:
+                f.seek(0)
+                existing_lines = f.readlines()
+                if len(existing_lines) >= max_lines:
+                    # Keep the second half of the file to avoid thrashing.
+                    # Rotate via tmp + atomic replace (still holding the lock
+                    # on the original handle) so a crash mid-rotation cannot
+                    # truncate the log to a partial state.
+                    keep = existing_lines[max_lines // 2 :]
+                    tmp = log_path.parent / (log_path.name + ".tmp")
+                    tmp_fd = os.open(
+                        str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600
+                    )
+                    with open(tmp_fd, "w", encoding="utf-8") as out:
+                        out.writelines(keep)
+                        out.write(line)
+                    tmp.replace(log_path)
+                else:
+                    f.seek(0, 2)
+                    f.write(line)
+            finally:
+                funlock(f)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Pending summary queue
 # ---------------------------------------------------------------------------
 
@@ -425,8 +521,6 @@ def append_to_pending(
     # the queue can shed entries with zero observable signal anywhere.
     if dropped_after_retries:
         try:
-            from vault_hooks import write_hook_event  # noqa: PLC0415
-
             write_hook_event(
                 hook="PendingQueueDrop",
                 project=str(project),

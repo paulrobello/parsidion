@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from installer.paths import SKILL_NAME
-from installer.ui import _ok, _step, _warn
+from installer.ui import _ok, _step, _warn, dim
 
 _LAUNCHD_PLIST_LABEL = "com.parsidion.summarize-sessions"
 _LAUNCHD_PLIST_NAME = f"{_LAUNCHD_PLIST_LABEL}.plist"
@@ -111,8 +111,6 @@ def _schedule_summarizer_launchd(
         rebuild_graph: When True, include ``--rebuild-graph`` in the plist.
         graph_include_daily: When True, include ``--graph-include-daily``.
     """
-    from installer.ui import dim
-
     launch_agents = Path.home() / "Library" / "LaunchAgents"
     plist_path = launch_agents / _LAUNCHD_PLIST_NAME
     plist_content = _build_launchd_plist(
@@ -200,8 +198,6 @@ def _schedule_summarizer_cron(
         rebuild_graph: When True, append ``--rebuild-graph`` to the cron command.
         graph_include_daily: When True, also append ``--graph-include-daily``.
     """
-    from installer.ui import dim
-
     extra = ""
     if rebuild_graph:
         extra += " --rebuild-graph"
@@ -338,8 +334,6 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
     Args:
         dry_run: If True, print what would be done without making changes.
     """
-    from installer.ui import dim
-
     if sys.platform == "darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / _LAUNCHD_PLIST_NAME
         if not plist_path.exists():

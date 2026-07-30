@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
 from pathlib import Path
 
-from vault_config import get_config, load_config
+from vault_config import load_config
 from vault_constants import TRANSCRIPT_CATEGORY_LABELS
-from vault_fs import flock_exclusive, funlock
-from vault_path import resolve_vault
+from vault_fs import write_hook_event  # ARC-023: re-export (impl moved to vault_fs)
 
 __all__: list[str] = [
     # Environment helpers
@@ -49,94 +47,12 @@ __all__: list[str] = [
     "detect_categories",
 ]
 
-# ---------------------------------------------------------------------------
-# Hook execution event log
-# ---------------------------------------------------------------------------
-
-_HOOK_EVENTS_FILENAME = "hook_events.log"
-_HOOK_EVENTS_MAX_LINES_DEFAULT = 10000
-
-
-def write_hook_event(
-    hook: str,
-    project: str,
-    duration_ms: float,
-    vault: Path | None = None,
-    **extra: object,
-) -> None:
-    """Append a structured JSON event line to ``vault/hook_events.log``.
-
-    Best-effort -- never raises. Controlled by ``event_log.enabled`` config
-    (default: ``true``). Rotates (keeps last *max_lines*) when the file
-    exceeds ``event_log.max_lines`` (default: 10 000).
-
-    Args:
-        hook: Hook name, e.g. ``"SessionEnd"``.
-        project: Project name.
-        duration_ms: Hook wall-clock time in milliseconds.
-        vault: Optional vault path. Defaults to resolve_vault().
-        **extra: Additional key-value pairs to include in the event object.
-    """
-    vault = vault or resolve_vault()
-    if not get_config("event_log", "enabled", True):
-        return
-
-    event: dict[str, object] = {
-        "hook": hook,
-        "ts": datetime.now().isoformat(timespec="seconds"),
-        "project": project,
-        "duration_ms": round(duration_ms, 1),
-    }
-    event.update(extra)
-
-    log_path = vault / _HOOK_EVENTS_FILENAME
-    # ARC-011: honour ``event_log.path`` from config (absolute path override).
-    # When set to a non-empty string, use it instead of the vault-relative
-    # default. None / empty falls through to ``<vault>/hook_events.log``.
-    configured_path = get_config("event_log", "path", None)
-    if isinstance(configured_path, str) and configured_path.strip():
-        log_path = Path(configured_path).expanduser()
-    max_lines: int = int(
-        get_config("event_log", "max_lines", _HOOK_EVENTS_MAX_LINES_DEFAULT)
-    )
-
-    try:
-        vault.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(event) + "\n"
-
-        # SEC-008: Create the log file with mode 0o600 (owner read/write only)
-        # so hook events are not world-readable. os.open with O_CREAT | O_RDWR
-        # sets the mode atomically on first creation; subsequent opens inherit
-        # the existing file mode unchanged (chmod is not called on existing files
-        # to avoid a TOCTOU race and to respect deliberate admin changes).
-        fd = os.open(str(log_path), os.O_CREAT | os.O_RDWR, 0o600)
-        # Atomic append with optional rotation
-        with open(fd, "r+", encoding="utf-8") as f:
-            flock_exclusive(f)
-            try:
-                f.seek(0)
-                existing_lines = f.readlines()
-                if len(existing_lines) >= max_lines:
-                    # Keep the second half of the file to avoid thrashing.
-                    # Rotate via tmp + atomic replace (still holding the lock
-                    # on the original handle) so a crash mid-rotation cannot
-                    # truncate the log to a partial state.
-                    keep = existing_lines[max_lines // 2 :]
-                    tmp = log_path.parent / (log_path.name + ".tmp")
-                    tmp_fd = os.open(
-                        str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600
-                    )
-                    with open(tmp_fd, "w", encoding="utf-8") as out:
-                        out.writelines(keep)
-                        out.write(line)
-                    tmp.replace(log_path)
-                else:
-                    f.seek(0, 2)
-                    f.write(line)
-            finally:
-                funlock(f)
-    except OSError:
-        pass
+# ARC-023: write_hook_event (and its _HOOK_EVENTS_* constants) moved to
+# vault_fs — the filesystem/I-O layer — to break the vault_fs <-> vault_hooks
+# cycle (vault_fs.append_to_pending needs to log a drop event, which used to
+# pull in vault_hooks, which itself imports vault_fs). It is re-exported here
+# via the ``from vault_fs import ...`` line below, so vault_hooks.write_hook_event
+# and every ``from vault_hooks import write_hook_event`` caller keep working.
 
 
 # ---------------------------------------------------------------------------
