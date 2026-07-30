@@ -35,6 +35,10 @@ _DEFAULT_AI_TIMEOUT = 25  # seconds; hook timeout in settings.json should be >= 
 _BACKEND_DEFAULT_AI_MODEL = "__parsidion_backend_default__"
 _DEFAULT_TRANSCRIPT_TAIL_LINES = 200
 _DEFAULT_PI_TRANSCRIPT_TAIL_LINES = 1000
+# SEC-111: byte ceiling on the transcript tail so a single newline-free
+# multi-MB line cannot drag the whole file into memory through the
+# ``deque(maxlen=n)`` path.
+_DEFAULT_TRANSCRIPT_TAIL_BYTES = 1_500_000
 
 # File locking imported from vault_common (canonical implementation)
 _flock_exclusive = vault_common.flock_exclusive
@@ -388,7 +392,19 @@ def main() -> None:
                 _DEFAULT_TRANSCRIPT_TAIL_LINES,
             )
         )
-        raw_lines: list[str] = read_last_n_lines(transcript_path, tail_lines)
+        # SEC-111: bound the read by bytes too, so a single newline-free
+        # multi-MB line cannot drag the whole file into memory through
+        # ``deque(maxlen=n)``.
+        tail_bytes: int = int(
+            vault_common.get_config(
+                "session_stop_hook",
+                "transcript_tail_bytes",
+                _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+            )
+        )
+        raw_lines: list[str] = read_last_n_lines(
+            transcript_path, tail_lines, max_bytes=tail_bytes
+        )
         assistant_texts: list[str] = parse_transcript_lines(raw_lines)
 
         if not assistant_texts and vault_common.is_pi_transcript_path(
@@ -402,7 +418,9 @@ def main() -> None:
                 )
             )
             if pi_tail_lines > tail_lines:
-                raw_lines = read_last_n_lines(transcript_path, pi_tail_lines)
+                raw_lines = read_last_n_lines(
+                    transcript_path, pi_tail_lines, max_bytes=tail_bytes
+                )
                 assistant_texts = parse_transcript_lines(raw_lines)
 
         # Adaptive context: update usefulness scores before we do anything else

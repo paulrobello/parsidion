@@ -9,7 +9,11 @@ AI-powered summarisation by ``summarize_sessions.py``.
 
 Differences from session_stop_hook.py:
 - Uses ``agent_transcript_path`` (the subagent's transcript) not ``transcript_path``
-- Reads ALL lines of the transcript (subagents are short; no 200-line cap)
+- Reads the transcript tail via the shared byte-bounded reader
+  (``vault_common.read_last_n_lines``); subagent transcripts are no longer
+  read in full after SEC-111 — the project's own vault note records that
+  the "subagents are short" premise is false, and an unbounded read on a
+  newline-free multi-MB file is a memory hazard.
 - Uses ``agent_id`` as the deduplication key when available
 - Skips daily-note update (too noisy for frequent subagent calls)
 - Does NOT launch the summarizer (deferred to the next SessionEnd)
@@ -36,6 +40,12 @@ _LOG_PREFIX = "[subagent_stop_hook]"
 _DEFAULT_EXCLUDED_AGENTS = {"vault-explorer", "research-agent"}
 _DEFAULT_MIN_MESSAGES = 3
 _DEFAULT_MIN_MESSAGES_PI = 1
+# SEC-111: byte ceiling on the subagent transcript tail. The line count
+# alone does not bound memory when a transcript contains a single
+# newline-free multi-MB line. Mirrors the ``summarizer.transcript_tail_bytes``
+# default used by the main summarizer.
+_DEFAULT_TAIL_BYTES = 1_500_000
+read_last_n_lines = vault_common.read_last_n_lines
 
 
 def _get_excluded_agents() -> set[str]:
@@ -174,15 +184,32 @@ def main() -> None:
             file=sys.stderr,
         )
 
-        # Read ALL lines (subagent sessions are short)
-        all_lines: list[str] = []
-        try:
-            with open(agent_transcript, encoding="utf-8", errors="replace") as f:
-                all_lines = f.readlines()
-        except OSError as exc:
-            print(f"{_LOG_PREFIX} ERROR reading transcript: {exc}", file=sys.stderr)
-            sys.stdout.write("{}")
-            return
+        # SEC-111: read the tail via the shared byte-bounded reader so a
+        # single newline-free multi-MB file cannot defeat us. ``max_lines``
+        # is unbounded (``None``) because subagent transcripts do their
+        # own message-count gating via ``min_messages`` below — the byte
+        # cap is what protects memory. The byte ceiling comes from config
+        # (``subagent_stop_hook.transcript_tail_bytes``) with the default
+        # above.
+        tail_bytes: int = int(
+            vault_common.get_config(
+                "subagent_stop_hook", "transcript_tail_bytes", _DEFAULT_TAIL_BYTES
+            )
+        )
+        all_lines: list[str] = read_last_n_lines(
+            agent_transcript, n=10_000_000, max_bytes=tail_bytes
+        )
+        if not all_lines:
+            # ``read_last_n_lines`` swallows OSError and returns []; detect
+            # the missing-file case explicitly here so the log line matches
+            # the prior behavior.
+            if not agent_transcript.exists():
+                print(
+                    f"{_LOG_PREFIX} transcript no longer present: {agent_transcript}",
+                    file=sys.stderr,
+                )
+                sys.stdout.write("{}")
+                return
 
         assistant_texts = vault_common.parse_transcript_lines(all_lines)
 

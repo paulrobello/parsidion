@@ -299,6 +299,8 @@ def append_snapshot_to_daily(
 
 
 _DEFAULT_LINES = 200
+# SEC-111: byte ceiling mirroring session_stop_hook / subagent_stop_hook.
+_DEFAULT_TAIL_BYTES = 1_500_000
 
 _HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
 
@@ -374,7 +376,19 @@ def main() -> None:
         if transcript_path_str:
             transcript_path = Path(transcript_path_str)
             if transcript_path.is_file():
-                raw_lines: list[str] = read_last_n_lines(transcript_path, lines)
+                # SEC-111: bound the tail by bytes as well as lines so a
+                # single newline-free multi-MB line cannot drag the whole
+                # file into memory through ``deque(maxlen=n)``.
+                tail_bytes: int = int(
+                    vault_common.get_config(
+                        "pre_compact_hook",
+                        "transcript_tail_bytes",
+                        _DEFAULT_TAIL_BYTES,
+                    )
+                )
+                raw_lines: list[str] = read_last_n_lines(
+                    transcript_path, lines, max_bytes=tail_bytes
+                )
                 task_summary = extract_user_task(raw_lines)
                 recent_files = extract_file_paths(raw_lines, cwd=cwd)
 

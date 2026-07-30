@@ -452,14 +452,17 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "auto_summarize_after": (int, type(None)),
         "transcript_tail_lines": (int,),
         "pi_transcript_tail_lines": (int,),
+        "transcript_tail_bytes": (int,),
     },
     "subagent_stop_hook": {
         "enabled": (bool,),
         "min_messages": (int,),
         "excluded_agents": (str,),
+        "transcript_tail_bytes": (int,),
     },
     "pre_compact_hook": {
         "lines": (int,),
+        "transcript_tail_bytes": (int,),
     },
     "summarizer": {
         "model": (str, type(None)),

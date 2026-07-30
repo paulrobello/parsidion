@@ -139,6 +139,16 @@ def read_last_n_lines(
     each line carries large tool outputs -- so downstream cleaning/chunking
     does not explode.  See the ``transcript_tail_bytes`` summarizer config.
 
+    SEC-111: when *max_bytes* is set and the file is larger than it, the
+    reader reads the trailing *max_bytes* window via a bounded binary
+    ``read()`` (not a full-file ``deque``). A single newline-free multi-MB
+    line otherwise drags the whole file into memory before the byte cap is
+    enforced; reading only the last ``max_bytes`` bytes bounds both the
+    iteration window and the return size. The partial first line of the
+    window (likely cut mid-character) is dropped; if the window contains
+    no newline, the whole window is one logical "line" and is kept as the
+    most-recent line.
+
     Args:
         filepath: Path to the file.
         n: Number of trailing lines to return.
@@ -150,6 +160,48 @@ def read_last_n_lines(
     """
     from collections import deque
 
+    # SEC-111: bounded binary read of the trailing max_bytes when the file
+    # is larger than the budget. Avoids loading a single newline-free
+    # multi-MB line into the deque.
+    if max_bytes and max_bytes > 0:
+        try:
+            file_size = filepath.stat().st_size
+        except OSError:
+            return []
+        if file_size > max_bytes:
+            try:
+                with open(filepath, "rb") as bf:
+                    bf.seek(file_size - max_bytes)
+                    window = bf.read(max_bytes)
+            except OSError:
+                return []
+            text = window.decode("utf-8", errors="replace")
+            # Drop the partial first line (the seek landed mid-line). If the
+            # window has no newline, keep the whole window as one line so
+            # the most-recent line is preserved. If dropping the partial
+            # first line leaves nothing (the window landed such that the
+            # only newline is at the very end), fall back to the partial
+            # first line as a truncated most-recent line — never return
+            # empty when the file has content.
+            nl = text.find("\n")
+            if nl >= 0:
+                rest = text[nl + 1 :]
+                if rest:
+                    text = rest
+                # else: keep the partial first line as the truncated tail.
+            tail_lines = text.splitlines(keepends=True)
+            # Apply the line-count cap.
+            if len(tail_lines) > n:
+                tail_lines = tail_lines[-n:]
+            # Drop oldest until we fit the byte budget; keep most-recent.
+            sizes = [len(ln.encode("utf-8", "replace")) for ln in tail_lines]
+            total = sum(sizes)
+            start = 0
+            while len(tail_lines) - start > 1 and total > max_bytes:
+                total -= sizes[start]
+                start += 1
+            return tail_lines[start:]
+
     try:
         with open(filepath, encoding="utf-8", errors="replace") as f:
             tail = deque(f, maxlen=n)
@@ -157,18 +209,7 @@ def read_last_n_lines(
         return []
 
     lines = list(tail)
-    if not max_bytes or max_bytes <= 0:
-        return lines
-
-    # Drop oldest lines until the retained tail fits the byte budget; always
-    # keep the most recent line so a single over-budget line is not lost.
-    sizes = [len(ln.encode("utf-8", "replace")) for ln in lines]
-    total = sum(sizes)
-    start = 0
-    while len(lines) - start > 1 and total > max_bytes:
-        total -= sizes[start]
-        start += 1
-    return lines[start:]
+    return lines
 
 
 def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
