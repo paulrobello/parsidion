@@ -1,23 +1,15 @@
 'use client'
 
 import { useState, useEffect, useCallback, useTransition, useRef } from 'react'
-import type { ComponentPropsWithoutRef } from 'react'
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { getNodeColor } from '@/lib/sigma-colors'
 import type { NoteNode } from '@/lib/graph'
 import { ConfirmDialog } from './ConfirmDialog'
-import { ConflictDialog } from './ConflictDialog'
-import { FrontmatterEditor } from './FrontmatterEditor'
 import { parseFrontmatter, serializeFrontmatter } from '@/lib/frontmatter'
 import type { FrontmatterFields } from '@/lib/frontmatter'
-
-// react-markdown v10's defaultUrlTransform strips unrecognized protocols (like our
-// wikilink: pseudo-protocol) to an empty href before the custom `a` component runs.
-// Pass wikilink: URLs through untouched so the custom handler below still sees them.
-function urlTransform(url: string): string {
-  return url.startsWith('wikilink:') ? url : defaultUrlTransform(url)
-}
+import { NoteEditor } from './reading-pane/NoteEditor'
+import { NoteMarkdown } from './reading-pane/NoteMarkdown'
+import { NoteLinkCluster } from './reading-pane/NoteLinkCluster'
+import { ReadingPaneEmptyState } from './reading-pane/ReadingPaneEmptyState'
 
 interface Props {
   node: NoteNode | null
@@ -211,16 +203,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
   }, [onNavigate])
 
   if (!node) {
-    return (
-      <div style={{
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#6b7a99', fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
-        flexDirection: 'column', gap: 8,
-      }}>
-        <div style={{ fontSize: 24, opacity: 0.3 }}>◈</div>
-        <div>Open a note from the sidebar or press ⌘K to search.</div>
-      </div>
-    )
+    return <ReadingPaneEmptyState />
   }
 
   const fm = content.match(/^---\n([\s\S]*?)\n---/)
@@ -247,161 +230,26 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     .replace(/\[\[([^\]]+)\]\]/g, (_, stem) => `[${stem}](wikilink:${encodeURIComponent(stem)})`)
 
   if (isEditing && editFields) {
-    const editPreviewContent = editBody
-      .replace(/\[\[([^\]]+)\]\]/g, (_, s) => `[${s}](wikilink:${encodeURIComponent(s)})`)
-
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px 24px', gap: 12, overflow: 'hidden' }}>
-        {/* Edit toolbar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <span style={{
-            fontFamily: "'Oxanium', sans-serif", fontSize: 11, color: '#9ca3af',
-            flex: 1, minWidth: 0,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            Editing: <span style={{ color: '#e8e8f0' }}>{node.title}</span>
-          </span>
-          {externallyModified && (
-            <span style={{ color: '#f59e0b', fontFamily: "'JetBrains Mono', monospace", fontSize: 10, flexShrink: 0 }}>
-              ⚠ modified externally — save to see conflict
-            </span>
-          )}
-          {saveError && (
-            <span style={{ color: '#ef4444', fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
-              {saveError}
-            </span>
-          )}
-          {/* Edit / Preview toggle */}
-          <div style={{
-            display: 'flex', borderRadius: 5, overflow: 'hidden',
-            border: '1px solid #334155',
-          }}>
-            <button
-              onClick={() => setPreviewMode(false)}
-              style={{
-                background: !previewMode ? 'rgba(123,97,255,0.2)' : 'transparent',
-                border: 'none', borderRight: '1px solid #334155',
-                color: !previewMode ? '#7b61ff' : '#6b7a99',
-                cursor: 'pointer', padding: '3px 10px',
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
-              }}
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => setPreviewMode(true)}
-              style={{
-                background: previewMode ? 'rgba(123,97,255,0.2)' : 'transparent',
-                border: 'none',
-                color: previewMode ? '#7b61ff' : '#6b7a99',
-                cursor: 'pointer', padding: '3px 10px',
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
-              }}
-            >
-              Preview
-            </button>
-          </div>
-          <button
-            onClick={handleCancelEdit}
-            disabled={isSaving}
-            style={{
-              background: 'rgba(30,41,59,0.8)', border: '1px solid #334155',
-              color: '#9ca3af', cursor: 'pointer', borderRadius: 5,
-              padding: '4px 12px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            style={{
-              background: isSaving ? 'rgba(0,255,200,0.1)' : 'rgba(0,255,200,0.15)',
-              border: '1px solid rgba(0,255,200,0.3)',
-              color: '#00FFC8', cursor: isSaving ? 'default' : 'pointer', borderRadius: 5,
-              padding: '4px 12px', fontFamily: "'Oxanium', sans-serif", fontSize: 11, fontWeight: 600,
-            }}
-          >
-            {isSaving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-
-        {/* Frontmatter editor */}
-        <FrontmatterEditor
-          fields={editFields}
-          onChange={setEditFields}
-          nodes={nodes}
-        />
-
-        {/* Body editor or preview */}
-        {previewMode ? (
-          <div style={{
-            flex: 1, overflow: 'auto',
-            background: '#0a0f1e',
-            border: '1px solid #1e293b',
-            borderRadius: 6,
-            padding: '16px 24px',
-            fontFamily: "'Syne', sans-serif",
-          }}>
-            <div className="note-markdown">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                urlTransform={urlTransform}
-                components={{
-                  a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => {
-                    if (href?.startsWith('wikilink:')) {
-                      const s = decodeURIComponent(href.slice(9))
-                      return (
-                        <span className="wikilink" onClick={(e: React.MouseEvent) => handleWikilink(s, e)}>
-                          {children}
-                        </span>
-                      )
-                    }
-                    return <a href={href} target="_blank" rel="noreferrer">{children}</a>
-                  },
-                }}
-              >
-                {editPreviewContent}
-              </ReactMarkdown>
-            </div>
-          </div>
-        ) : (
-          <textarea
-            value={editBody}
-            onChange={e => setEditBody(e.target.value)}
-            onKeyDown={e => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-                e.preventDefault()
-                handleSave()
-              }
-              if (e.key === 'Escape') handleCancelEdit()
-            }}
-            spellCheck={false}
-            autoFocus
-            style={{
-              flex: 1, resize: 'none',
-              background: '#0a0f1e',
-              border: '1px solid #1e293b',
-              borderRadius: 6,
-              color: '#e8e8f0',
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12,
-              lineHeight: 1.7,
-              padding: '16px',
-              outline: 'none',
-            }}
-          />
-        )}
-        {conflictData && node && (
-          <ConflictDialog
-            stem={node.id}
-            myContent={serializeFrontmatter(editFields!, editBody)}
-            serverContent={conflictData.serverContent}
-            onResolve={handleConflictResolve}
-            onCancel={() => setConflictData(null)}
-          />
-        )}
-      </div>
+      <NoteEditor
+        node={node}
+        nodes={nodes}
+        editFields={editFields}
+        editBody={editBody}
+        previewMode={previewMode}
+        isSaving={isSaving}
+        saveError={saveError}
+        externallyModified={externallyModified}
+        conflictData={conflictData}
+        setEditFields={setEditFields}
+        setEditBody={setEditBody}
+        setPreviewMode={setPreviewMode}
+        setConflictData={setConflictData}
+        handleSave={handleSave}
+        handleCancelEdit={handleCancelEdit}
+        handleConflictResolve={handleConflictResolve}
+        onWikilink={handleWikilink}
+      />
     )
   }
 
@@ -505,82 +353,25 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
         )}
 
         {!isPending && !error && relatedStems.length > 0 && (
-          <div style={{
-            marginBottom: 16, padding: '8px 12px',
-            background: 'rgba(123,97,255,0.06)',
-            border: '1px solid rgba(123,97,255,0.15)',
-            borderRadius: 6,
-          }}>
-            <div style={{
-              fontSize: 9, fontFamily: "'Oxanium', sans-serif", color: '#6b7a99',
-              textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
-            }}>Related</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {relatedStems.map(stem => (
-                <span
-                  key={stem}
-                  className="wikilink"
-                  onClick={(e) => handleWikilink(stem, e)}
-                  style={{ fontSize: 12 }}
-                >
-                  {stem}
-                </span>
-              ))}
-            </div>
-          </div>
+          <NoteLinkCluster
+            title="Related"
+            stems={relatedStems}
+            onWikilink={handleWikilink}
+            variant="related"
+          />
         )}
 
         {!isPending && !error && linkedOnly.length > 0 && (
-          <div style={{
-            marginBottom: 16, padding: '8px 12px',
-            background: 'rgba(0,255,200,0.05)',
-            border: '1px solid rgba(0,255,200,0.12)',
-            borderRadius: 6,
-          }}>
-            <div style={{
-              fontSize: 9, fontFamily: "'Oxanium', sans-serif", color: '#6b7a99',
-              textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6,
-            }}>Linked Notes ({linkedOnly.length})</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {linkedOnly.map(stem => (
-                <span
-                  key={stem}
-                  className="wikilink"
-                  onClick={(e) => handleWikilink(stem, e)}
-                  style={{ fontSize: 12 }}
-                >
-                  {stem}
-                </span>
-              ))}
-            </div>
-          </div>
+          <NoteLinkCluster
+            title={`Linked Notes (${linkedOnly.length})`}
+            stems={linkedOnly}
+            onWikilink={handleWikilink}
+            variant="linked"
+          />
         )}
 
         {!isPending && !error && displayContent && (
-          <div className="note-markdown">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              urlTransform={urlTransform}
-              components={{
-                a: ({ href, children }: ComponentPropsWithoutRef<'a'>) => {
-                  if (href?.startsWith('wikilink:')) {
-                    const stem = decodeURIComponent(href.slice(9))
-                    return (
-                      <span
-                        className="wikilink"
-                        onClick={(e: React.MouseEvent) => handleWikilink(stem, e)}
-                      >
-                        {children}
-                      </span>
-                    )
-                  }
-                  return <a href={href} target="_blank" rel="noreferrer">{children}</a>
-                },
-              }}
-            >
-              {displayContent}
-            </ReactMarkdown>
-          </div>
+          <NoteMarkdown content={displayContent} onWikilink={handleWikilink} />
         )}
 
         {deleteError && (
