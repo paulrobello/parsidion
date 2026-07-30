@@ -22,6 +22,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import vault_common  # noqa: E402
 import vault_metrics  # noqa: E402
 
 session_start_hook = importlib.import_module("session_start_hook")
@@ -404,17 +405,17 @@ def test_build_dead_letter_notice_swallows_read_errors(tmp_path: Path) -> None:
 
 def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
     """Point vault_common at *vault* and clear the resolver/config caches."""
-    monkeypatch.setattr(session_start_hook.vault_common, "VAULT_ROOT", vault)
-    session_start_hook.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    session_start_hook.vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
-    session_start_hook.vault_common._clear_config_cache()
+    monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
+    session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common._clear_config_cache()
 
 
 def test_dead_letter_notice_included_in_session_context(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     vault = tmp_path / "vault"
-    for d in session_start_hook.vault_common.VAULT_DIRS:
+    for d in vault_common.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     (vault / "config.yaml").write_text(
         "session_start_hook:\n"
@@ -424,12 +425,8 @@ def test_dead_letter_notice_included_in_session_context(
         encoding="utf-8",
     )
     _use_vault(monkeypatch, vault)
-    monkeypatch.setattr(
-        session_start_hook.vault_common, "find_notes_by_project", lambda project: []
-    )
-    monkeypatch.setattr(
-        session_start_hook.vault_common, "find_recent_notes", lambda days=3: []
-    )
+    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
+    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
     (vault / "dead_letters.jsonl").write_text(
@@ -450,7 +447,7 @@ def test_no_dead_letter_notice_when_file_absent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     vault = tmp_path / "vault"
-    for d in session_start_hook.vault_common.VAULT_DIRS:
+    for d in vault_common.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     (vault / "config.yaml").write_text(
         "session_start_hook:\n"
@@ -460,12 +457,8 @@ def test_no_dead_letter_notice_when_file_absent(
         encoding="utf-8",
     )
     _use_vault(monkeypatch, vault)
-    monkeypatch.setattr(
-        session_start_hook.vault_common, "find_notes_by_project", lambda project: []
-    )
-    monkeypatch.setattr(
-        session_start_hook.vault_common, "find_recent_notes", lambda days=3: []
-    )
+    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
+    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
     context, _count = session_start_hook.build_session_context(cwd=str(vault))
