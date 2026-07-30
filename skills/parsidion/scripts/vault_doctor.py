@@ -54,11 +54,10 @@ import errno
 import json
 import os
 import re
-import shutil
-import subprocess
+import shutil  # noqa: F401 — re-exported for test monkeypatch (vault_doctor.shutil.copy2)
+import subprocess  # noqa: F401 — re-exported for test monkeypatch (vault_doctor.subprocess.run)
 import sys
 import threading
-from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -68,217 +67,39 @@ import vault_fs
 import vault_links
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants, data model, and shared state live in doctor._state so the
+# submodules and this shim share one ``_vault_path`` / ``_backed_up_this_run``
+# object.  Re-exported here so existing ``vault_doctor.X`` attribute access
+# (including test ``monkeypatch.setattr``) keeps working byte-for-byte.
+# See doctor/_state.py for the test-patch compatibility contract.
 # ---------------------------------------------------------------------------
-
-VALID_TYPES = frozenset(
-    {
-        "pattern",
-        "debugging",
-        "research",
-        "project",
-        "daily",
-        "tool",
-        "language",
-        "framework",
-        "knowledge",
-    }
+from doctor._state import (  # noqa: F401 — re-exports
+    AI_TIMEOUT,
+    DEFAULT_MODEL,
+    PREFIX_CLUSTER_MIN,
+    REPAIRABLE_CODES,
+    REQUIRED_FIELDS_ALL,
+    REQUIRED_FIELDS_KNOWLEDGE,
+    SESSION_ID_PATTERN,
+    STATE_STALE_DAYS,
+    STALE_COMMIT_MINUTES,
+    VALID_TYPES,
+    Issue,
+    _active_vault,
+    _backup_note,
+    _backed_up_this_run,
+    _get_state_file,
+    _rel,
+    _release_pid,
+    _resolve_shim_vault_path,
+    _vault_path,
+    _write_json_atomic,
+    _write_pid,
+    is_process_running,
+    load_state,
+    save_state,
+    should_skip,
 )
-# Fields required for all notes
-REQUIRED_FIELDS_ALL = ("date", "type")
-# Additional fields required for knowledge notes (not daily)
-REQUIRED_FIELDS_KNOWLEDGE = ("confidence", "related")
-REPAIRABLE_CODES = frozenset(
-    {
-        "MISSING_FRONTMATTER",
-        "MISSING_FIELD",
-        "INVALID_TYPE",
-        "INVALID_DATE",
-        "ORPHAN_NOTE",
-        "BROKEN_WIKILINK",
-        "HEADING_MISMATCH",
-        "SELF_REF",
-    }
-)
-DEFAULT_MODEL: str | None = None
-AI_TIMEOUT = 120  # seconds
-STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
-STALE_COMMIT_MINUTES = 15
-SESSION_ID_PATTERN = re.compile(
-    r"^[0-9a-f]{16}$"
-)  # auto-commit uncommitted files older than this
-PREFIX_CLUSTER_MIN = (
-    3  # minimum flat notes sharing a prefix to trigger subfolder grouping
-)
-
-
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class Issue:
-    path: Path
-    severity: str  # "error" | "warning"
-    code: str
-    message: str
-
-
-# ---------------------------------------------------------------------------
-# State file  (<resolved vault>/doctor_state.json)
-# ---------------------------------------------------------------------------
-# Schema:
-# {
-#   "last_run": "2026-03-13T14:30:00",
-#   "pid": 12345,                    # PID of the currently-running doctor (if any)
-#   "notes": {
-#     "Research/foo.md": {
-#       "status": "ok" | "fixed" | "failed" | "timeout" | "skipped",
-#       "last_checked": "YYYY-MM-DD",
-#       "issues": ["CODE", ...]     # issue codes found (empty = clean)
-#     }
-#   }
-# }
-# "ok"           — no issues found; skip for STATE_STALE_DAYS before re-checking
-# "fixed"        — prompt AI repaired it; re-check next run to confirm
-# "failed"       — prompt AI returned no output; retry next run
-# "timeout"      — prompt AI timed out once; retry ONE more time
-# "needs_review" — timed out on retry; skip and flag for user intervention
-# "skipped"      — only non-repairable issues; skip indefinitely (manual fix needed)
-# ---------------------------------------------------------------------------
-
-# Module-level vault path, set by main() after argument parsing.
-# QA-003: _rel() falls back gracefully instead of raising RuntimeError
-# when _vault_path is None.
-# ARC-003: Tests patch this via monkeypatch.setattr(vault_doctor, "_vault_path", ...)
-# so this name MUST remain as a module-level symbol.
-_vault_path: Path | None = None
-
-
-def _active_vault() -> Path:
-    """Return the currently active vault root.
-
-    Single resolution point: prefers the module-level ``_vault_path`` set by
-    ``main()`` (or by tests via monkeypatch), falling back to
-    ``vault_common.VAULT_ROOT``.  Replaces the repeated inline ternary
-    ``_vault_path if _vault_path else vault_common.VAULT_ROOT``.
-    """
-    return _vault_path if _vault_path is not None else vault_common.VAULT_ROOT
-
-
-def _get_state_file(vault_path: Path) -> Path:
-    """Return the state file path for the given vault."""
-    return vault_path / "doctor_state.json"
-
-
-def _rel(path: Path, vault_path: Path | None = None) -> str:
-    """Return path relative to vault root as a string key.
-
-    Args:
-        path: Absolute note path.
-        vault_path: Explicit vault root. Falls back to module-level
-            ``_vault_path``, then to ``vault_common.resolve_vault()``.
-    """
-    vp = vault_path or _vault_path or vault_common.resolve_vault()
-    return str(path.relative_to(vp))
-
-
-def load_state(vault_path: Path) -> dict:
-    """Load doctor_state.json, returning empty structure if missing/corrupt."""
-    try:
-        return json.loads(_get_state_file(vault_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"last_run": None, "notes": {}}
-
-
-def _write_json_atomic(data: dict, dest: Path) -> None:
-    """Write *data* as JSON to *dest* atomically via a sibling .tmp file."""
-    tmp = dest.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(dest)
-
-
-def save_state(state: dict, vault_path: Path) -> None:
-    """Write doctor_state.json atomically."""
-    state["last_run"] = datetime.now().isoformat(timespec="seconds")
-    _write_json_atomic(state, _get_state_file(vault_path))
-
-
-def should_skip(key: str, state: dict) -> bool:
-    """Return True if this note should be skipped based on its state entry."""
-    entry = state.get("notes", {}).get(key)
-    if not entry:
-        return False
-    status = entry.get("status", "")
-    if status in ("skipped", "needs_review"):
-        return True
-    if status == "ok":
-        last = entry.get("last_checked", "")
-        try:
-            checked = date.fromisoformat(last)
-            return (date.today() - checked).days < STATE_STALE_DAYS
-        except ValueError:
-            return False
-    return False  # "fixed", "failed", "timeout" — always retry
-
-
-# QA-007: is_process_running moved to vault_common.py (canonical implementation).
-# Local alias preserves all existing call sites unchanged.
-is_process_running = vault_common.is_process_running
-
-
-def _write_pid(state: dict, vault_path: Path) -> None:
-    """Write *state* (including pid) to the state file immediately."""
-    _write_json_atomic(state, _get_state_file(vault_path))
-
-
-def _release_pid(vault_path: Path) -> None:
-    """Clear our pid from the state file at process exit."""
-    try:
-        current = load_state(vault_path)
-        if current.get("pid") == os.getpid():
-            current.pop("pid", None)
-            _write_json_atomic(current, _get_state_file(vault_path))
-    except Exception:  # noqa: BLE001
-        pass  # best-effort cleanup
-
-
-# ---------------------------------------------------------------------------
-# Pre-mutation backups
-# ---------------------------------------------------------------------------
-# Every execute-mode content mutation and rename below is preceded by a call
-# to _backup_note() so an operator can recover the pre-fix version of a note
-# from an unattended --fix-all run. ".trash" is already in
-# vault_common.EXCLUDE_DIRS so backups are invisible to search/indexing.
-
-_backed_up_this_run: set[Path] = set()
-
-
-def _backup_note(vault: Path, note_path: Path) -> None:
-    """Copy *note_path* to today's pre-mutation backup dir, best-effort.
-
-    No-ops if this note was already backed up during the current process
-    (tracked in ``_backed_up_this_run`` to avoid re-stat'ing) or if a backup
-    for today already exists on disk (first version of the day wins).  Never
-    raises — a backup failure warns on stderr but must not block the fix
-    itself, since this runs unattended nightly via cron.
-    """
-    if note_path in _backed_up_this_run:
-        return
-    _backed_up_this_run.add(note_path)
-    try:
-        rel = note_path.relative_to(vault)
-    except ValueError:
-        return  # outside the vault -- nothing to back up
-    dest = vault / ".trash" / "backup" / date.today().isoformat() / rel
-    if dest.exists():
-        return  # first version of the day already saved
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(note_path, dest)
-    except OSError as exc:
-        print(f"  ⚠ backup failed for {rel}: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
