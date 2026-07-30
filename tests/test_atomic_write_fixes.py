@@ -329,6 +329,111 @@ class TestWriteGraphJson:
 
 
 # ---------------------------------------------------------------------------
+# QA-017 — update_index generated index files are atomic
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateIndexAtomicWrites:
+    """QA-017: update_index routes CLAUDE.md, TAGS.md, and MANIFEST.md writes
+    through ``vault_fs.atomic_write_text``. A half-written CLAUDE.md would be
+    read by ``session_start_hook`` at the next session start and inject
+    truncated context into a live agent session — the atomic tmp+rename
+    pattern means readers either see the previous version or the new one,
+    never a partial write.
+    """
+
+    def test_claude_md_failure_leaves_original_intact(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Path.replace failure during CLAUDE.md rewrite preserves the
+        original file byte-for-byte and leaves no .tmp residue."""
+        import update_index
+
+        # Seed an existing CLAUDE.md so atomic_write_text has a mode to copy.
+        existing = "# Old index\n\nstale content\n"
+        (tmp_vault / "CLAUDE.md").write_text(existing, encoding="utf-8")
+
+        # Now break Path.replace and confirm the rewrite is atomic.
+        monkeypatch.setattr(Path, "replace", _boom_replace)
+        with pytest.raises(OSError):
+            update_index.atomic_write_text(
+                tmp_vault / "CLAUDE.md", "# New index\nnew content\n"
+            )
+
+        # Original content survived.
+        assert (tmp_vault / "CLAUDE.md").read_text(encoding="utf-8") == existing
+        # No .tmp residue.
+        assert not (tmp_vault / "CLAUDE.md.tmp").exists()
+
+    def test_manifest_md_failure_leaves_original_intact(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same atomic-write contract for per-folder MANIFEST.md files."""
+        import update_index
+
+        patterns_dir = tmp_vault / "Patterns"
+        patterns_dir.mkdir(exist_ok=True)
+        manifest = patterns_dir / "MANIFEST.md"
+        existing = "# Old manifest\n| stale |\n"
+        manifest.write_text(existing, encoding="utf-8")
+
+        monkeypatch.setattr(Path, "replace", _boom_replace)
+        with pytest.raises(OSError):
+            update_index.atomic_write_text(manifest, "# New manifest\n")
+        assert manifest.read_text(encoding="utf-8") == existing
+        assert not (patterns_dir / "MANIFEST.md.tmp").exists()
+
+    def test_tags_md_failure_leaves_original_intact(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same atomic-write contract for the root TAGS.md tag cloud."""
+        import update_index
+
+        existing = "# Old tags\n`python`\n"
+        (tmp_vault / "TAGS.md").write_text(existing, encoding="utf-8")
+
+        monkeypatch.setattr(Path, "replace", _boom_replace)
+        with pytest.raises(OSError):
+            update_index.atomic_write_text(
+                tmp_vault / "TAGS.md", "# New tags\n`rust`\n"
+            )
+        assert (tmp_vault / "TAGS.md").read_text(encoding="utf-8") == existing
+
+
+# ---------------------------------------------------------------------------
+# QA-017 — vault_doctor graph.json rewrite is atomic
+# ---------------------------------------------------------------------------
+
+
+class TestVaultDoctorGraphJsonAtomic:
+    """QA-017: vault_doctor._normalize_canonical_tags_in_graph writes the
+    47.5 MB graph.json via vault_fs.atomic_write_text so an interrupt cannot
+    leave a truncated file that breaks the visualizer's SSE rebuild."""
+
+    def test_graph_json_failure_preserves_original(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import vault_doctor
+
+        graph_path = tmp_vault / "graph.json"
+        original = '{"nodes":[],"edges":[]}\n'
+        graph_path.write_text(original, encoding="utf-8")
+
+        monkeypatch.setattr(Path, "replace", _boom_replace)
+        with pytest.raises(OSError):
+            vault_doctor.vault_fs.atomic_write_text(graph_path, '{"nodes":[1]}\n')
+        assert graph_path.read_text(encoding="utf-8") == original
+        # atomic_write_text uses <name>.tmp (sibling), not <name>.json.tmp —
+        # the legacy _write_json_atomic helper in vault_doctor uses the latter
+        # which would leave stale .json.tmp residue in the vault root. Pin
+        # the sibling naming so the right helper is in use.
+        assert not (tmp_vault / "graph.json.tmp").exists()
+        assert not (tmp_vault / "graph.tmp").exists()
+
+
+# ---------------------------------------------------------------------------
 # build_embeddings — full rebuild is transactional (fake fastembed injected)
 # ---------------------------------------------------------------------------
 

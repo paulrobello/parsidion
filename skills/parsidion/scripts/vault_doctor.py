@@ -2008,7 +2008,16 @@ def _update_graph_json_tags(
                 subs += 1
 
     if subs:
-        graph_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        # QA-017: graph.json is a wide (47.5 MB) write — route through an
+        # atomic tmp+rename so an interrupt cannot leave a half-written file.
+        # The visualizer streams this file and a truncated body would break
+        # the SSE rebuild. The atomic JSON writer at :194 changes the file
+        # suffix when computing the tmp name (graph.json → graph.json.tmp),
+        # which would leave a stale .tmp residue in the vault root; writing
+        # the full body (with the original trailing newline) via
+        # atomic_write_text preserves byte-for-byte parity and uses the
+        # conventional `<name>.tmp` sibling instead.
+        vault_fs.atomic_write_text(graph_path, json.dumps(data, indent=2) + "\n")
 
     return subs
 

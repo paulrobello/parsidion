@@ -36,6 +36,7 @@ from vault_common import (
     write_hook_event,
 )
 from vault_index import drain_parse_warnings, record_parse_warning
+from vault_fs import atomic_write_text
 
 import parmem_backend
 
@@ -640,7 +641,10 @@ def build_manifests(
         content: str = "\n".join(lines)
 
         manifest_path: Path = folder_dir / "MANIFEST.md"
-        manifest_path.write_text(content, encoding="utf-8")
+        # QA-017: route through atomic_write_text so an interrupt cannot
+        # leave a half-written MANIFEST.md (the index regenerates these, but
+        # a truncated file is still a confusing experience mid-rebuild).
+        atomic_write_text(manifest_path, content)
         written.append(manifest_path)
 
     return written
@@ -823,10 +827,13 @@ def main() -> None:
     now_str: str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     index_path: Path = vault_path / "CLAUDE.md"
-    index_path.write_text(content, encoding="utf-8")
+    # QA-017: atomic write — CLAUDE.md is read by session_start_hook at every
+    # session start, so a half-written file injects truncated context into a
+    # live agent session. Same pattern vault_links/vault_doctor already use.
+    atomic_write_text(index_path, content)
 
     tags_path: Path = vault_path / "TAGS.md"
-    tags_path.write_text(build_tags_md(tag_counter, now_str), encoding="utf-8")
+    atomic_write_text(tags_path, build_tags_md(tag_counter, now_str))
 
     manifest_paths: list[Path] = build_manifests(folder_notes, vault=vault_path)
     manifest_count: int = len(manifest_paths)
