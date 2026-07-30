@@ -13,8 +13,12 @@ been split into focused sub-modules:
 - ``vault_hooks`` -- hook event logging, env helpers, transcript analysis
 - ``vault_adaptive`` -- per-note usefulness tracking, last-seen state
 
-All public symbols are re-exported here so that existing callers
-(``import vault_common; vault_common.X()``) continue to work unchanged.
+The supported public API is re-exported and enumerated in ``__all__``, so
+existing callers (``import vault_common; vault_common.X()``) keep working
+unchanged.  A handful of underscore-prefixed private symbols are ALSO
+re-exported purely for backward-compat test access — they are importable
+from ``vault_common`` but deliberately omitted from ``__all__``; new code
+should import them from their defining submodule instead.
 """
 
 # ---------------------------------------------------------------------------
