@@ -421,6 +421,10 @@ class TestCodexHookIntegration:
     ) -> None:
         if str(_SCRIPTS_DIR) not in sys.path:
             sys.path.insert(0, str(_SCRIPTS_DIR))
+        # QA-008/ARC-020: build_session_context now lives in agent_adapter
+        # (imported lazily inside run_session_start). Patch the source module
+        # the entrypoint imports from.
+        agent_adapter = importlib.import_module("agent_adapter")
         codex_session_start_hook = importlib.import_module("codex_session_start_hook")
         seen_runtime: list[str | None] = []
 
@@ -435,18 +439,27 @@ class TestCodexHookIntegration:
             assert ai_model is None
             return (f"context for {cwd}", 1)
 
+        # Patch the lazy-import target inside agent_adapter's namespace so
+        # `from session_start_hook import build_session_context` resolves to
+        # the fake. session_start_hook is imported lazily so we patch the
+        # real module's attribute.
+        import session_start_hook as _ssh
+
         monkeypatch.setattr(
-            codex_session_start_hook,
+            _ssh,
             "build_session_context",
             fake_build_session_context,
         )
+        # QA-008: the shim no longer touches sys directly; the entrypoint in
+        # agent_adapter does. Patch agent_adapter.sys.stdin/stdout so the
+        # test still controls the I/O the entrypoint sees.
         monkeypatch.setattr(
-            codex_session_start_hook.sys,
+            agent_adapter.sys,
             "stdin",
             io.StringIO(json.dumps({"cwd": str(tmp_path)})),
         )
         stdout = io.StringIO()
-        monkeypatch.setattr(codex_session_start_hook.sys, "stdout", stdout)
+        monkeypatch.setattr(agent_adapter.sys, "stdout", stdout)
         monkeypatch.setenv("PARSIDION_RUNTIME", "existing-runtime")
 
         codex_session_start_hook.main()
