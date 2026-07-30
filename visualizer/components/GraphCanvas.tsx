@@ -176,20 +176,22 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     sigmaRefreshRef.current = () => sigmaRef.current?.refresh()
   })
 
-  // Local refs not owned by useForceLayout
-  const edgeWeightInfluenceRef = useRef(edgeWeightInfluence)
+  // QA-013: every render-option value that a sigma callback or an effect
+  // (whose deps deliberately omit it) reads as "latest" lives on ONE ref.
+  // This replaces ~a dozen per-prop mirror effects that were easy to forget
+  // (a forgotten mirror = silently-stale value inside a sigma callback).
+  // useRef — not a custom helper — so the react-hooks linter treats `latest`
+  // as the stable ref it is; the single no-deps effect below keeps it current.
+  const renderOptions = {
+    threshold, graphSource, data,
+    edgeColorMode, edgePruning, edgePruningK,
+    nodeSizeMode, nodeColorMode, nodeSizeMap,
+    edgeWeightInfluence, showOverlayEdges,
+  }
+  const latest = useRef(renderOptions)
+  useEffect(() => { latest.current = renderOptions })
+  // Read by the node/edge reducers, which need a RefObject<boolean>.
   const labelsOnHoverOnlyRef = useRef(labelsOnHoverOnly)
-  const showOverlayEdgesRef = useRef(showOverlayEdges)
-  const filterNodesBySimilarityRef = useRef(false)
-  const thresholdRef = useRef(threshold)
-  const edgeColorModeRef = useRef(edgeColorMode)
-  const graphSourceRef = useRef(graphSource)
-  const dataRef = useRef(data)
-  const edgePruningRef = useRef(edgePruning)
-  const edgePruningKRef = useRef(edgePruningK)
-  const nodeSizeModeRef = useRef(nodeSizeMode)
-  const nodeColorModeRef = useRef(nodeColorMode)
-  const nodeSizeMapRef = useRef(nodeSizeMap)
   const hoveredNodeRef = useRef<string | null>(null)
   const highlightedNodesRef = useRef<Set<string>>(new Set())
   const highlightedEdgesRef = useRef<Set<string>>(new Set())
@@ -258,9 +260,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     sigmaRef.current?.refresh()
   }, [neighborhoodCenter, neighborhoodHops])
 
-  useEffect(() => { thresholdRef.current = threshold }, [threshold])
-  useEffect(() => { graphSourceRef.current = graphSource }, [graphSource])
-  useEffect(() => { dataRef.current = data }, [data])
   useEffect(() => {
     hideIsolatedRef.current = hideIsolated
     sigmaRef.current?.refresh()
@@ -270,10 +269,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     sigmaRef.current?.refresh()
   }, [labelsOnHoverOnly])
   useEffect(() => {
-    showOverlayEdgesRef.current = showOverlayEdges
     const graph = graphRef.current
     const sigma = sigmaRef.current
-    const d = dataRef.current
+    const d = latest.current.data
     if (!graph || !sigma || !d) return
     // Remove existing overlay edges
     const toRemove = (graph.edges() as string[]).filter(
@@ -282,8 +280,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     toRemove.forEach((e: string) => graph.dropEdge(e))
     // Add new overlay edges if enabled — no reheat
     if (showOverlayEdges) {
-      const gs = graphSourceRef.current
-      const thr = thresholdRef.current
+      const gs = latest.current.graphSource
+      const thr = latest.current.threshold
       const visibleNodes = new Set(graph.nodes() as string[])
       const overlayKind = gs === 'semantic' ? 'wiki' : 'semantic'
       const overlayEdges = d.edges.filter(e => e.kind === overlayKind &&
@@ -304,14 +302,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
   // Recompute similarity-filtered node set; reheat so newly visible/hidden nodes settle
   useEffect(() => {
-    filterNodesBySimilarityRef.current = filterNodesBySimilarity
-    const d = dataRef.current
-    if (!filterNodesBySimilarity || graphSourceRef.current !== 'wiki' || !d) {
+    const d = latest.current.data
+    if (!filterNodesBySimilarity || latest.current.graphSource !== 'wiki' || !d) {
       filteredNodesRef.current = new Set()
     } else {
       const qualifying = new Set<string>()
       for (const edge of d.edges) {
-        if (edge.kind === 'semantic' && edge.w >= thresholdRef.current) {
+        if (edge.kind === 'semantic' && edge.w >= latest.current.threshold) {
           qualifying.add(edge.s)
           qualifying.add(edge.t)
         }
@@ -324,7 +321,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
   // Edge weight influence acts as a direct weight multiplier on graph edges.
   useEffect(() => {
-    edgeWeightInfluenceRef.current = edgeWeightInfluence
     const graph = graphRef.current
     if (!graph) return
     ;(graph.edges() as string[]).forEach((e: string) => {
@@ -335,17 +331,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     reheat()
   }, [edgeWeightInfluence, reheat])
 
-  useEffect(() => { edgeColorModeRef.current = edgeColorMode }, [edgeColorMode])
-  useEffect(() => { edgePruningRef.current = edgePruning }, [edgePruning])
-  useEffect(() => { edgePruningKRef.current = edgePruningK }, [edgePruningK])
-  useEffect(() => { nodeSizeModeRef.current = nodeSizeMode }, [nodeSizeMode])
-  useEffect(() => { nodeColorModeRef.current = nodeColorMode }, [nodeColorMode])
-  useEffect(() => { nodeSizeMapRef.current = nodeSizeMap }, [nodeSizeMap])
-
   useEffect(() => {
     const graph = graphRef.current
     const sigma = sigmaRef.current
-    const d = dataRef.current
+    const d = latest.current.data
     if (!graph || !sigma || !d) return
     // Skip while betweenness is still computing — the computation effect will re-trigger this
     if (nodeSizeMode === 'betweenness' && nodeSizeMap === null) return
@@ -377,7 +366,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   useEffect(() => {
     const graph = graphRef.current
     const sigma = sigmaRef.current
-    const d = dataRef.current
+    const d = latest.current.data
     if (!graph || !sigma || !d) return
     const nodeDataMap = new Map(d.nodes.map(n => [n.id, n]))
     const ids = graph.nodes() as string[]
@@ -404,7 +393,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       const kind = graph.getEdgeAttribute(e, 'kind') as 'wiki' | 'semantic'
       if (kind === 'wiki') return
       const baseWeight = graph.getEdgeAttribute(e, 'baseWeight') as number
-      const col = getSemanticEdgeColor(baseWeight, kind, edgeColorMode, thresholdRef.current)
+      const col = getSemanticEdgeColor(baseWeight, kind, edgeColorMode, latest.current.threshold)
       graph.setEdgeAttribute(e, 'color', col)
       graph.setEdgeAttribute(e, 'originalColor', col)
     })
@@ -584,11 +573,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
       visibleNodeList.sort((a, b) => (adjacency.get(b.id)?.size ?? 0) - (adjacency.get(a.id)?.size ?? 0))
 
-      const initRecencyMap = nodeSizeModeRef.current === 'recency'
+      const initRecencyMap = latest.current.nodeSizeMode === 'recency'
         ? buildRecencySizeMap(visibleNodeList.map(n => ({ id: n.id, mtime: n.mtime })))
         : null
 
-      const initColorMap = nodeColorModeRef.current === 'recency'
+      const initColorMap = latest.current.nodeColorMode === 'recency'
         ? buildRecencyColorMap(visibleNodeList.map(n => ({ id: n.id, mtime: n.mtime })))
         : null
 
@@ -615,8 +604,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         }
 
         placed.set(node.id, { x, y })
-        const nsMode = nodeSizeModeRef.current
-        const nsMap = nodeSizeMapRef.current
+        const nsMode = latest.current.nodeSizeMode
+        const nsMap = latest.current.nodeSizeMap
         let nodeSize: number
         if (nsMode === 'uniform') {
           nodeSize = 4
@@ -639,12 +628,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         })
       }
 
-      const ewi = edgeWeightInfluenceRef.current
+      const ewi = latest.current.edgeWeightInfluence
       let edges: GraphEdge[] = filterEdges(data.edges, graphSource, threshold)
-      if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
+      if (latest.current.edgePruning) edges = pruneEdges(edges, latest.current.edgePruningK)
       for (const edge of edges) {
         if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-        const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current, thresholdRef.current)
+        const col = getSemanticEdgeColor(edge.w, edge.kind, latest.current.edgeColorMode, latest.current.threshold)
         try {
           graph.addEdge(edge.s, edge.t, {
             weight: edge.w * ewi, baseWeight: edge.w, color: col,
@@ -654,7 +643,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         } catch { /* duplicate */ }
       }
       // Overlay edges (other source, visual-only — weight=0.001 so FA2 ignores them)
-      if (showOverlayEdgesRef.current) {
+      if (latest.current.showOverlayEdges) {
         const overlayKind = graphSource === 'semantic' ? 'wiki' : 'semantic'
         const overlayEdges = data.edges.filter(e => e.kind === overlayKind &&
           (overlayKind === 'semantic' ? e.w >= threshold : true))
@@ -872,7 +861,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // effect on the next data reload.
   useEffect(() => {
     const graph = graphRef.current
-    const d = dataRef.current
+    const d = latest.current.data
     if (!graph || !d) return
     const currentIds = new Set(graph.nodes() as string[])
     const newVisible = computeVisibleNodes(d.nodes, activeTypes, showDaily)
@@ -888,12 +877,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     const graph = graphRef.current
     graph.clearEdges()
     const visibleNodes = new Set(graph.nodes() as string[])
-    const ewi = edgeWeightInfluenceRef.current
+    const ewi = latest.current.edgeWeightInfluence
     let edges: GraphEdge[] = filterEdges(data.edges, graphSource, threshold)
-    if (edgePruningRef.current) edges = pruneEdges(edges, edgePruningKRef.current)
+    if (latest.current.edgePruning) edges = pruneEdges(edges, latest.current.edgePruningK)
     for (const edge of edges) {
       if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-      const col = getSemanticEdgeColor(edge.w, edge.kind, edgeColorModeRef.current, thresholdRef.current)
+      const col = getSemanticEdgeColor(edge.w, edge.kind, latest.current.edgeColorMode, latest.current.threshold)
       try {
         graph.addEdge(edge.s, edge.t, {
           weight: edge.w * ewi, baseWeight: edge.w, color: col,
@@ -902,7 +891,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         })
       } catch { /* skip */ }
     }
-    if (showOverlayEdgesRef.current) {
+    if (latest.current.showOverlayEdges) {
       const overlayKind = graphSource === 'semantic' ? 'wiki' : 'semantic'
       const overlayEdges = data.edges.filter(e => e.kind === overlayKind &&
         (overlayKind === 'semantic' ? e.w >= threshold : true))
@@ -981,7 +970,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
                   if (result) {
                     pathNodesRef.current = new Set(result.path)
                     pathEdgesRef.current = new Set(result.edgeIds)
-                    const d = dataRef.current
+                    const d = latest.current.data
                     const titleMap = new Map(d?.nodes.map(n => [n.id, n.title]) ?? [])
                     const breadcrumb = result.path.map(id => titleMap.get(id) ?? id).join(' → ')
                     showToast(breadcrumb)
