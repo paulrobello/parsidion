@@ -462,6 +462,308 @@ def _print_install_plan(
         print(f"\n  {yellow('[DRY RUN — no changes will be made]')}")
 
 
+def _build_install_steps(
+    *,
+    args: argparse.Namespace,
+    claude_dir: Path,
+    vault_root: Path,
+    codex_home: Path,
+    gemini_home: Path,
+    settings_file: Path,
+    dry_run: bool,
+    verbose: bool,
+    install_claude_runtime: bool,
+    install_codex_runtime: bool,
+    install_gemini_runtime: bool,
+    enable_ai: bool,
+    enable_embeddings: bool,
+    vault_username: str,
+    install_tools: bool,
+    do_schedule: bool,
+) -> StepList:
+    """Build the ordered :class:`StepList` for the install transaction.
+
+    ARC-017: the ~12-step install plan is constructed here from the resolved
+    runtime/flag matrix, then driven by a single ``steps.run_all()`` call in
+    ``install()``. Each step's ``on_run`` lambda references install.py's
+    module-global function names (``install_skill``, ``merge_hooks``, ...) so
+    the test suite's ``monkeypatch.setattr(install, '<name>', ...)`` keeps
+    working — this is why the helper lives in install.py rather than in
+    installer/.
+
+    The matrix predicate (``install_claude_runtime and not args.skip_hooks``,
+    etc.) is now evaluated exactly once per step at build time, rather than
+    being re-checked 15-20× as bare ``if`` blocks inside a monolithic
+    ``install()`` — collapsing the predicate re-evaluation the audit flagged.
+
+    Order is load-bearing: the Templates symlink step needs the skill
+    installed first (it derives ``templates_src`` from the skill dir); hooks
+    must be registered before the AI-mode config write; the vault must exist
+    before the index rebuild. Do not reorder without re-running the full
+    install test suite + the dry-run baseline diff.
+    """
+    steps = StepList()
+    templates_src = claude_dir / "skills" / SKILL_NAME / "templates"
+
+    # 1. Install skill
+    steps.append(
+        Step(
+            "install_skill",
+            lambda: install_skill(
+                claude_dir,
+                vault_root,
+                force=args.force,
+                yes=args.yes,
+                dry_run=dry_run,
+                verbose=verbose,
+            ),
+        )
+    )
+
+    # 2. Install agents
+    if install_claude_runtime and not args.skip_agent:
+        steps.append(
+            Step(
+                "install_agents",
+                lambda: install_agents(claude_dir, dry_run=dry_run),
+            )
+        )
+
+    # 3. Install scripts
+    steps.append(
+        Step(
+            "install_scripts",
+            lambda: install_scripts(claude_dir, dry_run=dry_run),
+        )
+    )
+
+    # 4. Create vault directories
+    steps.append(
+        Step(
+            "create_vault_dirs",
+            lambda: create_vault_dirs(vault_root, dry_run=dry_run),
+        )
+    )
+
+    # 5. Create Templates symlink (needs the skill installed first).
+    steps.append(
+        Step(
+            "create_templates_symlink",
+            lambda: create_templates_symlink(
+                vault_root, templates_src, dry_run=dry_run, verbose=verbose
+            ),
+        )
+    )
+
+    # 6. Clean up legacy managed parsidion-cc hooks/assets, then register hooks.
+    # ARC-025: pass enable_ai_mode through to merge_hooks so settings.json is
+    # written once (the SessionStart timeout raise happens in the same RMW as
+    # the hook registration instead of a second independent write). The
+    # vault-config half of the AI-mode flow still runs separately below.
+    if install_claude_runtime and not args.skip_hooks:
+        steps.append(
+            Step(
+                "cleanup_legacy_assets",
+                lambda: cleanup_legacy_assets(
+                    claude_dir,
+                    settings_file,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                ),
+            )
+        )
+        steps.append(
+            Step(
+                "merge_hooks",
+                lambda: merge_hooks(
+                    claude_dir,
+                    settings_file,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                    enable_ai_mode=enable_ai,
+                ),
+            )
+        )
+
+    if install_codex_runtime and not args.skip_hooks:
+        steps.append(
+            Step(
+                "enable_codex_hooks_config",
+                lambda: enable_codex_hooks_config(
+                    codex_home, dry_run=dry_run, yes=args.yes
+                ),
+            )
+        )
+        steps.append(
+            Step(
+                "merge_codex_hooks",
+                lambda: merge_codex_hooks(
+                    codex_home, claude_dir, dry_run=dry_run, verbose=verbose
+                ),
+            )
+        )
+
+    if install_gemini_runtime and not args.skip_hooks:
+        steps.append(
+            Step(
+                "merge_gemini_hooks",
+                lambda: merge_gemini_hooks(
+                    gemini_home, claude_dir, dry_run=dry_run, verbose=verbose
+                ),
+            )
+        )
+
+    # 6b. Write ai_model to vault config.yaml (the settings.json half of the
+    # AI-mode flow is now merged into merge_hooks above). ARC-025.
+    if enable_ai and install_claude_runtime and not args.skip_hooks:
+        steps.append(
+            Step(
+                "enable_ai_mode",
+                lambda: enable_ai_mode(vault_root, dry_run=dry_run),
+            )
+        )
+
+    # 7. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md.
+    if install_claude_runtime:
+        steps.append(
+            Step(
+                "install_claude_vault_md",
+                lambda: install_claude_vault_md(
+                    claude_dir, dry_run=dry_run, verbose=verbose
+                ),
+            )
+        )
+
+    # 7b. Inject parsidion instructions into codex/gemini config dirs.
+    if install_codex_runtime:
+        steps.append(
+            Step(
+                "install_codex_agents_md",
+                lambda: install_codex_agents_md(
+                    codex_home, dry_run=dry_run, verbose=verbose
+                ),
+            )
+        )
+    if install_gemini_runtime:
+        steps.append(
+            Step(
+                "install_gemini_md",
+                lambda: install_gemini_md(
+                    gemini_home, dry_run=dry_run, verbose=verbose
+                ),
+            )
+        )
+
+    # 8. Rebuild vault index.
+    steps.append(
+        Step(
+            "rebuild_index",
+            lambda: rebuild_index(claude_dir, dry_run=dry_run),
+        )
+    )
+
+    # 9. Configure vault .gitignore for machine-local files.
+    steps.append(
+        Step(
+            "configure_vault_gitignore",
+            lambda: configure_vault_gitignore(vault_root, dry_run=dry_run),
+        )
+    )
+
+    # 9b. Initialize vault as a git repo (no-op if already initialized).
+    steps.append(
+        Step(
+            "init_vault_git",
+            lambda: init_vault_git(vault_root, dry_run=dry_run),
+        )
+    )
+
+    # 9c. Install post-merge git hook for multi-machine sync.
+    steps.append(
+        Step(
+            "install_vault_post_merge_hook",
+            lambda: install_vault_post_merge_hook(
+                vault_root, claude_dir, dry_run=dry_run
+            ),
+        )
+    )
+
+    # 9d. Write vault.username to config.yaml (per-user daily note naming).
+    steps.append(
+        Step(
+            "configure_vault_username",
+            lambda: configure_vault_username(
+                vault_root, dry_run=dry_run, username=vault_username
+            ),
+        )
+    )
+
+    # 9e. Write embeddings.enabled to config.yaml.
+    steps.append(
+        Step(
+            "configure_embeddings",
+            lambda: configure_embeddings(
+                vault_root, enabled=enable_embeddings, dry_run=dry_run
+            ),
+        )
+    )
+
+    # 10. Install global CLI tools (vault-search, vault-new, vault-stats).
+    if install_tools:
+        steps.append(
+            Step(
+                "install_cli_tools",
+                lambda: install_cli_tools(REPO_ROOT, dry_run=dry_run),
+            )
+        )
+
+    # 11. Schedule nightly summarizer (optional, --schedule-summarizer).
+    if do_schedule:
+        steps.append(
+            Step(
+                "schedule_summarizer",
+                lambda: schedule_summarizer(
+                    claude_dir,
+                    dry_run=dry_run,
+                    hour=args.summarizer_hour,
+                    rebuild_graph=args.rebuild_graph,
+                    graph_include_daily=args.graph_include_daily,
+                ),
+            )
+        )
+
+    # 12. Create vaults.yaml config template (optional, --create-vaults-config).
+    if args.create_vaults_config:
+        steps.append(
+            Step(
+                "create_vaults_config",
+                lambda: create_vaults_config(dry_run=dry_run),
+            )
+        )
+
+    # 12b. ARC-019: persist a non-default --vault into vaults.yaml so the
+    # installed hooks (which call resolve_vault() with no explicit arg) can
+    # find it. Without this, ``install.py --vault ~/WorkVault`` populated
+    # the vault while every hook kept reading ~/ParsidionVault.
+    #
+    # The import is deliberately function-local to match the pre-refactor
+    # binding: tests that stub install.record_installed_vault (module global)
+    # do not affect this lambda, so the real helper runs in the test env —
+    # same as before ARC-017. Moving it to a module-level import would change
+    # test behaviour.
+    if not dry_run:
+        from installer.vault import record_installed_vault
+
+        steps.append(
+            Step(
+                "record_installed_vault",
+                lambda: record_installed_vault(vault_root, dry_run=dry_run),
+            )
+        )
+
+    return steps
+
+
 def install(args: argparse.Namespace) -> int:
     """Run the full installation. Returns an exit code.
 
@@ -476,14 +778,14 @@ def install(args: argparse.Namespace) -> int:
     verbose: bool = args.verbose
 
     # ARC-017 / QA-002: install() drives an ordered :class:`StepList`
-    # (installer/steps.py). Each step runs inside its own try/except inside
-    # ``StepList.run_all``; failures are accumulated into ``steps.failed_steps``
-    # and surfaced in a summary before install() returns, preserving the
-    # ARC-022 contract that a broken install is diagnosed from the
-    # exit-code-1 message rather than from a missing settings.json that the
-    # prior unconditional ``return 0`` hid. The same Step abstraction backs
-    # uninstall()'s reverse-order undo() so the two flows cannot drift.
-    steps: StepList = StepList()
+    # (installer/steps.py) built by _build_install_steps() below. Each step
+    # runs inside its own try/except inside ``StepList.run_all``; failures are
+    # accumulated into ``steps.failed_steps`` and surfaced in a summary before
+    # install() returns, preserving the ARC-022 contract that a broken install
+    # is diagnosed from the exit-code-1 message rather than from a missing
+    # settings.json that the prior unconditional ``return 0`` hid. The same
+    # Step abstraction backs uninstall()'s reverse-order undo() so the two
+    # flows cannot drift.
 
     print()
     print(bold("Parsidion Installer"))
@@ -563,256 +865,28 @@ def install(args: argparse.Namespace) -> int:
         _err(f"Skill source not found: {SKILL_SRC}")
         return 1
 
-    # 1. Install skill
-    steps.append(
-        Step(
-            "install_skill",
-            lambda: install_skill(
-                claude_dir,
-                vault_root,
-                force=args.force,
-                yes=args.yes,
-                dry_run=dry_run,
-                verbose=verbose,
-            ),
-        )
+    # ARC-017: build the ordered step list from the resolved runtime/flag
+    # matrix once, then drive it with a single run_all(). The matrix predicate
+    # is evaluated per-step at build time rather than re-checked 15-20× as
+    # bare if-blocks inside this function.
+    steps = _build_install_steps(
+        args=args,
+        claude_dir=claude_dir,
+        vault_root=vault_root,
+        codex_home=codex_home,
+        gemini_home=gemini_home,
+        settings_file=settings_file,
+        dry_run=dry_run,
+        verbose=verbose,
+        install_claude_runtime=install_claude_runtime,
+        install_codex_runtime=install_codex_runtime,
+        install_gemini_runtime=install_gemini_runtime,
+        enable_ai=enable_ai,
+        enable_embeddings=enable_embeddings,
+        vault_username=vault_username,
+        install_tools=install_tools,
+        do_schedule=do_schedule,
     )
-
-    # 2. Install agents
-    if install_claude_runtime and not args.skip_agent:
-        steps.append(
-            Step(
-                "install_agents",
-                lambda: install_agents(claude_dir, dry_run=dry_run),
-            )
-        )
-
-    # 3. Install scripts
-    steps.append(
-        Step(
-            "install_scripts",
-            lambda: install_scripts(claude_dir, dry_run=dry_run),
-        )
-    )
-
-    # 4. Create vault directories
-    steps.append(
-        Step(
-            "create_vault_dirs",
-            lambda: create_vault_dirs(vault_root, dry_run=dry_run),
-        )
-    )
-
-    # 5. Create Templates symlink
-    templates_src = claude_dir / "skills" / SKILL_NAME / "templates"
-    steps.append(
-        Step(
-            "create_templates_symlink",
-            lambda: create_templates_symlink(
-                vault_root, templates_src, dry_run=dry_run, verbose=verbose
-            ),
-        )
-    )
-
-    # 6. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
-    # ARC-025: pass enable_ai_mode through to merge_hooks so settings.json is
-    # written once (the SessionStart timeout raise happens in the same RMW as
-    # the hook registration instead of a second independent write). The
-    # vault-config half of the AI-mode flow still runs separately below.
-    if install_claude_runtime and not args.skip_hooks:
-        steps.append(
-            Step(
-                "cleanup_legacy_assets",
-                lambda: cleanup_legacy_assets(
-                    claude_dir,
-                    settings_file,
-                    dry_run=dry_run,
-                    verbose=verbose,
-                ),
-            )
-        )
-        steps.append(
-            Step(
-                "merge_hooks",
-                lambda: merge_hooks(
-                    claude_dir,
-                    settings_file,
-                    dry_run=dry_run,
-                    verbose=verbose,
-                    enable_ai_mode=enable_ai,
-                ),
-            )
-        )
-
-    if install_codex_runtime and not args.skip_hooks:
-        steps.append(
-            Step(
-                "enable_codex_hooks_config",
-                lambda: enable_codex_hooks_config(
-                    codex_home, dry_run=dry_run, yes=args.yes
-                ),
-            )
-        )
-        steps.append(
-            Step(
-                "merge_codex_hooks",
-                lambda: merge_codex_hooks(
-                    codex_home, claude_dir, dry_run=dry_run, verbose=verbose
-                ),
-            )
-        )
-
-    if install_gemini_runtime and not args.skip_hooks:
-        steps.append(
-            Step(
-                "merge_gemini_hooks",
-                lambda: merge_gemini_hooks(
-                    gemini_home, claude_dir, dry_run=dry_run, verbose=verbose
-                ),
-            )
-        )
-
-    # 6b. Write ai_model to vault config.yaml (the settings.json half of the
-    # AI-mode flow is now merged into merge_hooks above). ARC-025.
-    if enable_ai and install_claude_runtime and not args.skip_hooks:
-        steps.append(
-            Step(
-                "enable_ai_mode",
-                lambda: enable_ai_mode(vault_root, dry_run=dry_run),
-            )
-        )
-
-    # 7. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
-    if install_claude_runtime:
-        steps.append(
-            Step(
-                "install_claude_vault_md",
-                lambda: install_claude_vault_md(
-                    claude_dir, dry_run=dry_run, verbose=verbose
-                ),
-            )
-        )
-
-    # 7b. Inject parsidion instructions into codex/gemini config dirs
-    if install_codex_runtime:
-        steps.append(
-            Step(
-                "install_codex_agents_md",
-                lambda: install_codex_agents_md(
-                    codex_home, dry_run=dry_run, verbose=verbose
-                ),
-            )
-        )
-    if install_gemini_runtime:
-        steps.append(
-            Step(
-                "install_gemini_md",
-                lambda: install_gemini_md(
-                    gemini_home, dry_run=dry_run, verbose=verbose
-                ),
-            )
-        )
-
-    # 8. Rebuild vault index
-    steps.append(
-        Step(
-            "rebuild_index",
-            lambda: rebuild_index(claude_dir, dry_run=dry_run),
-        )
-    )
-
-    # 9. Configure vault .gitignore for machine-local files
-    steps.append(
-        Step(
-            "configure_vault_gitignore",
-            lambda: configure_vault_gitignore(vault_root, dry_run=dry_run),
-        )
-    )
-
-    # 9b. Initialize vault as a git repo (no-op if already initialized)
-    steps.append(
-        Step(
-            "init_vault_git",
-            lambda: init_vault_git(vault_root, dry_run=dry_run),
-        )
-    )
-
-    # 9c. Install post-merge git hook for multi-machine sync
-    steps.append(
-        Step(
-            "install_vault_post_merge_hook",
-            lambda: install_vault_post_merge_hook(
-                vault_root, claude_dir, dry_run=dry_run
-            ),
-        )
-    )
-
-    # 9d. Write vault.username to config.yaml (for per-user daily note naming)
-    steps.append(
-        Step(
-            "configure_vault_username",
-            lambda: configure_vault_username(
-                vault_root, dry_run=dry_run, username=vault_username
-            ),
-        )
-    )
-
-    # 9e. Write embeddings.enabled to config.yaml
-    steps.append(
-        Step(
-            "configure_embeddings",
-            lambda: configure_embeddings(
-                vault_root, enabled=enable_embeddings, dry_run=dry_run
-            ),
-        )
-    )
-
-    # 10. Install global CLI tools (vault-search, vault-new, vault-stats) via uv tool
-    if install_tools:
-        steps.append(
-            Step(
-                "install_cli_tools",
-                lambda: install_cli_tools(REPO_ROOT, dry_run=dry_run),
-            )
-        )
-
-    # 11. Schedule nightly summarizer (optional, --schedule-summarizer)
-    if do_schedule:
-        steps.append(
-            Step(
-                "schedule_summarizer",
-                lambda: schedule_summarizer(
-                    claude_dir,
-                    dry_run=dry_run,
-                    hour=args.summarizer_hour,
-                    rebuild_graph=args.rebuild_graph,
-                    graph_include_daily=args.graph_include_daily,
-                ),
-            )
-        )
-
-    # 12. Create vaults.yaml config template (optional, --create-vaults-config)
-    if args.create_vaults_config:
-        steps.append(
-            Step(
-                "create_vaults_config",
-                lambda: create_vaults_config(dry_run=dry_run),
-            )
-        )
-
-    # 12b. ARC-019: persist a non-default --vault into vaults.yaml so the
-    # installed hooks (which call resolve_vault() with no explicit arg) can
-    # find it. Without this, ``install.py --vault ~/WorkVault`` populated
-    # the vault while every hook kept reading ~/ParsidionVault.
-    if not dry_run:
-        from installer.vault import record_installed_vault
-
-        steps.append(
-            Step(
-                "record_installed_vault",
-                lambda: record_installed_vault(vault_root, dry_run=dry_run),
-            )
-        )
 
     # ARC-017: transaction snapshot of settings.json — taken before any step
     # runs, restored below if any settings-mutating step fails. Composes with
