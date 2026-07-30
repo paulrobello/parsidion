@@ -42,8 +42,11 @@ export const POST = withApi(async (req: NextRequest) => {
     }
     return NextResponse.json({ started: true, pid: result.pid })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to start summarizer'
+    // SEC-120: return a generic error to the client and log the detail
+    // server-side. The raw exception can leak the vault path or the
+    // summarizer's internal command line.
+    const message = err instanceof Error ? err.message : String(err)
     console.error('[summarize] spawn failed:', message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to start summarizer' }, { status: 500 })
   }
 }, { mutation: true })

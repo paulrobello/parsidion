@@ -36,9 +36,12 @@ export const GET = withApi(async (req: NextRequest) => {
   let stat: fs.Stats
   try {
     stat = await fsPromises.stat(graphPath)
-  } catch {
+  } catch (err) {
+    // SEC-120: log the absolute path server-side only; the client gets a
+    // generic message that does not leak the vault's filesystem location.
+    console.error('[graph] stat failed for', graphPath, err)
     return NextResponse.json(
-      { error: `graph.json not found in vault: ${vaultPath}` },
+      { error: 'graph.json not found in vault' },
       { status: 404 },
     )
   }
