@@ -1,527 +1,153 @@
+// ARC-037: God hook split into three focused slices plus this thin orchestrator.
+//
+// Previously this module returned a fresh ~55-key object literal every render,
+// spanning six concerns (vault selection, note tabs, graph controls, search,
+// SSE, betweenness). Every `app/page.tsx` callback with `[state]` in its deps
+// was recreated each render, defeating the memoization it was written for, and
+// the effect at `app/page.tsx` (the "open the new note once nodeMap contains
+// it" guard) ran after every render — saved from infinite-looping only by a
+// truthiness check on `pendingOpenStem`.
+//
+// The split:
+//   - useVaultSelection  — persisted selected-vault storage
+//   - useNoteTabs        — tabs, content cache, CRUD, view/sidebar/history UI
+//   - useGraphControls   — threshold, source, filters, sim settings, stats,
+//                          and the deferred betweenness trigger
+//
+// Betweenness (Brandes algorithm) lives in lib/betweenness.ts; SSE lives in
+// lib/useVaultFiles.ts. Both are unchanged by this refactor.
+//
+// The orchestrator's job is two things neither slice can do alone:
+//   1. Compose each slice's `_resetForVaultChange` into the cross-cutting
+//      `setSelectedVault` wrapper, so a vault switch clears tabs + cache +
+//      neighborhood focus synchronously (before the new vault is committed).
+//   2. Return a `useMemo`-stabilized object so `state` as a dep is now stable
+//      across renders where no actual state changed — `[state]` deps in
+//      `app/page.tsx` no longer over-fire.
+//
+// Public surface (the 55-ish keys consumers destructure, plus the re-exported
+// `GraphStats` / `TabInfo` / `SIM_DEFAULTS`) is unchanged.
 'use client'
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { useLocalStorage } from '@/lib/useLocalStorage'
-import type { GraphData, GraphSource, NoteNode } from '@/lib/graph'
-import { filterEdges } from '@/lib/graph'
-import { TYPE_COLORS, EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
-import { computeBetweenness } from '@/lib/betweenness'
+import { useCallback, useMemo } from 'react'
+import type { GraphData } from '@/lib/graph'
+import { useVaultSelection } from '@/lib/useVaultSelection'
+import { useNoteTabs } from '@/lib/useNoteTabs'
+import { useGraphControls, SIM_DEFAULTS } from '@/lib/useGraphControls'
 
-const SIM_DEFAULTS = {
-  scalingRatio: 10,
-  gravity: 1,
-  slowDown: 0.5,
-  edgeWeightInfluence: 2,
-  startTemperature: 0.8,
-  stopThreshold: 0.01,
-}
-
-const MAX_TABS = 20
-
-export interface TabInfo {
-  stem: string
-  node: NoteNode
-}
-
-export interface GraphStats {
-  avgDegree: number
-  maxDegree: number
-  topHubs: Array<{ id: string; title: string; degree: number }>
-  density: number
-  componentCount: number
-}
+// Re-exported for backward compatibility — HUDPanel imports `GraphStats` from
+// here, and TabInfo is part of the module's public surface.
+export type { GraphStats } from '@/lib/useGraphControls'
+export type { TabInfo } from '@/lib/useNoteTabs'
+export { SIM_DEFAULTS } from '@/lib/useGraphControls'
 
 export function useVisualizerState(graphData: GraphData | null) {
-  // --- Vault selection ---
-  const [selectedVault, setSelectedVaultInternal] = useLocalStorage<string | null>('vv:selectedVault', null)
+  const vault = useVaultSelection()
+  const tabs = useNoteTabs({ graphData, selectedVault: vault.selectedVault })
+  const controls = useGraphControls({ graphData })
 
-  // --- Tab state ---
-  const [openTabStems, setOpenTabStems] = useLocalStorage<string[]>('vv:openTabs', [])
-  const [activeTabStem, setActiveTabStem] = useLocalStorage<string | null>('vv:activeTab', null)
-  const [viewMode, setViewMode] = useLocalStorage<'read' | 'graph'>('vv:viewMode', 'read')
-  const [neighborhoodCenter, setNeighborhoodCenter] = useState<string | null>(null)
+  // Pull `_resetForVaultChange` out of the memoized `tabs` bag before wiring
+  // it into useCallback: `tabs` re-creates its identity whenever any of its
+  // ~25 fields change, but `_resetForVaultChange` itself is internally stable
+  // (its only deps are stable useLocalStorage/useState setters). Reading it
+  // through a stable local keeps `setSelectedVault` from churn-driving the
+  // orchestrator's useMemo — it should only re-create when `vault` (i.e. the
+  // current selectedVault) changes.
+  const resetTabsForVaultChange = tabs._resetForVaultChange
 
-  // --- History mode state ---
-  const [historyMode, setHistoryMode] = useState(false)
-  const [historyNote, setHistoryNote] = useState<string | null>(null)
-  const [historyPath, setHistoryPath] = useState<string | null>(null)
-  // Internal: ref avoids stale-closure risk; restored by closeHistory
-  const prevViewModeRef = useRef<'read' | 'graph'>('read')
-
-  // --- Sidebar state ---
-  const [sidebarWidth, setSidebarWidth] = useLocalStorage('vv:sidebarWidth', 240)
-  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage('vv:sidebarCollapsed', false)
-
-  // --- Note content cache ---
-  const contentCache = useRef<Map<string, string>>(new Map())
-  // Server mtime (fs.stat().mtimeMs) for each cached note — the conflict-detection
-  // token echoed back on save. Keyed identically to contentCache (stem and/or path).
-  const mtimeCache = useRef<Map<string, number>>(new Map())
-
-  // Wrapper that clears cache/tabs when vault changes
-  const setSelectedVault = useCallback((vault: string | null) => {
-    if (vault !== selectedVault) {
-      // Clear content cache
-      contentCache.current.clear()
-      mtimeCache.current.clear()
-      // Clear tabs
-      setOpenTabStems([])
-      setActiveTabStem(null)
-      // Clear graph focus — the old center id doesn't exist in the new vault
-      setNeighborhoodCenter(null)
-    }
-    setSelectedVaultInternal(vault)
-  }, [selectedVault, setSelectedVaultInternal, setOpenTabStems, setActiveTabStem, setNeighborhoodCenter])
-
-  // --- Wikilink resolution map ---
-  const stemLookup = useMemo(() => {
-    if (!graphData) return new Map<string, string>()
-    const map = new Map<string, string>()
-    for (const node of graphData.nodes) {
-      map.set(node.id, node.id)
-      const filename = node.path.split('/').pop()?.replace(/\.md$/, '')
-      if (filename && filename !== node.id) {
-        if (!map.has(filename)) map.set(filename, node.id)
+  // Cross-cutting cleanup: when the vault actually changes, clear tabs + cache
+  // + neighborhood focus BEFORE committing the new vault, so consumers never
+  // observe a half-cleared UI.
+  const setSelectedVault = useCallback(
+    (nextVault: string | null) => {
+      if (nextVault !== vault.selectedVault) {
+        resetTabsForVaultChange()
       }
-    }
-    return map
-  }, [graphData])
-
-  // --- Node lookup ---
-  const nodeMap = useMemo(() => {
-    if (!graphData) return new Map<string, NoteNode>()
-    const map = new Map<string, NoteNode>()
-    for (const node of graphData.nodes) map.set(node.id, node)
-    return map
-  }, [graphData])
-
-  // Keep all persisted tabs — vault-only notes (not in graph.json) are still valid
-  const validTabs = useMemo(() => {
-    if (!graphData) return []
-    return openTabStems
-  }, [openTabStems, graphData])
-
-  const validActiveTab = useMemo(() => {
-    if (activeTabStem && validTabs.includes(activeTabStem)) return activeTabStem
-    return validTabs.length > 0 ? validTabs[0] : null
-  }, [activeTabStem, validTabs])
-
-  const activeNode = useMemo(() => {
-    if (!validActiveTab) return null
-    return nodeMap.get(validActiveTab) ?? null
-  }, [validActiveTab, nodeMap])
-
-  // --- Tab operations ---
-  const openNote = useCallback((stem: string, newTab: boolean) => {
-    // resolvedStem: use wikilink resolution for graph notes; fall back to raw stem for vault-only notes
-    const resolvedStem = stemLookup.get(stem) ?? stem
-
-    setOpenTabStems(prev => {
-      // Already open — just switch to it
-      if (prev.includes(resolvedStem)) {
-        setActiveTabStem(resolvedStem)
-        return prev
-      }
-      if (newTab || prev.length === 0) {
-        let next = [...prev, resolvedStem]
-        if (next.length > MAX_TABS) {
-          const oldest = next.find(s => s !== resolvedStem)
-          if (oldest) next = next.filter(s => s !== oldest)
-        }
-        setActiveTabStem(resolvedStem)
-        return next
-      }
-      // Replace current tab
-      const idx = prev.indexOf(validActiveTab ?? '')
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = resolvedStem
-        setActiveTabStem(resolvedStem)
-        return next
-      }
-      setActiveTabStem(resolvedStem)
-      return [...prev, resolvedStem]
-    })
-  }, [stemLookup, setOpenTabStems, setActiveTabStem, validActiveTab])
-
-  const closeTab = useCallback((stem: string, path?: string) => {
-    setOpenTabStems(prev => {
-      const next = prev.filter(s => s !== stem)
-      if (stem === validActiveTab) {
-        const idx = prev.indexOf(stem)
-        const newActive = next[Math.min(idx, next.length - 1)] ?? null
-        setActiveTabStem(newActive)
-      }
-      return next
-    })
-    contentCache.current.delete(stem)
-    mtimeCache.current.delete(stem)
-    const p = path ?? nodeMap.get(stem)?.path
-    if (p) {
-      contentCache.current.delete(p)
-      mtimeCache.current.delete(p)
-    }
-  }, [setOpenTabStems, setActiveTabStem, validActiveTab, nodeMap])
-
-  const switchTab = useCallback((stem: string) => {
-    setActiveTabStem(stem)
-  }, [setActiveTabStem])
-
-  const openHistory = useCallback((stem: string, notePath?: string) => {
-    if (historyMode) {
-      // Already in history mode — just swap the note, don't re-save prevViewMode
-      setHistoryNote(stem)
-      setHistoryPath(notePath ?? null)
-      return
-    }
-    prevViewModeRef.current = viewMode
-    setHistoryNote(stem)
-    setHistoryPath(notePath ?? null)
-    setHistoryMode(true)
-  }, [historyMode, viewMode])
-
-  const closeHistory = useCallback(() => {
-    setHistoryMode(false)
-    setHistoryNote(null)
-    setHistoryPath(null)
-    setViewMode(prevViewModeRef.current)
-  }, [setViewMode])
-
-  // --- Fetch note content (with cache) ---
-  // notePath: vault-relative path (e.g. "Daily/MANIFEST.md"). When provided, used for both
-  // the API call and the cache key so same-stem notes in different folders don't collide.
-  // mtimeMs is the server's fs.stat().mtimeMs for the note — the conflict-detection token
-  // callers must echo back via saveNote's baseMtimeMs. It is returned on cache hits too
-  // (from mtimeCache) so the token survives tab switches without a clock-based fallback.
-  const fetchNoteContent = useCallback(async (stem: string, notePath?: string): Promise<{ content: string; mtimeMs?: number; fromCache: boolean }> => {
-    const cacheKey = notePath ?? stem
-    const cached = contentCache.current.get(cacheKey)
-    if (cached !== undefined) return { content: cached, mtimeMs: mtimeCache.current.get(cacheKey), fromCache: true }
-
-    const params = new URLSearchParams()
-    if (notePath) params.set('path', notePath)
-    else params.set('stem', stem)
-    if (selectedVault) params.set('vault', selectedVault)
-    const res = await fetch(`/api/note?${params.toString()}`)
-    // ARC-040: surface non-2xx responses. A 5xx with a malformed body would
-    // otherwise throw inside res.json() with a confusing parse error.
-    const data = res.ok ? await res.json().catch(() => ({ error: 'Invalid server response' })) : { error: `Failed to fetch note (${res.status})` }
-    if (data.error) throw new Error(data.error as string)
-    const content = data.content as string
-    const mtimeMs = data.mtimeMs as number
-    contentCache.current.set(cacheKey, content)
-    mtimeCache.current.set(cacheKey, mtimeMs)
-    return { content, mtimeMs, fromCache: false }
-  }, [selectedVault])
-
-  // --- Save note content ---
-  // baseMtimeMs: the server mtime the caller last observed for this note (from
-  // fetchNoteContent or a prior saveNote response) — echoed back so the server can
-  // detect an external edit by comparing server-side mtimes only (no client clock).
-  const saveNote = useCallback(async (
-    stem: string,
-    content: string,
-    baseMtimeMs?: number,
-    notePath?: string,
-  ): Promise<{ conflict: true; serverContent: string; mtimeMs: number } | { ok: true; mtimeMs: number }> => {
-    const body: Record<string, unknown> = { stem, content, baseMtimeMs }
-    if (notePath) body.path = notePath
-    if (selectedVault) body.vault = selectedVault
-    const res = await fetch('/api/note', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    // ARC-040: a 409 conflict response is expected and must be parsed so the
-    // caller can react; other non-2xx statuses are surfaced as errors.
-    const data = (res.status === 409 || res.ok)
-      ? await res.json().catch(() => ({ error: 'Invalid server response' }))
-      : { error: `Failed to save note (${res.status})` }
-    const payload = data as { error?: string; conflict?: boolean; serverContent?: string; ok?: boolean; mtimeMs?: number }
-    if (payload.error && payload.conflict !== true) throw new Error(payload.error)
-    if (payload.conflict === true) {
-      return { conflict: true, serverContent: payload.serverContent ?? '', mtimeMs: payload.mtimeMs ?? 0 }
-    }
-    const newMtimeMs = payload.mtimeMs ?? 0
-    // Cache under both stem and path so fetches always hit
-    contentCache.current.set(stem, content)
-    mtimeCache.current.set(stem, newMtimeMs)
-    if (notePath) {
-      contentCache.current.set(notePath, content)
-      mtimeCache.current.set(notePath, newMtimeMs)
-    }
-    return { ok: true, mtimeMs: newMtimeMs }
-  }, [selectedVault])
-
-  // --- Invalidate cached note (called when vault watcher detects external edit) ---
-  const invalidateNote = useCallback((stem: string, notePath?: string): void => {
-    contentCache.current.delete(stem)
-    mtimeCache.current.delete(stem)
-    if (notePath) {
-      contentCache.current.delete(notePath)
-      mtimeCache.current.delete(notePath)
-    }
-  }, [])
-
-  // --- Delete note ---
-  const deleteNote = useCallback(async (stem: string, notePath?: string): Promise<void> => {
-    const params = new URLSearchParams()
-    if (notePath) params.set('path', notePath)
-    else params.set('stem', stem)
-    if (selectedVault) params.set('vault', selectedVault)
-    const res = await fetch(`/api/note?${params.toString()}`, { method: 'DELETE' })
-    const data = res.ok ? await res.json().catch(() => ({ error: 'Invalid server response' })) : { error: `Failed to delete note (${res.status})` }
-    if (data.error) throw new Error(data.error as string)
-  }, [selectedVault])
-
-  // --- Create note ---
-  const createNote = useCallback(async (notePath: string, content: string): Promise<void> => {
-    const body: Record<string, unknown> = { path: notePath, content }
-    if (selectedVault) body.vault = selectedVault
-    const res = await fetch('/api/note', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const data = res.ok ? await res.json().catch(() => ({ error: 'Invalid server response' })) : { error: `Failed to create note (${res.status})` }
-    if (data.error) throw new Error(data.error as string)
-  }, [selectedVault])
-
-  // --- Resolve wikilink stem ---
-  const resolveWikilink = useCallback((rawStem: string): string | null => {
-    return stemLookup.get(rawStem) ?? null
-  }, [stemLookup])
-
-  // --- Graph control state (migrated from page.tsx) ---
-  const [threshold, setThreshold] = useLocalStorage('vv:threshold', 0.8)
-  const [graphSource, setGraphSource] = useLocalStorage<GraphSource>('vv:graphSource', 'semantic')
-  const [showOverlayEdges, setShowOverlayEdges] = useLocalStorage('vv:showOverlayEdges', false)
-  const [filterNodesBySimilarity, setFilterNodesBySimilarity] = useLocalStorage('vv:filterNodesBySimilarity', false)
-  const [activeTypesArr, setActiveTypesArr] = useLocalStorage<string[]>(
-    'vv:activeTypes',
-    Object.keys(TYPE_COLORS).filter(t => t !== 'daily')
+      vault.setSelectedVaultInternal(nextVault)
+    },
+    [vault, resetTabsForVaultChange],
   )
-  const activeTypes = useMemo(() => new Set(activeTypesArr), [activeTypesArr])
-  const setActiveTypes = useCallback((updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-    setActiveTypesArr(prev => {
-      const prevSet = new Set(prev)
-      const next = typeof updater === 'function' ? updater(prevSet) : updater
-      return [...next]
-    })
-  }, [setActiveTypesArr])
-  const [showDaily, setShowDaily] = useLocalStorage('vv:showDaily', false)
-  const [hideIsolated, setHideIsolated] = useLocalStorage('vv:hideIsolated', false)
-  const [labelsOnHoverOnly, setLabelsOnHoverOnly] = useLocalStorage('vv:labelsOnHoverOnly', false)
-  const [scalingRatio, setScalingRatio] = useLocalStorage('vv:scalingRatio', SIM_DEFAULTS.scalingRatio)
-  const [gravityRaw, setGravity] = useLocalStorage('vv:gravity', SIM_DEFAULTS.gravity)
-  const gravity = Math.min(gravityRaw, 5)
-  const [slowDown, setSlowDown] = useLocalStorage('vv:slowDown', SIM_DEFAULTS.slowDown)
-  const [edgeWeightInfluence, setEdgeWeightInfluence] = useLocalStorage('vv:edgeWeightInfluence', SIM_DEFAULTS.edgeWeightInfluence)
-  const [startTemperature, setStartTemperature] = useLocalStorage('vv:startTemperature', SIM_DEFAULTS.startTemperature)
-  const [stopThreshold, setStopThreshold] = useLocalStorage('vv:stopThreshold', SIM_DEFAULTS.stopThreshold)
-  const [isLayoutRunning, setIsLayoutRunning] = useState(true)
-  const [edgeColorMode, setEdgeColorMode] = useLocalStorage<EdgeColorMode>('vv:edgeColorMode', 'binary')
-  const [edgePruning, setEdgePruning] = useLocalStorage('vv:edgePruning', false)
-  const [edgePruningK, setEdgePruningK] = useLocalStorage('vv:edgePruningK', 8)
-  const toggleEdgePruning = useCallback(() => setEdgePruning(s => !s), [setEdgePruning])
-  const [nodeSizeMode, setNodeSizeMode] = useLocalStorage<NodeSizeMode>('vv:nodeSizeMode', 'incoming_links')
-  const [nodeColorMode, setNodeColorMode] = useLocalStorage<NodeColorMode>('vv:nodeColorMode', 'type')
-  // null = not computed yet or non-betweenness mode; a Map = computed result
-  const [nodeSizeMap, setNodeSizeMap] = useState<Map<string, number> | null>(null)
-  // 'idle' | 'queued' (timer set, not started) | 'done'
-  const [nodeSizeStatus, setNodeSizeStatus] = useState<'idle' | 'queued' | 'done'>('idle')
-  const nodeSizeComputing = nodeSizeStatus === 'queued'
 
-  useEffect(() => {
-    if (nodeSizeMode !== 'betweenness' || !graphData) {
-      // Use functional updater to avoid synchronous setState-in-effect lint warning
-      // by deferring via the scheduler
-      const id = setTimeout(() => {
-        setNodeSizeMap(null)
-        setNodeSizeStatus('idle')
-      }, 0)
-      return () => clearTimeout(id)
-    }
-    // QA-011: Gate betweenness centrality behind a node-count limit to prevent
-    // O(n*(n+m)) computation from blocking the main UI thread on large graphs.
-    const MAX_BETWEENNESS_NODES = 500
-    if (graphData.nodes.length > MAX_BETWEENNESS_NODES) {
-      const id = setTimeout(() => {
-        // Fall back to null (GraphCanvas uses incoming_links as fallback)
-        setNodeSizeMap(null)
-        setNodeSizeStatus('done')
-      }, 0)
-      return () => clearTimeout(id)
-    }
-    // Mark as queued immediately (shows "Computing...")
-    const idStatus = setTimeout(() => setNodeSizeStatus('queued'), 0)
-    // Defer heavy computation to next tick so "Computing..." renders first
-    const id = setTimeout(() => {
-      const nodes = graphData.nodes.map(n => n.id)
-      const adj = new Map<string, string[]>()
-      for (const n of nodes) adj.set(n, [])
-      for (const e of graphData.edges) {
-        if (e.kind !== 'wiki') continue
-        adj.get(e.s)?.push(e.t)
-        adj.get(e.t)?.push(e.s)
-      }
-      const result = computeBetweenness(nodes, adj)
-      setNodeSizeMap(result)
-      setNodeSizeStatus('done')
-    }, 50)
-    return () => { clearTimeout(idStatus); clearTimeout(id) }
-  }, [nodeSizeMode, graphData])
-
-  const handleToggleType = useCallback((type: string) => {
-    setActiveTypes(prev => {
-      const next = new Set(prev)
-      if (next.has(type)) next.delete(type)
-      else next.add(type)
-      return next
-    })
-  }, [setActiveTypes])
-
-  // Memoized toggle callbacks to prevent unnecessary re-renders
-  const toggleOverlayEdges = useCallback(() => setShowOverlayEdges(s => !s), [setShowOverlayEdges])
-  const toggleFilterNodesBySimilarity = useCallback(() => setFilterNodesBySimilarity(s => !s), [setFilterNodesBySimilarity])
-  const toggleShowDaily = useCallback(() => setShowDaily(s => !s), [setShowDaily])
-  const toggleHideIsolated = useCallback(() => setHideIsolated(s => !s), [setHideIsolated])
-  const toggleLabelsOnHoverOnly = useCallback(() => setLabelsOnHoverOnly(s => !s), [setLabelsOnHoverOnly])
-
-  const resetSimSettings = useCallback(() => {
-    setScalingRatio(SIM_DEFAULTS.scalingRatio)
-    setGravity(SIM_DEFAULTS.gravity)
-    setSlowDown(SIM_DEFAULTS.slowDown)
-    setEdgeWeightInfluence(SIM_DEFAULTS.edgeWeightInfluence)
-    setStartTemperature(SIM_DEFAULTS.startTemperature)
-    setStopThreshold(SIM_DEFAULTS.stopThreshold)
-  }, [setScalingRatio, setGravity, setSlowDown, setEdgeWeightInfluence, setStartTemperature, setStopThreshold])
-
-  // Stats for HUD
-  const stats = useMemo(() => {
-    if (!graphData) return { nodeCount: 0, edgeCount: 0, avgScore: 0 }
-    const qualifying = (filterNodesBySimilarity && graphSource === 'wiki')
-      ? new Set(graphData.edges.filter(e => e.kind === 'semantic' && e.w >= threshold).flatMap(e => [e.s, e.t]))
-      : null
-    const visibleNodes = new Set(
-      graphData.nodes
-        .filter(n => (showDaily || n.folder !== 'Daily') && activeTypes.has(n.type) && (!qualifying || qualifying.has(n.id)))
-        .map(n => n.id)
-    )
-    const edges = filterEdges(graphData.edges, graphSource, threshold)
-      .filter(e => visibleNodes.has(e.s) && visibleNodes.has(e.t))
-    const semEdges = edges.filter(e => e.kind === 'semantic')
-    const avg = semEdges.length > 0
-      ? semEdges.reduce((sum, e) => sum + e.w, 0) / semEdges.length
-      : 0
-    return { nodeCount: visibleNodes.size, edgeCount: edges.length, avgScore: avg }
-  }, [graphData, threshold, graphSource, activeTypes, showDaily, filterNodesBySimilarity])
-
-  const graphStats = useMemo<GraphStats | null>(() => {
-    if (!graphData) return null
-
-    // Same visibility logic as stats — scoped to same visible node set
-    const qualifying = (filterNodesBySimilarity && graphSource === 'wiki')
-      ? new Set(graphData.edges.filter(e => e.kind === 'semantic' && e.w >= threshold).flatMap(e => [e.s, e.t]))
-      : null
-    const visibleNodes = new Set(
-      graphData.nodes
-        .filter(n => (showDaily || n.folder !== 'Daily') && activeTypes.has(n.type) && (!qualifying || qualifying.has(n.id)))
-        .map(n => n.id)
-    )
-
-    // Degree from wiki edges (undirected), both endpoints visible
-    const degree = new Map<string, number>()
-    for (const n of visibleNodes) degree.set(n, 0)
-    let wikiEdgeCount = 0
-    for (const e of graphData.edges) {
-      if (e.kind !== 'wiki') continue
-      if (!visibleNodes.has(e.s) || !visibleNodes.has(e.t)) continue
-      degree.set(e.s, (degree.get(e.s) ?? 0) + 1)
-      degree.set(e.t, (degree.get(e.t) ?? 0) + 1)
-      wikiEdgeCount++
-    }
-
-    const n = visibleNodes.size
-    const degrees = [...degree.values()]
-    const total = degrees.reduce((s, d) => s + d, 0)
-    const avgDegree = n > 0 ? total / n : 0
-    const maxDegree = n > 0 ? degrees.reduce((m, d) => (d > m ? d : m), 0) : 0
-    const density = n > 1 ? wikiEdgeCount / (n * (n - 1) / 2) : 0
-
-    // Top 5 hubs
-    const nodeIdToTitle = new Map(graphData.nodes.map(nd => [nd.id, nd.title]))
-    const topHubs = [...degree.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id, deg]) => ({ id, title: nodeIdToTitle.get(id) ?? id, degree: deg }))
-
-    // Connected components via BFS on wiki adjacency within visibleNodes
-    const wikiAdj = new Map<string, string[]>()
-    for (const nd of visibleNodes) wikiAdj.set(nd, [])
-    for (const e of graphData.edges) {
-      if (e.kind !== 'wiki') continue
-      if (!visibleNodes.has(e.s) || !visibleNodes.has(e.t)) continue
-      wikiAdj.get(e.s)!.push(e.t)
-      wikiAdj.get(e.t)!.push(e.s)
-    }
-    const visited = new Set<string>()
-    let componentCount = 0
-    for (const start of visibleNodes) {
-      if (visited.has(start)) continue
-      componentCount++
-      const queue = [start]
-      while (queue.length > 0) {
-        const curr = queue.shift()!
-        if (visited.has(curr)) continue
-        visited.add(curr)
-        for (const nb of (wikiAdj.get(curr) ?? [])) {
-          if (!visited.has(nb)) queue.push(nb)
-        }
-      }
-    }
-
-    return { avgDegree, maxDegree, topHubs, density, componentCount }
-  }, [graphData, threshold, graphSource, activeTypes, showDaily, filterNodesBySimilarity])
-
-  return {
-    // Vault state
-    selectedVault, setSelectedVault,
-    // Tab state
-    openTabs: validTabs, activeTab: validActiveTab, activeNode,
-    openNote, closeTab, switchTab,
-    // View state
-    viewMode, setViewMode, neighborhoodCenter, setNeighborhoodCenter,
-    historyMode, historyNote, historyPath, openHistory, closeHistory,
-    // Sidebar state
-    sidebarWidth, setSidebarWidth, sidebarCollapsed, setSidebarCollapsed,
-    // Content
-    fetchNoteContent, saveNote, deleteNote, createNote, resolveWikilink, nodeMap, invalidateNote,
-    // Graph controls
-    threshold, setThreshold,
-    graphSource, setGraphSource,
-    showOverlayEdges, toggleOverlayEdges,
-    filterNodesBySimilarity, toggleFilterNodesBySimilarity,
-    activeTypes, handleToggleType,
-    showDaily, toggleShowDaily,
-    hideIsolated, toggleHideIsolated,
-    labelsOnHoverOnly, toggleLabelsOnHoverOnly,
-    scalingRatio, setScalingRatio,
-    gravity, setGravity,
-    slowDown, setSlowDown,
-    edgeWeightInfluence, setEdgeWeightInfluence,
-    startTemperature, setStartTemperature,
-    stopThreshold, setStopThreshold,
-    isLayoutRunning, setIsLayoutRunning,
-    edgeColorMode, setEdgeColorMode,
-    edgePruning, toggleEdgePruning, edgePruningK, setEdgePruningK,
-    nodeSizeMode, setNodeSizeMode,
-    nodeColorMode, setNodeColorMode,
-    nodeSizeMap,
-    nodeSizeComputing,
-    resetSimSettings,
-    stats,
-    graphStats,
-    SIM_DEFAULTS,
-  }
+  return useMemo(
+    () => ({
+      // Vault state
+      selectedVault: vault.selectedVault,
+      setSelectedVault,
+      // Tabs / view / content (from useNoteTabs)
+      openTabs: tabs.openTabs,
+      activeTab: tabs.activeTab,
+      activeNode: tabs.activeNode,
+      openNote: tabs.openNote,
+      closeTab: tabs.closeTab,
+      switchTab: tabs.switchTab,
+      viewMode: tabs.viewMode,
+      setViewMode: tabs.setViewMode,
+      neighborhoodCenter: tabs.neighborhoodCenter,
+      setNeighborhoodCenter: tabs.setNeighborhoodCenter,
+      historyMode: tabs.historyMode,
+      historyNote: tabs.historyNote,
+      historyPath: tabs.historyPath,
+      openHistory: tabs.openHistory,
+      closeHistory: tabs.closeHistory,
+      sidebarWidth: tabs.sidebarWidth,
+      setSidebarWidth: tabs.setSidebarWidth,
+      sidebarCollapsed: tabs.sidebarCollapsed,
+      setSidebarCollapsed: tabs.setSidebarCollapsed,
+      fetchNoteContent: tabs.fetchNoteContent,
+      saveNote: tabs.saveNote,
+      deleteNote: tabs.deleteNote,
+      createNote: tabs.createNote,
+      resolveWikilink: tabs.resolveWikilink,
+      nodeMap: tabs.nodeMap,
+      invalidateNote: tabs.invalidateNote,
+      // Graph controls (from useGraphControls)
+      threshold: controls.threshold,
+      setThreshold: controls.setThreshold,
+      graphSource: controls.graphSource,
+      setGraphSource: controls.setGraphSource,
+      showOverlayEdges: controls.showOverlayEdges,
+      toggleOverlayEdges: controls.toggleOverlayEdges,
+      filterNodesBySimilarity: controls.filterNodesBySimilarity,
+      toggleFilterNodesBySimilarity: controls.toggleFilterNodesBySimilarity,
+      activeTypes: controls.activeTypes,
+      handleToggleType: controls.handleToggleType,
+      showDaily: controls.showDaily,
+      toggleShowDaily: controls.toggleShowDaily,
+      hideIsolated: controls.hideIsolated,
+      toggleHideIsolated: controls.toggleHideIsolated,
+      labelsOnHoverOnly: controls.labelsOnHoverOnly,
+      toggleLabelsOnHoverOnly: controls.toggleLabelsOnHoverOnly,
+      scalingRatio: controls.scalingRatio,
+      setScalingRatio: controls.setScalingRatio,
+      gravity: controls.gravity,
+      setGravity: controls.setGravity,
+      slowDown: controls.slowDown,
+      setSlowDown: controls.setSlowDown,
+      edgeWeightInfluence: controls.edgeWeightInfluence,
+      setEdgeWeightInfluence: controls.setEdgeWeightInfluence,
+      startTemperature: controls.startTemperature,
+      setStartTemperature: controls.setStartTemperature,
+      stopThreshold: controls.stopThreshold,
+      setStopThreshold: controls.setStopThreshold,
+      isLayoutRunning: controls.isLayoutRunning,
+      setIsLayoutRunning: controls.setIsLayoutRunning,
+      edgeColorMode: controls.edgeColorMode,
+      setEdgeColorMode: controls.setEdgeColorMode,
+      edgePruning: controls.edgePruning,
+      toggleEdgePruning: controls.toggleEdgePruning,
+      edgePruningK: controls.edgePruningK,
+      setEdgePruningK: controls.setEdgePruningK,
+      nodeSizeMode: controls.nodeSizeMode,
+      setNodeSizeMode: controls.setNodeSizeMode,
+      nodeColorMode: controls.nodeColorMode,
+      setNodeColorMode: controls.setNodeColorMode,
+      nodeSizeMap: controls.nodeSizeMap,
+      nodeSizeComputing: controls.nodeSizeComputing,
+      resetSimSettings: controls.resetSimSettings,
+      stats: controls.stats,
+      graphStats: controls.graphStats,
+      SIM_DEFAULTS,
+    }),
+    [vault, setSelectedVault, tabs, controls],
+  )
 }
