@@ -409,6 +409,25 @@ def main() -> None:
     # Resolve vault path first (needed for model dimension check)
     vault_path = vault_common.resolve_vault(explicit=args.vault)
 
+    # Singleton guard: an embeddings build loads a ~67 MB ONNX runtime, and
+    # build_embeddings is spawned detached in the background by update_index
+    # on every index rebuild. A second trigger (another hook/session, or a
+    # manual run) landing while the first build still holds the runtime
+    # loads a second one, and so on — concurrent builds deplete memory. Hold
+    # a per-vault non-blocking lock for the life of this process so a
+    # concurrent build no-ops cleanly. (embeddings.db.lock is covered by the
+    # vault .gitignore "embeddings.db*" glob; flock auto-releases on exit.)
+    _embed_build_lock = vault_common.try_singleton_lock(
+        vault_path / "embeddings.db.lock"
+    )
+    if _embed_build_lock is None:
+        print(
+            "build_embeddings: another build is already running for this "
+            "vault; skipping to avoid loading a second ONNX runtime.",
+            file=sys.stderr,
+        )
+        return
+
     # If the model changed since the last build, incremental is unsafe —
     # existing vectors have a different dimension. Force full rebuild.
     db_path = vault_common.get_embeddings_db_path(vault=vault_path)

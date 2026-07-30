@@ -27,6 +27,8 @@ __all__: list[str] = [
     "flock_exclusive",
     "flock_shared",
     "funlock",
+    "try_singleton_lock",
+    "release_singleton_lock",
     # File I/O
     "read_last_n_lines",
     "atomic_write_text",
@@ -63,6 +65,32 @@ try:
         """Release a lock on an open file descriptor."""
         _fcntl.flock(f, _fcntl.LOCK_UN)
 
+    def try_singleton_lock(lock_path: Path) -> int | None:
+        """Non-blocking exclusive singleton lock; returns the fd to hold.
+
+        Returns the open fd on success, or ``None`` if another process
+        already holds the lock. The caller keeps the fd open for the
+        lifetime of the locked work; the lock auto-releases when the fd is
+        closed (including at process exit/kill), so there is no stale-lock
+        recovery to manage. Used to keep a heavy, repeatable resource
+        single-instance across concurrent invocations (e.g. an embeddings
+        build that loads a multi-hundred-MB ONNX runtime).
+        """
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return None
+        return fd
+
+    def release_singleton_lock(fd: int) -> None:
+        """Release a lock acquired by :func:`try_singleton_lock`."""
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
 except ImportError:
     # SEC-013: Windows fallback — fcntl is not available.
     # Use msvcrt.locking() which is stdlib on Windows (CPython only).
@@ -81,6 +109,7 @@ except ImportError:
         _msvcrt_locking = getattr(_msvcrt, "locking")  # type: ignore[attr-defined]  # noqa: B009
         _LK_LOCK = getattr(_msvcrt, "LK_LOCK")  # type: ignore[attr-defined]  # noqa: B009
         _LK_UNLCK = getattr(_msvcrt, "LK_UNLCK")  # type: ignore[attr-defined]  # noqa: B009
+        _LK_NBLCK = getattr(_msvcrt, "LK_NBLCK")  # type: ignore[attr-defined]  # noqa: B009
 
         _LOCK_BYTES = 1  # Lock one sentinel byte at offset 0
 
@@ -104,6 +133,23 @@ except ImportError:
             except OSError:
                 pass  # Already unlocked or file closed
 
+        def try_singleton_lock(lock_path: Path) -> int | None:
+            """Non-blocking singleton lock (Windows: msvcrt.LK_NBLCK)."""
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o600)
+            try:
+                _msvcrt_locking(fd, _LK_NBLCK, _LOCK_BYTES)
+            except OSError:
+                os.close(fd)
+                return None
+            return fd
+
+        def release_singleton_lock(fd: int) -> None:
+            """Release a lock acquired by :func:`try_singleton_lock`."""
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
     except ImportError:
         # Neither fcntl nor msvcrt available (non-CPython on Windows?).
         # File operations proceed without locking — acceptably rare scenario.
@@ -118,6 +164,21 @@ except ImportError:
         def funlock(f: IO[Any]) -> None:
             """Release a lock (no-op: no locking primitives available)."""
             pass
+
+        def try_singleton_lock(lock_path: Path) -> int | None:
+            """No locking primitive available — proceed without a guard.
+
+            Returns an open fd (so callers can treat success uniformly) but
+            holds no real lock; concurrent invocations are not serialized.
+            """
+            return os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o600)
+
+        def release_singleton_lock(fd: int) -> None:
+            """Release a lock acquired by :func:`try_singleton_lock`."""
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------

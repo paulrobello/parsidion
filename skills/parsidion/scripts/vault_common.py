@@ -75,6 +75,8 @@ from vault_fs import (  # noqa: F401
     flock_exclusive,
     flock_shared,
     funlock,
+    release_singleton_lock,
+    try_singleton_lock,
     get_vault_username,
     git_commit_vault,
     migrate_pending_paths,
@@ -195,6 +197,8 @@ __all__: list[str] = [
     "flock_exclusive",
     "flock_shared",
     "funlock",
+    "release_singleton_lock",
+    "try_singleton_lock",
     "atomic_write_text",
     # Transcript helpers
     "extract_text_from_content",
