@@ -136,3 +136,166 @@ class TestConnectVerbs:
         monkeypatch.setattr(sys, "argv", ["install.py", "disconnect", "codex"])
         install_mod.main()
         assert called["runtime"] == "codex"
+
+
+# ---------------------------------------------------------------------------
+# SEC-116: connect codex/gemini must refuse symlinks that escape the agent
+# config dir, and disconnect must remove the instructions block + revert
+# the [features] hooks flag.
+# ---------------------------------------------------------------------------
+
+
+class TestSec116SymlinkGuard:
+    """Refuse to inject into a symlinked AGENTS.md that escapes ~/.codex/."""
+
+    def test_symlink_escaping_config_dir_is_refused(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # AGENTS.md inside .codex points at a file in a *sibling* dir.
+        monkeypatch.setattr(
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        outside = tmp_path / "shared"
+        outside.mkdir()
+        target = outside / "CLAUDE.md"
+        target.write_text("# global\n", encoding="utf-8")
+        agents_md = codex_home / "AGENTS.md"
+        agents_md.symlink_to(target)
+
+        skill.install_codex_agents_md(codex_home)
+
+        # Target file content is unchanged.
+        assert target.read_text(encoding="utf-8") == "# global\n"
+        # The symlink itself still exists.
+        assert agents_md.is_symlink()
+
+    def test_symlink_inside_config_dir_is_followed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # AGENTS.md inside .codex points at another file inside .codex/
+        # — benign case, injection proceeds.
+        monkeypatch.setattr(
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        target = codex_home / "real.md"
+        target.write_text("# real\n", encoding="utf-8")
+        agents_md = codex_home / "AGENTS.md"
+        agents_md.symlink_to(target)
+
+        skill.install_codex_agents_md(codex_home)
+
+        # Atomic write replaces the symlink with a regular file holding
+        # the injected content; the target file is left unchanged. The
+        # guard's job is to permit the write — the file-system effect on
+        # the symlink target is the standard atomic-write semantics.
+        assert not agents_md.is_symlink()
+        text = agents_md.read_text(encoding="utf-8")
+        assert _BEGIN in text and _END in text
+        assert target.read_text(encoding="utf-8") == "# real\n"
+
+
+class TestSec116RemoveInstructionsBlock:
+    """``_remove_instructions_block`` strips the parsidion block idempotently."""
+
+    def test_removes_block_and_preserves_user_content(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        gemini_home = tmp_path / ".gemini"
+        gemini_home.mkdir()
+        skill.install_gemini_md(gemini_home)
+        # User appends their own content after install.
+        gemini_md = gemini_home / "GEMINI.md"
+        gemini_md.write_text(
+            gemini_md.read_text(encoding="utf-8") + "\n# my rules\n",
+            encoding="utf-8",
+        )
+
+        removed = skill.remove_gemini_md(gemini_home)
+        assert removed is True
+        text = gemini_md.read_text(encoding="utf-8")
+        assert _BEGIN not in text
+        assert _END not in text
+        assert "parsidion-test-sentinel-9f2a" not in text
+        assert "# my rules" in text
+
+    def test_idempotent_second_call_returns_false(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        gemini_home = tmp_path / ".gemini"
+        gemini_home.mkdir()
+        skill.install_gemini_md(gemini_home)
+        assert skill.remove_gemini_md(gemini_home) is True
+        # Second call: nothing to remove.
+        assert skill.remove_gemini_md(gemini_home) is False
+
+    def test_missing_file_returns_false(self, tmp_path: Path) -> None:
+        gemini_home = tmp_path / ".gemini"
+        gemini_home.mkdir()
+        assert skill.remove_gemini_md(gemini_home) is False
+
+    def test_removing_block_via_symlink_that_escapes_is_refused(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # connect would have refused to write this in the first place, but
+        # defense in depth: disconnect must also refuse so a planted
+        # symlink cannot trick it into editing a shared file.
+        monkeypatch.setattr(
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        outside = tmp_path / "shared"
+        outside.mkdir()
+        target = outside / "CLAUDE.md"
+        target.write_text(f"# global\n{_BEGIN}\nhi\n{_END}\n", encoding="utf-8")
+        agents_md = codex_home / "AGENTS.md"
+        agents_md.symlink_to(target)
+
+        assert skill.remove_codex_agents_md(codex_home) is False
+        # Target content is unchanged.
+        assert _BEGIN in target.read_text(encoding="utf-8")
+
+
+class TestSec116RevertCodexHooksFlag:
+    """``disable_codex_hooks_config`` reverts ``[features] hooks = true``."""
+
+    def test_removes_hooks_true_line(self, tmp_path: Path) -> None:
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        config = codex_home / "config.toml"
+        config.write_text(
+            "[features]\nhooks = true\n[other]\nkey = 1\n", encoding="utf-8"
+        )
+        hooks.disable_codex_hooks_config(codex_home)
+        text = config.read_text(encoding="utf-8")
+        assert "hooks = true" not in text
+        assert "[other]" in text
+        assert "key = 1" in text
+
+    def test_idempotent_when_already_absent(self, tmp_path: Path) -> None:
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        config = codex_home / "config.toml"
+        config.write_text(
+            "[features]\nhooks = false\n[other]\nkey = 1\n", encoding="utf-8"
+        )
+        # hooks = false is left for the human; the function no-ops on it.
+        hooks.disable_codex_hooks_config(codex_home)
+        text = config.read_text(encoding="utf-8")
+        assert "hooks = false" in text
+
+    def test_missing_config_is_noop(self, tmp_path: Path) -> None:
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        # No exception.
+        hooks.disable_codex_hooks_config(codex_home)

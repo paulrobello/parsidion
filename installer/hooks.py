@@ -646,6 +646,74 @@ def enable_codex_hooks_config(
             _err(f"Could not write {config_file}: {exc}")
 
 
+def _unset_codex_hooks_in_features_section(content: str) -> str:
+    """Return Codex config text with the ``[features] hooks = true`` line removed.
+
+    SEC-116 / ARC-022: closes the disconnect asymmetry where ``connect codex``
+    flipped ``[features] hooks = true`` but ``disconnect codex`` left it set.
+    A leftover ``hooks = true`` does not load parsidion hooks on its own
+    (those are registered in hooks.json, which disconnect does remove) but
+    it does enable the Codex native hooks feature unnecessarily. Removing
+    the line entirely is the safest choice; if the user has other hooks
+    configured, ``hooks = true`` is the Codex default and can be re-enabled
+    manually. Idempotent: if the line is absent or already removed, the
+    content is returned unchanged.
+    """
+    lines = content.splitlines(keepends=True)
+    out: list[str] = []
+    for line in lines:
+        # Drop a single ``hooks = true`` line we recognize. Leave ``hooks = false``
+        # untouched (the user explicitly disabled it) and leave ambiguous forms
+        # (``codex_hooks = true``, custom keys) for the human to handle.
+        if re.match(r"^\s*hooks\s*=\s*true\s*(?:#.*)?$", line, re.IGNORECASE):
+            continue
+        out.append(line)
+
+    cleaned = "".join(out)
+    # Drop an empty [features] section header left behind by the removal.
+    cleaned = re.sub(
+        r"\n\[features\]\s*(?=\n\[|\Z)",
+        "\n",
+        cleaned,
+    )
+    return cleaned
+
+
+def disable_codex_hooks_config(
+    codex_home: Path,
+    dry_run: bool = False,
+) -> None:
+    """Revert the ``[features] hooks = true`` line added by ``enable_codex_hooks_config``.
+
+    SEC-116: paired with ``enable_codex_hooks_config`` so disconnect
+    leaves Codex config the way connect found it. No-ops when the line
+    is absent. Ambiguous forms (``codex_hooks = true``, custom regex
+    misses) are left for the human to edit.
+    """
+    config_file = codex_home / "config.toml"
+    if not config_file.exists():
+        return
+    try:
+        content = config_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        _warn(f"Could not read {config_file}: {exc}")
+        return
+
+    updated = _unset_codex_hooks_in_features_section(content)
+    if updated == content:
+        return
+
+    _step(f"Remove [features] hooks=true from {config_file}", dry_run=dry_run)
+    if dry_run:
+        return
+    with _file_lock(config_file):
+        try:
+            _atomic_write_text(config_file, updated)
+            _ok(f"Reverted Codex hooks flag in {config_file}")
+        except OSError as exc:
+            _err(f"Could not write {config_file}: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Claude (settings.json) hook management
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from installer.colors import bold
 from installer.hooks import (
+    disable_codex_hooks_config,
     remove_codex_hooks,
     remove_gemini_hooks,
     remove_installed_hooks,
@@ -41,7 +42,11 @@ from installer.vault import remove_vault_post_merge_hook
 
 # Local re-import so the CLAUDE.md @import stripping stays alongside the
 # uninstall path that owns it. The constant itself lives in skill.py.
-from installer.skill import _CLAUDE_VAULT_MD_IMPORT
+from installer.skill import (
+    _CLAUDE_VAULT_MD_IMPORT,
+    remove_codex_agents_md,
+    remove_gemini_md,
+)
 
 
 def uninstall(
@@ -183,10 +188,18 @@ def uninstall(
 
     if uninstall_codex_runtime:
         remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run)
+        # ARC-022 / SEC-116: disconnect must remove the AGENTS.md block
+        # too, otherwise Codex keeps loading parsidion instructions every
+        # session. Also revert the [features] hooks flag so Codex stops
+        # invoking parsidion hooks even if a stale hooks.json lingers.
+        remove_codex_agents_md(codex_home, dry_run=dry_run)
+        disable_codex_hooks_config(codex_home, dry_run=dry_run)
     elif runtime == "none":
         _warn("Runtime selection is none; no runtime hooks will be removed.")
     if uninstall_gemini_runtime:
         remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
+        # ARC-022 / SEC-116: same instruction-block removal for Gemini.
+        remove_gemini_md(gemini_home, dry_run=dry_run)
 
     # ARC-003: the post-merge hook, summarizer schedule, and vaults.yaml are
     # shared global infrastructure that the Claude install depends on. Only

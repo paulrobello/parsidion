@@ -249,10 +249,40 @@ _END_MARKER = "<!-- END parsidion -->"
 
 
 def _inject_instructions_block(dest: Path, dry_run: bool, verbose: bool) -> None:
-    """Idempotently inject the parsidion instructions section into *dest*."""
+    """Idempotently inject the parsidion instructions section into *dest*.
+
+    SEC-116: if *dest* is a symlink, refuse to follow it when its target
+    resolves outside *dest*'s parent directory. On the user's live machine
+    ``~/.codex/AGENTS.md`` is a symlink to ``~/.claude/CLAUDE.md``, so
+    without this guard ``connect codex`` would inject the parsidion
+    block into the user's *global* agent instructions rather than a
+    Codex-specific file. Print the resolved target so the user can see
+    where it points and remove the symlink if they want the injection.
+    """
     if not AGENT_INSTRUCTIONS_SRC.exists():
         _warn(f"AGENT_INSTRUCTIONS.md not found at {AGENT_INSTRUCTIONS_SRC} — skipping")
         return
+
+    # SEC-116: refuse to follow a symlink that escapes the agent config dir.
+    if dest.is_symlink():
+        try:
+            resolved = dest.resolve()
+            config_dir = dest.parent.resolve()
+        except OSError as exc:
+            _warn(
+                f"Cannot resolve symlink {dest} ({exc}); "
+                "remove the symlink manually if you want parsidion to write "
+                "this file."
+            )
+            return
+        if not resolved.is_relative_to(config_dir):
+            _warn(
+                f"Refusing to follow symlink {dest} -> {resolved}: target is "
+                f"outside {config_dir}. This guard prevents connect from "
+                "silently rewriting a shared file (e.g. ~/.claude/CLAUDE.md). "
+                "Remove the symlink if you want parsidion to manage this file."
+            )
+            return
 
     block = AGENT_INSTRUCTIONS_SRC.read_text(encoding="utf-8").strip()
     section = f"{_BEGIN_MARKER}\n{block}\n{_END_MARKER}\n"
@@ -273,6 +303,80 @@ def _inject_instructions_block(dest: Path, dry_run: bool, verbose: bool) -> None
         _atomic_write_text(dest, existing + suffix + section)
 
 
+def _remove_instructions_block(dest: Path, dry_run: bool = False) -> bool:
+    """Strip the parsidion instructions block from *dest* if present.
+
+    ARC-022 / SEC-116: closes the uninstall asymmetry where Codex/Gemini
+    disconnect removed hooks but left the injected ``AGENTS.md`` /
+    ``GEMINI.md`` instruction block loading on every session. Returns
+    True when the file was changed, False when there was nothing to
+    remove or the file was absent. Idempotent — safe to call when no
+    block exists.
+
+    SEC-116: applies the same symlink-escape guard as
+    ``_inject_instructions_block`` so disconnect cannot be tricked into
+    editing a shared file via a planted symlink.
+    """
+    if not dest.exists() or not dest.is_file():
+        return False
+
+    # SEC-116: same symlink guard as inject — never edit a symlink that
+    # escapes the agent config dir.
+    if dest.is_symlink():
+        try:
+            resolved = dest.resolve()
+            config_dir = dest.parent.resolve()
+        except OSError:
+            return False
+        if not resolved.is_relative_to(config_dir):
+            _warn(
+                f"Refusing to follow symlink {dest} -> {resolved}: target is "
+                f"outside {config_dir}. Leaving file unchanged."
+            )
+            return False
+
+    try:
+        content = dest.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if _BEGIN_MARKER not in content or _END_MARKER not in content:
+        return False
+
+    # Strip everything between (and including) the markers. Treats the
+    # markers as line-delimited so the surrounding blank-line structure
+    # stays clean.
+    lines = content.splitlines(keepends=True)
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        if not skipping and line.strip() == _BEGIN_MARKER:
+            skipping = True
+            # Drop one trailing blank line before the block so we don't
+            # leave a double blank gap after stripping.
+            while out and out[-1].strip() == "":
+                out.pop()
+            continue
+        if skipping and line.strip() == _END_MARKER:
+            skipping = False
+            continue
+        if not skipping:
+            out.append(line)
+
+    cleaned = "".join(out).rstrip("\n") + "\n"
+    if cleaned == content:
+        return False
+
+    _step(f"Remove parsidion instructions block from {dest}", dry_run=dry_run)
+    if dry_run:
+        return True
+    try:
+        _atomic_write_text(dest, cleaned)
+    except OSError as exc:
+        _warn(f"Could not write {dest}: {exc}")
+        return False
+    return True
+
+
 def install_codex_agents_md(
     codex_home: Path, dry_run: bool = False, verbose: bool = False
 ) -> None:
@@ -285,6 +389,24 @@ def install_gemini_md(
 ) -> None:
     """Inject parsidion instructions into ~/.gemini/GEMINI.md (global user layer)."""
     _inject_instructions_block(gemini_home / "GEMINI.md", dry_run, verbose)
+
+
+def remove_codex_agents_md(codex_home: Path, dry_run: bool = False) -> bool:
+    """Strip the parsidion instructions block from ~/.codex/AGENTS.md.
+
+    Called by ``disconnect codex`` / full uninstall so the Codex
+    integration stops loading parsidion instructions every session.
+    """
+    return _remove_instructions_block(codex_home / "AGENTS.md", dry_run)
+
+
+def remove_gemini_md(gemini_home: Path, dry_run: bool = False) -> bool:
+    """Strip the parsidion instructions block from ~/.gemini/GEMINI.md.
+
+    Called by ``disconnect gemini`` / full uninstall so the Gemini
+    integration stops loading parsidion instructions every session.
+    """
+    return _remove_instructions_block(gemini_home / "GEMINI.md", dry_run)
 
 
 # ---------------------------------------------------------------------------
