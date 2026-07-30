@@ -6,9 +6,12 @@ extract_text_from_content, read_last_n_lines, and flock_exclusive/funlock.
 These tests use only stdlib + pytest and do not require a live vault.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
+
+import pytest
 
 import vault_common
 
@@ -493,34 +496,55 @@ class TestReadLastNLines:
 
 
 class TestFileLocking:
-    """Basic tests for flock_exclusive and funlock."""
+    """Observable-state tests for flock_exclusive / flock_shared / funlock.
 
-    def test_lock_unlock_cycle(self, tmp_path: Path) -> None:
-        """Verify that locking and unlocking a file does not raise."""
+    Lock state is asserted via a non-blocking probe on a second file
+    descriptor (``fcntl.LOCK_* | LOCK_NB``) rather than asserting only that
+    the call does not raise.
+    """
+
+    def test_exclusive_lock_blocks_probe_then_releases(self, tmp_path: Path) -> None:
+        """While an exclusive lock is held, a non-blocking probe on another fd
+        fails with BlockingIOError; after funlock the probe succeeds."""
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
-        with open(f, encoding="utf-8") as fh:
+        with open(f, encoding="utf-8") as fh, open(f, encoding="utf-8") as probe:
             vault_common.flock_exclusive(fh)
+            # Held: a non-blocking exclusive probe on a second fd must fail.
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             vault_common.funlock(fh)
+            # Released: the probe acquires cleanly.
+            fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
 
-    def test_shared_lock(self, tmp_path: Path) -> None:
-        """Verify that shared lock and unlock does not raise."""
+    def test_shared_lock_allows_concurrent_shared_probe(self, tmp_path: Path) -> None:
+        """A shared lock is observable: another shared acquire on a second fd
+        is compatible and succeeds."""
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
-        with open(f, encoding="utf-8") as fh:
+        with open(f, encoding="utf-8") as fh, open(f, encoding="utf-8") as probe:
             vault_common.flock_shared(fh)
+            # Shared locks are compatible -> probe acquires without blocking.
+            fcntl.flock(probe.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
             vault_common.funlock(fh)
 
-    def test_multiple_shared_locks(self, tmp_path: Path) -> None:
-        """Multiple shared locks on the same file should not deadlock."""
+    def test_multiple_shared_locks_block_exclusive_probe(self, tmp_path: Path) -> None:
+        """Two concurrently-held shared locks are observable: an exclusive
+        non-blocking probe fails until both are released."""
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
         with (
             open(f, encoding="utf-8") as fh1,
             open(f, encoding="utf-8") as fh2,
+            open(f, encoding="utf-8") as probe,
         ):
             vault_common.flock_shared(fh1)
             vault_common.flock_shared(fh2)
+            # Both shared locks held -> exclusive non-blocking probe must fail.
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             vault_common.funlock(fh1)
             vault_common.funlock(fh2)
 
