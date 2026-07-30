@@ -171,6 +171,7 @@ from installer.skill import (  # noqa: F401
     install_skill,
     rebuild_index,
 )
+from installer.steps import Step, StepList  # noqa: F401
 from installer.uninstall import uninstall  # noqa: F401
 
 # ---------------------------------------------------------------------------
@@ -288,27 +289,15 @@ def install(args: argparse.Namespace) -> int:
     dry_run: bool = args.dry_run
     verbose: bool = args.verbose
 
-    # ARC-022: failed-step tracker. Each step is wrapped in _run_step; the
-    # summary is printed before install() returns so a broken install can be
-    # diagnosed from the exit-code-1 message rather than from a missing
-    # settings.json that the prior unconditional ``return 0`` hid.
-    failed_steps: list[tuple[str, BaseException]] = []
-
-    def _run_step(name: str, fn):
-        """Execute *fn*; record any raised exception under *name*.
-
-        ``Exception`` only — ``KeyboardInterrupt`` and ``SystemExit`` must
-        still propagate so Ctrl-C and ``sys.exit`` work mid-install. Each
-        later step gets a chance to run so a partial install surfaces as
-        many independent failures as possible (the alternative, aborting on
-        first failure, hid subsequent failures that often share the same
-        root cause).
-        """
-        try:
-            fn()
-        except Exception as exc:  # noqa: BLE001 — install must not crash
-            failed_steps.append((name, exc))
-            _err(f"Step '{name}' failed: {exc}")
+    # ARC-017 / QA-002: install() drives an ordered :class:`StepList`
+    # (installer/steps.py). Each step runs inside its own try/except inside
+    # ``StepList.run_all``; failures are accumulated into ``steps.failed_steps``
+    # and surfaced in a summary before install() returns, preserving the
+    # ARC-022 contract that a broken install is diagnosed from the
+    # exit-code-1 message rather than from a missing settings.json that the
+    # prior unconditional ``return 0`` hid. The same Step abstraction backs
+    # uninstall()'s reverse-order undo() so the two flows cannot drift.
+    steps: StepList = StepList()
 
     print()
     print(bold("Parsidion Installer"))
@@ -490,37 +479,55 @@ def install(args: argparse.Namespace) -> int:
         _err(f"Skill source not found: {SKILL_SRC}")
         return 1
 
-    _run_step(
-        "install_skill",
-        lambda: install_skill(
-            claude_dir,
-            vault_root,
-            force=args.force,
-            yes=args.yes,
-            dry_run=dry_run,
-            verbose=verbose,
-        ),
+    # 1. Install skill
+    steps.append(
+        Step(
+            "install_skill",
+            lambda: install_skill(
+                claude_dir,
+                vault_root,
+                force=args.force,
+                yes=args.yes,
+                dry_run=dry_run,
+                verbose=verbose,
+            ),
+        )
     )
 
     # 2. Install agents
     if install_claude_runtime and not args.skip_agent:
-        _run_step("install_agents", lambda: install_agents(claude_dir, dry_run=dry_run))
+        steps.append(
+            Step(
+                "install_agents",
+                lambda: install_agents(claude_dir, dry_run=dry_run),
+            )
+        )
 
     # 3. Install scripts
-    _run_step("install_scripts", lambda: install_scripts(claude_dir, dry_run=dry_run))
+    steps.append(
+        Step(
+            "install_scripts",
+            lambda: install_scripts(claude_dir, dry_run=dry_run),
+        )
+    )
 
     # 4. Create vault directories
-    _run_step(
-        "create_vault_dirs", lambda: create_vault_dirs(vault_root, dry_run=dry_run)
+    steps.append(
+        Step(
+            "create_vault_dirs",
+            lambda: create_vault_dirs(vault_root, dry_run=dry_run),
+        )
     )
 
     # 5. Create Templates symlink
     templates_src = claude_dir / "skills" / SKILL_NAME / "templates"
-    _run_step(
-        "create_templates_symlink",
-        lambda: create_templates_symlink(
-            vault_root, templates_src, dry_run=dry_run, verbose=verbose
-        ),
+    steps.append(
+        Step(
+            "create_templates_symlink",
+            lambda: create_templates_symlink(
+                vault_root, templates_src, dry_run=dry_run, verbose=verbose
+            ),
+        )
     )
 
     # 6. Clean up legacy managed parsidion-cc hooks/assets, then register hooks
@@ -529,132 +536,185 @@ def install(args: argparse.Namespace) -> int:
     # the hook registration instead of a second independent write). The
     # vault-config half of the AI-mode flow still runs separately below.
     if install_claude_runtime and not args.skip_hooks:
-        _run_step(
-            "cleanup_legacy_assets",
-            lambda: cleanup_legacy_assets(
-                claude_dir,
-                settings_file,
-                dry_run=dry_run,
-                verbose=verbose,
-            ),
+        steps.append(
+            Step(
+                "cleanup_legacy_assets",
+                lambda: cleanup_legacy_assets(
+                    claude_dir,
+                    settings_file,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                ),
+            )
         )
-        _run_step(
-            "merge_hooks",
-            lambda: merge_hooks(
-                claude_dir,
-                settings_file,
-                dry_run=dry_run,
-                verbose=verbose,
-                enable_ai_mode=enable_ai,
-            ),
+        steps.append(
+            Step(
+                "merge_hooks",
+                lambda: merge_hooks(
+                    claude_dir,
+                    settings_file,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                    enable_ai_mode=enable_ai,
+                ),
+            )
         )
 
     if install_codex_runtime and not args.skip_hooks:
-        _run_step(
-            "enable_codex_hooks_config",
-            lambda: enable_codex_hooks_config(
-                codex_home, dry_run=dry_run, yes=args.yes
-            ),
+        steps.append(
+            Step(
+                "enable_codex_hooks_config",
+                lambda: enable_codex_hooks_config(
+                    codex_home, dry_run=dry_run, yes=args.yes
+                ),
+            )
         )
-        _run_step(
-            "merge_codex_hooks",
-            lambda: merge_codex_hooks(
-                codex_home, claude_dir, dry_run=dry_run, verbose=verbose
-            ),
+        steps.append(
+            Step(
+                "merge_codex_hooks",
+                lambda: merge_codex_hooks(
+                    codex_home, claude_dir, dry_run=dry_run, verbose=verbose
+                ),
+            )
         )
 
     if install_gemini_runtime and not args.skip_hooks:
-        _run_step(
-            "merge_gemini_hooks",
-            lambda: merge_gemini_hooks(
-                gemini_home, claude_dir, dry_run=dry_run, verbose=verbose
-            ),
+        steps.append(
+            Step(
+                "merge_gemini_hooks",
+                lambda: merge_gemini_hooks(
+                    gemini_home, claude_dir, dry_run=dry_run, verbose=verbose
+                ),
+            )
         )
 
     # 6b. Write ai_model to vault config.yaml (the settings.json half of the
     # AI-mode flow is now merged into merge_hooks above). ARC-025.
     if enable_ai and install_claude_runtime and not args.skip_hooks:
-        _run_step("enable_ai_mode", lambda: enable_ai_mode(vault_root, dry_run=dry_run))
+        steps.append(
+            Step(
+                "enable_ai_mode",
+                lambda: enable_ai_mode(vault_root, dry_run=dry_run),
+            )
+        )
 
     # 7. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md
     if install_claude_runtime:
-        _run_step(
-            "install_claude_vault_md",
-            lambda: install_claude_vault_md(
-                claude_dir, dry_run=dry_run, verbose=verbose
-            ),
+        steps.append(
+            Step(
+                "install_claude_vault_md",
+                lambda: install_claude_vault_md(
+                    claude_dir, dry_run=dry_run, verbose=verbose
+                ),
+            )
         )
 
     # 7b. Inject parsidion instructions into codex/gemini config dirs
     if install_codex_runtime:
-        _run_step(
-            "install_codex_agents_md",
-            lambda: install_codex_agents_md(
-                codex_home, dry_run=dry_run, verbose=verbose
-            ),
+        steps.append(
+            Step(
+                "install_codex_agents_md",
+                lambda: install_codex_agents_md(
+                    codex_home, dry_run=dry_run, verbose=verbose
+                ),
+            )
         )
     if install_gemini_runtime:
-        _run_step(
-            "install_gemini_md",
-            lambda: install_gemini_md(gemini_home, dry_run=dry_run, verbose=verbose),
+        steps.append(
+            Step(
+                "install_gemini_md",
+                lambda: install_gemini_md(
+                    gemini_home, dry_run=dry_run, verbose=verbose
+                ),
+            )
         )
 
     # 8. Rebuild vault index
-    _run_step("rebuild_index", lambda: rebuild_index(claude_dir, dry_run=dry_run))
+    steps.append(
+        Step(
+            "rebuild_index",
+            lambda: rebuild_index(claude_dir, dry_run=dry_run),
+        )
+    )
 
     # 9. Configure vault .gitignore for machine-local files
-    _run_step(
-        "configure_vault_gitignore",
-        lambda: configure_vault_gitignore(vault_root, dry_run=dry_run),
+    steps.append(
+        Step(
+            "configure_vault_gitignore",
+            lambda: configure_vault_gitignore(vault_root, dry_run=dry_run),
+        )
     )
 
     # 9b. Initialize vault as a git repo (no-op if already initialized)
-    _run_step("init_vault_git", lambda: init_vault_git(vault_root, dry_run=dry_run))
+    steps.append(
+        Step(
+            "init_vault_git",
+            lambda: init_vault_git(vault_root, dry_run=dry_run),
+        )
+    )
 
     # 9c. Install post-merge git hook for multi-machine sync
-    _run_step(
-        "install_vault_post_merge_hook",
-        lambda: install_vault_post_merge_hook(vault_root, claude_dir, dry_run=dry_run),
+    steps.append(
+        Step(
+            "install_vault_post_merge_hook",
+            lambda: install_vault_post_merge_hook(
+                vault_root, claude_dir, dry_run=dry_run
+            ),
+        )
     )
 
     # 9d. Write vault.username to config.yaml (for per-user daily note naming)
-    _run_step(
-        "configure_vault_username",
-        lambda: configure_vault_username(
-            vault_root, dry_run=dry_run, username=vault_username
-        ),
+    steps.append(
+        Step(
+            "configure_vault_username",
+            lambda: configure_vault_username(
+                vault_root, dry_run=dry_run, username=vault_username
+            ),
+        )
     )
 
     # 9e. Write embeddings.enabled to config.yaml
-    _run_step(
-        "configure_embeddings",
-        lambda: configure_embeddings(
-            vault_root, enabled=enable_embeddings, dry_run=dry_run
-        ),
+    steps.append(
+        Step(
+            "configure_embeddings",
+            lambda: configure_embeddings(
+                vault_root, enabled=enable_embeddings, dry_run=dry_run
+            ),
+        )
     )
 
     # 10. Install global CLI tools (vault-search, vault-new, vault-stats) via uv tool
     if install_tools:
-        _run_step(
-            "install_cli_tools", lambda: install_cli_tools(REPO_ROOT, dry_run=dry_run)
+        steps.append(
+            Step(
+                "install_cli_tools",
+                lambda: install_cli_tools(REPO_ROOT, dry_run=dry_run),
+            )
         )
 
     # 11. Schedule nightly summarizer (optional, --schedule-summarizer)
     if do_schedule:
-        _run_step(
-            "schedule_summarizer",
-            lambda: schedule_summarizer(
-                claude_dir,
-                dry_run=dry_run,
-                hour=args.summarizer_hour,
-                rebuild_graph=args.rebuild_graph,
-                graph_include_daily=args.graph_include_daily,
-            ),
+        steps.append(
+            Step(
+                "schedule_summarizer",
+                lambda: schedule_summarizer(
+                    claude_dir,
+                    dry_run=dry_run,
+                    hour=args.summarizer_hour,
+                    rebuild_graph=args.rebuild_graph,
+                    graph_include_daily=args.graph_include_daily,
+                ),
+            )
         )
 
     # 12. Create vaults.yaml config template (optional, --create-vaults-config)
     if args.create_vaults_config:
-        _run_step("create_vaults_config", lambda: create_vaults_config(dry_run=dry_run))
+        steps.append(
+            Step(
+                "create_vaults_config",
+                lambda: create_vaults_config(dry_run=dry_run),
+            )
+        )
 
     # 12b. ARC-019: persist a non-default --vault into vaults.yaml so the
     # installed hooks (which call resolve_vault() with no explicit arg) can
@@ -663,18 +723,66 @@ def install(args: argparse.Namespace) -> int:
     if not dry_run:
         from installer.vault import record_installed_vault
 
-        _run_step(
-            "record_installed_vault",
-            lambda: record_installed_vault(vault_root, dry_run=dry_run),
+        steps.append(
+            Step(
+                "record_installed_vault",
+                lambda: record_installed_vault(vault_root, dry_run=dry_run),
+            )
         )
+
+    # ARC-017: transaction snapshot of settings.json — taken before any step
+    # runs, restored below if any settings-mutating step fails. Composes with
+    # hooks.merge_hooks' own per-RMW .bak (ARC-018/SEC-105): that one guards a
+    # single write so a botched merge is recoverable from disk; this one
+    # guards the whole transaction so a later step's failure (e.g.
+    # merge_codex_hooks raises after merge_hooks succeeded) doesn't leave the
+    # Claude runtime half-registered in settings.json. No snapshot under
+    # dry_run (no step writes) or when settings.json doesn't yet exist.
+    settings_snapshot_bytes: bytes | None = None
+    if not dry_run and settings_file.exists():
+        try:
+            settings_snapshot_bytes = settings_file.read_bytes()
+        except OSError:
+            settings_snapshot_bytes = None
+
+    steps.run_all()
+
+    # Restore settings.json if any settings-mutating step failed. The names
+    # match the steps that call into hooks.* (the only steps that RMW
+    # settings.json or codex/gemini hook config).
+    _SETTINGS_MUTATING_STEPS = frozenset(
+        {
+            "cleanup_legacy_assets",
+            "merge_hooks",
+            "enable_codex_hooks_config",
+            "merge_codex_hooks",
+            "merge_gemini_hooks",
+        }
+    )
+    if settings_snapshot_bytes is not None and any(
+        name in _SETTINGS_MUTATING_STEPS for name, _ in steps.failed_steps
+    ):
+        try:
+            mode = os.stat(settings_file).st_mode & 0o777
+            settings_file.write_bytes(settings_snapshot_bytes)
+            try:
+                os.chmod(settings_file, mode)
+            except OSError:
+                pass
+            _warn(
+                f"Restored {settings_file} to its pre-install state after a "
+                f"hook step failed."
+            )
+        except OSError as exc:
+            _warn(f"Could not restore {settings_file} after hook failure: {exc}")
 
     # ARC-022: surface failed steps and return non-zero so make/CI can detect
     # a broken install. The prior unconditional ``return 0`` masked every
     # failure that wasn't a missing SKILL_SRC.
-    if failed_steps:
+    if steps.failed_steps:
         print()
-        _err(f"{len(failed_steps)} step(s) failed:")
-        for name, exc in failed_steps:
+        _err(f"{len(steps.failed_steps)} step(s) failed:")
+        for name, exc in steps.failed_steps:
             print(f"    {red('-')} {name}: {exc}")
         return 1
 
