@@ -148,6 +148,8 @@ __all__: list[str] = [
     "SCRIPTS_DIR",
     "VAULT_DIRS",
     "EXCLUDE_DIRS",
+    "DEFAULT_VAULT_NAME",
+    "LEGACY_DEFAULT_VAULT_NAME",
     # Secure log directory
     "secure_log_dir",
     "rotate_log_file",
@@ -157,6 +159,7 @@ __all__: list[str] = [
     "list_named_vaults",
     "resolve_vault",
     "resolve_templates_dir",
+    "default_vault_root",
     # Environment helpers
     "apply_configured_env_defaults",
     "env_without_claudecode",
@@ -179,6 +182,7 @@ __all__: list[str] = [
     "today_daily_path",
     "create_daily_note_if_missing",
     "append_session_to_daily",
+    "get_vault_username",
     # Configuration
     "load_config",
     "get_config",
@@ -206,6 +210,7 @@ __all__: list[str] = [
     "parse_gemini_transcript_lines",
     "detect_categories",
     "append_to_pending",
+    "migrate_pending_paths",
     # Process utilities
     "is_process_running",
     # Utilities
