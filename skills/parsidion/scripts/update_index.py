@@ -772,7 +772,18 @@ def _rebuild_graph(include_daily: bool) -> None:
     print(
         f"Graph: rebuilding graph.json ({'with' if include_daily else 'without'} Daily notes)..."
     )
-    result = subprocess.run(cmd, capture_output=False)
+    # QA-005: bound the graph rebuild — a hung child stalls the summarizer
+    # mid-run and leaves the index stale with no error. 300 s is generous for
+    # a 5k-node vault (measured cold-cache rebuild ~30 s on the dev vault).
+    try:
+        result = subprocess.run(cmd, capture_output=False, timeout=300)
+    except subprocess.TimeoutExpired:
+        print(
+            "Graph rebuild timed out after 300s — graph.json left stale. "
+            "Run `make graph` manually to investigate.",
+            file=sys.stderr,
+        )
+        return
     if result.returncode != 0:
         print(f"Graph rebuild failed (exit {result.returncode})", file=sys.stderr)
 

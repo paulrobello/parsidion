@@ -853,13 +853,22 @@ def _rebuild_index() -> None:
         )
         return
     try:
+        # QA-005: bound the index rebuild — a hung child stalls the merge
+        # flow and leaves the vault with stale manifests. 300 s matches the
+        # bound update_index.py applies to its own graph-rebuild child.
         subprocess.run(
             ["uv", "run", str(index_script)],
             check=True,
             capture_output=True,
             text=True,
+            timeout=300,
         )
         print("Vault index rebuilt.")
+    except subprocess.TimeoutExpired:
+        print(
+            "Warning: update_index.py timed out after 300s — index left stale.",
+            file=sys.stderr,
+        )
     except subprocess.CalledProcessError as e:
         print(f"Warning: index rebuild failed: {e.stderr}", file=sys.stderr)
     except OSError as e:

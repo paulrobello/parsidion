@@ -2172,13 +2172,23 @@ def _run_reindex(vault_path: Path | None = None) -> None:
 
     print(f"\nRebuilding vault index at {vault_path}...")
     try:
+        # QA-005: bound the index rebuild. vault_doctor --fix-all runs
+        # unattended nightly; without a timeout a hung child stalls the cron
+        # job indefinitely. 600 s is generous for a full re-index on a large
+        # vault (the embedding-rebuild phase is itself bounded separately).
         subprocess.run(
             ["uv", "run", "--no-project", str(script), "--vault", str(vault_path)],
             check=True,
             capture_output=True,
             text=True,
+            timeout=600,
         )
         print("Index rebuilt successfully.")
+    except subprocess.TimeoutExpired:
+        print(
+            "Warning: update_index.py timed out after 600s — index left stale.",
+            file=sys.stderr,
+        )
     except OSError as exc:
         print(f"Warning: update_index.py failed: {exc}", file=sys.stderr)
 
