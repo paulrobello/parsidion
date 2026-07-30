@@ -429,6 +429,7 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "ephemeral": (bool,),
         "skip_git_repo_check": (bool,),
         "suppress_notify": (bool,),
+        "allow_danger_full_access": (bool,),
     },
     "session_start_hook": {
         "ai_model": (str, type(None)),

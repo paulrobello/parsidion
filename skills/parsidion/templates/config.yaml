@@ -92,6 +92,7 @@ codex_cli:
   ephemeral: false         # Start each prompt with no session state
   skip_git_repo_check: false
   suppress_notify: false
+  # allow_danger_full_access: true   # SEC-117: required to actually use sandbox: danger-full-access
 
 # Embeddings / semantic search (build_embeddings.py, vault_search.py)
 embeddings:

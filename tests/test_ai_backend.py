@@ -257,16 +257,17 @@ class TestRunAiPrompt:
         assert result == "answer"
         assert calls
         cmd, kwargs = calls[0]
+        # SEC-123: prompt is passed on stdin, NOT as a positional argv element.
         assert cmd == [
             "claude",
             "-p",
-            "hello",
             "--model",
             "claude-haiku-4-5-20251001",
             "--no-session-persistence",
             "--output-format",
             "json",
         ]
+        assert kwargs["stdin"] == "hello"
         assert kwargs["timeout"] == 12
         assert kwargs["cwd"] == str(tmp_path)
         env = kwargs["env"]
@@ -318,6 +319,10 @@ class TestRunAiPrompt:
             return subprocess.CompletedProcess(cmd, 0, stdout="stream noise", stderr="")
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: bare "codex" command resolves via shutil.which.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         result = ai_backend.run_ai_prompt(
             "hello", model_tier="large", timeout=34, cwd=tmp_path, vault=vault
@@ -326,14 +331,18 @@ class TestRunAiPrompt:
         assert result == "codex answer"
         assert calls
         cmd, kwargs = calls[0]
-        assert cmd[:2] == ["codex", "exec"]
+        # SEC-117: command resolved via shutil.which before launching.
+        assert cmd[0] == "/usr/local/bin/codex"
+        assert cmd[1] == "exec"
         assert cmd[cmd.index("--config") + 1] == "notify=[]"
         assert "--ephemeral" in cmd
         assert cmd[cmd.index("--sandbox") + 1] == "read-only"
         assert "--skip-git-repo-check" in cmd
         assert "--output-last-message" in cmd
         assert cmd[cmd.index("--model") + 1] == "gpt-5.5"
-        assert cmd[-1] == "hello"
+        # SEC-123: prompt is passed on stdin, NOT as the final cmd positional.
+        assert "hello" not in cmd
+        assert kwargs["stdin"] == "hello"
         assert kwargs["timeout"] == 34
         assert kwargs["cwd"] == str(tmp_path)
         env = kwargs["env"]
@@ -368,10 +377,15 @@ class TestRunAiPrompt:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: bare command resolves via shutil.which.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) == "configured answer"
         cmd, kwargs = calls[0]
-        assert cmd[:2] == ["custom-codex", "exec"]
+        # Resolved path replaces the configured bare name.
+        assert cmd[:2] == ["/usr/local/bin/custom-codex", "exec"]
         assert "--config" not in cmd
         assert "--ephemeral" not in cmd
         assert "--sandbox" not in cmd
@@ -444,63 +458,28 @@ class TestRunAiPrompt:
     def test_codex_timeout_escalates_process_group_kill(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # SEC-122 / ARC-048f: the killpg/escalation logic moved to
+        # ``subproc_util.run_with_pgkill`` and is tested there. Here we
+        # only verify the contract: a timeout returns None and leaves no
+        # output file behind. The detailed SIGTERM/SIGKILL ordering is
+        # exercised in ``tests/test_subproc_util.py``.
         vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: codex-cli\n")
-        popen_calls: list[tuple[list[str], dict[str, Any]]] = []
-        killpg_calls: list[tuple[int, int]] = []
-        direct_kill_calls = 0
+        output_paths: list[Path] = []
 
-        class FakeProcess:
-            pid = 12345
-            returncode = None
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            output_path = Path(cmd[cmd.index("--output-last-message") + 1])
+            output_paths.append(output_path)
+            output_path.write_text("partial", encoding="utf-8")
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
 
-            def __init__(self, cmd: list[str], **kwargs: Any) -> None:
-                popen_calls.append((cmd, kwargs))
-                output_path = Path(cmd[cmd.index("--output-last-message") + 1])
-                output_path.write_text("partial", encoding="utf-8")
-
-            def communicate(
-                self, timeout: int | float | None = None
-            ) -> tuple[str, str]:
-                raise subprocess.TimeoutExpired(
-                    cmd=popen_calls[0][0], timeout=float(timeout or 0)
-                )
-
-            def wait(self, timeout: int | float | None = None) -> int:
-                if timeout is not None:
-                    raise subprocess.TimeoutExpired(
-                        cmd=popen_calls[0][0], timeout=timeout
-                    )
-                self.returncode = -9
-                return self.returncode
-
-            def kill(self) -> None:
-                nonlocal direct_kill_calls
-                direct_kill_calls += 1
-                self.returncode = -9
-
-        def fake_popen(cmd: list[str], **kwargs: Any) -> FakeProcess:
-            return FakeProcess(cmd, **kwargs)
-
-        def fake_getpgid(pid: int) -> int:
-            assert pid == 12345
-            return 54321
-
-        def fake_killpg(pid: int, sig: int) -> None:
-            killpg_calls.append((pid, sig))
-
-        monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(ai_backend.os, "getpgid", fake_getpgid)
-        monkeypatch.setattr(ai_backend.os, "killpg", fake_killpg)
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
-
-        assert popen_calls
-        assert popen_calls[0][1]["start_new_session"] is True
-        assert killpg_calls == [
-            (54321, ai_backend.signal.SIGTERM),
-            (54321, ai_backend.signal.SIGKILL),
-        ]
-        assert direct_kill_calls == 0
+        assert output_paths and not output_paths[0].exists()
 
     def test_codex_success_with_missing_output_file_returns_none_and_cleans_up(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -534,3 +513,124 @@ class TestRunAiPrompt:
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
         assert output_paths and not output_paths[0].exists()
+
+
+class TestSec117CodexCommandGate:
+    """SEC-117: ``codex_cli.command`` is gated via shutil.which / file checks."""
+
+    def test_bare_command_resolves_via_path(self, tmp_path: Path, monkeypatch) -> None:
+        # Bare "codex" must resolve via shutil.which.
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: codex-cli\n")
+        captured: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            captured.extend(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+        ai_backend.run_ai_prompt("hi", vault=vault)
+        assert captured[0] == "/usr/local/bin/codex"
+
+    def test_unresolvable_bare_command_returns_none(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: codex-cli\n")
+        # shutil.which returns None — command is unresolvable.
+        monkeypatch.setattr(ai_backend.shutil, "which", lambda name: None)
+        monkeypatch.setattr(
+            ai_backend,
+            "_run_prompt_subprocess",
+            lambda *a, **kw: pytest.fail("should not launch"),
+        )
+        # Must NOT raise; must NOT launch — returns None and the caller falls back.
+        assert ai_backend.run_ai_prompt("hi", vault=vault) is None
+
+    def test_path_command_must_exist(self, tmp_path: Path, monkeypatch) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: codex-cli\ncodex_cli:\n  command: /nonexistent/codex\n",
+        )
+        monkeypatch.setattr(
+            ai_backend,
+            "_run_prompt_subprocess",
+            lambda *a, **kw: pytest.fail("should not launch"),
+        )
+        assert ai_backend.run_ai_prompt("hi", vault=vault) is None
+
+    def test_existing_executable_path_command_is_used(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Create an executable file at an absolute path; verify it's used as argv[0].
+        custom = tmp_path / "my-codex"
+        custom.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        custom.chmod(0o755)
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            f"ai:\n  backend: codex-cli\ncodex_cli:\n  command: {custom}\n",
+        )
+        captured: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            captured.extend(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        ai_backend.run_ai_prompt("hi", vault=vault)
+        assert captured[0] == str(custom)
+
+
+class TestSec117CodexSandboxAllowlist:
+    """SEC-117: ``danger-full-access`` requires explicit opt-in."""
+
+    def test_danger_full_access_refused_by_default(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: codex-cli\ncodex_cli:\n  sandbox: danger-full-access\n",
+        )
+        captured: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            captured.extend(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+        ai_backend.run_ai_prompt("hi", vault=vault)
+        # Refused → replaced with read-only.
+        assert "--sandbox" in captured
+        assert captured[captured.index("--sandbox") + 1] == "read-only"
+
+    def test_danger_full_access_allowed_with_explicit_opt_in(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: codex-cli\n"
+            "codex_cli:\n"
+            "  sandbox: danger-full-access\n"
+            "  allow_danger_full_access: true\n",
+        )
+        captured: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            captured.extend(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+        ai_backend.run_ai_prompt("hi", vault=vault)
+        assert "--sandbox" in captured
+        assert captured[captured.index("--sandbox") + 1] == "danger-full-access"

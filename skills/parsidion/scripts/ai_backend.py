@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import json
 import os
-import signal
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Literal, cast
 
+import subproc_util
 import vault_common
 import vault_config
 
@@ -156,49 +157,34 @@ def _run_prompt_subprocess(
     timeout: int | float,
     cwd: str | Path | None,
     env: dict[str, str],
-) -> subprocess.CompletedProcess[str]:
-    proc = subprocess.Popen(
+    stdin: str | None = None,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run a prompt AI subprocess with process-group kill on timeout.
+
+    SEC-122 / ARC-048f: thin wrapper over ``subproc_util.run_with_pgkill``,
+    the single canonical implementation. Previously this module and
+    ``parmem_backend._run_parmem`` each rolled their own SIGTERM → SIGKILL
+    escalation and the two had already drifted. Returns ``None`` on launch
+    failure (matches the prior ``OSError`` swallowing contract) and re-raises
+    ``subprocess.TimeoutExpired`` semantics via the shared helper's
+    ``"timeout"`` reason — translated back here so callers can keep their
+    existing ``except subprocess.TimeoutExpired`` blocks.
+
+    SEC-123: *stdin*, when given, is piped to the child instead of being
+    passed as ``argv`` — keeps prompts up to ~12 KB out of ``ps auxww``.
+    """
+    reason, proc = subproc_util.run_with_pgkill(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=str(cwd) if cwd is not None else None,
+        cwd=cwd,
+        timeout=float(timeout) if timeout and timeout > 0 else 0,
         env=env,
-        start_new_session=True,
+        stdin=stdin,
     )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            pgid = os.getpgid(proc.pid)
-        except (ProcessLookupError, OSError):
-            pgid = proc.pid
-
-        def kill_process_group(sig: int) -> None:
-            try:
-                os.killpg(pgid, sig)
-            except (ProcessLookupError, OSError):
-                pass
-
-        kill_process_group(signal.SIGTERM)
-        wait_timed_out = False
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            wait_timed_out = True
-        kill_process_group(signal.SIGKILL)
-        if wait_timed_out:
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-        raise
-    return subprocess.CompletedProcess(
-        cmd,
-        proc.returncode if proc.returncode is not None else 0,
-        stdout=stdout,
-        stderr=stderr,
-    )
+    if reason == "timeout":
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    if reason == "launch" or proc is None:
+        return None
+    return proc
 
 
 def _log_backend_failure(
@@ -261,7 +247,10 @@ def _run_claude_prompt(
     vault: Path | None,
     raise_on_timeout: bool,
 ) -> str | None:
-    cmd = ["claude", "-p", prompt]
+    # SEC-123: pass the prompt on stdin instead of as ``argv`` so up to
+    # ~12 KB of transcript is not visible via ``ps auxww``. ``claude -p``
+    # with no prompt positional reads from stdin.
+    cmd = ["claude", "-p"]
     if model:
         cmd.extend(["--model", model])
     cmd.append("--no-session-persistence")
@@ -277,12 +266,18 @@ def _run_claude_prompt(
             timeout=timeout if timeout is not None else _DEFAULT_CLAUDE_TIMEOUT,
             cwd=str(cwd) if cwd is not None else None,
             env=vault_common.env_without_claudecode(vault=vault),
+            stdin=prompt,
         )
     except subprocess.TimeoutExpired as exc:
         if raise_on_timeout:
             raise AiBackendTimeout("AI backend prompt timed out") from exc
         return None
     except OSError:
+        return None
+
+    if result is None:
+        # Launch failure (binary not found, etc.) — helper already
+        # swallowed the OSError; no extra diagnostics to log here.
         return None
 
     if result.returncode != 0:
@@ -335,6 +330,72 @@ def _config_timeout(
     return default
 
 
+def _resolve_codex_command(command: str) -> str:
+    """Resolve a configured ``codex_cli.command`` value to an executable path.
+
+    SEC-117: ``codex_cli.command`` is a config-file value that becomes
+    ``subprocess.argv[0]``, so apply the same gate ``par_mem.binary``
+    already gets. Bare names resolve via ``shutil.which``; values with a
+    path separator must point at an existing executable file. Returns the
+    resolved path on success, or the input unchanged when it already is
+    an absolute executable path. Raises ``FileNotFoundError`` when the
+    binary cannot be resolved so the caller can fall back rather than
+    silently launching a wrong binary.
+    """
+    if not command:
+        raise FileNotFoundError("codex_cli.command is empty")
+    # Bare command name: resolve via PATH.
+    if "/" not in command and not os.path.isabs(command):
+        resolved = shutil.which(command)
+        if not resolved:
+            raise FileNotFoundError(
+                f"codex_cli.command {command!r} not found on PATH; "
+                "install codex or set codex_cli.command to an absolute path."
+            )
+        return resolved
+    # Path-like value: must point at an existing executable.
+    candidate = Path(command)
+    if not candidate.exists():
+        raise FileNotFoundError(
+            f"codex_cli.command {command!r} does not exist; "
+            "set codex_cli.command to an absolute path to a codex executable."
+        )
+    if not os.access(candidate, os.X_OK):
+        raise FileNotFoundError(f"codex_cli.command {command!r} is not executable.")
+    return str(candidate.resolve())
+
+
+def _resolve_codex_sandbox(sandbox: str | None, vault: Path | None) -> str | None:
+    """Validate ``codex_cli.sandbox`` against an allowlist.
+
+    SEC-117: ``danger-full-access`` lets the model run arbitrary commands
+    with no sandboxing. Reject it unless the user has set an explicit
+    ``allow_danger_full_access`` opt-in. Other values pass through
+    unchanged. ``None`` (explicit ``null`` in YAML) means "no sandbox
+    flag at all" — preserved so the user can drop the flag entirely.
+    """
+    if sandbox is None:
+        return None
+    if sandbox == "danger-full-access":
+        allow = _config_bool(
+            "codex_cli", "allow_danger_full_access", False, vault=vault
+        )
+        if not allow:
+            sys.stderr.write(
+                "[ai_backend] codex_cli.sandbox='danger-full-access' refused "
+                "(set codex_cli.allow_danger_full_access=true to override).\n"
+            )
+            sys.stderr.flush()
+            return "read-only"
+        sys.stderr.write(
+            "[ai_backend] WARNING: codex_cli.sandbox='danger-full-access' is "
+            "explicitly enabled — the model has full filesystem and command "
+            "access. Do not enable on untrusted vault content.\n"
+        )
+        sys.stderr.flush()
+    return sandbox
+
+
 def _run_codex_prompt(
     prompt: str,
     *,
@@ -344,7 +405,16 @@ def _run_codex_prompt(
     vault: Path | None,
     raise_on_timeout: bool,
 ) -> str | None:
-    command = _config_str("codex_cli", "command", "codex", vault=vault)
+    command_raw = _config_str("codex_cli", "command", "codex", vault=vault)
+    try:
+        command = _resolve_codex_command(command_raw)
+    except FileNotFoundError as exc:
+        # ARC-048e: log the failure so the user can diagnose, then fall
+        # back to None (the caller's existing fallback path).
+        sys.stderr.write(f"[ai_backend] {exc}\n")
+        sys.stderr.flush()
+        return None
+
     codex_timeout = (
         timeout
         if timeout is not None
@@ -352,7 +422,8 @@ def _run_codex_prompt(
             "codex_cli", "timeout", _DEFAULT_CODEX_TIMEOUT, vault=vault
         )
     )
-    sandbox = _config_optional_str("codex_cli", "sandbox", "read-only", vault=vault)
+    sandbox_raw = _config_optional_str("codex_cli", "sandbox", "read-only", vault=vault)
+    sandbox = _resolve_codex_sandbox(sandbox_raw, vault=vault)
     ephemeral = _config_bool("codex_cli", "ephemeral", True, vault=vault)
     skip_git_repo_check = _config_bool(
         "codex_cli", "skip_git_repo_check", True, vault=vault
@@ -369,6 +440,8 @@ def _run_codex_prompt(
         ) as output_file:
             output_path = Path(output_file.name)
 
+        # SEC-123: pass prompt on stdin (codex exec reads stdin when no
+        # PROMPT positional is given, per `codex exec --help`).
         cmd = [command, "exec"]
         if suppress_notify:
             cmd.extend(["--config", "notify=[]"])
@@ -381,23 +454,49 @@ def _run_codex_prompt(
         cmd.extend(["--output-last-message", str(output_path)])
         if model:
             cmd.extend(["--model", model])
-        cmd.append(prompt)
 
         result = _run_prompt_subprocess(
             cmd,
             timeout=codex_timeout,
             cwd=str(cwd) if cwd is not None else None,
             env=_codex_env(),
+            stdin=prompt,
         )
-        if result.returncode != 0:
+        if result is None:
+            # Launch failure — helper already swallowed OSError. No
+            # stdout/stderr to log here.
             return None
-        output = output_path.read_text(encoding="utf-8").strip()
+        if result.returncode != 0:
+            # ARC-048e: log the failure so empty-result failures are
+            # diagnosable on the Codex path (parity with _run_claude_prompt).
+            _log_backend_failure(
+                "codex exec", result.returncode, result.stdout, result.stderr
+            )
+            return None
+        try:
+            output = output_path.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            # ARC-048e: this failure mode used to be silent; log it.
+            sys.stderr.write(
+                f"[ai_backend] codex exec rc=0 but output file {output_path} "
+                "could not be read.\n"
+            )
+            sys.stderr.flush()
+            return None
+        if not output:
+            # ARC-048e: empty output despite rc=0 — log so the user can
+            # tell this apart from a launch failure.
+            sys.stderr.write(
+                "[ai_backend] codex exec rc=0 but produced no output "
+                f"(stderr={result.stderr.strip()[:200]!r}).\n"
+            )
+            sys.stderr.flush()
         return output or None
     except subprocess.TimeoutExpired as exc:
         if raise_on_timeout:
             raise AiBackendTimeout("AI backend prompt timed out") from exc
         return None
-    except (OSError, UnicodeDecodeError):
+    except OSError:
         return None
     finally:
         if output_path is not None:
