@@ -179,12 +179,26 @@ def install_cli_tools(
         dry_run=dry_run,
     )
     if not dry_run:
-        result = subprocess.run(
-            ["uv", "tool", "install", "--editable", ".[tools]"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
+        # QA-005: uv tool install resolves the editable build and installs
+        # the tools extras; on a cold cache or a slow network that can
+        # take a minute or more, but a truly hung build should not stall
+        # the installer indefinitely. 300 s matches the bound the audit
+        # applied to the index-rebuild children.
+        try:
+            result = subprocess.run(
+                ["uv", "tool", "install", "--editable", ".[tools]"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            _warn(
+                "uv tool install timed out after 300s — vault-search / "
+                "vault-new / vault-stats may not be globally available. "
+                "Re-run install to retry."
+            )
+            return
         if result.returncode != 0:
             _warn(
                 "uv tool install failed — vault-search / vault-new / vault-stats not globally available.\n"

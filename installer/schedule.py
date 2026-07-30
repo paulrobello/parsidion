@@ -137,22 +137,43 @@ def _schedule_summarizer_launchd(
         _warn(f"Could not write plist: {exc}")
         return
 
-    subprocess.run(
-        ["launchctl", "unload", str(plist_path)],
-        capture_output=True,
-    )
-    result = subprocess.run(
-        ["launchctl", "load", str(plist_path)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        _ok(f"Launchd job loaded — summarizer will run nightly at {hour:02d}:00")
-    else:
-        _warn(
-            f"launchctl load returned {result.returncode}. "
-            f"You may need to run: launchctl load {plist_path}"
+    # Best-effort unload of any prior registration; ignore failures
+    # including timeout so a stale load state doesn't block the fresh
+    # load below. QA-005.
+    try:
+        subprocess.run(
+            ["launchctl", "unload", str(plist_path)],
+            capture_output=True,
+            timeout=15,
         )
+    except subprocess.TimeoutExpired:
+        pass
+
+    # QA-005: bound the load — a hung launchctl would otherwise stall the
+    # installer. On timeout warn and fall through to the script-exists
+    # sanity check below without touching load_result.
+    try:
+        load_result = subprocess.run(
+            ["launchctl", "load", str(plist_path)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        _warn(
+            f"launchctl load timed out after 15s. You may need to run: "
+            f"launchctl load {plist_path}"
+        )
+        load_result = None
+
+    if load_result is not None:
+        if load_result.returncode == 0:
+            _ok(f"Launchd job loaded — summarizer will run nightly at {hour:02d}:00")
+        else:
+            _warn(
+                f"launchctl load returned {load_result.returncode}. "
+                f"You may need to run: launchctl load {plist_path}"
+            )
 
     if not script_path.exists():
         _warn(
@@ -205,6 +226,7 @@ def _schedule_summarizer_cron(
             ["crontab", "-l"],
             capture_output=True,
             text=True,
+            timeout=10,
         )
         # SEC-127b: a non-zero ``crontab -l`` exit is *normal* when the
         # user has no crontab — returncode 1 with stderr "no crontab for
@@ -237,11 +259,18 @@ def _schedule_summarizer_cron(
             input=new_crontab,
             capture_output=True,
             text=True,
+            timeout=10,
         )
         if install_result.returncode == 0:
             _ok(f"Cron job installed — summarizer will run nightly at {hour:02d}:00")
         else:
             _warn(f"crontab install failed: {install_result.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        # QA-005: crontab hang (NFS-homedir, broken crond) — surface a
+        # warning rather than stalling the installer indefinitely.
+        _warn("crontab timed out — summarizer not scheduled. Add the line manually.")
+        print(f"  {dim('Add this line manually:')}")
+        print(f"  {dim(cron_line)}")
     except FileNotFoundError:
         _warn("crontab not found — cannot schedule summarizer automatically.")
         print(f"  {dim('Add this line manually:')}")
@@ -320,10 +349,20 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
             print(f"    {dim('Would run:')} launchctl unload {plist_path}")
             print(f"    {dim('Would delete:')} {plist_path}")
             return
-        subprocess.run(
-            ["launchctl", "unload", str(plist_path)],
-            capture_output=True,
-        )
+        # QA-005: bound the unload. A hung launchctl would otherwise stall
+        # uninstall; on timeout we still unlink the plist file below so
+        # the scheduler entry is removed regardless.
+        try:
+            subprocess.run(
+                ["launchctl", "unload", str(plist_path)],
+                capture_output=True,
+                timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            _warn(
+                "launchctl unload timed out after 15s — plist may still be "
+                "loaded; removing file anyway"
+            )
         try:
             plist_path.unlink()
             _ok("Launchd plist removed")
@@ -335,6 +374,7 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
                 ["crontab", "-l"],
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
             if result.returncode != 0:
                 return
@@ -351,10 +391,15 @@ def unschedule_summarizer(dry_run: bool = False) -> None:
                 input=new_crontab,
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
             if install_result.returncode == 0:
                 _ok("Cron job removed")
             else:
                 _warn(f"crontab update failed: {install_result.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            # QA-005: crontab hang during uninstall — surface a warning
+            # rather than stalling uninstall indefinitely.
+            _warn("crontab timed out during uninstall — parsidion line may remain.")
         except FileNotFoundError:
             pass

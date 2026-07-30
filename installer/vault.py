@@ -185,13 +185,29 @@ def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
     if dry_run:
         return
 
-    subprocess.run(["git", "init"], cwd=vault_root, capture_output=True)
-    subprocess.run(["git", "add", "-A"], cwd=vault_root, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "chore(vault): initial commit"],
-        cwd=vault_root,
-        capture_output=True,
-    )
+    # QA-005: bound the init/add/commit sequence. These are fast local
+    # operations on a fresh vault, but a hung git binary (NFS stall, stale
+    # credential helper, locked index) would otherwise stall the installer
+    # indefinitely with no error path. 30 s each is generous; on timeout
+    # we leave the vault partially initialised and surface a warning
+    # rather than propagating the timeout into the install flow.
+    try:
+        subprocess.run(["git", "init"], cwd=vault_root, capture_output=True, timeout=30)
+        subprocess.run(
+            ["git", "add", "-A"], cwd=vault_root, capture_output=True, timeout=30
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "chore(vault): initial commit"],
+            cwd=vault_root,
+            capture_output=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        _warn(
+            "git init/commit timed out after 30s — vault left partially "
+            "initialised. Run `git init && git add -A && git commit` manually."
+        )
+        return
     _ok(f"Git repo initialized at {vault_root}")
 
 
