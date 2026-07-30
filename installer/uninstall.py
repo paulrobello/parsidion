@@ -81,9 +81,7 @@ def _build_hooks_only_steps(
         steps.append(
             Step(
                 "remove_legacy_hooks",
-                lambda: remove_legacy_hooks(
-                    claude_dir, settings_file, dry_run=dry_run
-                ),
+                lambda: remove_legacy_hooks(claude_dir, settings_file, dry_run=dry_run),
             )
         )
     if uninstall_codex_runtime:
@@ -303,7 +301,10 @@ def _build_uninstall_steps(
             )
 
     steps.append(
-        Step("remove_vaults_config", lambda: _remove_or_preserve_vaults_config(purge_config))
+        Step(
+            "remove_vaults_config",
+            lambda: _remove_or_preserve_vaults_config(purge_config),
+        )
     )
 
     return steps
