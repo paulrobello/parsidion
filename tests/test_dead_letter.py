@@ -555,3 +555,33 @@ def test_arc030_legacy_string_failure_treated_as_retryable(
     assert not (tmp_path / "dead_letters.jsonl").exists()
     remaining = _read_pending_lines(pending)
     assert len(remaining) == 1
+
+
+# ---------------------------------------------------------------------------
+# QA-005: rebuild_index must swallow a graph-rebuild timeout, not propagate it
+# ---------------------------------------------------------------------------
+
+
+def test_rebuild_index_timeout_is_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """QA-005: a hung update_index/build_graph child must not propagate
+    ``subprocess.TimeoutExpired`` into the caller (the summarizer and the
+    hooks that drive it). ``rebuild_index`` logs a warning and returns,
+    leaving the run to continue with a stale index rather than dying mid-run.
+    """
+    mod = _fresh_summarize_sessions(monkeypatch)
+
+    def _timeout(*args: object, **kwargs: object) -> object:
+        raise mod.subprocess.TimeoutExpired(cmd=["uv"], timeout=300)
+
+    monkeypatch.setattr(mod.subprocess, "run", _timeout)
+
+    # Must not raise.
+    mod.rebuild_index(tmp_path, rebuild_graph=True)
+
+    err = capsys.readouterr().err
+    assert "timed out" in err.lower()
+    assert "300" in err

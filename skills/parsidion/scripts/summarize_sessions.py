@@ -2296,11 +2296,20 @@ def rebuild_index(
             check=True,
             capture_output=True,
             text=True,
+            timeout=300,
             env=vault_common.env_without_claudecode(),
         )
         print("Vault index rebuilt.")
     except subprocess.CalledProcessError as e:
         print(f"Warning: index rebuild failed: {e.stderr}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        # QA-005: a hung update_index/build_graph child would otherwise stall
+        # the summarizer mid-run and leave the index stale with no error.
+        # 300 s mirrors the bound the graph rebuild applies to its own child.
+        print(
+            "Warning: index rebuild timed out after 300 s; index may be stale.",
+            file=sys.stderr,
+        )
     except OSError as e:
         print(f"Warning: could not run update_index.py: {e}", file=sys.stderr)
 
