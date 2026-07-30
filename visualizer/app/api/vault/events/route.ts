@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { watch, type FSWatcher } from 'chokidar'
-import fs from 'fs'
+import fs from 'fs/promises'
 import path from 'path'
 import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
@@ -13,9 +13,13 @@ import { withApi } from '@/lib/apiAuth'
 
 const EXCLUDED_DIRS = new Set(['.obsidian', 'Templates', '.git', '.trash', 'TagsRoutes'])
 
-function parseFrontmatterType(filePath: string): string | undefined {
+// QA-012: read the file via fs/promises so the event loop is not blocked
+// inside the chokidar handler. The caller is `watcher.on('add', ...)` which
+// does not await the result, so the broadcast fires asynchronously — fine
+// for an SSE channel where ordering across files was never guaranteed.
+async function parseFrontmatterType(filePath: string): Promise<string | undefined> {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = await fs.readFile(filePath, 'utf-8')
     const match = content.match(/^---\n[\s\S]*?^type:\s*(.+)$/m)
     return match?.[1]?.trim()
   } catch {
@@ -64,11 +68,11 @@ function createVaultWatcher(vaultRoot: string): FSWatcher {
     awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
   })
 
-  watcher.on('add', (filePath: string) => {
+  watcher.on('add', async (filePath: string) => {
     if (!filePath.endsWith('.md')) return
     const relPath = path.relative(vaultRoot, filePath)
     const stem = path.basename(filePath, '.md')
-    const noteType = parseFrontmatterType(filePath)
+    const noteType = await parseFrontmatterType(filePath)
     broadcastToVault(vaultRoot, { type: 'file:created', path: relPath, stem, noteType })
   })
 

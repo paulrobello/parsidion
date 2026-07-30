@@ -1,13 +1,14 @@
 // app/api/graph/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
+import fsPromises from 'fs/promises'
 import path from 'path'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
 
 /**
  * Strong validator for graph.json: mtime (ms) + size (bytes). Both come from
- * a single fs.statSync so they cannot drift apart. The mtime alone is
+ * a single fs.stat call so they cannot drift apart. The mtime alone is
  * insufficient because two rebuilds within the same filesystem tick (e.g.
  * `touch` then no-op rebuild) can produce identical mtimes with different
  * contents — adding size rules that out without depending on the file body.
@@ -30,9 +31,11 @@ export const GET = withApi(async (req: NextRequest) => {
   }
   const graphPath = path.join(vaultPath, 'graph.json')
 
+  // QA-012: stat the file via fs/promises so the event loop is not blocked.
+  // (ARC-015 already streams the body; this finishes the async-fs cleanup.)
   let stat: fs.Stats
   try {
-    stat = fs.statSync(graphPath)
+    stat = await fsPromises.stat(graphPath)
   } catch {
     return NextResponse.json(
       { error: `graph.json not found in vault: ${vaultPath}` },

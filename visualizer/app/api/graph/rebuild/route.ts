@@ -1,7 +1,7 @@
 // app/api/graph/rebuild/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
-import fs from 'fs'
+import fs from 'fs/promises'
 import { vaultBroadcast } from '@/lib/vaultBroadcast.server'
 import { resolveVault, VaultConfigError } from '@/lib/vaultResolver'
 import { withApi } from '@/lib/apiAuth'
@@ -26,7 +26,13 @@ export const POST = withApi(async (req: NextRequest) => {
   }
 
   // SEC-005: Verify the resolved path exists and is a directory before spawning.
-  if (!fs.existsSync(vaultPath) || !fs.statSync(vaultPath).isDirectory()) {
+  // QA-012: stat via fs/promises so the event loop is not blocked.
+  try {
+    const stat = await fs.stat(vaultPath)
+    if (!stat.isDirectory()) {
+      return NextResponse.json({ error: 'Vault directory not found' }, { status: 400 })
+    }
+  } catch {
     return NextResponse.json({ error: 'Vault directory not found' }, { status: 400 })
   }
 
