@@ -424,9 +424,14 @@ class TestAiCooldownHelpers:
         assert stamp.exists()
 
     def test_write_cooldown_stamp_tolerates_missing_dir(self, tmp_path: Path) -> None:
+        """When the target directory does not exist, _write_ai_cooldown_stamp
+        swallows the OSError and leaves the filesystem unchanged -- it does
+        not silently create the missing tree, nor raise."""
         nonexistent = tmp_path / "nonexistent"
-        # Should not raise even if directory is missing
         session_start_hook._write_ai_cooldown_stamp(nonexistent)
+        # Tolerance means the OSError path was taken: the missing tree stays
+        # missing (no mkdir -p style creation happened).
+        assert not nonexistent.exists()
 
 
 # ---------------------------------------------------------------------------
