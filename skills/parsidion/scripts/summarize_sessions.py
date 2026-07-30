@@ -28,7 +28,6 @@ vault_links.py.  This file now imports and delegates to that module.
 import argparse
 import atexit
 import contextlib
-import enum
 import json
 import os
 import re
@@ -50,6 +49,32 @@ import ai_backend
 import vault_common
 import vault_links
 from vault_path import is_path_inside_vault
+
+# Constants, sentinels, enums, regexes, and default config values (ARC-009).
+from summarizer._state_const import (  # noqa: F401 — re-exported for tests
+    _ACTIVE_SESSION_GRACE_SECS,
+    _DEAD,
+    _DEAD_LETTER_RETENTION_DAYS,
+    _DEFAULT_FOLDER,
+    _DEFAULT_MAX_CLEANED_CHARS,
+    _DEFAULT_MAX_PARALLEL,
+    _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+    _DEFAULT_TRANSCRIPT_TAIL_LINES,
+    _DEFERRED,
+    _FAILURE_REASON_KEY,
+    _FRONTMATTER_KEY_LINE_RE,
+    _MAX_ATTEMPTS,
+    _RELATED_LINE_RE,
+    _RELATED_STEM_RE,
+    _REQUIRED_FRONTMATTER_FIELDS,
+    _SKIPPED,
+    _STALE,
+    _SUMMARIZER_STATE_FILENAME,
+    _TYPE_FOLDERS,
+    _VALID_NOTE_TYPES,
+    _VALID_PROVENANCE_VALUES,
+    FailureReason,
+)
 
 # File locking imported from vault_common (canonical implementation)
 _flock_exclusive = vault_common.flock_exclusive
@@ -82,42 +107,6 @@ async def _run_summarizer_prompt(
     return cast(str | None, result)
 
 
-# Sentinel: returned as written_path when the transcript file no longer exists.
-# Stale entries are purged from the pending queue (they can never succeed).
-_STALE = "__STALE__"
-
-# Sentinel: returned as written_path when the write-gate decides a session is
-# transient. Skipped entries are also purged so they are not reprocessed forever.
-_SKIPPED = "__SKIPPED__"
-
-# Sentinel: a session already recorded in dead_letters.jsonl (prior failure or
-# write-gate skip) that a stop hook re-queued. Re-processing it would re-bill an
-# AI call for a session already judged not worth a note, so it is purged on sight
-# via the same path as _STALE.
-_DEAD = "__DEAD__"
-
-# Sentinel: a session whose transcript is still being written (an active
-# session). Summarizing a mutating transcript is racy, so it is left in the
-# queue untouched for a later run once it is genuinely idle.
-_DEFERRED = "__DEFERRED__"
-
-# A transcript whose mtime is within this window is treated as an active session
-# and deferred. Long enough to absorb a just-ended session flushing its final
-# lines, short enough that a genuinely idle queued session is processed promptly.
-_ACTIVE_SESSION_GRACE_SECS = 120
-
-# Dead-letter cap: a queue entry that fails this many times is purged from
-# pending_summaries.jsonl instead of retrying (and re-billing an AI call) on
-# every run forever. Tracked via the optional "attempts" field (absent = 0).
-_MAX_ATTEMPTS = 3
-
-# Dead-letter retention (days): entries in dead_letters.jsonl older than this
-# are pruned on each run. write-gate skips are made sticky (a re-queue is caught
-# by the _DEAD guard), so without retention the file grows without bound. <= 0
-# disables pruning. Configurable via summarizer.dead_letter_retention_days.
-_DEAD_LETTER_RETENTION_DAYS = 7
-
-
 def _strip_code_fence(text: str) -> str:
     """Strip a single surrounding markdown code fence, if present.
 
@@ -138,49 +127,6 @@ def _strip_code_fence(text: str) -> str:
     if end != -1:
         inner = inner[:end]
     return inner.strip()
-
-
-# In-memory only: stamped on an entry by _mark_failure() so main() can hand the
-# failure reason to remove_processed() for the dead-letter warning. Never
-# persisted — the queue rewrite works from the on-disk lines, not these dicts.
-_FAILURE_REASON_KEY = "_failure_reason"
-
-
-class FailureReason(enum.Enum):
-    """Classified failure kind for a summarization attempt.
-
-    ARC-030: replaces the free-text ``reason`` string so ``remove_processed``
-    can decide retry-vs-dead-letter from the failure class rather than burning
-    ``_MAX_ATTEMPTS`` AI calls on a deterministic failure. Each member carries
-    ``retryable``: when False, the entry is dead-lettered on the FIRST failed
-    attempt instead of being re-queued.
-
-    Classifications:
-    - Transient (retryable=True): the next run might succeed — network blip,
-      transient FS error, model-side hiccup, or unhandled exception that may
-      not reproduce.
-    - Deterministic (retryable=False): the same model output / config / target
-      will fail the same way on every retry. Re-billing an AI call to re-derive
-      the same failure wastes money and (for merge decisions) re-touches a
-      trusted note. Validation/containment failures also indicate either a code
-      defect or a crafted transcript — both warrant human attention, not silent
-      retries.
-    """
-
-    TRANSCRIPT_READ = ("transcript_read", True)
-    AI_BACKEND_ERROR = ("ai_backend_error", True)
-    NO_RESULT = ("no_result", True)
-    BACKUP_FAILED = ("backup_failed", True)
-    UNHANDLED = ("unhandled", True)
-    MERGE_MALFORMED = ("merge_malformed", False)
-    MERGE_UNRESOLVABLE = ("merge_unresolvable", False)
-    MERGE_VALIDATION = ("merge_validation", False)
-    MERGE_CONTAINMENT = ("merge_containment", False)
-    NOTE_VALIDATION = ("note_validation", False)
-
-    def __init__(self, kind: str, retryable: bool) -> None:
-        self.kind = kind
-        self.retryable = retryable
 
 
 def _mark_failure(
@@ -286,31 +232,6 @@ def _clear_progress() -> None:
         _PROGRESS_FILE.unlink(missing_ok=True)
     except OSError:
         pass
-
-
-_DEFAULT_MAX_PARALLEL = 5
-_DEFAULT_TRANSCRIPT_TAIL_LINES = 400
-# Byte ceiling on the raw transcript tail, applied in addition to
-# transcript_tail_lines. Bounds transcripts whose few lines are individually
-# huge (e.g. codex subagent rollouts) so cleaning/chunking cannot explode.
-_DEFAULT_TRANSCRIPT_TAIL_BYTES = 262_144
-_DEFAULT_MAX_CLEANED_CHARS = 12_000
-
-# Map note type values to vault folders
-_TYPE_FOLDERS: dict[str, str] = {
-    "debugging": "Debugging",
-    "research": "Research",
-    "pattern": "Patterns",
-    "tool": "Tools",
-    "framework": "Frameworks",
-    "language": "Languages",
-    "project": "Projects",
-    "daily": "Daily",
-    "knowledge": "Knowledge",
-}
-
-# Fallback folder when type is unrecognized
-_DEFAULT_FOLDER = "Research"
 
 
 def read_pending(pending_path: Path) -> list[dict[str, object]]:
@@ -755,29 +676,6 @@ def inject_project_tag(note_content: str, project: str) -> str:
     return note_content
 
 
-_REQUIRED_FRONTMATTER_FIELDS: frozenset[str] = frozenset({"date", "type", "tags"})
-
-# Valid values for the 'type' frontmatter field
-_VALID_NOTE_TYPES: frozenset[str] = frozenset(
-    {
-        "debugging",
-        "research",
-        "pattern",
-        "tool",
-        "framework",
-        "language",
-        "project",
-        "daily",
-        "knowledge",
-    }
-)
-
-# Valid values for the optional 'provenance' frontmatter field
-_VALID_PROVENANCE_VALUES: frozenset[str] = frozenset(
-    {"explicit", "inferred", "corrected", "observed", "imported"}
-)
-
-
 def _validate_frontmatter(note_content: str) -> str | None:
     """Validate that AI-generated note content has required YAML frontmatter fields.
 
@@ -812,10 +710,6 @@ def _validate_frontmatter(note_content: str) -> str | None:
         return f"Frontmatter 'provenance' has invalid value: {provenance!r}"
 
     return None
-
-
-# Matches a YAML frontmatter key line such as 'date:' or 'tags: [...]'.
-_FRONTMATTER_KEY_LINE_RE = re.compile(r"^[A-Za-z_][\w.-]*\s*:")
 
 
 def _ensure_closing_frontmatter_delimiter(note_content: str) -> str:
@@ -910,14 +804,6 @@ def _note_body(note_content: str) -> str:
         if lines[i].strip() == "---":
             return "\n".join(lines[i + 1 :]).strip()
     return note_content.strip()
-
-
-_RELATED_LINE_RE = re.compile(r"^related:\s*(.*)$", re.MULTILINE)
-# A stem wrapped in any combination of brackets/quotes: catches [[stem]],
-# [stem], [["stem"]], "[[stem]]", etc. A stem starts with a word char and may
-# contain word chars, dots (version slugs), slashes (folder-qualified links),
-# and hyphens; it stops at | (alias), # (anchor), or whitespace.
-_RELATED_STEM_RE = re.compile(r"[\[\"']+([\w][\w./-]*)[\]\"']+")
 
 
 def _normalize_related_field(note_content: str) -> str:
@@ -2321,8 +2207,6 @@ def rebuild_index(
 # lock never blocks the next run. Prevents the auto-summarizer launched by
 # the stop hook from racing a manual `--run-doctor` invocation.
 # ---------------------------------------------------------------------------
-
-_SUMMARIZER_STATE_FILENAME = "summarizer_state.json"
 
 
 def _summarizer_state_file(vault_path: Path) -> Path:
