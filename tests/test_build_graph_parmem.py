@@ -283,3 +283,74 @@ class TestParmemFailureGraphStillWritten:
         assert out.exists()
         assert graph["edges"] == []
         assert "parmem_body_links" not in graph["meta"]
+
+
+class TestArc038GraphSchemaValidation:
+    """ARC-038: a generated graph.json must conform to the committed schema.
+
+    Reuses the stdlib validator defined in ``tests/test_graph_schema.py`` so
+    there is one interpretation of the schema (no ``jsonschema`` dependency).
+    Exercises nodes, wiki edges (via the ``related`` frontmatter field), and
+    meta -- including referential integrity (edge endpoints must reference
+    existing node ids), which the JSON Schema cannot express on its own.
+    """
+
+    def test_generated_graph_conforms_to_schema(
+        self, tmp_vault: Path, tmp_path: Path
+    ) -> None:
+        from tests.test_graph_schema import validate_graph
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "tests"
+            / "fixtures"
+            / "graph.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        make_embeddings_db(tmp_vault, NOTES)
+        # Wire a wiki edge a -> b so the graph has both nodes and an edge to
+        # validate. Override the shared helper's --min-threshold 1.01 with 1.0
+        # (the schema caps min_semantic_threshold at 1.0 -- cosine similarity
+        # cannot exceed it; 1.01 is a test-only trick that is out-of-contract).
+        # Distinct random 384-dim vectors never reach cosine 1.0, so 1.0 still
+        # suppresses semantic edges while staying inside the schema.
+        set_related(tmp_vault, "a", "[[b]]")
+
+        out = tmp_path / "graph-schema-check.json"
+        graph = run_build_graph(
+            tmp_vault, out, extra_args=["--min-threshold", "1.0", "--no-parmem"]
+        )
+
+        # Should have produced 3 nodes and at least the a-b wiki edge.
+        assert len(graph["nodes"]) == 3
+        assert any(e["kind"] == "wiki" for e in graph["edges"]), (
+            "expected at least one wiki edge from the a->b related link"
+        )
+        # Full schema + referential-integrity validation (raises on failure).
+        validate_graph(graph, schema)
+
+    def test_generated_graph_rejects_dangling_edge_via_negative_check(
+        self, tmp_vault: Path, tmp_path: Path
+    ) -> None:
+        """Sanity-check the validator: a graph with a dangling edge must fail.
+
+        Guards against the validator being a no-op. If this passes, the schema
+        gate is not actually enforcing referential integrity.
+        """
+        from tests.test_graph_schema import validate_graph
+
+        schema_path = (
+            Path(__file__).resolve().parent.parent
+            / "tests"
+            / "fixtures"
+            / "graph.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        make_embeddings_db(tmp_vault, NOTES)
+        out = tmp_path / "graph-dangling.json"
+        graph = run_build_graph(tmp_vault, out, extra_args=["--no-parmem"])
+        # Inject a dangling edge that references a non-existent node id.
+        graph["edges"].append({"s": "a", "t": "ghost-node", "w": 1.0, "kind": "wiki"})
+        with pytest.raises(AssertionError, match="does not reference a node id"):
+            validate_graph(graph, schema)

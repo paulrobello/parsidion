@@ -20,6 +20,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Locate source files
 # ---------------------------------------------------------------------------
@@ -204,3 +206,133 @@ class TestVaultResolverParity:
             assert path_str in raw_ts, (
                 f"{path_str} missing from TS VAULT_FORBIDDEN_PREFIXES"
             )
+
+
+# ---------------------------------------------------------------------------
+# ARC-038 (Python half): resolve_vault() precedence coverage
+# ---------------------------------------------------------------------------
+# Precedence (highest to lowest), per vault_path.resolve_vault() docstring:
+#   1. explicit flag (path or vault name)
+#   2. cwd/.claude/vault file (project-local vault)
+#   3. CLAUDE_VAULT environment variable
+#   4. Default ~/ParsidionVault (or legacy ~/ClaudeVault if it already exists)
+#
+# resolve_vault() is lru_cached on (explicit, normalized_cwd); tests that change
+# only the env var or the .claude/vault file share the (None, <cwd>) cache key,
+# so each scenario MUST clear the cache before asserting. tmp dirs are used so
+# the resolved paths never collide with the real ~/ParsidionVault and never
+# fall under _VAULT_FORBIDDEN_PREFIXES (system paths).
+
+
+class TestVaultResolverPrecedence:
+    """Cover the resolve_vault() precedence chain beyond VAULT_FORBIDDEN_PREFIXES."""
+
+    def setup_method(self) -> None:
+        """Each test starts from a clean resolver cache."""
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    def teardown_method(self) -> None:
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+
+    def test_explicit_overrides_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Branch 1 (explicit) beats branch 3 (CLAUDE_VAULT)."""
+        env_vault = tmp_path / "env-vault"
+        explicit_vault = tmp_path / "explicit-vault"
+        env_vault.mkdir()
+        explicit_vault.mkdir()
+        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+
+        resolved = vault_path.resolve_vault(explicit=str(explicit_vault))
+        assert resolved == explicit_vault.resolve()
+
+    def test_explicit_overrides_project_vault_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Branch 1 (explicit) beats branch 2 (cwd/.claude/vault)."""
+        project = tmp_path / "project"
+        project.mkdir()
+        file_vault = tmp_path / "file-vault"
+        explicit_vault = tmp_path / "explicit-vault"
+        file_vault.mkdir()
+        explicit_vault.mkdir()
+        # Project-local vault file points at file_vault.
+        (project / ".claude").mkdir()
+        (project / ".claude" / "vault").write_text(str(file_vault), encoding="utf-8")
+        monkeypatch.delenv("CLAUDE_VAULT", raising=False)
+
+        resolved = vault_path.resolve_vault(
+            explicit=str(explicit_vault), cwd=str(project)
+        )
+        assert resolved == explicit_vault.resolve()
+
+    def test_project_vault_file_overrides_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Branch 2 (cwd/.claude/vault) beats branch 3 (CLAUDE_VAULT)."""
+        project = tmp_path / "project"
+        project.mkdir()
+        file_vault = tmp_path / "file-vault"
+        env_vault = tmp_path / "env-vault"
+        file_vault.mkdir()
+        env_vault.mkdir()
+        (project / ".claude").mkdir()
+        (project / ".claude" / "vault").write_text(str(file_vault), encoding="utf-8")
+        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+
+        resolved = vault_path.resolve_vault(cwd=str(project))
+        assert resolved == file_vault.resolve()
+
+    def test_env_overrides_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Branch 3 (CLAUDE_VAULT) beats branch 4 (default ~/ParsidionVault)."""
+        env_vault = tmp_path / "env-vault"
+        env_vault.mkdir()
+        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+        # No cwd/.claude/vault file here -> falls past branch 2 to branch 3.
+        resolved = vault_path.resolve_vault(cwd=str(tmp_path))
+        assert resolved == env_vault.resolve()
+
+    def test_default_branch_when_no_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no explicit/project/env overrides, the default vault is returned.
+
+        Branch 4 returns default_vault_root() (~/.ParsidionVault or legacy
+        ~/.ClaudeVault). We do not touch $HOME, so this asserts the function
+        matches default_vault_root() exactly -- the contract is the precedence
+        chain terminates at the documented default.
+        """
+        monkeypatch.delenv("CLAUDE_VAULT", raising=False)
+        resolved = vault_path.resolve_vault(cwd=str(tmp_path))
+        assert resolved == vault_path.default_vault_root()
+
+    def test_project_vault_file_missing_falls_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cwd with no .claude/vault file falls through to the env branch."""
+        project = tmp_path / "project"
+        project.mkdir()
+        env_vault = tmp_path / "env-vault"
+        env_vault.mkdir()
+        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+
+        resolved = vault_path.resolve_vault(cwd=str(project))
+        assert resolved == env_vault.resolve()
+
+    def test_project_vault_file_empty_falls_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty .claude/vault file is skipped (falls through to env)."""
+        project = tmp_path / "project"
+        project.mkdir()
+        env_vault = tmp_path / "env-vault"
+        env_vault.mkdir()
+        (project / ".claude").mkdir()
+        (project / ".claude" / "vault").write_text("   \n", encoding="utf-8")
+        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+
+        resolved = vault_path.resolve_vault(cwd=str(project))
+        assert resolved == env_vault.resolve()
