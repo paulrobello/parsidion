@@ -22,10 +22,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-import vault_common
 import vault_config
 from subproc_util import run_with_pgkill
 from vault_config import apply_decay_score
+from vault_hooks import env_without_claudecode, write_hook_event
+from vault_path import get_embeddings_db_path, resolve_vault
 
 _DEFAULT_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
@@ -93,7 +94,7 @@ def _resolve_binary(vault: Path | None = None) -> str | None:
     verdict is cached per process per vault; ``reset_parmem_cache()`` clears.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         key = str(vault)
         if key in _RESOLVE_CACHE:
             return _RESOLVE_CACHE[key]
@@ -130,7 +131,7 @@ def _log_event(vault: Path, action: str, detail: str, started: float) -> None:
     so `vault-stats --hooks N` surfaces backend failures.
     """
     try:
-        vault_common.write_hook_event(
+        write_hook_event(
             hook="ParMemBackend",
             project=vault.name,
             duration_ms=(time.monotonic() - started) * 1000,
@@ -171,7 +172,7 @@ def _run_parmem(
         cmd,
         cwd=cwd,
         timeout=timeout,
-        env=vault_common.env_without_claudecode(vault=vault),
+        env=env_without_claudecode(vault=vault),
     )
 
 
@@ -210,7 +211,7 @@ def find_code_raw(
     plus a sanitized stderr excerpt when the process completed. Never raises.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         cwd = cwd or vault
         if not query.strip():
             return None
@@ -271,7 +272,7 @@ def doc_links_raw(
     the module's standard reason tags. Never raises.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         cwd = cwd or vault
         if _resolve_binary(vault) is None:
             return None
@@ -327,7 +328,7 @@ def _load_note_index_rows(
     """
     if not stems:
         return {}
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
     try:
@@ -444,7 +445,7 @@ def parmem_search(
     back to embeddings. Never raises.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         hits = find_code_raw(
             query, top_k=min(top_k * 3, 1000), cwd=vault, timeout=timeout, vault=vault
         )
@@ -511,7 +512,7 @@ def spawn_background_index(vault: Path | None = None) -> bool:
     launch itself never blocks. Never raises.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         binary = _resolve_binary(vault)
         if binary is None:
             return False
@@ -522,7 +523,7 @@ def spawn_background_index(vault: Path | None = None) -> bool:
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
-            env=vault_common.env_without_claudecode(vault=vault),
+            env=env_without_claudecode(vault=vault),
             start_new_session=True,
         )
         return True
@@ -540,7 +541,7 @@ def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool
     crashed session cannot leak one. Never raises.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         token = session_id.strip()
         if not token:
             return False
@@ -554,7 +555,7 @@ def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
-            env=vault_common.env_without_claudecode(vault=vault),
+            env=env_without_claudecode(vault=vault),
             start_new_session=True,
         )
         return True
@@ -636,7 +637,7 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
     Never raises.
     """
     try:
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         if _resolve_binary(vault) is None:
             return False
         started = time.monotonic()
