@@ -60,7 +60,13 @@ def uninstall(
     gemini_home: Path | None = None,
     purge_config: bool = False,
 ) -> None:
-    """Remove installed Parsidion assets or only managed hooks.
+    """Remove installed Parsidion assets, or only managed hook registrations.
+
+    By default this is a full uninstall of the Claude integration plus any
+    Codex/Gemini runtimes selected via ``runtime``. When ``hooks_only`` is
+    True the function instead removes only managed hook entries and leaves
+    the skill directory, agents, CLAUDE-VAULT.md, and other assets in place
+    — the path used by ``disconnect codex`` / ``disconnect gemini``.
 
     ARC-003 (preserved here when the function moved): ``codex_home``, the
     post-merge hook, the summarizer schedule, and ``vaults.yaml`` are shared
@@ -72,6 +78,31 @@ def uninstall(
     ARC-003 (also preserved): ``vaults.yaml`` additionally requires an
     explicit ``--purge-config`` (``purge_config=True``) — under ``--yes``
     alone it is always preserved.
+
+    Args:
+        claude_dir: Path to the Claude Code config directory (``~/.claude``).
+        settings_file: Path to ``~/.claude/settings.json`` — managed Claude
+            hook registrations are removed from here.
+        dry_run: When True, print the steps that would be taken without
+            writing or removing anything.
+        yes: When True, skip interactive confirmation prompts. Does NOT
+            imply ``purge_config`` — see below.
+        hooks_only: When True, remove only Parsidion-managed hook
+            registrations (Claude ``settings.json``, Codex ``hooks.json``,
+            Gemini ``settings.json``) and leave the skill, agents, scripts,
+            and vault untouched.
+        runtime: Selector controlling which runtime integrations to tear
+            down: ``"claude"``, ``"codex"``, ``"gemini"``, ``"both"``
+            (Claude + Codex), ``"all"`` (every runtime), or ``"none"``.
+            Accepts the same vocabulary as ``install.py connect``.
+        codex_home: Path to the Codex config directory (``~/.codex``); when
+            None, resolved from the ``CODEX_HOME`` env var (default
+            ``~/.codex``).
+        gemini_home: Path to the Gemini config directory (``~/.gemini``);
+            when None, defaults to ``~/.gemini``.
+        purge_config: When True and a full Claude teardown is selected,
+            also remove ``~/.config/parsidion/vaults.yaml``. Always
+            preserved otherwise, even under ``yes``.
     """
     codex_home = (
         codex_home

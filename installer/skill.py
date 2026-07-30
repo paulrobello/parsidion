@@ -59,13 +59,38 @@ def install_skill(
     dry_run: bool = False,
     verbose: bool = False,
 ) -> Path:
-    """Install skill to ~/.claude/skills/parsidion/.
+    """Install the Parsidion skill to ``~/.claude/skills/parsidion/``.
 
-    On Unix/macOS: creates a directory symlink so edits to the repo are
-    immediately live without reinstalling.
-    On Windows (or when symlinks are unavailable): falls back to copytree.
+    On Unix/macOS the skill is installed as a directory symlink pointing
+    at the source tree, so edits to the repo are live without reinstalling.
+    On Windows, or when directory symlinks are unavailable (see
+    ``_can_symlink``), the function falls back to a recursive copytree.
 
-    Returns the installed skill path.
+    Idempotent: when the symlink already points at ``SKILL_SRC`` and
+    neither ``force`` nor a confirmation prompt asks for replacement, the
+    existing install is left untouched. DOC-039.
+
+    Args:
+        claude_dir: Path to the Claude Code config directory
+            (``~/.claude``); the skill is created at
+            ``claude_dir/skills/parsidion``.
+        vault_root: Resolved vault root. Currently unused inside this
+            function but retained so the install step list can pass a
+            uniform argument shape to every ``install_*`` helper.
+        force: When True, replace an existing skill at the destination
+            without prompting.
+        yes: When True, answer any confirmation prompt affirmatively
+            (equivalent to ``--yes``). Implies overwrite when the
+            destination already exists.
+        dry_run: When True, print the steps that would be taken without
+            writing, symlinking, or removing anything.
+        verbose: When True, emit verbose diagnostic lines (e.g. "symlink
+            already correct").
+
+    Returns:
+        The installed skill destination path
+        (``claude_dir/skills/parsidion``) whether or not anything was
+        actually written.
     """
     dest = claude_dir / "skills" / SKILL_NAME
     use_symlink = sys.platform != "win32" or _can_symlink(dest)
