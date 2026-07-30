@@ -36,6 +36,12 @@ import vault_common
 # Constants (formerly module-level in vault_doctor.py)
 # ---------------------------------------------------------------------------
 
+# Absolute path to skills/parsidion/scripts/ — the sibling-script directory
+# the original vault_doctor.py reached via ``Path(__file__).parent``.  From
+# any submodule under doctor/ that resolves to ``doctor/`` * `.parent`, so
+# expose it once here instead of recomputing per call site.
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+
 VALID_TYPES = frozenset(
     {
         "pattern",
