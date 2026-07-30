@@ -12,6 +12,7 @@ module load. Stdlib-only — no third-party dependencies.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -41,7 +42,7 @@ def _can_symlink(target: Path) -> bool:
     if sys.platform != "win32":
         return True
     target.parent.mkdir(parents=True, exist_ok=True)
-    probe = target.parent / f"._symlink_probe_{__import__('os').getpid()}"
+    probe = target.parent / f"._symlink_probe_{os.getpid()}"
     try:
         probe.symlink_to(target.parent, target_is_directory=True)
         probe.unlink()
