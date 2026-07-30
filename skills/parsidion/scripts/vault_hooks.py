@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from vault_config import get_config, load_config
+from vault_constants import TRANSCRIPT_CATEGORY_LABELS
 from vault_fs import flock_exclusive, funlock
 from vault_path import resolve_vault
 
@@ -553,13 +554,6 @@ TRANSCRIPT_CATEGORIES: dict[str, list[str]] = {
         "migrated",
         "deployed",
     ],
-}
-
-TRANSCRIPT_CATEGORY_LABELS: dict[str, str] = {
-    "error_fix": "Error Resolution",
-    "research": "Research Findings",
-    "pattern": "Pattern Discovery",
-    "config_setup": "Config/Setup",
 }
 
 

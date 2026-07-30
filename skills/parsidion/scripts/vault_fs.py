@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from vault_config import get_config
+from vault_constants import TRANSCRIPT_CATEGORY_LABELS
 from vault_path import resolve_vault, resolve_templates_dir, VAULT_DIRS
 
 __all__: list[str] = [
@@ -649,9 +650,6 @@ def append_session_to_daily(
         first_summary: The first significant assistant message summary.
         vault_path: The vault root path.
     """
-    # Import here to avoid circular dependency at module level
-    from vault_hooks import TRANSCRIPT_CATEGORY_LABELS
-
     # Ensure the daily note exists with proper frontmatter from the template.
     # Previously used daily_path.touch(), which created an empty file and left
     # the note without frontmatter if this hook was the first writer of the day.
