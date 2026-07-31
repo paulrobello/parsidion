@@ -18,8 +18,13 @@ import pytest
 # The sub-modules import from embed_eval_common which uses Rich (available in dev deps).
 # But embed_eval_generate/run import fastembed/sqlite_vec — we only test common + report.
 
-import embed_eval_common as common
-import embed_eval_report as report
+# embed_eval modules live in tools/eval/ (ARC-004 hoist out of the installed tree).
+_EVAL_DIR = Path(__file__).resolve().parents[1] / "tools" / "eval"
+if str(_EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(_EVAL_DIR))
+
+import embed_eval_common as common  # noqa: E402
+import embed_eval_report as report  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

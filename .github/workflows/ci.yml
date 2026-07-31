@@ -116,7 +116,7 @@ jobs:
         run: |
           python -m venv /tmp/wheeltest
           /tmp/wheeltest/bin/pip install --quiet --force-reinstall dist/*.whl
-          /tmp/wheeltest/bin/python -c "import vault_common, vault_search, vault_links, ai_backend; print('ok')"
+          /tmp/wheeltest/bin/python -c "import vault_common, vault_config, vault_path, vault_search, vault_links, ai_backend, core.vault_config, core.vault_fs, core.subproc_util, doctor, summarizer; print('ok')"
           rm -rf /tmp/wheeltest
 
   visualizer-checks:

@@ -8,6 +8,9 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+EVAL_DIR = Path(__file__).resolve().parents[1] / "tools" / "eval"  # ARC-004 hoist
+if str(EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(EVAL_DIR))
 
 import embed_eval_generate  # noqa: E402
 import run_trigger_eval  # noqa: E402

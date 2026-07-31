@@ -30,9 +30,12 @@ from rich.progress import (  # type: ignore[import-untyped]
 )
 
 # Ensure sibling scripts are importable
-_SCRIPT_DIR = str(Path(__file__).resolve().parent)
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
+_HERE = Path(__file__).resolve().parent
+_SCRIPT_DIR = str(_HERE)  # own dir -> sibling embed_eval_* modules
+_SCRIPTS_DIR = str(_HERE.parents[1] / "skills" / "parsidion" / "scripts")
+for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import ai_backend  # noqa: E402
 import vault_common  # noqa: E402

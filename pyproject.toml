@@ -110,6 +110,7 @@ ignore = [
 extraPaths = [
     "skills/parsidion/scripts",
     "tools",
+    "tools/eval",
 ]
 exclude = [
     "parsidion-mcp",
@@ -122,6 +123,7 @@ exclude = [
 [tool.ty.environment]
 extra-paths = [
     "skills/parsidion/scripts",
+    "tools/eval",
 ]
 
 [tool.uv]

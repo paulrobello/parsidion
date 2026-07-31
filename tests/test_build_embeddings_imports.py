@@ -27,6 +27,8 @@ import pytest
 _SCRIPTS_DIR = (
     Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "scripts"
 )
+# ARC-004: embed_eval_run.py was hoisted out of the installed tree into tools/eval/.
+_EVAL_DIR = Path(__file__).resolve().parent.parent / "tools" / "eval"
 
 
 def _run_with_poisoned_imports(script: Path) -> subprocess.CompletedProcess:
@@ -72,7 +74,7 @@ class TestEmbedEvalRunGracefulDegrade:
     """embed_eval_run.py must exit 1 with a clean message, not a traceback."""
 
     def test_missing_extra_emits_actionable_error(self) -> None:
-        result = _run_with_poisoned_imports(_SCRIPTS_DIR / "embed_eval_run.py")
+        result = _run_with_poisoned_imports(_EVAL_DIR / "embed_eval_run.py")
         assert result.returncode == 1
         assert "eval" in result.stderr
         assert "Traceback" not in result.stderr
