@@ -31,8 +31,10 @@ import functools
 import json
 import os
 import re
+import socket
 import sqlite3
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -42,6 +44,7 @@ from typing import Any
 
 import parmem_backend
 import vault_common
+import vault_embed_serve
 from vault_config import apply_decay_score
 
 _DEFAULT_MODEL: str = vault_common.get_config(
@@ -121,6 +124,123 @@ def _get_embedding_model(model_name: str):  # type: ignore[no-untyped-def]
     return TextEmbedding(model_name=model_name)
 
 
+# ---------------------------------------------------------------------------
+# ENH-003: optional persistent embedding service (vault_embed_serve.py)
+# ---------------------------------------------------------------------------
+# AF_UNIX, lives outside the synced vault tree. Contacted only from
+# _search_embeddings — i.e. only when par-mem did not serve — and only when
+# embeddings.service_enabled is true and the backend is not par-mem-only
+# (the user's constraint). A daemon miss is normal: it falls back to the
+# in-process cached model, so the service is an optimization, never a
+# dependency. Nothing here raises.
+_SERVICE_SPAWN_DEBOUNCE_S = 30.0
+_last_service_spawn_attempt = 0.0
+
+
+def _embeddings_service_active() -> bool:
+    """True only when the persistent embedding service should be used.
+
+    Two hard guards: explicit opt-in via ``embeddings.service_enabled``
+    (default false), AND the backend must not be par-mem-only — par-mem serves
+    retrieval without local query embeddings, so the service would never be
+    consulted and must not run. ``_search_embeddings`` is itself only reached
+    when par-mem didn't serve under ``auto``, so the second guard mainly covers
+    an explicit ``search.backend: par-mem`` setting.
+    """
+    if vault_common.get_config("embeddings", "service_enabled", False) is not True:
+        return False
+    if _configured_search_backend() == "par-mem":
+        return False
+    return True
+
+
+def _spawn_service(vault: Path, model_name: str) -> None:
+    """Best-effort detached launch of the embed service.
+
+    Debounced so a daemon that fails to start isn't re-spawned every call. A
+    no-op when one is already running: the daemon self-guards via its PID file
+    (a second launch sees the live PID and exits immediately).
+    """
+    global _last_service_spawn_attempt
+    now = time.monotonic()
+    if now - _last_service_spawn_attempt < _SERVICE_SPAWN_DEBOUNCE_S:
+        return
+    _last_service_spawn_attempt = now
+    try:
+        script = Path(__file__).resolve().parent / "vault_embed_serve.py"
+        if not script.exists():
+            return
+        idle = int(
+            vault_common.get_config("embeddings", "service_idle_exit", 600) or 600
+        )
+        subprocess.Popen(
+            [
+                str(script),
+                "--vault",
+                str(vault),
+                "--model",
+                model_name,
+                "--idle-exit",
+                str(idle),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=vault_common.env_without_claudecode(),
+        )
+    except Exception:  # noqa: BLE001 — best-effort; in-process fallback covers failure
+        pass
+
+
+def _service_embed(
+    query: str, model_name: str, vault: Path, timeout: float = 5.0
+) -> list[float] | None:
+    """Ask the running service to embed *query*; return the vector or None."""
+    try:
+        path = vault_embed_serve.socket_path(vault)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect(str(path))
+            s.sendall(
+                (json.dumps({"text": query, "model": model_name}) + "\n").encode(
+                    "utf-8"
+                )
+            )
+            buf = bytearray()
+            while True:
+                chunk = s.recv(8192)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                if b"\n" in chunk:
+                    break
+        payload = json.loads(buf.split(b"\n", 1)[0].decode("utf-8", "replace"))
+        vec = payload.get("vector") if isinstance(payload, dict) else None
+        if isinstance(vec, list):
+            return [float(x) for x in vec]
+    except Exception:  # noqa: BLE001 — absence/failure is normal; caller falls back
+        return None
+    return None
+
+
+def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]:
+    """Embed *query*: prefer the opt-in service, else the in-process cache.
+
+    The service is tried only when ``_embeddings_service_active`` is true; any
+    miss falls back to the cached in-process model (loaded once per process).
+    """
+    resolved = vault or vault_common.resolve_vault()
+    if _embeddings_service_active():
+        _spawn_service(resolved, model_name)
+        vec = _service_embed(query, model_name, resolved)
+        if vec is not None:
+            return vec
+    model = _get_embedding_model(model_name)
+    with _EMBED_MODEL_LOCK:
+        return list(model.embed([query]))[0]
+
+
 def _search_embeddings(
     query: str,
     top: int = 10,
@@ -148,9 +268,7 @@ def _search_embeddings(
         return []
 
     try:
-        model = _get_embedding_model(model_name)
-        with _EMBED_MODEL_LOCK:
-            query_vec = list(model.embed([query]))[0]
+        query_vec = _embed_query(query, model_name, vault)
         query_blob = _pack_vector(list(query_vec))
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
