@@ -1,7 +1,13 @@
 # ENH-001 — Cap semantic edges per node instead of emitting all pairs above a threshold
 
-> **Impact**: high · **Effort**: small · **Status**: not started
+> **Impact**: high · **Effort**: small · **Status**: ✅ done
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
+>
+> **Completed.** `--max-neighbors` flag, top-K `build_semantic_edges`, `meta.max_neighbors`,
+> and all six plan tests shipped (run `make test-graph` → 27 passed). Measured on the live
+> vault at regeneration: mean degree ~67.6 → ~15.8 (≈ the `max_neighbors=15` target), max
+> degree 1258 → 324, and the file shrank from 47.5 MB / 376,060 edges to ~15.6 MB / 110,414
+> edges. Wiki edges untouched. `--max-neighbors 0` restores the all-pairs behaviour.
 
 ## Goal
 
