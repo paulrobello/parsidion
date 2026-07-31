@@ -233,3 +233,97 @@ class TestShimsResolveAdapter:
         adapter = agent_adapter.get(expected_adapter_name)
         assert adapter is not None
         assert adapter.name == expected_adapter_name
+
+
+# ---------------------------------------------------------------------------
+# ENH-006: registry completeness + external adapter loading
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryCompleteness:
+    """ENH-006: claude and pi are registered alongside codex/gemini, and the
+    descriptor carries the installer-side fields the generic core reads."""
+
+    def test_all_four_builtins_registered(self) -> None:
+        assert set(agent_adapter.known_runtimes()) >= {
+            "claude",
+            "codex",
+            "gemini",
+            "pi",
+        }
+
+    def test_hook_runtimes_own_a_config_pi_does_not(self) -> None:
+        hooky = {
+            a.name for a in agent_adapter.all_adapters() if a.hooks_config_filename
+        }
+        assert {"claude", "codex", "gemini"} <= hooky
+        assert "pi" not in hooky  # pi is extension-only
+
+    def test_timeout_unit_is_explicit_per_runtime(self) -> None:
+        # ARC-048a: codex is seconds; gemini/claude are milliseconds.
+        codex = agent_adapter.get("codex")
+        gemini = agent_adapter.get("gemini")
+        claude = agent_adapter.get("claude")
+        assert codex is not None and codex.timeout_unit == "s"
+        assert gemini is not None and gemini.timeout_unit == "ms"
+        assert claude is not None and claude.timeout_unit == "ms"
+
+
+class TestExternalLoading:
+    """ENH-006: opt-in drop-in adapters under ~/.config/parsidion/adapters/."""
+
+    def test_off_by_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import vault_common
+
+        home = tmp_path / "home"
+        ad = home / ".config" / "parsidion" / "adapters"
+        ad.mkdir(parents=True)
+        (ad / "x.py").write_text(
+            "from agent_adapter import AgentAdapter\nADAPTER = AgentAdapter(name='x')\n"
+        )
+        monkeypatch.setenv(
+            "CLAUDE_VAULT", str(tmp_path)
+        )  # no config.yaml -> default off
+        monkeypatch.setenv("HOME", str(home))
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_common.load_config.cache_clear()
+        agent_adapter.reset_external_adapters()
+        try:
+            assert "x" not in agent_adapter.known_runtimes()
+        finally:
+            agent_adapter.reset_external_adapters()
+
+    def test_loads_when_enabled_and_refuses_world_writable(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import vault_common
+
+        vault_dir = tmp_path / "vault"
+        vault_dir.mkdir()
+        (vault_dir / "config.yaml").write_text("adapters:\n  load_external: true\n")
+        home = tmp_path / "home"
+        ad = home / ".config" / "parsidion" / "adapters"
+        ad.mkdir(parents=True)
+        (ad / "acme.py").write_text(
+            "from agent_adapter import AgentAdapter\n"
+            "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
+        )
+        bad = ad / "bad.py"
+        bad.write_text("ADAPTER = None")
+        bad.chmod(0o666)  # group+other writable -> must be refused
+        monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
+        monkeypatch.setenv("HOME", str(home))
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_common.load_config.cache_clear()
+        agent_adapter.reset_external_adapters()
+        try:
+            runtimes = agent_adapter.known_runtimes()
+            assert "acme" in runtimes
+            acme = agent_adapter.get("acme")
+            assert acme is not None and acme.display_name == "Acme"
+            assert "bad" not in runtimes  # world-writable refused
+        finally:
+            agent_adapter._REGISTRY.pop("acme", None)  # type: ignore[attr-defined]
+            agent_adapter.reset_external_adapters()

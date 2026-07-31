@@ -22,6 +22,18 @@ def _apply(config: Path, *, yes: bool) -> str:
     return config.read_text(encoding="utf-8")
 
 
+def test_connect_choices_match_registry() -> None:
+    """ENH-006: the connect/disconnect agent choices are the registered runtimes.
+
+    Guards the class of drift where the CLI hardcodes a runtime list that
+    disagrees with the registry.
+    """
+    import agent_adapter  # noqa: PLC0415
+    import install  # noqa: PLC0415
+
+    assert set(install._connectable_runtimes()) == set(agent_adapter.known_runtimes())
+
+
 class TestCodexFeatureFlagName:
     def test_features_section_uses_hooks_key_not_codex_hooks(
         self, tmp_path: Path
