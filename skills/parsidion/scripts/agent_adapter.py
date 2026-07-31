@@ -33,6 +33,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import vault_common
 
@@ -53,11 +54,11 @@ class AgentAdapter:
     name: str
     """Lowercase runtime identifier — 'codex', 'gemini', 'pi'."""
 
-    hook_event_name_start: str
+    hook_event_name_start: str = ""
     """Hook event name emitted to hook_events.log on session start
     (e.g. 'SessionStart'). Used for observability via vault-stats --hooks."""
 
-    hook_event_name_end: str
+    hook_event_name_end: str = ""
     """Hook event name emitted on session end / stop."""
 
     is_transcript_path: Callable[[Path, str], bool] | None = field(
@@ -73,6 +74,57 @@ class AgentAdapter:
     """Optional parser — ``parse_codex_transcript_lines`` /
     ``parse_gemini_transcript_lines``. None means fall back to the
     shape-agnostic ``vault_common.parse_transcript_lines``."""
+
+    # --- ENH-006: installer-side declarative fields ---
+    # The installer reads these to merge/remove hook registrations and write
+    # instructions files, so one descriptor covers both the hook shims and the
+    # installer. Defaults keep the dataclass constructible for runtimes that
+    # only need a subset (e.g. pi uses none of the installer-hook fields).
+    display_name: str = ""
+    """User-facing label for installer messaging ('Codex', 'Gemini')."""
+
+    runtime_env_value: str = ""
+    """Value set for the PARSIDION_RUNTIME env var when the runtime's hook runs."""
+
+    hooks_config_filename: str | None = None
+    """File the runtime stores hook registrations in, relative to its home dir
+    ('hooks.json' codex, 'settings.json' gemini/claude). None for runtimes with
+    no hook config (pi)."""
+
+    event_scripts: dict[str, str] = field(default_factory=dict)
+    """Ordered event -> hook-script-filename map (e.g. SessionStart -> codex_session_start_hook.py)."""
+
+    entry_matcher: str = ""
+    """``matcher`` value for the hook entry ('' codex, '*' gemini/claude)."""
+
+    entry_timeout: int = 0
+    """Numeric ``timeout`` for the hook entry (paired with ``timeout_unit``)."""
+
+    timeout_unit: Literal["ms", "s"] = "s"
+    """Unit of ``entry_timeout`` — 's' (codex) or 'ms' (gemini/claude). ARC-048a."""
+
+    entry_names: dict[str, str] | None = None
+    """Per-event ``name`` values when the runtime's schema requires a name
+    (gemini). None otherwise."""
+
+    instructions_filename: str | None = None
+    """Instructions file the installer injects into the runtime home
+    ('AGENTS.md' codex, 'GEMINI.md' gemini). None for claude (CLAUDE-VAULT.md,
+    handled separately) and pi."""
+
+    config_validator: Callable[[dict[str, object]], dict[str, object] | None] | None = (
+        field(default=None, repr=False)
+    )
+    """Pure per-runtime JSON-shape check on the loaded hook config: returns the
+    config dict when safe to edit, None when not. Installer-supplied at
+    migration time; a fact about the runtime, not about the installer."""
+
+    build_entry: Callable[[str, str], dict[str, object]] | None = field(
+        default=None, repr=False
+    )
+    """Optional entry-builder override for runtimes whose entry needs logic, not
+    just data (Claude's AI-mode timeout raise). When None the installer builds
+    the entry from ``entry_matcher``/``entry_timeout``/``entry_names``."""
 
 
 # ---------------------------------------------------------------------------
@@ -101,31 +153,102 @@ def all_adapters() -> list[AgentAdapter]:
     return list(_REGISTRY.values())
 
 
-def _register_builtin_adapters() -> None:
-    """Register the known Codex and Gemini adapters.
+def known_runtimes() -> list[str]:
+    """Return the lowercase name of every registered runtime (insertion order)."""
+    return [adapter.name for adapter in _REGISTRY.values()]
 
-    Pi is intentionally NOT registered here — its hook plumbing lives under
-    extensions/pi and uses a different install path (per ARC-020 step 7).
-    Once that is unified the pi descriptor goes here too.
+
+# Event -> hook-script maps. The registry is the single source of truth
+# (ENH-006); the duplicates in installer/paths.py are removed once its
+# consumers migrate to reading these off the adapter descriptors.
+_CLAUDE_HOOK_SCRIPTS: dict[str, str] = {
+    "SessionStart": "session_start_hook.py",
+    "SessionEnd": "session_stop_wrapper.sh",
+    "PreCompact": "pre_compact_hook.py",
+    "PostCompact": "post_compact_hook.py",
+    "SubagentStop": "subagent_stop_hook.py",
+}
+_CODEX_HOOK_SCRIPTS: dict[str, str] = {
+    "SessionStart": "codex_session_start_hook.py",
+    "Stop": "codex_stop_hook.py",
+    "SubagentStop": "codex_subagent_stop_hook.py",
+}
+_GEMINI_HOOK_SCRIPTS: dict[str, str] = {
+    "SessionStart": "gemini_session_start_hook.py",
+    "SessionEnd": "gemini_session_end_hook.py",
+}
+_GEMINI_HOOK_NAMES: dict[str, str] = {
+    "SessionStart": "parsidion-session-start",
+    "SessionEnd": "parsidion-session-end",
+}
+
+
+def _register_builtin_adapters() -> None:
+    """Register the built-in runtimes: claude, codex, gemini, pi.
+
+    codex/gemini drive the hook shims via this registry (QA-008/ARC-020) and
+    the installer reads their hook-registration data from the same descriptors
+    (ENH-006). claude's native hooks predate the registry; it is registered
+    for installer completeness (``known_runtimes``/``connect``) and a single
+    observability naming convention — its native hook scripts keep running as
+    before. pi ships a TypeScript extension that shells out to claude's hook
+    scripts, so it carries no hook-registration data (``connect pi`` handles
+    the extension copy separately).
     """
     register(
         AgentAdapter(
+            name="claude",
+            display_name="Claude",
+            runtime_env_value="claude",
+            hook_event_name_start="SessionStart",
+            hook_event_name_end="SessionEnd",
+            hooks_config_filename="settings.json",
+            event_scripts=_CLAUDE_HOOK_SCRIPTS,
+            timeout_unit="ms",
+        )
+    )
+    register(
+        AgentAdapter(
             name="codex",
+            display_name="Codex",
+            runtime_env_value="codex",
             hook_event_name_start="CodexSessionStart",
             hook_event_name_end="CodexSessionEnd",
             is_transcript_path=lambda p, cwd: vault_common.is_codex_transcript_path(p),
             parse_transcript_lines=vault_common.parse_codex_transcript_lines,
+            hooks_config_filename="hooks.json",
+            event_scripts=_CODEX_HOOK_SCRIPTS,
+            entry_matcher="",
+            entry_timeout=60,
+            timeout_unit="s",
+            instructions_filename="AGENTS.md",
         )
     )
     register(
         AgentAdapter(
             name="gemini",
+            display_name="Gemini",
+            runtime_env_value="gemini",
             hook_event_name_start="GeminiSessionStart",
             hook_event_name_end="GeminiSessionEnd",
             is_transcript_path=lambda p, cwd: vault_common.is_gemini_transcript_path(
                 p, cwd=cwd
             ),
             parse_transcript_lines=vault_common.parse_gemini_transcript_lines,
+            hooks_config_filename="settings.json",
+            event_scripts=_GEMINI_HOOK_SCRIPTS,
+            entry_matcher="*",
+            entry_timeout=10000,
+            timeout_unit="ms",
+            entry_names=_GEMINI_HOOK_NAMES,
+            instructions_filename="GEMINI.md",
+        )
+    )
+    register(
+        AgentAdapter(
+            name="pi",
+            display_name="pi",
+            runtime_env_value="pi",
         )
     )
 
