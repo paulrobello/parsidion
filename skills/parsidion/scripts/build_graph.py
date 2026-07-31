@@ -49,7 +49,10 @@ GRAPH_JSON_SCHEMA: dict = {
                 "min_semantic_threshold",
             ],
             "properties": {
-                "generated": {"type": "string"},
+                "generated": {
+                    "type": "string",
+                    "description": "ISO-8601 UTC timestamp the graph was built.",
+                },
                 "note_count": {"type": "integer", "minimum": 0},
                 "edge_count": {"type": "integer", "minimum": 0},
                 "min_semantic_threshold": {
@@ -92,14 +95,25 @@ GRAPH_JSON_SCHEMA: dict = {
                     "mtime",
                 ],
                 "properties": {
-                    "id": {"type": "string", "minLength": 1},
+                    "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Note stem — the unique node identity.",
+                    },
                     "title": {"type": "string"},
                     "type": {"type": "string"},
                     "folder": {"type": "string"},
-                    "path": {"type": "string"},
+                    "path": {
+                        "type": "string",
+                        "description": "Vault-relative path to the note file.",
+                    },
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "incoming_links": {"type": "integer", "minimum": 0},
-                    "mtime": {"type": "number", "minimum": 0},
+                    "mtime": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Note modification time as a unix timestamp.",
+                    },
                 },
             },
         },
@@ -110,9 +124,24 @@ GRAPH_JSON_SCHEMA: dict = {
                 "additionalProperties": False,
                 "required": ["s", "t", "w", "kind"],
                 "properties": {
-                    "s": {"type": "string", "minLength": 1},
-                    "t": {"type": "string", "minLength": 1},
-                    "w": {"type": "number"},
+                    "s": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Source node id (stem).",
+                    },
+                    "t": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Target node id (stem).",
+                    },
+                    "w": {
+                        "type": "number",
+                        "description": (
+                            "Edge weight. Semantic edges: cosine similarity in "
+                            "[-1, 1] (writer emits >= min_semantic_threshold). "
+                            "Wiki edges: 1.0."
+                        ),
+                    },
                     "kind": {"type": "string", "enum": ["semantic", "wiki"]},
                 },
             },

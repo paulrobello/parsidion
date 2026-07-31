@@ -16,14 +16,17 @@
             "type": "string"
           },
           "s": {
+            "description": "Source node id (stem).",
             "minLength": 1,
             "type": "string"
           },
           "t": {
+            "description": "Target node id (stem).",
             "minLength": 1,
             "type": "string"
           },
           "w": {
+            "description": "Edge weight. Semantic edges: cosine similarity in [-1, 1] (writer emits >= min_semantic_threshold). Wiki edges: 1.0.",
             "type": "number"
           }
         },
@@ -45,6 +48,7 @@
           "type": "integer"
         },
         "generated": {
+          "description": "ISO-8601 UTC timestamp the graph was built.",
           "type": "string"
         },
         "max_neighbors": {
@@ -83,6 +87,7 @@
             "type": "string"
           },
           "id": {
+            "description": "Note stem — the unique node identity.",
             "minLength": 1,
             "type": "string"
           },
@@ -91,10 +96,12 @@
             "type": "integer"
           },
           "mtime": {
+            "description": "Note modification time as a unix timestamp.",
             "minimum": 0,
             "type": "number"
           },
           "path": {
+            "description": "Vault-relative path to the note file.",
             "type": "string"
           },
           "tags": {
