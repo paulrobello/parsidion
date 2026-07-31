@@ -238,7 +238,8 @@ def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]
             return vec
     model = _get_embedding_model(model_name)
     with _EMBED_MODEL_LOCK:
-        return list(model.embed([query]))[0]
+        embedded = list(model.embed([query]))
+    return [float(x) for x in embedded[0]]
 
 
 def _search_embeddings(

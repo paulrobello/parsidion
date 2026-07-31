@@ -16,6 +16,7 @@ using the `fastembed` library with a CPU-only embedding model that runs entirely
 - [Searching the Vault](#searching-the-vault)
   - [CLI Usage](#cli-usage)
   - [Output Formats](#output-formats)
+  - [Model Caching and the Persistent Service](#model-caching-and-the-persistent-service)
   - [Filtering by Score](#filtering-by-score)
   - [Controlling Result Count](#controlling-result-count)
   - [Full-Text Body Search](#full-text-body-search)
@@ -398,6 +399,32 @@ chosen backend is printed on stderr (`backend: embeddings`) so you can confirm w
 served a query. Metadata and grep modes do not consult `--backend` — they always read the
 local `note_index` table.
 
+### Model Caching and the Persistent Service
+
+The local embeddings backend loads the ~67 MB ONNX model to encode each query. Two mechanisms
+keep that cost down (ENH-003):
+
+- **In-process cache.** `vault_search` caches one `fastembed` model instance per model name for the
+  lifetime of the process (`_get_embedding_model`, an `lru_cache`), so repeated searches within one
+  process — the session start hook, the TUI, and the summarizer's per-note dedup/backlink passes
+  (which now call `vault_search.search()` in-process rather than spawning a subprocess) — share a
+  single warm model instead of reloading it per call. The embed call is serialised under a lock so
+  the shared instance is safe under the summarizer's `max_parallel` fan-out.
+- **Opt-in persistent service.** For *cross-process* sharing — many short-lived `vault-search` CLI
+  invocations or hook subprocesses that would each cold-load the model — set
+  `embeddings.service_enabled: true`. `vault_search` then transparently routes query embeddings
+  through `vault_embed_serve.py`, a long-lived process that holds one warm model and serves embed
+  requests over a local Unix socket (`~/.claude/parsidion-embed/embed-<vault>.sock`, mode 0600 —
+  outside the synced vault tree, so multi-machine vault git sync never transports it). The service
+  is started lazily by the first enabled caller, idle-exits after `embeddings.service_idle_exit`
+  seconds (default 600), and cleans up its socket/PID on exit.
+
+The service is **off by default** and is **never used while par-mem serves retrieval** — par-mem
+answers semantic queries with its own hybrid retrieval, so local query embeddings are not computed
+at all and the service would be pointless. A daemon miss (not yet started, errored, or absent) is
+normal: `vault_search` falls back to the in-process cached model, so the service is an
+optimization, never a dependency.
+
 ### Output Formats
 
 `vault-search` supports three output formats, selectable via flag or environment variable:
@@ -581,9 +608,11 @@ only.
 `summarize_sessions.py` uses semantic search during the backlink-injection step that runs after
 each new vault note is written.
 
-The function `vault_links.find_related_by_semantic()` calls `vault_search.py` as a subprocess,
-passing the new note's title and tags as the query. Any returned notes with a score above
-`embeddings.min_score` are injected as bidirectional wikilinks in the `related` frontmatter field.
+The function `vault_links.find_related_by_semantic()` calls `vault_search.search()` in-process
+(ENH-003: it shares the process-cached embedding model instead of spawning `vault_search.py` as a
+subprocess on every note), passing the new note's title and tags as the query. Any returned notes
+with a score above `embeddings.min_score` are injected as bidirectional wikilinks in the `related`
+frontmatter field.
 
 If the semantic search returns no results (or if `embeddings.db` is absent), the summarizer falls
 back to `vault_links.find_related_by_tags()`, which performs the existing tag-overlap scan. The two
@@ -658,6 +687,8 @@ embeddings:
   decay_enabled: true
   decay_half_life_days: 90
   decay_min_factor: 0.5
+  service_enabled: false        # ENH-003: opt-in persistent embedding service (see above)
+  service_idle_exit: 600        # daemon idle-exit seconds
 
 session_start_hook:
   use_embeddings: true
@@ -683,6 +714,8 @@ par_mem:
 | `decay_enabled` | `embeddings` | boolean | `true` | Apply temporal decay to semantic search scores so newer notes rank higher |
 | `decay_half_life_days` | `embeddings` | float | `90` | Days for a score to decay halfway to `decay_min_factor`; higher values mean slower decay |
 | `decay_min_factor` | `embeddings` | float | `0.5` | Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing entirely |
+| `service_enabled` | `embeddings` | boolean | `false` | ENH-003: opt-in persistent embedding service (`vault_embed_serve.py`). When `true` and `search.backend` is not `par-mem`, `vault_search` shares one warm model across processes via a local Unix socket instead of each caller loading its own ~67 MB ONNX. Never used while par-mem serves retrieval |
+| `service_idle_exit` | `embeddings` | integer | `600` | Seconds the persistent service stays alive with no requests before idle-exiting |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
 | `graph_expand` | `session_start_hook` | boolean | `true` | Enable Tier 1 graph retrieval — splice 1-hop wikilink neighbours of selected notes into the candidate pool |
 | `graph_expand_max` | `session_start_hook` | integer | `8` | Max neighbour notes added per session (best-connected first); only applies when `graph_expand` is `true` |
