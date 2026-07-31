@@ -23,6 +23,95 @@ from pathlib import Path
 import numpy as np
 
 
+# ARC-038: machine-readable contract for the graph.json this script emits.
+# Mirrors the canonical fixture tests/fixtures/graph.schema.json and the
+# TypeScript GraphData interface (visualizer/lib/graph.ts). Kept as a plain
+# stdlib dict (draft 2020-12) so no jsonschema dependency is required.
+GRAPH_JSON_SCHEMA: dict = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://parsidion.local/schemas/graph.schema.json",
+    "title": "GraphData",
+    "description": (
+        "Schema for vault graph.json emitted by build_graph.py and consumed "
+        "by the TypeScript visualizer (visualizer/lib/graph.ts GraphData)."
+    ),
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["meta", "nodes", "edges"],
+    "properties": {
+        "meta": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "generated",
+                "note_count",
+                "edge_count",
+                "min_semantic_threshold",
+            ],
+            "properties": {
+                "generated": {"type": "string"},
+                "note_count": {"type": "integer", "minimum": 0},
+                "edge_count": {"type": "integer", "minimum": 0},
+                "min_semantic_threshold": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
+                "parmem_body_links": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "Wiki edges contributed by par-mem body-link enrichment. "
+                        "Absent when enrichment was skipped or added nothing."
+                    ),
+                },
+            },
+        },
+        "nodes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "id",
+                    "title",
+                    "type",
+                    "folder",
+                    "path",
+                    "tags",
+                    "incoming_links",
+                    "mtime",
+                ],
+                "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "title": {"type": "string"},
+                    "type": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "path": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "incoming_links": {"type": "integer", "minimum": 0},
+                    "mtime": {"type": "number", "minimum": 0},
+                },
+            },
+        },
+        "edges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["s", "t", "w", "kind"],
+                "properties": {
+                    "s": {"type": "string", "minLength": 1},
+                    "t": {"type": "string", "minLength": 1},
+                    "w": {"type": "number"},
+                    "kind": {"type": "string", "enum": ["semantic", "wiki"]},
+                },
+            },
+        },
+    },
+}
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -73,6 +162,13 @@ def parse_args() -> argparse.Namespace:
         help="Skip par-mem body-link enrichment of wiki edges",
     )
     parser.set_defaults(use_parmem=True)
+    parser.add_argument(
+        "--no-schema",
+        dest="emit_schema",
+        action="store_false",
+        help="Skip writing graph.schema.json alongside graph.json",
+    )
+    parser.set_defaults(emit_schema=True)
     return parser.parse_args()
 
 
@@ -272,6 +368,22 @@ def write_graph_json(graph: dict, output_path: Path) -> None:
     tmp_path.replace(output_path)
 
 
+def _schema_path_for(graph_output: Path) -> Path:
+    """Sibling graph.schema.json path for a given graph.json output path."""
+    if graph_output.suffix == ".json":
+        return graph_output.with_suffix(".schema.json")
+    return graph_output.parent / "graph.schema.json"
+
+
+def write_graph_schema(schema: dict, output_path: Path) -> None:
+    """Write graph.schema.json via tmp + atomic replace (same pattern as graph.json)."""
+    tmp_path = output_path.parent / (output_path.name + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(schema, f, indent=2)
+        f.write("\n")
+    tmp_path.replace(output_path)
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
@@ -406,6 +518,11 @@ def main() -> None:
 
     print("Writing graph.json...", file=sys.stderr)
     write_graph_json(graph, output_path)
+
+    if args.emit_schema:
+        schema_path = _schema_path_for(output_path)
+        print("Writing graph.schema.json...", file=sys.stderr)
+        write_graph_schema(GRAPH_JSON_SCHEMA, schema_path)
 
     print(
         f"Done: {len(nodes)} nodes, {total_edges} edges → {output_path}",
