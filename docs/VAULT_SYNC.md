@@ -112,11 +112,16 @@ database so semantic search works immediately.
 | `summarizer_state.json` | **No** | Machine-local summarizer run state |
 | `doctor_state.json` | **No** | Machine-local vault doctor run state |
 | `dead_letters.jsonl` | **No** | Machine-local failed-summary entries from the summarizer |
+| `conflicts/` | **No** | Output of `vault-conflicts --scan-only` (`conflicts/report.json`) — machine-local |
 | `config.yaml` | **No** | May hold secrets (`anthropic_env` API keys) — configure locally on each machine |
 | `config.local.yaml` | **No** | Optional machine-specific overlay — gitignored, never synced |
+| `pyproject.toml`, `uv.toml`, `setup.py`, `.venv/` | **No** | Defence in depth against SEC-101 — stops `uv run` (without `--no-project`) from executing a build backend if one lands in the vault worktree |
 | `.obsidian/` | **No** | Obsidian workspace state — machine-specific |
 
-The installer adds all "No" entries to `.gitignore` automatically.
+The installer adds all "No" entries to `.gitignore` automatically.  Several
+entries are globs (`embeddings.db*`, `pending_summaries.jsonl*`,
+`dead_letters.jsonl*`, `hook_events.log*`) so timestamped and `.bak` variants
+produced by migration code are covered too.
 
 > **Security:** `config.yaml` and `config.local.yaml` are intentionally
 > gitignored. They can hold `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the
@@ -163,11 +168,21 @@ graph LR
 2. `build_embeddings.py --incremental` — re-embeds only notes whose `mtime`
    changed, updating the `note_embeddings` table for semantic search
 
+Both commands run as `uv run --no-project`, which is critical for SEC-101:
+without `--no-project`, `uv run` would walk up from the vault looking for a
+`pyproject.toml` / `uv.toml` / `setup.py` and execute its build backend —
+arbitrary code from whatever file lands in the vault worktree.
+
 **Idempotency:** running the installer again does not duplicate the hook.  The
-hook is identified by a marker comment (`# parsidion post-merge hook`).
+hook is identified by a marker comment (`# parsidion post-merge hook`).  The
+installer also recognises a legacy marker (`# parsidion-cc post-merge hook`)
+from earlier releases, and treats a hook that carries our marker but predates
+the `--no-project` fix as stale-but-ours — in both cases it regenerates the
+hook rather than leaving the vulnerable version in place.
 
 **Safety:** if a pre-existing `post-merge` hook is found that was not created
-by the installer, it is left untouched with a warning.
+by the installer (no current or legacy marker), it is left untouched with a
+warning.
 
 ---
 
@@ -303,7 +318,7 @@ uv run install.py --force --yes
 **Fix:** manually rebuild:
 ```bash
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
-uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental
 ```
 
 ### Corrupted embeddings.db
@@ -314,7 +329,7 @@ uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --incremental
 ```bash
 rm ~/ParsidionVault/embeddings.db
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
-uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
 
 ---

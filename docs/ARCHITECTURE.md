@@ -437,9 +437,9 @@ An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summa
 
 ### Vault Doctor
 
-**Location:** `skills/parsidion/scripts/vault_doctor.py`
+**Location:** `skills/parsidion/scripts/vault_doctor.py` (thin re-export shim) + the stdlib implementations in the `scripts/doctor/` subpackage (`_state.py`, `check.py`, `cli.py`, `daily.py`, `frontmatter.py`, `graph.py`, `headings.py`, `links.py`, `orchestrator.py`, `permissions.py`, `prefixes.py`, `protocol.py`, `subfolder.py`, `tags.py`, `worker.py`).
 
-An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via `claude -p` (haiku model by default).
+An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via `claude -p` (haiku model by default). As of ARC-008 / QA-003, the original 3,128-line God module was decomposed into focused submodules behind a `Fixer`/`FixMode` protocol; every public and private symbol the original exposed remains importable from `vault_doctor`, so existing `import vault_doctor` callers and test `monkeypatch` sites keep working byte-for-byte. The shim re-exports stdlib modules (`argparse`, `subprocess`, `shutil`, etc.) and `ai_backend` / `vault_common` / `vault_fs` / `vault_links` so monkeypatching `vault_doctor.X` still patches every submodule that did `import X`.
 
 **Issue codes detected:**
 
@@ -478,11 +478,12 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--fix-frontmatter` | off | Apply Claude-suggested frontmatter repairs |
-| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration, **and `--strip-prefixes`**); implies `--execute`. Because `--strip-prefixes` rewrites filenames and updates `[[wikilinks]]` vault-wide, run `--fix-all` on a clean git tree so a rename can be reverted. Used by the nightly cron. |
+| `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration, **`--strip-prefixes`**, and **`--fix-permissions`**); implies `--execute`. Because `--strip-prefixes` rewrites filenames and updates `[[wikilinks]]` vault-wide, run `--fix-all` on a clean git tree so a rename can be reverted. Used by the nightly cron. |
 | `--fix-tags` | off | Detect and merge duplicate tags; use `--execute` to apply |
 | `--fix-sessions` | off | Detect notes sharing the same `session_id` and suggest consolidation (manual or via vault-deduplicator) |
 | `--fix-headings` | on | Promote first `##` to `#` when no `#` heading exists |
 | `--no-fix-headings` | — | Disable heading promotion |
+| `--fix-permissions` | off | Tighten permissions on sensitive vault files (`chmod 0600` on secrets/config, `0700` on directories); use `--execute` to apply |
 | `--strip-prefixes` | off | Strip redundant subfolder prefixes from filenames |
 | `--migrate-subfolders` | off | Detect prefix clusters; use `--execute` to move files |
 | `--migrate-daily-notes` | off | Rename legacy `Daily/YYYY-MM/DD.md` to `DD-{username}.md`; use `--execute` to apply |
@@ -681,7 +682,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 - No external dependencies (stdlib only) for maximum portability in hook contexts
 - Custom YAML parser via regex rather than importing `pyyaml`; the config parser (`_parse_config_yaml`) is similarly stdlib-only
 - File walking excludes `.obsidian/`, `Templates/`, `.git/`, `.trash/`, `TagsRoutes/`
-- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 6 focused sub-modules (`vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`) to reduce per-file LOC and improve maintainability
+- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 10 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `subproc_util`) to reduce per-file LOC and improve maintainability
 
 ### Index Generator
 
@@ -1229,7 +1230,9 @@ parsidion/
 │   ├── hooks.py                     # Hook merge/remove for Claude, Codex, Gemini
 │   ├── schedule.py                  # launchd/cron nightly-summarizer scheduler
 │   ├── vault.py                     # Vault dir creation, git setup, config.yaml, vaults.yaml
-│   └── skill.py                     # Skill/agent/script install, AI mode, legacy cleanup, uninstall
+│   ├── skill.py                     # Skill/agent/script install, AI mode, legacy cleanup
+│   ├── steps.py                     # Multi-step installer orchestration
+│   └── uninstall.py                 # Uninstall logic
 ├── CLAUDE-VAULT.md                  # Always-on vault-first guidance (installed to ~/.claude/)
 ├── pyproject.toml
 ├── Makefile
@@ -1266,71 +1269,122 @@ parsidion/
 │   ├── project-explorer.md              # Project analysis + vault pattern capture (Sonnet)
 │   └── vault-deduplicator.md            # Near-duplicate note scanner and merger (Haiku)
 ├── tests/
-│   ├── test_vault_common.py
-│   ├── test_vault_dirs_sync.py
-│   ├── test_vault_search.py
-│   ├── test_vault_search_backend.py
-│   ├── test_vault_stats.py
-│   ├── test_vault_conflicts.py
-│   ├── test_vault_export.py
-│   ├── test_vault_merge.py
-│   ├── test_vault_resolver_parity.py
-│   ├── test_update_index.py
-│   ├── test_note_index_date.py
-│   ├── test_provenance.py
-│   ├── test_session_start_hook.py
-│   ├── test_session_stop_hook.py
-│   ├── test_pre_compact_hook.py
-│   ├── test_hook_integration.py
+│   ├── conftest.py
+│   ├── fake_parmem.py
+│   ├── fixtures/
+│   ├── test_agent_adapter.py
 │   ├── test_ai_backend.py
 │   ├── test_ai_script_migration.py
-│   ├── test_embed_eval.py
-│   ├── test_install.py
-│   ├── test_connect.py
-│   ├── test_summarize_sessions.py
-│   ├── test_vault_doctor.py
-│   ├── test_vault_doctor_fixes.py
 │   ├── test_atomic_write_fixes.py
+│   ├── test_build_embeddings_imports.py
+│   ├── test_build_graph_parmem.py
 │   ├── test_config_local_overlay.py
+│   ├── test_connect.py
 │   ├── test_dead_letter.py
 │   ├── test_doctor_backup.py
+│   ├── test_embed_eval.py
+│   ├── test_embed_singleton_lock.py
+│   ├── test_fake_parmem_fixture.py
 │   ├── test_fence_aware_wikilinks.py
+│   ├── test_graph_schema.py
+│   ├── test_hook_integration.py
 │   ├── test_index_enhancements.py
+│   ├── test_install.py
+│   ├── test_merge_hooks_safety.py
 │   ├── test_merge_metrics_fixes.py
 │   ├── test_merge_preview.py
-│   ├── test_parser_index_fixes.py
-│   ├── test_summarizer_queue_fixes.py
-│   ├── test_tui_fixes.py
-│   ├── test_build_graph_parmem.py
+│   ├── test_note_index_date.py
 │   ├── test_parmem_backend.py
 │   ├── test_parmem_docs.py
 │   ├── test_parmem_freshness.py
 │   ├── test_parmem_index.py
 │   ├── test_parmem_integration.py
 │   ├── test_parmem_search.py
-│   └── test_fake_parmem_fixture.py
+│   ├── test_parser_index_fixes.py
+│   ├── test_post_compact_hook.py
+│   ├── test_pre_compact_hook.py
+│   ├── test_provenance.py
+│   ├── test_sec106_symlink_containment.py
+│   ├── test_sec108_untrusted_framing.py
+│   ├── test_sec111_bounded_transcript_reads.py
+│   ├── test_sec115_merge_prompt.py
+│   ├── test_session_start_hook.py
+│   ├── test_session_stop_hook.py
+│   ├── test_stdlib_only.py             # ARC-004: enforces stdlib-only across core/ + hooks
+│   ├── test_subagent_stop_hook.py
+│   ├── test_subproc_util.py
+│   ├── test_summarize_sessions.py
+│   ├── test_summarizer_queue_fixes.py
+│   ├── test_tui_fixes.py
+│   ├── test_update_index.py
+│   ├── test_vault_common.py
+│   ├── test_vault_conflicts.py
+│   ├── test_vault_dirs_sync.py
+│   ├── test_vault_doctor.py
+│   ├── test_vault_doctor_fixes.py
+│   ├── test_vault_doctor_orchestrator.py
+│   ├── test_vault_export.py
+│   ├── test_vault_imports.py
+│   ├── test_vault_merge.py
+│   ├── test_vault_post_merge_and_gitignore.py
+│   ├── test_vault_resolver_parity.py
+│   ├── test_vault_review.py
+│   ├── test_vault_search.py
+│   ├── test_vault_search_backend.py
+│   └── test_vault_stats.py
 └── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── vault_common.py          # Re-export facade (ARC-005: implementation split into submodules below)
-    │   ├── vault_config.py          # Config loading, YAML parsing, validation (vault_common sub-module)
-    │   ├── vault_path.py            # Path resolution, vault constants, secure logging (vault_common sub-module)
-    │   ├── vault_fs.py              # File locking, pending queue, git, daily notes (vault_common sub-module)
-    │   ├── vault_index.py           # Frontmatter parsing, note search, context building (vault_common sub-module)
-    │   ├── vault_hooks.py           # Hook event logging, env helpers, transcript analysis (vault_common sub-module)
-    │   ├── vault_adaptive.py        # Per-note usefulness tracking, last-seen state (vault_common sub-module)
-    │   ├── vault_links.py           # Shared backlink module (find_related_*, inject_related_links, add_backlinks_to_existing)
+    │   ├── core/                    # ARC-004 stdlib implementations (10 modules) behind the flat shims below
+    │   │   ├── vault_config.py      # Config loading, YAML parsing, validation
+    │   │   ├── vault_constants.py   # Shared constants
+    │   │   ├── vault_path.py        # Path resolution, vault constants, secure logging
+    │   │   ├── vault_fs.py          # File locking, pending queue, git, daily notes
+    │   │   ├── vault_index.py       # Frontmatter parsing, note search, context building
+    │   │   ├── vault_hooks.py       # Hook event logging, env helpers, transcript analysis
+    │   │   ├── vault_adaptive.py    # Per-note usefulness tracking, last-seen state
+    │   │   ├── vault_links.py       # Shared backlink operations
+    │   │   ├── vault_metrics.py     # Stdlib-only data layer for vault analytics
+    │   │   └── subproc_util.py      # Shared subprocess helpers
+    │   ├── doctor/                  # ARC-008 vault_doctor implementation (15 focused submodules)
+    │   │   ├── _state.py            # Constants, data model, shared state
+    │   │   ├── check.py             # Per-note issue scanner
+    │   │   ├── cli.py               # Argparse CLI entry point
+    │   │   ├── daily.py             # Daily-note migration
+    │   │   ├── frontmatter.py       # Frontmatter repair
+    │   │   ├── graph.py             # Reindex + stale-commit hooks
+    │   │   ├── headings.py          # Heading/self-ref auto-fix
+    │   │   ├── links.py             # Broken-wikilink repair + semantic candidates
+    │   │   ├── orchestrator.py      # Scan-and-repair driver
+    │   │   ├── permissions.py       # File mode/secret-file hardening
+    │   │   ├── prefixes.py          # Redundant-prefix stripper
+    │   │   ├── protocol.py          # Fixer / FixMode protocol
+    │   │   ├── subfolder.py         # Prefix-cluster migration
+    │   │   ├── tags.py              # Tag/session dedup
+    │   │   └── worker.py            # Per-note repair worker
+    │   ├── summarizer/              # ARC-009 summarize_sessions helpers (state, queue, dedup, transcript, prompt, notes, etc.)
+    │   ├── vault_common.py          # Re-export facade over core/ (ARC-004/ARC-005)
+    │   ├── vault_config.py          # Thin shim → core/vault_config.py
+    │   ├── vault_path.py            # Thin shim → core/vault_path.py
+    │   ├── vault_fs.py              # Thin shim → core/vault_fs.py
+    │   ├── vault_index.py           # Thin shim → core/vault_index.py
+    │   ├── vault_hooks.py           # Thin shim → core/vault_hooks.py
+    │   ├── vault_adaptive.py        # Thin shim → core/vault_adaptive.py
+    │   ├── vault_links.py           # Thin shim → core/vault_links.py
+    │   ├── vault_constants.py       # Thin shim → core/vault_constants.py
+    │   ├── vault_metrics.py         # Thin shim → core/vault_metrics.py
+    │   ├── subproc_util.py          # Thin shim → core/subproc_util.py
     │   ├── vault_search.py          # Unified search CLI: semantic (QUERY), metadata (--tag/--folder/...), or body search (--grep)
     │   ├── vault_tui.py             # Interactive curses TUI (extracted from vault_search.py)
     │   ├── vault_new.py             # CLI to scaffold vault notes from templates (vault-new)
     │   ├── vault_stats.py           # Analytics CLI for vault health and activity (vault-stats)
-    │   ├── vault_metrics.py         # Stdlib-only data layer for vault analytics (ARC-007; used by vault-stats)
     │   ├── vault_export.py          # CLI to export notes as HTML or zip (vault-export)
     │   ├── vault_merge.py           # CLI to merge two vault notes (vault-merge)
     │   ├── vault_conflicts.py       # CLI to detect contradictory notes (vault-conflicts)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli)
     │   ├── parmem_backend.py        # Optional par-mem code-memory backend (availability probe + subprocess transport)
+    │   ├── agent_adapter.py         # Shared adapter registry for the codex/gemini hook shims (ARC-020)
     │   ├── html-to-md.py            # HTML → clean markdown (PEP 723; used by research agent)
     │   ├── session_start_hook.py    # SessionStart hook
     │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
@@ -1345,7 +1399,7 @@ parsidion/
     │   ├── post_compact_hook.py     # PostCompact hook (restores Pre-Compact Snapshot as additionalContext)
     │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723; semantic dedup via vault_search)
     │   ├── update_index.py          # Index generator + note_index DB upsert
-    │   ├── vault_doctor.py          # Vault note issue scanner and repair tool
+    │   ├── vault_doctor.py          # Thin re-export shim over doctor/ (ARC-008); issue scanner and repair tool
     │   ├── check_graph_coverage.py  # Graph color group coverage audit
     │   ├── run_trigger_eval.py      # Trigger accuracy eval
     │   ├── run_trigger_eval.sh      # Shell wrapper for eval (macOS/Linux)
@@ -1361,6 +1415,7 @@ parsidion/
     │   └── migrate_memory.py        # One-time migration
     └── templates/
         ├── config.yaml              # Reference config with all defaults
+        ├── prompts/                 # Reusable prompt fragments
         ├── daily.md
         ├── project.md
         ├── language.md

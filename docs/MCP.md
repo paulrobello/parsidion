@@ -114,7 +114,9 @@ graph TD
 
 The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
 
-Script paths for `rebuild_index` and `vault_doctor` use `vault_common.SCRIPTS_DIR` — a constant defined in `vault_path.py` alongside `TEMPLATES_DIR`. `SCRIPTS_DIR` resolves to `~/.claude/skills/parsidion/scripts/`; the sibling `TEMPLATES_DIR` resolves to `~/.claude/skills/parsidion/templates/`. `ops.py` imports `SCRIPTS_DIR` directly from `vault_common`. These paths hold regardless of custom vault path configuration.
+Script paths for `rebuild_index` and `vault_doctor` resolve from `vault_path.__file__` rather than the module-level `SCRIPTS_DIR` constant. `ops.py` derives its `SCRIPTS_DIR` as `Path(vault_path.__file__).resolve().parent`, so the subprocess runs the same code the MCP server imported via the editable install — not a possibly-drifted `~/.claude/skills/parsidion/scripts/` copy. On Unix this resolves to the same path because the installer symlinks `~/.claude/skills/parsidion` at the repo; on Windows (where the installer copies) the distinction matters.
+
+Every vault-touching tool also accepts an optional `vault` parameter (ARC-021) — a vault name from `~/.config/parsidion/vaults.yaml` or an absolute path — so multi-vault callers can target a specific vault instead of always hitting the resolver's default. The parameter threads through to `vault_common.resolve_vault(explicit=vault)` for the in-process tools and to a `--vault <path>` argv flag for the subprocess tools.
 
 ## Installation
 
@@ -205,6 +207,7 @@ Searches vault notes using semantic vector similarity or structured metadata fil
 | `recent_days` | `int \| None` | `None` | Only notes modified within N days |
 | `top_k` | `int` | `10` | Maximum number of results |
 | `min_score` | `float` | `0.45` | Minimum cosine similarity threshold (semantic mode only) |
+| `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
 #### Return Value
 
@@ -234,6 +237,7 @@ Reads a vault note by path and returns its full content including YAML frontmatt
 | Parameter | Type | Description |
 |---|---|---|
 | `path` | `str` | Path relative to vault root (e.g. `Patterns/my-note.md`) or absolute path |
+| `vault` | `str \| None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
 #### Return Value
 
@@ -258,6 +262,7 @@ Creates or overwrites a vault note. Parent directories are created automatically
 |---|---|---|
 | `path` | `str` | Path relative to vault root |
 | `content` | `str` | Full note content including YAML frontmatter |
+| `vault` | `str \| None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
 The tool does not validate frontmatter. The caller is responsible for supplying valid frontmatter per vault conventions. Any structural issues are detectable via `vault_doctor` on the next scan.
 
@@ -316,6 +321,7 @@ The compact index is truncated at 2000 characters with a "N more notes" indicato
 | `project` | `str \| None` | `None` | Project name to prioritise context for |
 | `recent_days` | `int` | `3` | Include notes modified within this many days |
 | `verbose` | `bool` | `False` | Return full summaries instead of compact index |
+| `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
 #### Return Value
 
@@ -346,7 +352,9 @@ Run this after creating, renaming, or deleting notes to ensure search results an
 
 #### Parameters
 
-None.
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
 #### Return Value
 
@@ -374,8 +382,9 @@ Scans all vault notes for structural issues — missing frontmatter fields, inva
 | `fix` | `bool` | `False` | When `True`, attempt repairs via Claude haiku; when `False`, scan and report only |
 | `errors_only` | `bool` | `False` | When `True`, suppress warnings and report errors only |
 | `limit` | `int \| None` | `None` | Maximum notes to repair (only relevant when `fix=True`) |
+| `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
-The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`, `--vault`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
+The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
 
 #### Return Value
 

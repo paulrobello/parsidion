@@ -196,9 +196,9 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `vault_common.py` | Re-export facade — re-exports all public symbols from the six sub-modules below; existing `import vault_common` callers continue to work unchanged |
 | `vault_config.py` | Config loading, YAML parsing, and validation (`load_config()`, `get_config()`, `validate_config()`) |
 | `vault_path.py` | Path resolution, vault constants, and secure log directory (`resolve_vault()`, `VAULT_ROOT`, `TEMPLATES_DIR`, `_VAULT_FORBIDDEN_PREFIXES`) |
-| `vault_fs.py` | File locking, pending queue, git commit, and daily notes (`flock_exclusive()`, `append_to_pending()`, `git_commit_vault()`, `today_daily_path()`) |
+| `vault_fs.py` | File locking, pending queue, git commit, daily notes, and hook event logging (`flock_exclusive()`, `append_to_pending()`, `git_commit_vault()`, `today_daily_path()`, `write_hook_event()`) |
 | `vault_index.py` | Frontmatter parsing, note search, and context building (`parse_frontmatter()`, `build_compact_index()`, `query_note_index()`, `all_vault_notes()`) |
-| `vault_hooks.py` | Hook event logging, env helpers, and transcript analysis (`write_hook_event()`, `detect_categories()`, `apply_configured_env_defaults()`) |
+| `vault_hooks.py` | Env helpers and transcript analysis (`detect_categories()`, `apply_configured_env_defaults()`, `env_without_claudecode()`); re-exports `write_hook_event()` from `vault_fs` (ARC-023) |
 | `vault_adaptive.py` | Per-note usefulness tracking and last-seen state (`load_usefulness_scores()`, `update_usefulness_scores()`, `save_injected_notes()`) |
 | `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via the configured prompt AI backend (`claude -p` or `codex exec`); `--debug` logs injected context to `$TMPDIR` |
@@ -473,8 +473,8 @@ An interactive web application for exploring and navigating the vault through du
 make visualizer-setup
 
 # Build graph data from vault embeddings
-make graph               # exclude Daily notes (recommended)
-make graph-with-daily    # include Daily folder notes
+make graph               # rebuild graph.json (Daily notes included by default)
+make graph-with-daily    # alias — Daily inclusion is the default behaviour
 
 # Start development server (port 3999)
 cd visualizer && bun dev
@@ -528,7 +528,7 @@ Replace the path with the output of `which parsidion-mcp`. See [docs/MCP.md](doc
 
 ## Configuration
 
-All hooks and the summarizer read `<resolved vault>/config.yaml`. Precedence: **defaults -> config.yaml -> CLI args** (last one wins).
+All hooks and the summarizer read `<resolved vault>/config.yaml`. Precedence: **defaults → config.yaml → config.local.yaml → CLI args** (last one wins). `config.local.yaml` is an optional, always-gitignored overlay in the same vault directory, deep-merged over `config.yaml` section-by-section.
 
 Copy the template to get started:
 ```bash
@@ -585,10 +585,12 @@ summarizer:
   model: null          # null = ai_models.<backend>.large
   max_parallel: 5          # Concurrent summarization tasks
   transcript_tail_lines: 400
+  transcript_tail_bytes: 262144  # Byte ceiling on the raw tail; bounds huge-line transcripts so chunking cannot explode
   max_cleaned_chars: 12000
   persist: false           # Legacy no-op; retained for CLI compatibility
   cluster_model: null  # null = ai_models.<backend>.small
   dedup_threshold: 0.80    # Cosine similarity above which a near-duplicate note is detected and skipped
+  dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days each run (<=0 disables)
 
 ai:
   backend: auto          # auto | claude-cli | codex-cli | none
@@ -631,6 +633,14 @@ embeddings:
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
+
+par_mem:                   # Optional par-mem code-memory backend (see docs/PAR-MEM.md)
+  enabled: true            # Probe for par-mem when available; false = never probe
+  binary: par-mem          # PATH lookup or absolute path to the par-mem CLI
+  timeout_s: 10            # Per-query subprocess timeout in seconds
+
+search:                    # Vault search backend selection (vault_search.py)
+  backend: auto            # auto | par-mem | embeddings | none
 
 git:
   auto_commit: true        # Auto-commit vault changes after writes

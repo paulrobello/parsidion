@@ -65,7 +65,8 @@ graph TB
     end
 
     subgraph "Data"
-        GJ[graph.json]
+        GJ["graph.json (streamed + ETag/304)"]
+        GraphDelta["/api/graph/delta?since="]
         API["/api/note?stem="]
         FilesAPI["/api/files"]
         HistAPI["/api/note/history"]
@@ -93,6 +94,7 @@ graph TB
     SSE -->|graph:rebuilt| App
 
     App -->|fetch on load| GJ
+    App -->|after graph:rebuilt — prefer delta, fall back to full| GraphDelta
     Read -->|fetch on open| API
     Sidebar -->|fetch on mount| FilesAPI
     API --> Vault
@@ -116,6 +118,7 @@ graph TB
     style Broadcast fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
     style Watcher fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style GJ fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    style GraphDelta fill:#1a237e,stroke:#3f51b5,stroke-width:1px,color:#ffffff
     style API fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style FilesAPI fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
     style HistAPI fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
@@ -431,13 +434,14 @@ The visualizer maintains a Server-Sent Events (SSE) connection to the Next.js se
 **Server-Side Watcher**
 - A reference-counted `chokidar` watcher is created per vault (module-level registry inside the route handler). It is shared across concurrent SSE connections for the same vault and closed only when its last subscriber disconnects.
 - The watcher ignores the standard excluded dirs (`.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`), dot-files, and anything that is not a `.md` file, and waits for writes to settle (`awaitWriteFinish`) before emitting.
-- `graph:rebuilt` events from `lib/vaultBroadcast.server.ts` (an EventEmitter) are forwarded to every subscriber — this is how clients learn that `graph.json` was regenerated.
+- `graph:rebuilt` events from `lib/vaultBroadcast.server.ts` (an EventEmitter) are forwarded to every subscriber — this is how clients learn that `graph.json` was regenerated. The broadcast carries the rebuilt vault path so subscribers scoped to a different vault can ignore it.
+- A 15-second `: keepalive` SSE comment frame keeps the connection alive behind proxies that close idle connections (e.g. nginx's default 60s `proxy_read_timeout`). The bytes reset intermediary idle timers without triggering a client-side message handler.
 
 **Live Updates (event payload)**
 - `file:created` → note appears in FileExplorer immediately (no reload)
 - `file:deleted` → note is removed from the sidebar instantly
 - `file:modified` → modified note auto-refreshes in read mode (scroll position preserved)
-- `graph:rebuilt` → clients refetch `graph.json` and reload the file list
+- `graph:rebuilt` → clients request an incremental delta from `/api/graph/delta` (falling back to a full `graph.json` refetch when the server signals no cached baseline) and reload the file list
 
 **Conflict Detection**
 - When saving a note that was modified externally, a `ConflictDialog` appears
@@ -492,7 +496,8 @@ All API routes accept an optional `vault` query parameter:
 | `POST /api/note?vault=<name>` | Save note to vault |
 | `GET /api/note/history?vault=<name>&stem=<stem>` | Git history for vault |
 | `GET /api/note/diff?vault=<name>&...` | Git diff in vault |
-| `GET /api/graph?vault=<name>` | Serve graph.json from vault root |
+| `GET /api/graph?vault=<name>` | Serve graph.json from vault root (streamed, with `ETag`/`If-None-Match` → `304`) |
+| `GET /api/graph/delta?vault=<name>&since=<timestamp>` | Incremental diff against a prior `meta.generated` baseline (ARC-015) |
 | `POST /api/graph/rebuild?vault=<name>` | Rebuild vault's graph.json |
 | `GET /api/vault/events?vault=<name>` | SSE stream of file/create/modify/delete and `graph:rebuilt` events |
 | `GET /api/vaults` | List available vaults |
@@ -585,6 +590,7 @@ Options:
   --include-daily        Include Daily folder notes (default; flag kept for backward compatibility)
   --no-daily             Exclude Daily folder notes
   --no-parmem            Skip par-mem in-body wiki-edge enrichment
+  --no-schema            Skip writing graph.schema.json alongside graph.json (ARC-038)
   --min-threshold FLOAT  Minimum cosine similarity for semantic edges (default: 0.70)
   --output PATH          Output path for graph.json (default: {vault}/graph.json)
   --vault PATH           Custom vault root path
@@ -714,8 +720,22 @@ Body: `{ path: string, content: string }`. Returns 409 (`{ error: "Note already 
 |-----------|------|----------|-------------|
 | `vault` | string | No | Vault name (from vaults.yaml) |
 
-**Response (200):** The `graph.json` file content (JSON).
+**Response (200):** The `graph.json` file content (JSON), streamed via `fs.createReadStream` rather than buffered in memory. The response carries a strong `ETag` derived from the file's mtime and size, plus `Cache-Control: no-cache` so every re-use revalidates.
+**Response (304):** Returned when the request's `If-None-Match` matches the current `ETag` — the body is empty and the client reuses its cached copy.
 **Response (404):** `graph.json` not found in the vault.
+
+**`GET /api/graph/delta?since=<timestamp>`** — Incremental graph diff (ARC-015). After a `graph:rebuilt` SSE event, clients prefer this endpoint over re-fetching the full `graph.json`. The server partitions the on-disk `graph.json` against a cached snapshot matching `since` and returns only the added/removed nodes and edges.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `since` | string | Yes | `meta.generated` timestamp of the snapshot the client currently holds (omitted → `{full: true}`) |
+| `vault` | string | No | Vault name (from vaults.yaml) |
+
+**Response (200, delta):** `{ full: false, generated, addedNodes, removedNodes, addedEdges, removedEdges }` — the client applies the patch in `lib/graph.ts:applyGraphDelta`.
+**Response (200, full sentinel):** `{ full: true, reason, generated? }` — the baseline is unknown/evicted, or the delta exceeds 40% of the prior node count (e.g. vault switch, mass rebuild). The client must fall back to `GET /api/graph`.
+**Response (404):** `graph.json` not found in the vault.
+
+The server retains up to 8 historical snapshots per vault in module scope (keyed by `generated`), so the common case — refetching after the last 1-2 rebuilds — hits the cache. A miss is correct, just suboptimal: the client does a full refetch.
 
 **`GET /api/vaults`** — List available vaults from `vaults.yaml`.
 
@@ -792,7 +812,7 @@ Both history routes path-traverse-protect with `guardPath()` (same pattern as `/
 
 ## State Management
 
-All application state is managed by the `useVisualizerState` hook (`lib/useVisualizerState.ts`) and the `useVaultFiles` hook (`lib/useVaultFiles.ts`). State is split into categories:
+All application state is managed by the `useVisualizerState` hook (`lib/useVisualizerState.ts`) and the `useVaultFiles` hook (`lib/useVaultFiles.ts`). `useVisualizerState` is a thin orchestrator (ARC-037) over three focused slices — `useVaultSelection`, `useNoteTabs`, and `useGraphControls` — composing their state into one `useMemo`-stabilized object whose public surface (~55 keys) is unchanged. State is split into categories:
 
 **Vault State**
 
@@ -961,7 +981,8 @@ parsidion/
 │   │   ├── api/files/route.ts           # Vault file tree (GET)
 │   │   ├── api/vaults/route.ts          # List available vaults (GET)
 │   │   ├── api/vault/events/route.ts    # SSE stream of file/create/modify/delete + graph:rebuilt (GET)
-│   │   ├── api/graph/route.ts           # Serve graph.json from vault (GET)
+│   │   ├── api/graph/route.ts           # Serve graph.json from vault — streamed + ETag/304 (GET)
+│   │   ├── api/graph/delta/route.ts     # Incremental graph diff vs. a prior generated timestamp (ARC-015) (GET)
 │   │   ├── api/graph/rebuild/route.ts   # Trigger graph.json rebuild (POST)
 │   │   ├── api/search/route.ts          # Semantic vault search via vault_search.py (GET)
 │   │   ├── api/stats/route.ts           # Pending-summary count for VaultStats (GET)
@@ -972,6 +993,7 @@ parsidion/
 │   │   ├── HUDPanel.tsx              # Graph controls overlay (edge color, node color/size, density, physics)
 │   │   ├── FileExplorer.tsx          # Sidebar with folder tree + right-click context menu
 │   │   ├── ReadingPane.tsx           # Markdown renderer + HISTORY toolbar button
+│   │   ├── reading-pane/             # ReadingPane sub-components (editor, markdown body, link cluster, empty state)
 │   │   ├── HistoryView.tsx           # Split-screen git history viewer
 │   │   ├── CommitList.tsx            # Scrollable commit list with FROM/TO selection
 │   │   ├── DiffViewer.tsx            # Diff renderer (unified / split / words modes)
@@ -987,13 +1009,21 @@ parsidion/
 │   │   ├── FrontmatterEditor.tsx     # Structured YAML frontmatter editor
 │   │   └── ViewToggle.tsx            # (unused) Legacy Read/Graph mode toggle — replaced by TabBar Graph tab
 │   ├── lib/
-│   │   ├── graph.ts                  # Data types and fetch helpers
-│   │   ├── useVisualizerState.ts     # Central state management hook (incl. vault, history, graph controls)
+│   │   ├── graph.ts                  # Data types and fetch helpers (incl. loadGraphDelta / applyGraphDelta for ARC-015)
+│   │   ├── types.ts                  # Shared client/server types
+│   │   ├── useVisualizerState.ts     # Central state orchestrator — thin wrapper over three slices (ARC-037)
+│   │   ├── useVaultSelection.ts      # State slice: persisted selected-vault storage
+│   │   ├── useNoteTabs.ts            # State slice: tabs, content cache, CRUD, view/sidebar/history UI
+│   │   ├── useGraphControls.ts       # State slice: threshold, source, filters, sim settings, betweenness trigger
+│   │   ├── useSigmaInstance.ts       # Sigma WebGL instance lifecycle
 │   │   ├── useVaultFiles.ts          # SSE / EventSource hook for real-time vault sync
 │   │   ├── useForceLayout.ts         # Custom Newtonian physics loop (gravity + repulsion + edge attraction + damping)
 │   │   ├── useForceLayout.test.ts    # Unit tests for the physics loop
 │   │   ├── useGraphReducers.ts       # Sigma node/edge reducers and neighborhood computation
 │   │   ├── useFocusTrap.ts           # Focus-trap hook used by accessible modal dialogs
+│   │   ├── betweenness.ts            # Brandes algorithm for betweenness-centrality node sizing
+│   │   ├── findNote.ts               # Shared async note lookup by stem/path (used by note CRUD + history + diff)
+│   │   ├── runScript.ts              # Shared subprocess wrapper (timeout, abort-on-client-disconnect, capped stderr)
 │   │   ├── vaultFile.ts              # VaultFile type (shared client/server)
 │   │   ├── vaultResolver.ts          # Multi-vault path resolution (server-side, with forbidden-prefix guard)
 │   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side graph:rebuilt events
