@@ -33,6 +33,7 @@ from core.vault_index import (  # noqa: F401 -- full-surface re-export
     _split_list_items,
     _walk_vault_notes,
     all_vault_notes,
+    all_vault_notes_walk,
     annotations,
     build_compact_index,
     build_context_block,

@@ -257,7 +257,7 @@ def _find_note(query: str, vault_path: Path) -> Path | None:
 
     # Stem search across all vault notes
     query_lower = query.lower().removesuffix(".md")
-    for path in vault_common.all_vault_notes(vault=vault_path):
+    for path in vault_common.all_vault_notes_walk(vault=vault_path):
         if path.stem.lower() == query_lower:
             return path
     return None
@@ -635,7 +635,7 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
             return suffix[1:]
         return old_stem
 
-    for path in vault_common.all_vault_notes(vault=vault_path):
+    for path in vault_common.all_vault_notes_walk(vault=vault_path):
         try:
             content = path.read_text(encoding="utf-8")
         except OSError as exc:

@@ -260,8 +260,8 @@ def _build_index(tmp_vault: Path) -> None:
     persistence is ``main()``'s job (``_write_note_index_to_db`` at
     update_index.py:952). Mirror that here so the differential tests exercise
     the real writer, with rows that match exactly what ``_walk_vault_notes``
-    discovers (build_index walks via ``all_vault_notes``, which stays
-    walk-based).
+    discovers (build_index walks via ``all_vault_notes_walk``, the
+    authoritative enumeration that never reads the DB it is populating).
     """
     db_path = vault_common.get_embeddings_db_path(tmp_vault)
     if not db_path.exists():
@@ -353,16 +353,48 @@ class TestNoteIndexDbFirst:
             f"db-only={db_result - walk_result} walk-only={walk_result - db_result}"
         )
 
-    def test_all_vault_notes_stays_walk_based(self, tmp_vault: Path) -> None:
-        """ENH-004 deviation: all_vault_notes is deliberately walk-based
-        because the index builders (update_index.py, build_embeddings.py) use
-        it to enumerate the tree they are indexing -- a DB-first impl would
-        read the empty/stale index it is building (circular dependency).
-        Assert it returns notes the DB has not indexed yet, via the walk."""
+    def test_all_vault_notes_db_first_matches_walk_on_current_index(
+        self, tmp_vault: Path
+    ) -> None:
+        """Follow-up to ENH-004: all_vault_notes is now DB-first. On a current
+        index it returns the same SET of notes as the authoritative walk."""
         _seed_vault(tmp_vault)
-        # No _build_index -- the DB is absent. all_vault_notes must still
-        # surface every on-disk note via the walk (this is what builders rely
-        # on during a fresh index build).
+        _build_index(tmp_vault)
+        db_result = set(vault_index.all_vault_notes(tmp_vault))
+        walk_result = set(vault_index.all_vault_notes_walk(tmp_vault))
+        assert db_result == walk_result, (
+            "all_vault_notes diverged from all_vault_notes_walk: "
+            f"db-only={db_result - walk_result} walk-only={walk_result - db_result}"
+        )
+
+    def test_all_vault_notes_walk_is_always_authoritative(
+        self, tmp_vault: Path
+    ) -> None:
+        """all_vault_notes_walk never reads the DB, so it sees notes a stale
+        index misses -- this is why mutation paths (doctor/merge/export) and the
+        index builders use it instead of the DB-first all_vault_notes."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        new_note = tmp_vault / "Patterns" / "walk-only-pattern.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+            mtime=time.time() + 3600,
+        )
+        # DB-first all_vault_notes misses the just-added note (stale index).
+        assert new_note not in set(vault_index.all_vault_notes(tmp_vault))
+        # The authoritative walk sees it.
+        assert new_note in set(vault_index.all_vault_notes_walk(tmp_vault))
+
+    def test_all_vault_notes_falls_back_to_walk_without_db(
+        self, tmp_vault: Path
+    ) -> None:
+        """With embeddings.db absent, all_vault_notes walks -- the fallback the
+        index builders rely on during a fresh build, before any DB exists."""
+        _seed_vault(tmp_vault)
+        # No _build_index -> no embeddings.db.
         walked = set(vault_index.all_vault_notes(tmp_vault))
         assert walked == {
             tmp_vault / "Patterns" / "python-deco.md",

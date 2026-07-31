@@ -315,7 +315,7 @@ def find_subfolder_candidates(
         (prefix, [note_paths]) tuples — one per qualifying prefix group.
     """
     by_folder: dict[Path, list[Path]] = {}
-    for note in vault_common.all_vault_notes(vault_root):
+    for note in vault_common.all_vault_notes_walk(vault_root):
         rel = note.relative_to(vault_root)
         parts = rel.parts
         # Only flat notes (depth 2: folder/note.md) — skip subfolders and root
@@ -443,7 +443,7 @@ def run_migrate_subfolders(
         return
 
     # --- Execute migrations ---
-    all_notes = list(vault_common.all_vault_notes(vault_root))
+    all_notes = list(vault_common.all_vault_notes_walk(vault_root))
     total_moved = 0
     for folder_rel, groups in sorted(candidates.items()):
         folder = vault_root / folder_rel

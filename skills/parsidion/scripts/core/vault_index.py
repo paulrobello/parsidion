@@ -48,6 +48,7 @@ __all__: list[str] = [
     "find_notes_by_type",
     "find_recent_notes",
     "all_vault_notes",
+    "all_vault_notes_walk",
     "read_note_summary",
     # Context building
     "build_context_block",
@@ -735,17 +736,38 @@ def read_note_summary(path: Path, max_lines: int = 5) -> str:
 
 
 def all_vault_notes(vault: Path | None = None) -> list[Path]:
-    """Return all ``.md`` files in the vault, excluding ``EXCLUDE_DIRS``, ``CLAUDE.md``, ``TAGS.md``, and ``MANIFEST.md``.
+    """Return all ``.md`` files in the vault (excluding ``EXCLUDE_DIRS``, ``CLAUDE.md``, ``TAGS.md``, ``MANIFEST.md``).
 
-    Deliberately walk-based (ENH-004 deviation -- see below): this is the
-    enumeration primitive the index builders use to discover notes
-    (``update_index.py`` and ``build_embeddings.py`` call it to walk the tree
-    they are about to index). A DB-first ``all_vault_notes`` would read the
-    empty/stale index it is being asked to (re)build -- a circular dependency
-    that produces zero rows on a fresh build. The DB-first optimisation lives
-    on the four ``find_notes_by_*`` metadata queries instead, which are pure
-    reads and the actual hot path. Convert this to DB-first only after the
-    index builders are moved onto ``_walk_vault_notes`` directly.
+    DB-first (follow-up to ENH-004): reads ``note_index`` when available and
+    falls back to the filesystem walk otherwise. ``note_index`` and
+    ``note_embeddings`` share ``embeddings.db``, so callers that already depend
+    on embeddings being current gain no new staleness from this.
+
+    Callers that require the AUTHORITATIVE current filesystem set -- index
+    builders (``update_index.py``, ``build_embeddings.py``) and mutation paths
+    (``doctor/*``, ``vault_merge``, ``vault_export``, backlink validation in
+    ``vault_links``) -- must call :func:`all_vault_notes_walk` instead: a stale
+    index must never silently change what those operations see. The escape
+    hatch is ``search.use_note_index: false`` in config (forces the walk).
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(vault=vault, limit=_FIND_ALL_LIMIT)
+        if result is not None:
+            return result
+    return _walk_vault_notes(vault)
+
+
+def all_vault_notes_walk(vault: Path | None = None) -> list[Path]:
+    """Authoritative filesystem enumeration of every vault note.
+
+    Always walks the tree -- never reads ``note_index``. Use this wherever the
+    caller makes a write/mutation decision based on the note set, or is itself
+    populating the index (a stale DB view would be a silent bug there). For
+    pure read/display callers that already tolerate index staleness on par
+    with ``find_notes_by_*``, prefer :func:`all_vault_notes`.
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().

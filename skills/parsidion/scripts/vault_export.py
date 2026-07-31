@@ -57,7 +57,7 @@ def _collect_notes(
 
     # Fallback: walk all vault notes and filter by frontmatter
     candidates: list[Path] = []
-    for path in vault_common.all_vault_notes(vault=vault_path):
+    for path in vault_common.all_vault_notes_walk(vault=vault_path):
         # Folder filter
         if folder is not None:
             rel = path.relative_to(vault_path)

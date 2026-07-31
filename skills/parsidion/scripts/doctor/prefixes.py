@@ -65,7 +65,7 @@ def run_strip_prefixes(
     """
     if vault_path is None:
         vault_path = _active_vault()
-    all_notes = list(vault_common.all_vault_notes(vault_path))
+    all_notes = list(vault_common.all_vault_notes_walk(vault_path))
     pairs = _find_redundant_prefixes(all_notes, vault_path)
 
     if not pairs:
@@ -113,7 +113,7 @@ def run_strip_prefixes(
 
     # Patch wikilinks vault-wide (including in the renamed files)
     patched_notes = 0
-    current_notes = list(vault_common.all_vault_notes(vault_path))
+    current_notes = list(vault_common.all_vault_notes_walk(vault_path))
     for note in current_notes:
         try:
             content = note.read_text(encoding="utf-8")

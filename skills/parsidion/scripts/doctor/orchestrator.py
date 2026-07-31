@@ -107,7 +107,7 @@ def _apply_prefix_clusters(
     )
     print()
     # Refresh after moves
-    all_notes = list(vault_common.all_vault_notes(vault))
+    all_notes = list(vault_common.all_vault_notes_walk(vault))
     note_map = build_note_map(all_notes)
     all_filtered = [
         p
@@ -344,7 +344,7 @@ def run_scan_and_repair(
         target_notes = [Path(n).resolve() for n in notes]
         explicit = True
     else:
-        target_notes = list(vault_common.all_vault_notes(vault))
+        target_notes = list(vault_common.all_vault_notes_walk(vault))
         explicit = False
 
     # Always skip auto-generated files (rebuilt by update_index.py, never doctor-repaired).
@@ -367,7 +367,7 @@ def run_scan_and_repair(
         skipped_by_state = 0
 
     # Build note map once for wikilink resolution
-    all_notes = list(vault_common.all_vault_notes(vault))
+    all_notes = list(vault_common.all_vault_notes_walk(vault))
     note_map = build_note_map(all_notes)
 
     # ── Prefix cluster detection and fixing ──────────────────────────────────

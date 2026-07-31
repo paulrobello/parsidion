@@ -194,7 +194,7 @@ def strip_unresolved_wikilinks(content: str, vault: Path) -> tuple[str, int]:
     Returns:
         ``(new_content, removed_count)``.
     """
-    valid = {p.stem.lower() for p in vault_common.all_vault_notes(vault)}
+    valid = {p.stem.lower() for p in vault_common.all_vault_notes_walk(vault)}
 
     def _resolves(target: str) -> bool:
         t = target.split("|")[0].split("#")[0].strip().split("/")[-1].lower()
@@ -259,7 +259,7 @@ def find_related_by_tags(
         new_tags: Tags from the new note's frontmatter.
         max_links: Maximum number of related note wikilinks to return.
         vault_notes: Pre-collected list of vault note paths.  When ``None``
-            (default), calls ``vault_common.all_vault_notes()``.  Callers
+            (default), calls ``vault_common.all_vault_notes_walk()``.  Callers
             that already have the list should pass it to avoid a redundant
             vault walk.  See ARC-010.
         vault: Optional vault path. Defaults to resolve_vault().
@@ -274,7 +274,9 @@ def find_related_by_tags(
     new_tag_set = set(new_tags)
     candidates: list[tuple[int, Path]] = []
     notes = (
-        vault_notes if vault_notes is not None else vault_common.all_vault_notes(vault)
+        vault_notes
+        if vault_notes is not None
+        else vault_common.all_vault_notes_walk(vault)
     )
 
     for note_path in notes:
@@ -509,7 +511,7 @@ def add_backlinks_to_existing(
         new_note_path: Path to the newly written note.
         related_notes: List of ``"[[stem]]"`` wikilinks for existing notes.
         vault_notes: Pre-collected list of vault note paths.  When ``None``
-            (default), calls ``vault_common.all_vault_notes()``.  Callers
+            (default), calls ``vault_common.all_vault_notes_walk()``.  Callers
             that already have the list should pass it to avoid a redundant
             vault walk.  See ARC-010.
         vault: Optional vault path. Defaults to resolve_vault().
@@ -522,7 +524,9 @@ def add_backlinks_to_existing(
 
     # Build a stem -> path index from all vault notes once
     notes = (
-        vault_notes if vault_notes is not None else vault_common.all_vault_notes(vault)
+        vault_notes
+        if vault_notes is not None
+        else vault_common.all_vault_notes_walk(vault)
     )
     stem_index: dict[str, Path] = {}
     for note_path in notes:

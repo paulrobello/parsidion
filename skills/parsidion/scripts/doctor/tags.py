@@ -457,7 +457,7 @@ def run_fix_sessions(vault_path: Path | None = None) -> None:
     if vault_path is None:
         vault_path = _active_vault()
 
-    notes = vault_common.all_vault_notes(vault=vault_path)
+    notes = vault_common.all_vault_notes_walk(vault=vault_path)
     duplicates = _find_session_duplicates(notes)
 
     if not duplicates:
@@ -490,7 +490,7 @@ def run_fix_tags(
     """
     if vault_path is None:
         vault_path = _active_vault()
-    all_notes = list(vault_common.all_vault_notes(vault_path))
+    all_notes = list(vault_common.all_vault_notes_walk(vault_path))
 
     # Step 1: Normalize underscores → hyphens in tags and project fields
     underscore_fixed = _normalize_underscores_in_frontmatter(

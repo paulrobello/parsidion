@@ -294,7 +294,7 @@ def dedup_related_links(dry_run: bool = False, vault_path: Path | None = None) -
     related_re = re.compile(r"^(related:\s*)(\[.*?\])\s*$", re.MULTILINE)
     entry_re = re.compile(r'"(\[\[[^\]]+\]\])"')
 
-    for note_path in vault_common.all_vault_notes(vault_path):
+    for note_path in vault_common.all_vault_notes_walk(vault_path):
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):

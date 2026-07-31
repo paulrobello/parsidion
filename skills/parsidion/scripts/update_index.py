@@ -23,7 +23,7 @@ from typing import NamedTuple
 
 from vault_common import (
     VAULT_ROOT,
-    all_vault_notes,
+    all_vault_notes_walk,
     ensure_vault_dirs,
     extract_title,
     get_body,
@@ -443,7 +443,7 @@ def build_index(
         tag_counter is the Counter[str] used to build TAGS.md separately.
     """
     ensure_vault_dirs(vault=vault)
-    notes: list[Path] = all_vault_notes()
+    notes: list[Path] = all_vault_notes_walk()
 
     now: datetime = datetime.now()
     now_str: str = now.strftime("%Y-%m-%d %H:%M")

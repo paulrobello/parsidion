@@ -246,7 +246,7 @@ def _collect_notes() -> list[tuple[Path, str, str]]:
         List of (note_path, stem, embed_text) tuples.
     """
     results: list[tuple[Path, str, str]] = []
-    for note_path in vault_common.all_vault_notes():
+    for note_path in vault_common.all_vault_notes_walk():
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -311,7 +311,7 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
     conn = open_db(db_path)
     stored = get_stored_mtimes(conn)
 
-    current_notes = vault_common.all_vault_notes()
+    current_notes = vault_common.all_vault_notes_walk()
     current_stems = {n.stem for n in current_notes}
 
     # Deleted notes
