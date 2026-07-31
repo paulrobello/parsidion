@@ -31,6 +31,8 @@ from installer.paths import (
 )
 from installer.ui import _confirm, _err, _ok, _print, _step, _warn
 
+import agent_adapter  # ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)
+
 # ---------------------------------------------------------------------------
 # Atomic-write + flock helpers (SEC-105 / ARC-018)
 # ---------------------------------------------------------------------------
@@ -547,25 +549,104 @@ def merge_codex_hooks(
     _merge_runtime_hooks(_CODEX_HOOK_SPEC, codex_home, claude_dir, dry_run, verbose)
 
 
-def remove_codex_hooks(
-    codex_home: Path,
+# ---------------------------------------------------------------------------
+# Generic runtime-hook core (ENH-006)
+# ---------------------------------------------------------------------------
+# Adapter-driven equivalents of the per-runtime helpers above. The remove side
+# collapses onto ``remove_runtime_hooks``; the merge side follows in phase 3.
+
+
+def _adapter(name: str) -> agent_adapter.AgentAdapter:
+    """Look up a built-in adapter (always registered at agent_adapter import)."""
+    adapter = agent_adapter.get(name)
+    if adapter is None:
+        raise RuntimeError(f"built-in adapter {name!r} is not registered")
+    return adapter
+
+
+def _runtime_hooks_file(
+    adapter: agent_adapter.AgentAdapter, runtime_home: Path
+) -> Path:
+    """Resolve a runtime's hook-config file from its home dir + adapter filename."""
+    if adapter.hooks_config_filename is None:
+        raise ValueError(f"adapter {adapter.name!r} has no hook config file")
+    return runtime_home / adapter.hooks_config_filename
+
+
+def _read_runtime_hooks(
+    adapter: agent_adapter.AgentAdapter, hooks_file: Path
+) -> dict | None:
+    """Read + validate a runtime hook config; None when unsafe to edit.
+
+    Ensures a ``hooks`` sub-dict exists (matching the codex/gemini readers).
+    """
+    label = adapter.display_name or adapter.name
+    if not hooks_file.exists():
+        return {"hooks": {}}
+    try:
+        data = json.loads(hooks_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read {hooks_file}: {exc}; skipping {label} hook update")
+        return None
+    if not isinstance(data, dict):
+        _warn(f"{hooks_file} is not a JSON object; skipping {label} hook update")
+        return None
+    hooks_section = data.setdefault("hooks", {})
+    if not isinstance(hooks_section, dict):
+        _warn(
+            f"{hooks_file} has non-object hooks section; skipping {label} hook update"
+        )
+        return None
+    return data
+
+
+def _build_managed_command(
+    adapter: agent_adapter.AgentAdapter, claude_dir: Path, event: str
+) -> str:
+    """Build the managed hook command for (adapter, event).
+
+    ``.sh`` scripts run directly; Python via ``uv run --no-project`` — identical
+    to the per-runtime ``_managed_*_hook_command`` builders.
+    """
+    script = adapter.event_scripts[event]
+    script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
+    try:
+        rel = script_path.relative_to(Path.home())
+        display = f"~/{rel.as_posix()}"
+    except ValueError:
+        display = script_path.as_posix()
+    if script.endswith(".sh"):
+        return display
+    return f"uv run --no-project {display}"
+
+
+def remove_runtime_hooks(
+    adapter: agent_adapter.AgentAdapter,
+    runtime_home: Path,
     claude_dir: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Remove only Parsidion-managed Codex hook commands from hooks.json."""
-    hooks_file = _codex_hooks_file(codex_home)
+    """Remove Parsidion-managed hook commands for *adapter* from its config.
+
+    Generic collapse of remove_codex_hooks / remove_gemini_hooks /
+    remove_installed_hooks — identical behaviour, driven by the adapter's config
+    filename, event scripts, and managed-command builder.
+    """
+    if adapter.hooks_config_filename is None:
+        return False  # extension-only runtimes (e.g. pi) have no hook config
+    label = adapter.display_name or adapter.name
+    hooks_file = _runtime_hooks_file(adapter, runtime_home)
     with _file_lock(hooks_file):
-        hooks = _read_codex_hooks(hooks_file)
-        if hooks is None:
+        data = _read_runtime_hooks(adapter, hooks_file)
+        if data is None:
             return False
         if not hooks_file.exists():
-            _warn(f"Codex hooks.json not found: {hooks_file}")
+            _warn(f"{label} {adapter.hooks_config_filename} not found: {hooks_file}")
             return False
-
-        hooks_section: dict = hooks["hooks"]
+        hooks_section: dict = data["hooks"]
         changed = False
-        for event in _CODEX_HOOK_SCRIPTS:
-            command = _managed_codex_hook_command(claude_dir, event)
+        for event in adapter.event_scripts:
+            command = _build_managed_command(adapter, claude_dir, event)
             event_hooks = hooks_section.get(event, [])
             if not isinstance(event_hooks, list):
                 continue
@@ -574,23 +655,33 @@ def remove_codex_hooks(
                 lambda hook, command=command: hook.get("command", "") == command,
             )
             if event_changed:
-                _step(f"Remove Codex hook {bold(event)}", dry_run=dry_run)
+                _step(f"Remove {label} hook {bold(event)}", dry_run=dry_run)
                 changed = True
                 if filtered:
                     hooks_section[event] = filtered
                 elif event in hooks_section:
                     del hooks_section[event]
-
         if changed and not dry_run:
             try:
-                _atomic_write_json(hooks_file, hooks)
+                _atomic_write_json(hooks_file, data)
                 _ok(f"Updated {hooks_file}")
             except OSError as exc:
                 _err(f"Could not write {hooks_file}: {exc}")
         elif not changed:
-            _warn("No Parsidion Codex hook registrations found.")
-
+            _warn(f"No Parsidion {label} hook registrations found.")
         return changed
+
+
+def remove_codex_hooks(
+    codex_home: Path,
+    claude_dir: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Remove only Parsidion-managed Codex hook commands from hooks.json.
+
+    Thin wrapper over the shared ``remove_runtime_hooks`` core (ENH-006).
+    """
+    return remove_runtime_hooks(_adapter("codex"), codex_home, claude_dir, dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -630,45 +721,11 @@ def remove_gemini_hooks(
     claude_dir: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Remove only Parsidion-managed Gemini hook commands from settings.json."""
-    settings_file = _gemini_settings_file(gemini_home)
-    with _file_lock(settings_file):
-        settings = _read_gemini_settings(settings_file)
-        if settings is None:
-            return False
-        if not settings_file.exists():
-            _warn(f"Gemini settings.json not found: {settings_file}")
-            return False
+    """Remove only Parsidion-managed Gemini hook commands from settings.json.
 
-        hooks_section: dict = settings["hooks"]
-        changed = False
-        for event in _GEMINI_HOOK_SCRIPTS:
-            command = _managed_gemini_hook_command(claude_dir, event)
-            event_hooks = hooks_section.get(event, [])
-            if not isinstance(event_hooks, list):
-                continue
-            filtered, event_changed = _filter_hook_entries(
-                event_hooks,
-                lambda hook, command=command: hook.get("command", "") == command,
-            )
-            if event_changed:
-                _step(f"Remove Gemini hook {bold(event)}", dry_run=dry_run)
-                changed = True
-                if filtered:
-                    hooks_section[event] = filtered
-                elif event in hooks_section:
-                    del hooks_section[event]
-
-        if changed and not dry_run:
-            try:
-                _atomic_write_json(settings_file, settings)
-                _ok(f"Updated {settings_file}")
-            except OSError as exc:
-                _err(f"Could not write {settings_file}: {exc}")
-        elif not changed:
-            _warn("No Parsidion Gemini hook registrations found.")
-
-        return changed
+    Thin wrapper over the shared ``remove_runtime_hooks`` core (ENH-006).
+    """
+    return remove_runtime_hooks(_adapter("gemini"), gemini_home, claude_dir, dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -976,47 +1033,12 @@ def remove_installed_hooks(
 ) -> bool:
     """Remove only Parsidion-managed hook registrations from settings.json.
 
+    Thin wrapper over the shared ``remove_runtime_hooks`` core (ENH-006).
     Returns True when at least one managed hook registration was found.
     """
-    with _file_lock(settings_file):
-        if not settings_file.exists():
-            _warn(f"settings.json not found: {settings_file}")
-            return False
-
-        try:
-            settings = json.loads(settings_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            _warn(f"Could not read settings.json: {exc}")
-            return False
-
-        hooks_section: dict = settings.get("hooks", {})
-        changed = False
-
-        for event, _script_name in _HOOK_SCRIPTS.items():
-            command = _hook_command(claude_dir, event)
-            event_hooks: list[dict] = hooks_section.get(event, [])
-            filtered, event_changed = _filter_hook_entries(
-                event_hooks,
-                lambda hook, command=command: hook.get("command", "") == command,
-            )
-            if event_changed:
-                _step(f"Remove hook {bold(event)}", dry_run=dry_run)
-                changed = True
-                if filtered:
-                    hooks_section[event] = filtered
-                elif event in hooks_section:
-                    del hooks_section[event]
-
-        if changed and not dry_run:
-            try:
-                _atomic_write_json(settings_file, settings)
-                _ok(f"Updated {settings_file}")
-            except OSError as exc:
-                _err(f"Could not write {settings_file}: {exc}")
-        elif not changed:
-            _warn("No Parsidion hook registrations found.")
-
-        return changed
+    return remove_runtime_hooks(
+        _adapter("claude"), settings_file.parent, claude_dir, dry_run
+    )
 
 
 def remove_legacy_hooks(
