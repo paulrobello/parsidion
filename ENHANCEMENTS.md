@@ -1,8 +1,9 @@
 # Enhancement Backlog
 
 > **What this file is.** A standing, prioritized list of *opportunities* — performance, capability, and
-> developer-experience work that goes beyond fixing defects. Audit defects live in `AUDIT.md` and are
-> remediated by `/fix-audit`, which deliberately ignores this file.
+> developer-experience work that goes beyond fixing defects. The 2026-07-28 audit was fully remediated and
+> its tracking files removed; re-run `/audit` to generate a fresh `AUDIT.md` baseline. `/fix-audit`
+> deliberately ignores this file.
 >
 > **Who works it.** `/enhancement-all` picks up the unchecked items, hands each one's plan to an Opus 5
 > subagent, gates on the project's own verification, and only then ticks the box.

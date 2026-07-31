@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-30
+
 ### Security
 - **Next.js 16.2.10 → 16.2.11** (`8e5d549`) — visualizer dependency bump tracking the upstream security release.
 - **Audit remediation (SEC-101…132)** — closed a remote-code-execution path in the vault git `post-merge` hook (`--no-project` now on every `uv run`; stale `parsidion-cc` hooks now regenerate instead of being skipped); made the visualizer no longer expose unauthenticated vault read/write to the LAN (token enforced on every route, server bound to loopback); reverted the shipped config template's default AI endpoint to Anthropic (was a third-party gateway); and hardened `~/.claude/settings.json` handling (bail on parse error instead of reset-to-`{}`; atomic write + `.bak`), vault `.gitignore` (globs so `.bak`/`conflicts/` are covered), filesystem permissions (0600 on the queue/logs/configs, 0700 on the vault root + logs dir), injected-note untrusted-content framing, subprocess argv/`codex_cli` injection guards, symlink-escape prevention in vault walks, and ~15 lower-severity items. The shipped config template no longer routes nightly summarization to a third-party endpoint.
@@ -719,7 +721,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/paulrobello/parsidion/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/paulrobello/parsidion/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/paulrobello/parsidion/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/paulrobello/parsidion/compare/v0.12.0...v0.12.1

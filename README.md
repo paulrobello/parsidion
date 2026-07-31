@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.13.0:** optional [par-mem](docs/PAR-MEM.md) code-memory search backend — vault semantic search can be served by a local Rust daemon (hybrid BM25+vector+graph) with byte-for-byte identical behavior when par-mem is absent, plus a `code_search` MCP tool and visualizer semantic vault search (`?` prefix) with a Linked Notes panel. **Note:** par-mem itself is not yet publicly released (coming soon); the integration is ready in parsidion and activates once it ships, and parsidion works fully without it in the meantime. Queue-hygiene fixes bound huge-line transcripts by bytes, strip dangling wikilinks, defer in-flight sessions, and add configurable dead-letter retention. 0.12.2 salvaged notes the model emitted with empty/absent `tags` so dense audit/review transcripts stop dead-lettering. See the [Changelog](CHANGELOG.md).
+> **New in 0.14.0:** a full security & architecture audit (SEC-101…132, ARC-001…048, QA-001…022, DOC-001…040) has been remediated — the vault git `post-merge` hook remote-code-execution path is closed, the visualizer no longer exposes unauthenticated vault read/write to the LAN (token enforced on every route, server bound to loopback), the shipped config template no longer routes nightly summarization to a third-party endpoint, `~/.claude/settings.json` is now written atomically with a backup, and `disconnect codex|gemini` no longer tears down shared infrastructure. Plus a stdlib-only `scripts/core/` package, ~170 new tests (Python 840→1010, visualizer 60→226), and ~40 documentation corrections. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -1078,7 +1078,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.13.0** (optional par-mem code-memory search backend + `code_search` MCP tool + visualizer semantic search, with summarizer queue-hygiene fixes). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.14.0** (full security & architecture audit remediation — vault `post-merge` RCE closed, visualizer loopback bind + per-route token auth, reverted config-template endpoint, atomic `settings.json` writes, `disconnect` preserves shared infrastructure, stdlib `scripts/core/` package, ~170 new tests). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
