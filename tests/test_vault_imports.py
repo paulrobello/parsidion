@@ -31,7 +31,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPTS_DIR = _REPO_ROOT / "skills" / "parsidion" / "scripts"
 
-_VAULT_FS = _SCRIPTS_DIR / "vault_fs.py"
+_VAULT_FS = _SCRIPTS_DIR / "core" / "vault_fs.py"
 _VAULT_SEARCH = _SCRIPTS_DIR / "vault_search.py"
 _VAULT_TUI = _SCRIPTS_DIR / "vault_tui.py"
 
@@ -74,7 +74,9 @@ class TestArc023Cycle1:
         If someone adds ``import vault_fs`` here the cycle comes straight
         back.
         """
-        imports = _top_level_imported_modules(_SCRIPTS_DIR / "vault_constants.py")
+        imports = _top_level_imported_modules(
+            _SCRIPTS_DIR / "core" / "vault_constants.py"
+        )
         vault_imports = {m for m in imports if m.startswith("vault_")}
         assert vault_imports == set(), (
             f"vault_constants.py must be a leaf but top-level imports: {vault_imports}"
@@ -116,9 +118,9 @@ class TestArc023Cycle1:
         function-body lazy import.
         """
         src = _VAULT_FS.read_text(encoding="utf-8")
-        assert "from vault_constants import TRANSCRIPT_CATEGORY_LABELS" in src, (
-            "vault_fs.py should top-level-import TRANSCRIPT_CATEGORY_LABELS "
-            "from vault_constants (ARC-023 cycle 1)"
+        assert "from .vault_constants import TRANSCRIPT_CATEGORY_LABELS" in src, (
+            "core/vault_fs.py should top-level-import TRANSCRIPT_CATEGORY_LABELS "
+            "from .vault_constants (ARC-023 cycle 1, ARC-004 moved vault_fs to core/)"
         )
         # The old lazy import inside append_session_to_daily must be gone.
         assert "from vault_hooks import TRANSCRIPT_CATEGORY_LABELS" not in src, (

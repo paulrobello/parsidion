@@ -60,6 +60,21 @@ py-modules = [
     "vault_hooks",
     "vault_adaptive",
     "ai_backend",
+    # ARC-004: these are now stdlib-only re-export shims over core/; they must
+    # ship so a clean wheel install can import them (subproc_util is imported by
+    # ai_backend/parmem_backend; vault_constants by vault_fs/vault_hooks).
+    "subproc_util",
+    "vault_constants",
+]
+
+# Subpackages under skills/parsidion/scripts/ — declared explicitly so a wheel
+# build ships them (the flat top-level modules remain in py-modules above).
+# ARC-004: core/ is the stdlib-only library package; doctor/ and summarizer/
+# pre-date it (ARC-008/009).
+packages = [
+    "core",
+    "doctor",
+    "summarizer",
 ]
 
 [tool.setuptools.package-dir]
