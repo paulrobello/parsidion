@@ -748,6 +748,7 @@ def merge_hooks(
     once per install instead of twice via two independent RMWs (the former
     ``enable_ai_mode`` helper did its own read/write).
     """
+    claude = _adapter("claude")
     with _file_lock(settings_file):
         pre_existing = settings_file.exists()
         original_bytes: bytes | None = None
@@ -776,8 +777,8 @@ def merge_hooks(
         added: list[str] = []
         skipped: list[str] = []
 
-        for event, _script_name in _HOOK_SCRIPTS.items():
-            command = _hook_command(claude_dir, event)
+        for event in claude.event_scripts:
+            command = _build_managed_command(claude, claude_dir, event)
             event_hooks: list[dict] = hooks_section.setdefault(event, [])
             desired_options = _HOOK_OPTIONS.get(event, {})
             # ARC-025: when AI mode is enabled, the SessionStart handler needs
