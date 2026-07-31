@@ -57,6 +57,15 @@ GRAPH_JSON_SCHEMA: dict = {
                     "minimum": 0,
                     "maximum": 1,
                 },
+                "max_neighbors": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "Maximum semantic edges kept per note, strongest first "
+                        "(ENH-001). 0 disables the cap and emits every pair "
+                        "above min_semantic_threshold."
+                    ),
+                },
                 "parmem_body_links": {
                     "type": "integer",
                     "minimum": 0,
@@ -137,6 +146,16 @@ def parse_args() -> argparse.Namespace:
         default=0.70,
         metavar="FLOAT",
         help="Minimum cosine similarity threshold for semantic edges (default: 0.70)",
+    )
+    parser.add_argument(
+        "--max-neighbors",
+        type=int,
+        default=15,
+        metavar="INT",
+        help=(
+            "Maximum semantic edges kept per note, strongest first (default: 15). "
+            "Pass 0 to disable the cap and emit every pair above --min-threshold."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -264,32 +283,54 @@ def build_semantic_edges(
     stems: list[str],
     embeddings_matrix: np.ndarray,
     min_threshold: float,
+    max_neighbors: int = 15,
 ) -> list[dict]:
-    """Compute pairwise cosine similarity and return edges above threshold."""
+    """Semantic edges: each note keeps its strongest ``max_neighbors`` neighbours.
+
+    A fixed similarity floor alone produces a degree distribution that scales
+    with topical density, so densely-clustered note types dominate the edge
+    count while sparse notes stay under-connected. Capping per node keeps both
+    ends sane. Edges are undirected; a pair selected by either endpoint is
+    kept once.
+    """
     # L2-normalize each row
     norms = np.linalg.norm(embeddings_matrix, axis=1, keepdims=True)
     # Avoid division by zero
     norms = np.where(norms == 0, 1.0, norms)
     normalized = embeddings_matrix / norms
 
+    n = len(stems)
+    if n == 0:
+        return []
+
     # Compute full similarity matrix
     sim = normalized @ normalized.T  # shape (N, N)
+    np.fill_diagonal(sim, -1.0)  # never select self
 
-    n = len(stems)
-    edges = []
-    # Extract upper triangle (i < j)
+    if max_neighbors <= 0 or max_neighbors >= n:
+        candidate_cols = [np.arange(n)] * n
+    else:
+        # argpartition is O(n) per row vs O(n log n) for a full sort.
+        top_idx = np.argpartition(-sim, max_neighbors - 1, axis=1)[:, :max_neighbors]
+        candidate_cols = list(top_idx)
+
+    seen: set[tuple[int, int]] = set()
+    edges: list[dict] = []
     for i in range(n):
-        for j in range(i + 1, n):
+        for j in candidate_cols[i]:
+            j = int(j)
+            if j == i:
+                continue
             w = float(sim[i, j])
-            if w >= min_threshold:
-                edges.append(
-                    {
-                        "s": stems[i],
-                        "t": stems[j],
-                        "w": round(w, 4),
-                        "kind": "semantic",
-                    }
-                )
+            if w < min_threshold:
+                continue
+            a, b = (i, j) if i < j else (j, i)
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+            edges.append(
+                {"s": stems[a], "t": stems[b], "w": round(w, 4), "kind": "semantic"}
+            )
     return edges
 
 
@@ -448,7 +489,7 @@ def main() -> None:
         flush=True,
     )
     semantic_edges = build_semantic_edges(
-        stems_ordered, embeddings_matrix, args.min_threshold
+        stems_ordered, embeddings_matrix, args.min_threshold, args.max_neighbors
     )
     print(f"  → {len(semantic_edges)} pairs", file=sys.stderr)
 
@@ -506,6 +547,7 @@ def main() -> None:
             "note_count": len(nodes),
             "edge_count": total_edges,
             "min_semantic_threshold": args.min_threshold,
+            "max_neighbors": args.max_neighbors,
             **({"parmem_body_links": len(body_edges)} if body_edges else {}),
         },
         "nodes": nodes,

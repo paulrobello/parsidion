@@ -75,6 +75,9 @@ describe('ARC-038 — graph.json contract fixture', () => {
     // its presence here. Tests against real graph.json should treat absence
     // as valid too — see lib/graph.ts GraphData.meta for the optionality.
     expect(data.meta.parmem_body_links).toBeTypeOf('number')
+    // max_neighbors is optional (added by ENH-001 top-K edge cap); the fixture
+    // sets it so we can assert its presence. Graphs built before ENH-001 lack it.
+    expect(data.meta.max_neighbors).toBeTypeOf('number')
   })
 
   it('every edge endpoint references a node id present in nodes[]', () => {

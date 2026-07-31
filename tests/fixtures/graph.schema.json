@@ -29,6 +29,11 @@
           "minimum": 0,
           "maximum": 1
         },
+        "max_neighbors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum semantic edges kept per note (top-K nearest neighbours, strongest first). 0 disables the cap (emits every pair above min_semantic_threshold). Absent on graphs built before ENH-001."
+        },
         "parmem_body_links": {
           "type": "integer",
           "minimum": 0,

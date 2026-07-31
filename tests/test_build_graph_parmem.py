@@ -354,3 +354,167 @@ class TestArc038GraphSchemaValidation:
         graph["edges"].append({"s": "a", "t": "ghost-node", "w": 1.0, "kind": "wiki"})
         with pytest.raises(AssertionError, match="does not reference a node id"):
             validate_graph(graph, schema)
+
+
+class TestSemanticEdgeCap:
+    """ENH-001: top-K-per-node semantic edge policy.
+
+    Each note keeps its strongest ``max_neighbors`` neighbours above
+    ``min_threshold``; a pair selected by either endpoint is kept once.
+    """
+
+    def _stems(self, n: int) -> list[str]:
+        return [f"note{i}" for i in range(n)]
+
+    def test_cap_honoured(self) -> None:
+        # 50 nodes whose embeddings all point the same way → every pair clears
+        # the threshold, so without the cap all C(50,2)=1225 pairs would be
+        # kept. With max_neighbors=5 each node contributes at most 5 edges, so
+        # the total is bounded by n * max_neighbors = 250 (far below 1225).
+        # Per-node degree is NOT bounded by 2*max_neighbors here: in-degree is
+        # unbounded under the union policy (a hub can be selected by many other
+        # nodes), which is deliberate -- it is what keeps sparse notes connected.
+        rng = np.random.default_rng(7)
+        base = rng.standard_normal(384).astype(np.float32)
+        matrix = np.stack(
+            [
+                base + 0.01 * rng.standard_normal(384).astype(np.float32)
+                for _ in range(50)
+            ]
+        )
+        edges = build_graph.build_semantic_edges(
+            self._stems(50), matrix, min_threshold=0.5, max_neighbors=5
+        )
+        assert len(edges) <= 50 * 5  # hard cap: each node contributes ≤ max_neighbors
+        assert len(edges) < 1225  # and far below the all-pairs count
+
+    def test_threshold_still_floors(self) -> None:
+        # max_neighbors >= n disables the cap; only pairs above the floor survive.
+        rng = np.random.default_rng(11)
+        matrix = rng.standard_normal((50, 384)).astype(np.float32)
+        # Random 384-dim vectors sit near cosine 0; force exactly 3 identical
+        # pairs (cosine 1.0) above the 0.70 floor.
+        matrix[1] = matrix[0]
+        matrix[3] = matrix[2]
+        matrix[5] = matrix[4]
+        edges = build_graph.build_semantic_edges(
+            self._stems(50), matrix, min_threshold=0.70, max_neighbors=50
+        )
+        assert len(edges) == 3
+
+    def test_sparse_note_stays_connected(self) -> None:
+        # Node 0 sits at cosine ~0.71 to a dense 49-node cluster (>0.95
+        # internally). The cluster's top-5 lists never include node 0, but
+        # node 0 lists the cluster — the union rule must keep the edge.
+        rng = np.random.default_rng(23)
+        cluster = rng.standard_normal(384).astype(np.float32)
+        dense = np.stack(
+            [
+                cluster + 0.001 * rng.standard_normal(384).astype(np.float32)
+                for _ in range(49)
+            ]
+        )
+        unit = cluster / np.linalg.norm(cluster)
+        ortho = rng.standard_normal(384).astype(np.float32)
+        ortho -= float(unit @ ortho) * unit  # make orthogonal to the cluster dir
+        ortho /= np.linalg.norm(ortho)
+        cos_theta = 0.71
+        sin_theta = (1.0 - cos_theta * cos_theta) ** 0.5
+        sparse = cos_theta * unit + sin_theta * ortho
+        matrix = np.vstack([sparse.astype(np.float32)[None, :], dense])
+        edges = build_graph.build_semantic_edges(
+            self._stems(50), matrix, min_threshold=0.70, max_neighbors=5
+        )
+        assert any(e["s"] == "note0" or e["t"] == "note0" for e in edges), (
+            "sparse node 0 lost all edges under the cap"
+        )
+
+    def test_wiki_edges_identical_with_cap_on_and_off(
+        self,
+        tmp_vault: Path,
+        fake_parmem: FakeParMem,
+        fake_parmem_health: FakeHealth,
+        tmp_path: Path,
+    ) -> None:
+        # The cap affects only semantic edges; the wiki edge set must be
+        # identical whether the cap is on or off.
+        make_embeddings_db(tmp_vault, NOTES)
+        set_related(tmp_vault, "a", "[[b]]")
+        set_related(tmp_vault, "b", "[[c]]")
+        out_on = tmp_path / "on.json"
+        out_off = tmp_path / "off.json"
+        # Low threshold so semantic edges would flood without the cap; cap vs
+        # no-cap must still produce the same wiki edges. --no-parmem isolates
+        # this from body-link enrichment.
+        graph_on = run_build_graph(
+            tmp_vault,
+            out_on,
+            extra_args=[
+                "--min-threshold",
+                "0.0",
+                "--max-neighbors",
+                "1",
+                "--no-parmem",
+            ],
+        )
+        graph_off = run_build_graph(
+            tmp_vault,
+            out_off,
+            extra_args=[
+                "--min-threshold",
+                "0.0",
+                "--max-neighbors",
+                "0",
+                "--no-parmem",
+            ],
+        )
+        wiki_on = {
+            tuple(sorted((e["s"], e["t"])))
+            for e in graph_on["edges"]
+            if e["kind"] == "wiki"
+        }
+        wiki_off = {
+            tuple(sorted((e["s"], e["t"])))
+            for e in graph_off["edges"]
+            if e["kind"] == "wiki"
+        }
+        assert wiki_on == wiki_off
+        assert wiki_on  # non-empty: a-b and b-c
+
+    def test_max_neighbors_zero_matches_all_pairs(self) -> None:
+        # max_neighbors=0 disables the cap and must reproduce the pre-change
+        # upper-triangle walk exactly (same pairs, same weights).
+        rng = np.random.default_rng(5)
+        stems = self._stems(30)
+        matrix = rng.standard_normal((30, 384)).astype(np.float32)
+        matrix[2] = matrix[0]
+        matrix[5] = matrix[3]
+        edges = build_graph.build_semantic_edges(
+            stems, matrix, min_threshold=0.5, max_neighbors=0
+        )
+        # Reference: manual upper-triangle computation (pre-ENH-001 behaviour).
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        normed = matrix / norms
+        sim = normed @ normed.T
+        expected = []
+        for i in range(30):
+            for j in range(i + 1, 30):
+                w = float(sim[i, j])
+                if w >= 0.5:
+                    expected.append((stems[i], stems[j], round(w, 4)))
+        got = sorted((e["s"], e["t"], e["w"]) for e in edges)
+        expected.sort()
+        assert got == expected
+
+    def test_no_self_edges(self) -> None:
+        # Identical rows would tempt self-selection if the diagonal guard
+        # (np.fill_diagonal(sim, -1.0)) were missing.
+        rng = np.random.default_rng(9)
+        matrix = rng.standard_normal((20, 384)).astype(np.float32)
+        matrix[1] = matrix[0]
+        edges = build_graph.build_semantic_edges(
+            self._stems(20), matrix, min_threshold=0.0, max_neighbors=3
+        )
+        assert edges  # something was emitted
+        assert all(e["s"] != e["t"] for e in edges)

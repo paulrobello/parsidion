@@ -591,10 +591,13 @@ Options:
   --no-daily             Exclude Daily folder notes
   --no-parmem            Skip par-mem in-body wiki-edge enrichment
   --no-schema            Skip writing graph.schema.json alongside graph.json (ARC-038)
-  --min-threshold FLOAT  Minimum cosine similarity for semantic edges (default: 0.70)
+  --min-threshold FLOAT  Minimum cosine similarity floor for semantic edges (default: 0.70)
+  --max-neighbors INT    Maximum semantic edges kept per note, strongest first (default: 15; 0 disables the cap and emits every pair above --min-threshold)
   --output PATH          Output path for graph.json (default: {vault}/graph.json)
   --vault PATH           Custom vault root path
 ```
+
+Semantic edges use a **top-K nearest-neighbours** policy (ENH-001): each note keeps at most `--max-neighbors` of its strongest semantic neighbours (default 15), with `--min-threshold` retained as a floor. This caps graph density regardless of how topically clustered the vault is — keeping sparse notes connected while preventing dense clusters (e.g. hundreds of mutually-similar `pattern` notes) from emitting quadratic noise. A pair is kept if *either* endpoint selects the other, so a thin note that lists a hub among its top-K stays connected even when the hub does not reciprocate. `meta.max_neighbors` records the policy in effect. Wiki edges (explicit `[[wikilinks]]`) are never affected by the cap.
 
 ### Processing Pipeline
 

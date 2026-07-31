@@ -22,6 +22,8 @@ export interface GraphData {
     note_count: number
     edge_count: number
     min_semantic_threshold: number
+    /** Maximum semantic edges kept per note (top-K nearest neighbours); 0 disables the cap. Absent on graphs built before ENH-001. */
+    max_neighbors?: number
     /** Wiki edges contributed by par-mem body-link enrichment; absent when the enrichment was skipped or added nothing. */
     parmem_body_links?: number
   }
