@@ -25,6 +25,39 @@
 
 **Overall**: ~116 of 143 findings resolved, ~9 partial, ~14 deferred (Phase 5 + large refactors), 4 require human follow-up (none blocking). The full `make checkall` gate is **green and non-mutating**.
 
+> ✅ **Status (updated 2026-07-30): ALL items resolved.** Every Phase-5
+> restructure, partial, and manual follow-up listed below has since landed
+> (commits through 2026-07-30) or been verified on the live vault. The only
+> remaining recommendation is to re-run `/audit` for a fresh baseline.
+
+## 2026-07-30 Reconciliation
+
+Closed since the 2026-07-29 report above:
+
+**Phase 5 restructures (all done):**
+- **ARC-004** — flat scripts dir split into the `scripts/core/` package behind flat re-export shims; stdlib-only gate enforced by `tests/test_stdlib_only.py`.
+- **ARC-008 / QA-003** — `vault_doctor.py` decomposed 3,127 → 180 LOC into a `doctor/` package.
+- **ARC-009** — `summarize_sessions.py` decomposed 2,242 → 1,141 LOC.
+- **ARC-017 / QA-002** — `install()`/`uninstall()` rebuilt on the `StepList` transaction primitive (CC 54→7 / 40→22).
+
+**Partials (deferred halves landed):**
+- **ARC-037** — `useVisualizerState` God-hook split into focused slices.
+- **ARC-020** — installer-side `merge_codex/gemini_hooks` collapse.
+- **ARC-023** — `vault_fs`↔`vault_hooks` import cycle broken.
+- **ARC-024** — leaf-import migration finished across `parmem_backend`/`ai_backend`/`session_start_hook`.
+- **ARC-038** — `build_graph.py` now emits `graph.schema.json` (the Python half).
+- **QA-005** — **all 12 installer `subprocess` calls bounded with `timeout=`** (AST-verified 2026-07-30: 0 unbounded across `installer/` + `install.py`). The earlier "installer sites deferred" note is obsolete.
+- **QA-007 / QA-013 / QA-014** — observable-state test assertions + GraphCanvas split + CC reductions.
+
+**Manual follow-ups (verified on the live vault, 2026-07-30):**
+- **SEC-101** — `~/ParsidionVault/.git/hooks/post-merge` regenerated; carries the current `# parsidion post-merge hook` marker (legacy `parsidion-cc` marker gone).
+- **SEC-104** — the four sensitive files are no longer tracked in `~/ParsidionVault` (`git ls-files` returns none).
+- **DOC-039 / DOC-040** — installer docstrings + `vault_common` re-export surface completed.
+
+> Note: the 2026-07-29 "Partial / Deferred" and "Requires Manual Intervention"
+> sections below are retained as the historical remediation record; treat them
+> as resolved per this reconciliation.
+
 > **What "partial" means here**: the high-value, correctness-bearing part of each partial issue landed (e.g. ARC-037 shipped its perf wins + betweenness extraction; only the organizational hook *split* is deferred). Deferred items are listed under Next Steps.
 
 ---
@@ -71,6 +104,9 @@
 
 ## Partial / Deferred ⏭️
 
+> ✅ **Resolved 2026-07-30** — see the reconciliation section above. Retained
+> below as the historical record of what the 2026-07-29 waves deferred.
+
 **Phase 5 restructures (optional, separately approved — not attempted):**
 - **ARC-004** split the 49-file flat scripts dir into a real package.
 - **ARC-008 / QA-003** decompose `vault_doctor.py` (3,127 LOC).
@@ -90,6 +126,10 @@
 ---
 
 ## Requires Manual Intervention 🔧
+
+> ✅ **Resolved 2026-07-30** — SEC-101 and SEC-104 verified done on the live
+> vault; DOC-039/DOC-040 landed in code. Retained below as the historical
+> record of the original follow-ups.
 
 These are **not code defects** — the fixes are committed. They are follow-up actions on your live vault/machine that are outside the repo's scope (and outside automated change per security policy).
 
@@ -140,7 +180,6 @@ git -C ~/ParsidionVault rm --cached pending_summaries.jsonl.bak \
 
 ## Next Steps
 
-1. **Review the manual follow-ups above** (SEC-101 hook regen, SEC-104 untrack) and the Phase 5 restructures (opt-in).
-2. **Re-run `/audit`** to get an updated AUDIT.md reflecting current state (it should drop to ~15–25 findings: the Phase 5 items + the partials).
-3. **Phase 5 (optional)** — the four large restructures (ARC-004/008/009/017) each block every other fix in their file; recommend doing them as separate, individually-approved efforts rather than in this branch.
-4. Consider folding the partials (ARC-037 split, ARC-024 leaf imports, ARC-020 installer/pi, QA-013/014) into a follow-up.
+1. **Re-run `/audit`** to regenerate `AUDIT.md` against current state — the 2026-07-29 report predates all the 2026-07-30 work, so a fresh baseline is the only way to confirm the finding count has dropped to near-zero (expected: only items introduced or surfaced since).
+2. The Phase-5 restructures, partials, and manual follow-ups (Next Steps #1–4 from the 2026-07-29 report) are all closed per the reconciliation section above — no further action.
+3. Optional housekeeping: the stale par-mem worktree references (`fix/embed-singleton`, `fix/qa-007-013`) shown at session start are gone from `git worktree list`; their commits are merged to `main`.
