@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
 
 interface Props {
@@ -33,6 +33,26 @@ interface StatusResp {
   pendingSummaries: number
 }
 
+// ENH-007: vault health report shapes. Mirror of lib/vaultStatsServer.ts
+// VaultHealthReport; declared here so the client doesn't import server-only
+// modules (server-only has no business in the client bundle, and duplicating
+// the wire shape is the same pattern the file already uses for StatusResp).
+interface HealthDimension {
+  name: string
+  score: number
+  weight: number
+  detail: string
+  action: string | null
+}
+interface VaultHealthReport {
+  vault: string
+  overall: number
+  grade: string
+  dimensions: HealthDimension[]
+  note_types: Record<string, number>
+  warnings: string[]
+}
+
 /**
  * Compact header chips for at-a-glance vault health:
  *   • PEND  — sessions queued in pending_summaries.jsonl (amber when >0);
@@ -47,6 +67,12 @@ export function VaultStats({ vault, totalNotes }: Props) {
   const [flash, setFlash] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [hover, setHover] = useState(false)
+  // ENH-007: vault health report. Fetched on mount / vault change / manual
+  // click; not on the pending-summary poll cadence (the metadata-quality
+  // dimension walks every note and would be too expensive to poll).
+  const [health, setHealth] = useState<VaultHealthReport | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+  const [healthHover, setHealthHover] = useState(false)
   const mountedRef = useRef(true)
   const runningRef = useRef(false)
   const prevRunningRef = useRef(false)
@@ -56,6 +82,7 @@ export function VaultStats({ vault, totalNotes }: Props) {
   const statsUrl = `/api/stats${q}`
   const statusUrl = `/api/summarizer/status${q}`
   const summarizeUrl = `/api/summarize${q}`
+  const healthUrl = `/api/health${q}`
 
   useEffect(() => {
     runningRef.current = running
@@ -95,11 +122,30 @@ export function VaultStats({ vault, totalNotes }: Props) {
     }
   }
 
+  // ENH-007: fetch the composite vault health report. Called on mount /
+  // vault-change and on manual click of the health chip. Uses --fast by
+  // default so the chip populates in <1s on a 7k-note vault; a non-fast
+  // refresh would lock the metadata-quality scanner for several seconds.
+  const fetchHealth = async () => {
+    setHealthLoading(true)
+    try {
+      const res = await fetch(`${healthUrl}&fast=1`)
+      if (!res.ok) return
+      const data = (await res.json()) as VaultHealthReport
+      if (mountedRef.current) setHealth(data)
+    } catch (err) {
+      console.warn('[VaultStats] /api/health failed:', err)
+    } finally {
+      if (mountedRef.current) setHealthLoading(false)
+    }
+  }
+
   // Mount / vault-change: detect an in-progress run, then baseline pending poll.
   useEffect(() => {
     mountedRef.current = true
     void fetchStatus()
     fetchPending()
+    void fetchHealth()
     const interval = setInterval(fetchPending, POLL_MS)
     const onVisible = () => {
       if (document.hidden) return
@@ -273,6 +319,20 @@ export function VaultStats({ vault, totalNotes }: Props) {
         <span style={{ color: '#e8e8f0' }}>{totalNotes}</span>
       </div>
 
+      {/* ENH-007: composite health chip. Grade letter + score; popover lists
+          per-dimension scores and the action command for any unhealthy one.
+          Click re-fetches; hover reveals the breakdown. */}
+      <HealthChip
+        report={health}
+        loading={healthLoading}
+        hover={healthHover}
+        onHoverChange={setHealthHover}
+        onRefresh={() => {
+          void fetchHealth()
+        }}
+        chipBase={chipBase}
+      />
+
       {confirmOpen && (
         <ConfirmDialog
           title="Run summarizer now?"
@@ -288,6 +348,132 @@ export function VaultStats({ vault, totalNotes }: Props) {
           }}
           onCancel={() => setConfirmOpen(false)}
         />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ENH-007: HealthChip — grade letter + score, popover with dimension table.
+// ---------------------------------------------------------------------------
+
+function gradeColor(grade: string): string {
+  if (grade === 'A' || grade === 'B') return '#10b981' // green
+  if (grade === 'C' || grade === 'D') return '#f59e0b' // amber
+  return '#ef4444' // F
+}
+
+function bar(score: number): string {
+  const filled = Math.max(0, Math.min(10, Math.round(score / 10)))
+  return '█'.repeat(filled) + '░'.repeat(10 - filled)
+}
+
+interface HealthChipProps {
+  report: VaultHealthReport | null
+  loading: boolean
+  hover: boolean
+  onHoverChange: (v: boolean) => void
+  onRefresh: () => void
+  chipBase: CSSProperties
+}
+
+function HealthChip({
+  report,
+  loading,
+  hover,
+  onHoverChange,
+  onRefresh,
+  chipBase,
+}: HealthChipProps) {
+  const grade = report?.grade ?? '—'
+  const overall = report?.overall
+  const color = report ? gradeColor(report.grade) : '#6b7a99'
+
+  const popoverBodies: ReactNode[] = []
+  if (!report && !loading) {
+    popoverBodies.push(
+      <span key="empty" style={{ color: '#6b7a99' }}>
+        Health report not loaded — click to fetch.
+      </span>,
+    )
+  }
+  if (loading) {
+    popoverBodies.push(
+      <span key="loading" style={{ color: '#f59e0b' }}>
+        Scanning vault…
+      </span>,
+    )
+  }
+  if (report) {
+    if (report.warnings.length > 0) {
+      popoverBodies.push(
+        ...report.warnings.map((w, i) => (
+          <div key={`warn-${i}`} style={{ color: '#f59e0b' }}>
+            ⚠ {w}
+          </div>
+        )),
+      )
+    }
+    popoverBodies.push(
+      ...report.dimensions.map(d => (
+        <div
+          key={d.name}
+          style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0 8px' }}
+        >
+          <span style={{ color: '#6b7a99' }}>{d.name}</span>
+          <span style={{ color: '#e8e8f0' }}>
+            {bar(d.score)} {d.score} — {d.detail}
+          </span>
+          {d.action && (
+            <>
+              <span />
+              <span style={{ color: '#00FFC8' }}>→ {d.action}</span>
+            </>
+          )}
+        </div>
+      )),
+    )
+  }
+
+  return (
+    <div
+      style={{ position: 'relative', cursor: 'pointer', ...chipBase }}
+      onClick={() => onRefresh()}
+      onMouseEnter={() => onHoverChange(true)}
+      onMouseLeave={() => onHoverChange(false)}
+      title="Vault health — click to refresh"
+    >
+      <span style={{ color, fontSize: 8 }}>●</span>
+      <span style={{ color: '#6b7a99' }}>HLTH</span>
+      <span style={{ color }}>{grade}</span>
+      {overall !== undefined && (
+        <span style={{ color: '#e8e8f0' }}>{overall}</span>
+      )}
+      {(hover || loading) && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            right: 0,
+            background: '#0d1224',
+            border: '1px solid #1e293b',
+            borderRadius: 5,
+            padding: '8px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            minWidth: 360,
+            maxWidth: 480,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10,
+            color: '#e8e8f0',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+            pointerEvents: 'none',
+            zIndex: 100,
+          }}
+        >
+          {popoverBodies}
+        </div>
       )}
     </div>
   )

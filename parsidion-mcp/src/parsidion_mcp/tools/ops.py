@@ -127,3 +127,65 @@ def vault_doctor(
         raise OpsToolError(str(exc)) from exc
     except OSError as exc:
         raise OpsToolError(str(exc)) from exc
+
+
+def vault_health(vault: str | None = None, *, fast: bool = False) -> str:
+    """Return the composite vault health report as JSON (ENH-007).
+
+    Seven scored dimensions (index freshness, queue health, graph
+    connectivity, metadata quality, embedding coverage, tag hygiene, file
+    hygiene) combined into a weighted overall grade. Each dimension carries
+    a concrete ``action`` command when unhealthy, or ``null`` when healthy.
+
+    Read-only — never mutates the vault. Subprocesses ``vault-stats
+    --health --json`` so the import and subprocess layers see the same code
+    (same pattern as ``rebuild_index`` / ``vault_doctor``).
+
+    Args:
+        vault: Optional vault reference (name from vaults.yaml, or absolute path).
+            When None, the resolver's default precedence applies.
+        fast: When True, skip the metadata-quality scan so the report returns
+            in well under a second on large vaults. The metadata dimension
+            reports ``detail='skipped (--fast)'`` with a neutral score.
+
+    Returns:
+        The health report as a JSON string (compact, sorted keys).
+
+    Raises:
+        OpsToolError: On command failure, timeout, or missing binary.
+    """
+    script = SCRIPTS_DIR / "vault_stats.py"
+    args: list[str] = [
+        "uv",
+        "run",
+        "--no-project",
+        str(script),
+        "--health",
+        "--json",
+    ]
+    if fast:
+        args.append("--fast")
+    # ARC-021: thread the explicit vault into the subprocess so multi-vault
+    # users reach the right report regardless of which vault the caller asked
+    # about.
+    resolved_vault = _resolve_vault_path(vault)
+    if resolved_vault is not None:
+        args.extend(["--vault", str(resolved_vault)])
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            raise OpsToolError(output)
+        return output or '{"error": "vault-stats produced no output"}'
+    except subprocess.TimeoutExpired:
+        raise OpsToolError("command timed out after 60s")
+    except FileNotFoundError as exc:
+        raise OpsToolError(str(exc)) from exc
+    except OSError as exc:
+        raise OpsToolError(str(exc)) from exc

@@ -106,6 +106,8 @@ vault-new --type pattern --title "My Pattern" --project myproj --tags python,vau
 vault-new --type debugging --title "Fix X Error" --tags sqlite
 
 # Vault analytics (after uv tool install --editable ".[tools]")
+vault-stats                        # composite vault health score (default mode, ENH-007)
+vault-stats --health --json        # health report as JSON (consumed by MCP + visualizer)
 vault-stats --summary              # note counts, growth, top tags
 vault-stats --stale                # notes with no incoming links older than 30 days
 vault-stats --top-linked           # most-referenced notes

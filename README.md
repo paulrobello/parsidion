@@ -215,7 +215,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `build_embeddings.py` | Builds the semantic search embeddings database (`embeddings.db`) using fastembed and sqlite-vec |
 | `vault_search.py` | Unified search CLI -- semantic mode (natural language query), metadata mode (`--tag`/`--folder`/`--type`/`--project`/`--recent-days`), full-text body search (`--grep`/`-G`), or interactive curses TUI (`--interactive`/`-i`); available as `vault-search` global command with `--install-tools` |
 | `vault_new.py` | CLI to scaffold new vault notes from templates -- `vault-new --type pattern --title "My Note" --project myproj --tags python,vault --open`; available as `vault-new` global command with `--install-tools` |
-| `vault_stats.py` | Analytics CLI for vault health and activity -- modes: `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags` (tag cloud), `--pending` (pending queue status), `--graph` (knowledge graph metrics), `--hooks N` (last N hook events), `--weekly` (weekly rollup note), `--monthly` (monthly rollup note), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (live summarizer status), `--dashboard` (all modes combined); available as `vault-stats` global command with `--install-tools` |
+| `vault_stats.py` | Analytics CLI for vault health and activity -- modes: `--health` (composite vault health score — the default when no flag is given; ENH-007), `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags` (tag cloud), `--pending` (pending queue status), `--graph` (knowledge graph metrics), `--hooks N` (last N hook events), `--weekly` (weekly rollup note), `--monthly` (monthly rollup note), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (live summarizer status), `--dashboard` (all modes combined); available as `vault-stats` global command with `--install-tools` |
 | `vault_review.py` | Interactive TUI for inspecting and approving/rejecting pending sessions before AI summarization; available as `vault-review` global command |
 | `vault_export.py` | Export vault to HTML static site or filtered zip; available as `vault-export` global command |
 | `vault_merge.py` | Backend-aware AI-assisted merging of near-duplicate notes with automatic backlink updates; `--scan` finds near-duplicate pairs via embedding similarity; `--no-index` skips per-merge index rebuild for batch workflows; available as `vault-merge` global command |
@@ -859,6 +859,8 @@ vault-new --help
 
 **Vault analytics and health:**
 ```bash
+vault-stats                        # composite vault health score (default mode, ENH-007)
+vault-stats --health --json        # machine-readable health report (consumed by MCP + visualizer)
 vault-stats --summary              # note counts, growth, top tags
 vault-stats --stale                # notes with no incoming links, older than 30 days
 vault-stats --top-linked           # most-referenced notes

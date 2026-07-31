@@ -74,6 +74,7 @@ _ENFORCEMENT_SCOPE = [
     "core.vault_links",
     "core.vault_constants",
     "core.vault_metrics",
+    "core.vault_health",
     "core.subproc_util",
     # root stdlib libraries / facade
     "vault_common",
@@ -92,6 +93,10 @@ _ENFORCEMENT_SCOPE = [
     "gemini_session_start_hook",
     "gemini_session_end_hook",
     "agent_adapter",
+    # ENH-007: vault_health scoring is imported by vault_stats + the MCP
+    # server, so it is held to the same stdlib-only contract as the rest of
+    # the core/hook surface.
+    "vault_health",
 ]
 
 

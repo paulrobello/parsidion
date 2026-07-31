@@ -9,7 +9,12 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from parsidion_mcp.tools.ops import OpsToolError, rebuild_index, vault_doctor
+from parsidion_mcp.tools.ops import (
+    OpsToolError,
+    rebuild_index,
+    vault_doctor,
+    vault_health,
+)
 
 
 def _make_proc(returncode: int = 0, stdout: str = "ok", stderr: str = "") -> MagicMock:
@@ -130,6 +135,82 @@ def test_vault_doctor_timeout_is_120s() -> None:
         vault_doctor()
 
     assert mock_run.call_args[1]["timeout"] == 120
+
+
+# ---------------------------------------------------------------------------
+# vault_health (ENH-007)
+# ---------------------------------------------------------------------------
+
+
+def test_vault_health_subprocesses_health_json() -> None:
+    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+        mock_run.return_value = _make_proc(
+            stdout='{"overall": 82, "grade": "B", "dimensions": []}'
+        )
+        result = vault_health()
+
+    cmd = mock_run.call_args[0][0]
+    # The subprocess must request both --health and --json; the JSON form is
+    # what the MCP tool contract promises.
+    assert "--health" in cmd
+    assert "--json" in cmd
+    assert cmd[:3] == ["uv", "run", "--no-project"]
+    assert result == '{"overall": 82, "grade": "B", "dimensions": []}'
+
+
+def test_vault_health_fast_flag_appended() -> None:
+    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+        mock_run.return_value = _make_proc(stdout='{"overall": 100}')
+        vault_health(fast=True)
+
+    cmd = mock_run.call_args[0][0]
+    assert "--fast" in cmd
+
+
+def test_vault_health_without_vault_omits_vault_flag() -> None:
+    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+        mock_run.return_value = _make_proc(stdout='{"overall": 100}')
+        vault_health()
+
+    cmd = mock_run.call_args[0][0]
+    assert "--vault" not in cmd
+
+
+def test_vault_health_with_vault_appends_vault_flag() -> None:
+    with (
+        patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run,
+        patch("parsidion_mcp.tools.ops.vault_common") as mock_vc,
+    ):
+        mock_run.return_value = _make_proc(stdout='{"overall": 100}')
+        mock_vc.resolve_vault.return_value = Path("/tmp/work-vault")
+        vault_health(vault="work-vault")
+
+    cmd = mock_run.call_args[0][0]
+    assert "--vault" in cmd
+    assert "/tmp/work-vault" in cmd
+    mock_vc.resolve_vault.assert_called_once_with(explicit="work-vault")
+
+
+def test_vault_health_nonzero_exit_raises() -> None:
+    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+        mock_run.return_value = _make_proc(returncode=1, stderr="boom")
+        with pytest.raises(OpsToolError):
+            vault_health()
+
+
+def test_vault_health_timeout_is_60s() -> None:
+    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+        mock_run.return_value = _make_proc(stdout='{"overall": 100}')
+        vault_health()
+
+    assert mock_run.call_args[1]["timeout"] == 60
+
+
+def test_vault_health_timeout_raises() -> None:
+    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="uv", timeout=60)
+        with pytest.raises(OpsToolError, match="timed out"):
+            vault_health()
 
 
 # ---------------------------------------------------------------------------

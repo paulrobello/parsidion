@@ -17,6 +17,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { findParsidionScript } from './scriptResolver'
+import { runScript, ScriptFailedError, ScriptTimeoutError } from './runScript'
 
 const HOME = os.homedir()
 export const SECURE_LOG_DIR = path.join(HOME, '.claude', 'logs')
@@ -164,6 +165,88 @@ export function getSummarizerStatus(): SummarizerStatus {
 }
 
 export type SpawnResult = { started: true; pid: number } | { alreadyRunning: true }
+
+// ---------------------------------------------------------------------------
+// ENH-007: vault health report
+// ---------------------------------------------------------------------------
+
+/** One scored dimension in the vault health report. Mirrors the Python
+ *  ``DimensionScore`` dataclass serialised by ``vault-stats --health --json``. */
+export interface HealthDimension {
+  name: string
+  score: number
+  weight: number
+  detail: string
+  /** Concrete command to run when unhealthy, or null when the dimension is healthy. */
+  action: string | null
+}
+
+/** Shape returned by ``vault-stats --health --json``. */
+export interface VaultHealthReport {
+  vault: string
+  overall: number
+  grade: string
+  dimensions: HealthDimension[]
+  note_types: Record<string, number>
+  warnings: string[]
+}
+
+/** Errors raised by getVaultHealth. Distinguished so the route handler can
+ *  pick the right HTTP status (timeout vs. internal error vs. missing). */
+export class HealthScriptMissingError extends Error {}
+export class HealthReportFailedError extends Error {
+  constructor(message: string, readonly stderr: string) {
+    super(message)
+  }
+}
+
+/** Run ``vault-stats --health --json`` against the given vault and return
+ *  the parsed report. Subprocess pattern matches spawnSummarizer /
+ *  runVaultSearch so the import and subprocess layers see the same code.
+ *
+ *  The metadata-quality scan is the expensive dimension on a large vault;
+ *  pass ``fast=true`` to skip it (the dimension is reported with a neutral
+ *  score and ``detail='skipped (--fast)'``). */
+export async function getVaultHealth(
+  vaultPath: string,
+  opts?: { fast?: boolean; timeoutMs?: number },
+): Promise<VaultHealthReport> {
+  const script = findParsidionScript('vault_stats.py')
+  if (!script) {
+    throw new HealthScriptMissingError('vault_stats.py not found. Install parsidion or run from the source repo.')
+  }
+  const args = [
+    'run', '--no-project', script,
+    '--vault', vaultPath,
+    '--health', '--json',
+  ]
+  if (opts?.fast) args.push('--fast')
+
+  let stdout = ''
+  let stderr = ''
+  try {
+    ({ stdout, stderr } = await runScript('uv', args, {
+      timeoutMs: opts?.timeoutMs ?? 60_000,
+    }))
+  } catch (err) {
+    if (err instanceof ScriptTimeoutError) {
+      throw new HealthReportFailedError('vault health timed out', '')
+    }
+    if (err instanceof ScriptFailedError) {
+      // SEC-003: log stderr server-side only.
+      console.error('[vaultStatsServer] vault_stats.py', err.message, ':', err.stderr)
+      throw new HealthReportFailedError(`vault_stats.py ${err.message}`, err.stderr)
+    }
+    throw err
+  }
+
+  try {
+    return JSON.parse(stdout) as VaultHealthReport
+  } catch {
+    if (stderr) console.error('[vaultStatsServer] vault_stats.py produced invalid JSON; stderr:', stderr)
+    throw new HealthReportFailedError('invalid JSON from vault_stats.py', stderr)
+  }
+}
 
 /** Spawn the summarizer detached (non-blocking) against the given vault.
  *  Strips CLAUDECODE so the claude-cli backend works even if the dev server

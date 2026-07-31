@@ -810,6 +810,7 @@ Analytics CLI for vault health and activity. All modes output to stdout; Rich fo
 
 | Flag | Description |
 |------|-------------|
+| `--health` | Composite vault health score (the default mode when no flag is given; ENH-007). Seven scored dimensions (index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, file hygiene) with a weighted overall grade. Each unhealthy dimension carries a concrete next-action command. `--json` emits machine-readable output (consumed by the MCP server and the visualizer); `--fast` skips the metadata-quality scan so the report renders in <1s on a 7k-note vault. |
 | `--summary` | Note counts, most active folders, top tags, growth trend |
 | `--stale` | Notes with no incoming wikilinks that are older than 30 days |
 | `--top-linked` | Most-referenced notes (by incoming wikilink count) |
@@ -824,6 +825,8 @@ Analytics CLI for vault health and activity. All modes output to stdout; Rich fo
 | `--monthly` | Generate monthly rollup note from daily notes for the current month |
 | `--timeline N` | Activity bar chart of notes created per day for last N days (default: 30) |
 | `--summarizer-progress` | Live feedback from a running `summarize_sessions.py` |
+
+The health-score module lives at `skills/parsidion/scripts/core/vault_health.py` (stdlib-only, ARC-004 pattern: real module + flat re-export shim at `scripts/vault_health.py`). Frontmatter and wikilink validity reuses `vault_doctor.scan_notes_readonly` — the same `check_note` path the repair pipeline uses — so there is exactly one validator.
 
 #### vault-export
 

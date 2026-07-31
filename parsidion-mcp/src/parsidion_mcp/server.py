@@ -5,7 +5,7 @@ from fastmcp import FastMCP
 from parsidion_mcp.tools.code_search import code_search
 from parsidion_mcp.tools.context import vault_context
 from parsidion_mcp.tools.notes import vault_read, vault_write
-from parsidion_mcp.tools.ops import rebuild_index, vault_doctor
+from parsidion_mcp.tools.ops import rebuild_index, vault_doctor, vault_health
 from parsidion_mcp.tools.search import vault_search
 
 mcp = FastMCP("parsidion-mcp")
@@ -16,6 +16,7 @@ mcp.tool()(vault_write)
 mcp.tool()(vault_context)
 mcp.tool()(rebuild_index)
 mcp.tool()(vault_doctor)
+mcp.tool()(vault_health)
 mcp.tool()(code_search)
 
 

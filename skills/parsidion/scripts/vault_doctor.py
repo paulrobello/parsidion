@@ -136,6 +136,11 @@ from doctor.links import (  # noqa: F401 — re-exports
     resolve_wikilink,
 )
 from doctor.orchestrator import run_scan_and_repair  # noqa: F401 — re-export
+from doctor.scan import (  # noqa: F401 — re-exports (ENH-007 read-only scan path)
+    ScanSummary,
+    _git_tracked_gitignored,
+    scan_notes_readonly,
+)
 from doctor.permissions import (  # noqa: F401 — re-exports
     _DIR_MODE,
     _FILE_MODE,
