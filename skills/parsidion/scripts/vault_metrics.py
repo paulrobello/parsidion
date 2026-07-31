@@ -29,7 +29,6 @@ from core.vault_metrics import (  # noqa: F401 -- full-surface re-export
     collect_top_linked,
     datetime,
     fetch_all,
-    is_symlink_inside_vault,
     json,
     open_db,
     sqlite3,

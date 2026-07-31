@@ -116,6 +116,9 @@ par_mem:
 # Vault search backend selection (vault_search.py)
 search:
   backend: auto            # auto | par-mem | embeddings | none
+  use_note_index: true     # ENH-004: read note metadata from note_index DB instead of walking the vault.
+                           # Set false to force filesystem walks everywhere (escape hatch if you suspect
+                           # index staleness). Index builders (update_index.py, build_embeddings.py) always walk.
 
 # Git integration
 git:

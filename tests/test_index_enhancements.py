@@ -7,17 +7,24 @@ Covers:
   that transliterate to nothing, e.g. CJK-only titles).
 - Race-free singleton guard in update_index.py (atomic O_CREAT|O_EXCL claim
   instead of check-then-write).
+- ENH-004: DB-first note-index read path. Differential tests assert the
+  DB path and the walk fallback return the same set, plus the fallback /
+  stale-index / tampered-DB / --no-db escape-hatch cases.
 """
 
 from __future__ import annotations
 
 import os
+import sqlite3
+import time
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import update_index
+import vault_common
 import vault_index
 
 # ---------------------------------------------------------------------------
@@ -210,3 +217,240 @@ class TestSingletonGuardAtomicClaim:
         assert exc_info.value.code == 0
         # The other process's PID file must be left untouched.
         assert pf.read_text(encoding="utf-8").strip() == str(real_pid)
+
+
+# ---------------------------------------------------------------------------
+# ENH-004 — DB-first note-index read path
+# ---------------------------------------------------------------------------
+#
+# Differential tests: for each converted query function, the DB path and the
+# walk fallback must return the same SET of notes. Plus the five enumerated
+# edge cases (no DB, empty-vs-missing, tampered row, stale index, --no-db).
+
+
+def _make_note(
+    path: Path,
+    *,
+    note_type: str = "",
+    project: str = "",
+    tags: list[str] | None = None,
+    mtime: float | None = None,
+) -> None:
+    """Write a minimal vault note with the given frontmatter fields."""
+    tags = tags or []
+    parts = ["---"]
+    if note_type:
+        parts.append(f"type: {note_type}")
+    if project:
+        parts.append(f"project: {project}")
+    if tags:
+        parts.append(f"tags: [{', '.join(tags)}]")
+    parts.append("---\n")
+    parts.append(f"# {path.stem}\nbody\n")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(parts), encoding="utf-8")
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+
+
+def _build_index(tmp_vault: Path) -> None:
+    """Populate embeddings.db/note_index via the real indexer.
+
+    ``update_index.build_index`` builds the rows but does NOT persist them --
+    persistence is ``main()``'s job (``_write_note_index_to_db`` at
+    update_index.py:952). Mirror that here so the differential tests exercise
+    the real writer, with rows that match exactly what ``_walk_vault_notes``
+    discovers (build_index walks via ``all_vault_notes``, which stays
+    walk-based).
+    """
+    db_path = vault_common.get_embeddings_db_path(tmp_vault)
+    if not db_path.exists():
+        conn = sqlite3.connect(str(db_path))
+        try:
+            vault_common.ensure_note_index_schema(conn)
+        finally:
+            conn.close()
+    # build_index returns (index_md, total_notes, total_tags, folder_notes, db_rows, tag_counter)
+    result = update_index.build_index(vault=tmp_vault)
+    db_rows = result[4]
+    current_stems = {row.stem for row in db_rows}
+    update_index._write_note_index_to_db(db_rows, current_stems, vault=tmp_vault)
+
+
+def _write_config(tmp_vault: Path, text: str) -> None:
+    """Write config.yaml in the tmp vault and clear the config cache."""
+    (tmp_vault / "config.yaml").write_text(text, encoding="utf-8")
+    vault_common.load_config.cache_clear()
+
+
+_NOTES: list[tuple[str, str, dict[str, Any]]] = [
+    (
+        "Patterns",
+        "python-deco",
+        dict(note_type="pattern", project="parsidion", tags=["python", "hook"]),
+    ),
+    (
+        "Debugging",
+        "rust-bug",
+        dict(note_type="debugging", project="nerbs", tags=["rust"]),
+    ),
+    (
+        "Patterns",
+        "vault-idx",
+        dict(note_type="pattern", project="parsidion", tags=["python", "vault"]),
+    ),
+]
+
+
+def _seed_vault(tmp_vault: Path) -> list[Path]:
+    """Create the three standard test notes; return their paths."""
+    paths: list[Path] = []
+    for folder, stem, fields in _NOTES:
+        p = tmp_vault / folder / f"{stem}.md"
+        _make_note(p, **fields)
+        paths.append(p)
+    return paths
+
+
+class TestNoteIndexDbFirst:
+    """ENH-004: DB-first read path with walk fallback."""
+
+    def test_query_note_index_distinguishes_none_from_empty(
+        self, tmp_vault: Path
+    ) -> None:
+        """Case 2: a missing DB returns None; an empty result returns []."""
+        # No embeddings.db → None (signals fallback).
+        assert vault_common.query_note_index(project="anything") is None
+
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        # A project with zero notes → [] (NOT None → no fallback).
+        result = vault_common.query_note_index(project="nonexistent-project")
+        assert result is not None
+        assert result == []
+
+    @pytest.mark.parametrize(
+        "fn_name, walk_name, arg",
+        [
+            ("find_notes_by_project", "_find_notes_by_project_walk", "parsidion"),
+            ("find_notes_by_tag", "_find_notes_by_tag_walk", "python"),
+            ("find_notes_by_type", "_find_notes_by_type_walk", "pattern"),
+        ],
+    )
+    def test_db_and_walk_agree(
+        self, tmp_vault: Path, fn_name: str, walk_name: str, arg: str
+    ) -> None:
+        """Differential: the DB path and the walk path return the same set."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+
+        fn = getattr(vault_index, fn_name)
+        walk = getattr(vault_index, walk_name)
+        db_result = set(fn(arg, vault=tmp_vault))
+        walk_result = set(walk(arg, vault=tmp_vault))
+        assert db_result == walk_result, (
+            f"{fn_name}({arg!r}) diverged: "
+            f"db-only={db_result - walk_result} walk-only={walk_result - db_result}"
+        )
+
+    def test_all_vault_notes_stays_walk_based(self, tmp_vault: Path) -> None:
+        """ENH-004 deviation: all_vault_notes is deliberately walk-based
+        because the index builders (update_index.py, build_embeddings.py) use
+        it to enumerate the tree they are indexing -- a DB-first impl would
+        read the empty/stale index it is building (circular dependency).
+        Assert it returns notes the DB has not indexed yet, via the walk."""
+        _seed_vault(tmp_vault)
+        # No _build_index -- the DB is absent. all_vault_notes must still
+        # surface every on-disk note via the walk (this is what builders rely
+        # on during a fresh index build).
+        walked = set(vault_index.all_vault_notes(tmp_vault))
+        assert walked == {
+            tmp_vault / "Patterns" / "python-deco.md",
+            tmp_vault / "Debugging" / "rust-bug.md",
+            tmp_vault / "Patterns" / "vault-idx.md",
+        }
+
+    def test_no_database_falls_back_to_walk(self, tmp_vault: Path) -> None:
+        """Case 1: with embeddings.db absent, the walk fallback runs."""
+        _seed_vault(tmp_vault)
+        # No _build_index call → no embeddings.db.
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        expected = {
+            tmp_vault / "Patterns" / "python-deco.md",
+            tmp_vault / "Patterns" / "vault-idx.md",
+        }
+        assert result == expected
+
+    def test_tampered_db_row_outside_vault_is_filtered(self, tmp_vault: Path) -> None:
+        """Case 3: a row whose path escapes the vault must be rejected by
+        _paths_from_rows (the SEC-005 containment guard on DB reads)."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        # Insert a hostile row pointing at a real file outside the vault,
+        # tagged as a pattern so find_notes_by_type("pattern") would surface
+        # it absent the containment check.
+        db_path = vault_common.get_embeddings_db_path(tmp_vault)
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO note_index "
+                "(stem, path, folder, title, tags, note_type, project) "
+                "VALUES ('hostile', '/etc/passwd', 'x', 'h', '', 'pattern', '')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        # find_notes_by_type reads from the DB and must filter /etc/passwd out
+        # (it exists, but is_path_inside_vault rejects it). Every returned
+        # path must live inside the tmp vault.
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert Path("/etc/passwd") not in result
+        assert all(str(p).startswith(str(tmp_vault)) for p in result)
+        # The legit pattern notes are still returned.
+        assert tmp_vault / "Patterns" / "python-deco.md" in result
+
+    def test_stale_index_missed_by_db_but_flagged_by_age(self, tmp_vault: Path) -> None:
+        """Case 4: a note added after the last index rebuild is invisible to
+        the DB path, and note_index_age() reports non-zero staleness."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        # Add a new pattern note on disk without reindexing; future-dated mtime
+        # so it is unambiguously newer than anything in note_index.
+        new_note = tmp_vault / "Patterns" / "fresh-pattern.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+            mtime=time.time() + 3600,
+        )
+        # DB path does not see it (index is stale).
+        db_result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert new_note not in db_result
+        # Walk path does see it.
+        walk_result = set(
+            vault_index._find_notes_by_type_walk("pattern", vault=tmp_vault)
+        )
+        assert new_note in walk_result
+        # Staleness signal is non-zero.
+        assert vault_common.note_index_age(tmp_vault) > 0
+
+    def test_config_no_db_forces_walk_and_finds_stale_note(
+        self, tmp_vault: Path
+    ) -> None:
+        """Case 5: search.use_note_index=false forces the walk, which finds
+        the note the stale DB missed."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        new_note = tmp_vault / "Patterns" / "config-walk-pattern.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+            mtime=time.time() + 7200,
+        )
+        _write_config(tmp_vault, "search:\n  use_note_index: false\n")
+        # With the DB disabled at the config level, the walk runs and sees it.
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert new_note in result

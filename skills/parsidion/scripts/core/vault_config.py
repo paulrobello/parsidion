@@ -494,6 +494,7 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     },
     "search": {
         "backend": (str,),
+        "use_note_index": (bool,),
     },
     "anthropic_env": {
         "ANTHROPIC_API_KEY": (str, type(None)),

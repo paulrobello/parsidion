@@ -21,7 +21,6 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 import vault_common
-from .vault_path import is_symlink_inside_vault
 
 
 # ---------------------------------------------------------------------------
@@ -512,13 +511,13 @@ def collect_timeline(
             age_days = _age_days(row["mtime"])
             day_counts[age_days] = day_counts.get(age_days, 0) + 1
     else:
+        # ENH-004: route through the shared all_vault_notes() helper so this
+        # no-DB walk gets the same EXCLUDE_DIRS / CLAUDE.md / TAGS.md /
+        # MANIFEST.md / SEC-106 symlink filtering as every other read path,
+        # instead of a raw rglob that silently includes them.
         vault = vault or vault_common.resolve_vault()
         if vault.exists():
-            vault_root_resolved = vault.resolve()
-            for md in vault.rglob("*.md"):
-                # SEC-106: skip symlinked .md files whose target escapes the vault.
-                if not is_symlink_inside_vault(md, vault_root_resolved):
-                    continue
+            for md in vault_common.all_vault_notes(vault):
                 try:
                     mtime = md.stat().st_mtime
                 except OSError:
@@ -589,13 +588,13 @@ def collect_no_db_summary(vault: Path | None = None) -> dict:
     if not vault.exists():
         return {"vault_exists": False, "total": 0, "by_folder": []}
 
-    vault_root_resolved = vault.resolve()
+    # ENH-004: this is the explicit no-DB summary, so it always walks -- but it
+    # goes through all_vault_notes() (which falls through to _walk_vault_notes
+    # when there is no DB) so the count excludes EXCLUDE_DIRS, CLAUDE.md,
+    # TAGS.md, and MANIFEST.md exactly like the DB-backed summary does.
     counts: dict[str, int] = {}
     total = 0
-    for md in vault.rglob("*.md"):
-        # SEC-106: skip symlinked .md files whose target escapes the vault.
-        if not is_symlink_inside_vault(md, vault_root_resolved):
-            continue
+    for md in vault_common.all_vault_notes(vault):
         folder = md.parent.name if md.parent != vault else "(root)"
         counts[folder] = counts.get(folder, 0) + 1
         total += 1

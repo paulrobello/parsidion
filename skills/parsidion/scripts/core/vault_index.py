@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .vault_config import _parse_list_item, _parse_scalar, _split_list_items
+from .vault_config import _parse_list_item, _parse_scalar, _split_list_items, get_config
 from .vault_path import (
     EXCLUDE_DIRS,
     VAULT_DIRS,
@@ -79,6 +79,11 @@ _SLUG_MULTI_HYPHEN_RE = re.compile(r"-{2,}")
 # write_hook_event() so they show up in `vault-stats --hooks N`.
 
 _PARSE_WARNINGS_MAX = 200
+# query_note_index defaults to a 200-row cap (sufficient for its original
+# context-injection callers). The find_notes_by_* wrappers semantically return
+# EVERY matching note (the walk does), so they pass this effectively-unbounded
+# limit to override that cap.
+_FIND_ALL_LIMIT = 10**9
 _parse_warnings: list[str] = []
 
 
@@ -372,6 +377,46 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _paths_from_rows(rows: list[Any], vault_root_resolved: Path) -> list[Path]:
+    """Re-validate DB-derived path strings against the vault root.
+
+    SEC-005 / SEC-130: a tampered ``embeddings.db`` can store any path string;
+    never trust SQLite output. Each path must exist and resolve inside the
+    vault. Follows the precedent established inline in ``query_note_index``
+    (the original vault_index.py:373-420 containment guard).
+
+    Args:
+        rows: Rows from a ``SELECT path ...`` query. Each row is either a
+            ``(path_str,)`` tuple/list or a bare string.
+        vault_root_resolved: The resolved vault root to check containment against.
+
+    Returns:
+        List of existing, in-vault ``Path`` objects (unsorted -- caller's SQL
+        determines order).
+    """
+    result: list[Path] = []
+    for row in rows:
+        path_str = row[0] if isinstance(row, (tuple, list)) else str(row)
+        p = Path(path_str)
+        if p.exists() and is_path_inside_vault(p, vault_root_resolved):
+            result.append(p)
+    return result
+
+
+def _note_index_enabled(vault: Path | None = None) -> bool:  # noqa: ARG001
+    """Whether DB-first note reads are enabled.
+
+    Reads ``search.use_note_index`` (default ``true``). When false, every
+    ``find_notes_by_*`` and ``all_vault_notes`` call takes the filesystem-walk
+    path regardless of DB availability -- the user-facing escape hatch when
+    index staleness is suspected. The *vault* arg is accepted for API symmetry
+    with the callers; ``get_config`` resolves the vault via the cached
+    ``load_config()`` (CLAUDE_VAULT-aware, so tests with ``tmp_vault`` see the
+    right config without an explicit thread).
+    """
+    return bool(get_config("search", "use_note_index", True))
+
+
 def query_note_index(
     *,
     tag: str | None = None,
@@ -380,11 +425,15 @@ def query_note_index(
     project: str | None = None,
     recent_days: int | None = None,
     limit: int = 200,
+    vault: Path | None = None,
 ) -> list[Path] | None:
     """Query the note_index table in embeddings.db for fast metadata filtering.
 
     Returns None (not []) if the DB is absent or the table is missing,
-    signalling the caller to fall back to a file walk.
+    signalling the caller to fall back to a file walk. An empty result set
+    is returned as ``[]`` and is distinguishable from ``None`` -- this is what
+    makes the DB-first ``find_notes_by_*`` fallback correct (a project with
+    zero notes returns ``[]``, not the walk fallback).
 
     Args:
         tag: Exact tag token to match in the comma-separated tags column.
@@ -393,11 +442,15 @@ def query_note_index(
         project: Exact project value to match.
         recent_days: Only return notes modified within this many days.
         limit: Maximum number of results (default 200).
+        vault: Optional vault path used to locate embeddings.db and to validate
+            returned paths against. Defaults to resolve_vault().
 
     Returns:
         List of existing Paths sorted by mtime descending, or None on DB error.
     """
-    db_path = get_embeddings_db_path()
+    if isinstance(vault, str):  # be liberal: accept str paths from callers
+        vault = Path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
 
@@ -454,17 +507,11 @@ def query_note_index(
         params.append(limit)
 
         rows = conn.execute(sql, params).fetchall()
-        # SEC-005: Reject any path that resolves outside the vault -- guards
-        # against a tampered embeddings.db injecting arbitrary file paths.
-        # SEC-130: consolidated into vault_path.is_path_inside_vault so the
-        # same containment check used elsewhere cannot drift from this one.
-        vault_root_resolved = resolve_vault().resolve()
-        return [
-            p
-            for (path_str,) in rows
-            if (p := Path(path_str)).exists()
-            and is_path_inside_vault(p, vault_root_resolved)
-        ]
+        # SEC-005 / SEC-130: paths from SQLite are re-validated against the
+        # vault root via _paths_from_rows -- a tampered embeddings.db cannot
+        # inject reads outside the vault.
+        vault_root_resolved = (vault or resolve_vault()).resolve()
+        return _paths_from_rows(rows, vault_root_resolved)
     except sqlite3.Error:
         return None
     finally:
@@ -482,6 +529,8 @@ def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
     """
+    if isinstance(vault, str):  # be liberal: accept str paths from callers
+        vault = Path(vault)
     vault = vault or resolve_vault()
     notes: list[Path] = []
     if not vault.is_dir():
@@ -514,7 +563,9 @@ def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
     return notes
 
 
-def _find_notes_by_field(field: str, value: str) -> list[Path]:
+def _find_notes_by_field(
+    field: str, value: str, vault: Path | None = None
+) -> list[Path]:
     """Find all notes where a frontmatter *field* matches *value* (case-insensitive).
 
     For scalar fields (``project``, ``type``), matches the value directly.
@@ -523,13 +574,14 @@ def _find_notes_by_field(field: str, value: str) -> list[Path]:
     Args:
         field: The frontmatter field name to search (e.g. ``"project"``).
         value: The target value to match (compared case-insensitively).
+        vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
         List of matching note paths.
     """
     matches: list[Path] = []
     target = value.lower()
-    for note_path in _walk_vault_notes():
+    for note_path in _walk_vault_notes(vault):
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -546,40 +598,38 @@ def _find_notes_by_field(field: str, value: str) -> list[Path]:
     return matches
 
 
-def find_notes_by_project(project: str) -> list[Path]:
-    """Find all notes with a matching ``project`` field in frontmatter."""
-    result = query_note_index(project=project)
-    if result is not None:
-        return result
-    return _find_notes_by_field("project", project)
+# ---------------------------------------------------------------------------
+# Walk-based implementations (fallback + differential-test oracle).
+#
+# These iterate the filesystem directly via _walk_vault_notes. They are kept
+# verbatim as the no-DB fallback for the public DB-first find_notes_by_*
+# functions, and as the oracle the differential tests compare the DB path
+# against so the two cannot silently drift.
+# ---------------------------------------------------------------------------
 
 
-def find_notes_by_tag(tag: str) -> list[Path]:
-    """Find all notes containing the given tag in their ``tags`` list."""
-    result = query_note_index(tag=tag)
-    if result is not None:
-        return result
-    return _find_notes_by_field("tags", tag)
+def _find_notes_by_project_walk(project: str, vault: Path | None = None) -> list[Path]:
+    """Walk fallback for :func:`find_notes_by_project`."""
+    return _find_notes_by_field("project", project, vault=vault)
 
 
-def find_notes_by_type(note_type: str) -> list[Path]:
-    """Find all notes with a matching ``type`` field in frontmatter."""
-    result = query_note_index(note_type=note_type)
-    if result is not None:
-        return result
-    return _find_notes_by_field("type", note_type)
+def _find_notes_by_tag_walk(tag: str, vault: Path | None = None) -> list[Path]:
+    """Walk fallback for :func:`find_notes_by_tag`."""
+    return _find_notes_by_field("tags", tag, vault=vault)
 
 
-def find_recent_notes(days: int = 3) -> list[Path]:
-    """Find notes modified within the last *days* days, sorted by mtime descending."""
-    result = query_note_index(recent_days=days)
-    if result is not None:
-        return result
+def _find_notes_by_type_walk(note_type: str, vault: Path | None = None) -> list[Path]:
+    """Walk fallback for :func:`find_notes_by_type`."""
+    return _find_notes_by_field("type", note_type, vault=vault)
+
+
+def _find_recent_notes_walk(days: int = 3, vault: Path | None = None) -> list[Path]:
+    """Walk fallback for :func:`find_recent_notes`."""
     cutoff = datetime.now() - timedelta(days=days)
     cutoff_ts = cutoff.timestamp()
     recent: list[tuple[float, Path]] = []
 
-    for note_path in _walk_vault_notes():
+    for note_path in _walk_vault_notes(vault):
         try:
             mtime = note_path.stat().st_mtime
         except OSError:
@@ -589,6 +639,58 @@ def find_recent_notes(days: int = 3) -> list[Path]:
 
     recent.sort(key=lambda x: x[0], reverse=True)
     return [path for _, path in recent]
+
+
+def find_notes_by_project(project: str, vault: Path | None = None) -> list[Path]:
+    """Find all notes with a matching ``project`` field in frontmatter.
+
+    Reads ``note_index`` when available and ``search.use_note_index`` is true
+    (default); falls back to a filesystem walk so behaviour is unchanged on a
+    vault with no embeddings.db.
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(project=project, vault=vault, limit=_FIND_ALL_LIMIT)
+        if result is not None:
+            return result
+    return _find_notes_by_project_walk(project, vault=vault)
+
+
+def find_notes_by_tag(tag: str, vault: Path | None = None) -> list[Path]:
+    """Find all notes containing the given tag in their ``tags`` list.
+
+    DB-first with walk fallback; see :func:`find_notes_by_project`.
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(tag=tag, vault=vault, limit=_FIND_ALL_LIMIT)
+        if result is not None:
+            return result
+    return _find_notes_by_tag_walk(tag, vault=vault)
+
+
+def find_notes_by_type(note_type: str, vault: Path | None = None) -> list[Path]:
+    """Find all notes with a matching ``type`` field in frontmatter.
+
+    DB-first with walk fallback; see :func:`find_notes_by_project`.
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(
+            note_type=note_type, vault=vault, limit=_FIND_ALL_LIMIT
+        )
+        if result is not None:
+            return result
+    return _find_notes_by_type_walk(note_type, vault=vault)
+
+
+def find_recent_notes(days: int = 3, vault: Path | None = None) -> list[Path]:
+    """Find notes modified within the last *days* days, sorted by mtime descending.
+
+    DB-first with walk fallback; see :func:`find_notes_by_project`.
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(recent_days=days, vault=vault, limit=_FIND_ALL_LIMIT)
+        if result is not None:
+            return result
+    return _find_recent_notes_walk(days, vault=vault)
 
 
 def read_note_summary(path: Path, max_lines: int = 5) -> str:
@@ -635,10 +737,65 @@ def read_note_summary(path: Path, max_lines: int = 5) -> str:
 def all_vault_notes(vault: Path | None = None) -> list[Path]:
     """Return all ``.md`` files in the vault, excluding ``EXCLUDE_DIRS``, ``CLAUDE.md``, ``TAGS.md``, and ``MANIFEST.md``.
 
+    Deliberately walk-based (ENH-004 deviation -- see below): this is the
+    enumeration primitive the index builders use to discover notes
+    (``update_index.py`` and ``build_embeddings.py`` call it to walk the tree
+    they are about to index). A DB-first ``all_vault_notes`` would read the
+    empty/stale index it is being asked to (re)build -- a circular dependency
+    that produces zero rows on a fresh build. The DB-first optimisation lives
+    on the four ``find_notes_by_*`` metadata queries instead, which are pure
+    reads and the actual hot path. Convert this to DB-first only after the
+    index builders are moved onto ``_walk_vault_notes`` directly.
+
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
     """
     return _walk_vault_notes(vault)
+
+
+def note_index_age(vault: Path | None = None) -> float:
+    """Return how stale ``note_index`` is, in seconds.
+
+    Computes ``max(on-disk .md mtime) - max(note_index mtime)``. Returns
+    ``0.0`` when the index is current or ahead, when the DB is absent, or
+    when either source is unreadable. A positive value means on-disk notes
+    exist that the index does not yet reflect -- the DB-first read path may
+    return stale results, and the user should rebuild via
+    ``update_index.py``.
+
+    This is a *signal*, not a trigger: read paths never auto-rebuild, because
+    a read doing surprising write work is worse than a slightly stale result.
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
+    """
+    resolved = vault or resolve_vault()
+    db_path = get_embeddings_db_path(resolved)
+    if not db_path.exists():
+        return 0.0
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return 0.0
+    try:
+        row = conn.execute("SELECT MAX(mtime) FROM note_index").fetchone()
+    except sqlite3.Error:
+        conn.close()
+        return 0.0
+    conn.close()
+    db_max = float(row[0]) if row and row[0] is not None else 0.0
+
+    disk_max = 0.0
+    for p in _walk_vault_notes(resolved):
+        try:
+            m = p.stat().st_mtime
+        except OSError:
+            continue
+        if m > disk_max:
+            disk_max = m
+    if disk_max <= db_max:
+        return 0.0
+    return disk_max - db_max
 
 
 # ---------------------------------------------------------------------------
