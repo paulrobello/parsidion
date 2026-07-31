@@ -105,6 +105,13 @@ Use modern Python type annotations throughout:
    uv run pre-commit run --all-files
    ```
 
+### Cross-language parity fixtures (ENH-005)
+
+Two contracts are shared between Python and TypeScript and must stay in sync:
+
+- **Vault resolution** — `skills/parsidion/scripts/vault_path.py:resolve_vault()` and `visualizer/lib/vaultResolver.ts:resolveVault()` are pinned by a single vector set at `tests/fixtures/parity/vault-resolution.json`, consumed by both `tests/test_vault_resolver_parity.py` and `visualizer/lib/vaultResolver.parity.test.ts`. **Changing either resolver requires updating the fixture** — add or edit a vector, then run both test files. Every vector runs on both sides unless it carries an explicit `applies_to` (and each suite asserts no vector is silently skipped).
+- **`graph.json` schema** — `tests/fixtures/graph.schema.json` is *generated* from `GRAPH_JSON_SCHEMA` in `skills/parsidion/scripts/build_graph.py`. Do not hand-edit the fixture; run `make parity-fixtures` after changing `GRAPH_JSON_SCHEMA`. CI runs `make parity-fixtures-check` (regenerate-to-temp + diff) and fails on drift.
+
 ## Testing Hooks Manually
 
 Hooks communicate via JSON on stdin/stdout. Use heredocs to avoid shell quoting issues:

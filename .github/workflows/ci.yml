@@ -37,6 +37,11 @@ jobs:
       - name: Typecheck
         run: uv run pyright .
 
+      - name: Parity fixtures check
+        # ENH-005: fail if graph.schema.json or vault-resolution.json drifted
+        # from build_graph.py / the shared vector contract.
+        run: make parity-fixtures-check
+
       - name: Test
         run: uv run pytest tests/
 
@@ -134,6 +139,13 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Parity fixtures check
+        # ENH-005: the shared fixture the TS parity test reads must match the
+        # Python emitter. The generator is stdlib-only, so the system python3
+        # is enough -- no uv/Python toolchain install needed in this job.
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/gen_parity_fixtures.py --check
 
       - name: Typecheck
         run: bunx tsc --noEmit

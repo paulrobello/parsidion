@@ -1,108 +1,135 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://parsidion.local/schemas/graph.schema.json",
-  "title": "GraphData",
-  "description": "Canonical schema for vault graph.json emitted by skills/parsidion/scripts/build_graph.py and consumed by the TypeScript visualizer (visualizer/lib/graph.ts GraphData interface). ARC-038: this fixture is the cross-language contract -- both sides must agree. The TS interface intent is asserted by tests/test_graph_schema.py and a generated graph.json is validated against this schema by tests/test_build_graph_parmem.py.",
-  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "required": ["meta", "nodes", "edges"],
+  "description": "Schema for vault graph.json emitted by build_graph.py and consumed by the TypeScript visualizer (visualizer/lib/graph.ts GraphData).",
   "properties": {
-    "meta": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["generated", "note_count", "edge_count", "min_semantic_threshold"],
-      "properties": {
-        "generated": {
-          "type": "string",
-          "description": "ISO-8601 UTC timestamp the graph was built."
-        },
-        "note_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "edge_count": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "min_semantic_threshold": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "max_neighbors": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Maximum semantic edges kept per note (top-K nearest neighbours, strongest first). 0 disables the cap (emits every pair above min_semantic_threshold). Absent on graphs built before ENH-001."
-        },
-        "parmem_body_links": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Wiki edges contributed by par-mem body-link enrichment. Absent when enrichment was skipped or added nothing."
-        }
-      }
-    },
-    "nodes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "title", "type", "folder", "path", "tags", "incoming_links", "mtime"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Note stem -- the unique node identity."
-          },
-          "title": { "type": "string" },
-          "type": { "type": "string" },
-          "folder": { "type": "string" },
-          "path": {
-            "type": "string",
-            "description": "Vault-relative path to the note file."
-          },
-          "tags": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "incoming_links": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "mtime": {
-            "type": "number",
-            "minimum": 0,
-            "description": "Note modification time as a unix timestamp."
-          }
-        }
-      }
-    },
     "edges": {
-      "type": "array",
       "items": {
-        "type": "object",
         "additionalProperties": false,
-        "required": ["s", "t", "w", "kind"],
         "properties": {
+          "kind": {
+            "enum": [
+              "semantic",
+              "wiki"
+            ],
+            "type": "string"
+          },
           "s": {
-            "type": "string",
             "minLength": 1,
-            "description": "Source node id (stem)."
+            "type": "string"
           },
           "t": {
-            "type": "string",
             "minLength": 1,
-            "description": "Target node id (stem)."
+            "type": "string"
           },
           "w": {
-            "type": "number",
-            "description": "Edge weight. Semantic edges: cosine similarity in [-1, 1] (writer emits >= min_semantic_threshold). Wiki edges: 1.0."
-          },
-          "kind": {
-            "type": "string",
-            "enum": ["semantic", "wiki"]
+            "type": "number"
           }
+        },
+        "required": [
+          "s",
+          "t",
+          "w",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "meta": {
+      "additionalProperties": false,
+      "properties": {
+        "edge_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generated": {
+          "type": "string"
+        },
+        "max_neighbors": {
+          "description": "Maximum semantic edges kept per note, strongest first (ENH-001). 0 disables the cap and emits every pair above min_semantic_threshold.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_semantic_threshold": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "note_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parmem_body_links": {
+          "description": "Wiki edges contributed by par-mem body-link enrichment. Absent when enrichment was skipped or added nothing.",
+          "minimum": 0,
+          "type": "integer"
         }
-      }
+      },
+      "required": [
+        "generated",
+        "note_count",
+        "edge_count",
+        "min_semantic_threshold"
+      ],
+      "type": "object"
+    },
+    "nodes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "folder": {
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "incoming_links": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mtime": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "path": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "type",
+          "folder",
+          "path",
+          "tags",
+          "incoming_links",
+          "mtime"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
-  }
+  },
+  "required": [
+    "meta",
+    "nodes",
+    "edges"
+  ],
+  "title": "GraphData",
+  "type": "object"
 }

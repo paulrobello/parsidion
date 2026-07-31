@@ -1,4 +1,4 @@
-.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check
+.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check
 
 # Format code with ruff
 fmt:
@@ -24,6 +24,19 @@ test:
 # skipped under `test`/`checkall`'s numpy-free default suite)
 test-graph:
 	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parmem.py
+
+# ENH-005: regenerate the cross-language parity fixtures:
+#   - tests/fixtures/graph.schema.json (derived from build_graph.py:GRAPH_JSON_SCHEMA)
+#   - tests/fixtures/parity/vault-resolution.json (structurally validated)
+# Run after editing GRAPH_JSON_SCHEMA or a vault-resolution vector.
+parity-fixtures:
+	uv run python scripts/gen_parity_fixtures.py
+
+# ENH-005: CI gate -- regenerate to a temp output and diff against the
+# committed fixtures. Fails if GRAPH_JSON_SCHEMA or the vectors drifted.
+# No mutation: the generator compares in-process and reports the diff.
+parity-fixtures-check:
+	uv run python scripts/gen_parity_fixtures.py --check
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses

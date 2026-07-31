@@ -1,24 +1,43 @@
-"""ARC-004: Parity test — Python and TypeScript vault forbidden-prefix lists must stay in sync.
+"""ENH-005: Python <-> TypeScript vault resolver parity.
 
-Parses the TypeScript ``VAULT_FORBIDDEN_PREFIXES`` constant from
-``visualizer/lib/vaultResolver.ts`` with a regex and compares the resolved
-set of path-pattern strings against the Python ``vault_path._VAULT_FORBIDDEN_PREFIXES``
-tuple.
+Two layers of cross-language agreement, both enforced here:
 
-Why text-level, not a TS runtime call:
-    The test suite runs with ``uv run pytest`` — no Node/Bun runtime is
-    available in CI.  A regex parse of the TS source is sufficient because
-    both lists are static compile-time constants.  Any drift (add/remove a
-    prefix in one side) will immediately break this test.
+1. ``VAULT_FORBIDDEN_PREFIXES`` -- the *list* of forbidden path prefixes must
+   be byte-for-byte the same in Python (``vault_path._VAULT_FORBIDDEN_PREFIXES``)
+   and TypeScript (``vaultResolver.ts``). Covered by source-text parsing in
+   :class:`TestVaultForbiddenPrefixListParity`, because both are static
+   compile-time constants and the Python test runner has no Node/Bun runtime.
 
-CI-enforceable: yes — added to the root ``pytest tests/`` invocation.
+2. Vault *resolution* vectors -- the observable behaviour of
+   ``resolve_vault()`` (Python) and ``resolveVault()`` (TypeScript) against a
+   shared vector set committed at
+   ``tests/fixtures/parity/vault-resolution.json``. Both this file and
+   ``visualizer/lib/vaultResolver.parity.test.ts`` load the SAME JSON, so
+   adding a vector forces both sides to acknowledge it. Covered by
+   :class:`TestVaultResolutionVectors`.
+
+The two resolvers are not identical (see the fixture's ``$comment`` and the
+``applies_to``-scoped vectors): Python is a 4-channel path-or-name resolver
+with a ``cwd/.claude/vault`` project-local file and ``CLAUDE_VAULT`` env var;
+TypeScript is an allowlist resolver (named vaults or the default path) with a
+``VAULT_ROOT`` default override. Where a channel genuinely only exists on one
+side, the vector carries ``"applies_to": ["python"]`` / ``["typescript"]`` and
+this suite asserts every vector is either executed or explicitly excluded --
+no silent skips.
+
+CI-enforceable: yes -- part of the root ``pytest tests/`` invocation, and the
+fixture is structurally validated by ``scripts/gen_parity_fixtures.py`` under
+``make parity-fixtures-check``.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sys
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -27,8 +46,10 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_VAULT_PATH_PY = _REPO_ROOT / "skills" / "parsidion" / "scripts" / "vault_path.py"
 _VAULT_RESOLVER_TS = _REPO_ROOT / "visualizer" / "lib" / "vaultResolver.ts"
+_VECTORS_FIXTURE = (
+    _REPO_ROOT / "tests" / "fixtures" / "parity" / "vault-resolution.json"
+)
 
 # Make vault_path importable
 _SCRIPTS_DIR = str(_REPO_ROOT / "skills" / "parsidion" / "scripts")
@@ -38,301 +59,209 @@ if _SCRIPTS_DIR not in sys.path:
 import vault_path  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Helper: parse TS VAULT_FORBIDDEN_PREFIXES
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Layer 1: VAULT_FORBIDDEN_PREFIXES list parity (source-text parse)
+# ===========================================================================
 
 
 def _parse_ts_prefixes(ts_source: str) -> list[str]:
-    """Extract string arguments from the ``VAULT_FORBIDDEN_PREFIXES`` array in the TS source.
+    """Extract string arguments from the ``VAULT_FORBIDDEN_PREFIXES`` array.
 
-    Matches entries of the form ``path.resolve(...)``, ``path.resolve(_home, '...')``,
-    and ``path.resolve('/...')``.  Returns the *unresolved* string literals so
-    they can be compared structurally against the Python source literals (both
-    expand ``~`` / ``_home`` at runtime; we compare the raw template strings here).
-
-    Args:
-        ts_source: Full text of ``vaultResolver.ts``.
-
-    Returns:
-        List of raw string arguments found inside ``VAULT_FORBIDDEN_PREFIXES``.
+    Returns the raw string literals (``.claude``, ``Library``, ``/System``,
+    ...) so they can be compared structurally against the Python source
+    literals. Both sides expand ``~`` / ``_home`` at runtime; we compare the
+    raw template segments here.
     """
-    # Extract the array body between the [ and ]
     m = re.search(
         r"const\s+VAULT_FORBIDDEN_PREFIXES\s*:\s*[^=]+=\s*\[(.*?)\]",
         ts_source,
         re.DOTALL,
     )
     assert m, "Could not find VAULT_FORBIDDEN_PREFIXES array in vaultResolver.ts"
-    array_body = m.group(1)
-
-    # Collect all single/double-quoted string literals inside path.resolve(...)
-    # Each entry is like: path.resolve(_home, '.claude') or path.resolve('/System')
-    raw_strings: list[str] = re.findall(r"['\"]([^'\"]+)['\"]", array_body)
-    return raw_strings
+    return re.findall(r"['\"]([^'\"]+)['\"]", m.group(1))
 
 
 def _normalize_py_prefixes(py_prefixes: tuple[str, ...]) -> list[str]:
-    """Extract the path components (after ~/ or /) from the Python prefix strings.
-
-    Python entries look like:
-        str(Path.home() / ".claude")  -> evaluated to e.g. '/Users/x/.claude'
-        "/System"
-        str(Path.home() / "Library")  -> e.g. '/Users/x/Library'
-
-    We normalize by extracting the basename/relative segment that is independent
-    of the actual home directory, so we can compare the structure.
-
-    Args:
-        py_prefixes: The ``_VAULT_FORBIDDEN_PREFIXES`` tuple from ``vault_path``.
-
-    Returns:
-        Sorted list of normalized segments.
-    """
+    """Reduce Python prefixes to home-relative or absolute segments."""
     home = str(Path.home())
-    result: list[str] = []
+    out: list[str] = []
     for p in py_prefixes:
         if p.startswith(home + "/"):
-            result.append(p[len(home) + 1 :])
-        elif p.startswith("/"):
-            result.append(p)
+            out.append(p[len(home) + 1 :])
         else:
-            result.append(p)
-    return sorted(result)
+            out.append(p)
+    return sorted(out)
 
 
-def _normalize_ts_prefixes(raw_strings: list[str]) -> list[str]:
-    """Extract the path components from the TS string literals.
-
-    TS entries reference ``_home`` via a variable; the string literals are
-    the bare path segments like ``.claude``, ``Library``, or absolute paths
-    like ``/System``, ``/usr`` etc.
-
-    Args:
-        raw_strings: Raw quoted strings parsed from the TS ``path.resolve(...)`` calls.
-
-    Returns:
-        Sorted list of normalized segments.
-    """
-    result: list[str] = []
-    for s in raw_strings:
-        # Skip the '_home' variable name — it's not a path literal
-        if s == "_home":
-            continue
-        result.append(s)
-    return sorted(result)
+def _normalize_ts_prefixes(raw: list[str]) -> list[str]:
+    """Drop the ``_home`` variable name; keep path segments."""
+    return sorted(s for s in raw if s != "_home")
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
-class TestVaultResolverParity:
-    """ARC-004: Python _VAULT_FORBIDDEN_PREFIXES and TS VAULT_FORBIDDEN_PREFIXES must match."""
+class TestVaultForbiddenPrefixListParity:
+    """The forbidden-prefix *list* must stay byte-identical across languages."""
 
     def test_ts_file_exists(self) -> None:
-        """vaultResolver.ts must exist at the expected location."""
         assert _VAULT_RESOLVER_TS.exists(), (
             f"vaultResolver.ts not found at {_VAULT_RESOLVER_TS}"
         )
 
     def test_python_prefixes_present(self) -> None:
-        """vault_path._VAULT_FORBIDDEN_PREFIXES must be a non-empty tuple."""
         assert vault_path._VAULT_FORBIDDEN_PREFIXES, (
             "_VAULT_FORBIDDEN_PREFIXES is empty in vault_path.py"
         )
 
     def test_forbidden_prefix_lists_in_sync(self) -> None:
-        """Python and TS forbidden-prefix lists must have the same path segments.
-
-        Both lists are normalized to home-relative or absolute segments before
-        comparison, so the test is independent of the actual home directory.
-        If you add a prefix to one side, add it to the other and update this test.
-        """
-        ts_source = _VAULT_RESOLVER_TS.read_text(encoding="utf-8")
-        raw_ts = _parse_ts_prefixes(ts_source)
-        ts_segments = _normalize_ts_prefixes(raw_ts)
-        py_segments = _normalize_py_prefixes(vault_path._VAULT_FORBIDDEN_PREFIXES)
-
-        assert ts_segments == py_segments, (
-            "ARC-004: VAULT_FORBIDDEN_PREFIXES mismatch between Python and TypeScript!\n"
-            f"  Python   (vault_path.py):     {py_segments}\n"
-            f"  TypeScript (vaultResolver.ts): {ts_segments}\n"
+        raw_ts = _parse_ts_prefixes(_VAULT_RESOLVER_TS.read_text(encoding="utf-8"))
+        assert _normalize_ts_prefixes(raw_ts) == _normalize_py_prefixes(
+            vault_path._VAULT_FORBIDDEN_PREFIXES
+        ), (
+            "ARC-004: VAULT_FORBIDDEN_PREFIXES mismatch between Python and TypeScript.\n"
             "Update both files to keep them in sync."
         )
 
-    def test_forbidden_prefix_count_matches(self) -> None:
-        """Both lists must have the same number of entries."""
-        ts_source = _VAULT_RESOLVER_TS.read_text(encoding="utf-8")
-        raw_ts = _parse_ts_prefixes(ts_source)
-        ts_segments = _normalize_ts_prefixes(raw_ts)
-        py_segments = _normalize_py_prefixes(vault_path._VAULT_FORBIDDEN_PREFIXES)
-
-        assert len(ts_segments) == len(py_segments), (
-            f"Prefix count mismatch: Python has {len(py_segments)}, "
-            f"TypeScript has {len(ts_segments)}."
-        )
-
     def test_claude_config_dir_is_forbidden(self) -> None:
-        """Both lists must forbid the ~/.claude directory."""
-        ts_source = _VAULT_RESOLVER_TS.read_text(encoding="utf-8")
-        raw_ts = _parse_ts_prefixes(ts_source)
-
-        # Python check
-        home = str(Path.home())
-        py_claude = home + "/.claude"
-        assert py_claude in vault_path._VAULT_FORBIDDEN_PREFIXES, (
-            f"~/.claude ({py_claude}) not in Python _VAULT_FORBIDDEN_PREFIXES"
-        )
-
-        # TS check — the raw literal '.claude' must be present
-        assert ".claude" in raw_ts, (
-            "'.claude' segment not found in TS VAULT_FORBIDDEN_PREFIXES"
-        )
+        raw_ts = _parse_ts_prefixes(_VAULT_RESOLVER_TS.read_text(encoding="utf-8"))
+        assert str(Path.home() / ".claude") in vault_path._VAULT_FORBIDDEN_PREFIXES
+        assert ".claude" in raw_ts
 
     def test_system_paths_are_forbidden(self) -> None:
-        """Both Python and TS lists must forbid core system paths."""
-        required_absolute = ["/System", "/usr", "/bin", "/sbin", "/etc"]
-
-        for path_str in required_absolute:
-            assert path_str in vault_path._VAULT_FORBIDDEN_PREFIXES, (
-                f"{path_str} missing from Python _VAULT_FORBIDDEN_PREFIXES"
-            )
-
-        ts_source = _VAULT_RESOLVER_TS.read_text(encoding="utf-8")
-        raw_ts = _parse_ts_prefixes(ts_source)
-        for path_str in required_absolute:
-            assert path_str in raw_ts, (
-                f"{path_str} missing from TS VAULT_FORBIDDEN_PREFIXES"
-            )
+        raw_ts = _parse_ts_prefixes(_VAULT_RESOLVER_TS.read_text(encoding="utf-8"))
+        for p in ["/System", "/usr", "/bin", "/sbin", "/etc"]:
+            assert p in vault_path._VAULT_FORBIDDEN_PREFIXES
+            assert p in raw_ts
 
 
-# ---------------------------------------------------------------------------
-# ARC-038 (Python half): resolve_vault() precedence coverage
-# ---------------------------------------------------------------------------
-# Precedence (highest to lowest), per vault_path.resolve_vault() docstring:
-#   1. explicit flag (path or vault name)
-#   2. cwd/.claude/vault file (project-local vault)
-#   3. CLAUDE_VAULT environment variable
-#   4. Default ~/ParsidionVault (or legacy ~/ClaudeVault if it already exists)
-#
-# resolve_vault() is lru_cached on (explicit, normalized_cwd); tests that change
-# only the env var or the .claude/vault file share the (None, <cwd>) cache key,
-# so each scenario MUST clear the cache before asserting. tmp dirs are used so
-# the resolved paths never collide with the real ~/ParsidionVault and never
-# fall under _VAULT_FORBIDDEN_PREFIXES (system paths).
+# ===========================================================================
+# Layer 2: resolution-vector parity (shared fixture)
+# ===========================================================================
+
+_FIXTURE_DATA = json.loads(_VECTORS_FIXTURE.read_text(encoding="utf-8"))
+_VECTORS: list[dict[str, Any]] = _FIXTURE_DATA["vectors"]
+_PYTHON_VECTORS = [
+    v for v in _VECTORS if "python" in v.get("applies_to", ["python", "typescript"])
+]
+_EXCLUDED_FROM_PYTHON = [
+    v["name"]
+    for v in _VECTORS
+    if "python" not in v.get("applies_to", ["python", "typescript"])
+]
 
 
-class TestVaultResolverPrecedence:
-    """Cover the resolve_vault() precedence chain beyond VAULT_FORBIDDEN_PREFIXES."""
+def _subst(value: Any, tmp: str) -> Any:
+    """Replace the ``{TMP}`` token in strings (recursively for lists)."""
+    if isinstance(value, str):
+        return value.replace("{TMP}", tmp)
+    if isinstance(value, list):
+        return [_subst(v, tmp) for v in value]
+    return value
 
-    def setup_method(self) -> None:
-        """Each test starts from a clean resolver cache."""
-        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
-    def teardown_method(self) -> None:
-        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+def _materialize(
+    vec: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, Any]:
+    """Build the kwargs for ``resolve_vault(**kwargs)`` from a vector.
 
-    def test_explicit_overrides_env(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Branch 1 (explicit) beats branch 3 (CLAUDE_VAULT)."""
-        env_vault = tmp_path / "env-vault"
-        explicit_vault = tmp_path / "explicit-vault"
-        env_vault.mkdir()
-        explicit_vault.mkdir()
-        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+    Side-effects: sets env vars, creates dirs, writes the ``.claude/vault``
+    marker and ``vaults.yaml`` under the materialized HOME.
+    """
+    tmp = str(tmp_path)
 
-        resolved = vault_path.resolve_vault(explicit=str(explicit_vault))
-        assert resolved == explicit_vault.resolve()
+    home = _subst(vec.get("env_HOME", "{TMP}"), tmp)
+    monkeypatch.setenv("HOME", home)
 
-    def test_explicit_overrides_project_vault_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Branch 1 (explicit) beats branch 2 (cwd/.claude/vault)."""
-        project = tmp_path / "project"
-        project.mkdir()
-        file_vault = tmp_path / "file-vault"
-        explicit_vault = tmp_path / "explicit-vault"
-        file_vault.mkdir()
-        explicit_vault.mkdir()
-        # Project-local vault file points at file_vault.
-        (project / ".claude").mkdir()
-        (project / ".claude" / "vault").write_text(str(file_vault), encoding="utf-8")
-        monkeypatch.delenv("CLAUDE_VAULT", raising=False)
+    # Clear every env var a vector can set, then apply the vector's value.
+    # This prevents leakage between parametrized cases sharing a process.
+    for var in ("CLAUDE_VAULT", "VAULT_ROOT", "XDG_CONFIG_HOME"):
+        monkeypatch.delenv(var, raising=False)
+    if "env_CLAUDE_VAULT" in vec and vec["env_CLAUDE_VAULT"] is not None:
+        monkeypatch.setenv("CLAUDE_VAULT", _subst(vec["env_CLAUDE_VAULT"], tmp))
+    if "env_VAULT_ROOT" in vec and vec["env_VAULT_ROOT"] is not None:
+        monkeypatch.setenv("VAULT_ROOT", _subst(vec["env_VAULT_ROOT"], tmp))
 
-        resolved = vault_path.resolve_vault(
-            explicit=str(explicit_vault), cwd=str(project)
+    for d in vec.get("mkdir", []):
+        Path(_subst(d, tmp)).mkdir(parents=True, exist_ok=True)
+
+    cwd = _subst(vec.get("cwd", "{TMP}"), tmp)
+    marker = _subst(vec.get("cwd_marker"), tmp)
+    if marker:
+        marker_path = Path(marker)
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(
+            _subst(vec.get("cwd_marker_content", ""), tmp), encoding="utf-8"
         )
-        assert resolved == explicit_vault.resolve()
 
-    def test_project_vault_file_overrides_env(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Branch 2 (cwd/.claude/vault) beats branch 3 (CLAUDE_VAULT)."""
-        project = tmp_path / "project"
-        project.mkdir()
-        file_vault = tmp_path / "file-vault"
-        env_vault = tmp_path / "env-vault"
-        file_vault.mkdir()
-        env_vault.mkdir()
-        (project / ".claude").mkdir()
-        (project / ".claude" / "vault").write_text(str(file_vault), encoding="utf-8")
-        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+    if "vaults_yaml" in vec:
+        config_dir = Path(home) / ".config" / "parsidion"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "vaults.yaml").write_text(
+            _subst(vec["vaults_yaml"], tmp), encoding="utf-8"
+        )
 
-        resolved = vault_path.resolve_vault(cwd=str(project))
-        assert resolved == file_vault.resolve()
+    kwargs: dict[str, Any] = {"cwd": cwd}
+    if "explicit" in vec and vec["explicit"] is not None:
+        kwargs["explicit"] = _subst(vec["explicit"], tmp)
+    return kwargs
 
-    def test_env_overrides_default(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Branch 3 (CLAUDE_VAULT) beats branch 4 (default ~/ParsidionVault)."""
-        env_vault = tmp_path / "env-vault"
-        env_vault.mkdir()
-        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
-        # No cwd/.claude/vault file here -> falls past branch 2 to branch 3.
-        resolved = vault_path.resolve_vault(cwd=str(tmp_path))
-        assert resolved == env_vault.resolve()
 
-    def test_default_branch_when_no_overrides(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """With no explicit/project/env overrides, the default vault is returned.
+@pytest.fixture(autouse=True)
+def _clear_resolve_cache() -> Generator[None]:
+    """resolve_vault is lru_cached on (explicit, cwd); clear between cases."""
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    yield
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
-        Branch 4 returns default_vault_root() (~/.ParsidionVault or legacy
-        ~/.ClaudeVault). We do not touch $HOME, so this asserts the function
-        matches default_vault_root() exactly -- the contract is the precedence
-        chain terminates at the documented default.
+
+class TestVaultResolutionVectors:
+    """Fixture-driven parity: every Python-applicable vector must hold."""
+
+    def test_fixture_version_matches_module(self) -> None:
+        from scripts.gen_parity_fixtures import VECTORS_VERSION
+
+        assert _FIXTURE_DATA["version"] == VECTORS_VERSION, (
+            "vault-resolution.json version drifted from gen_parity_fixtures.py; "
+            "regenerate and update both consumers."
+        )
+
+    def test_no_vector_silently_skipped_on_python(self) -> None:
+        """Every vector must either run on Python or be explicitly excluded.
+
+        A vector with no applies_to runs on both sides. A vector scoped to
+        typescript-only must be recorded here so the exclusion is auditable,
+        not accidental.
         """
-        monkeypatch.delenv("CLAUDE_VAULT", raising=False)
-        resolved = vault_path.resolve_vault(cwd=str(tmp_path))
-        assert resolved == vault_path.default_vault_root()
+        ran = {v["name"] for v in _PYTHON_VECTORS}
+        excluded = set(_EXCLUDED_FROM_PYTHON)
+        assert ran | excluded == {v["name"] for v in _VECTORS}, (
+            "vector accounting mismatch -- a vector is neither run nor excluded"
+        )
+        # The typescript-only exclusions are a documented design split, not
+        # unimplemented behaviour. Pin the set so a new ts-only vector forces
+        # a deliberate ack here.
+        assert set(_EXCLUDED_FROM_PYTHON) == {
+            "vault-root-overrides-default-typescript",
+            "arbitrary-path-rejected-allowlist-typescript",
+            "vault-root-forbidden-rejected-typescript",
+        }, (
+            "TypeScript-only vector set changed; update this assertion to "
+            "acknowledge the new exclusion (or make the vector shared)."
+        )
 
-    def test_project_vault_file_missing_falls_through(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("vec", _PYTHON_VECTORS, ids=lambda v: v["name"])
+    def test_resolve_vault_matches_fixture(
+        self, vec: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A cwd with no .claude/vault file falls through to the env branch."""
-        project = tmp_path / "project"
-        project.mkdir()
-        env_vault = tmp_path / "env-vault"
-        env_vault.mkdir()
-        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
-
-        resolved = vault_path.resolve_vault(cwd=str(project))
-        assert resolved == env_vault.resolve()
-
-    def test_project_vault_file_empty_falls_through(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An empty .claude/vault file is skipped (falls through to env)."""
-        project = tmp_path / "project"
-        project.mkdir()
-        env_vault = tmp_path / "env-vault"
-        env_vault.mkdir()
-        (project / ".claude").mkdir()
-        (project / ".claude" / "vault").write_text("   \n", encoding="utf-8")
-        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
-
-        resolved = vault_path.resolve_vault(cwd=str(project))
-        assert resolved == env_vault.resolve()
+        kwargs = _materialize(vec, tmp_path, monkeypatch)
+        if "expect_error" in vec:
+            with pytest.raises(vault_path.VaultConfigError):
+                vault_path.resolve_vault(**kwargs)
+        else:
+            result = vault_path.resolve_vault(**kwargs)
+            expected = Path(_subst(vec["expect"], str(tmp_path)))
+            # Resolve both sides so macOS /private prefixing and symlinks
+            # (e.g. /etc -> /private/etc) don't make equal paths compare unequal.
+            assert result.resolve() == expected.resolve(), (
+                f"{vec['name']}: expected {expected.resolve()}, got {result.resolve()}"
+            )

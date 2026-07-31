@@ -324,6 +324,8 @@ A failed gitleaks/detect-private-key hook is a hard block — never bypass it. I
 | `make typecheck` | `uv run pyright .` | Type-check Python |
 | `make test` | `uv run pytest tests/` | Run unit test suite (numpy-free) |
 | `make test-graph` | `uv run --with numpy pytest tests/test_build_graph_parmem.py` | par-mem body-link enrichment tests (numpy-gated) |
+| `make parity-fixtures` | `uv run python scripts/gen_parity_fixtures.py` | ENH-005: regenerate `tests/fixtures/graph.schema.json` from `build_graph.py:GRAPH_JSON_SCHEMA` and structurally validate the vault-resolution vectors. Run after editing either. |
+| `make parity-fixtures-check` | `uv run python scripts/gen_parity_fixtures.py --check` | ENH-005 CI gate — regenerate to temp and diff against the committed fixtures; exits 1 on drift. |
 | `make checkall` | fmt-check + lint + typecheck + test + test-graph + visualizer-check + checkall-mcp | Full quality gate. Non-mutating (uses `fmt-check`, not `fmt`); CI runs the same targets via separate jobs (see `.github/workflows/ci.yml`). |
 | `make checkall-mcp` | `$(MAKE) -C parsidion-mcp checkall` | parsidion-mcp sub-project gate |
 | `make visualizer-check` | `cd visualizer && bunx tsc --noEmit && bun run lint && bun test` | Visualizer typecheck + lint + unit tests |
@@ -416,6 +418,8 @@ Throughout this section `<vault>` is the resolved vault root (`~/ParsidionVault/
 2. `<cwd>/.claude/vault` file (path or configured name)
 3. `CLAUDE_VAULT` environment variable (path or configured name)
 4. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
+
+> **ENH-005 — cross-language parity contract.** `visualizer/lib/vaultResolver.ts:resolveVault()` mirrors this resolution contract on the TypeScript side. The two are not identical (the TS resolver is allowlist-only and honours `VAULT_ROOT` for the default; it has no `cwd/.claude/vault` or `CLAUDE_VAULT` channel), but the shared observable behaviour is pinned by a single fixture at `tests/fixtures/parity/vault-resolution.json` consumed by both `tests/test_vault_resolver_parity.py` and `visualizer/lib/vaultResolver.parity.test.ts`. **Changing either resolver requires updating that fixture** (add a vector, then run both test files). The `tests/fixtures/graph.schema.json` contract is likewise generated — run `make parity-fixtures` after editing `GRAPH_JSON_SCHEMA` in `build_graph.py`; CI fails on drift via `make parity-fixtures-check`.
 
 - `VAULT_ROOT` = module-level constant in `vault_path.py` holding the *default* vault path (used as a fallback by `resolve_vault()`). Re-exported from `vault_common.py` for backwards compatibility with external callers (e.g. parsidion-mcp, tests). **Not patched by the installer** (ARC-001) — code should call `resolve_vault()` / `resolve_templates_dir()` rather than reading the constant directly.
 - `TEMPLATES_DIR` = module-level constant in `vault_path.py` defaulting to `~/.claude/skills/parsidion/templates/`. Re-exported from `vault_common.py`. **Not patched by the installer** (ARC-001) — code should call `resolve_templates_dir()`.
