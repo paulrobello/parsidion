@@ -59,6 +59,7 @@ summarizer:
   dead_letter_retention_days: 7            # Prune dead_letters.jsonl entries older than N days each run (write-gate skips are sticky, so the file grows without this); <=0 disables
   rebuild_graph: false                     # Rebuild visualizer graph.json after indexing (same as --rebuild-graph CLI flag)
   graph_include_daily: false               # Include Daily notes in graph rebuild (same as --graph-include-daily CLI flag)
+  graph_incremental: false                 # ENH-002: reuse previous graph.json and recompute only changed notes (same as --graph-incremental). Falls back to a full rebuild if the previous graph is missing/unreadable or was built under different parameters.
 
 # AI backend selection (ai_backend.py). Chooses which prompt backend the
 # hooks and the summarizer use for AI calls. Default ``auto`` picks the

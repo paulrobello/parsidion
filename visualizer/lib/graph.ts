@@ -22,8 +22,14 @@ export interface GraphData {
     note_count: number
     edge_count: number
     min_semantic_threshold: number
+    /** On-disk graph.json shape version (GRAPH_SCHEMA_VERSION in build_graph.py). Required since ENH-002 (schema_version 2). */
+    schema_version?: number
+    /** Whether Daily-folder notes are included in the node set (ENH-002). Required since schema_version 2. */
+    include_daily?: boolean
     /** Maximum semantic edges kept per note (top-K nearest neighbours); 0 disables the cap. Absent on graphs built before ENH-001. */
     max_neighbors?: number
+    /** True when this graph was produced by an incremental rebuild (ENH-002). Absent on full-rebuild graphs. */
+    incremental?: boolean
     /** Wiki edges contributed by par-mem body-link enrichment; absent when the enrichment was skipped or added nothing. */
     parmem_body_links?: number
   }

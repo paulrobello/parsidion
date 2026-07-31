@@ -51,6 +51,14 @@
           "description": "ISO-8601 UTC timestamp the graph was built.",
           "type": "string"
         },
+        "include_daily": {
+          "description": "Whether Daily-folder notes are included in the node set. Participates in the incremental compatibility check because it changes which nodes exist.",
+          "type": "boolean"
+        },
+        "incremental": {
+          "description": "True when this graph was produced by an incremental rebuild (ENH-002). Absent on full-rebuild graphs.",
+          "type": "boolean"
+        },
         "max_neighbors": {
           "description": "Maximum semantic edges kept per note, strongest first (ENH-001). 0 disables the cap and emits every pair above min_semantic_threshold.",
           "minimum": 0,
@@ -69,13 +77,21 @@
           "description": "Wiki edges contributed by par-mem body-link enrichment. Absent when enrichment was skipped or added nothing.",
           "minimum": 0,
           "type": "integer"
+        },
+        "schema_version": {
+          "description": "On-disk graph.json shape version (GRAPH_SCHEMA_VERSION in build_graph.py). The incremental loader compares this against its own constant and full-rebuilds on mismatch.",
+          "minimum": 1,
+          "type": "integer"
         }
       },
       "required": [
         "generated",
         "note_count",
         "edge_count",
-        "min_semantic_threshold"
+        "min_semantic_threshold",
+        "schema_version",
+        "include_daily",
+        "max_neighbors"
       ],
       "type": "object"
     },

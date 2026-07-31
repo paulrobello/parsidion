@@ -822,7 +822,7 @@ def _find_build_graph_script() -> Path | None:
     return None
 
 
-def _rebuild_graph(include_daily: bool) -> None:
+def _rebuild_graph(include_daily: bool, incremental: bool = False) -> None:
     """Run build_graph.py synchronously and print its output.
 
     Args:
@@ -832,6 +832,10 @@ def _rebuild_graph(include_daily: bool) -> None:
             entirely produces the *with*-Daily behavior regardless of the
             caller's intent — DOC-003 caught this exact bug (the message said
             'without Daily notes' while the build was including them).
+        incremental: When True, pass ``--incremental`` (ENH-002) so build_graph.py
+            reuses the previous graph.json and recomputes only changed notes.
+            build_graph.py falls back to a full rebuild on any compatibility
+            mismatch, so passing this is always safe.
     """
     graph_script = _find_build_graph_script()
     if graph_script is None:
@@ -847,9 +851,12 @@ def _rebuild_graph(include_daily: bool) -> None:
     # include_daily=True, so without an explicit flag the index would include
     # Daily notes regardless of the caller's request.
     cmd.append("--include-daily" if include_daily else "--no-daily")
+    if incremental:
+        cmd.append("--incremental")
 
+    mode = "incremental" if incremental else "full"
     print(
-        f"Graph: rebuilding graph.json ({'with' if include_daily else 'without'} Daily notes)..."
+        f"Graph: rebuilding graph.json ({mode}, {'with' if include_daily else 'without'} Daily notes)..."
     )
     # QA-005: bound the graph rebuild — a hung child stalls the summarizer
     # mid-run and leaves the index stale with no error. 300 s is generous for
@@ -890,6 +897,18 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Include Daily folder notes in the graph (only used with --rebuild-graph)",
+    )
+    parser.add_argument(
+        "--graph-incremental",
+        action="store_true",
+        default=False,
+        help=(
+            "Rebuild graph.json incrementally (ENH-002): reuse the previous "
+            "graph and recompute only changed notes. Honoured only with "
+            "--rebuild-graph. Also enabled by summarizer.graph_incremental in "
+            "config.yaml. build_graph.py falls back to a full rebuild if the "
+            "previous graph is missing or was built under different parameters."
+        ),
     )
     return parser.parse_args()
 
@@ -1042,7 +1061,13 @@ def main() -> None:
             print("par-mem: background index launched")
 
     if args.rebuild_graph:
-        _rebuild_graph(include_daily=args.graph_include_daily)
+        # ENH-002: graph_incremental is opt-in via --graph-incremental OR
+        # summarizer.graph_incremental in config.yaml. CLI flag wins; config
+        # is the silent default so nightly summarizer runs can opt in once.
+        incremental = args.graph_incremental or bool(
+            get_config("summarizer", "graph_incremental", False)
+        )
+        _rebuild_graph(include_daily=args.graph_include_daily, incremental=incremental)
 
 
 if __name__ == "__main__":

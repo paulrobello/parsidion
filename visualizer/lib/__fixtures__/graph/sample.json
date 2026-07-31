@@ -4,6 +4,8 @@
     "note_count": 2,
     "edge_count": 2,
     "min_semantic_threshold": 0.6,
+    "schema_version": 2,
+    "include_daily": true,
     "max_neighbors": 15,
     "parmem_body_links": 1
   },

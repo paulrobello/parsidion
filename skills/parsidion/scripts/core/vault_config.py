@@ -476,6 +476,7 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "dead_letter_retention_days": (int,),
         "rebuild_graph": (bool,),
         "graph_include_daily": (bool,),
+        "graph_incremental": (bool,),
         "ai_timeout": (int, float, type(None)),
     },
     "embeddings": {

@@ -23,6 +23,14 @@ from pathlib import Path
 import numpy as np
 
 
+# ENH-002: bump whenever the on-disk graph.json shape changes in a way that
+# invalidates previously-computed edges. The incremental loader compares this
+# against ``meta.schema_version`` and falls back to a full rebuild on mismatch.
+# Reusing edges computed under different parameters is the single most likely
+# way to ship a silently-wrong graph, so every such change must bump this.
+GRAPH_SCHEMA_VERSION: int = 2
+
+
 # ARC-038: machine-readable contract for the graph.json this script emits.
 # Mirrors the canonical fixture tests/fixtures/graph.schema.json and the
 # TypeScript GraphData interface (visualizer/lib/graph.ts). Kept as a plain
@@ -47,6 +55,9 @@ GRAPH_JSON_SCHEMA: dict = {
                 "note_count",
                 "edge_count",
                 "min_semantic_threshold",
+                "schema_version",
+                "include_daily",
+                "max_neighbors",
             ],
             "properties": {
                 "generated": {
@@ -60,6 +71,23 @@ GRAPH_JSON_SCHEMA: dict = {
                     "minimum": 0,
                     "maximum": 1,
                 },
+                "schema_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": (
+                        "On-disk graph.json shape version (GRAPH_SCHEMA_VERSION "
+                        "in build_graph.py). The incremental loader compares this "
+                        "against its own constant and full-rebuilds on mismatch."
+                    ),
+                },
+                "include_daily": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether Daily-folder notes are included in the node set. "
+                        "Participates in the incremental compatibility check "
+                        "because it changes which nodes exist."
+                    ),
+                },
                 "max_neighbors": {
                     "type": "integer",
                     "minimum": 0,
@@ -67,6 +95,13 @@ GRAPH_JSON_SCHEMA: dict = {
                         "Maximum semantic edges kept per note, strongest first "
                         "(ENH-001). 0 disables the cap and emits every pair "
                         "above min_semantic_threshold."
+                    ),
+                },
+                "incremental": {
+                    "type": "boolean",
+                    "description": (
+                        "True when this graph was produced by an incremental "
+                        "rebuild (ENH-002). Absent on full-rebuild graphs."
                     ),
                 },
                 "parmem_body_links": {
@@ -217,6 +252,17 @@ def parse_args() -> argparse.Namespace:
         help="Skip writing graph.schema.json alongside graph.json",
     )
     parser.set_defaults(emit_schema=True)
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help=(
+            "Reuse the previous graph.json and recompute only notes whose mtime "
+            "changed since meta.generated. Falls back to a full rebuild if the "
+            "previous graph is missing, unreadable, or was built with different "
+            "parameters (schema_version, min_semantic_threshold, max_neighbors, "
+            "or include_daily)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -308,6 +354,54 @@ def parse_related_stems(related_str: str) -> list[str]:
     return [s.strip() for s in related_str.split(",") if s.strip()]
 
 
+def _emit_top_k_edges(
+    stems: list[str],
+    sim_rows: np.ndarray,
+    row_global_indices: list[int],
+    candidate_cols: list[np.ndarray],
+    min_threshold: float,
+    seen: set[tuple[int, int]] | None = None,
+) -> list[dict]:
+    """Walk per-row candidate columns; emit semantic edges above threshold.
+
+    Single shared walker so full and incremental modes cannot diverge — that
+    divergence is exactly the bug class this repo already has in its two
+    ``findNote`` copies and its two vault resolvers. ``sim_rows[i]`` is the
+    similarity row for the stem at ``row_global_indices[i]``;
+    ``candidate_cols[i]`` are the column indices to consider for that row.
+    Pairs are deduped unordered on ``(min(gi, gj), max(gi, gj))`` global
+    indices, so an edge selected by either endpoint is kept once.
+    """
+    own_seen = seen is None
+    if own_seen:
+        seen = set()
+    edges: list[dict] = []
+    for local_i, global_i in enumerate(row_global_indices):
+        row = sim_rows[local_i]
+        for j in candidate_cols[local_i]:
+            j = int(j)
+            if j == global_i:
+                continue
+            w = float(row[j])
+            if w < min_threshold:
+                continue
+            a, b = (global_i, j) if global_i < j else (j, global_i)
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+            edges.append(
+                {"s": stems[a], "t": stems[b], "w": round(w, 4), "kind": "semantic"}
+            )
+    return edges
+
+
+def _normalize_rows(embeddings_matrix: np.ndarray) -> np.ndarray:
+    """L2-normalize each row; zero-rows are left as zero (not NaN)."""
+    norms = np.linalg.norm(embeddings_matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return embeddings_matrix / norms
+
+
 def build_semantic_edges(
     stems: list[str],
     embeddings_matrix: np.ndarray,
@@ -322,17 +416,11 @@ def build_semantic_edges(
     ends sane. Edges are undirected; a pair selected by either endpoint is
     kept once.
     """
-    # L2-normalize each row
-    norms = np.linalg.norm(embeddings_matrix, axis=1, keepdims=True)
-    # Avoid division by zero
-    norms = np.where(norms == 0, 1.0, norms)
-    normalized = embeddings_matrix / norms
-
     n = len(stems)
     if n == 0:
         return []
 
-    # Compute full similarity matrix
+    normalized = _normalize_rows(embeddings_matrix)
     sim = normalized @ normalized.T  # shape (N, N)
     np.fill_diagonal(sim, -1.0)  # never select self
 
@@ -343,24 +431,235 @@ def build_semantic_edges(
         top_idx = np.argpartition(-sim, max_neighbors - 1, axis=1)[:, :max_neighbors]
         candidate_cols = list(top_idx)
 
-    seen: set[tuple[int, int]] = set()
-    edges: list[dict] = []
-    for i in range(n):
-        for j in candidate_cols[i]:
-            j = int(j)
-            if j == i:
-                continue
-            w = float(sim[i, j])
-            if w < min_threshold:
-                continue
-            a, b = (i, j) if i < j else (j, i)
-            if (a, b) in seen:
-                continue
-            seen.add((a, b))
-            edges.append(
-                {"s": stems[a], "t": stems[b], "w": round(w, 4), "kind": "semantic"}
-            )
-    return edges
+    return _emit_top_k_edges(stems, sim, list(range(n)), candidate_cols, min_threshold)
+
+
+# ---------------------------------------------------------------------------
+# ENH-002: incremental rebuild
+# ---------------------------------------------------------------------------
+
+
+def load_previous_graph(path: Path, args: argparse.Namespace) -> dict | None:
+    """Return the previous graph iff it is safely reusable, else None.
+
+    Returning None means "do a full rebuild" — every failure mode collapses
+    to that, because a wrong graph is worse than a slow one. The check covers
+    schema_version, min_semantic_threshold, max_neighbors, and include_daily
+    (the last changes which nodes exist, so it must participate).
+    """
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(prev, dict):
+        return None
+    meta = prev.get("meta", {})
+    if not isinstance(meta, dict):
+        return None
+    if meta.get("schema_version") != GRAPH_SCHEMA_VERSION:
+        return None
+    if meta.get("min_semantic_threshold") != args.min_threshold:
+        return None
+    if meta.get("max_neighbors") != args.max_neighbors:
+        return None
+    if meta.get("include_daily") != args.include_daily:
+        return None
+    if not meta.get("generated"):
+        return None
+    return prev
+
+
+def compute_changed_stems(
+    notes: list[dict], prev: dict
+) -> tuple[set[str], set[str], set[str]]:
+    """Return ``(changed, added, removed)`` stem sets relative to prev.
+
+    ``changed`` is the recompute seed: notes whose mtime is after
+    ``meta.generated`` (minus a 2 s safety margin for clock granularity
+    between the indexer writing mtime and the graph writing ``generated``)
+    plus newly-added notes. Caller extends this via :func:`expand_recompute_set`
+    and :func:`extend_recompute_closure`.
+
+    Node identity in prev is the ``id`` field (whose value is the stem — see
+    main()'s node writer); the fresh-loaded ``notes`` use ``stem``.
+    """
+    prev_stems = {n["id"] for n in prev.get("nodes", [])}
+    cur_stems = {n["stem"] for n in notes}
+    added = cur_stems - prev_stems
+    removed = prev_stems - cur_stems
+
+    generated_str = prev.get("meta", {}).get("generated", "")
+    cutoff = 0.0
+    try:
+        # ``generated`` is formatted "%Y-%m-%dT%H:%M:%SZ"; fromisoformat needs
+        # the trailing Z as +00:00. Older graphs may carry other shapes — any
+        # parse failure collapses to cutoff=0, which treats every note as
+        # changed (a safe over-approximation that still produces a correct
+        # graph, just at full-rebuild cost for the recompute set).
+        generated = datetime.datetime.fromisoformat(
+            generated_str.replace("Z", "+00:00")
+        )
+        cutoff = generated.timestamp() - 2.0  # 2 s safety margin
+    except (ValueError, TypeError):
+        cutoff = 0.0
+
+    modified = {
+        n["stem"]
+        for n in notes
+        if n["stem"] in prev_stems and float(n["mtime"] or 0) > cutoff
+    }
+    return modified | added, added, removed
+
+
+def expand_recompute_set(changed: set[str], prev_edges: list[dict]) -> set[str]:
+    """Seed the recompute set with every note sharing a semantic edge with a changed note.
+
+    Top-K selection is relative: a new strong neighbour can evict an existing
+    edge between two otherwise-unchanged notes. For *modified* notes this
+    prev-edge closure is the cheap, correct seed — recompute them and their
+    existing neighbours. Brand-new notes have no prev edges, so their forward
+    neighbours are caught separately by :func:`extend_recompute_closure`.
+    """
+    out = set(changed)
+    for e in prev_edges:
+        if e.get("kind") != "semantic":
+            continue
+        s, t = e.get("s", ""), e.get("t", "")
+        if s in changed:
+            out.add(t)
+        elif t in changed:
+            out.add(s)
+    return out
+
+
+def extend_recompute_closure(
+    stems: list[str],
+    normalized: np.ndarray,
+    seed: set[str],
+    prev_semantic: list[dict],
+    min_threshold: float,
+    max_neighbors: int,
+) -> set[str]:
+    """Extend ``seed`` to the full recompute closure, iterated to a fixpoint.
+
+    Two closure rules, applied to every newly-added member until no more
+    notes appear:
+
+    1. **Similarity forward** — for each member, compute its similarity row
+       and add its top-K above ``min_threshold``. Catches the new-note
+       eviction case :func:`expand_recompute_set` misses (a brand-new note
+       has no prev edges, but its forward top-K must be recomputed so its
+       neighbours' top-K lists — which it enters — are recomputed too).
+
+    2. **Prev-edge** — for each member, add every note sharing a *previous*
+       semantic edge with it. The merge in :func:`main` drops any prev edge
+       whose endpoints are in the recompute set and re-emits via the
+       recompute; for that to be correct **both** endpoints of every affected
+       prev edge must be recomputed, otherwise an edge that exists solely
+       because the non-recomputed endpoint selected the recomputed one is
+       silently dropped. Without this rule a dense vault loses ~1% of its
+       edges on every incremental rebuild — a silent divergence, exactly the
+       bug class this enhancement exists to prevent.
+
+    The two rules feed each other: similarity adds new members whose prev-edge
+    partners must in turn be added, and those partners' similarity rows may
+    add still more. Converges because the note set is finite; bounded by the
+    prev-edge + top-K connected component reachable from ``seed``. On a dense
+    vault (one giant component) this is ~all notes and the incremental
+    degrades to full-rebuild cost — correct, just no longer cheaper. On a
+    sparse vault, or a small change set in a topical cluster, the closure
+    stays small and the |closure| × N saving over the N × N matrix is real.
+    """
+    n = len(stems)
+    if n == 0 or not seed:
+        return set(seed)
+    idx_of = {s: i for i, s in enumerate(stems)}
+
+    # Prev-edge adjacency (undirected). Used by rule 2.
+    prev_adj: dict[str, set[str]] = {}
+    for e in prev_semantic:
+        s, t = e.get("s", ""), e.get("t", "")
+        if not s or not t:
+            continue
+        prev_adj.setdefault(s, set()).add(t)
+        prev_adj.setdefault(t, set()).add(s)
+
+    closure = set(seed)
+    pending = {s for s in seed if s in idx_of}
+    while pending:
+        current_stems = {s for s in pending if s in idx_of}
+        pending.clear()
+
+        # Rule 1: similarity forward closure for the pending members.
+        current_rows = [idx_of[s] for s in current_stems]
+        if current_rows:
+            block = normalized[current_rows] @ normalized.T  # (|current|, N)
+            for local_i, global_i in enumerate(current_rows):
+                block[local_i, global_i] = -1.0  # never select self
+            for local_i, global_i in enumerate(current_rows):
+                row = block[local_i]
+                if max_neighbors <= 0 or max_neighbors >= n:
+                    cols = range(n)
+                else:
+                    cols = np.argpartition(-row, max_neighbors - 1)[:max_neighbors]
+                for j in cols:
+                    j = int(j)
+                    if j == global_i:
+                        continue
+                    if float(row[j]) < min_threshold:
+                        continue
+                    neighbour = stems[j]
+                    if neighbour not in closure:
+                        closure.add(neighbour)
+                        pending.add(neighbour)
+
+        # Rule 2: prev-edge closure for the pending members. Ensures both
+        # endpoints of every prev edge touching the closure are recomputed.
+        for s in current_stems:
+            for neighbour in prev_adj.get(s, ()):
+                if neighbour in idx_of and neighbour not in closure:
+                    closure.add(neighbour)
+                    pending.add(neighbour)
+    return closure
+
+
+def build_semantic_edges_incremental(
+    stems: list[str],
+    normalized: np.ndarray,
+    recompute: set[str],
+    min_threshold: float,
+    max_neighbors: int,
+) -> tuple[list[dict], set[str]]:
+    """Compute top-K semantic edges for ``recompute`` stems only.
+
+    Returns ``(new_edges, recomputed_stems)``. Peak extra memory is
+    ``|recompute| x N``, never ``N x N`` — the whole point of ENH-002. Walks
+    the same shared :func:`_emit_top_k_edges` walker as the full build so the
+    two modes cannot diverge.
+    """
+    n = len(stems)
+    if n == 0 or not recompute:
+        return [], set()
+    idx_of = {s: i for i, s in enumerate(stems)}
+    rows = [idx_of[s] for s in recompute if s in idx_of]
+    if not rows:
+        return [], set()
+
+    sub = normalized[rows] @ normalized.T  # shape (|recompute|, N)
+    for local_i, global_i in enumerate(rows):
+        sub[local_i, global_i] = -1.0  # never select self
+
+    if max_neighbors <= 0 or max_neighbors >= n:
+        candidate_cols = [np.arange(n)] * len(rows)
+    else:
+        top_idx = np.argpartition(-sub, max_neighbors - 1, axis=1)[:, :max_neighbors]
+        candidate_cols = list(top_idx)
+
+    edges = _emit_top_k_edges(stems, sub, rows, candidate_cols, min_threshold)
+    return edges, {stems[i] for i in rows}
 
 
 def build_wiki_edges(notes: list[dict], valid_stems: set[str]) -> list[dict]:
@@ -500,28 +799,98 @@ def main() -> None:
 
     valid_stems = {n["stem"] for n in filtered_notes}
 
+    # Resolve output path before building matrices: the incremental path needs
+    # to know where the previous graph lives, and the full path uses the same
+    # path for writing.
+    output_path = args.output if args.output is not None else vault_root / "graph.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Build embedding matrix
     stems_ordered = [n["stem"] for n in filtered_notes]
     print(f"Loading {len(stems_ordered)} embeddings...", file=sys.stderr)
     embeddings_matrix = np.stack(
         [stem_to_embedding[s] for s in stems_ordered], axis=0
     ).astype(np.float32)
+    # ENH-002: normalized rows are needed by both the full path (inside
+    # build_semantic_edges) and the incremental path (for the closure expansion
+    # and the |recompute| x N sub-matrix). Compute once, reuse.
+    normalized = _normalize_rows(embeddings_matrix)
 
-    # Compute similarity matrix
     n = len(stems_ordered)
-    print(f"Computing {n}×{n} similarity matrix...", file=sys.stderr)
+    prev = load_previous_graph(output_path, args) if args.incremental else None
+    incremental_meta: dict[str, object] = {}
+    reused_semantic = 0
+    if prev is not None:
+        changed, added, removed = compute_changed_stems(filtered_notes, prev)
+        prev_semantic = [
+            e for e in prev.get("edges", []) if e.get("kind") == "semantic"
+        ]
+        seed = expand_recompute_set(changed, prev_semantic)
+        recompute = extend_recompute_closure(
+            stems_ordered,
+            normalized,
+            seed,
+            prev_semantic,
+            args.min_threshold,
+            args.max_neighbors,
+        )
+        new_semantic, _ = build_semantic_edges_incremental(
+            stems_ordered,
+            normalized,
+            recompute,
+            args.min_threshold,
+            args.max_neighbors,
+        )
+        # Keep previous semantic edges whose endpoints are both unchanged AND
+        # neither was deleted. Recomputed pairs are dropped here and replaced
+        # by ``new_semantic``; the union (kept ∪ new) is the new edge set.
+        kept: list[dict] = []
+        for e in prev_semantic:
+            s, t = e.get("s", ""), e.get("t", "")
+            if s in recompute or t in recompute:
+                continue
+            if s in removed or t in removed:
+                continue
+            kept.append(e)
+        reused_semantic = len(kept)
+        semantic_edges = kept + new_semantic
+        incremental_meta = {"incremental": True}
+        print(
+            f"incremental: {len(changed)} changed ({len(added)} added, "
+            f"{len(removed)} removed), {len(recompute)} recomputed, "
+            f"{reused_semantic} edges reused, {len(new_semantic)} recomputed "
+            f"[full vault: {n} notes]",
+            file=sys.stderr,
+        )
+        # Drop the embeddings_matrix reference; the incremental path never
+        # forms the N×N matrix, which is the whole memory/CPU win.
+        del embeddings_matrix
+    else:
+        # Full rebuild (the default, or the fallback when the previous graph
+        # is missing/unreadable/built under different parameters).
+        if args.incremental:
+            print(
+                "incremental: previous graph not reusable — full rebuild",
+                file=sys.stderr,
+            )
+        print(f"Computing {n}×{n} similarity matrix...", file=sys.stderr)
+        print(
+            f"Extracting semantic edges (threshold={args.min_threshold})...",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        semantic_edges = build_semantic_edges(
+            stems_ordered,
+            embeddings_matrix,
+            args.min_threshold,
+            args.max_neighbors,
+        )
+        print(f"  → {len(semantic_edges)} pairs", file=sys.stderr)
 
-    print(
-        f"Extracting semantic edges (threshold={args.min_threshold})...",
-        end="",
-        file=sys.stderr,
-        flush=True,
-    )
-    semantic_edges = build_semantic_edges(
-        stems_ordered, embeddings_matrix, args.min_threshold, args.max_neighbors
-    )
-    print(f"  → {len(semantic_edges)} pairs", file=sys.stderr)
-
+    # Wiki edges are always rebuilt from scratch — a frontmatter scan is cheap
+    # (no matrix) and their correctness depends on the whole ``related`` graph,
+    # so an incremental merge would only add risk for no measurable saving.
     print("Extracting wiki edges...", end="", file=sys.stderr, flush=True)
     wiki_edges = build_wiki_edges(filtered_notes, valid_stems)
     print(f"  → {len(wiki_edges)} pairs", file=sys.stderr)
@@ -548,7 +917,8 @@ def main() -> None:
     all_edges = semantic_edges + wiki_edges + body_edges
     total_edges = len(all_edges)
 
-    # Build nodes list
+    # Build nodes list (always from current note_index rows so removed notes
+    # disappear naturally; the merge above already dropped their edges).
     nodes = []
     for note in filtered_notes:
         rel_path = note["path"]
@@ -567,7 +937,9 @@ def main() -> None:
             }
         )
 
-    # Build output
+    # Build output. meta carries schema_version/include_daily/max_neighbors so
+    # the next incremental run can validate compatibility (and any mismatch
+    # collapses to a full rebuild — see load_previous_graph).
     graph = {
         "meta": {
             "generated": datetime.datetime.now(datetime.UTC).strftime(
@@ -576,16 +948,15 @@ def main() -> None:
             "note_count": len(nodes),
             "edge_count": total_edges,
             "min_semantic_threshold": args.min_threshold,
+            "schema_version": GRAPH_SCHEMA_VERSION,
+            "include_daily": args.include_daily,
             "max_neighbors": args.max_neighbors,
+            **incremental_meta,
             **({"parmem_body_links": len(body_edges)} if body_edges else {}),
         },
         "nodes": nodes,
         "edges": all_edges,
     }
-
-    # Ensure output directory exists
-    output_path = args.output if args.output is not None else vault_root / "graph.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print("Writing graph.json...", file=sys.stderr)
     write_graph_json(graph, output_path)
