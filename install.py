@@ -975,16 +975,63 @@ def install(args: argparse.Namespace) -> int:
 
 
 def _connectable_runtimes() -> list[str]:
-    """Runtimes that can be wired via ``connect``/``disconnect``.
+    """Runtimes accepted by ``connect``/``disconnect``.
 
-    A runtime is connectable when it owns hook registrations (has a hook
-    config to merge). pi is extension-only and excluded until it grows a
-    connect path. Data-driven from the agent_adapter registry (ENH-006), so a
-    newly-registered runtime with a hook config appears here automatically.
+    Data-driven from the agent_adapter registry (ENH-006): every registered
+    runtime is accepted. claude/codex/gemini wire hooks via install()/uninstall();
+    pi installs its TypeScript extension via the dedicated installer. A newly-
+    registered runtime appears here with no installer edit.
     """
     import agent_adapter  # noqa: PLC0415
 
-    return [a.name for a in agent_adapter.all_adapters() if a.hooks_config_filename]
+    return [a.name for a in agent_adapter.all_adapters()]
+
+
+def _connect_pi(args: argparse.Namespace) -> None:
+    """Install the pi TypeScript extension via the repo's dedicated installer.
+
+    pi does not use Parsidion's hook-registration path (it shells out to the
+    Claude hook scripts at runtime), so ``connect pi`` runs
+    ``scripts/install-pi-extension``, which copies/symlinks the extension into
+    ``~/.pi/agent/extensions``.
+    """
+    import subprocess  # noqa: PLC0415
+
+    script = REPO_ROOT / "scripts" / "install-pi-extension"
+    if not script.exists():
+        _err(f"pi extension installer not found: {script}")
+        sys.exit(1)
+    cmd = ["bash", str(script)]
+    if args.dry_run:
+        _step(f"Would run: {' '.join(cmd)}")
+        return
+    try:
+        completed = subprocess.run(cmd, check=False)
+    except OSError as exc:
+        _err(f"Could not run pi extension installer: {exc}")
+        sys.exit(1)
+    if completed.returncode != 0:
+        sys.exit(completed.returncode)
+
+
+def _disconnect_pi(args: argparse.Namespace) -> None:
+    """Remove the pi extension from ``~/.pi/agent/extensions``."""
+    ext_dir = Path.home() / ".pi" / "agent" / "extensions"
+    targets = ["parsidion.ts", "parsidion.md", "lib/parsidion-status.ts"]
+    removed: list[str] = []
+    for name in targets:
+        candidate = ext_dir / name
+        if candidate.is_symlink() or candidate.exists():
+            removed.append(str(candidate))
+            if not args.dry_run:
+                try:
+                    candidate.unlink()
+                except OSError:
+                    pass
+    if removed:
+        _ok(f"Removed pi extension: {', '.join(removed)}")
+    else:
+        _warn("No pi extension found to remove.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -1225,6 +1272,9 @@ def main() -> None:
             sys.exit(2)
         args.runtime = args.agent
         if args.verb == "disconnect":
+            if args.agent == "pi":
+                _disconnect_pi(args)
+                return
             claude_dir = Path(args.claude_dir).expanduser().resolve()
             settings_file = claude_dir / "settings.json"
             runtime = resolve_runtime_choice(
@@ -1245,6 +1295,9 @@ def main() -> None:
             )
             return
         # connect == targeted install for one runtime
+        if args.agent == "pi":
+            _connect_pi(args)
+            return
         install(args)
         return
 
