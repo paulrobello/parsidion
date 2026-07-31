@@ -103,6 +103,7 @@ uv run install.py --schedule-summarizer --no-rebuild-graph
 uv run install.py connect claude      # install Claude Code integration only
 uv run install.py connect codex       # install Codex CLI integration (hooks + AGENTS.md)
 uv run install.py connect gemini      # install Gemini CLI integration (hooks + GEMINI.md)
+uv run install.py connect pi          # install the pi TypeScript extension (~/.pi/agent/extensions)
 uv run install.py disconnect codex    # remove Codex CLI integration
 ```
 

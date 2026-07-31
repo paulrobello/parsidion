@@ -21,7 +21,11 @@ Codex session lifecycle hooks (SessionStart, Stop, SubagentStop), and the Gemini
 registers Gemini CLI `SessionStart` / `SessionEnd` hooks in `~/.gemini/settings.json`.
 These adapters run with the same privileges as the user's agent process and have read/write
 access to the markdown vault and their configuration directories (`~/.claude/`, `~/.codex/`,
-`~/.gemini/`). This makes the hook execution surface security-sensitive.
+`~/.gemini/`). This makes the hook execution surface security-sensitive. The pi runtime ships a
+TypeScript extension (no hook registration), and opt-in **external adapter loading**
+(`adapters.load_external`, default off) executes Python from `~/.config/parsidion/adapters/` — gated
+behind the flag, permission-checked (group/world-writable files refused), and load-time logged. See
+[docs/AGENT-ADAPTERS.md](docs/AGENT-ADAPTERS.md).
 
 ## Scope
 
@@ -32,6 +36,7 @@ The following components are in scope for security reports:
 | Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py`, `codex_subagent_stop_hook.py`, `gemini_session_start_hook.py`, `gemini_session_end_hook.py` | Executed on Claude Code, Codex CLI, and Gemini CLI lifecycle events |
 | Shared library | `skills/parsidion/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
 | Installer | `install.py` | Writes to `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.codex/config.toml`, and `~/.gemini/settings.json`; copies files into the user's agent config directory |
+| Runtime adapters | `skills/parsidion/scripts/agent_adapter.py`, `~/.config/parsidion/adapters/*.py` | Registry of hook/adapter descriptors; opt-in external adapter loading executes Python from the drop-in dir (default off, permission-checked, logged) |
 | Session summarizer | `skills/parsidion/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
 | Vault index | `skills/parsidion/scripts/update_index.py` | Reads all vault notes; writes SQLite database |
 | Semantic search | `skills/parsidion/scripts/vault_search.py`, `build_embeddings.py` | Reads SQLite database; returns paths for injection into session context |

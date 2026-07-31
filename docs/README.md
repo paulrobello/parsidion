@@ -19,6 +19,7 @@ below with its intended audience and purpose.
 | File | Description |
 |------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, component overview, hook lifecycle, and data flow. Start here to understand how the pieces fit together. |
+| [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) | The runtime-adapter contract: one `AgentAdapter` per coding-agent runtime drives the hook shims, the installer, and `connect`/`disconnect` — and how to add a runtime (data-only) or a third-party drop-in adapter. |
 | [EMBEDDINGS.md](EMBEDDINGS.md) | Semantic search setup: building the embedding index, searching the vault, configuration reference, and integration with hooks and agents. |
 | [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) | Evaluation harness for benchmarking embedding model and chunking strategy combinations against Claude-generated ground-truth queries. |
 | [PROMPTS.md](PROMPTS.md) | How Parsidion's six AI prompts are externalized into versioned template files, the strict-variable loader that renders them, prompt-version stamping on notes, and the opt-in eval harness that scores a prompt edit against a golden transcript set. |
