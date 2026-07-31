@@ -974,6 +974,19 @@ def install(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _connectable_runtimes() -> list[str]:
+    """Runtimes that can be wired via ``connect``/``disconnect``.
+
+    A runtime is connectable when it owns hook registrations (has a hook
+    config to merge). pi is extension-only and excluded until it grows a
+    connect path. Data-driven from the agent_adapter registry (ENH-006), so a
+    newly-registered runtime with a hook config appears here automatically.
+    """
+    import agent_adapter  # noqa: PLC0415
+
+    return [a.name for a in agent_adapter.all_adapters() if a.hooks_config_filename]
+
+
 def parse_args() -> argparse.Namespace:
     """Parse and return command-line arguments for the installer."""
     parser = argparse.ArgumentParser(
@@ -1184,7 +1197,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "agent",
         nargs="?",
-        choices=["claude", "codex", "gemini"],
+        choices=_connectable_runtimes(),
         default=None,
         help="Target agent for the connect/disconnect verb.",
     )
@@ -1206,7 +1219,9 @@ def main() -> None:
     # targets exactly one runtime, then delegate.
     if args.verb in ("connect", "disconnect"):
         if args.agent is None:
-            _err(f"{args.verb} requires an agent: claude | codex | gemini")
+            _err(
+                f"{args.verb} requires an agent: {' | '.join(_connectable_runtimes())}"
+            )
             sys.exit(2)
         args.runtime = args.agent
         if args.verb == "disconnect":
