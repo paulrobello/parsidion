@@ -26,6 +26,8 @@ __all__ = [
     "sub_wikilinks_outside_code",
     "replace_wikilinks_outside_code",
     "strip_unresolved_wikilinks",
+    # Re-exported for the vault_links compatibility shim (ARC-004).
+    "subprocess",
 ]
 
 
@@ -311,10 +313,10 @@ def find_related_by_semantic(
     tag_strs: list[str] | None = None,
     vault: Path | None = None,
 ) -> list[str]:
-    """Find related vault notes using semantic search via vault_search.py subprocess.
+    """Find related vault notes using semantic search (in-process, cached model).
 
-    Returns an empty list when vault_search.py or embeddings.db is missing,
-    or when the subprocess fails for any reason.
+    Returns an empty list when embeddings.db is missing or the in-process
+    search fails for any reason.
 
     Args:
         new_note_path: Path to the newly written note (excluded from results).
@@ -327,14 +329,8 @@ def find_related_by_semantic(
     Returns:
         List of ``"[[stem]]"`` wikilink strings, sorted by semantic similarity.
     """
-    import json as _json
-
     # Support legacy vault_root parameter
     vault = vault or vault_root or vault_common.resolve_vault()
-
-    vault_search_script = Path(__file__).parent / "vault_search.py"
-    if not vault_search_script.exists():
-        return []
 
     db_path = vault_common.get_embeddings_db_path(vault)
     if not db_path.exists():
@@ -356,45 +352,22 @@ def find_related_by_semantic(
     tag_part = " ".join(tag_strs)
     query = f"{new_note_path.stem.replace('-', ' ')} {tag_part}".strip()
 
+    # ENH-003: in-process call shares the process-cached embedding model
+    # instead of spawning vault_search.py and reloading ~67 MB ONNX per note.
+    # Lazy + guarded so this stdlib-only module's import surface is unchanged;
+    # on any failure fall back to no semantic backlinks (the prior subprocess
+    # error path). ARC-027(b): vault= is forwarded so multi-vault setups
+    # compute backlinks against the owning vault.
     try:
-        # ARC-027(b): forward --vault so multi-vault setups compute backlinks
-        # against the right vault. Without this, vault_search.py resolved
-        # the DEFAULT vault (~ /ParsidionVault) regardless of which vault
-        # owned the note, so links computed against the wrong corpus were
-        # then stripped by strip_unresolved_wikilinks() because they didn't
-        # resolve in the right vault either — masking the bug entirely.
-        search_argv = [
-            "uv",
-            "run",
-            "--no-project",
-            str(vault_search_script),
-            "--top",
-            str(max_links + 1),
-            "--vault",
-            str(vault),
-            "--json",
-            # SEC-128: ``--`` separates flags from the note-derived
-            # positional so a query beginning with "--" or "[[--help]]"
-            # cannot parse as a vault-search flag.
-            "--",
-            query,
-        ]
-        result = subprocess.run(
-            search_argv,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=vault_common.env_without_claudecode(),
+        import vault_search  # noqa: PLC0415
+
+        items = vault_search.search(
+            query=query,
+            top=max_links + 1,
+            min_score=vault_common.get_config("embeddings", "min_score", 0.45),
+            vault=vault,
         )
-        if result.returncode != 0:
-            return []
-        items: list[dict[str, object]] = _json.loads(result.stdout)
-    except (
-        subprocess.TimeoutExpired,
-        FileNotFoundError,
-        OSError,
-        _json.JSONDecodeError,
-    ):
+    except Exception:  # noqa: BLE001
         return []
 
     links: list[str] = []

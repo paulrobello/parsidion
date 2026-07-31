@@ -13,7 +13,6 @@ globals).
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 
 import vault_common
@@ -167,49 +166,27 @@ def _find_dedup_candidates(
 
     Returns:
         List of (stem, score, summary) tuples for notes above *threshold*,
-        ordered by descending score.  Returns empty list when vault_search.py
-        or embeddings.db is absent, or when the subprocess fails.
+        ordered by descending score.  Returns empty list when embeddings.db is
+        absent or the in-process search fails.
     """
-    import json as _json
-
-    # scripts/ is the parent of this submodule's directory (summarizer/).
-    vault_search_script = Path(__file__).resolve().parent.parent / "vault_search.py"
     db_path = vault_common.get_embeddings_db_path(vault)
-    if not vault_search_script.exists() or not db_path.exists():
+    if not db_path.exists():
         return []
 
+    # ENH-003: in-process call shares the process-cached embedding model
+    # instead of spawning vault_search.py and reloading ~67 MB ONNX per dedup
+    # check. Lazy + guarded; on any failure fall back to no candidates (the
+    # prior subprocess error path), so the summarizer creates rather than merges.
     try:
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--no-project",
-                str(vault_search_script),
-                "--top",
-                str(top_k),
-                "--json",
-                "--vault",
-                str(vault),
-                # SEC-128: ``--`` separates flags from the note-derived
-                # positional so a topic_query beginning with "--" cannot
-                # parse as a vault-search flag.
-                "--",
-                topic_query,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=vault_common.env_without_claudecode(),
+        import vault_search  # noqa: PLC0415
+
+        items = vault_search.search(
+            query=topic_query,
+            top=top_k,
+            min_score=vault_common.get_config("embeddings", "min_score", 0.45),
+            vault=vault,
         )
-        if result.returncode != 0:
-            return []
-        items: list[dict[str, object]] = _json.loads(result.stdout)
-    except (
-        subprocess.TimeoutExpired,
-        FileNotFoundError,
-        OSError,
-        _json.JSONDecodeError,
-    ):
+    except Exception:  # noqa: BLE001
         return []
 
     candidates: list[tuple[str, float, str]] = []

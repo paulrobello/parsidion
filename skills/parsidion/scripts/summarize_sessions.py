@@ -1,7 +1,16 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["anyio>=4.0.0,<5.0"]
+# dependencies = [
+#   "anyio>=4.0.0,<5.0",
+#   # ENH-003: dedup now calls vault_search in-process (no subprocess), so the
+#   # embeddings fallback needs fastembed + sqlite-vec in this script's own env
+#   # when par-mem isn't serving. Previously vault_search.py ran as a subprocess
+#   # that brought its own env; the in-process path instead shares one cached
+#   # model across the run.
+#   "fastembed>=0.6.0,<1.0",
+#   "sqlite-vec>=0.1.6,<1.0",
+# ]
 # ///
 """On-demand AI-powered session summarizer for Parsidion vault.
 

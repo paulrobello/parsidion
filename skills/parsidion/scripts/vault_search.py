@@ -27,12 +27,14 @@ field (cosine similarity); metadata results set ``score`` to ``null``.
 """
 
 import argparse
+import functools
 import json
 import os
 import re
 import sqlite3
 import struct
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -101,6 +103,24 @@ def _apply_decay(score: float, mtime: float, now: float) -> float:
     return apply_decay_score(score, mtime, now)
 
 
+# ENH-003: the fastembed ONNX model is ~67 MB and dominates a search whose real
+# work is a sqlite-vec ANN lookup. Cache one instance per model name for the
+# process lifetime (maxsize=2 covers the default plus one override), and
+# serialise embed() so the shared instance is safe under the summarizer's
+# max_parallel fan-out. lru_cache does not memoise exceptions, so a missing
+# fastembed still degrades gracefully (the call-site guard below) and is retried
+# rather than sticky-cached.
+_EMBED_MODEL_LOCK = threading.Lock()
+
+
+@functools.lru_cache(maxsize=2)
+def _get_embedding_model(model_name: str):  # type: ignore[no-untyped-def]
+    """Return a process-cached fastembed ``TextEmbedding`` for *model_name*."""
+    from fastembed import TextEmbedding  # type: ignore[import-untyped]
+
+    return TextEmbedding(model_name=model_name)
+
+
 def _search_embeddings(
     query: str,
     top: int = 10,
@@ -128,10 +148,9 @@ def _search_embeddings(
         return []
 
     try:
-        from fastembed import TextEmbedding  # type: ignore[import-untyped]
-
-        model = TextEmbedding(model_name=model_name)
-        query_vec = list(model.embed([query]))[0]
+        model = _get_embedding_model(model_name)
+        with _EMBED_MODEL_LOCK:
+            query_vec = list(model.embed([query]))[0]
         query_blob = _pack_vector(list(query_vec))
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
