@@ -101,20 +101,14 @@ from installer.paths import _FORBIDDEN_PREFIXES  # noqa: F401
 
 # hooks
 from installer.hooks import (  # noqa: F401
-    _codex_hooks_file,
     _filter_hook_entries,
     _find_hook_handler,
-    _gemini_settings_file,
     _hook_already_registered,
     _hook_command,
     _is_legacy_managed_hook_command,
     _legacy_hook_command,
-    _managed_codex_hook_command,
-    _managed_gemini_hook_command,
     _managed_hook_command,
     _normalize_hook_command,
-    _read_codex_hooks,
-    _read_gemini_settings,
     _set_codex_hooks_in_features_section,
     enable_codex_hooks_config,
     merge_codex_hooks,

@@ -209,10 +209,15 @@ class TestCodexHooks:
     def test_remove_codex_hooks_preserves_malformed_mixed_entries(
         self, tmp_path: Path
     ) -> None:
+        import agent_adapter  # noqa: PLC0415
+        from installer.hooks import _build_managed_command  # noqa: PLC0415
+
         codex_home = tmp_path / ".codex"
         claude_dir = tmp_path / ".claude"
         hooks_file = codex_home / "hooks.json"
-        managed_command = install._managed_codex_hook_command(claude_dir, "Stop")
+        codex = agent_adapter.get("codex")
+        assert codex is not None
+        managed_command = _build_managed_command(codex, claude_dir, "Stop")
         malformed_entry = "bad"
         non_list_hooks_entry = {"matcher": "keep", "hooks": "bad"}
         user_entry = {

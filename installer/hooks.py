@@ -15,15 +15,10 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 from installer.colors import bold, dim
 from installer.paths import (
-    _CODEX_HOOK_SCRIPTS,
-    _GEMINI_HOOK_NAMES,
-    _GEMINI_HOOK_SCRIPTS,
     _HOOK_OPTIONS,
     _HOOK_SCRIPTS,
     LEGACY_SKILL_NAME,
@@ -171,30 +166,6 @@ def _hook_command(claude_dir: Path, event: str) -> str:
     return _managed_hook_command(claude_dir, SKILL_NAME, event)
 
 
-def _managed_codex_hook_command(claude_dir: Path, event: str) -> str:
-    """Return the managed Codex hook command string for a Codex event."""
-    script = _CODEX_HOOK_SCRIPTS[event]
-    script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
-    try:
-        rel = script_path.relative_to(Path.home())
-        script_display = f"~/{rel.as_posix()}"
-    except ValueError:
-        script_display = script_path.as_posix()
-    return f"uv run --no-project {script_display}"
-
-
-def _managed_gemini_hook_command(claude_dir: Path, event: str) -> str:
-    """Return the managed Gemini hook command string for a Gemini event."""
-    script = _GEMINI_HOOK_SCRIPTS[event]
-    script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
-    try:
-        rel = script_path.relative_to(Path.home())
-        script_display = f"~/{rel.as_posix()}"
-    except ValueError:
-        script_display = script_path.as_posix()
-    return f"uv run --no-project {script_display}"
-
-
 def _legacy_hook_command(claude_dir: Path, event: str) -> str:
     """Return the legacy managed hook command string for a given event."""
     return _managed_hook_command(claude_dir, LEGACY_SKILL_NAME, event)
@@ -275,176 +246,16 @@ def _filter_hook_entries(
 
 
 # ---------------------------------------------------------------------------
-# Codex hooks file helpers
+# Runtime hook registration (shared core)
 # ---------------------------------------------------------------------------
-
-
-def _codex_hooks_file(codex_home: Path) -> Path:
-    """Return the Codex hooks.json path."""
-    return codex_home / "hooks.json"
-
-
-def _read_codex_hooks(hooks_file: Path) -> dict | None:
-    """Read Codex hooks JSON, returning None when existing data is unsafe to edit."""
-    if not hooks_file.exists():
-        return {"hooks": {}}
-    try:
-        hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        _warn(f"Could not read {hooks_file}: {exc}; skipping Codex hook update")
-        return None
-    if not isinstance(hooks, dict):
-        _warn(f"{hooks_file} is not a JSON object; skipping Codex hook update")
-        return None
-    hooks_section = hooks.setdefault("hooks", {})
-    if not isinstance(hooks_section, dict):
-        _warn(f"{hooks_file} has non-object hooks section; skipping Codex hook update")
-        return None
-    return hooks
-
-
-# ---------------------------------------------------------------------------
-# Gemini settings file helpers
-# ---------------------------------------------------------------------------
-
-
-def _gemini_settings_file(gemini_home: Path) -> Path:
-    """Return the Gemini settings.json path."""
-    return gemini_home / "settings.json"
-
-
-def _read_gemini_settings(settings_file: Path) -> dict | None:
-    """Read Gemini settings JSON, returning None when existing data is unsafe to edit."""
-    if not settings_file.exists():
-        return {"hooks": {}}
-    try:
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        _warn(f"Could not read {settings_file}: {exc}; skipping Gemini hook update")
-        return None
-    if not isinstance(settings, dict):
-        _warn(f"{settings_file} is not a JSON object; skipping Gemini hook update")
-        return None
-    hooks_section = settings.setdefault("hooks", {})
-    if not isinstance(hooks_section, dict):
-        _warn(
-            f"{settings_file} has non-object hooks section; skipping Gemini hook update"
-        )
-        return None
-    return settings
-
-
-# ---------------------------------------------------------------------------
-# Runtime hook registration (shared core) — ARC-020 step 5
-# ---------------------------------------------------------------------------
-#
-# merge_codex_hooks and merge_gemini_hooks were ~90% copy-paste — the only
-# real variation was the config-file path, the reader, the event->script
-# map, and the entry shape (matcher / name / timeout units). The pair is
-# collapsed into one parameterised core driven by a frozen per-runtime
-# descriptor. This mirrors the descriptor pattern already in place for the
-# runtime shims (skills/parsidion/scripts/agent_adapter.py, QA-008) so a
-# fourth agent, when added, becomes one more descriptor entry rather than
-# a third near-duplicate installer function. The descriptor is installer-
-# local because the installer is bound by the stdlib-only rule and cannot
-# import agent_adapter (which pulls vault_common).
-
-
-@dataclass(frozen=True)
-class _RuntimeHookSpec:
-    """Per-runtime description of how to merge Parsidion hooks.
-
-    Each field names a module-private helper or constant the shared core
-    invokes. Frozen so specs can be compared by identity and reused across
-    calls. ARC-020 step 5 / DOC-039.
-    """
-
-    name: str
-    """Lowercase runtime identifier — 'codex' / 'gemini'."""
-
-    label: str
-    """User-facing label for _step / _ok / _warn messages."""
-
-    config_file: Callable[[Path], Path]
-    """Resolve the hook config file from the runtime's home directory."""
-
-    reader: Callable[[Path], dict | None]
-    """Read and validate the existing config; None when unsafe to edit.
-
-    The reader emits its own ``_warn`` on every bail-out path, so the core
-    just returns when it sees None — matching the prior per-runtime
-    behaviour exactly."""
-
-    event_scripts: dict[str, str]
-    """Ordered event -> script-filename map (e.g. _CODEX_HOOK_SCRIPTS)."""
-
-    command_builder: Callable[[Path, str], str]
-    """Build the managed hook command for (claude_dir, event)."""
-
-    build_entry: Callable[[str, str], dict]
-    """Build the per-event hook entry dict from (event, command).
-
-    This is where the runtime's matcher / name / timeout-unit variation
-    lives."""
-
-
-def _build_codex_entry(event: str, command: str) -> dict:
-    """Build a Codex hook entry for *event* managing *command*.
-
-    Codex's ``timeout`` field is in SECONDS (``Duration::from_secs`` in
-    codex-rs/hooks), not milliseconds like Claude's ``settings.json``. 60s
-    is generous for the non-AI parsidion hooks (codex's own default for
-    SessionStart/Stop is 600s).
-    """
-    return {
-        "matcher": "",
-        "hooks": [{"type": "command", "command": command, "timeout": 60}],
-    }
-
-
-def _build_gemini_entry(event: str, command: str) -> dict:
-    """Build a Gemini hook entry for *event* managing *command*.
-
-    Gemini's ``timeout`` follows Claude's milliseconds convention; ``name``
-    is required by the Gemini hooks schema and is what the runtime surfaces
-    in its hook UI and logs.
-    """
-    return {
-        "matcher": "*",
-        "hooks": [
-            {
-                "name": _GEMINI_HOOK_NAMES[event],
-                "type": "command",
-                "command": command,
-                "timeout": 10000,
-            }
-        ],
-    }
-
-
-_CODEX_HOOK_SPEC = _RuntimeHookSpec(
-    name="codex",
-    label="Codex",
-    config_file=_codex_hooks_file,
-    reader=_read_codex_hooks,
-    event_scripts=_CODEX_HOOK_SCRIPTS,
-    command_builder=_managed_codex_hook_command,
-    build_entry=_build_codex_entry,
-)
-
-_GEMINI_HOOK_SPEC = _RuntimeHookSpec(
-    name="gemini",
-    label="Gemini",
-    config_file=_gemini_settings_file,
-    reader=_read_gemini_settings,
-    event_scripts=_GEMINI_HOOK_SCRIPTS,
-    command_builder=_managed_gemini_hook_command,
-    build_entry=_build_gemini_entry,
-)
+# _merge_runtime_hooks drives one read-modify-write pass over a runtime's hook
+# config, adapter-driven (ENH-006). The per-runtime merge/remove wrappers below
+# delegate here; the codex/gemini file-helper + entry-shape code that used to
+# live here collapsed into _read_runtime_hooks / _build_entry / the adapter.
 
 
 def _merge_runtime_hooks(
-    spec: _RuntimeHookSpec,
+    adapter: agent_adapter.AgentAdapter,
     runtime_home: Path,
     claude_dir: Path,
     dry_run: bool = False,
@@ -453,27 +264,30 @@ def _merge_runtime_hooks(
     """Shared read-modify-write core for Parsidion-managed runtime hooks.
 
     Drives one RMW pass over the runtime's hook config file: take a flock,
-    delegate the read+validate to ``spec.reader`` so malformed JSON / wrong
-    shape is reported with the runtime's label and skipped, then iterate
-    ``spec.event_scripts`` and register any event whose managed command is
+    read+validate via ``_read_runtime_hooks`` (malformed JSON / wrong shape is
+    reported with the runtime's label and skipped), then iterate
+    ``adapter.event_scripts`` and register any event whose managed command is
     not already present. Malformed event entries (non-dict, non-list
     ``hooks``) are preserved verbatim — only our managed command is ever
     appended. Writes go through ``_atomic_write_json`` so a crash mid-write
     cannot truncate the file.
 
+    ENH-006: driven by an ``AgentAdapter`` + the generic helpers, replacing the
+    former ``_RuntimeHookSpec``.
+
     Args:
-        spec: Runtime descriptor (file / reader / event map / entry shape).
-        runtime_home: Config-directory root for the runtime
-            (``~/.codex`` / ``~/.gemini``); ``spec.config_file`` resolves
-            the actual hook file from here.
+        adapter: Runtime descriptor (config filename / event scripts / entry shape).
+        runtime_home: Config-directory root for the runtime (``~/.codex`` /
+            ``~/.gemini``); the hook file is ``runtime_home / adapter.hooks_config_filename``.
         claude_dir: Claude Code config directory (``~/.claude``) — used to
             resolve the managed hook command paths.
         dry_run: When True, print registrations but skip the file write.
         verbose: When True, emit a line per already-registered event.
     """
-    config_file = spec.config_file(runtime_home)
+    label = adapter.display_name or adapter.name
+    config_file = _runtime_hooks_file(adapter, runtime_home)
     with _file_lock(config_file):
-        data = spec.reader(config_file)
+        data = _read_runtime_hooks(adapter, config_file)
         if data is None:
             return
 
@@ -481,24 +295,24 @@ def _merge_runtime_hooks(
         added: list[str] = []
         skipped: list[str] = []
 
-        for event in spec.event_scripts:
-            command = spec.command_builder(claude_dir, event)
+        for event in adapter.event_scripts:
+            command = _build_managed_command(adapter, claude_dir, event)
             event_hooks = hooks_section.setdefault(event, [])
             if not isinstance(event_hooks, list):
-                _warn(f"{spec.label} hook event {event} is not a list; skipping")
+                _warn(f"{label} hook event {event} is not a list; skipping")
                 continue
             if _hook_already_registered(event_hooks, command):
                 _print(
-                    f"  {spec.label} hook {event} already registered",
+                    f"  {label} hook {event} already registered",
                     verbose_only=True,
                     verbose=verbose,
                 )
                 skipped.append(event)
                 continue
 
-            new_entry = spec.build_entry(event, command)
+            new_entry = _build_entry(adapter, event, command)
             _step(
-                f"Register {spec.label} hook {bold(event)}: {dim(command)}",
+                f"Register {label} hook {bold(event)}: {dim(command)}",
                 dry_run=dry_run,
             )
             if not dry_run:
@@ -515,7 +329,7 @@ def _merge_runtime_hooks(
             except OSError as exc:
                 _err(f"Could not write {config_file}: {exc}")
         elif skipped:
-            _ok(f"All {spec.label} hooks already registered")
+            _ok(f"All {label} hooks already registered")
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +347,7 @@ def merge_codex_hooks(
 
     Thin wrapper over the shared ``_merge_runtime_hooks`` core; all
     per-runtime behaviour (file path, reader, entry shape, timeout units)
-    lives in ``_CODEX_HOOK_SPEC``. ARC-020 step 5.
+    lives on the codex AgentAdapter (ENH-006).
 
     Args:
         codex_home: Path to the Codex config directory (``~/.codex`` on a
@@ -546,7 +360,7 @@ def merge_codex_hooks(
         verbose: When True, emit a line per already-registered hook;
             otherwise already-registered events are silent.
     """
-    _merge_runtime_hooks(_CODEX_HOOK_SPEC, codex_home, claude_dir, dry_run, verbose)
+    _merge_runtime_hooks(_adapter("codex"), codex_home, claude_dir, dry_run, verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -618,6 +432,22 @@ def _build_managed_command(
     if script.endswith(".sh"):
         return display
     return f"uv run --no-project {display}"
+
+
+def _build_entry(adapter: agent_adapter.AgentAdapter, event: str, command: str) -> dict:
+    """Build the per-event hook entry dict from adapter declarative fields.
+
+    Matches the former ``_build_codex_entry`` / ``_build_gemini_entry`` output
+    exactly (key order included): a ``matcher`` + ``hooks`` list whose hook
+    carries an optional ``name`` (Gemini schema), ``type``, ``command``,
+    ``timeout``.
+    """
+    hook: dict[str, object] = {"type": "command", "command": command}
+    if adapter.entry_names and event in adapter.entry_names:
+        hook = {"name": adapter.entry_names[event], **hook}
+    if adapter.entry_timeout:
+        hook["timeout"] = adapter.entry_timeout
+    return {"matcher": adapter.entry_matcher, "hooks": [hook]}
 
 
 def remove_runtime_hooks(
@@ -699,7 +529,7 @@ def merge_gemini_hooks(
 
     Thin wrapper over the shared ``_merge_runtime_hooks`` core; all
     per-runtime behaviour (file path, reader, entry shape, timeout units)
-    lives in ``_GEMINI_HOOK_SPEC``. ARC-020 step 5.
+    lives on the gemini AgentAdapter (ENH-006).
 
     Args:
         gemini_home: Path to the Gemini config directory (``~/.gemini`` on
@@ -713,7 +543,7 @@ def merge_gemini_hooks(
         verbose: When True, emit a line per already-registered hook;
             otherwise already-registered events are silent.
     """
-    _merge_runtime_hooks(_GEMINI_HOOK_SPEC, gemini_home, claude_dir, dry_run, verbose)
+    _merge_runtime_hooks(_adapter("gemini"), gemini_home, claude_dir, dry_run, verbose)
 
 
 def remove_gemini_hooks(
