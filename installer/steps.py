@@ -71,9 +71,11 @@ class Step:
     on_undo: UndoBody | None = None
 
     def run(self) -> None:
+        """Run this step's forward (install) action via ``on_run``."""
         self.on_run()
 
     def undo(self, *, purge: bool = False) -> None:
+        """Run the inverse action with the ``purge`` flag; no-op when ``on_undo`` is unset."""
         if self.on_undo is None:
             return
         self.on_undo(purge)
@@ -104,6 +106,7 @@ class StepList:
         return self
 
     def extend(self, steps: list[Step]) -> StepList:
+        """Append each step in *steps*; returns self for chaining."""
         self.steps.extend(steps)
         return self
 
