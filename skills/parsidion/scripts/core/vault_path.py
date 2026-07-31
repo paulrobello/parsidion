@@ -455,14 +455,16 @@ def resolve_templates_dir() -> Path:
     return TEMPLATES_DIR
 
 
-def get_embeddings_db_path(vault: Path | None = None) -> Path:
+def get_embeddings_db_path(vault: str | Path | None = None) -> Path:
     """Return the path to the vault's embeddings database.
 
     Args:
-        vault: Optional vault path. Defaults to resolve_vault().
+        vault: Optional vault path (str or Path). Defaults to resolve_vault().
 
     Returns:
         Path to vault/embeddings.db.
     """
+    if isinstance(vault, str):  # be liberal: accept str paths from callers
+        vault = Path(vault)
     vault = vault or resolve_vault()
     return vault / EMBEDDINGS_DB_FILENAME

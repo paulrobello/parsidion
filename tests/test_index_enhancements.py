@@ -486,3 +486,40 @@ class TestNoteIndexDbFirst:
         # With the DB disabled at the config level, the walk runs and sees it.
         result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
         assert new_note in result
+
+    # -- str-tolerance: the read-path surface accepts str OR Path for vault --
+
+    @pytest.mark.parametrize(
+        "fn_name, args",
+        [
+            ("all_vault_notes", ()),
+            ("all_vault_notes_walk", ()),
+            ("find_notes_by_type", ("pattern",)),
+            ("find_notes_by_project", ("parsidion",)),
+            ("find_notes_by_tag", ("python",)),
+        ],
+    )
+    def test_read_path_accepts_str_and_path_vault(
+        self, tmp_vault: Path, fn_name: str, args: tuple
+    ) -> None:
+        """The read-path surface is str-tolerant: str(vault) returns the same
+        set as Path. Previously only query_note_index and _walk_vault_notes
+        coerced; get_embeddings_db_path and note_index_age raised TypeError."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        fn = getattr(vault_index, fn_name)
+        via_path = set(fn(*args, vault=tmp_vault))
+        via_str = set(fn(*args, vault=str(tmp_vault)))
+        assert via_path == via_str, f"{fn_name} diverged on str vs Path vault"
+
+    def test_note_index_age_accepts_str(self, tmp_vault: Path) -> None:
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        assert vault_common.note_index_age(tmp_vault) == vault_common.note_index_age(
+            str(tmp_vault)
+        )
+
+    def test_get_embeddings_db_path_accepts_str(self, tmp_vault: Path) -> None:
+        assert vault_common.get_embeddings_db_path(tmp_vault) == (
+            vault_common.get_embeddings_db_path(str(tmp_vault))
+        )

@@ -404,7 +404,7 @@ def _paths_from_rows(rows: list[Any], vault_root_resolved: Path) -> list[Path]:
     return result
 
 
-def _note_index_enabled(vault: Path | None = None) -> bool:  # noqa: ARG001
+def _note_index_enabled(vault: str | Path | None = None) -> bool:  # noqa: ARG001
     """Whether DB-first note reads are enabled.
 
     Reads ``search.use_note_index`` (default ``true``). When false, every
@@ -426,7 +426,7 @@ def query_note_index(
     project: str | None = None,
     recent_days: int | None = None,
     limit: int = 200,
-    vault: Path | None = None,
+    vault: str | Path | None = None,
 ) -> list[Path] | None:
     """Query the note_index table in embeddings.db for fast metadata filtering.
 
@@ -524,7 +524,7 @@ def query_note_index(
 # ---------------------------------------------------------------------------
 
 
-def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
+def _walk_vault_notes(vault: str | Path | None = None) -> list[Path]:
     """Walk the vault tree and return all .md files, excluding EXCLUDE_DIRS, CLAUDE.md, TAGS.md, and MANIFEST.md.
 
     Args:
@@ -565,7 +565,7 @@ def _walk_vault_notes(vault: Path | None = None) -> list[Path]:
 
 
 def _find_notes_by_field(
-    field: str, value: str, vault: Path | None = None
+    field: str, value: str, vault: str | Path | None = None
 ) -> list[Path]:
     """Find all notes where a frontmatter *field* matches *value* (case-insensitive).
 
@@ -609,22 +609,28 @@ def _find_notes_by_field(
 # ---------------------------------------------------------------------------
 
 
-def _find_notes_by_project_walk(project: str, vault: Path | None = None) -> list[Path]:
+def _find_notes_by_project_walk(
+    project: str, vault: str | Path | None = None
+) -> list[Path]:
     """Walk fallback for :func:`find_notes_by_project`."""
     return _find_notes_by_field("project", project, vault=vault)
 
 
-def _find_notes_by_tag_walk(tag: str, vault: Path | None = None) -> list[Path]:
+def _find_notes_by_tag_walk(tag: str, vault: str | Path | None = None) -> list[Path]:
     """Walk fallback for :func:`find_notes_by_tag`."""
     return _find_notes_by_field("tags", tag, vault=vault)
 
 
-def _find_notes_by_type_walk(note_type: str, vault: Path | None = None) -> list[Path]:
+def _find_notes_by_type_walk(
+    note_type: str, vault: str | Path | None = None
+) -> list[Path]:
     """Walk fallback for :func:`find_notes_by_type`."""
     return _find_notes_by_field("type", note_type, vault=vault)
 
 
-def _find_recent_notes_walk(days: int = 3, vault: Path | None = None) -> list[Path]:
+def _find_recent_notes_walk(
+    days: int = 3, vault: str | Path | None = None
+) -> list[Path]:
     """Walk fallback for :func:`find_recent_notes`."""
     cutoff = datetime.now() - timedelta(days=days)
     cutoff_ts = cutoff.timestamp()
@@ -642,7 +648,7 @@ def _find_recent_notes_walk(days: int = 3, vault: Path | None = None) -> list[Pa
     return [path for _, path in recent]
 
 
-def find_notes_by_project(project: str, vault: Path | None = None) -> list[Path]:
+def find_notes_by_project(project: str, vault: str | Path | None = None) -> list[Path]:
     """Find all notes with a matching ``project`` field in frontmatter.
 
     Reads ``note_index`` when available and ``search.use_note_index`` is true
@@ -656,7 +662,7 @@ def find_notes_by_project(project: str, vault: Path | None = None) -> list[Path]
     return _find_notes_by_project_walk(project, vault=vault)
 
 
-def find_notes_by_tag(tag: str, vault: Path | None = None) -> list[Path]:
+def find_notes_by_tag(tag: str, vault: str | Path | None = None) -> list[Path]:
     """Find all notes containing the given tag in their ``tags`` list.
 
     DB-first with walk fallback; see :func:`find_notes_by_project`.
@@ -668,7 +674,7 @@ def find_notes_by_tag(tag: str, vault: Path | None = None) -> list[Path]:
     return _find_notes_by_tag_walk(tag, vault=vault)
 
 
-def find_notes_by_type(note_type: str, vault: Path | None = None) -> list[Path]:
+def find_notes_by_type(note_type: str, vault: str | Path | None = None) -> list[Path]:
     """Find all notes with a matching ``type`` field in frontmatter.
 
     DB-first with walk fallback; see :func:`find_notes_by_project`.
@@ -682,7 +688,7 @@ def find_notes_by_type(note_type: str, vault: Path | None = None) -> list[Path]:
     return _find_notes_by_type_walk(note_type, vault=vault)
 
 
-def find_recent_notes(days: int = 3, vault: Path | None = None) -> list[Path]:
+def find_recent_notes(days: int = 3, vault: str | Path | None = None) -> list[Path]:
     """Find notes modified within the last *days* days, sorted by mtime descending.
 
     DB-first with walk fallback; see :func:`find_notes_by_project`.
@@ -735,7 +741,7 @@ def read_note_summary(path: Path, max_lines: int = 5) -> str:
     return result
 
 
-def all_vault_notes(vault: Path | None = None) -> list[Path]:
+def all_vault_notes(vault: str | Path | None = None) -> list[Path]:
     """Return all ``.md`` files in the vault (excluding ``EXCLUDE_DIRS``, ``CLAUDE.md``, ``TAGS.md``, ``MANIFEST.md``).
 
     DB-first (follow-up to ENH-004): reads ``note_index`` when available and
@@ -760,7 +766,7 @@ def all_vault_notes(vault: Path | None = None) -> list[Path]:
     return _walk_vault_notes(vault)
 
 
-def all_vault_notes_walk(vault: Path | None = None) -> list[Path]:
+def all_vault_notes_walk(vault: str | Path | None = None) -> list[Path]:
     """Authoritative filesystem enumeration of every vault note.
 
     Always walks the tree -- never reads ``note_index``. Use this wherever the
@@ -775,7 +781,7 @@ def all_vault_notes_walk(vault: Path | None = None) -> list[Path]:
     return _walk_vault_notes(vault)
 
 
-def note_index_age(vault: Path | None = None) -> float:
+def note_index_age(vault: str | Path | None = None) -> float:
     """Return how stale ``note_index`` is, in seconds.
 
     Computes ``max(on-disk .md mtime) - max(note_index mtime)``. Returns
