@@ -190,3 +190,10 @@ adaptive_context:
 # Vault identity — used for per-user daily note filenames (team vault sharing)
 vault:
   username: ""             # Username suffix for daily notes (DD-{username}.md). Defaults to $USER if blank.
+
+# Agent adapters (agent_adapter.py). ENH-006.
+adapters:
+  load_external: false     # Opt-in: load ~/.config/parsidion/adapters/*.py drop-in AgentAdapter
+                           # descriptors. Off by default — loading arbitrary Python is code
+                           # execution, so each file is refused if group/world-writable and every
+                           # load is logged. Used to add third-party coding-agent runtimes.

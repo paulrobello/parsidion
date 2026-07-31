@@ -529,6 +529,9 @@ _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     "vault": {
         "username": (str,),
     },
+    "adapters": {
+        "load_external": (bool,),  # ENH-006: opt-in ~/.config/parsidion/adapters/*.py
+    },
 }
 
 

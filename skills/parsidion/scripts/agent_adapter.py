@@ -150,12 +150,79 @@ def get(name: str) -> AgentAdapter | None:
 
 def all_adapters() -> list[AgentAdapter]:
     """Return every registered adapter. Order is insertion order."""
+    _load_external_adapters()
     return list(_REGISTRY.values())
 
 
 def known_runtimes() -> list[str]:
     """Return the lowercase name of every registered runtime (insertion order)."""
-    return [adapter.name for adapter in _REGISTRY.values()]
+    return [adapter.name for adapter in all_adapters()]
+
+
+# External adapter loading is opt-in (``adapters.load_external``, default false)
+# and runs at most once per process, on first all_adapters()/known_runtimes().
+_external_loaded = False
+
+
+def reset_external_adapters() -> None:
+    """Test hook: forget loaded external adapters so the next access reloads."""
+    global _external_loaded
+    _external_loaded = False
+
+
+def _load_external_adapters() -> None:
+    """Opt-in drop-in loader for ``~/.config/parsidion/adapters/*.py``.
+
+    Each file defines a module-level ``ADAPTER: AgentAdapter``. Loading
+    arbitrary Python is code execution, so three guards (mirroring SEC-117's
+    reasoning for ``codex_cli.command``): off by default; each file refused if
+    group- or world-writable; every load logged by path. Never raises — a
+    broken external adapter must not break the registry or the hooks that read
+    it.
+    """
+    global _external_loaded
+    if _external_loaded:
+        return
+    _external_loaded = True
+    try:
+        if vault_common.get_config("adapters", "load_external", False) is not True:
+            return
+        import importlib.util
+
+        adapters_dir = Path.home() / ".config" / "parsidion" / "adapters"
+        if not adapters_dir.is_dir():
+            return
+        for path in sorted(adapters_dir.glob("*.py")):
+            try:
+                mode = path.stat().st_mode
+            except OSError:
+                continue
+            if mode & 0o022:  # group- or world-writable -> refuse
+                print(
+                    f"agent_adapter: refusing group/world-writable adapter {path}",
+                    file=sys.stderr,
+                )
+                continue
+            spec = importlib.util.spec_from_file_location(
+                f"_parsidion_adapter_{path.stem}", path
+            )
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(module)
+            except Exception as exc:  # noqa: BLE001 — log and skip, don't raise
+                print(f"agent_adapter: failed to load {path}: {exc}", file=sys.stderr)
+                continue
+            adapter = getattr(module, "ADAPTER", None)
+            if isinstance(adapter, AgentAdapter):
+                register(adapter)
+                print(
+                    f"agent_adapter: loaded external adapter {adapter.name!r} from {path}",
+                    file=sys.stderr,
+                )
+    except Exception:  # noqa: BLE001 — external loading never breaks the registry
+        pass
 
 
 # Event -> hook-script maps. The registry is the single source of truth
