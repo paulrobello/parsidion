@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: framework
+expected_tags_include: [fastapi, middleware]
+expected_tags_exclude: [misc]
+must_mention: ["CORS", "LIFO"]
+frontmatter_valid: true
+related_links_min: 1

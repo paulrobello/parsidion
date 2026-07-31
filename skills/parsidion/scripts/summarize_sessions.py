@@ -133,6 +133,7 @@ from summarizer.prompt import (  # noqa: E402,F401 — re-exported for tests
     _render_tags_instruction,
     build_prompt,
 )
+from prompt_templates import load_prompt, render  # noqa: E402,F401 — re-exported for tests
 
 
 from summarizer.notes import (  # noqa: E402,F401 — re-exported for tests
@@ -142,6 +143,7 @@ from summarizer.notes import (  # noqa: E402,F401 — re-exported for tests
     _ensure_closing_frontmatter_delimiter,
     _note_body,
     _normalize_related_field,
+    _stamp_prompt_version,
     _strip_leading_preamble,
     _validate_frontmatter,
     inject_project_tag,
@@ -171,8 +173,9 @@ async def _summarize_chunk(
         A summary string (3-5 sentences). Falls back to a truncated version of
         chunk_text on failure.
     """
-    # ARC-029: chunk-summarizer prompt lives in templates/prompts/chunk_summary.txt.
-    prompt = _load_prompt_template("chunk_summary.txt").substitute(
+    # ENH-008: chunk-summarizer prompt lives in templates/prompts/summarize-chunk.md.
+    prompt = render(
+        "summarize-chunk",
         chunk_num=chunk_num,
         total_chunks=total_chunks,
         chunk_text=chunk_text,
@@ -644,6 +647,11 @@ async def summarize_one(
             return gate_result
 
         result_text = inject_project_tag(result_text, project)
+        # ENH-008 Step 3: stamp the prompt version into the note frontmatter
+        # so evaluation can slice note quality by the prompt that produced it.
+        result_text = _stamp_prompt_version(
+            result_text, load_prompt("summarize-session").version_stamp
+        )
         written = write_note(result_text, dry_run, vault, project, categories)
         if written is None and not dry_run:
             # write_note already printed the specific refusal (frontmatter

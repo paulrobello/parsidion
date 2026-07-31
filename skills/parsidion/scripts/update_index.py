@@ -96,6 +96,10 @@ class NoteEntry(NamedTuple):
         is_stale: 1 if the note has no incoming links and is >30 days old, else 0.
         incoming_links: Number of other notes that link to this one.
         date: ``date`` frontmatter value (``YYYY-MM-DD`` string) for point-in-time search.
+        prompt_version: ``prompt_version`` frontmatter value (``<id>@<semver>``, e.g.
+            ``summarize-session@1.0.0``) for AI-generated notes. Empty for notes
+            written by hand or by older summarizer versions. Lets evaluation slice
+            note quality by the prompt that produced it (ENH-008 Step 3).
     """
 
     stem: str
@@ -112,6 +116,7 @@ class NoteEntry(NamedTuple):
     is_stale: int
     incoming_links: int
     date: str = ""
+    prompt_version: str = ""
 
 
 # QA-007: _is_process_running removed — now imported from vault_common.
@@ -412,6 +417,7 @@ def _build_note_db_rows(
                 is_stale=1 if is_stale else 0,
                 incoming_links=incoming,
                 date=str(fm.get("date", "") or ""),
+                prompt_version=str(fm.get("prompt_version", "") or ""),
             )
         )
 
@@ -761,10 +767,10 @@ def _write_note_index_to_db(
                 """
                 INSERT INTO note_index (
                     stem, path, folder, title, summary, tags, note_type,
-                    project, confidence, mtime, related, is_stale, incoming_links, date
+                    project, confidence, mtime, related, is_stale, incoming_links, date, prompt_version
                 ) VALUES (
                     :stem, :path, :folder, :title, :summary, :tags, :note_type,
-                    :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date
+                    :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date, :prompt_version
                 )
                 ON CONFLICT(stem) DO UPDATE SET
                     path=excluded.path,
@@ -779,7 +785,8 @@ def _write_note_index_to_db(
                     related=excluded.related,
                     is_stale=excluded.is_stale,
                     incoming_links=excluded.incoming_links,
-                    date=excluded.date
+                    date=excluded.date,
+                    prompt_version=excluded.prompt_version
                 """,
                 [row._asdict() for row in db_rows],
             )

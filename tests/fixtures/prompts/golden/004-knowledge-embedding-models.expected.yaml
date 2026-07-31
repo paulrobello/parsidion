@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: knowledge
+expected_tags_include: [embedding, vector]
+expected_tags_exclude: [misc]
+must_mention: ["cosine", "mean-pool"]
+frontmatter_valid: true
+related_links_min: 1

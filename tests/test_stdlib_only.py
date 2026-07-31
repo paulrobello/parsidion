@@ -97,6 +97,11 @@ _ENFORCEMENT_SCOPE = [
     # server, so it is held to the same stdlib-only contract as the rest of
     # the core/hook surface.
     "vault_health",
+    # ENH-008: prompt_templates + note_schema are imported by hooks
+    # (session_start_hook → prompt_templates for select-notes) and by the
+    # summarizer/doctor, so they share the stdlib-only contract.
+    "prompt_templates",
+    "note_schema",
 ]
 
 

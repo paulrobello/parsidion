@@ -6,13 +6,14 @@ Extracted from ``summarize_sessions.py`` (ARC-009).
 (``monkeypatch.setattr(summarize_sessions, "build_prompt", ...)``) and is called
 from ``summarize_one`` in the shim.  Since the shim re-exports ``build_prompt``,
 the shim's bare-name lookup at call time sees the patched version.  The prompt
-helpers themselves (``_render_tags_instruction``, ``_render_dedup_block``,
-``_load_prompt_template``) are not patched and call no patched functions, so
-they extract cleanly.
+helpers themselves (``_render_tags_instruction``, ``_render_dedup_block``) are
+not patched and call no patched functions, so they extract cleanly.
 
-``_PROMPT_TEMPLATE_CACHE`` is a mutable dict that tests ``.clear()`` on the
-shim attribute — the re-export shares the same dict object so the in-place
-mutation is visible to ``_load_prompt_template`` here.
+ENH-008: the template files now live under ``templates/prompts/*.md`` with YAML
+frontmatter and are loaded through ``prompt_templates.render`` (strict
+variable contract, lru_cache-cached).  ``_load_prompt_template`` remains as a
+thin backward-compat shim so the pre-ENH-008 caching test and any external
+callers keep working; it delegates to the new loader.
 """
 
 from __future__ import annotations
@@ -20,20 +21,19 @@ from __future__ import annotations
 import string
 from datetime import date
 
-import vault_common
-
+from prompt_templates import load_prompt, render
 from summarizer._state_const import _VALID_NOTE_TYPES
 
-# ARC-029: shared kebab-case / short-singular tag rule used by both branches
-# of _render_tags_instruction so a single edit updates both.
-_TAG_RULES_COMMON = (
-    "  NEVER use underscores — always kebab-case (hyphens);\n"
-    "  prefer short singular tags: 'voxel' not 'voxel-engine', 'hook' not 'hooks')"
-)
+# ARC-029 / ENH-008: shared kebab-case / short-singular tag rule, sourced from
+# note_schema so the rule is stated exactly once across the whole codebase.
+import note_schema as _note_schema
 
-# Cache loaded prompt templates so repeated calls in a summarizer run read
-# each file once.  ``string.Template`` is immutable so caching the parsed
-# object is safe.
+_TAG_RULES_COMMON = _note_schema.TAG_RULES
+
+# Backward-compat cache handle. The new loader uses functools.lru_cache, so
+# this dict is kept only so ``_PROMPT_TEMPLATE_CACHE.clear()`` in existing
+# tests remains a no-op rather than an AttributeError. Tests that need to
+# force a re-read call ``prompt_templates.reset_cache()`` instead.
 _PROMPT_TEMPLATE_CACHE: dict[str, string.Template] = {}
 
 
@@ -85,25 +85,29 @@ def _render_dedup_block(
 
 
 def _load_prompt_template(name: str) -> string.Template:
-    """Load and cache ``templates/prompts/<name>`` as a string.Template.
+    """Backward-compat shim over the ENH-008 loader.
 
-    Resolution order mirrors resolve_templates_dir(): sibling ``templates/``
-    dir next to this script (repo source layout) → installed
-    ``~/.claude/skills/parsidion/templates``. Falls back to an empty
-    Template on any read error so the caller's ``.substitute`` returns its
-    placeholders verbatim — better than crashing a summarizer run because
-    a prompt file is missing.
+    Historical callers (and the caching regression test) passed a literal
+    filename like ``note_writing.txt``. The new loader keys by canonical
+    template id, so map the two legacy filenames to their ids and return a
+    ``string.Template`` wrapping the loaded body. The constructed Template is
+    cached per name so repeated calls return the same object (preserves the
+    pre-ENH-008 identity contract). Clearing ``_PROMPT_TEMPLATE_CACHE``
+    drops this wrapper cache; the underlying ``load_prompt`` lru_cache is
+    cleared via ``prompt_templates.reset_cache()``.
     """
-    if name in _PROMPT_TEMPLATE_CACHE:
-        return _PROMPT_TEMPLATE_CACHE[name]
-    template_path = vault_common.resolve_templates_dir() / "prompts" / name
-    try:
-        content = template_path.read_text(encoding="utf-8")
-    except OSError:
-        content = ""
-    template = string.Template(content)
-    _PROMPT_TEMPLATE_CACHE[name] = template
-    return template
+    cached = _PROMPT_TEMPLATE_CACHE.get(name)
+    if cached is not None:
+        return cached
+    _LEGACY = {
+        "note_writing.txt": "summarize-session",
+        "chunk_summary.txt": "summarize-chunk",
+    }
+    prompt_id = _LEGACY.get(name, name.removesuffix(".txt"))
+    tpl = load_prompt(prompt_id)
+    wrapper = string.Template(tpl.body)
+    _PROMPT_TEMPLATE_CACHE[name] = wrapper
+    return wrapper
 
 
 def build_prompt(
@@ -137,10 +141,10 @@ def build_prompt(
     tags_instruction = _render_tags_instruction(existing_tags)
     dedup_block = _render_dedup_block(similar_notes)
     valid_types = ", ".join(sorted(_VALID_NOTE_TYPES))
-    template = _load_prompt_template("note_writing.txt")
-    # SEC-004: the SYSTEM preamble (now in the template) instructs the model
-    # to treat the transcript as passive data, not as instructions.
-    return template.substitute(
+    # SEC-004: the SYSTEM preamble (in the template) instructs the model to
+    # treat the transcript as passive data, not as instructions.
+    return render(
+        "summarize-session",
         project=project,
         cats_str=cats_str,
         today=today,

@@ -405,6 +405,8 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 
 An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. Claude-backed runs use `claude -p`; Codex-backed runs use `codex exec`. Gemini runtime hooks can queue transcripts, but there is no Gemini prompt backend yet. No Claude Agent SDK or Codex SDK is required for this path.
 
+The note-writing and chunk-summarizer prompts are externalized versioned templates under `skills/parsidion/templates/prompts/`, rendered through the strict-variable loader in `prompt_templates.py`, and every AI-generated note is stamped with a `prompt_version: <id>@<semver>` field in its frontmatter. See [docs/PROMPTS.md](PROMPTS.md) for the template format, the variable contract, and the opt-in eval harness that scores a prompt edit against a golden transcript set.
+
 **CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`, `--run-doctor`, `--rebuild-graph`, `--graph-include-daily`, `--vault PATH`
 
 **Configurable options** (section `summarizer` in `config.yaml`):

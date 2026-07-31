@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: project
+expected_tags_include: [balance, game]
+expected_tags_exclude: [misc]
+must_mention: ["TTK", "DPS"]
+frontmatter_valid: true
+related_links_min: 1

@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: debugging
+expected_tags_include: [sqlite, locking]
+expected_tags_exclude: [misc, general]
+must_mention: ["WAL", "inode"]
+frontmatter_valid: true
+related_links_min: 1

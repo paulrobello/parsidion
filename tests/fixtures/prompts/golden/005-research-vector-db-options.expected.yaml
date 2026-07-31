@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: research
+expected_tags_include: [vector, sqlite-vec]
+expected_tags_exclude: [misc]
+must_mention: ["sqlite-vec", "HNSW"]
+frontmatter_valid: true
+related_links_min: 1

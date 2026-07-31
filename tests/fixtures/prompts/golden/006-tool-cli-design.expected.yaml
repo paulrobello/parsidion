@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: tool
+expected_tags_include: [cli, argparse]
+expected_tags_exclude: [misc]
+must_mention: ["argparse", "JSON"]
+frontmatter_valid: true
+related_links_min: 1

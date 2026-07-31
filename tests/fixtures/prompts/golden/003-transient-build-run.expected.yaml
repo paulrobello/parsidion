@@ -1,0 +1,7 @@
+should_produce_note: false
+expected_type: pattern
+expected_tags_include: []
+expected_tags_exclude: []
+must_mention: []
+frontmatter_valid: true
+related_links_min: 0

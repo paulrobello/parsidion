@@ -32,6 +32,11 @@ from pathlib import Path
 
 import vault_common
 
+# ENH-008 Step 2: VALID_TYPES is now an alias over the single source in
+# ``note_schema``. Kept under this name so every existing doctor call site and
+# the ARC-010 parity test continue to work unchanged.
+import note_schema as _note_schema
+
 # ---------------------------------------------------------------------------
 # Constants (formerly module-level in vault_doctor.py)
 # ---------------------------------------------------------------------------
@@ -42,19 +47,7 @@ import vault_common
 # expose it once here instead of recomputing per call site.
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 
-VALID_TYPES = frozenset(
-    {
-        "pattern",
-        "debugging",
-        "research",
-        "project",
-        "daily",
-        "tool",
-        "language",
-        "framework",
-        "knowledge",
-    }
-)
+VALID_TYPES = _note_schema.VALID_NOTE_TYPES
 # Fields required for all notes
 REQUIRED_FIELDS_ALL = ("date", "type")
 # Additional fields required for knowledge notes (not daily)

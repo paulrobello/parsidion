@@ -1,0 +1,7 @@
+should_produce_note: true
+expected_type: pattern
+expected_tags_include: [refactor, validation]
+expected_tags_exclude: [misc]
+must_mention: ["ValueError", "_validate_payload"]
+frontmatter_valid: true
+related_links_min: 1

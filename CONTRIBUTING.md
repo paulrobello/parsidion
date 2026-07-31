@@ -105,6 +105,18 @@ Use modern Python type annotations throughout:
    uv run pre-commit run --all-files
    ```
 
+### Editing a vault-note prompt (ENH-008)
+
+The six AI prompts live as versioned template files under
+`skills/parsidion/templates/prompts/`, rendered through the strict-variable
+loader in `skills/parsidion/scripts/prompt_templates.py`. See
+[docs/PROMPTS.md](docs/PROMPTS.md) for the template format, the strict variable
+contract, version bump rules, and how to run the opt-in eval harness
+(`tools/eval/prompt_eval_run.py`) against the golden transcript set before
+landing a prompt change. The byte-identical rendering gate
+(`tests/test_prompt_templates.py -k identical`) must stay green — separate the
+mechanical move of text from any wording change into distinct commits.
+
 ### Cross-language parity fixtures (ENH-005)
 
 Two contracts are shared between Python and TypeScript and must stay in sync:

@@ -15,6 +15,7 @@ import vault_common
 
 from doctor._state import AI_TIMEOUT, DEFAULT_MODEL, VALID_TYPES, Issue, _active_vault
 from doctor.links import _find_semantic_candidates, resolve_wikilink
+from prompt_templates import render
 
 
 def repair_note(
@@ -69,29 +70,15 @@ def repair_note(
             "  Use only the real targets listed below; every [[link]] must resolve."
         )
 
-    prompt = f"""You are a vault note repair tool. Fix ONLY the listed issues in this Obsidian markdown note.
-Do NOT rewrite, summarise, or add content beyond what is needed to resolve each issue.
-Return ONLY the corrected note as raw markdown. No explanation, no code fences, and
-do NOT echo the ---BEGIN--- / ---END--- markers shown below.
-
-File: {rel}
-
-Issues to fix:
-{issue_lines}
-
-Rules:
-- Valid values for 'type': {", ".join(sorted(VALID_TYPES))}
-- Valid values for 'confidence': high | medium | low
-- 'date' must be YYYY-MM-DD
-- Emit exactly ONE YAML frontmatter block: a '---' line, the fields, then a '---' line.
-- Every non-daily note needs: date, type, confidence, related in its frontmatter
-- 'sources' should be [] if unknown
-{related_rule}{candidate_section}
-
-Current note:
----BEGIN---
-{content}
----END---"""
+    prompt = render(
+        "repair-frontmatter",
+        rel=str(rel),
+        issue_lines=issue_lines,
+        valid_types=", ".join(sorted(VALID_TYPES)),
+        related_rule=related_rule,
+        candidate_section=candidate_section,
+        content=content,
+    )
 
     try:
         output = ai_backend.run_ai_prompt(

@@ -358,7 +358,8 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
             related        TEXT    NOT NULL DEFAULT '',
             is_stale       INTEGER NOT NULL DEFAULT 0,
             incoming_links INTEGER NOT NULL DEFAULT 0,
-            date           TEXT    NOT NULL DEFAULT ''
+            date           TEXT    NOT NULL DEFAULT '',
+            prompt_version TEXT    NOT NULL DEFAULT ''
         )
         """
     )
@@ -367,6 +368,12 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
     if "date" not in cols:
         conn.execute("ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''")
+    # ENH-008 Step 3: prompt_version column for slicing note quality by the
+    # prompt that produced each AI-generated note.
+    if "prompt_version" not in cols:
+        conn.execute(
+            "ALTER TABLE note_index ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''"
+        )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_folder    ON note_index(folder)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_note_type ON note_index(note_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_project   ON note_index(project)")

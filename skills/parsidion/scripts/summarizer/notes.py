@@ -226,6 +226,46 @@ def _strip_leading_preamble(note_content: str) -> str:
     return note_content
 
 
+def _stamp_prompt_version(note_content: str, prompt_version: str) -> str:
+    """Inject ``prompt_version: <value>`` into a note's frontmatter.
+
+    ENH-008 Step 3: stamps the ``<id>@<semver>`` of the prompt that produced
+    the note so evaluation can slice note quality by prompt version. Inserted
+    right after the ``session_id`` line when present (the two travel together
+    — both are provenance for an AI-generated note), otherwise appended to the
+    frontmatter block. No-op when the note has no frontmatter or already
+    carries a ``prompt_version`` field.
+
+    Additive: older code and older notes ignore the field, so stamping never
+    invalidates existing frontmatter.
+    """
+    if not prompt_version:
+        return note_content
+    fm = vault_common.parse_frontmatter(note_content)
+    if not fm:
+        return note_content  # no frontmatter — let validation handle it
+    if "prompt_version" in fm:
+        return note_content  # already stamped (e.g. the model emitted it)
+    lines = note_content.splitlines(keepends=True)
+    # Locate the closing frontmatter delimiter (second bare '---').
+    delim_indices = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(delim_indices) < 2:
+        return note_content
+    closer = delim_indices[1]
+    stamp_line = f"prompt_version: {prompt_version}\n"
+    # Prefer to insert right after a session_id line so the two provenance
+    # fields sit together; otherwise insert just before the closer.
+    insert_at = closer
+    for i in range(delim_indices[0] + 1, closer):
+        if _FRONTMATTER_KEY_LINE_RE.match(lines[i]) and lines[i].startswith(
+            "session_id"
+        ):
+            insert_at = i + 1
+            break
+    lines.insert(insert_at, stamp_line)
+    return "".join(lines)
+
+
 def _note_body(note_content: str) -> str:
     """Return the markdown body of a note — everything after the YAML frontmatter.
 

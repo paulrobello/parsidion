@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import vault_common
+from prompt_templates import render
 
 _DEFAULT_TOPIC_THRESHOLD = 0.75
 _DEFAULT_MAX_CLUSTER = 8
@@ -251,18 +252,10 @@ def _build_prompt(records: list[dict[str, str]]) -> str:
         body = _read_body(rec["path"])
         blocks.append(f"### {rec['stem']}\n{rec['path']}\n{body}")
     note_block = "\n\n".join(blocks)
-    return (
-        f"You are a knowledge-vault consistency auditor. Below are {len(records)} "
-        "notes that are semantically similar and may overlap.\n\n"
-        f"NOTES:\n{note_block}\n\n"
-        "Identify CONTRADICTIONS ONLY — pairs of notes making conflicting, "
-        "mutually-exclusive claims about the same subject. Do NOT flag near-duplicates, "
-        "complements, or unrelated notes sharing keywords.\n\n"
-        "Respond with ONLY a JSON array (no prose). Each element:\n"
-        '{"type":"contradiction","a":"<stem A>","b":"<stem B>",'
-        '"a_says":"<one-line claim>","b_says":"<one-line claim>",'
-        '"recommendation":"keep_a|keep_b|merge|needs_review"}\n\n'
-        "If there are no contradictions, respond with: []"
+    return render(
+        "detect-conflicts",
+        note_count=len(records),
+        note_block=note_block,
     )
 
 

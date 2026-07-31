@@ -14,16 +14,15 @@ from datetime import date
 
 import vault_common
 
-# Mapping from note type to vault folder name
+# ENH-008 Step 2: the type→folder map and the valid type set live once in
+# ``note_schema``. ``vault-new`` excludes ``daily`` (the stop hook owns daily
+# notes), so the public-facing choices are the canonical set minus ``daily``.
+import note_schema as _note_schema
+
+# Mapping from note type to vault folder name. Aliased here so the existing
+# ``_TYPE_TO_FOLDER`` references keep working.
 _TYPE_TO_FOLDER: dict[str, str] = {
-    "pattern": "Patterns",
-    "debugging": "Debugging",
-    "research": "Research",
-    "project": "Projects",
-    "tool": "Tools",
-    "language": "Languages",
-    "framework": "Frameworks",
-    "knowledge": "Knowledge",
+    t: folder for t, folder in _note_schema.TYPE_FOLDERS.items() if t != "daily"
 }
 
 # Maximum recommended slug word count before truncation warning

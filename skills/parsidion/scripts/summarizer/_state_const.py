@@ -11,6 +11,13 @@ from __future__ import annotations
 import enum
 import re
 
+# ENH-008 Step 2: the note-type set, type→folder map, required frontmatter
+# fields, provenance values, and tag rules live once in ``note_schema``.
+# They are re-exported here under the private ``_``-prefixed names every
+# summarizer submodule already imports, so the single source replaces the old
+# duplicate definition without touching any call site.
+import note_schema as _note_schema
+
 # ---------------------------------------------------------------------------
 # Result sentinels — returned as ``written_path`` by ``summarize_one``.
 # ---------------------------------------------------------------------------
@@ -111,50 +118,27 @@ _DEFAULT_TRANSCRIPT_TAIL_BYTES = 262_144
 _DEFAULT_MAX_CLEANED_CHARS = 12_000
 
 # ---------------------------------------------------------------------------
-# Note type → folder mapping
+# Note type → folder mapping (single source: note_schema, ENH-008 Step 2)
 # ---------------------------------------------------------------------------
 
-# Map note type values to vault folders
-_TYPE_FOLDERS: dict[str, str] = {
-    "debugging": "Debugging",
-    "research": "Research",
-    "pattern": "Patterns",
-    "tool": "Tools",
-    "framework": "Frameworks",
-    "language": "Languages",
-    "project": "Projects",
-    "daily": "Daily",
-    "knowledge": "Knowledge",
-}
+# Map note type values to vault folders. Aliased here so the existing
+# ``_TYPE_FOLDERS`` / ``_DEFAULT_FOLDER`` imports keep working.
+_TYPE_FOLDERS: dict[str, str] = _note_schema.TYPE_FOLDERS
 
 # Fallback folder when type is unrecognized
-_DEFAULT_FOLDER = "Research"
+_DEFAULT_FOLDER: str = _note_schema.DEFAULT_FOLDER
 
 # ---------------------------------------------------------------------------
-# Frontmatter validation sets
+# Frontmatter validation sets (single source: note_schema)
 # ---------------------------------------------------------------------------
 
-_REQUIRED_FRONTMATTER_FIELDS: frozenset[str] = frozenset({"date", "type", "tags"})
+_REQUIRED_FRONTMATTER_FIELDS: frozenset[str] = _note_schema.REQUIRED_FRONTMATTER_FIELDS
 
 # Valid values for the 'type' frontmatter field
-_VALID_NOTE_TYPES: frozenset[str] = frozenset(
-    {
-        "debugging",
-        "research",
-        "pattern",
-        "tool",
-        "framework",
-        "language",
-        "project",
-        "daily",
-        "knowledge",
-    }
-)
+_VALID_NOTE_TYPES: frozenset[str] = _note_schema.VALID_NOTE_TYPES
 
 # Valid values for the optional 'provenance' frontmatter field
-_VALID_PROVENANCE_VALUES: frozenset[str] = frozenset(
-    {"explicit", "inferred", "corrected", "observed", "imported"}
-)
+_VALID_PROVENANCE_VALUES: frozenset[str] = _note_schema.VALID_PROVENANCE_VALUES
 
 # ---------------------------------------------------------------------------
 # Regexes used by frontmatter / related-field helpers

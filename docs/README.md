@@ -21,6 +21,7 @@ below with its intended audience and purpose.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, component overview, hook lifecycle, and data flow. Start here to understand how the pieces fit together. |
 | [EMBEDDINGS.md](EMBEDDINGS.md) | Semantic search setup: building the embedding index, searching the vault, configuration reference, and integration with hooks and agents. |
 | [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) | Evaluation harness for benchmarking embedding model and chunking strategy combinations against Claude-generated ground-truth queries. |
+| [PROMPTS.md](PROMPTS.md) | How Parsidion's six AI prompts are externalized into versioned template files, the strict-variable loader that renders them, prompt-version stamping on notes, and the opt-in eval harness that scores a prompt edit against a golden transcript set. |
 | [MCP.md](MCP.md) | parsidion-mcp server: FastMCP-based MCP server that exposes vault read, write, search, and maintenance operations to Claude Desktop and MCP-capable clients. |
 | [AGENTCHROME.md](AGENTCHROME.md) | AgentChrome browser control CLI: installation, capabilities, and integration with the research agent for fetching fully-rendered pages. |
 | [MCPL.md](MCPL.md) | MCP Launchpad CLI: installation, configuration, and use as a fallback search gateway when the research agent exhausts other search options. |
@@ -38,6 +39,7 @@ below with its intended audience and purpose.
 - **New to the project?** Read [ARCHITECTURE.md](ARCHITECTURE.md) first, then the root [README.md](../README.md).
 - **Setting up semantic search?** See [EMBEDDINGS.md](EMBEDDINGS.md).
 - **Evaluating which embedding model to use?** See [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md).
+- **Editing a vault-note prompt or running a prompt eval?** See [PROMPTS.md](PROMPTS.md).
 - **Using the MCP server with Claude Desktop?** See [MCP.md](MCP.md).
 - **Sharing the vault across machines?** See [VAULT_SYNC.md](VAULT_SYNC.md).
 - **Using par-mem as the vault search backend?** See [PAR-MEM.md](PAR-MEM.md).
