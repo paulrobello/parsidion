@@ -25,6 +25,8 @@ docs/superpowers/
 
 # parsidion trigger-eval output (regenerated each eval run)
 skills/parsidion/eval_results.json
+# prompt-eval run reports (non-deterministic, timestamped, regenerated each run)
+tools/eval/results/
 visualizer/docs/superpowers/
 
 # graphify code-graph generator output (regenerated each run)
