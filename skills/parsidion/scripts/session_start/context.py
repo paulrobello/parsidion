@@ -12,6 +12,7 @@ framing wrapper, and the best-effort debug log writer.  They are leaf helpers
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -248,8 +249,9 @@ def _write_debug_log(
         try:
             with open(fd, "a", encoding="utf-8", closefd=True) as f:
                 f.write(entry)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # fd ownership transferred to open(); only close manually on open() failure
+            print(f"debug log write failed: {exc}", file=sys.stderr)
             pass
     except OSError:
         pass  # debug logging is best-effort

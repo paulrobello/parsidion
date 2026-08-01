@@ -323,7 +323,8 @@ def _log_hook_error(hook_name: str) -> None:
         vault_common.rotate_log_file(_HOOK_ERROR_LOG)
         with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
             fh.write(entry)
-    except Exception:  # noqa: BLE001 — logging must never raise
+    except Exception as exc:  # noqa: BLE001 — logging must never raise
+        print(f"hook error log write failed: {exc}", file=sys.stderr)
         pass
 
 

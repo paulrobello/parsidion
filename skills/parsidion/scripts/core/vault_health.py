@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import stat
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -601,7 +602,8 @@ def score_file_hygiene(vault: Path) -> DimensionScore:
                     bad_mode_files.append(str(md.relative_to(vault)))
             elif mode & stat.S_IWOTH:
                 bad_mode_files.append(str(md.relative_to(vault)))
-    except Exception:  # noqa: BLE001 — file walk must not crash the report
+    except Exception as exc:  # noqa: BLE001 — file walk must not crash the report
+        print(f"vault health file walk failed: {exc}", file=sys.stderr)
         pass
 
     # Tracked-but-gitignored check
@@ -610,7 +612,8 @@ def score_file_hygiene(vault: Path) -> DimensionScore:
         from doctor.scan import _git_tracked_gitignored
 
         tracked_gitignored = _git_tracked_gitignored(vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        print(f"tracked-but-gitignored scan failed: {exc}", file=sys.stderr)
         pass
 
     # Deductions: 5 per finding class member, capped per class so a vault with

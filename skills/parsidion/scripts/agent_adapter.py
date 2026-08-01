@@ -255,7 +255,8 @@ def _load_external_adapters() -> None:
                     f"agent_adapter: loaded external adapter {adapter.name!r} from {path}",
                     file=sys.stderr,
                 )
-    except Exception:  # noqa: BLE001 — external loading never breaks the registry
+    except Exception as exc:  # noqa: BLE001 — external loading never breaks the registry
+        print(f"external adapter load failed: {exc}", file=sys.stderr)
         pass
 
 
@@ -379,7 +380,8 @@ def _emit_hook_event(hook: str, project: str, vault: Path, **extra: object) -> N
         vault_common.write_hook_event(
             hook=hook, project=project, duration_ms=0.0, vault=vault, **extra
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        print(f"hook event emit failed: {exc}", file=sys.stderr)
         pass
 
 
@@ -469,7 +471,8 @@ def run_session_start(adapter: AgentAdapter) -> None:
             _emit_hook_event(
                 adapter.hook_event_name_start, project, vault_path, notes_injected=0
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            print(f"hook event emit failed: {exc}", file=sys.stderr)
             pass
     except Exception:  # noqa: BLE001 - hooks must not fail closed
         traceback.print_exc(file=sys.stderr)

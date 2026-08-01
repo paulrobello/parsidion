@@ -106,5 +106,6 @@ def release_summarizer_lock(vault_path: Path) -> None:
                     _write_summarizer_state(state, vault_path)
             finally:
                 _funlock(lock_file)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        print(f"summarizer lock release best-effort: {exc}", file=sys.stderr)
         pass

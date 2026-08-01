@@ -34,6 +34,7 @@ import argparse
 import curses
 import os
 import subprocess as _sp
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,8 @@ def _search_notes(
             return vault_search.search(
                 query=q, top=10, min_score=0.45, vault=vault, backend=backend
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            print(f"semantic search best-effort: {exc}", file=sys.stderr)
             pass
     # Fallback: metadata title search via grep over all notes
     matched: list[dict[str, object]] = []

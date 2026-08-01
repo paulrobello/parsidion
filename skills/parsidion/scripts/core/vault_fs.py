@@ -15,6 +15,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import IO, Any
@@ -584,7 +585,8 @@ def append_to_pending(
                     f"(concurrent rewrite race); queue entry lost"
                 ),
             )
-        except Exception:  # noqa: BLE001 — never raise on a best-effort log
+        except Exception as exc:  # noqa: BLE001 — never raise on a best-effort log
+            print(f"pending-queue drop hook event failed: {exc}", file=sys.stderr)
             pass
 
 

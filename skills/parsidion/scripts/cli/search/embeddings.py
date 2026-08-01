@@ -168,7 +168,8 @@ def _spawn_service(vault: Path, model_name: str) -> None:
             start_new_session=True,
             env=vault_common.env_without_claudecode(),
         )
-    except Exception:  # noqa: BLE001 — best-effort; in-process fallback covers failure
+    except Exception as exc:  # noqa: BLE001 — best-effort; in-process fallback covers failure
+        print(f"embedding service spawn best-effort: {exc}", file=sys.stderr)
         pass
 
 

@@ -16,6 +16,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -139,7 +140,8 @@ def _log_event(vault: Path, action: str, detail: str, started: float) -> None:
             action=action,
             detail=detail,
         )
-    except Exception:  # noqa: BLE001 — logging must never raise
+    except Exception as exc:  # noqa: BLE001 — logging must never raise
+        print(f"parmem hook event log failed: {exc}", file=sys.stderr)
         pass
 
 

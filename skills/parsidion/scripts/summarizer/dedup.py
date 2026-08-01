@@ -13,6 +13,7 @@ globals).
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import vault_common
@@ -138,7 +139,8 @@ def _resolve_note_stem(stem: str, vault: Path) -> Path | None:
                 p = Path(row[0])
                 if p.exists():
                     return p
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            print(f"note_index lookup best-effort: {exc}", file=sys.stderr)
             pass
     # Fallback: walk vault notes
     for note in vault_common.all_vault_notes(vault):
