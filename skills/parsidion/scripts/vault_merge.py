@@ -1,6 +1,34 @@
 #!/usr/bin/env python3
 """vault-merge — merge two vault notes into one.
 
+Thin re-export shim over the ``cli.merge`` package (ARC-005). The bulk of
+the original 1,179-line God module — AI-output validation, note lookup,
+frontmatter field parsing, dry-run preview cache, execute-path locking,
+the diff summary, embedding-based duplicate scan, and the post-merge index
+rebuild — has moved into focused submodules under ``cli.merge``; the
+public + private surface the original exposed remains importable from
+``vault_merge`` so every ``import vault_merge`` consumer, the test suite's
+attribute access (``vault_merge._ai_merge_bodies``,
+``vault_merge.AIMergeOutputError``, ``vault_merge.ai_backend``,
+``vault_merge._hash_content``, ``vault_merge._merge_notes``, …), and the
+``vault-merge = "vault_merge:main"`` console-script entry point keep
+working byte-for-byte.
+
+What stays here and why:
+    ``AIMergeOutputError``, ``_ai_merge_bodies``, ``_merge_notes``,
+    ``_hash_content``, ``_build_frontmatter``, ``_write_preview``,
+    ``_load_fresh_preview``, ``_update_wikilinks_in_vault``, and ``main``
+    stay defined in this entry shim. ``_merge_notes`` weaves the AI body
+    pipeline through ``_ai_merge_bodies`` / ``_hash_content`` /
+    ``_build_frontmatter`` via bare-name calls that resolve in this
+    module's globals; ``_write_preview`` and ``_load_fresh_preview`` do
+    the same with ``_hash_content`` and ``_preview_cache_path``; ``main``
+    orchestrates the whole shim-resident pipeline. The test suite patches
+    ``vault_merge.ai_backend.run_ai_prompt`` (a module-attribute patch
+    that reaches the singleton ``ai_backend`` from any caller), so
+    ``ai_backend`` is re-exported here, and ``_ai_merge_bodies`` stays in
+    the module the test patches for parity with the vault_search.py split.
+
 Usage:
     vault-merge NOTE_A NOTE_B [--output OUTPUT] [--dry-run] [--execute] [--from-preview]
 
@@ -22,31 +50,57 @@ invocations against the same vault cannot interleave.
 import argparse
 import contextlib
 import hashlib
-import json
-import os
-import re
-import shutil
-import sqlite3
-import subprocess
+import json  # noqa: F401 — re-exported (vault_merge.json) for backwards compat
+import os  # noqa: F401 — re-exported (vault_merge.os) for backwards compat
+import re  # noqa: F401 — re-exported (vault_merge.re) for backwards compat
+import shutil  # noqa: F401 — re-exported (vault_merge.shutil) for backwards compat
+import sqlite3  # noqa: F401 — re-exported (vault_merge.sqlite3) for backwards compat
+import subprocess  # noqa: F401 — re-exported (vault_merge.subprocess) for backwards compat
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator  # noqa: F401 — re-exported for backwards compat
 from pathlib import Path
 
-import ai_backend
-import vault_common
-import vault_config
-from prompt_templates import render
-import vault_fs
-import vault_links
+import ai_backend  # noqa: F401 — re-exported (vault_merge.ai_backend) for tests
+import vault_common  # noqa: F401 — re-exported (vault_merge.vault_common) for tests
+import vault_config  # noqa: F401 — re-exported (vault_merge.vault_config) for tests
+import vault_fs  # noqa: F401 — re-exported (vault_merge.vault_fs) for tests
+import vault_links  # noqa: F401 — re-exported (vault_merge.vault_links) for tests
+from prompt_templates import render  # noqa: F401 — re-exported (vault_merge.render)
 
-try:
-    import fcntl as _fcntl
-except ImportError:  # pragma: no cover - Windows fallback
-    _fcntl = None
-
-_DEFAULT_AI_TIMEOUT: int = 60
-_PREVIEW_DIRNAME = ".merge_previews"
-_MERGE_LOCK_FILENAME = ".merge.lock"
+# ---------------------------------------------------------------------------
+# Re-exports from cli.merge.* — every symbol the original vault_merge.py
+# exposed remains importable from ``vault_merge``. Function objects are
+# immutable so ``from cli.merge.X import f`` + ``vault_merge.f(...)`` is a
+# stable binding for external callers and the test suite.
+# ---------------------------------------------------------------------------
+from cli.merge.ai_helpers import (  # noqa: F401 — re-exports
+    _DEFAULT_AI_TIMEOUT,
+    _configured_merge_model,
+    _configured_merge_timeout,
+    _is_valid_merge_body,
+)
+from cli.merge.frontmatter import (  # noqa: F401 — re-exports
+    _WIKILINK_SPAN_RE,
+    _parse_related_list,
+    _parse_tags_list,
+)
+from cli.merge.index import _rebuild_index  # noqa: F401 — re-export
+from cli.merge.lookup import _find_note  # noqa: F401 — re-export
+from cli.merge.preview import (  # noqa: F401 — re-exports
+    _MERGE_LOCK_FILENAME,
+    _PREVIEW_DIRNAME,
+    _delete_preview,
+    _merge_lock,
+    _preview_cache_path,
+    _preview_dir,
+)
+from cli.merge.scan import (  # noqa: F401 — re-exports
+    _DEFAULT_SCAN_THRESHOLD,
+    _DEFAULT_SCAN_TOP,
+    _is_excluded_from_scan,
+    _scan_duplicates,
+)
+from cli.merge.display import _print_diff_summary  # noqa: F401 — re-export
 
 
 class AIMergeOutputError(RuntimeError):
@@ -56,84 +110,6 @@ class AIMergeOutputError(RuntimeError):
     output over the keeper note (and then trashing note B) is destructive.
     ``main()`` catches this before any file is written or trashed.
     """
-
-
-# ---------------------------------------------------------------------------
-# AI merge
-# ---------------------------------------------------------------------------
-
-
-def _is_valid_merge_body(merged: str) -> bool:
-    """Return True if AI output has the shape the merge prompt demands.
-
-    The prompt requires the backend to emit ONLY the merged note body,
-    starting with the first markdown heading — no frontmatter, no code
-    fences, no prose preamble. Backend refusals and error messages fail
-    this shape check, so they can never be written over the keeper note.
-
-    SEC-115: strengthen the guard beyond the previous length≥50 +
-    startswith("#") check. A body that begins with YAML frontmatter
-    delimiters, is wrapped in a markdown code fence, or opens with a
-    common refusal phrase is rejected even when it happens to start
-    with ``#`` after a fence line. ``#``-prefixed refusal lines such
-    as ``# Error`` are not common in model refusals and are accepted —
-    the deeper protection is that the merge body is inline (no
-    filesystem access handed to the child) and the assembled note is
-    validated before write.
-    """
-    stripped = merged.strip()
-    if len(stripped) < 50:
-        return False
-    # Must start with a markdown heading — body-only, no frontmatter.
-    if not stripped.startswith("#"):
-        return False
-    # SEC-115: reject common refusal shapes that happen to slip past the
-    # ``startswith("#")`` check via a code fence or frontmatter wrapper.
-    if stripped.startswith("---"):  # YAML frontmatter mistakenly included
-        return False
-    if stripped.startswith("```"):  # wrapped in a code fence
-        return False
-    # Common refusal / can't-do phrases at the very start. Match a handful
-    # of canonical forms so a refusal that starts with a heading + apology
-    # is caught.
-    refusal_prefixes = (
-        "# unable to",
-        "# i cannot",
-        "# i can not",
-        "# sorry",
-        "# error",
-        "# refused",
-    )
-    head = stripped[:64].lower()
-    for pref in refusal_prefixes:
-        if head.startswith(pref):
-            return False
-    return True
-
-
-def _configured_merge_model(vault_path: Path | None = None) -> str | None:
-    """Return an explicitly configured merge model, if any."""
-    config = vault_config.load_config(vault=vault_path)
-    summarizer = config.get("summarizer")
-    if not isinstance(summarizer, dict) or "merge_model" not in summarizer:
-        return None
-    model = summarizer["merge_model"]
-    if isinstance(model, str) and model.strip():
-        return model.strip()
-    return None
-
-
-def _configured_merge_timeout(vault_path: Path | None = None) -> int | float:
-    """Return the configured merge timeout or the backend-neutral default."""
-    config = vault_config.load_config(vault=vault_path)
-    summarizer = config.get("summarizer")
-    if isinstance(summarizer, dict):
-        timeout = summarizer.get("merge_timeout")
-        if isinstance(timeout, bool):
-            return _DEFAULT_AI_TIMEOUT
-        if isinstance(timeout, (int, float)):
-            return timeout
-    return _DEFAULT_AI_TIMEOUT
 
 
 def _ai_merge_bodies(
@@ -203,137 +179,6 @@ def _ai_merge_bodies(
             "AI backend returned invalid merge output; merge aborted"
         )
     return merged
-
-
-# ---------------------------------------------------------------------------
-# Note lookup
-# ---------------------------------------------------------------------------
-
-
-def _find_note(query: str, vault_path: Path) -> Path | None:
-    """Locate a vault note by absolute path or stem name.
-
-    If ``query`` is an absolute path that exists, return it directly.
-    Otherwise walk all vault notes and return the first whose stem matches
-    ``query`` (case-insensitive).
-
-    Args:
-        query: Absolute path string or stem name.
-        vault_path: Path to the vault root.
-
-    Returns:
-        Matching Path, or None if not found.
-    """
-    candidate = Path(query)
-    if candidate.is_absolute() and candidate.exists():
-        return candidate
-
-    # Relative path: try relative to vault root
-    if not candidate.is_absolute():
-        vault_candidate = vault_path / query
-        if vault_candidate.exists():
-            return vault_candidate
-        # Add .md if missing
-        if not query.endswith(".md"):
-            vault_candidate_md = vault_path / (query + ".md")
-            if vault_candidate_md.exists():
-                return vault_candidate_md
-
-    # Stem search across all vault notes
-    query_lower = query.lower().removesuffix(".md")
-    for path in vault_common.all_vault_notes_walk(vault=vault_path):
-        if path.stem.lower() == query_lower:
-            return path
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter helpers
-# ---------------------------------------------------------------------------
-
-
-_WIKILINK_SPAN_RE = re.compile(r"\[\[([^\[\]]+)\]\]")
-
-
-def _parse_related_list(fm: dict) -> list[str]:
-    """Extract ``[[wikilink]]`` entries from the related field, robustly.
-
-    Handles list, bare-string, and *malformed* values — e.g. a leaked template
-    comment like ``[]  # inline quoted array: ["note-one", "note-two"]`` — by
-    extracting only the actual ``[[wikilink]]`` spans. Never echoes raw comment
-    text back into the field (which previously produced mangled ``related``
-    values when a note with an unusual field was the merge keeper).
-    """
-    raw = fm.get("related", [])
-    text = "".join(str(r) for r in raw) if isinstance(raw, list) else str(raw or "")
-    seen: set[str] = set()
-    out: list[str] = []
-    for m in _WIKILINK_SPAN_RE.finditer(text):
-        span = m.group(0)
-        if span.lower() not in seen:
-            seen.add(span.lower())
-            out.append(span)
-    return out
-
-
-def _parse_tags_list(fm: dict) -> list[str]:
-    """Extract the tags field as a list of strings.
-
-    Args:
-        fm: Parsed frontmatter dict.
-
-    Returns:
-        List of tag strings.
-    """
-    raw = fm.get("tags", [])
-    if isinstance(raw, list):
-        return [str(t).strip() for t in raw if str(t).strip()]
-    if isinstance(raw, str) and raw.strip():
-        # Handle "[tag1, tag2]" or "tag1, tag2"
-        inner = raw.strip().strip("[]")
-        return [t.strip().strip('"').strip("'") for t in inner.split(",") if t.strip()]
-    return []
-
-
-def _build_frontmatter(fm: dict) -> str:
-    """Serialise a frontmatter dict back to a YAML block string.
-
-    Args:
-        fm: Dict with frontmatter fields.
-
-    Returns:
-        ``---\\n...\\n---\\n`` YAML frontmatter block.
-    """
-    lines: list[str] = ["---"]
-    for key in (
-        "date",
-        "type",
-        "tags",
-        "project",
-        "confidence",
-        "sources",
-        "related",
-        "provenance",
-        "session_id",
-    ):
-        if key not in fm:
-            continue
-        value = fm[key]
-        if value is None or value == "" or value == [] or value == {}:
-            continue
-        if key in ("tags", "sources", "related") and isinstance(value, list):
-            # Inline quoted array format: ["[[a]]", "[[b]]"]
-            items_str = ", ".join(f'"{v}"' for v in value)
-            lines.append(f"{key}: [{items_str}]")
-        else:
-            lines.append(f"{key}: {value}")
-    lines.append("---")
-    return "\n".join(lines) + "\n"
-
-
-# ---------------------------------------------------------------------------
-# Merge logic
-# ---------------------------------------------------------------------------
 
 
 def _merge_notes(
@@ -450,36 +295,45 @@ def _merge_notes(
     return _build_frontmatter(merged_fm) + "\n" + merged_body + "\n"
 
 
-# ---------------------------------------------------------------------------
-# Dry-run preview cache
-# ---------------------------------------------------------------------------
-#
-# A dry-run merge and a later --execute each independently called the AI
-# backend, so the text a user reviewed in the dry-run was never guaranteed to
-# be what --execute actually wrote. When a dry-run produces an AI-merged
-# body, it is cached here (keyed by the sha256 of both source notes' raw
-# content) so `--execute --from-preview` can reuse the exact reviewed text
-# instead of risking a different fresh AI call. The cache is a single JSON
-# sidecar per (keeper, loser) pair — body and staleness hashes are always
-# read/written together, so one small file is simpler than a markdown body
-# plus a separate metadata file.
+def _build_frontmatter(fm: dict) -> str:
+    """Serialise a frontmatter dict back to a YAML block string.
+
+    Args:
+        fm: Dict with frontmatter fields.
+
+    Returns:
+        ``---\\n...\\n---\\n`` YAML frontmatter block.
+    """
+    lines: list[str] = ["---"]
+    for key in (
+        "date",
+        "type",
+        "tags",
+        "project",
+        "confidence",
+        "sources",
+        "related",
+        "provenance",
+        "session_id",
+    ):
+        if key not in fm:
+            continue
+        value = fm[key]
+        if value is None or value == "" or value == [] or value == {}:
+            continue
+        if key in ("tags", "sources", "related") and isinstance(value, list):
+            # Inline quoted array format: ["[[a]]", "[[b]]"]
+            items_str = ", ".join(f'"{v}"' for v in value)
+            lines.append(f"{key}: [{items_str}]")
+        else:
+            lines.append(f"{key}: {value}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
 
 
 def _hash_content(content: str) -> str:
     """Return the sha256 hex digest of note content, for staleness checks."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def _preview_dir(vault_path: Path) -> Path:
-    """Return the vault's preview-cache directory, creating it if needed."""
-    preview_dir = vault_path / _PREVIEW_DIRNAME
-    preview_dir.mkdir(mode=0o700, exist_ok=True)
-    return preview_dir
-
-
-def _preview_cache_path(vault_path: Path, path_a: Path, path_b: Path) -> Path:
-    """Return the JSON preview-cache path for a (keeper, loser) note pair."""
-    return _preview_dir(vault_path) / f"{path_a.stem}--{path_b.stem}.json"
 
 
 def _write_preview(
@@ -530,55 +384,13 @@ def _load_fresh_preview(
     return body if isinstance(body, str) else None
 
 
-def _delete_preview(vault_path: Path, path_a: Path, path_b: Path) -> None:
-    """Remove a pair's cached preview after a successful --execute."""
-    _preview_cache_path(vault_path, path_a, path_b).unlink(missing_ok=True)
-
-
-# ---------------------------------------------------------------------------
-# Execute-path locking
-# ---------------------------------------------------------------------------
-
-
-@contextlib.contextmanager
-def _merge_lock(vault_path: Path) -> Iterator[None]:
-    """Hold an exclusive, non-blocking lock around the merge mutation sequence.
-
-    Guards read A/B -> write keeper -> trash loser -> rewrite backlinks so two
-    concurrent ``--execute`` invocations against the same vault cannot
-    interleave. A second invocation that cannot acquire the lock fails
-    immediately with ``SystemExit`` instead of blocking, so a stuck or
-    crashed holder can never wedge unrelated merges.
-
-    ``vault_fs.flock_exclusive`` is not used here because it blocks
-    indefinitely (no ``LOCK_NB``); a blocked second invocation would look
-    like a hang rather than the clean, immediate failure this needs.
-    """
-    lock_path = _preview_dir(vault_path) / _MERGE_LOCK_FILENAME
-    lock_file = open(lock_path, "a+", encoding="utf-8")
-    if _fcntl is not None:
-        try:
-            _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_EX | _fcntl.LOCK_NB)
-        except BlockingIOError:
-            lock_file.close()
-            print(
-                "Error: another vault-merge --execute is already running "
-                f"against this vault (lock: {lock_path}). Try again shortly.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-    try:
-        yield
-    finally:
-        if _fcntl is not None:
-            _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_UN)
-        lock_file.close()
-
-
 # ---------------------------------------------------------------------------
 # Wikilink update
 # ---------------------------------------------------------------------------
 
+# Note: this regex was defined at the original module top but unused there
+# (``_update_wikilinks_in_vault`` builds its pattern inline). Preserved
+# verbatim for backwards-compat with any external reader that imported it.
 _WIKILINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]")
 
 
@@ -637,283 +449,13 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
                 content, old_pattern, replacement
             )
         if n > 0:
-            # QA-010: atomic write so an interrupt during backlink rewrite
+            # QA-010: atomic_write so an interrupt during backlink rewrite
             # cannot truncate a note that is merely a link target of the
             # merge (collateral damage the user never asked for). Matches the
             # repo's otherwise-consistent atomic-write discipline.
             vault_fs.atomic_write_text(path, new_content)
             updated += 1
     return updated
-
-
-# ---------------------------------------------------------------------------
-# Diff summary
-# ---------------------------------------------------------------------------
-
-
-def _print_diff_summary(
-    path_a: Path,
-    content_a: str,
-    path_b: Path,
-    content_b: str,
-    vault_path: Path | None = None,
-) -> None:
-    """Print a human-readable diff summary of two notes.
-
-    Args:
-        path_a: Path to note A.
-        content_a: Content of note A.
-        path_b: Path to note B.
-        content_b: Content of note B.
-        vault_path: Path to the vault root.
-    """
-    title_a = vault_common.extract_title(content_a, path_a.stem)
-    title_b = vault_common.extract_title(content_b, path_b.stem)
-    fm_a = vault_common.parse_frontmatter(content_a)
-    fm_b = vault_common.parse_frontmatter(content_b)
-    tags_a = _parse_tags_list(fm_a)
-    tags_b = _parse_tags_list(fm_b)
-    body_a = vault_common.get_body(content_a).strip()
-    body_b = vault_common.get_body(content_b).strip()
-
-    print("=" * 60)
-    print(f"NOTE A:  {path_a}")
-    print(f"  Title:  {title_a}")
-    print(f"  Tags:   {', '.join(tags_a) or '(none)'}")
-    print(f"  Type:   {fm_a.get('type', '(none)')}")
-    print(f"  Lines:  {len(body_a.splitlines())}")
-    print()
-    print(f"NOTE B:  {path_b}")
-    print(f"  Title:  {title_b}")
-    print(f"  Tags:   {', '.join(tags_b) or '(none)'}")
-    print(f"  Type:   {fm_b.get('type', '(none)')}")
-    print(f"  Lines:  {len(body_b.splitlines())}")
-    print("=" * 60)
-    print()
-    # Preview first 5 lines of each body
-    print("--- Note A preview ---")
-    for line in body_a.splitlines()[:5]:
-        print(f"  {line}")
-    print()
-    print("--- Note B preview ---")
-    for line in body_b.splitlines()[:5]:
-        print(f"  {line}")
-    print()
-
-
-# ---------------------------------------------------------------------------
-# Duplicate scan
-# ---------------------------------------------------------------------------
-
-_DEFAULT_SCAN_THRESHOLD = 0.92
-_DEFAULT_SCAN_TOP = 50
-
-
-def _is_excluded_from_scan(path: str) -> bool:
-    """Return True for notes excluded from duplicate scanning.
-
-    Daily notes share a templated session-list structure and the ``NN-probello``
-    slug pattern, so they hit the cosine threshold against each other despite
-    being semantically distinct (different days). Merging them destroys the
-    per-day structure, so they are excluded entirely.
-
-    The embeddings store the path as absolute (``/…/Daily/YYYY-MM/…``) and the
-    folder as the month (``YYYY-MM``), so match the ``Daily/`` segment anywhere
-    in the normalized path (covers absolute and relative forms).
-    """
-    norm = str(path).replace("\\", "/")
-    return "/Daily/" in norm or norm.lstrip("./").startswith("Daily/")
-
-
-def _scan_duplicates(
-    threshold: float = _DEFAULT_SCAN_THRESHOLD,
-    top: int = _DEFAULT_SCAN_TOP,
-    vault_path: Path | None = None,
-) -> None:
-    """Scan all vault notes for near-duplicate pairs using embedding similarity.
-
-    Loads all embeddings from the DB, computes pairwise cosine similarity,
-    and prints pairs above *threshold* sorted by score descending.
-
-    Args:
-        threshold: Minimum similarity score to report (0.0–1.0).
-        top: Maximum number of pairs to report.
-        vault_path: Path to the vault root.
-    """
-    db_path = vault_common.get_embeddings_db_path(vault=vault_path)
-    if not db_path.exists():
-        print(
-            "No embeddings database found. Run build_embeddings.py first.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    try:
-        import sqlite_vec  # type: ignore[import-untyped]
-    except ImportError:
-        print(
-            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    conn = sqlite3.connect(db_path)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
-
-    try:
-        rows = conn.execute(
-            "SELECT stem, path, folder, title, tags, embedding FROM note_embeddings"
-        ).fetchall()
-    except Exception as exc:  # noqa: BLE001
-        print(f"Error reading embeddings: {exc}", file=sys.stderr)
-        conn.close()
-        sys.exit(1)
-
-    rows = [r for r in rows if not _is_excluded_from_scan(str(r[1]))]
-
-    if not rows:
-        conn.close()
-        print("No embeddings found in database.")
-        return
-
-    stems = [r[0] for r in rows]
-    folders = [r[2] for r in rows]
-    titles = [r[3] for r in rows]
-    tags_list = [r[4] for r in rows]
-    stem_to_idx = {s: i for i, s in enumerate(stems)}
-
-    # Pairwise cosine via sqlite-vec's C-level vec_distance_cosine (fast at
-    # scale; the pure-Python O(n^2) scan took minutes on thousands of notes).
-    # similarity >= threshold  <=>  vec_distance_cosine <= (1 - threshold).
-    # Restrict to non-excluded stems via a temp table so _is_excluded_from_scan
-    # stays the single source of truth for the Daily-note filter.
-    max_dist = 1.0 - threshold
-    try:
-        conn.execute("CREATE TEMP TABLE _kept (stem TEXT PRIMARY KEY)")
-        conn.executemany("INSERT INTO _kept (stem) VALUES (?)", [(s,) for s in stems])
-        pair_rows = conn.execute(
-            """
-            SELECT a.stem, b.stem,
-                   (1.0 - vec_distance_cosine(a.embedding, b.embedding)) AS score
-            FROM note_embeddings a
-            JOIN note_embeddings b ON a.rowid < b.rowid
-            WHERE a.stem IN (SELECT stem FROM _kept)
-              AND b.stem IN (SELECT stem FROM _kept)
-              AND vec_distance_cosine(a.embedding, b.embedding) <= ?
-            ORDER BY score DESC
-            LIMIT ?
-            """,
-            (max_dist, top),
-        ).fetchall()
-    except Exception as exc:  # noqa: BLE001
-        print(f"Error computing similarities: {exc}", file=sys.stderr)
-        conn.close()
-        sys.exit(1)
-    conn.close()
-
-    pairs: list[tuple[float, int, int]] = []
-    for a, b, score in pair_rows:
-        ia = stem_to_idx.get(a)
-        ib = stem_to_idx.get(b)
-        if ia is not None and ib is not None:
-            pairs.append((score, ia, ib))
-
-    if not pairs:
-        print(f"No note pairs found above similarity threshold {threshold:.2f}.")
-        return
-
-    pairs.sort(key=lambda x: x[0], reverse=True)
-    pairs = pairs[:top]
-
-    print(f"Found {len(pairs)} near-duplicate pair(s) (threshold={threshold:.2f}):\n")
-    for rank, (score, i, j) in enumerate(pairs, 1):
-        label_a = f"{folders[i] or '.'}/{stems[i]}"
-        label_b = f"{folders[j] or '.'}/{stems[j]}"
-
-        # ARC-011: Enhancement - session_id matching logic
-        match_note = ""
-        tags_a = [t.strip() for t in tags_list[i].split(",") if t.strip()]
-        tags_b = [t.strip() for t in tags_list[j].split(",") if t.strip()]
-
-        sid_a = next(
-            (
-                t
-                for t in tags_a
-                if len(t) == 16 and all(c in "0123456789abcdef" for c in t.lower())
-            ),
-            None,
-        )
-        sid_b = next(
-            (
-                t
-                for t in tags_b
-                if len(t) == 16 and all(c in "0123456789abcdef" for c in t.lower())
-            ),
-            None,
-        )
-
-        if sid_a and sid_b and sid_a == sid_b:
-            match_note = f" [SAME SESSION: {sid_a}]"
-
-        print(f"  {rank:>3}.  [{score:.4f}]  {label_a}")
-        print(f"              {label_b}{match_note}")
-        print(f"         A: {titles[i]}")
-        print(f"         B: {titles[j]}")
-        print(f"         → vault-merge {stems[i]} {stems[j]}")
-        print()
-
-
-# ---------------------------------------------------------------------------
-# Index rebuild
-# ---------------------------------------------------------------------------
-
-
-def _rebuild_index() -> None:
-    """Run update_index.py to rebuild the vault index after a merge."""
-    index_script = Path(__file__).parent / "update_index.py"
-    if not index_script.exists():
-        index_script = (
-            Path.home()
-            / ".claude"
-            / "skills"
-            / "parsidion"
-            / "scripts"
-            / "update_index.py"
-        )
-    if not index_script.exists():
-        print(
-            "Warning: update_index.py not found, skipping index rebuild.",
-            file=sys.stderr,
-        )
-        return
-    try:
-        # QA-005: bound the index rebuild — a hung child stalls the merge
-        # flow and leaves the vault with stale manifests. 300 s matches the
-        # bound update_index.py applies to its own graph-rebuild child.
-        subprocess.run(
-            ["uv", "run", str(index_script)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        print("Vault index rebuilt.")
-    except subprocess.TimeoutExpired:
-        print(
-            "Warning: update_index.py timed out after 300s — index left stale.",
-            file=sys.stderr,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: index rebuild failed: {e.stderr}", file=sys.stderr)
-    except OSError as e:
-        print(f"Warning: could not run update_index.py: {e}", file=sys.stderr)
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -1175,5 +717,5 @@ def main() -> None:
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover — entry shim
     main()

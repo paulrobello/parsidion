@@ -1,6 +1,33 @@
 #!/usr/bin/env python3
 """Rebuild the resolved vault's CLAUDE.md index file.
 
+Thin re-export shim over the ``cli.index`` package (ARC-005). The bulk of
+the original 1,080-line God module — shared tuning constants, NamedTuple
+record types, per-note parsing, two-pass index assembly, Markdown
+rendering for TAGS.md and per-folder MANIFEST.md files, SQLite
+``note_index`` upsert, and the post-index ``build_graph.py`` invocation —
+has moved into focused submodules under ``cli.index``; the public +
+private surface the original exposed remains importable from
+``update_index`` so every ``import update_index`` consumer, the test
+suite's attribute access (``update_index.build_index``,
+``update_index._extract_summary``, ``update_index._singleton_guard``,
+``update_index.pid_file``, ``update_index.SUMMARY_MAX_CHARS``, …), and
+the ``uv run update_index.py`` entry point keep working byte-for-byte.
+
+What stays here and why:
+    ``pid_file``, ``_write_pid``, ``_release_pid``, ``_singleton_guard``,
+    and the ``_is_process_running`` alias stay defined in this entry shim.
+    ``tests/test_index_enhancements.py`` patches
+    ``update_index._is_process_running`` and ``update_index.os.getpid``
+    (module-attribute patches), and ``_singleton_guard`` calls
+    ``_is_process_running`` as a bare name that must resolve in the
+    module the test patches — so the singleton cluster stays put, along
+    with the ``os`` re-export the ``getpid`` patch rides on. ``main``
+    stays too: it weaves the singleton guard, the inline
+    ``__file__``-relative ``build_embeddings.py`` discovery, and the
+    par-mem/embeddings spawn into one entry point that is simpler to
+    keep at the scripts root than to relocate with adjusted path math.
+
 Walks the vault tree, parses frontmatter from all notes, and generates a
 lean CLAUDE.md (stats, conventions, recent activity, folder pointers),
 TAGS.md (full tag cloud for summarizer tag reuse), and per-folder
@@ -8,54 +35,79 @@ MANIFEST.md files (detailed note listings in table format).
 Uses only Python stdlib.
 """
 
-import argparse
+import argparse  # noqa: F401 — re-exported (update_index.argparse) for backwards compat
 import atexit
-import json
+import json  # noqa: F401 — re-exported (update_index.json) for backwards compat
 import os
-import re
-import subprocess
+import re  # noqa: F401 — re-exported (update_index.re) for backwards compat
+import subprocess  # noqa: F401 — re-exported (update_index.subprocess) for backwards compat
 import sys
 import time
-from collections import Counter
-from datetime import datetime, timedelta
+from collections import Counter  # noqa: F401 — re-exported (update_index.Counter) for backwards compat
+from datetime import datetime, timedelta  # noqa: F401 — re-exported for backwards compat
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple  # noqa: F401 — re-exported (update_index.NamedTuple) for backwards compat
 
 from vault_common import (
-    all_vault_notes_walk,
-    ensure_vault_dirs,
-    extract_title,
-    get_body,
+    all_vault_notes_walk,  # noqa: F401 — re-exported for backwards compat
+    ensure_vault_dirs,  # noqa: F401 — re-exported for backwards compat
+    extract_title,  # noqa: F401 — re-exported (update_index.extract_title)
+    get_body,  # noqa: F401 — re-exported for backwards compat
     get_config,
     get_embeddings_db_path,
     git_commit_vault,
     is_process_running,
-    parse_frontmatter,
+    parse_frontmatter,  # noqa: F401 — re-exported for backwards compat
     resolve_vault,
     write_hook_event,
 )
-from vault_index import drain_parse_warnings, record_parse_warning
-from vault_fs import atomic_write_text
+from vault_index import drain_parse_warnings, record_parse_warning  # noqa: F401 — re-exports
+from vault_fs import atomic_write_text  # noqa: F401 — re-exported (update_index.atomic_write_text)
 
-import parmem_backend
+import parmem_backend  # noqa: F401 — re-exported (update_index.parmem_backend) for backwards compat
 
-# Canonical folder order for index sections
-FOLDER_ORDER: list[str] = [
-    "Daily",
-    "Projects",
-    "Languages",
-    "Frameworks",
-    "Patterns",
-    "Debugging",
-    "Tools",
-    "Research",
-    "History",
-]
+# ---------------------------------------------------------------------------
+# Re-exports from cli.index.* — every symbol the original update_index.py
+# exposed remains importable from ``update_index``. Function objects are
+# immutable so ``from cli.index.X import f`` + ``update_index.f(...)`` is a
+# stable binding for external callers and the test suite.
+# ---------------------------------------------------------------------------
+from cli.index._common import (  # noqa: F401 — re-exports
+    FOLDER_ORDER,
+    RECENT_DAYS,
+    RECENT_MAX,
+    STALE_DAYS,
+    SUMMARY_MAX_CHARS,
+)
+from cli.index.db import _write_note_index_to_db  # noqa: F401 — re-export
+from cli.index.graph import (  # noqa: F401 — re-exports
+    _find_build_graph_script,
+    _rebuild_graph,
+)
+from cli.index.models import NoteEntry, NoteRecord  # noqa: F401 — re-exports
+from cli.index.parse import (  # noqa: F401 — re-exports
+    _WIKILINK_RE,
+    _extract_summary,
+    _extract_title,
+    _extract_wikilink_stems,
+    _folder_name,
+    _wikilink,
+)
+from cli.index.build import (  # noqa: F401 — re-exports
+    _build_note_db_rows,
+    _compute_incoming_link_counts,
+    build_index,
+)
+from cli.index.render import build_manifests, build_tags_md  # noqa: F401 — re-exports
+from cli.index.cli import _parse_args  # noqa: F401 — re-export
 
-RECENT_DAYS: int = 7
-RECENT_MAX: int = 20
-SUMMARY_MAX_CHARS: int = 80
-STALE_DAYS: int = 30
+
+# ---------------------------------------------------------------------------
+# Singleton PID guard — kept in the entry shim because the test suite patches
+# ``update_index._is_process_running`` and ``update_index.os.getpid``, and
+# ``_singleton_guard`` calls ``_is_process_running`` as a bare name that must
+# resolve in the patched module's globals. See the module docstring.
+# ---------------------------------------------------------------------------
 
 
 def pid_file(vault: Path | None = None) -> Path:
@@ -72,56 +124,9 @@ def pid_file(vault: Path | None = None) -> Path:
     return vault / "index.pid"
 
 
-# Regex to extract wikilink stems like [[note-stem]] from a string
-_WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
-
-
-class NoteEntry(NamedTuple):
-    """Per-note metadata row for the note_index SQLite table.
-
-    Used as the element type in the ``db_rows`` list returned by
-    ``build_index()`` and consumed by ``_write_note_index_to_db()``.
-
-    Attributes:
-        stem: Filename without extension (primary key in note_index).
-        path: Absolute path string to the note file.
-        folder: Immediate parent folder name relative to VAULT_ROOT.
-        title: First ``#`` heading text, or filename stem as fallback.
-        summary: First non-heading body line, truncated to 80 chars.
-        tags: Comma-separated tag string (canonical: sorted, ", " delimiter).
-        note_type: ``type`` frontmatter value.
-        project: ``project`` frontmatter value.
-        confidence: ``confidence`` frontmatter value.
-        mtime: File modification timestamp (float seconds since epoch).
-        related: Comma-separated wikilink stems from ``related`` frontmatter.
-        is_stale: 1 if the note has no incoming links and is >30 days old, else 0.
-        incoming_links: Number of other notes that link to this one.
-        date: ``date`` frontmatter value (``YYYY-MM-DD`` string) for point-in-time search.
-        prompt_version: ``prompt_version`` frontmatter value (``<id>@<semver>``, e.g.
-            ``summarize-session@1.0.0``) for AI-generated notes. Empty for notes
-            written by hand or by older summarizer versions. Lets evaluation slice
-            note quality by the prompt that produced it (ENH-008 Step 3).
-    """
-
-    stem: str
-    path: str
-    folder: str
-    title: str
-    summary: str
-    tags: str
-    note_type: str
-    project: str
-    confidence: str
-    mtime: float
-    related: str
-    is_stale: int
-    incoming_links: int
-    date: str = ""
-    prompt_version: str = ""
-
-
 # QA-007: _is_process_running removed — now imported from vault_common.
-# Local alias preserves all existing call sites unchanged.
+# Local alias preserves all existing call sites unchanged and is the
+# attribute ``tests/test_index_enhancements.py`` patches.
 _is_process_running = is_process_running
 
 
@@ -203,105 +208,14 @@ def _singleton_guard(vault: Path) -> None:
     atexit.register(_release_pid, vault)
 
 
-# QA-013: _extract_title thin wrapper removed — call extract_title() directly.
-# Local alias kept for call-site compatibility.
-_extract_title = extract_title
-
-
-def _extract_summary(content: str) -> str:
-    """Return the first non-empty, non-heading, non-comment body line, truncated to 80 chars."""
-    body: str = get_body(content)
-    for line in body.splitlines():
-        stripped: str = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#"):
-            continue
-        if stripped.startswith("<!--"):
-            continue
-        if len(stripped) > SUMMARY_MAX_CHARS:
-            return stripped[: SUMMARY_MAX_CHARS - 3] + "..."
-        return stripped
-    return ""
-
-
-def _folder_name(note_path: Path, vault: Path) -> str:
-    """Return the immediate parent folder name relative to *vault*.
-
-    For notes directly in *vault*, returns an empty string.
-
-    ARC-003: *vault* is threaded explicitly from :func:`build_index` rather
-    than read from the module-level ``VAULT_ROOT`` constant. The constant is
-    still imported for back-compat with any external caller that imported
-    ``update_index._folder_name`` with the old signature, but the public
-    resolution flow no longer depends on a runtime mutation of
-    ``vault_common.VAULT_ROOT``.
-    """
-    try:
-        rel: Path = note_path.relative_to(vault)
-    except ValueError:
-        return ""
-    parts: tuple[str, ...] = rel.parts
-    if len(parts) <= 1:
-        return ""
-    return parts[0]
-
-
-def _wikilink(note_path: Path) -> str:
-    """Return a wikilink ``[[stem]]`` for the note."""
-    return f"[[{note_path.stem}]]"
-
-
-def _extract_wikilink_stems(related: object) -> list[str]:
-    """Extract note stems from a ``related`` frontmatter field.
-
-    The field is expected to be a list of strings like ``["[[note-a]]", "[[note-b]]"]``,
-    but also handles bare wikilinks and plain strings.
-
-    Args:
-        related: The value of the ``related`` frontmatter field.
-
-    Returns:
-        A list of note stem strings (without brackets).
-    """
-    stems: list[str] = []
-    if not isinstance(related, list):
-        return stems
-    for item in related:
-        if not isinstance(item, str):
-            continue
-        # Extract all [[stem]] patterns from the item
-        found = _WIKILINK_RE.findall(item)
-        if found:
-            stems.extend(found)
-        else:
-            # Bare string (no brackets) — treat as a stem directly
-            stripped = item.strip()
-            if stripped:
-                stems.append(stripped)
-    return stems
-
-
-class NoteRecord(NamedTuple):
-    """First-pass parsed fields for a single note.
-
-    Produced by ``_parse_note_record`` and consumed by ``build_index`` to
-    update its accumulators (``tag_counter``, ``per_note_data``,
-    ``note_contents``, ``recent_notes``).
-    """
-
-    content: str
-    frontmatter: dict[str, object]
-    title: str
-    summary: str
-    folder: str
-    tags: list[str]
-    mtime: float
-    related_stems: list[str]
-
-
 def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
-    """Read and parse a single note, returning its fields.
+    """Read and parse a single note, returning its first-pass fields.
+
+    Stays in the entry shim (not in ``cli.index.parse``) because the test
+    suite patches ``update_index.parse_frontmatter`` and the bare-name call
+    below resolves through this module's globals — so the patch takes effect
+    here, and ``build_index`` reaches the patched function via a late
+    ``import update_index`` (see ``cli/index/build.py``).
 
     Returns ``None`` when the file cannot be read (matching the original
     first-pass skip-on-``OSError``/``UnicodeDecodeError`` behaviour).
@@ -359,575 +273,6 @@ def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
         mtime=mtime,
         related_stems=related_stems,
     )
-
-
-def _compute_incoming_link_counts(
-    per_note_data: dict[str, tuple[float, list[str]]],
-) -> dict[str, int]:
-    """Build the reverse link count: stem -> number of incoming wikilinks."""
-    link_count: dict[str, int] = {stem: 0 for stem in per_note_data}
-    for _stem, (_, related_stems) in per_note_data.items():
-        for target_stem in related_stems:
-            if target_stem in link_count:
-                link_count[target_stem] += 1
-    return link_count
-
-
-def _build_note_db_rows(
-    note_contents: dict[
-        Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
-    ],
-    per_note_data: dict[str, tuple[float, list[str]]],
-    link_count: dict[str, int],
-    stale_cutoff_ts: float,
-) -> tuple[
-    list[NoteEntry],
-    dict[str, list[tuple[str, str, str, list[str], bool]]],
-    int,
-]:
-    """Second pass: compute staleness, build NoteEntry rows, group by folder.
-
-    Returns ``(db_rows, folder_notes, stale_count)``.
-    """
-    stale_count: int = 0
-    db_rows: list[NoteEntry] = []
-    # Extended folder_notes: folder -> [(wikilink, title, summary, tags, is_stale)]
-    folder_notes: dict[str, list[tuple[str, str, str, list[str], bool]]] = {}
-    for note_path, (
-        _content,
-        fm,
-        title,
-        summary,
-        folder,
-        mtime,
-        tags_list,
-    ) in note_contents.items():
-        stem: str = note_path.stem
-        incoming: int = link_count.get(stem, 0)
-        is_stale: bool = incoming == 0 and mtime < stale_cutoff_ts
-        if is_stale:
-            stale_count += 1
-
-        db_rows.append(
-            NoteEntry(
-                stem=stem,
-                path=str(note_path),
-                folder=folder,
-                title=title,
-                summary=summary,
-                # ARC-004: canonical tag format is ", ".join(sorted(tags)) — sorted
-                # alphabetically with a single space after each comma.  This ensures
-                # consistent LIKE matching in query_note_index and vault_search.py.
-                tags=", ".join(sorted(tags_list)),
-                note_type=str(fm.get("type", "") or ""),
-                project=str(fm.get("project", "") or ""),
-                confidence=str(fm.get("confidence", "") or ""),
-                mtime=mtime,
-                related=", ".join(per_note_data.get(stem, (0.0, []))[1]),
-                is_stale=1 if is_stale else 0,
-                incoming_links=incoming,
-                date=str(fm.get("date", "") or ""),
-                prompt_version=str(fm.get("prompt_version", "") or ""),
-            )
-        )
-
-        if folder:
-            folder_notes.setdefault(folder, []).append(
-                (_wikilink(note_path), title, summary, tags_list, is_stale)
-            )
-
-    return db_rows, folder_notes, stale_count
-
-
-def build_index(
-    vault: Path,
-) -> tuple[
-    str,
-    int,
-    int,
-    dict[str, list[tuple[str, str, str, list[str], bool]]],
-    list[NoteEntry],
-    Counter[str],
-]:
-    """Build the full CLAUDE.md index content.
-
-    Returns:
-        A tuple of (index_content, note_count, tag_count, folder_notes_extended, db_rows, tag_counter).
-        folder_notes_extended maps folder name to a list of
-        (wikilink, title, summary, tags, is_stale) tuples.
-        db_rows is a list of NoteEntry records ready to upsert into the note_index table.
-        tag_counter is the Counter[str] used to build TAGS.md separately.
-    """
-    ensure_vault_dirs(vault=vault)
-    notes: list[Path] = all_vault_notes_walk()
-
-    now: datetime = datetime.now()
-    now_str: str = now.strftime("%Y-%m-%d %H:%M")
-    cutoff_ts: float = (now - timedelta(days=RECENT_DAYS)).timestamp()
-    stale_cutoff_ts: float = (now - timedelta(days=STALE_DAYS)).timestamp()
-
-    # Collected data per note
-    tag_counter: Counter[str] = Counter()
-    recent_notes: list[
-        tuple[float, Path, str, str]
-    ] = []  # (mtime, path, folder, summary)
-
-    # Per-note data needed for staleness: stem -> (mtime, related_stems)
-    # We collect this in the first pass and compute link_count after.
-    per_note_data: dict[
-        str, tuple[float, list[str]]
-    ] = {}  # stem -> (mtime, related_stems)
-
-    # First pass: read all notes, collect data
-    note_contents: dict[
-        Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
-    ] = {}
-    # path -> (content, fm, title, summary, folder, mtime, tags_list)
-
-    for note_path in notes:
-        record: NoteRecord | None = _parse_note_record(note_path, vault)
-        if record is None:
-            continue
-
-        for tag in record.tags:
-            tag_counter[tag] += 1
-        per_note_data[note_path.stem] = (record.mtime, record.related_stems)
-        note_contents[note_path] = (
-            record.content,
-            record.frontmatter,
-            record.title,
-            record.summary,
-            record.folder,
-            record.mtime,
-            record.tags,
-        )
-
-        if record.mtime >= cutoff_ts:
-            recent_notes.append(
-                (record.mtime, note_path, record.folder, record.summary)
-            )
-
-    # Build reverse link count: stem -> number of incoming wikilinks
-    link_count: dict[str, int] = _compute_incoming_link_counts(per_note_data)
-
-    # Second pass: group by folder, compute staleness, collect DB rows
-    db_rows, folder_notes, stale_count = _build_note_db_rows(
-        note_contents, per_note_data, link_count, stale_cutoff_ts
-    )
-
-    # Sort recent by mtime descending, limit
-    recent_notes.sort(key=lambda x: x[0], reverse=True)
-    recent_notes = recent_notes[:RECENT_MAX]
-
-    # Sort notes within each folder alphabetically by wikilink
-    for folder in folder_notes:
-        folder_notes[folder].sort(key=lambda x: x[0].lower())
-
-    total_notes: int = len(notes)
-    total_tags: int = len(tag_counter)
-
-    # --- Build output ---
-    lines: list[str] = []
-    lines.append("# Parsidion vault Index")
-    lines.append("")
-    lines.append(f"> Auto-generated by update_index.py on {now_str}")
-    lines.append("> Do not edit manually - changes will be overwritten")
-    lines.append("")
-
-    # Quick Stats
-    lines.append("## Quick Stats")
-    lines.append(f"- **Total notes**: {total_notes}")
-    lines.append(f"- **Last updated**: {now_str}")
-    lines.append(
-        f"- Stale notes (no incoming links, >{STALE_DAYS} days): {stale_count}"
-    )
-
-    # Doctor state summary
-    state_file: Path = vault / "doctor_state.json"
-    try:
-        state_data: dict = json.loads(state_file.read_text(encoding="utf-8"))
-        last_run: str | None = state_data.get("last_run")
-        notes_state: dict = state_data.get("notes", {})
-        counts: Counter[str] = Counter(
-            v.get("status", "unknown") for v in notes_state.values()
-        )
-        ok_count = counts.get("ok", 0) + counts.get("fixed", 0)
-        pending_count = counts.get("failed", 0) + counts.get("timeout", 0)
-        review_count = counts.get("needs_review", 0)
-        skipped_count = counts.get("skipped", 0)
-        run_str = last_run[:10] if last_run else "never"
-        parts = [f"{ok_count} clean", f"{pending_count} pending repair"]
-        if review_count:
-            parts.append(f"**{review_count} need user review**")
-        if skipped_count:
-            parts.append(f"{skipped_count} manual fix needed")
-        lines.append(f"- **Vault health** (doctor run: {run_str}): {', '.join(parts)}")
-    except (OSError, json.JSONDecodeError, KeyError):
-        pass  # doctor has not been run yet
-
-    lines.append("")
-
-    # Conventions (always emitted so they survive index rebuilds)
-    lines.append("## Conventions")
-    lines.append("")
-    lines.append(
-        "- **Frontmatter required** on every note (date, type, tags, confidence, sources, related)."
-    )
-    lines.append(
-        "- **Kebab-case filenames**, 3-5 words, no date suffix — date goes in frontmatter."
-    )
-    lines.append(
-        "- **No orphan notes** — every note must link to at least one other note via `related`."
-    )
-    lines.append(
-        "- **Search before create** — update existing notes rather than creating duplicates."
-    )
-    lines.append(
-        "- **Subfolder rule** — when 3 or more notes share a common subject prefix, move them"
-    )
-    lines.append(
-        "  into a named subfolder. Drop the redundant prefix from filenames inside the folder."
-    )
-    lines.append(
-        "  Only one level of subfolder is allowed — never nest subfolders within subfolders."
-    )
-    lines.append(
-        "  Example: `Research/fastapi-middleware-basics.md` + `fastapi-middleware-auth.md` + `fastapi-middleware-cors.md`"
-    )
-    lines.append("  → `Research/fastapi-middleware/basics.md`, `auth.md`, `cors.md`.")
-    lines.append(
-        "  Update all `[[wikilinks]]` and run `update_index.py` after reorganizing."
-    )
-    lines.append("")
-
-    # Top tags (compact — full tag cloud is in TAGS.md)
-    top_tags: list[tuple[str, int]] = tag_counter.most_common(20)
-    if top_tags:
-        tag_parts = [f"`{tag}` ({count})" for tag, count in top_tags]
-        lines.append("## Top Tags")
-        lines.append(" | ".join(tag_parts))
-        lines.append(f"_Full tag list ({total_tags} tags) → see [[TAGS]]_")
-    lines.append("")
-
-    # Recent Activity
-    lines.append(f"## Recent Activity ({RECENT_DAYS} days)")
-    if recent_notes:
-        for _mtime, note_path, folder, summary in recent_notes:
-            wlink: str = _wikilink(note_path)
-            folder_label: str = f" ({folder})" if folder else ""
-            summary_label: str = f" - {summary}" if summary else ""
-            lines.append(f"- {wlink}{folder_label}{summary_label}")
-    else:
-        lines.append("_No recent activity._")
-    lines.append("")
-
-    # Folder summary (counts + pointers to MANIFEST.md files)
-    lines.append("## Folders")
-    lines.append("")
-    for folder_name_str in FOLDER_ORDER:
-        count: int = len(folder_notes.get(folder_name_str, []))
-        lines.append(
-            f"- **{folder_name_str}** ({count} notes) → see `{folder_name_str}/MANIFEST.md`"
-        )
-    extra_folders: list[str] = sorted(f for f in folder_notes if f not in FOLDER_ORDER)
-    for folder_name_str in extra_folders:
-        count = len(folder_notes[folder_name_str])
-        lines.append(
-            f"- **{folder_name_str}** ({count} notes) → see `{folder_name_str}/MANIFEST.md`"
-        )
-    lines.append("")
-
-    return "\n".join(lines), total_notes, total_tags, folder_notes, db_rows, tag_counter
-
-
-def build_tags_md(tag_counter: Counter[str], now_str: str) -> str:
-    """Build the TAGS.md content with the full tag cloud and tag list.
-
-    Args:
-        tag_counter: Tag frequency counter from build_index().
-        now_str: Timestamp string for the header.
-
-    Returns:
-        Complete TAGS.md file content.
-    """
-    lines: list[str] = []
-    lines.append("# Vault Tags")
-    lines.append("")
-    lines.append(f"> Auto-generated by update_index.py on {now_str}")
-    lines.append("> Do not edit manually - changes will be overwritten")
-    lines.append("")
-
-    # Tag Cloud (human-readable, sorted by frequency)
-    lines.append("## Tag Cloud")
-    if tag_counter:
-        tag_parts: list[str] = []
-        for tag, count in tag_counter.most_common():
-            tag_parts.append(f"`{tag}` ({count})")
-        lines.append(" | ".join(tag_parts))
-    else:
-        lines.append("_No tags found._")
-    lines.append("")
-
-    # Existing Tags (machine-readable for the AI summarizer)
-    lines.append("## Existing Tags")
-    if tag_counter:
-        lines.append(", ".join(sorted(tag_counter.keys())))
-    else:
-        lines.append("")
-    lines.append("")
-
-    return "\n".join(lines)
-
-
-def build_manifests(
-    folder_notes: dict[str, list[tuple[str, str, str, list[str], bool]]],
-    vault: Path,
-) -> list[Path]:
-    """Generate a MANIFEST.md file inside each non-empty vault subfolder.
-
-    Each manifest contains a Markdown table with one row per note, showing the
-    note stem as a wikilink, its tags, and a one-line summary. Stale notes are
-    marked with a warning emoji in the Note column.
-
-    Args:
-        folder_notes: Mapping from folder name to list of
-            (wikilink, title, summary, tags, is_stale) tuples, as returned by
-            ``build_index()``.
-
-    Returns:
-        A list of Path objects for all MANIFEST.md files written.
-    """
-    now_str: str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    written: list[Path] = []
-
-    for folder_name, entries in folder_notes.items():
-        if not entries:
-            continue
-
-        folder_dir: Path = vault / folder_name
-        if not folder_dir.is_dir():
-            continue
-
-        note_count: int = len(entries)
-        lines: list[str] = []
-        lines.append(f"# {folder_name} — Vault Notes ({note_count} notes)")
-        lines.append(
-            f"<!-- Auto-generated by update_index.py on {now_str} — do not edit manually -->"
-        )
-        lines.append("")
-        lines.append("| Note | Tags | Summary |")
-        lines.append("|------|------|---------|")
-
-        for wlink, _title, summary, tags, is_stale in entries:
-            # wlink is like [[stem]] — extract stem for display
-            stem_match = _WIKILINK_RE.match(wlink)
-            stem: str = stem_match.group(1) if stem_match else wlink
-
-            stale_prefix: str = "⚠️ " if is_stale else ""
-            note_cell: str = f"{stale_prefix}[[{stem}]]"
-
-            tags_cell: str = " ".join(f"`{t}`" for t in tags) if tags else ""
-            # Escape pipe characters in summary to avoid breaking the table
-            summary_cell: str = summary.replace("|", "\\|") if summary else ""
-
-            lines.append(f"| {note_cell} | {tags_cell} | {summary_cell} |")
-
-        lines.append("")
-        content: str = "\n".join(lines)
-
-        manifest_path: Path = folder_dir / "MANIFEST.md"
-        # QA-017: route through atomic_write_text so an interrupt cannot
-        # leave a half-written MANIFEST.md (the index regenerates these, but
-        # a truncated file is still a confusing experience mid-rebuild).
-        atomic_write_text(manifest_path, content)
-        written.append(manifest_path)
-
-    return written
-
-
-def _write_note_index_to_db(
-    db_rows: list[NoteEntry], current_stems: set[str], vault: Path
-) -> None:
-    """Write per-note metadata rows to the note_index table in embeddings.db.
-
-    No-op if embeddings are disabled or the DB file does not exist. Errors are
-    printed to stderr so DB failures are visible without crashing the indexer.
-
-    Args:
-        db_rows: List of NoteEntry records to upsert into note_index.
-        current_stems: Set of stems currently in the vault (used to prune deleted notes).
-        vault: Path to the vault directory.
-    """
-    if not get_config("embeddings", "enabled", True):
-        return
-    try:
-        import sqlite3 as _sqlite3
-        from vault_common import ensure_note_index_schema
-
-        db_path = get_embeddings_db_path(vault=vault)
-        if not db_path.exists():
-            return
-
-        conn = _sqlite3.connect(str(db_path))
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            ensure_note_index_schema(conn)
-
-            conn.executemany(
-                """
-                INSERT INTO note_index (
-                    stem, path, folder, title, summary, tags, note_type,
-                    project, confidence, mtime, related, is_stale, incoming_links, date, prompt_version
-                ) VALUES (
-                    :stem, :path, :folder, :title, :summary, :tags, :note_type,
-                    :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date, :prompt_version
-                )
-                ON CONFLICT(stem) DO UPDATE SET
-                    path=excluded.path,
-                    folder=excluded.folder,
-                    title=excluded.title,
-                    summary=excluded.summary,
-                    tags=excluded.tags,
-                    note_type=excluded.note_type,
-                    project=excluded.project,
-                    confidence=excluded.confidence,
-                    mtime=excluded.mtime,
-                    related=excluded.related,
-                    is_stale=excluded.is_stale,
-                    incoming_links=excluded.incoming_links,
-                    date=excluded.date,
-                    prompt_version=excluded.prompt_version
-                """,
-                [row._asdict() for row in db_rows],
-            )
-
-            # Prune rows for notes that no longer exist in the vault
-            db_stems = conn.execute("SELECT stem FROM note_index").fetchall()
-            stale = [(row[0],) for row in db_stems if row[0] not in current_stems]
-            if stale:
-                conn.executemany("DELETE FROM note_index WHERE stem = ?", stale)
-
-            conn.commit()
-        finally:
-            # Close on all paths -- the broad except below must not leak conn
-            conn.close()
-    except Exception as exc:  # noqa: BLE001
-        print(f"update_index DB error: {exc}", file=sys.stderr)
-
-
-def _find_build_graph_script() -> Path | None:
-    """Locate build_graph.py in known locations.
-
-    Checks two candidates in order:
-    1. Same directory as this script (works when build_graph.py is co-installed).
-    2. ``<repo-root>/scripts/build_graph.py`` (works when running from source,
-       where ``__file__`` lives at ``skills/parsidion/scripts/``).
-
-    Returns:
-        Path to the script if found, else None.
-    """
-    # Candidate 1: alongside this script (co-installed scenario)
-    candidate = Path(__file__).parent / "build_graph.py"
-    if candidate.exists():
-        return candidate
-    # Candidate 2: repo-root/scripts/ (source-repo scenario)
-    # __file__ = <repo>/skills/parsidion/scripts/update_index.py
-    # four parents up  → <repo>/
-    candidate = Path(__file__).resolve().parents[3] / "scripts" / "build_graph.py"
-    if candidate.exists():
-        return candidate
-    return None
-
-
-def _rebuild_graph(include_daily: bool, incremental: bool = False) -> None:
-    """Run build_graph.py synchronously and print its output.
-
-    Args:
-        include_daily: When True, pass ``--include-daily`` to build_graph.py;
-            when False, pass ``--no-daily``. build_graph.py defaults to
-            ``include_daily=True`` (build_graph.py:44), so omitting the flag
-            entirely produces the *with*-Daily behavior regardless of the
-            caller's intent — DOC-003 caught this exact bug (the message said
-            'without Daily notes' while the build was including them).
-        incremental: When True, pass ``--incremental`` (ENH-002) so build_graph.py
-            reuses the previous graph.json and recomputes only changed notes.
-            build_graph.py falls back to a full rebuild on any compatibility
-            mismatch, so passing this is always safe.
-    """
-    graph_script = _find_build_graph_script()
-    if graph_script is None:
-        print(
-            "Graph rebuild skipped: build_graph.py not found. "
-            "Run from the parsidion repo or co-install build_graph.py.",
-            file=sys.stderr,
-        )
-        return
-
-    cmd = ["uv", "run", "--no-project", str(graph_script)]
-    # DOC-003: pass --no-daily when False — build_graph.py defaults to
-    # include_daily=True, so without an explicit flag the index would include
-    # Daily notes regardless of the caller's request.
-    cmd.append("--include-daily" if include_daily else "--no-daily")
-    if incremental:
-        cmd.append("--incremental")
-
-    mode = "incremental" if incremental else "full"
-    print(
-        f"Graph: rebuilding graph.json ({mode}, {'with' if include_daily else 'without'} Daily notes)..."
-    )
-    # QA-005: bound the graph rebuild — a hung child stalls the summarizer
-    # mid-run and leaves the index stale with no error. 300 s is generous for
-    # a 5k-node vault (measured cold-cache rebuild ~30 s on the dev vault).
-    try:
-        result = subprocess.run(cmd, capture_output=False, timeout=300)
-    except subprocess.TimeoutExpired:
-        print(
-            "Graph rebuild timed out after 300s — graph.json left stale. "
-            "Run `make graph` manually to investigate.",
-            file=sys.stderr,
-        )
-        return
-    if result.returncode != 0:
-        print(f"Graph rebuild failed (exit {result.returncode})", file=sys.stderr)
-
-
-def _parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for update_index."""
-    parser = argparse.ArgumentParser(
-        description="Rebuild the vault index (CLAUDE.md, MANIFEST.md, note_index DB).",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--vault",
-        "-V",
-        type=str,
-        help="Vault name or path (default: current project-local or default vault)",
-    )
-    parser.add_argument(
-        "--rebuild-graph",
-        action="store_true",
-        default=False,
-        help="Also rebuild visualizer graph.json after the index update",
-    )
-    parser.add_argument(
-        "--graph-include-daily",
-        action="store_true",
-        default=False,
-        help="Include Daily folder notes in the graph (only used with --rebuild-graph)",
-    )
-    parser.add_argument(
-        "--graph-incremental",
-        action="store_true",
-        default=False,
-        help=(
-            "Rebuild graph.json incrementally (ENH-002): reuse the previous "
-            "graph and recompute only changed notes. Honoured only with "
-            "--rebuild-graph. Also enabled by summarizer.graph_incremental in "
-            "config.yaml. build_graph.py falls back to a full rebuild if the "
-            "previous graph is missing or was built under different parameters."
-        ),
-    )
-    return parser.parse_args()
 
 
 def main() -> None:
@@ -1076,5 +421,5 @@ def main() -> None:
         _rebuild_graph(include_daily=args.graph_include_daily, incremental=incremental)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover — entry shim
     main()

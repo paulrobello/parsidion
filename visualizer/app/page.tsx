@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import dynamic from 'next/dynamic'
 import { loadGraphData, loadGraphDelta, applyGraphDelta } from '@/lib/graph'
 import type { GraphData, NoteNode } from '@/lib/graph'
 import { computeLinkedStems } from '@/lib/linkedNotes'
@@ -9,28 +8,12 @@ import type { GraphCanvasHandle } from '@/components/GraphCanvas'
 import { useVisualizerState } from '@/lib/useVisualizerState'
 import { useVaultFiles } from '@/lib/useVaultFiles'
 import type { VaultFile } from '@/lib/vaultFile'
-import { FileExplorer } from '@/components/FileExplorer'
 import { Toolbar } from '@/components/Toolbar'
 import { ReadingPane } from '@/components/ReadingPane'
-import { HUDPanel } from '@/components/HUDPanel'
 import { NewNoteDialog } from '@/components/NewNoteDialog'
 import { HistoryView } from '@/components/HistoryView'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
-
-const GraphCanvas = dynamic(() => import('@/components/GraphCanvas').then(m => m.GraphCanvas), {
-  ssr: false,
-  loading: () => (
-    <div style={{
-      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'Oxanium, sans-serif', color: '#00FFC8', fontSize: 14, letterSpacing: '0.1em',
-    }}>
-      <div>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>◈</div>
-        <div>INITIALIZING GRAPH...</div>
-      </div>
-    </div>
-  ),
-})
+import { GraphPanel } from '@/components/GraphPanel'
+import { SidebarPanel } from '@/components/SidebarPanel'
 
 export default function Home() {
   const [graphData, setGraphData] = useState<GraphData | null>(null)
@@ -43,10 +26,6 @@ export default function Home() {
   // Tracks the explicit vault-relative path last selected from the sidebar.
   // Needed when multiple notes share the same stem (e.g. MANIFEST.md in every folder).
   const [selectedVaultPath, setSelectedVaultPath] = useState<string | null>(null)
-  // Pending sidebar-initiated delete awaiting confirmation (mirrors ReadingPane's delete flow)
-  const [pendingDelete, setPendingDelete] = useState<{ stem: string; path: string } | null>(null)
-  const [isSidebarDeleting, setIsSidebarDeleting] = useState(false)
-  const [sidebarDeleteError, setSidebarDeleteError] = useState<string | null>(null)
 
   // Initialize state before the load effect so selectedVault is available immediately
   const state = useVisualizerState(graphData)
@@ -239,25 +218,6 @@ export default function Home() {
     state.closeTab(stem, path)
   }, [state])
 
-  const handleRequestSidebarDelete = useCallback((stem: string, path: string) => {
-    setSidebarDeleteError(null)
-    setPendingDelete({ stem, path })
-  }, [])
-
-  const handleConfirmSidebarDelete = useCallback(async () => {
-    if (!pendingDelete) return
-    setIsSidebarDeleting(true)
-    setSidebarDeleteError(null)
-    try {
-      await handleDelete(pendingDelete.stem, pendingDelete.path)
-      setPendingDelete(null)
-    } catch (e) {
-      setSidebarDeleteError((e as Error).message)
-    } finally {
-      setIsSidebarDeleting(false)
-    }
-  }, [pendingDelete, handleDelete])
-
   const handleCreate = useCallback(async (notePath: string, content: string, stem: string) => {
     await state.createNote(notePath, content)
     setShowNewNote(false)
@@ -277,9 +237,6 @@ export default function Home() {
       setPendingOpenStem(null)
     }
   }, [pendingOpenStem, state])
-
-  // Determine neighborhood center for graph mode
-  const neighborhoodCenter = state.neighborhoodCenter
 
   return (
     <main suppressHydrationWarning style={{
@@ -345,8 +302,8 @@ export default function Home() {
 
           {/* Body: sidebar + content */}
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-            {/* File Explorer */}
-            <FileExplorer
+            {/* Sidebar (file explorer + delete-confirm) — ARC-008 */}
+            <SidebarPanel
               fileTree={fileTree}
               activeTab={state.activeTab}
               activePath={activeNode?.path ?? null}
@@ -368,7 +325,7 @@ export default function Home() {
               collapsed={state.sidebarCollapsed}
               totalNotes={totalFiles}
               onOpenHistory={state.openHistory}
-              onDeleteNote={handleRequestSidebarDelete}
+              onDelete={handleDelete}
             />
 
             {/* Content area */}
@@ -399,130 +356,13 @@ export default function Home() {
                     />
                   </div>
 
-                  {/* Graph view — always mounted to preserve layout.
-                      Use visibility+absolute (not display:none) so Sigma's container always has real dimensions. */}
-                  <div style={state.viewMode === 'graph'
-                    ? { flex: 1, position: 'relative' }
-                    : { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' }
-                  }>
-                    {/* Scope indicator — top-right to avoid HUD overlap */}
-                    <div style={{
-                      position: 'absolute', top: 12, right: 12,
-                      display: 'flex', gap: 6, zIndex: 10,
-                      fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
-                    }}>
-                      {state.neighborhoodCenter && (
-                        <div style={{
-                          background: 'rgba(15,23,42,0.92)',
-                          border: '1px solid #1e293b', borderRadius: 5,
-                          padding: '4px 10px',
-                          display: 'flex', gap: 8, alignItems: 'center',
-                        }}>
-                          <span style={{ color: '#f97316' }}>●</span>
-                          <span style={{ color: '#e8e8f0' }}>{state.neighborhoodCenter}</span>
-                          <span style={{ color: '#6b7a99' }}>· 2 hops</span>
-                        </div>
-                      )}
-                      <button
-                        onClick={() => state.setNeighborhoodCenter(state.neighborhoodCenter ? null : state.activeTab)}
-                        style={{
-                          background: 'rgba(15,23,42,0.92)',
-                          border: '1px solid #1e293b', borderRadius: 5,
-                          padding: '4px 10px',
-                          color: '#7b61ff', cursor: 'pointer',
-                          fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
-                        }}
-                      >
-                        {state.neighborhoodCenter ? 'Show Full Vault ⤢' : 'Show Neighborhood ⤡'}
-                      </button>
-                    </div>
-
-                    <GraphCanvas
-                      ref={graphCanvasRef}
-                      data={graphData}
-                      threshold={state.threshold}
-                      graphSource={state.graphSource}
-                      activeTypes={state.activeTypes}
-                      showDaily={state.showDaily}
-                      hideIsolated={state.hideIsolated}
-                      labelsOnHoverOnly={state.labelsOnHoverOnly}
-                      showOverlayEdges={state.showOverlayEdges}
-                      filterNodesBySimilarity={state.filterNodesBySimilarity}
-                      edgeColorMode={state.edgeColorMode}
-                      edgePruning={state.edgePruning}
-                      edgePruningK={state.edgePruningK}
-                      nodeSizeMode={state.nodeSizeMode}
-                      nodeColorMode={state.nodeColorMode}
-                      nodeSizeMap={state.nodeSizeMap}
-                      onNodeClick={handleGraphNodeClick}
-                      onBackgroundClick={() => state.setNeighborhoodCenter(null)}
-                      onOpenHistory={state.openHistory}
-                      scalingRatio={state.scalingRatio}
-                      gravity={state.gravity}
-                      slowDown={state.slowDown}
-                      edgeWeightInfluence={state.edgeWeightInfluence}
-                      startTemperature={state.startTemperature}
-                      stopThreshold={state.stopThreshold}
-                      isLayoutRunning={state.isLayoutRunning}
-                      onLayoutStop={() => state.setIsLayoutRunning(false)}
-                      onLayoutRestart={() => state.setIsLayoutRunning(true)}
-                      neighborhoodCenter={neighborhoodCenter}
-                      neighborhoodHops={2}
-                    />
-
-                    {/* HUD Panel */}
-                    <HUDPanel
-                      threshold={state.threshold}
-                      onThresholdChange={state.setThreshold}
-                      graphSource={state.graphSource}
-                      onGraphSourceChange={state.setGraphSource}
-                      showOverlayEdges={state.showOverlayEdges}
-                      onToggleOverlayEdges={state.toggleOverlayEdges}
-                      filterNodesBySimilarity={state.filterNodesBySimilarity}
-                      onToggleFilterNodesBySimilarity={state.toggleFilterNodesBySimilarity}
-                      activeTypes={state.activeTypes}
-                      onToggleType={state.handleToggleType}
-                      showDaily={state.showDaily}
-                      onToggleDaily={state.toggleShowDaily}
-                      hideIsolated={state.hideIsolated}
-                      onToggleHideIsolated={state.toggleHideIsolated}
-                      labelsOnHoverOnly={state.labelsOnHoverOnly}
-                      onToggleLabelsOnHoverOnly={state.toggleLabelsOnHoverOnly}
-                      nodeCount={state.stats.nodeCount}
-                      edgeCount={state.stats.edgeCount}
-                      avgScore={state.stats.avgScore}
-                      scalingRatio={state.scalingRatio}
-                      onScalingRatioChange={state.setScalingRatio}
-                      gravity={state.gravity}
-                      onGravityChange={state.setGravity}
-                      slowDown={state.slowDown}
-                      onSlowDownChange={state.setSlowDown}
-                      edgeWeightInfluence={state.edgeWeightInfluence}
-                      onEdgeWeightInfluenceChange={state.setEdgeWeightInfluence}
-                      startTemperature={state.startTemperature}
-                      onStartTemperatureChange={state.setStartTemperature}
-                      stopThreshold={state.stopThreshold}
-                      onStopThresholdChange={state.setStopThreshold}
-                      isLayoutRunning={state.isLayoutRunning}
-                      onToggleLayout={() => state.setIsLayoutRunning(r => !r)}
-                      onResetSimSettings={state.resetSimSettings}
-                      canvasRef={graphCanvasRef}
-                      edgeColorMode={state.edgeColorMode}
-                      onEdgeColorModeChange={state.setEdgeColorMode}
-                      edgePruning={state.edgePruning}
-                      onToggleEdgePruning={state.toggleEdgePruning}
-                      edgePruningK={state.edgePruningK}
-                      onEdgePruningKChange={state.setEdgePruningK}
-                      totalEdgeCount={graphData?.meta.edge_count ?? 0}
-                      nodeSizeMode={state.nodeSizeMode}
-                      onNodeSizeModeChange={state.setNodeSizeMode}
-                      nodeColorMode={state.nodeColorMode}
-                      onNodeColorModeChange={state.setNodeColorMode}
-                      nodeSizeComputing={state.nodeSizeComputing}
-                      graphStats={state.graphStats}
-                      parmemBodyLinks={graphData.meta.parmem_body_links ?? null}
-                    />
-                  </div>
+                  {/* Graph view — always mounted to preserve layout (ARC-008: JSX moved to GraphPanel). */}
+                  <GraphPanel
+                    state={state}
+                    graphData={graphData}
+                    graphCanvasRef={graphCanvasRef}
+                    onNodeClick={handleGraphNodeClick}
+                  />
                 </>
               )}
             </div>
@@ -533,18 +373,6 @@ export default function Home() {
               onConfirm={handleCreate}
               onCancel={() => setShowNewNote(false)}
               nodes={graphData.nodes}
-            />
-          )}
-
-          {pendingDelete && (
-            <ConfirmDialog
-              title="Delete note"
-              message={`"${pendingDelete.stem}" will be permanently deleted from the vault. This cannot be undone.${sidebarDeleteError ? ` Error: ${sidebarDeleteError}` : ''}`}
-              confirmLabel={isSidebarDeleting ? 'Deleting…' : 'Delete'}
-              cancelLabel="Cancel"
-              danger
-              onConfirm={handleConfirmSidebarDelete}
-              onCancel={() => setPendingDelete(null)}
             />
           )}
         </>

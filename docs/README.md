@@ -18,7 +18,10 @@ below with its intended audience and purpose.
 
 | File | Description |
 |------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, component overview, hook lifecycle, and data flow. Start here to understand how the pieces fit together. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, component overview, hook lifecycle, full configuration reference, file layout, and data flow. Start here for the component catalogue (every script, hook, and agent), the `config.yaml` per-key reference, and the Obsidian graph color-group table. |
+| [USAGE.md](USAGE.md) | Complete vault CLI reference: every `vault-search` / `vault-stats` / `vault-doctor` / `vault-merge` / `vault-conflicts` / `vault-export` flag, the `VAULT_SEARCH_*` env-var table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands. |
+| [MULTI_VAULT.md](MULTI_VAULT.md) | Multi-vault setup (`vaults.yaml`), the `--vault` flag, vault-aware tools and hooks, and the four-step default vault resolution order. |
+| [PI_EXTENSION.md](PI_EXTENSION.md) | pi runtime integration: install the TypeScript extension (`scripts/install-pi-extension`), the `/parsidion` status command, effective `anthropic_env` precedence, and the three-step pi SessionEnd/SubagentStop/summarizer smoke tests. |
 | [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) | The runtime-adapter contract: one `AgentAdapter` per coding-agent runtime drives the hook shims, the installer, and `connect`/`disconnect` — and how to add a runtime (data-only) or a third-party drop-in adapter. |
 | [EMBEDDINGS.md](EMBEDDINGS.md) | Semantic search setup: building the embedding index, searching the vault, configuration reference, and integration with hooks and agents. |
 | [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) | Evaluation harness for benchmarking embedding model and chunking strategy combinations against Claude-generated ground-truth queries. |
@@ -33,12 +36,16 @@ below with its intended audience and purpose.
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
 | [opus/](opus/) | Implementation plans for tracked enhancements ENH-001 through ENH-008 (semantic-edge capping, incremental graph generation, persistent embedding service, note-index single read path, cross-language parity fixtures, agent-adapter registry, vault health score, and prompt templates & eval). |
 | [superpowers/](superpowers/) | Implementation plans (`superpowers/plans/`) and design specs (`superpowers/specs/`) for major features (vault-explorer agent, subagent stop hook, parsidion-mcp, visualizer redesign, git diff viewer, multi-vault support, graph features, Codex/Gemini runtime hooks, and more). |
+| [archive/CHANGELOG-0.11-and-older.md](archive/CHANGELOG-0.11-and-older.md) | Archived changelog entries for Parsidion 0.1.0 through 0.11.x (covers the pre-0.7.0 `parsidion-cc` era and the 0.6.0 rebrand). The current changelog (0.12.x onward) lives at the repo root: [../CHANGELOG.md](../CHANGELOG.md). |
 
 > **Note:** `ideas.md` is gitignored locally (it is a personal scratchpad of visualizer enhancement ideas) and is intentionally not published to GitHub Pages or linked from this index.
 
 ## Where to Start
 
 - **New to the project?** Read [ARCHITECTURE.md](ARCHITECTURE.md) first, then the root [README.md](../README.md).
+- **Looking for a CLI command?** See [USAGE.md](USAGE.md) — the full vault CLI reference.
+- **Setting up more than one vault?** See [MULTI_VAULT.md](MULTI_VAULT.md).
+- **Installing the pi extension?** See [PI_EXTENSION.md](PI_EXTENSION.md).
 - **Setting up semantic search?** See [EMBEDDINGS.md](EMBEDDINGS.md).
 - **Evaluating which embedding model to use?** See [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md).
 - **Editing a vault-note prompt or running a prompt eval?** See [PROMPTS.md](PROMPTS.md).
@@ -46,6 +53,7 @@ below with its intended audience and purpose.
 - **Sharing the vault across machines?** See [VAULT_SYNC.md](VAULT_SYNC.md).
 - **Using par-mem as the vault search backend?** See [PAR-MEM.md](PAR-MEM.md).
 - **Exploring the vault visually?** See [VISUALIZER.md](VISUALIZER.md).
+- **Hunting for an older release note (0.11.x or earlier)?** See [archive/CHANGELOG-0.11-and-older.md](archive/CHANGELOG-0.11-and-older.md).
 - **Writing or updating documentation?** Follow [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md).
 
 ## Related Documentation
