@@ -119,7 +119,7 @@ jobs:
 
       - name: Install into clean venv and import
         run: |
-          uv venv --python 3.13 /tmp/wheeltest
+          uv venv --python 3.13 --seed /tmp/wheeltest
           /tmp/wheeltest/bin/pip install --quiet --force-reinstall dist/*.whl
           /tmp/wheeltest/bin/python -c "import vault_common, vault_config, vault_path, vault_search, vault_links, ai_backend, core.vault_config, core.vault_fs, core.subproc_util, doctor, summarizer; print('ok')"
           rm -rf /tmp/wheeltest

@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test'
 import path from 'path'
+import { spawnSync } from 'child_process'
 import {
   runVaultSearch,
   ScriptMissingError,
@@ -9,6 +10,12 @@ import {
 
 const FIXTURES = path.join(import.meta.dir, '__fixtures__', 'search')
 const savedEnv = process.env.PARSIDION_SCRIPTS_DIR
+
+// The first two tests spawn the search script through `uv`; skip them where uv
+// isn't installed (the visualizer CI job intentionally installs no Python
+// toolchain). The mock/error-path tests below still run — they expect the
+// spawn to fail, which it does with or without uv.
+const uvAvailable = spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0
 
 function useFixture(name: string) {
   process.env.PARSIDION_SCRIPTS_DIR = path.join(FIXTURES, name)
@@ -20,7 +27,7 @@ afterEach(() => {
 })
 
 describe('runVaultSearch', () => {
-  test('maps rows and strips the vault prefix from paths', async () => {
+  test.skipIf(!uvAvailable)('maps rows and strips the vault prefix from paths', async () => {
     useFixture('ok')
     const results = await runVaultSearch('/tmp/fakevault', 'hello world', 8)
     expect(results.length).toBe(2)
@@ -31,7 +38,7 @@ describe('runVaultSearch', () => {
     expect(results[1].folder).toBe('Debugging')
   }, 20000)
 
-  test('a leading-dash query survives as the positional argument', async () => {
+  test.skipIf(!uvAvailable)('a leading-dash query survives as the positional argument', async () => {
     useFixture('ok')
     const results = await runVaultSearch('/tmp/fakevault', '-not a flag', 8)
     expect(results[0].summary).toBe('-not a flag')
