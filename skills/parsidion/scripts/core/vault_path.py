@@ -445,9 +445,11 @@ def resolve_templates_dir() -> Path:
     if env_templates:
         return Path(env_templates).expanduser().resolve()
 
-    # 2. Sibling directory relative to this script
+    # 2. Sibling directory relative to this script. This module lives at
+    #    scripts/core/vault_path.py, so templates/ is two parents up
+    #    (.../scripts/core -> .../scripts -> .../parsidion/templates).
     script_dir = Path(__file__).resolve().parent
-    sibling = script_dir.parent / "templates"
+    sibling = script_dir.parent.parent / "templates"
     if sibling.is_dir():
         return sibling
 
