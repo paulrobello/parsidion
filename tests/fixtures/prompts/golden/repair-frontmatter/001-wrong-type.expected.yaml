@@ -1,0 +1,4 @@
+issues: [type]
+rel: Debugging/sqlite-locking.md
+expected_type: debugging
+must_mention: [WAL, connection-pool]

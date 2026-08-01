@@ -1,0 +1,4 @@
+issues: [related]
+rel: Patterns/worker-pool.md
+expected_type: pattern
+must_mention: [backoff]

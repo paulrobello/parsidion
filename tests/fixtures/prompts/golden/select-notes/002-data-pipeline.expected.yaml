@@ -1,0 +1,5 @@
+project_name: data-pipeline
+cwd: /workspace/data-pipeline
+output_limit: 1800
+must_select: [data-pipeline-retries]
+must_not_select: [knitting]

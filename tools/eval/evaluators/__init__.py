@@ -14,12 +14,22 @@ from ._base import (
     ScoredCase,
     parse_flat_yaml,
 )
+from .detect_conflicts import DetectConflictsEvaluator
+from .merge_notes import MergeNotesEvaluator
+from .repair_frontmatter import RepairFrontmatterEvaluator
+from .select_notes import SelectNotesEvaluator
+from .summarize_chunk import SummarizeChunkEvaluator
 from .summarize_session import SummarizeSessionEvaluator
 
-#: prompt id -> evaluator instance. Phase B (board item #3) registers the five
-#: remaining prompts here as their modules land.
+#: prompt id -> evaluator instance. One entry per externalized prompt; the CLI
+#: driver dispatches ``--prompt <id>`` over this map.
 EVALUATORS: dict[str, PromptEvaluator] = {
     "summarize-session": SummarizeSessionEvaluator(),
+    "summarize-chunk": SummarizeChunkEvaluator(),
+    "repair-frontmatter": RepairFrontmatterEvaluator(),
+    "merge-notes": MergeNotesEvaluator(),
+    "detect-conflicts": DetectConflictsEvaluator(),
+    "select-notes": SelectNotesEvaluator(),
 }
 
 __all__ = [

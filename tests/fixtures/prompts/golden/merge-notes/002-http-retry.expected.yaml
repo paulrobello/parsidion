@@ -1,0 +1,4 @@
+title: http retry strategy
+must_mention_a: ["exponential backoff"]
+must_mention_b: ["jitter"]
+must_not_duplicate: ["retry on 429"]

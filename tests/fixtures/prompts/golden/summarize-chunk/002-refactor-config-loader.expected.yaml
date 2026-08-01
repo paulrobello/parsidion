@@ -1,0 +1,3 @@
+must_mention: [yaml, loader]
+sentence_min: 3
+sentence_max: 6

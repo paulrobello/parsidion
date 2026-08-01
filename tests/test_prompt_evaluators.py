@@ -69,6 +69,14 @@ class TestRegistry:
             assert (_TEMPLATES_DIR / f"{prompt_id}.md").is_file(), prompt_id
             assert ev.prompt_id == prompt_id
 
+    def test_every_template_is_registered(self) -> None:
+        # Reverse parity: a prompt template cannot ship without an evaluator.
+        template_ids = {p.stem for p in _TEMPLATES_DIR.glob("*.md")}
+        assert template_ids == set(EVALUATORS), (
+            f"template/registry drift: "
+            f"templates={sorted(template_ids)} registry={sorted(EVALUATORS)}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # summarize-session evaluator

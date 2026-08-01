@@ -1,0 +1,5 @@
+project_name: acme-cli
+cwd: /workspace/acme-cli
+output_limit: 1500
+must_select: [acme-cli-args]
+must_not_select: [sourdough]

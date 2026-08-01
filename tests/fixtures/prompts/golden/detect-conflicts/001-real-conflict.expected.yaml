@@ -1,0 +1,2 @@
+note_count: 3
+expected_conflicts: [note-a, note-b]
