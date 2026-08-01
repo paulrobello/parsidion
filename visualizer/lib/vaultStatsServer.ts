@@ -16,6 +16,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { envWithoutClaudecode } from './env'
 import { findParsidionScript } from './scriptResolver'
 import { runScript, ScriptFailedError, ScriptTimeoutError } from './runScript'
 
@@ -249,8 +250,9 @@ export async function getVaultHealth(
 }
 
 /** Spawn the summarizer detached (non-blocking) against the given vault.
- *  Strips CLAUDECODE so the claude-cli backend works even if the dev server
- *  inherited it. Returns immediately; the child survives the request. */
+ *  Forwards only the env allowlist (SEC-P002: mirrors Python `_SAFE_ENV_KEYS`)
+ *  so CLAUDECODE and any unrelated secret the dev server carries are dropped.
+ *  Returns immediately; the child survives the request. */
 export function spawnSummarizer(vaultPath: string): SpawnResult {
   if (getSummarizerStatus().running) return { alreadyRunning: true }
 
@@ -273,8 +275,10 @@ export function spawnSummarizer(vaultPath: string): SpawnResult {
     outFd = undefined
   }
 
-  const env: NodeJS.ProcessEnv = { ...process.env }
-  delete env.CLAUDECODE
+  // SEC-P002: forward only the allowlisted env (mirrors Python
+  // `_SAFE_ENV_KEYS`). Drops CLAUDECODE and any unrelated secret the dev
+  // server happens to carry. See lib/env.ts.
+  const env = envWithoutClaudecode()
 
   const proc = spawn(
     'uv',

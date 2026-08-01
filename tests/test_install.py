@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 import install
+import installer.paths
+import installer.ui
 
 
 LEGACY_PROJECT_NAME = "parsidion" + "-cc"
@@ -94,7 +96,7 @@ class TestParseArgs:
     def test_resolve_runtime_defaults_to_both_for_interactive(
         self, monkeypatch
     ) -> None:
-        monkeypatch.setattr(install, "_ask", lambda prompt, default="": "")
+        monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "")
 
         assert (
             install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
@@ -104,13 +106,13 @@ class TestParseArgs:
     def test_resolve_runtime_interactive_accepts_gemini_and_all(
         self, monkeypatch
     ) -> None:
-        monkeypatch.setattr(install, "_ask", lambda prompt, default="": "3")
+        monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "3")
         assert (
             install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
             == "gemini"
         )
 
-        monkeypatch.setattr(install, "_ask", lambda prompt, default="": "5")
+        monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "5")
         assert (
             install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
             == "all"
@@ -514,7 +516,7 @@ class TestRuntimeFlow:
     def test_runtime_none_dry_run_install_skips_hook_registration(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         calls: list[str] = []
 
         def record(name: str):
@@ -595,7 +597,7 @@ class TestRuntimeFlow:
     def test_runtime_both_dry_run_install_prints_codex_plan(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         codex_home = tmp_path / ".codex"
@@ -630,7 +632,7 @@ class TestRuntimeFlow:
     def test_runtime_all_dry_run_install_prints_all_runtime_plans(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         codex_home = tmp_path / ".codex"
@@ -676,7 +678,7 @@ class TestRuntimeFlow:
     def test_runtime_gemini_dry_run_install_prints_gemini_plan(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         gemini_home = tmp_path / ".gemini"
@@ -1470,7 +1472,7 @@ class TestEmbeddingsPreservedOnYesSync:
 
     def test_yes_sync_preserves_enabled_true(self, tmp_path: Path, monkeypatch) -> None:
         # config has embeddings.enabled: true; a plain --yes sync must keep it.
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         vault.mkdir()
         (vault / "config.yaml").write_text(
@@ -1511,7 +1513,7 @@ class TestEmbeddingsPreservedOnYesSync:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         # Even when config says false, --enable-embeddings must force true.
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         vault.mkdir()
         (vault / "config.yaml").write_text(
@@ -1614,7 +1616,7 @@ class TestInstallFailureHandling:
     def test_failing_merge_hooks_returns_nonzero(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         self._stub_light_steps(monkeypatch)
 
         def boom(*args, **kwargs):
@@ -1655,7 +1657,7 @@ class TestInstallFailureHandling:
         # Positive control: with every step stubbed to no-op, install()
         # returns 0 (so the non-zero path above is genuinely tied to the
         # failure, not a baseline return value change).
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         self._stub_light_steps(monkeypatch)
         monkeypatch.setattr(install, "merge_hooks", lambda *a, **kw: None)
 
@@ -1799,7 +1801,7 @@ class TestInstallPersistsSettings:
     def test_install_writes_settings_json_with_all_hooks(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "Vault"
         vault.mkdir()
         claude_dir = tmp_path / ".claude"
@@ -1893,7 +1895,7 @@ class TestInstallUninstallRoundTrip:
     def test_round_trip_returns_tree_to_prior_state(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "Vault"
         vault.mkdir()
         claude_dir = tmp_path / ".claude"

@@ -7,6 +7,19 @@
 // Long-term plan: serve vault resolution through the parsidion-mcp server
 // so only the Python implementation is canonical.  See AUDIT.md [QA-012].
 //
+// ARC-007: This resolver is DELIBERATELY NARROWER than the Python twin
+// (skills/parsidion/scripts/core/vault_path.py:resolve_vault). It exposes
+// only (a) named vaults from vaults.yaml, (b) the default vault, and (c)
+// the VAULT_ROOT default-override env var. It does NOT read cwd/.claude/vault
+// or CLAUDE_VAULT — the visualizer is a long-lived server with no notion of
+// a "current project" and no user-runtime env to inherit. The two sides are
+// pinned by a shared fixture at tests/fixtures/parity/vault-resolution.json
+// consumed by both tests/test_vault_resolver_parity.py and
+// visualizer/lib/vaultResolver.parity.test.ts; every vector is either run
+// on both sides or explicitly excluded via `applies_to`. Adding a new
+// channel here without extending the fixture will fail CI on both sides.
+// Full unification is deferred to ENH-009 (serve resolution via parsidion-mcp).
+//
 // ARC-041: `import 'server-only'` makes the server-only-ness structural
 // rather than convention-enforced. Next.js swaps this import for a throw at
 // bundle time when a Client Component graph pulls this file in, so dropping

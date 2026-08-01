@@ -35,6 +35,7 @@ import argparse
 import os
 import sqlite3
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import vault_common
@@ -1011,8 +1012,46 @@ def run_health(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """CLI entry point for vault-stats."""
+# ---------------------------------------------------------------------------
+# QA-002: argparse + dispatch-table refactor of main()
+# ---------------------------------------------------------------------------
+# Previously ``main`` carried a ~120-line argparse block, a duplicated
+# 14-flag ``no_mode`` enumeration, and two parallel if/elif chains over the
+# same mode set (one for the conn-None branch, one for the conn-set branch).
+# Adding a new mode meant editing all three places. The table below is a
+# pure reorganisation: each mode is declared exactly once with its runner,
+# whether it requires a live DB connection, and what to call instead when
+# the DB is missing. Behaviour is identical to the prior inline dispatch.
+
+# Maps mode name -> the argparse attribute that selects it. ``True`` flags
+# are booleans (``store_true``); the rest are ``nargs="?"`` integers, so a
+# mode is "selected" when the attribute is either True or not-None.
+_MODE_FLAGS: dict[str, str] = {
+    "summary": "summary",
+    "stale": "stale",
+    "top_linked": "top_linked",
+    "by_project": "by_project",
+    "growth": "growth",
+    "tags": "tags",
+    "dashboard": "dashboard",
+    "pending": "pending",
+    "graph": "graph",
+    "hooks": "hooks",
+    "weekly": "weekly",
+    "monthly": "monthly",
+    "timeline": "timeline",
+    "summarizer_progress": "summarizer_progress",
+}
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Construct the vault-stats CLI parser.
+
+    Extracted from :func:`main` (QA-002) so the parser can be inspected and
+    tested independently of argv side effects. Adding a new mode requires
+    editing this function plus the ``_MODES`` table below — there is no
+    second if/elif chain to keep in sync.
+    """
     parser = argparse.ArgumentParser(
         prog="vault-stats",
         description="Vault analytics from the note_index database.",
@@ -1153,89 +1192,147 @@ def main() -> None:
         default=False,
         help="Skip the metadata-quality scan in --health (faster on large vaults)",
     )
+    return parser
+
+
+# Each entry: (runner, strict_db, no_db_fallback).
+# * runner(conn, args, vault) — always invoked with the resolved conn (which
+#   may be None for db-optional modes; see ``strict_db``).
+# * strict_db — True when the mode requires a live DB connection. When the
+#   DB is absent, ``no_db_fallback`` (if any) is called instead; if there
+#   is no fallback, main() exits with the canonical "DB not found" error.
+# * no_db_fallback(vault) — called in lieu of runner when strict_db is True
+#   and the DB is missing. Only summary/dashboard have one (run_no_db_summary).
+RunnerFn = Callable[[sqlite3.Connection | None, argparse.Namespace, Path], None]
+FallbackFn = Callable[[Path], None]
+_ModeEntry = tuple[RunnerFn, bool, FallbackFn | None]
+
+_MODES: dict[str, _ModeEntry] = {
+    "summary": (
+        lambda conn, args, vault: run_summary(conn),  # type: ignore[arg-type]
+        True,
+        run_no_db_summary,
+    ),
+    "dashboard": (
+        lambda conn, args, vault: run_dashboard(conn),  # type: ignore[arg-type]
+        True,
+        run_no_db_summary,
+    ),
+    "stale": (
+        lambda conn, args, vault: run_stale(conn),  # type: ignore[arg-type]
+        True,
+        None,
+    ),
+    "top_linked": (
+        lambda conn, args, vault: run_top_linked(conn, args.top_linked),  # type: ignore[arg-type]
+        True,
+        None,
+    ),
+    "by_project": (
+        lambda conn, args, vault: run_by_project(conn),  # type: ignore[arg-type]
+        True,
+        None,
+    ),
+    "growth": (
+        lambda conn, args, vault: run_growth(conn, args.growth),  # type: ignore[arg-type]
+        True,
+        None,
+    ),
+    "tags": (
+        lambda conn, args, vault: run_tags(conn, args.tags),  # type: ignore[arg-type]
+        True,
+        None,
+    ),
+    "graph": (
+        lambda conn, args, vault: run_graph(conn),  # type: ignore[arg-type]
+        True,
+        None,
+    ),
+    # db-optional modes — runner accepts conn=None.
+    "timeline": (
+        lambda conn, args, vault: run_timeline(conn, args.timeline, vault),
+        False,
+        None,
+    ),
+    "weekly": (
+        lambda conn, args, vault: run_weekly(conn, dry_run=args.dry_run, vault=vault),
+        False,
+        None,
+    ),
+    "monthly": (
+        lambda conn, args, vault: run_monthly(conn, dry_run=args.dry_run, vault=vault),
+        False,
+        None,
+    ),
+    # No-DB modes — runner ignores conn entirely.
+    "pending": (
+        lambda conn, args, vault: run_pending(vault),
+        False,
+        None,
+    ),
+    "hooks": (
+        lambda conn, args, vault: run_hooks(args.hooks, vault),
+        False,
+        None,
+    ),
+    "summarizer_progress": (
+        lambda conn, args, vault: run_summarizer_progress(),
+        False,
+        None,
+    ),
+}
+
+
+def _selected_mode(args: argparse.Namespace) -> str | None:
+    """Return the name of the mode requested on *args*, or ``None``.
+
+    A mode is "selected" when its argparse attribute is either a truthy
+    boolean (``store_true`` flags) or a non-None integer (the ``nargs="?"``
+    modes). ``--health`` is intentionally NOT in this table: it is the
+    bare-invocation default and is handled separately in :func:`main`.
+    """
+    for mode_name, attr in _MODE_FLAGS.items():
+        value = getattr(args, attr)
+        if value is True or value is not None:
+            return mode_name
+    return None
+
+
+def main() -> None:
+    """CLI entry point for vault-stats."""
+    parser = _build_parser()
     args = parser.parse_args()
 
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
     conn = _open_db(vault_path)
 
-    no_mode = not (
-        args.health
-        or args.summary
-        or args.stale
-        or args.by_project
-        or args.top_linked is not None
-        or args.growth is not None
-        or args.tags is not None
-        or args.dashboard
-        or args.pending
-        or args.graph
-        or args.hooks is not None
-        or args.weekly
-        or args.monthly
-        or args.timeline is not None
-        or args.summarizer_progress
-    )
+    selected = _selected_mode(args)
 
     # --health is the bare-invocation default (ENH-007); a bare ``vault-stats``
-    # call now renders the health report rather than the summary table.
-    if args.health or no_mode:
+    # call renders the health report rather than the summary table. ``--health``
+    # is also explicitly selectable (it sits in the same mutually-exclusive
+    # group as the other modes, so argparse guarantees at most one is set).
+    if args.health or selected is None:
         run_health(vault_path, as_json=args.json, fast=args.fast)
         return
 
-    if args.pending:
-        run_pending(vault_path)
-        return
-    if args.hooks is not None:
-        run_hooks(args.hooks, vault_path)
-        return
-    if args.summarizer_progress:
-        run_summarizer_progress()
-        return
+    runner, strict_db, no_db_fallback = _MODES[selected]
 
     if conn is None:
-        if no_mode or args.summary or args.dashboard:
-            run_no_db_summary(vault_path)
-        elif args.graph:
+        if strict_db:
+            if no_db_fallback is not None:
+                no_db_fallback(vault_path)
+                return
             _get_console().print(
                 "[yellow]note_index DB not found — run update_index.py first.[/yellow]"
             )
             sys.exit(1)
-        elif args.timeline is not None:
-            run_timeline(None, args.timeline, vault_path)
-        elif args.weekly:
-            run_weekly(None, dry_run=args.dry_run, vault=vault_path)
-        elif args.monthly:
-            run_monthly(None, dry_run=args.dry_run, vault=vault_path)
-        else:
-            _get_console().print(
-                "[yellow]note_index DB not found — run update_index.py first.[/yellow]"
-            )
-            sys.exit(1)
+        # db-optional mode with the DB absent: pass conn=None to the runner.
+        runner(None, args, vault_path)
         return
 
     try:
-        if args.dashboard:
-            run_dashboard(conn)
-        elif no_mode or args.summary:
-            run_summary(conn)
-        elif args.stale:
-            run_stale(conn)
-        elif args.top_linked is not None:
-            run_top_linked(conn, args.top_linked)
-        elif args.by_project:
-            run_by_project(conn)
-        elif args.growth is not None:
-            run_growth(conn, args.growth)
-        elif args.tags is not None:
-            run_tags(conn, args.tags)
-        elif args.graph:
-            run_graph(conn)
-        elif args.timeline is not None:
-            run_timeline(conn, args.timeline, vault_path)
-        elif args.weekly:
-            run_weekly(conn, dry_run=args.dry_run, vault=vault_path)
-        elif args.monthly:
-            run_monthly(conn, dry_run=args.dry_run, vault=vault_path)
+        runner(conn, args, vault_path)
     finally:
         conn.close()
 

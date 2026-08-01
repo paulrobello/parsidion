@@ -36,7 +36,12 @@ export const GET = withApi(async (req: NextRequest) => {
       notePath = null
     }
   } else {
-    notePath = await findNote(vaultRoot, stem!)
+    // QA-006: explicit guard replaces the prior `stem!` non-null assertion.
+    // The earlier `if (!stem && !relPath)` check logically guarantees stem is
+    // set here, but TypeScript cannot narrow across the if/else — so spell
+    // the invariant out and return 400 if it ever regresses.
+    if (!stem) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
+    notePath = await findNote(vaultRoot, stem)
   }
   if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
 
@@ -100,7 +105,9 @@ export const POST = withApi(async (req: NextRequest) => {
       notePath = null
     }
   } else {
-    notePath = await findNote(vaultRoot, stem!)
+    // QA-006: explicit guard replaces the prior `stem!` non-null assertion.
+    if (!stem) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
+    notePath = await findNote(vaultRoot, stem)
     if (notePath && !guardPath(notePath, vaultRoot)) {
       return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
     }
@@ -220,7 +227,9 @@ export const DELETE = withApi(async (req: NextRequest) => {
       notePath = null
     }
   } else {
-    notePath = await findNote(vaultRoot, stem!)
+    // QA-006: explicit guard replaces the prior `stem!` non-null assertion.
+    if (!stem) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
+    notePath = await findNote(vaultRoot, stem)
     if (notePath && !guardPath(notePath, vaultRoot)) {
       return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
     }

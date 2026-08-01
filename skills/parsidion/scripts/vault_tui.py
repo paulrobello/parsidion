@@ -9,6 +9,23 @@ Launch directly:
 
 Or via vault-search:
     vault-search --interactive
+
+ARC-011: deviation from ARC-004's "library code lives in ``core/``" split,
+documented rather than migrated. ``vault_tui.py`` is a CLI entrypoint that
+imports ``curses`` at module load time and runs an interactive terminal
+session; it is not a library module other code imports from. Moving it to
+``core/vault_tui.py`` would require either a flat shim that re-exports
+``main`` (over-engineering for a single-file CLI with no external
+importers — only ``vault_search.py`` lazily imports it inside its
+``--interactive`` branch) or moving the curses import inside the
+entrypoint function (defeating the original extraction's purpose, which
+was to keep the curses import out of ``vault_search.py``'s module load).
+The other CLI tools (``vault_search.py``, ``vault_stats.py``,
+``vault_conflicts.py``, ``vault_review.py``, ``vault_export.py``,
+``vault_merge.py``) likewise keep their CLI entrypoints at the scripts
+root rather than under ``core/``. The stdlib-only constraint applies
+here exactly as it does to ``core/*`` — verified by
+``tests/test_stdlib_only.py``.
 """
 
 from __future__ import annotations

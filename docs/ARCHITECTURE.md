@@ -974,9 +974,9 @@ The `update_index.py` indexer and `summarize_sessions.py` summarizer both accept
 
 A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vault read, write, search, and maintenance operations to Claude Desktop and any MCP-capable client. Documented in detail in [MCP.md](MCP.md).
 
-**Purpose:** Claude Desktop has no native mechanism to access the vault. `parsidion-mcp` bridges this gap by running as a local stdio MCP server, wrapping `vault_common` and `vault_search` behind seven MCP tools.
+**Purpose:** Claude Desktop has no native mechanism to access the vault. `parsidion-mcp` bridges this gap by running as a local stdio MCP server, wrapping `vault_common` and `vault_search` behind eight MCP tools.
 
-**Seven tools exposed:**
+**Eight tools exposed:**
 
 | Tool | Description |
 |------|-------------|
@@ -986,6 +986,7 @@ A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vau
 | `vault_context` | Session-start-style context injection (compact index or full summaries) |
 | `rebuild_index` | Trigger `update_index.py` from within a conversation |
 | `vault_doctor` | Run vault health scan and automated repair |
+| `vault_health` | Composite 0–100 vault-health score across seven dimensions (ENH-007); subprocess wrapper around `vault-stats --health --json` |
 | `code_search` | Hybrid BM25+vector+graph code search via the par-mem backend |
 
 **Installation:**

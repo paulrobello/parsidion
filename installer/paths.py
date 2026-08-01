@@ -12,6 +12,13 @@ import re
 import sys
 from pathlib import Path
 
+# ARC-004: ``agent_adapter`` owns the per-runtime event->script-filename maps.
+# It is on ``sys.path`` via ``installer/__init__.py`` (which inserts the
+# skill's ``scripts/`` directory before any installer submodule body runs).
+# Importing it here lets installer/paths.py re-export the maps under their
+# historical installer-side names so existing call sites continue to work.
+import agent_adapter as _agent_adapter
+
 # ---------------------------------------------------------------------------
 # Source layout (relative to the install script at repo root)
 # ---------------------------------------------------------------------------
@@ -39,36 +46,24 @@ AGENT_INSTRUCTIONS_SRC: Path = (
 )
 
 # Hook script filenames installed inside the skill.
-# SessionEnd uses a shell wrapper that outputs {} immediately and runs the
-# real hook detached — prevents "Hook cancelled" when Claude Code exits fast.
-_HOOK_SCRIPTS: dict[str, str] = {
-    "SessionStart": "session_start_hook.py",
-    "SessionEnd": "session_stop_wrapper.sh",
-    "PreCompact": "pre_compact_hook.py",
-    "PostCompact": "post_compact_hook.py",
-    "SubagentStop": "subagent_stop_hook.py",
-}
+# ARC-004: the per-runtime event->script maps live in ``agent_adapter``
+# (the canonical registry) and are re-exported here for back-compat with
+# installer/hooks.py and install.py. The Claude map is exposed as
+# ``_HOOK_SCRIPTS`` (its installer-side historical name); the canonical
+# name ``_CLAUDE_HOOK_SCRIPTS`` is also available on ``agent_adapter``.
+# ``tests/test_agent_adapter.py::TestHookScriptMapsSingleSource`` asserts
+# these are the same object so drift cannot be reintroduced.
+_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._CLAUDE_HOOK_SCRIPTS
+_CODEX_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._CODEX_HOOK_SCRIPTS
+_GEMINI_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._GEMINI_HOOK_SCRIPTS
+_GEMINI_HOOK_NAMES: dict[str, str] = _agent_adapter._GEMINI_HOOK_NAMES
 
 # Per-event hook options merged into the hook handler entry in settings.json.
+# Installer-only data — no equivalent on AgentAdapter today, so this stays
+# here (the only place it is defined).
 _HOOK_OPTIONS: dict[str, dict] = {
     "SubagentStop": {"async": True},
     "SessionEnd": {"async": True},
-}
-
-_CODEX_HOOK_SCRIPTS: dict[str, str] = {
-    "SessionStart": "codex_session_start_hook.py",
-    "Stop": "codex_stop_hook.py",
-    "SubagentStop": "codex_subagent_stop_hook.py",
-}
-
-_GEMINI_HOOK_SCRIPTS: dict[str, str] = {
-    "SessionStart": "gemini_session_start_hook.py",
-    "SessionEnd": "gemini_session_end_hook.py",
-}
-
-_GEMINI_HOOK_NAMES: dict[str, str] = {
-    "SessionStart": "parsidion-session-start",
-    "SessionEnd": "parsidion-session-end",
 }
 
 _RUNTIME_CHOICES = ("claude", "codex", "gemini", "both", "all", "none")
@@ -198,6 +193,32 @@ _FORBIDDEN_PREFIXES: tuple[str, ...] = (
     str(Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))),
     str(Path(os.environ.get("SYSTEMDRIVE", "C:") + "\\Windows")),
 )
+
+
+def validate_vault_path(raw: str) -> tuple[Path, str | None]:
+    """Expand and validate the vault path.
+
+    Returns:
+        (resolved_path, error_message) — error is None when valid.
+
+    ARC-002: lives next to ``_FORBIDDEN_PREFIXES`` so tests patch the source
+    binding (``monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", …)``)
+    rather than a re-export on ``install.py``'s namespace.
+    """
+    if not raw.strip():
+        return Path(), "Path cannot be empty."
+
+    expanded = Path(raw).expanduser().resolve()
+
+    # SEC-009: Path.is_relative_to() prevents false positives where a forbidden
+    # prefix string matches a different path (e.g. "/usr" matching "/usrdata").
+    for forbidden in _FORBIDDEN_PREFIXES:
+        forbidden_path = Path(forbidden).resolve()
+        if expanded == forbidden_path or expanded.is_relative_to(forbidden_path):
+            return expanded, f"Cannot use system or Claude config directory: {expanded}"
+
+    return expanded, None
+
 
 # ---------------------------------------------------------------------------
 # Default vault path resolution

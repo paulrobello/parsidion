@@ -59,10 +59,13 @@ import type { GraphEdge } from '@/lib/graph'
 export function pruneEdges(edges: GraphEdge[], k: number): GraphEdge[] {
   const perNode = new Map<string, GraphEdge[]>()
   for (const e of edges) {
-    if (!perNode.has(e.s)) perNode.set(e.s, [])
-    if (!perNode.has(e.t)) perNode.set(e.t, [])
-    perNode.get(e.s)!.push(e)
-    perNode.get(e.t)!.push(e)
+    // QA-006: pull the edge lists into locals so TS can narrow them without a `!`.
+    let sEdges = perNode.get(e.s)
+    let tEdges = perNode.get(e.t)
+    if (!sEdges) { sEdges = []; perNode.set(e.s, sEdges) }
+    if (!tEdges) { tEdges = []; perNode.set(e.t, tEdges) }
+    sEdges.push(e)
+    tEdges.push(e)
   }
   const kept = new Set<GraphEdge>()
   for (const [, nodeEdges] of perNode) {

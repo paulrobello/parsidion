@@ -22,6 +22,27 @@ from pathlib import Path
 
 import vault_common
 
+__all__: list[str] = [
+    # DB helpers
+    "open_db",
+    "fetch_all",
+    # Collectors
+    "collect_summary",
+    "collect_stale",
+    "collect_top_linked",
+    "collect_by_project",
+    "collect_growth",
+    "collect_tags",
+    "collect_graph",
+    "collect_pending",
+    "collect_dead_letters",
+    "collect_hooks",
+    "collect_timeline",
+    "collect_summarizer_progress",
+    "collect_no_db_summary",
+    "collect_dashboard",
+]
+
 
 # ---------------------------------------------------------------------------
 # DB helpers

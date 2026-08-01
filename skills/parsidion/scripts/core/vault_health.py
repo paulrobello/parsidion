@@ -31,6 +31,29 @@ from pathlib import Path
 import vault_common
 import vault_metrics
 
+__all__: list[str] = [
+    # Data model
+    "DimensionScore",
+    "HealthReport",
+    "DIMENSION_WEIGHTS",
+    # Scoring functions
+    "score_index_freshness",
+    "score_queue_health",
+    "score_graph_connectivity",
+    "score_metadata_quality",
+    "score_embedding_coverage",
+    "score_tag_hygiene",
+    "score_file_hygiene",
+    # Top-level entry point + serialisation
+    "compute_health_report",
+    "to_json_dict",
+    "to_json",
+    "render_report",
+    # Private helper re-exported because tests reach into it via the shim
+    # (``vault_health._grade_for(score)`` in test_vault_health.py).
+    "_grade_for",
+]
+
 # ---------------------------------------------------------------------------
 # Dimension weights — single source of truth (Step 2 of the plan).
 # ---------------------------------------------------------------------------

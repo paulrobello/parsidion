@@ -55,39 +55,22 @@ class TestExtractSummary:
 
 
 class TestFolderName:
-    """Tests for update_index._folder_name."""
+    """Tests for update_index._folder_name.
+
+    ARC-003: ``_folder_name`` now takes the vault path as an explicit
+    argument rather than reading the module-level ``VAULT_ROOT`` constant,
+    so the previous patch-both-modules dance is no longer required.
+    """
 
     def test_direct_vault_child(self, tmp_path: Path) -> None:
-        import vault_common as vc
-
-        original_vc_root = vc.VAULT_ROOT
-        original_ui_root = update_index.VAULT_ROOT
-        # Both vault_common.VAULT_ROOT and update_index.VAULT_ROOT (the imported
-        # binding) must be patched so _folder_name sees the right root.
-        vc.VAULT_ROOT = tmp_path
-        update_index.VAULT_ROOT = tmp_path
-        try:
-            note = tmp_path / "Patterns" / "my-note.md"
-            result = update_index._folder_name(note)
-            assert result == "Patterns"
-        finally:
-            vc.VAULT_ROOT = original_vc_root
-            update_index.VAULT_ROOT = original_ui_root
+        note = tmp_path / "Patterns" / "my-note.md"
+        result = update_index._folder_name(note, tmp_path)
+        assert result == "Patterns"
 
     def test_root_level_note(self, tmp_path: Path) -> None:
-        import vault_common as vc
-
-        original_vc_root = vc.VAULT_ROOT
-        original_ui_root = update_index.VAULT_ROOT
-        vc.VAULT_ROOT = tmp_path
-        update_index.VAULT_ROOT = tmp_path
-        try:
-            note = tmp_path / "CLAUDE.md"
-            result = update_index._folder_name(note)
-            assert result == ""
-        finally:
-            vc.VAULT_ROOT = original_vc_root
-            update_index.VAULT_ROOT = original_ui_root
+        note = tmp_path / "CLAUDE.md"
+        result = update_index._folder_name(note, tmp_path)
+        assert result == ""
 
 
 class TestExtractWikilinkStems:

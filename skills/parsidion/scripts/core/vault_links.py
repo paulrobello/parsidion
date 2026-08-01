@@ -11,7 +11,6 @@ summarizer and ``parsidion-mcp``.
 
 import os
 import re
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,8 +25,11 @@ __all__ = [
     "sub_wikilinks_outside_code",
     "replace_wikilinks_outside_code",
     "strip_unresolved_wikilinks",
-    # Re-exported for the vault_links compatibility shim (ARC-004).
-    "subprocess",
+    # QA-005 / ARC-012: stdlib modules (re, os, subprocess) are deliberately
+    # NOT re-exported -- callers ``import re`` etc. directly. The single
+    # private helper below is re-exported because doctor/check.py reaches
+    # into it via the shim (``vault_links._iter_unprotected_spans``).
+    "_iter_unprotected_spans",
 ]
 
 

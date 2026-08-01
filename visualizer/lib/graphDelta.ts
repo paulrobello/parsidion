@@ -95,10 +95,15 @@ export function buildAdjacency(
   const adj = new Map<string, Set<string>>()
   for (const e of edges) {
     if (!visibleIds.has(e.s) || !visibleIds.has(e.t)) continue
-    if (!adj.has(e.s)) adj.set(e.s, new Set())
-    if (!adj.has(e.t)) adj.set(e.t, new Set())
-    adj.get(e.s)!.add(e.t)
-    adj.get(e.t)!.add(e.s)
+    // QA-006: pull the Sets into locals so TS can narrow them without a `!`.
+    // The prior `adj.get(...)!` was provably safe (key just initialised
+    // above) but fragile under refactor.
+    let sAdj = adj.get(e.s)
+    let tAdj = adj.get(e.t)
+    if (!sAdj) { sAdj = new Set(); adj.set(e.s, sAdj) }
+    if (!tAdj) { tAdj = new Set(); adj.set(e.t, tAdj) }
+    sAdj.add(e.t)
+    tAdj.add(e.s)
   }
   return adj
 }

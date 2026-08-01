@@ -66,6 +66,14 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 
 3. **Restart the selected runtime(s)** to activate the hooks.
 
+4. **Verify the install:**
+   ```bash
+   ls ~/.claude/skills/parsidion/SKILL.md   # skill is in place
+   ls ~/ParsidionVault                       # vault directory exists (or ~/ClaudeVault on legacy installs)
+   vault-stats --summary                     # installed CLIs are on PATH; expects 0 notes fresh after install
+   ```
+   Then start a runtime session, work in a project for a few minutes, and end it. Re-run `vault-stats --summary`; the note counts should be non-zero after your first session is summarized (run `summarize_sessions.py` or wait for the nightly scheduled run).
+
 That's it. Your selected runtime integration(s) now have persistent memory backed by a markdown vault. New installs default to `~/ParsidionVault/`; existing `~/ClaudeVault/` installs are detected and reused automatically. Optionally, open that directory in [Obsidian](https://obsidian.md/) to browse notes and explore the knowledge graph.
 
 ## Installation
@@ -202,6 +210,11 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `vault_hooks.py` | Env helpers and transcript analysis (`detect_categories()`, `apply_configured_env_defaults()`, `env_without_claudecode()`); re-exports `write_hook_event()` from `vault_fs` (ARC-023) |
 | `vault_adaptive.py` | Per-note usefulness tracking and last-seen state (`load_usefulness_scores()`, `update_usefulness_scores()`, `save_injected_notes()`) |
 | `vault_links.py` | Shared backlink module (stdlib-only) -- `find_related_by_tags()`, `find_related_by_semantic()`, `inject_related_links()`, `add_backlinks_to_existing()`; used by `summarize_sessions.py` and `parsidion-mcp` |
+| `vault_tui.py` | Shared stdlib-only TUI helpers (curses) used by `vault_search.py --interactive` and `vault-review`; provides list navigation, preview pane, and editor launch |
+| `vault_metrics.py` | Re-export facade for `core/vault_metrics.py` -- analytics primitives (note counts, growth, tag clouds, graph degree) consumed by `vault_stats.py` and `vault_health` |
+| `ai_backend.py` | Backend-neutral prompt-AI helpers (`run_ai_prompt()`); selects `claude -p` or `codex exec` from the `ai.backend` config + runtime hints, with per-backend model tiers from `ai_models`; used by session-start, summarizer, doctor, merge, conflicts, and eval harnesses |
+| `parmem_backend.py` | Optional par-mem code-memory daemon bridge (subprocess transport + availability probe + `vault_index_fresh()` check); imported by `vault_search.py` and `build_graph.py` for hybrid retrieval and body-link enrichment |
+| `agent_adapter.py` | Runtime-adapter registry (ENH-006) -- one `AgentAdapter` per coding-agent runtime (claude/codex/gemini/pi + opt-in external drop-ins); drives `connect`/`disconnect` and the installer's generic merge/remove. See [docs/AGENT-ADAPTERS.md](docs/AGENT-ADAPTERS.md) |
 | `session_start_hook.py` | SessionStart hook -- loads project-relevant vault context; `--ai [MODEL]` enables AI-powered note selection via the configured prompt AI backend (`claude -p` or `codex exec`); `--debug` logs injected context to `$TMPDIR` |
 | `session_stop_hook.py` | SessionEnd hook (launched via `session_stop_wrapper.sh`) -- queues sessions to `pending_summaries.jsonl` (deduped by session_id, `fcntl`-locked); accepts Claude (`~/.claude/...`) and pi (`~/.pi/...`, `<project>/.pi/...`) transcript paths |
 | `gemini_session_start_hook.py` | Gemini SessionStart hook -- wraps the same context builder for Gemini CLI runtime integration |
@@ -214,6 +227,8 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 | `pre_compact_hook.py` | PreCompact hook -- snapshots working state before compaction |
 | `post_compact_hook.py` | PostCompact hook -- reads today's daily note, finds the last `## Pre-Compact Snapshot`, and returns it as `additionalContext` to restore context after compaction |
 | `build_embeddings.py` | Builds the semantic search embeddings database (`embeddings.db`) using fastembed and sqlite-vec |
+| `build_graph.py` | Rebuilds `<vault>/graph.json` from `embeddings.db` (PEP 723 script, requires `numpy`); `--incremental` recomputes only changed notes (ENH-002), `--max-neighbors N` caps semantic edges per node (ENH-001, default 15); Daily notes included by default |
+| `vault_embed_serve.py` | Optional persistent embedding service (ENH-003, opt-in via `embeddings.service_enabled`); AF_UNIX socket lets short-lived `vault_search` callers share one warm ~67 MB ONNX model instead of each cold-loading it; stdlib-only, off by default and never used while par-mem serves retrieval |
 | `vault_search.py` | Unified search CLI -- semantic mode (natural language query), metadata mode (`--tag`/`--folder`/`--type`/`--project`/`--recent-days`), full-text body search (`--grep`/`-G`), or interactive curses TUI (`--interactive`/`-i`); available as `vault-search` global command with `--install-tools` |
 | `vault_new.py` | CLI to scaffold new vault notes from templates -- `vault-new --type pattern --title "My Note" --project myproj --tags python,vault --open`; available as `vault-new` global command with `--install-tools` |
 | `vault_stats.py` | Analytics CLI for vault health and activity -- modes: `--health` (composite vault health score — the default when no flag is given; ENH-007), `--summary`, `--stale`, `--top-linked`, `--by-project`, `--growth`, `--tags` (tag cloud), `--pending` (pending queue status), `--graph` (knowledge graph metrics), `--hooks N` (last N hook events), `--weekly` (weekly rollup note), `--monthly` (monthly rollup note), `--timeline N` (activity bar chart for last N days), `--summarizer-progress` (live summarizer status), `--dashboard` (all modes combined); available as `vault-stats` global command with `--install-tools` |
@@ -494,7 +509,7 @@ See [docs/VISUALIZER.md](docs/VISUALIZER.md) for the full architecture, data mod
 
 An optional MCP server that exposes Parsidion vault operations to **Claude Desktop** (and any other MCP-compatible client) over stdio. It lives in the `parsidion-mcp/` subdirectory and is installed independently from the main skill.
 
-**Seven tools:**
+**Eight tools:**
 
 | Tool | Description |
 |------|-------------|
@@ -504,6 +519,7 @@ An optional MCP server that exposes Parsidion vault operations to **Claude Deskt
 | `vault_context` | Return a session-start-style context block (compact index or verbose summaries) |
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
 | `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
+| `vault_health` | Composite 0–100 vault-health score across seven dimensions (index freshness, queue, graph, metadata, embeddings, tags, files) with concrete next-action commands; subprocess wrapper around `vault-stats --health --json` (ENH-007) |
 | `code_search` | Search a par-mem-indexed repository's code graph by natural language; requires the [par-mem](docs/PAR-MEM.md) backend (returns a clear error if par-mem is unavailable) |
 
 **Install:**
@@ -634,6 +650,11 @@ embeddings:
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
+  service_enabled: false   # ENH-003: opt-in persistent embedding service (vault_embed_serve.py).
+                           # When true AND search.backend is not par-mem, vault_search shares one
+                           # warm ~67 MB ONNX model across processes via a local Unix socket. Off
+                           # by default; never used while par-mem serves retrieval.
+  service_idle_exit: 600   # Seconds the service stays alive with no requests before idle-exiting
 
 par_mem:                   # Optional par-mem code-memory backend (see docs/PAR-MEM.md)
   enabled: true            # Probe for par-mem when available; false = never probe
@@ -653,6 +674,16 @@ event_log:
 adaptive_context:
   enabled: false           # Track which injected notes were referenced; derank unused ones
   decay_days: 30           # Half-life in days for deranking unreferenced notes
+
+vault:                     # Vault identity (team vault sharing)
+  username: ""             # Daily-note filename suffix (Daily/YYYY-MM/DD-{username}.md).
+                           # Defaults to $USER if blank; set per-machine for shared vaults.
+
+adapters:                  # Agent-adapter registry (agent_adapter.py, ENH-006)
+  load_external: false     # Opt-in: load ~/.config/parsidion/adapters/*.py drop-in descriptors.
+                           # Off by default — loading arbitrary Python is code execution, so each
+                           # file is refused if group/world-writable and every load is logged.
+                           # See docs/AGENT-ADAPTERS.md.
 ```
 
 `ai.backend` controls prompt-style AI helpers used by session-start selection, session-stop classification, session summarization, vault doctor repairs, vault merge synthesis, and eval utilities. `auto` prefers the active runtime when Parsidion can detect it: Codex runtime hints use `codex exec`, Claude runtime hints use `claude -p`, and ambiguous environments keep the historical Claude CLI behavior.
@@ -878,11 +909,12 @@ vault-stats --summarizer-progress  # live feedback from running summarize_sessio
 vault-stats --dashboard            # full combined dashboard (all modes)
 ```
 
-**Review and approve pending sessions before summarization:**
+**Review pending sessions before summarization:**
 ```bash
 vault-review                       # interactive TUI: inspect sessions, approve (y) / reject (n) / skip (s)
-summarize_sessions.py --approved-only  # only process sessions approved by vault-review
 ```
+
+> **Approval filtering is not yet implemented.** `vault-review` records per-session approve/reject/skip decisions, but `summarize_sessions.py` does not currently consume them — running it processes the full queue regardless. The `--approved-only` flag referenced in older docs does not exist.
 
 **Export vault:**
 ```bash
@@ -1081,7 +1113,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.14.0** (full security & architecture audit remediation — vault `post-merge` RCE closed, visualizer loopback bind + per-route token auth, reverted config-template endpoint, atomic `settings.json` writes, `disconnect` preserves shared infrastructure, stdlib `scripts/core/` package, ~170 new tests). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.15.0** (ENH-001…008 backlog ships — ~3× smaller `graph.json` via top-K semantic edges, incremental graph rebuilds, opt-in persistent embedding service, DB-first `note_index` read path, shared Python↔TypeScript parity fixtures, documented `AgentAdapter` registry, composite `vault-stats --health` score, externalized versioned prompts + eval harness; plus a par-mem body-link determinism fix). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

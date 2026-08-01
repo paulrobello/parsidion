@@ -7,13 +7,24 @@ Stdlib-only — no third-party dependencies.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-from installer.colors import cyan, dim, green, red, yellow
+from installer.colors import bold, cyan, dim, green, red, yellow
+from installer.paths import validate_vault_path
 
 # Re-exported so callers can treat ``installer.ui`` as the single UI facade
 # (colour helpers + print/prompt helpers) rather than importing ``dim`` from
 # ``installer.colors`` directly.
-__all__ = ["cyan", "dim", "green", "red", "yellow"]
+__all__ = [
+    "bold",
+    "cyan",
+    "dim",
+    "green",
+    "prompt_vault_path",
+    "red",
+    "resolve_runtime_choice",
+    "yellow",
+]
 
 
 def _print(msg: str, verbose_only: bool = False, verbose: bool = False) -> None:
@@ -98,3 +109,80 @@ def _err(msg: str) -> None:
 def _ok(msg: str) -> None:
     """Print a green success message to stdout."""
     print(f"{green('  ✓')} {msg}")
+
+
+# ---------------------------------------------------------------------------
+# Prompt helpers
+#
+# ARC-002: these live here (next to ``_ask``) so tests patch the source
+# binding — ``monkeypatch.setattr(installer.ui, "_ask", …)`` — rather than a
+# re-export on ``install.py``'s namespace. ``install.py`` re-exports the
+# function names for callers that still go through ``install.X``.
+# ---------------------------------------------------------------------------
+
+
+def prompt_vault_path(default: Path) -> Path:
+    """Interactively prompt for the Obsidian vault path with validation."""
+    print()
+    print(bold("Obsidian Vault Location"))
+    print(
+        dim(
+            "This is where Parsidion will store your knowledge notes.\n"
+            "It can be an existing Obsidian vault or a new directory."
+        )
+    )
+    while True:
+        raw = _ask("Vault path", str(default))
+        vault_path, error = validate_vault_path(raw)
+        if error:
+            _err(error)
+            continue
+        if vault_path.exists() and not vault_path.is_dir():
+            _err(f"Path exists but is not a directory: {vault_path}")
+            continue
+        if not vault_path.exists():
+            print(f"  {dim(str(vault_path))} does not exist.")
+            if not _confirm("Create it?", default=True):
+                continue
+        return vault_path
+
+
+def resolve_runtime_choice(
+    runtime: str | None,
+    *,
+    yes: bool,
+    interactive: bool,
+) -> str:
+    """Resolve runtime selection for install/uninstall flows."""
+    if runtime:
+        return runtime
+    if yes or not interactive:
+        return "claude"
+
+    print()
+    print(bold("Runtime Integrations"))
+    print(
+        dim(
+            "  1. Claude only — ~/.claude settings, skills, agents, and hooks.\n"
+            "  2. Codex only — ~/.codex hooks for SessionStart and Stop.\n"
+            "  3. Gemini only — ~/.gemini settings hooks for SessionStart and SessionEnd.\n"
+            "  4. Claude + Codex.\n"
+            "  5. All runtimes — Claude + Codex + Gemini.\n"
+            "  6. Shared tooling only — no runtime hooks."
+        )
+    )
+    answer = _ask("Install runtime integrations", default="both").strip().lower()
+    if answer in ("", "4", "both", "claude+codex", "claude + codex"):
+        return "both"
+    if answer in ("1", "claude", "claude only"):
+        return "claude"
+    if answer in ("2", "codex", "codex only"):
+        return "codex"
+    if answer in ("3", "gemini", "gemini only"):
+        return "gemini"
+    if answer in ("5", "all", "all runtimes", "claude+codex+gemini"):
+        return "all"
+    if answer in ("6", "none", "shared", "shared tooling only"):
+        return "none"
+    _warn(f"Unknown runtime selection {answer!r}; defaulting to both")
+    return "both"

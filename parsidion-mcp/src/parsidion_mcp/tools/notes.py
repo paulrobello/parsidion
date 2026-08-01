@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import vault_common
@@ -94,7 +95,32 @@ def vault_write(path: str, content: str, vault: str | None = None) -> str:
         if resolved.suffix.lower() != ".md":
             raise VaultToolError("Only .md files are allowed")
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
+        # SEC-P003: close the TOCTOU window between the containment check
+        # above and the actual write. Re-resolve + re-validate against the
+        # vault root (catches a parent-dir symlink swap), then open the leaf
+        # with O_NOFOLLOW (blocks a leaf symlink swap) and write through the
+        # resulting fd so a later swap cannot redirect the bytes. Any OSError
+        # from the open or write is converted to VaultToolError below.
+        vault_root = vault_common.resolve_vault(explicit=vault).resolve()
+        fresh = resolved.resolve()
+        if not fresh.is_relative_to(vault_root):
+            raise VaultToolError("path escapes vault root")
+        fd = os.open(
+            str(fresh),
+            os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC,
+            0o644,
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(content.encode("utf-8"))
+        except BaseException:
+            # Best-effort cleanup if os.fdopen failed before taking ownership
+            # of the fd. On the success path the with-block closed it already.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
         return f"Written: {resolved}"
     except VaultToolError:
         raise

@@ -106,10 +106,12 @@ def test_vault_write_path_escape_raises(tmp_path: Path) -> None:
 
 
 def test_vault_write_oserror_raises(tmp_path: Path) -> None:
+    # SEC-P003: vault_write now opens via os.open + writes through an fd, so
+    # the failure point moved off Path.write_text. Patch os.open to raise.
     with (
         patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
         patch(
-            "parsidion_mcp.tools.notes.Path.write_text",
+            "parsidion_mcp.tools.notes.os.open",
             side_effect=OSError("disk full"),
         ),
     ):
@@ -163,15 +165,101 @@ class TestVaultParameter:
     def test_vault_write_passes_explicit_vault_to_resolve_vault(
         self, tmp_path: Path
     ) -> None:
-        # Mirror the read test: patch _resolve_vault_path so we can verify
-        # resolve_vault was called with the explicit vault reference.
-        target = tmp_path / "Patterns" / "note.md"
+        # SEC-P003: vault_write now re-validates against a real vault_root
+        # (re-resolve + is_relative_to) instead of trusting _resolve_vault_path's
+        # patched return value. Use a real filesystem layout under tmp_path
+        # so the re-validation succeeds and the explicit vault kwarg still
+        # reaches resolve_vault.
+        (tmp_path / "Patterns").mkdir()
 
-        with (
-            patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
-            patch("parsidion_mcp.tools.notes._resolve_vault_path", return_value=target),
-        ):
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
             vault_write("Patterns/note.md", "# body\n", vault="my-vault")
 
         for call in mock_vc.resolve_vault.call_args_list:
             assert call.kwargs.get("explicit") == "my-vault"
+
+
+# ---------------------------------------------------------------------------
+# SEC-P003: TOCTOU hardening — symlink-swap on the write path
+# ---------------------------------------------------------------------------
+
+
+def test_vault_write_rejects_parent_symlink_swap(tmp_path: Path) -> None:
+    """SEC-P003: a parent-dir symlink swap between validation and the write
+    must be rejected, and the attacker's target file must not be modified.
+
+    Simulates the TOCTOU the audit flagged: ``_resolve_vault_path`` validates
+    ``Patterns/note.md`` as a clean path inside the vault, then a parent
+    directory is swapped to a symlink that points outside the vault. The
+    re-resolve + re-validate inside ``vault_write`` must catch this before
+    the file is opened, and the attacker's file outside the vault must be
+    left untouched.
+    """
+    # Original layout: <vault>/Patterns/note.md (a regular file).
+    real_dir = tmp_path / "Patterns"
+    real_dir.mkdir()
+    target = real_dir / "note.md"
+    target.write_text("orig", encoding="utf-8")
+    # Attacker destination OUTSIDE the vault root.
+    outside_dir = tmp_path.parent / "attacker_patterns"
+    outside_dir.mkdir()
+    outside_target = outside_dir / "note.md"
+    outside_target.write_text("secret", encoding="utf-8")
+
+    # Wrap _resolve_vault_path so the real validation runs first (path is
+    # clean at T0), then the parent dir is swapped to a symlink pointing
+    # outside the vault before the function returns. vault_write's later
+    # re-resolve will follow the symlink and reject the write.
+    from parsidion_mcp.tools.notes import _resolve_vault_path as real_resolver
+
+    swap_done = {"value": False}
+
+    def swapping_resolver(path: str, vault: str | None = None) -> Path:
+        result = real_resolver(path, vault=vault)
+        if not swap_done["value"]:
+            target.unlink()
+            real_dir.rmdir()
+            real_dir.symlink_to(outside_dir)
+            swap_done["value"] = True
+        return result
+
+    with (
+        patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
+        patch(
+            "parsidion_mcp.tools.notes._resolve_vault_path",
+            side_effect=swapping_resolver,
+        ),
+    ):
+        mock_vc.resolve_vault.return_value = tmp_path
+        with pytest.raises(VaultToolError, match="path escapes vault root"):
+            vault_write("Patterns/note.md", "attacker content")
+
+    # The attacker's file outside the vault was NOT modified.
+    assert outside_target.read_text(encoding="utf-8") == "secret"
+
+
+def test_vault_write_rejects_leaf_symlink_to_outside(tmp_path: Path) -> None:
+    """SEC-P003: a leaf symlink that resolves outside the vault is rejected.
+
+    Mirrors the leaf-swap TOCTOU. ``_resolve_vault_path`` is patched to skip
+    its own validation (simulating a clean check at T0); the leaf on disk is
+    a symlink pointing outside the vault. The re-resolve + re-validate inside
+    ``vault_write`` must reject the write before any bytes are flushed.
+    """
+    # Attacker destination OUTSIDE the vault root.
+    outside = tmp_path.parent / "outside_target.md"
+    outside.write_text("secret", encoding="utf-8")
+    # Symlink leaf inside the vault pointing outside.
+    leaf = tmp_path / "note.md"
+    leaf.symlink_to(outside)
+
+    with (
+        patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.notes._resolve_vault_path", return_value=leaf),
+    ):
+        mock_vc.resolve_vault.return_value = tmp_path
+        with pytest.raises(VaultToolError, match="path escapes vault root"):
+            vault_write("note.md", "attacker content")
+
+    assert outside.read_text(encoding="utf-8") == "secret"

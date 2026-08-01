@@ -43,7 +43,7 @@ Key capabilities:
 - Composite vault health scoring across seven dimensions via `vault_health`
 - Natural-language code search over any par-mem-indexed repository via `code_search`
 
-The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires par-mem to be installed and its local daemon running (see [docs/PAR-MEM.md](PAR-MEM.md)); without par-mem the other six tools continue to work and `code_search` raises a clear `ValueError`. **Note:** par-mem itself is not yet publicly available (coming soon) — the other six tools work fully today; `code_search` activates automatically once par-mem ships.
+The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires par-mem to be installed and its local daemon running (see [docs/PAR-MEM.md](PAR-MEM.md)); without par-mem the other seven tools continue to work and `code_search` raises a clear `ValueError`. **Note:** par-mem itself is not yet publicly available (coming soon) — the other seven tools work fully today; `code_search` activates automatically once par-mem ships.
 
 ## Architecture
 

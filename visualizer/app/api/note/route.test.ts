@@ -346,4 +346,45 @@ describe('ARC-002 / note route — vault from body', () => {
       expect(res.status).toBe(400)
     })
   })
+
+  // QA-006: pin the missing-stem guard. Previously the routes asserted
+  // `stem!` after a `if (!stem && !relPath) return 400` check, which TS
+  // could not narrow across the if/else — so a refactor that accidentally
+  // dropped the earlier guard would let `findNote(vaultRoot, undefined)`
+  // through silently. The explicit guard returns 400 deterministically.
+  describe('QA-006 — missing-stem guard (no non-null assertion)', () => {
+    it('GET with no stem and no path returns 400', async () => {
+      const req = new NextRequest('http://localhost:3999/api/note')
+      const res = await GET(req)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/stem or path required/i)
+    })
+
+    it('GET with no stem and no path but with vault returns 400 (does not reach findNote)', async () => {
+      // Confirms the guard fires before the vault resolver consumes vault=.
+      // Pre-QA-006 this would have called findNote(vaultRoot, undefined).
+      const req = new NextRequest('http://localhost:3999/api/note?vault=secondary')
+      const res = await GET(req)
+      expect(res.status).toBe(400)
+    })
+
+    it('DELETE with no stem and no path returns 400', async () => {
+      const req = new NextRequest('http://localhost:3999/api/note', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const res = await DELETE(req)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/stem or path required/i)
+    })
+
+    it('POST with no stem/path AND valid vault returns 400 (does not reach findNote)', async () => {
+      // Same guarantee for POST: explicit guard fires before the resolver.
+      const req = makePostRequest({ content: '# hi\n', vault: 'secondary' })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+    })
+  })
 })

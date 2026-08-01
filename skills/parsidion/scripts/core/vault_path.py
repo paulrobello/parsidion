@@ -387,6 +387,20 @@ def resolve_vault(
     Both implementations must stay in sync until vault resolution is served
     through the parsidion-mcp server (long-term plan).
 
+    ARC-007: the TypeScript twin is deliberately NARROWER. It exposes only
+    (a) named vaults from ``vaults.yaml``, (b) the default vault, and (c)
+    a ``VAULT_ROOT`` default-override env var for the visualizer's server
+    use-case. It does NOT read ``cwd/.claude/vault`` or ``CLAUDE_VAULT``
+    because the visualizer is a long-lived server with no concept of a
+    "current project" and no user-supplied runtime env to inherit. The
+    channels are documented (not implemented) on the TS side and asserted
+    by the parity fixture
+    (``tests/fixtures/parity/vault-resolution.json``) and
+    ``tests/test_vault_resolver_parity.py`` /
+    ``visualizer/lib/vaultResolver.parity.test.ts``. Full unification is
+    deferred to ENH-009 (serve resolution through parsidion-mcp so the TS
+    side gets every channel via a single HTTP call).
+
     Precedence (highest to lowest):
     1. explicit flag (path or vault name)
     2. cwd/.claude/vault file (project-local vault)
@@ -459,22 +473,33 @@ def _resolve_vault_cached(
             pass  # Fall through to default
 
     # 4. Default vault
-    # ARC-005 / ARC-009: Check vault_common's VAULT_ROOT so that RUNTIME
-    # callers which mutate that attribute (e.g. ``update_index.py`` lines
-    # 746-782: ``vault_common.VAULT_ROOT = vault_path``) are reflected here.
-    # This is NOT a test-patching hook — it serves the legitimate production
-    # use-case where update_index temporarily swaps the vault root for an
-    # explicit ``--vault-path`` CLI argument and needs resolve_vault() to
-    # follow suit after cache_clear().
+    # ARC-003: this branch is DEPRECATED. The previous production caller
+    # (``update_index.py``) now threads ``args.vault`` as the ``explicit``
+    # argument to :func:`resolve_vault`, so it no longer mutates
+    # ``vault_common.VAULT_ROOT`` and no longer relies on this branch.
+    # The check remains to support any external caller that still mutates
+    # ``vault_common.VAULT_ROOT`` at runtime; mutations now emit a
+    # ``DeprecationWarning`` so the next removal is signposted. Do not write
+    # new code that depends on this — pass the vault path explicitly via
+    # ``resolve_vault(explicit=...)`` instead.
     #
-    # ARC-009: Tests should NOT rely on this branch.  Use the ``tmp_vault``
-    # fixture in tests/conftest.py instead, which sets CLAUDE_VAULT (branch 3
-    # above) — the public override path.  Keeping this branch ensures that
-    # runtime vault-swapping in update_index.py continues to work.
+    # ARC-009 (still applies): Tests should NOT rely on this branch.  Use the
+    # ``tmp_vault`` fixture in tests/conftest.py instead, which sets
+    # CLAUDE_VAULT (branch 3 above) — the public override path.
     vc = sys.modules.get("vault_common")
     if vc is not None:
         vc_root = getattr(vc, "VAULT_ROOT", VAULT_ROOT)
         if Path(vc_root) != VAULT_ROOT:
+            import warnings
+
+            warnings.warn(
+                "vault_common.VAULT_ROOT was mutated at runtime; "
+                "resolve_vault() branch 4 is deprecated. Pass the vault "
+                "path explicitly via resolve_vault(explicit=...) instead. "
+                "See ARC-003.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return Path(vc_root)
     return default_vault_root()
 

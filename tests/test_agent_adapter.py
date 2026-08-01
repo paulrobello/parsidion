@@ -334,3 +334,107 @@ class TestExternalLoading:
         finally:
             agent_adapter._REGISTRY.pop("acme", None)  # type: ignore[attr-defined]
             agent_adapter.reset_external_adapters()
+
+
+# ---------------------------------------------------------------------------
+# ARC-004: hook-script maps are defined in exactly one place.
+# ---------------------------------------------------------------------------
+
+
+class TestHookScriptMapsSingleSource:
+    """ARC-004: the event->script-filename maps used by both the installer
+    (``installer/paths.py``) and the runtime registry (``agent_adapter``)
+    must be defined exactly once and shared by reference. Drift between the
+    two previously silently broke hook registration for one runtime — this
+    test pins the canonical location (``agent_adapter``) and asserts the
+    installer-side aliases point at the same dict objects.
+    """
+
+    def test_claude_hook_scripts_are_the_same_object(self) -> None:
+        import installer.paths
+
+        assert installer.paths._HOOK_SCRIPTS is agent_adapter._CLAUDE_HOOK_SCRIPTS
+        # The installer-side alias exposes the Claude map under its historical
+        # name (``_HOOK_SCRIPTS``); the canonical name is also available.
+        assert (
+            agent_adapter.get("claude").event_scripts  # type: ignore[union-attr]
+            is agent_adapter._CLAUDE_HOOK_SCRIPTS
+        )
+
+    def test_codex_hook_scripts_are_the_same_object(self) -> None:
+        import installer.paths
+
+        assert installer.paths._CODEX_HOOK_SCRIPTS is agent_adapter._CODEX_HOOK_SCRIPTS
+        assert (
+            agent_adapter.get("codex").event_scripts  # type: ignore[union-attr]
+            is agent_adapter._CODEX_HOOK_SCRIPTS
+        )
+
+    def test_gemini_hook_scripts_are_the_same_object(self) -> None:
+        import installer.paths
+
+        assert (
+            installer.paths._GEMINI_HOOK_SCRIPTS is agent_adapter._GEMINI_HOOK_SCRIPTS
+        )
+        assert (
+            agent_adapter.get("gemini").event_scripts  # type: ignore[union-attr]
+            is agent_adapter._GEMINI_HOOK_SCRIPTS
+        )
+
+    def test_gemini_hook_names_are_the_same_object(self) -> None:
+        import installer.paths
+
+        assert installer.paths._GEMINI_HOOK_NAMES is agent_adapter._GEMINI_HOOK_NAMES
+
+    def test_hook_script_maps_defined_only_in_agent_adapter(self) -> None:
+        """Grep-style guard: the dict literals for the four hook-script maps
+        must appear in ``agent_adapter.py`` and NOWHERE else. Catches the
+        re-introduction of a duplicate definition.
+        """
+        import ast
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parent.parent
+        canonical_names = {
+            "_CLAUDE_HOOK_SCRIPTS",
+            "_CODEX_HOOK_SCRIPTS",
+            "_GEMINI_HOOK_SCRIPTS",
+            "_GEMINI_HOOK_NAMES",
+        }
+        # The installer/paths.py back-compat re-export imports these names
+        # from agent_adapter — that is the allowed alias site.
+        canonical_file = (
+            repo_root / "skills" / "parsidion" / "scripts" / "agent_adapter.py"
+        )
+        # Restrict the walk to the only directories that previously held
+        # duplicates — installer/ and the top-level install.py — plus the
+        # scripts root. Keeps the test well under the 10s timeout ceiling.
+        candidate_files: list[Path] = [repo_root / "install.py"]
+        candidate_files.extend((repo_root / "installer").rglob("*.py"))
+        candidate_files.extend(
+            (repo_root / "skills" / "parsidion" / "scripts").glob("*.py")
+        )
+        # Map literal assignment looks like:  NAME: dict[...] = { ... }
+        offenders: list[str] = []
+        for py in candidate_files:
+            if py == canonical_file or "/__pycache__/" in str(py):
+                continue
+            try:
+                tree = ast.parse(py.read_text(encoding="utf-8"))
+            except (SyntaxError, OSError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AnnAssign):
+                    if (
+                        isinstance(node.target, ast.Name)
+                        and node.target.id in canonical_names
+                        and isinstance(node.value, ast.Dict)
+                    ):
+                        offenders.append(
+                            f"{py.relative_to(repo_root)}:{node.lineno} "
+                            f"defines {node.target.id} as a dict literal"
+                        )
+        assert not offenders, (
+            "ARC-004: hook-script maps must be defined only in "
+            "agent_adapter.py. Found dict-literal definitions: " + ", ".join(offenders)
+        )

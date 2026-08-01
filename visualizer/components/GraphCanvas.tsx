@@ -88,7 +88,8 @@ function findWikiPath(
   let found = false
 
   while (queue.length > 0 && !found) {
-    const curr = queue.shift()!
+    const curr = queue.shift()
+    if (curr === undefined) break // QA-006: replaces queue.shift()! — length>0 makes this unreachable
     for (const { neighbor, edgeId } of (adj.get(curr) ?? [])) {
       if (!visited.has(neighbor)) {
         visited.add(neighbor)
@@ -106,7 +107,8 @@ function findWikiPath(
   let curr = to
   while (curr !== from) {
     path.unshift(curr)
-    const p = parent.get(curr)!
+    const p = parent.get(curr)
+    if (!p) break // QA-006: replaces parent.get(curr)! — BFS reached `to`, so every step back has a parent entry
     edgeIds.unshift(p.edgeId)
     curr = p.from
   }
@@ -226,10 +228,15 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     const wikiAdj = new Map<string, string[]>()
     for (const edge of data.edges) {
       if (edge.kind !== 'wiki') continue
-      if (!wikiAdj.has(edge.s)) wikiAdj.set(edge.s, [])
-      if (!wikiAdj.has(edge.t)) wikiAdj.set(edge.t, [])
-      wikiAdj.get(edge.s)!.push(edge.t)
-      wikiAdj.get(edge.t)!.push(edge.s)
+      // QA-006: pull the adjacency lists into locals so TS can narrow them
+      // to string[] without a `!` assertion. The prior `wikiAdj.get(...)!`
+      // was provably safe (the key was set on the line above) but fragile.
+      let sAdj = wikiAdj.get(edge.s)
+      let tAdj = wikiAdj.get(edge.t)
+      if (!sAdj) { sAdj = []; wikiAdj.set(edge.s, sAdj) }
+      if (!tAdj) { tAdj = []; wikiAdj.set(edge.t, tAdj) }
+      sAdj.push(edge.t)
+      tAdj.push(edge.s)
     }
     const distances = new Map<string, number>()
     distances.set(neighborhoodCenter, 0)

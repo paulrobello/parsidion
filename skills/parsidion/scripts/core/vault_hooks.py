@@ -22,7 +22,8 @@ __all__: list[str] = [
     # Environment helpers
     "apply_configured_env_defaults",
     "env_without_claudecode",
-    "SAFE_ENV_KEYS",  # QA-012: public alias; _SAFE_ENV_KEYS kept for backward compat
+    "SAFE_ENV_KEYS",  # QA-012: public alias
+    "_SAFE_ENV_KEYS",  # private name; re-exported by vault_common for back-comat
     # Hook event logging
     "write_hook_event",
     # Transcript helpers

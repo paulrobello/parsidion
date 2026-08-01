@@ -11,12 +11,12 @@ resolve.
 from __future__ import annotations
 
 import re
-import shutil
 import sys
 from datetime import date
 from pathlib import Path
 
 import vault_common
+from vault_fs import backup_note
 from vault_path import is_path_inside_vault
 
 from summarizer._state_const import (
@@ -397,6 +397,10 @@ def _backfill_tags_if_empty(
 def _backup_note(note_path: Path, vault: Path) -> None:
     """Copy *note_path* to today's pre-mutation backup dir, best-effort.
 
+    QA-001: thin wrapper around :func:`vault_fs.backup_note` (the canonical
+    shared helper). The summarizer signature ``(note_path, vault)`` already
+    matches the canonical order, so this is a direct delegation.
+
     SEC-107: mirrors ``vault_doctor._backup_note`` so the merge path defends
     a trusted, frequently-retrieved note the same way doctor's repair path
     does. First version of the day wins (an existing backup is not replaced).
@@ -404,15 +408,7 @@ def _backup_note(note_path: Path, vault: Path) -> None:
     merge — unlike doctor's "never raise" contract, the merge caller already
     has a fallback (return None and let the attempts cap dead-letter it).
     """
-    try:
-        rel = note_path.relative_to(vault)
-    except ValueError:
-        return  # outside the vault -- nothing to back up
-    dest = vault / ".trash" / "backup" / date.today().isoformat() / rel
-    if dest.exists():
-        return  # first version of the day already saved
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(note_path, dest)
+    backup_note(note_path, vault)
 
 
 def write_note(

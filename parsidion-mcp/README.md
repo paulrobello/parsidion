@@ -37,7 +37,7 @@ Replace `<username>` with your actual username. Use the absolute path returned b
 
 ## Tools
 
-Seven tools are exposed. Full request/response shapes live in [../docs/MCP.md](../docs/MCP.md):
+Eight tools are exposed. Full request/response shapes live in [../docs/MCP.md](../docs/MCP.md):
 
 | Tool | Description |
 |------|-------------|
@@ -47,6 +47,7 @@ Seven tools are exposed. Full request/response shapes live in [../docs/MCP.md](.
 | `vault_context` | Return a session-start-style context block (compact index or verbose summaries) |
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
 | `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
+| `vault_health` | Composite 0–100 vault-health score across seven dimensions (index freshness, queue, graph, metadata, embeddings, tags, files) with concrete next-action commands; subprocess wrapper around `vault-stats --health --json` (ENH-007) |
 | `code_search` | Search a par-mem-indexed repository's code graph by natural language; requires the [par-mem](../docs/PAR-MEM.md) backend (returns a clear error if par-mem is unavailable) |
 
 ## Development

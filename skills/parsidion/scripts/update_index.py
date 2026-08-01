@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import NamedTuple
 
 from vault_common import (
-    VAULT_ROOT,
     all_vault_notes_walk,
     ensure_vault_dirs,
     extract_title,
@@ -59,16 +58,18 @@ SUMMARY_MAX_CHARS: int = 80
 STALE_DAYS: int = 30
 
 
-def pid_file() -> Path:
-    """Return the PID file path resolved against the current VAULT_ROOT.
+def pid_file(vault: Path | None = None) -> Path:
+    """Return the PID file path resolved against *vault* (or the default).
 
-    ARC-005: call-time resolution ensures that monkey-patches to
-    ``vault_common.VAULT_ROOT`` (ARC-001) are reflected correctly instead of
-    baking the path at import time.
+    ARC-003: *vault* is threaded explicitly from ``main()``. When omitted,
+    falls back to :func:`resolve_vault` so legacy callers (e.g. tests that
+    relied on the previous ``vault_common.VAULT_ROOT`` mutation) still get a
+    usable path.
     """
-    import vault_common as _vc
-
-    return _vc.VAULT_ROOT / "index.pid"
+    if vault is None:
+        # Last-resort fallback for any caller that didn't thread the path.
+        return resolve_vault() / "index.pid"
+    return vault / "index.pid"
 
 
 # Regex to extract wikilink stems like [[note-stem]] from a string
@@ -124,31 +125,31 @@ class NoteEntry(NamedTuple):
 _is_process_running = is_process_running
 
 
-def _write_pid() -> None:
+def _write_pid(vault: Path) -> None:
     """Atomically claim the PID file for this process.
 
     Uses ``O_CREAT | O_EXCL`` so the claim itself is the exclusivity check --
     two concurrent processes racing to create the file can never both
     succeed. Raises ``FileExistsError`` if the file already exists.
     """
-    fd = os.open(pid_file(), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    fd = os.open(pid_file(vault), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     try:
         os.write(fd, str(os.getpid()).encode("utf-8"))
     finally:
         os.close(fd)
 
 
-def _release_pid() -> None:
+def _release_pid(vault: Path) -> None:
     """Remove the PID file at process exit."""
     try:
-        _pf = pid_file()
+        _pf = pid_file(vault)
         if _pf.exists() and _pf.read_text(encoding="utf-8").strip() == str(os.getpid()):
             _pf.unlink()
     except Exception:  # noqa: BLE001
         pass  # best-effort cleanup
 
 
-def _singleton_guard() -> None:
+def _singleton_guard(vault: Path) -> None:
     """Exit early if another update_index is already running.
 
     The claim itself (``_write_pid``) is atomic, which closes the
@@ -160,11 +161,11 @@ def _singleton_guard() -> None:
     atomic claim retried exactly once before giving up.
     """
     try:
-        _write_pid()
+        _write_pid(vault)
     except FileExistsError:
         try:
             existing_pid: int | None = int(
-                pid_file().read_text(encoding="utf-8").strip()
+                pid_file(vault).read_text(encoding="utf-8").strip()
             )
         except (OSError, ValueError):
             existing_pid = None
@@ -183,11 +184,11 @@ def _singleton_guard() -> None:
         # Stale lock (owner process dead, or file unreadable/corrupt) --
         # remove it and retry the atomic claim exactly once.
         try:
-            pid_file().unlink()
+            pid_file(vault).unlink()
         except OSError:
             pass
         try:
-            _write_pid()
+            _write_pid(vault)
         except FileExistsError:
             # Lost a race against another process re-claiming the file in
             # the gap between our unlink and retry -- bail out defensively.
@@ -197,7 +198,9 @@ def _singleton_guard() -> None:
             )
             sys.exit(0)
 
-    atexit.register(_release_pid)
+    # ARC-003: register the release handler with this run's vault bound in,
+    # so the PID file we just created is the one removed at exit.
+    atexit.register(_release_pid, vault)
 
 
 # QA-013: _extract_title thin wrapper removed — call extract_title() directly.
@@ -222,13 +225,20 @@ def _extract_summary(content: str) -> str:
     return ""
 
 
-def _folder_name(note_path: Path) -> str:
-    """Return the immediate parent folder name relative to VAULT_ROOT.
+def _folder_name(note_path: Path, vault: Path) -> str:
+    """Return the immediate parent folder name relative to *vault*.
 
-    For notes directly in VAULT_ROOT, returns an empty string.
+    For notes directly in *vault*, returns an empty string.
+
+    ARC-003: *vault* is threaded explicitly from :func:`build_index` rather
+    than read from the module-level ``VAULT_ROOT`` constant. The constant is
+    still imported for back-compat with any external caller that imported
+    ``update_index._folder_name`` with the old signature, but the public
+    resolution flow no longer depends on a runtime mutation of
+    ``vault_common.VAULT_ROOT``.
     """
     try:
-        rel: Path = note_path.relative_to(VAULT_ROOT)
+        rel: Path = note_path.relative_to(vault)
     except ValueError:
         return ""
     parts: tuple[str, ...] = rel.parts
@@ -290,7 +300,7 @@ class NoteRecord(NamedTuple):
     related_stems: list[str]
 
 
-def _parse_note_record(note_path: Path) -> NoteRecord | None:
+def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
     """Read and parse a single note, returning its fields.
 
     Returns ``None`` when the file cannot be read (matching the original
@@ -308,7 +318,7 @@ def _parse_note_record(note_path: Path) -> NoteRecord | None:
     fm: dict[str, object] = parse_frontmatter(content)
     title: str = _extract_title(content, note_path.stem)
     summary: str = _extract_summary(content)
-    folder: str = _folder_name(note_path)
+    folder: str = _folder_name(note_path, vault)
 
     # Collect tags
     tags_raw: object = fm.get("tags")
@@ -475,7 +485,7 @@ def build_index(
     # path -> (content, fm, title, summary, folder, mtime, tags_list)
 
     for note_path in notes:
-        record: NoteRecord | None = _parse_note_record(note_path)
+        record: NoteRecord | None = _parse_note_record(note_path, vault)
         if record is None:
             continue
 
@@ -533,7 +543,7 @@ def build_index(
     )
 
     # Doctor state summary
-    state_file: Path = VAULT_ROOT / "doctor_state.json"
+    state_file: Path = vault / "doctor_state.json"
     try:
         state_data: dict = json.loads(state_file.read_text(encoding="utf-8"))
         last_run: str | None = state_data.get("last_run")
@@ -925,20 +935,14 @@ def main() -> None:
     _hook_start = time.monotonic()
     args = _parse_args()
 
-    # Resolve vault path
+    # ARC-003: resolve once, thread explicitly. No more mutation of
+    # ``vault_common.VAULT_ROOT`` and no more ``resolve_vault.cache_clear()``
+    # dance — ``args.vault`` is passed as the ``explicit`` argument to
+    # ``resolve_vault()`` here and the resolved path flows through the rest
+    # of ``main()`` as the ``vault`` parameter.
     vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
-    # Replace VAULT_ROOT with vault_path for this run
-    import vault_common
-
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = vault_path
-    # ARC-001: clear caches so lru_cache-memoized load_config() and
-    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-
-    _singleton_guard()
+    _singleton_guard(vault_path)
     (
         content,
         note_count,
@@ -968,11 +972,6 @@ def main() -> None:
         paths=commit_paths,
         vault=vault_path,
     )
-
-    # Restore original VAULT_ROOT and clear caches again (ARC-001).
-    vault_common.VAULT_ROOT = original_vault_root
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     current_stems: set[str] = {row.stem for row in db_rows}
     _write_note_index_to_db(db_rows, current_stems, vault=vault_path)

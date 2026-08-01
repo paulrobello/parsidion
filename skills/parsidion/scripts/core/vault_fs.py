@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 from datetime import date, datetime
@@ -33,6 +34,7 @@ __all__: list[str] = [
     "read_last_n_lines",
     "atomic_write_text",
     "write_hook_event",
+    "backup_note",
     # Pending queue
     "append_to_pending",
     "migrate_pending_paths",
@@ -45,6 +47,9 @@ __all__: list[str] = [
     "append_session_to_daily",
     # Vault directory management
     "ensure_vault_dirs",
+    # Re-exported from vault_constants for callers that import via vault_fs
+    # (test_vault_imports asserts vault_fs.TRANSCRIPT_CATEGORY_LABELS works).
+    "TRANSCRIPT_CATEGORY_LABELS",
 ]
 
 # ---------------------------------------------------------------------------
@@ -308,6 +313,53 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
         except OSError:
             pass
         raise
+
+
+def backup_note(note_path: Path, vault: Path) -> None:
+    """Copy *note_path* to today's pre-mutation backup directory.
+
+    Canonical helper introduced by QA-001 to replace the two duplicated,
+    reversed-parameter-order ``_backup_note`` implementations in
+    ``doctor/_state.py`` and ``summarizer/notes.py``.
+
+    Parameter order (canonical): ``(note_path, vault)`` — the file being
+    backed up comes first, the vault it lives under second. The legacy
+    wrappers in ``doctor/_state.py`` (``_backup_note(vault, note_path)``)
+    and ``summarizer/notes.py`` (``_backup_note(note_path, vault)``) both
+    delegate here with the args in this order; a regression test in
+    ``tests/test_backup_note_canonical.py`` pins it.
+
+    Behaviour:
+
+    * No-ops when *note_path* is outside *vault* (``relative_to`` fails).
+    * "First version of the day wins" — if a backup for today already
+      exists at the destination, it is left untouched (so a note that is
+      mutated multiple times in one day can be recovered to its
+      pre-mutation state from the first call's snapshot).
+    * Raises ``OSError`` on copy/mkdir failure. Callers choose their own
+      policy: doctor wraps the call in try/except (never raises, warns on
+      stderr); the summarizer lets it propagate so its merge caller can
+      abort and dead-letter the attempt.
+
+    The per-run dedup set (``_backed_up_this_run``) is intentionally
+    caller-side, not here: doctor tracks it to avoid re-stat'ing the same
+    note across many fixes in one run, while the summarizer only backs up
+    a single note per merge and has no use for it.
+
+    Args:
+        note_path: Absolute path to the note file to back up.
+        vault: Vault root the note lives under (determines the
+            ``.trash/backup/<date>/<rel>`` destination).
+    """
+    try:
+        rel = note_path.relative_to(vault)
+    except ValueError:
+        return  # outside the vault — nothing to back up
+    dest = vault / ".trash" / "backup" / date.today().isoformat() / rel
+    if dest.exists():
+        return  # first version of the day already saved
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(note_path, dest)
 
 
 # ---------------------------------------------------------------------------

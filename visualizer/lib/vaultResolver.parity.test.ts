@@ -154,6 +154,11 @@ describe('ENH-005 — vault-resolution parity (shared fixture)', () => {
         'claude-vault-forbidden-falls-through-python',
       ]),
     )
+    // ARC-007: the four TS-only vectors are the inverse of the python-only
+    // channel vectors above. They pin that the TS resolver does NOT read
+    // cwd/.claude/vault, CLAUDE_VAULT, or use a VAULT_ROOT override the
+    // Python side ignores. Adding these channels to TS later requires
+    // updating this set.
   })
 
   for (const vec of tsVectors) {

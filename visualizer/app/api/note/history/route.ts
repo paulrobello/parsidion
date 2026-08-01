@@ -32,9 +32,14 @@ export const GET = withApi(async (req: NextRequest) => {
     return NextResponse.json({ error: 'Failed to resolve vault' }, { status: 500 })
   }
   // Prefer explicit vault-relative path (avoids stem collision for MANIFEST.md etc.)
-  const notePath = notePathParam
-    ? path.join(vaultRoot, notePathParam)
-    : await findNote(vaultRoot, stem!)
+  // QA-006: explicit guard replaces the prior `stem!` non-null assertion.
+  let notePath: string | null
+  if (notePathParam) {
+    notePath = path.join(vaultRoot, notePathParam)
+  } else {
+    if (!stem) return NextResponse.json({ error: 'stem or path required' }, { status: 400 })
+    notePath = await findNote(vaultRoot, stem)
+  }
   if (!notePath) return NextResponse.json({ error: `Note not found: ${stem}` }, { status: 404 })
 
   if (!guardPath(notePath, vaultRoot)) {

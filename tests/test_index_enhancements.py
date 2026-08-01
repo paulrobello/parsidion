@@ -158,62 +158,52 @@ class TestSlugifyNonAscii:
 
 
 class TestSingletonGuardAtomicClaim:
-    """Tests for update_index._write_pid / _singleton_guard."""
+    """Tests for update_index._write_pid / _singleton_guard.
 
-    @staticmethod
-    def _patch_vault_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        import vault_common as vc
+    ARC-003: the vault path is now threaded explicitly through ``pid_file``,
+    ``_write_pid``, ``_release_pid`` and ``_singleton_guard`` rather than
+    read from ``vault_common.VAULT_ROOT``. The previous
+    ``_patch_vault_root`` helper patched both ``vault_common.VAULT_ROOT``
+    and ``update_index.VAULT_ROOT``; with the global no longer consulted
+    by these functions, callers pass ``tmp_path`` directly.
+    """
 
-        monkeypatch.setattr(vc, "VAULT_ROOT", tmp_path)
-        monkeypatch.setattr(update_index, "VAULT_ROOT", tmp_path)
-
-    def test_write_pid_atomic_create(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._patch_vault_root(monkeypatch, tmp_path)
-        update_index._write_pid()
-        pf = update_index.pid_file()
+    def test_write_pid_atomic_create(self, tmp_path: Path) -> None:
+        update_index._write_pid(tmp_path)
+        pf = update_index.pid_file(tmp_path)
         assert pf.read_text(encoding="utf-8").strip() == str(os.getpid())
 
-    def test_write_pid_second_claim_raises_file_exists(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._patch_vault_root(monkeypatch, tmp_path)
-        update_index._write_pid()
+    def test_write_pid_second_claim_raises_file_exists(self, tmp_path: Path) -> None:
+        update_index._write_pid(tmp_path)
         with pytest.raises(FileExistsError):
-            update_index._write_pid()
+            update_index._write_pid(tmp_path)
 
-    def test_singleton_guard_fresh_claim_succeeds(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._patch_vault_root(monkeypatch, tmp_path)
-        update_index._singleton_guard()
-        pf = update_index.pid_file()
+    def test_singleton_guard_fresh_claim_succeeds(self, tmp_path: Path) -> None:
+        update_index._singleton_guard(tmp_path)
+        pf = update_index.pid_file(tmp_path)
         assert pf.read_text(encoding="utf-8").strip() == str(os.getpid())
 
     def test_singleton_guard_stale_pid_recovers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._patch_vault_root(monkeypatch, tmp_path)
-        pf = update_index.pid_file()
+        pf = update_index.pid_file(tmp_path)
         pf.write_text("99999999", encoding="utf-8")  # bogus PID, treated as dead below
         monkeypatch.setattr(update_index, "_is_process_running", lambda pid: False)
-        update_index._singleton_guard()
+        update_index._singleton_guard(tmp_path)
         assert pf.read_text(encoding="utf-8").strip() == str(os.getpid())
 
     def test_singleton_guard_live_pid_bails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._patch_vault_root(monkeypatch, tmp_path)
         real_pid = os.getpid()  # genuinely running -- this test process itself
-        pf = update_index.pid_file()
+        pf = update_index.pid_file(tmp_path)
         pf.write_text(str(real_pid), encoding="utf-8")
         # Simulate "our" PID being different so the guard treats the file's
         # PID as belonging to another (genuinely alive) process rather than
         # hitting the self-exclusion branch.
         monkeypatch.setattr(update_index.os, "getpid", lambda: real_pid + 1)
         with pytest.raises(SystemExit) as exc_info:
-            update_index._singleton_guard()
+            update_index._singleton_guard(tmp_path)
         assert exc_info.value.code == 0
         # The other process's PID file must be left untouched.
         assert pf.read_text(encoding="utf-8").strip() == str(real_pid)

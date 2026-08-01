@@ -27,10 +27,15 @@ function buildTree(files: VaultFile[]): VaultFileTree {
     const parts = file.path.replace(/\.md$/, '').split('/')
     const folder = parts.length > 1 ? parts[0] : 'Root'
     const subfolder = parts.length > 2 ? parts[1] : ''
-    if (!tree.has(folder)) tree.set(folder, new Map())
-    const folderMap = tree.get(folder)!
-    if (!folderMap.has(subfolder)) folderMap.set(subfolder, [])
-    folderMap.get(subfolder)!.push(file)
+    // QA-006: pull the nested maps/lists into locals so TS can narrow them
+    // without `!` assertions. The prior `tree.get(folder)!` /
+    // `folderMap.get(subfolder)!` were provably safe (key just initialised
+    // above) but fragile under refactor.
+    let folderMap = tree.get(folder)
+    if (!folderMap) { folderMap = new Map(); tree.set(folder, folderMap) }
+    let notes = folderMap.get(subfolder)
+    if (!notes) { notes = []; folderMap.set(subfolder, notes) }
+    notes.push(file)
   }
   for (const [, subMap] of tree) {
     for (const [, notes] of subMap) {

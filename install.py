@@ -44,18 +44,18 @@ from pathlib import Path
 # Re-export the full public API from submodules so callers (and tests) that
 # do ``import install; install.<name>`` continue to work without change.
 #
-# IMPORTANT: _ask and _FORBIDDEN_PREFIXES are imported into THIS module's
-# namespace so that:
-#   - monkeypatch.setattr(install, "_ask", ...) patches the binding that
-#     resolve_runtime_choice and prompt_vault_path use (both live here).
-#   - monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ...) patches the
-#     binding that validate_vault_path uses (also lives here).
+# ARC-002: ``_ask``, ``_FORBIDDEN_PREFIXES``, ``validate_vault_path``,
+# ``prompt_vault_path`` and ``resolve_runtime_choice`` are no longer patched
+# via ``install.<name>``. They live next to their dependencies in
+# ``installer.ui`` / ``installer.paths``; tests patch the source module
+# (e.g. ``monkeypatch.setattr(installer.ui, "_ask", …)``). They remain
+# re-exported here for callers that go through ``install.X``.
 # ---------------------------------------------------------------------------
 
 # colours
 from installer.colors import bold, cyan, dim, green, red, yellow  # noqa: F401
 
-# UI helpers — _ask and _FORBIDDEN_PREFIXES MUST be in this module's namespace
+# UI helpers
 from installer.ui import (  # noqa: F401
     _ask,
     _confirm,
@@ -65,6 +65,8 @@ from installer.ui import (  # noqa: F401
     _print,
     _step,
     _warn,
+    prompt_vault_path,
+    resolve_runtime_choice,
 )
 
 # paths / constants
@@ -94,9 +96,8 @@ from installer.paths import (  # noqa: F401
     _wants_claude_runtime,
     _wants_codex_runtime,
     _wants_gemini_runtime,
+    validate_vault_path,
 )
-
-# _FORBIDDEN_PREFIXES must be imported into THIS namespace for monkeypatching
 from installer.paths import _FORBIDDEN_PREFIXES  # noqa: F401
 
 # hooks
@@ -167,103 +168,6 @@ from installer.skill import (  # noqa: F401
 )
 from installer.steps import Step, StepList  # noqa: F401
 from installer.uninstall import uninstall  # noqa: F401
-
-# ---------------------------------------------------------------------------
-# Functions that call _ask or _FORBIDDEN_PREFIXES must live HERE so that
-# monkeypatch.setattr(install, "_ask", ...) and
-# monkeypatch.setattr(install, "_FORBIDDEN_PREFIXES", ...) affect them.
-# ---------------------------------------------------------------------------
-
-
-def validate_vault_path(raw: str) -> tuple[Path, str | None]:
-    """Expand and validate the vault path.
-
-    Returns:
-        (resolved_path, error_message) — error is None when valid.
-    """
-    if not raw.strip():
-        return Path(), "Path cannot be empty."
-
-    expanded = Path(raw).expanduser().resolve()
-
-    # SEC-009: Use Path.is_relative_to() instead of str.startswith() to prevent
-    # false positives where a forbidden prefix string matches a different path
-    # (e.g. "/usr" matching "/usrdata", or "/bin" matching "/binary").
-    # NOTE: references module-level _FORBIDDEN_PREFIXES so monkeypatch works.
-    for forbidden in _FORBIDDEN_PREFIXES:
-        forbidden_path = Path(forbidden).resolve()
-        if expanded == forbidden_path or expanded.is_relative_to(forbidden_path):
-            return expanded, f"Cannot use system or Claude config directory: {expanded}"
-
-    return expanded, None
-
-
-def prompt_vault_path(default: Path) -> Path:
-    """Interactively prompt for the Obsidian vault path with validation."""
-    print()
-    print(bold("Obsidian Vault Location"))
-    print(
-        dim(
-            "This is where Parsidion will store your knowledge notes.\n"
-            "It can be an existing Obsidian vault or a new directory."
-        )
-    )
-    while True:
-        raw = _ask("Vault path", str(default))
-        vault_path, error = validate_vault_path(raw)
-        if error:
-            _err(error)
-            continue
-        if vault_path.exists() and not vault_path.is_dir():
-            _err(f"Path exists but is not a directory: {vault_path}")
-            continue
-        if not vault_path.exists():
-            print(f"  {dim(str(vault_path))} does not exist.")
-            if not _confirm("Create it?", default=True):
-                continue
-        return vault_path
-
-
-def resolve_runtime_choice(
-    runtime: str | None,
-    *,
-    yes: bool,
-    interactive: bool,
-) -> str:
-    """Resolve runtime selection for install/uninstall flows."""
-    if runtime:
-        return runtime
-    if yes or not interactive:
-        return "claude"
-
-    print()
-    print(bold("Runtime Integrations"))
-    print(
-        dim(
-            "  1. Claude only — ~/.claude settings, skills, agents, and hooks.\n"
-            "  2. Codex only — ~/.codex hooks for SessionStart and Stop.\n"
-            "  3. Gemini only — ~/.gemini settings hooks for SessionStart and SessionEnd.\n"
-            "  4. Claude + Codex.\n"
-            "  5. All runtimes — Claude + Codex + Gemini.\n"
-            "  6. Shared tooling only — no runtime hooks."
-        )
-    )
-    answer = _ask("Install runtime integrations", default="both").strip().lower()
-    if answer in ("", "4", "both", "claude+codex", "claude + codex"):
-        return "both"
-    if answer in ("1", "claude", "claude only"):
-        return "claude"
-    if answer in ("2", "codex", "codex only"):
-        return "codex"
-    if answer in ("3", "gemini", "gemini only"):
-        return "gemini"
-    if answer in ("5", "all", "all runtimes", "claude+codex+gemini"):
-        return "all"
-    if answer in ("6", "none", "shared", "shared tooling only"):
-        return "none"
-    _warn(f"Unknown runtime selection {answer!r}; defaulting to both")
-    return "both"
-
 
 # ---------------------------------------------------------------------------
 # Main install flow
@@ -956,8 +860,9 @@ def install(args: argparse.Namespace) -> int:
         )
         print("         to build the semantic search index (~30s on first run)")
         if not install_tools:
+            tools_arg = '".[tools]"'
             print(
-                f"  5. Run: {cyan(f'cd {REPO_ROOT} && uv tool install --editable ".[tools]"')}"
+                f"  5. Run: {cyan(f'cd {REPO_ROOT} && uv tool install --editable {tools_arg}')}"
             )
             print(
                 "         to add vault-search, vault-new, and vault-stats as global CLI commands"

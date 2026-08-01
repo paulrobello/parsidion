@@ -29,6 +29,12 @@ repos:
         entry: make
         language: system
         pass_filenames: false
+        # ARC-014: pyright on the full repo (~400 files) is too slow for a
+        # per-commit gate. Confine it to pre-push so commits stay fast and
+        # the type-check still runs before code leaves the machine. The
+        # fast gates (ruff format/check, gitleaks, merge-conflict, ...) keep
+        # running at pre-commit via ``default_stages``.
+        stages: [pre-push]
         args:
           [typecheck]
       - id: format

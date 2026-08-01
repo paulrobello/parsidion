@@ -133,23 +133,53 @@ class AgentAdapter:
 
 _REGISTRY: dict[str, AgentAdapter] = {}
 
+# ARC-010: builtin + external adapter registration is lazy. The registry
+# starts empty; the first call to ``get`` / ``all_adapters`` /
+# ``known_runtimes`` populates the builtins (and, opt-in, any external
+# drop-ins from ``~/.config/parsidion/adapters/*.py``). ``register`` does NOT
+# trigger the lazy load — that would recurse (``_register_builtin_adapters``
+# itself calls ``register``). Tests that need a clean registry call
+# ``reset_external_adapters`` (which also forgets builtins so the next
+# access reloads them).
+_builtins_loaded = False
+_external_loaded = False
+
 
 def register(adapter: AgentAdapter) -> None:
     """Add *adapter* to the registry keyed by its lowercase ``name``.
 
     Idempotent — re-registering the same name replaces the prior entry so
     tests can pin the registry without polluting production state.
+
+    Does NOT trigger lazy builtin loading (callers within
+    ``_register_builtin_adapters`` would otherwise recurse).
     """
     _REGISTRY[adapter.name.lower()] = adapter
 
 
+def _load_builtin_adapters_if_needed() -> None:
+    """Register the builtin runtimes on first access (ARC-010).
+
+    Idempotent. Split from ``_load_external_adapters`` so that ``register``
+    can be called before the registry is "warmed up" without recursing.
+    """
+    global _builtins_loaded
+    if _builtins_loaded:
+        return
+    _builtins_loaded = True
+    _register_builtin_adapters()
+
+
 def get(name: str) -> AgentAdapter | None:
     """Return the adapter for *name* (case-insensitive), or None."""
+    _load_builtin_adapters_if_needed()
+    _load_external_adapters()
     return _REGISTRY.get(name.lower())
 
 
 def all_adapters() -> list[AgentAdapter]:
     """Return every registered adapter. Order is insertion order."""
+    _load_builtin_adapters_if_needed()
     _load_external_adapters()
     return list(_REGISTRY.values())
 
@@ -161,13 +191,17 @@ def known_runtimes() -> list[str]:
 
 # External adapter loading is opt-in (``adapters.load_external``, default false)
 # and runs at most once per process, on first all_adapters()/known_runtimes().
-_external_loaded = False
-
-
 def reset_external_adapters() -> None:
-    """Test hook: forget loaded external adapters so the next access reloads."""
-    global _external_loaded
+    """Test hook: forget loaded external AND builtin adapters so the next
+    access reloads them.
+
+    ARC-010: also resets the builtin-loaded flag so tests that mutated
+    ``_REGISTRY`` (e.g. by popping a runtime to simulate its absence) get a
+    clean re-population on the next ``get``/``all_adapters`` call.
+    """
+    global _external_loaded, _builtins_loaded
     _external_loaded = False
+    _builtins_loaded = False
 
 
 def _load_external_adapters() -> None:
@@ -320,7 +354,11 @@ def _register_builtin_adapters() -> None:
     )
 
 
-_register_builtin_adapters()
+# ARC-010: builtins register on first get/all_adapters/known_runtimes call
+# (see _load_builtin_adapters_if_needed). Do NOT call
+# _register_builtin_adapters() at import time — module side-effects make
+# test isolation harder and force every importer (even those that never
+# touch the registry) to pay the registration cost.
 
 
 # ---------------------------------------------------------------------------
@@ -345,12 +383,24 @@ def _emit_hook_event(hook: str, project: str, vault: Path, **extra: object) -> N
         pass
 
 
+# ARC-015: tunable cutoffs for ``_first_summary``. The summary is a
+# best-effort single-line label written into the daily note's session
+# entry, so it must be short enough to fit on one rendered line (capped at
+# 500 chars) but long enough to be informative. The minimum-length gate
+# drops degenerate single-word/whitespace-only fragments so the daily
+# note does not collect noise from incidental one-character assistant
+# turns. Kept as named module constants so future tuning lands in one
+# place.
+_MIN_SUMMARY_LEN: int = 50
+_MAX_SUMMARY_CHARS: int = 500
+
+
 def _first_summary(texts: list[str]) -> str:
     """Return a compact summary candidate from parsed assistant text."""
     for text in texts:
-        if len(text.strip()) > 50:
-            return text[:500]
-    return texts[0][:500] if texts else ""
+        if len(text.strip()) > _MIN_SUMMARY_LEN:
+            return text[:_MAX_SUMMARY_CHARS]
+    return texts[0][:_MAX_SUMMARY_CHARS] if texts else ""
 
 
 def run_session_start(adapter: AgentAdapter) -> None:

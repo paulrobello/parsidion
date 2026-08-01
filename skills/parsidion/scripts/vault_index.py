@@ -1,68 +1,15 @@
-"""vault_index -- compatibility shim (ARC-004).
+"""vault_index -- compatibility shim (ARC-004 / QA-005 / ARC-012).
 
 Implementation moved to ``core.vault_index``. This shim re-exports the
-module's complete non-dunder surface so every existing caller --
-``import vault_index``, ``from vault_index import X``, ``vault_index.X`` (hooks, CLIs,
-tests, parsidion-mcp, the installer) -- keeps working unchanged,
-including imported constants and test monkeypatch targets. The
-stdlib-only constraint is enforced on ``core.vault_index`` by
-``tests/test_stdlib_only.py``.
+module's controlled non-dunder surface (defined by
+``core.vault_index.__all__``) so every existing caller --
+``import vault_index``, ``from vault_index import X``, ``vault_index.X``
+-- keeps working unchanged. QA-005 / ARC-012: ``__all__`` deliberately
+excludes stdlib modules (``re``, ``sys``, ``os``, ``json``, ``sqlite3``,
+``hashlib``, ``datetime``, ``unicodedata``) and unused private helpers --
+callers import the former directly and the latter are not part of the
+public surface. The stdlib-only constraint is enforced on
+``core.vault_index`` by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_index import (  # noqa: F401 -- full-surface re-export
-    Any,
-    EXCLUDE_DIRS,
-    Path,
-    VAULT_DIRS,
-    _FRONTMATTER_RE,
-    _PARSE_WARNINGS_MAX,
-    _SLUG_MULTI_HYPHEN_RE,
-    _SLUG_SPECIAL_RE,
-    _YAML_LIST_INLINE_RE,
-    _find_notes_by_field,
-    _find_notes_by_project_walk,
-    _find_notes_by_tag_walk,
-    _find_notes_by_type_walk,
-    _find_recent_notes_walk,
-    _load_note_index_map,
-    _note_index_enabled,
-    _parse_list_item,
-    _parse_scalar,
-    _parse_warnings,
-    _paths_from_rows,
-    _split_list_items,
-    _walk_vault_notes,
-    all_vault_notes,
-    all_vault_notes_walk,
-    annotations,
-    build_compact_index,
-    build_context_block,
-    datetime,
-    drain_parse_warnings,
-    ensure_note_index_schema,
-    extract_title,
-    find_notes_by_project,
-    find_notes_by_tag,
-    find_notes_by_type,
-    find_recent_notes,
-    get_body,
-    get_embeddings_db_path,
-    hashlib,
-    is_path_inside_vault,
-    is_symlink_inside_vault,
-    load_graph_metadata,
-    note_index_age,
-    os,
-    parse_frontmatter,
-    parse_related_stems,
-    query_note_index,
-    re,
-    read_note_summary,
-    record_parse_warning,
-    resolve_vault,
-    slugify,
-    sqlite3,
-    sys,
-    timedelta,
-    unicodedata,
-)
+from core.vault_index import *  # noqa: F401,F403 -- controlled by core.vault_index.__all__

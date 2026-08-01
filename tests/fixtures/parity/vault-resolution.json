@@ -27,7 +27,9 @@
       "description": "When ~/ClaudeVault exists and ~/ParsidionVault does not, the default flips to the legacy name.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}",
-      "mkdir": ["{TMP}/ClaudeVault"],
+      "mkdir": [
+        "{TMP}/ClaudeVault"
+      ],
       "explicit": null,
       "expect": "{TMP}/ClaudeVault"
     },
@@ -36,7 +38,9 @@
       "description": "A vault registered in vaults.yaml resolves by name on both sides.",
       "env_HOME": "{TMP}",
       "vaults_yaml": "vaults:\n  myvault: {TMP}/named-vault\n",
-      "mkdir": ["{TMP}/named-vault"],
+      "mkdir": [
+        "{TMP}/named-vault"
+      ],
       "explicit": "myvault",
       "expect": "{TMP}/named-vault"
     },
@@ -72,25 +76,34 @@
       "name": "arbitrary-path-rejected",
       "description": "SEC-P001: an arbitrary path that is neither a named vault nor the default vault is rejected by BOTH resolvers. Previously Python accepted it (documented divergence); SEC-P001 closed the gap by back-porting the TS allowlist.",
       "env_HOME": "{TMP}",
-      "mkdir": ["{TMP}/arbitrary-vault"],
+      "mkdir": [
+        "{TMP}/arbitrary-vault"
+      ],
       "explicit": "{TMP}/arbitrary-vault",
       "expect_error": "not-allowlisted"
     },
     {
       "name": "explicit-overrides-claude-vault-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "Python branch 1 (explicit) beats branch 3 (CLAUDE_VAULT). Both vault paths are registered in vaults.yaml so the allowlist resolver accepts them.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}",
       "vaults_yaml": "vaults:\n  explicit-vault: {TMP}/explicit-vault\n  env-vault: {TMP}/env-vault\n",
       "env_CLAUDE_VAULT": "{TMP}/env-vault",
-      "mkdir": ["{TMP}/explicit-vault", "{TMP}/env-vault"],
+      "mkdir": [
+        "{TMP}/explicit-vault",
+        "{TMP}/env-vault"
+      ],
       "explicit": "{TMP}/explicit-vault",
       "expect": "{TMP}/explicit-vault"
     },
     {
       "name": "explicit-overrides-cwd-marker-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "Python branch 1 (explicit) beats branch 2 (cwd/.claude/vault). Both paths registered in vaults.yaml for the allowlist.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}/proj",
@@ -98,13 +111,18 @@
       "cwd_marker_content": "{TMP}/file-vault",
       "vaults_yaml": "vaults:\n  explicit-vault: {TMP}/explicit-vault\n  file-vault: {TMP}/file-vault\n",
       "env_CLAUDE_VAULT": null,
-      "mkdir": ["{TMP}/file-vault", "{TMP}/explicit-vault"],
+      "mkdir": [
+        "{TMP}/file-vault",
+        "{TMP}/explicit-vault"
+      ],
       "explicit": "{TMP}/explicit-vault",
       "expect": "{TMP}/explicit-vault"
     },
     {
       "name": "cwd-marker-overrides-claude-vault-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "Python branch 2 (cwd/.claude/vault) beats branch 3 (CLAUDE_VAULT). Both paths registered in vaults.yaml so the allowlist resolver accepts the .claude/vault reference.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}/proj",
@@ -112,25 +130,34 @@
       "cwd_marker_content": "{TMP}/file-vault",
       "vaults_yaml": "vaults:\n  file-vault: {TMP}/file-vault\n  env-vault: {TMP}/env-vault\n",
       "env_CLAUDE_VAULT": "{TMP}/env-vault",
-      "mkdir": ["{TMP}/file-vault", "{TMP}/env-vault"],
+      "mkdir": [
+        "{TMP}/file-vault",
+        "{TMP}/env-vault"
+      ],
       "explicit": null,
       "expect": "{TMP}/file-vault"
     },
     {
       "name": "claude-vault-overrides-default-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "Python branch 3 (CLAUDE_VAULT) beats branch 4 (default). env-vault registered in vaults.yaml for the allowlist.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}",
       "vaults_yaml": "vaults:\n  env-vault: {TMP}/env-vault\n",
       "env_CLAUDE_VAULT": "{TMP}/env-vault",
-      "mkdir": ["{TMP}/env-vault"],
+      "mkdir": [
+        "{TMP}/env-vault"
+      ],
       "explicit": null,
       "expect": "{TMP}/env-vault"
     },
     {
       "name": "cwd-marker-empty-falls-through-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "An empty/whitespace .claude/vault file is skipped -- falls through to CLAUDE_VAULT. env-vault registered for the allowlist.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}/proj",
@@ -138,48 +165,64 @@
       "cwd_marker_content": "   \n",
       "vaults_yaml": "vaults:\n  env-vault: {TMP}/env-vault\n",
       "env_CLAUDE_VAULT": "{TMP}/env-vault",
-      "mkdir": ["{TMP}/env-vault"],
+      "mkdir": [
+        "{TMP}/env-vault"
+      ],
       "explicit": null,
       "expect": "{TMP}/env-vault"
     },
     {
       "name": "cwd-marker-missing-falls-through-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "A cwd with no .claude/vault file falls through to CLAUDE_VAULT. env-vault registered for the allowlist.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}/proj",
       "vaults_yaml": "vaults:\n  env-vault: {TMP}/env-vault\n",
       "env_CLAUDE_VAULT": "{TMP}/env-vault",
-      "mkdir": ["{TMP}/env-vault"],
+      "mkdir": [
+        "{TMP}/env-vault"
+      ],
       "explicit": null,
       "expect": "{TMP}/env-vault"
     },
     {
       "name": "cwd-marker-arbitrary-falls-through-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "SEC-P001 exploit mitigation: a .claude/vault pointing at an arbitrary path NOT registered in vaults.yaml is silently skipped -- the resolver falls through to the default vault rather than writing vault content into the attacker-chosen location. No CLAUDE_VAULT is set, so the final result is the default.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}/proj",
       "cwd_marker": "{TMP}/proj/.claude/vault",
       "cwd_marker_content": "{TMP}/evil-vault",
-      "mkdir": ["{TMP}/evil-vault"],
+      "mkdir": [
+        "{TMP}/evil-vault"
+      ],
       "explicit": null,
       "expect": "{TMP}/ParsidionVault"
     },
     {
       "name": "claude-vault-arbitrary-falls-through-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "SEC-P001: CLAUDE_VAULT pointing at an arbitrary path not in vaults.yaml falls through to the default vault (graceful degradation, no crash).",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}",
       "env_CLAUDE_VAULT": "{TMP}/evil-env-vault",
-      "mkdir": ["{TMP}/evil-env-vault"],
+      "mkdir": [
+        "{TMP}/evil-env-vault"
+      ],
       "explicit": null,
       "expect": "{TMP}/ParsidionVault"
     },
     {
       "name": "claude-vault-forbidden-falls-through-python",
-      "applies_to": ["python"],
+      "applies_to": [
+        "python"
+      ],
       "description": "SEC-P001: CLAUDE_VAULT pointing at a forbidden system path (/etc) is rejected by the allowlist and falls through to the default vault. Previously this raised VaultConfigError; now the resolver degrades gracefully.",
       "env_HOME": "{TMP}",
       "cwd": "{TMP}",
@@ -189,7 +232,9 @@
     },
     {
       "name": "vault-root-overrides-default-typescript",
-      "applies_to": ["typescript"],
+      "applies_to": [
+        "typescript"
+      ],
       "description": "TS getDefaultVault() honors $VAULT_ROOT. Python resolve_vault() does not read VAULT_ROOT -- it uses CLAUDE_VAULT for env override (see claude-vault-overrides-default-python). This is a documented design split, not drift: the visualizer is a server with its own default-override var.",
       "env_HOME": "{TMP}",
       "env_VAULT_ROOT": "{TMP}/custom-default",
@@ -198,12 +243,45 @@
     },
     {
       "name": "vault-root-forbidden-rejected-typescript",
-      "applies_to": ["typescript"],
+      "applies_to": [
+        "typescript"
+      ],
       "description": "VAULT_ROOT pointing at a forbidden system path is rejected by validateVaultPath.",
       "env_HOME": "{TMP}",
       "env_VAULT_ROOT": "/etc",
       "explicit": null,
       "expect_error": "forbidden"
+    },
+    {
+      "name": "cwd-marker-ignored-typescript",
+      "applies_to": [
+        "typescript"
+      ],
+      "description": "ARC-007: TS does NOT read cwd/.claude/vault. Even when the file exists and points at a registered named vault, resolveVault() returns the default. Python resolves it via branch 2 (see cwd-marker-overrides-claude-vault-python). The reverse-direction assertion lives in the python-only vectors above; this vector pins the TS-side 'channel does not exist' so adding it later requires updating the fixture.",
+      "env_HOME": "{TMP}",
+      "cwd_marker": "{TMP}/proj/.claude/vault",
+      "cwd_marker_content": "named-vault",
+      "vaults_yaml": "vaults:\n  named-vault: {TMP}/named-vault\n",
+      "mkdir": [
+        "{TMP}/named-vault"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/ParsidionVault"
+    },
+    {
+      "name": "claude-vault-env-ignored-typescript",
+      "applies_to": [
+        "typescript"
+      ],
+      "description": "ARC-007: TS does NOT read CLAUDE_VAULT. Even when it points at a registered named vault, resolveVault() returns the default. Python resolves it via branch 3 (see claude-vault-overrides-default-python). Pins the TS-side 'channel does not exist' so adding it later requires updating the fixture.",
+      "env_HOME": "{TMP}",
+      "env_CLAUDE_VAULT": "named-vault",
+      "vaults_yaml": "vaults:\n  named-vault: {TMP}/named-vault\n",
+      "mkdir": [
+        "{TMP}/named-vault"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/ParsidionVault"
     }
   ]
 }

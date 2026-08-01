@@ -24,13 +24,13 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
 import vault_common
+import vault_fs
 
 # ENH-008 Step 2: VALID_TYPES is now an alias over the single source in
 # ``note_schema``. Kept under this name so every existing doctor call site and
@@ -242,6 +242,13 @@ def _release_pid(vault_path: Path) -> None:
 # to _backup_note() so an operator can recover the pre-fix version of a note
 # from an unattended --fix-all run. ".trash" is already in
 # vault_common.EXCLUDE_DIRS so backups are invisible to search/indexing.
+#
+# QA-001: the implementation now lives in vault_fs.backup_note (canonical
+# signature ``(note_path, vault)``). This wrapper keeps doctor's existing
+# ``(vault, note_path)`` call signature so every submodule call site stays
+# unchanged, plus doctor's "never raise" contract (the shared helper raises
+# OSError on copy failure) and the per-run dedup set that lets a long
+# --fix-all run skip re-stat'ing a note it has already backed up.
 
 _backed_up_this_run: set[Path] = set()
 
@@ -249,24 +256,21 @@ _backed_up_this_run: set[Path] = set()
 def _backup_note(vault: Path, note_path: Path) -> None:
     """Copy *note_path* to today's pre-mutation backup dir, best-effort.
 
+    Doctor's "never raise" wrapper around :func:`vault_fs.backup_note`.
     No-ops if this note was already backed up during the current process
     (tracked in ``_backed_up_this_run`` to avoid re-stat'ing) or if a backup
-    for today already exists on disk (first version of the day wins).  Never
-    raises — a backup failure warns on stderr but must not block the fix
-    itself, since this runs unattended nightly via cron.
+    for today already exists on disk (first version of the day wins).
+    A backup failure warns on stderr but must not block the fix itself,
+    since this runs unattended nightly via cron.
     """
     if note_path in _backed_up_this_run:
         return
     _backed_up_this_run.add(note_path)
     try:
-        rel = note_path.relative_to(vault)
-    except ValueError:
-        return  # outside the vault -- nothing to back up
-    dest = vault / ".trash" / "backup" / date.today().isoformat() / rel
-    if dest.exists():
-        return  # first version of the day already saved
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(note_path, dest)
+        vault_fs.backup_note(note_path, vault)
     except OSError as exc:
+        try:
+            rel = note_path.relative_to(vault)
+        except ValueError:
+            rel = note_path
         print(f"  ⚠ backup failed for {rel}: {exc}", file=sys.stderr)

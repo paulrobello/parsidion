@@ -34,21 +34,44 @@ The following components are in scope for security reports:
 | Component | Location | Risk surface |
 |-----------|----------|--------------|
 | Hook scripts | `skills/parsidion/scripts/session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`, `session_stop_wrapper.sh`, `codex_session_start_hook.py`, `codex_stop_hook.py`, `codex_subagent_stop_hook.py`, `gemini_session_start_hook.py`, `gemini_session_end_hook.py` | Executed on Claude Code, Codex CLI, and Gemini CLI lifecycle events |
-| Shared library | `skills/parsidion/scripts/vault_common.py` | Vault path resolution, subprocess environment, SQLite access, file locking |
+| Shared library (stdlib-only, see constraint below) | `skills/parsidion/scripts/vault_common.py` re-export facade plus the `core/` implementations (`core/vault_config.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`) and the flat re-export shims (`vault_config.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_metrics.py`, `vault_tui.py`); plus `ai_backend.py`, `parmem_backend.py`, `agent_adapter.py`, `prompt_templates.py`, `note_schema.py` | Vault path resolution, subprocess environment, SQLite access, file locking, prompt-AI backend selection, par-mem bridge, adapter registry, prompt rendering. Imports cleanly under the stdlib-only enforcement test |
+| Vault CLI tools (user-invoked, not hook-driven) | `skills/parsidion/scripts/vault_new.py`, `vault_review.py`, `vault_export.py`, `vault_merge.py`, `vault_conflicts.py`, `vault_doctor.py`, `vault_stats.py`, `build_graph.py`, `vault_embed_serve.py`, `update_index.py` | Invoked explicitly by the user or MCP server. Several use guarded optional extras: `build_graph.py` requires `numpy` (PEP 723), `vault_search.py`/`build_embeddings.py` use `fastembed` + `sqlite-vec`; these are out of the stdlib-only enforcement scope by design |
 | Installer | `install.py` | Writes to `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.codex/config.toml`, and `~/.gemini/settings.json`; copies files into the user's agent config directory |
 | Runtime adapters | `skills/parsidion/scripts/agent_adapter.py`, `~/.config/parsidion/adapters/*.py` | Registry of hook/adapter descriptors; opt-in external adapter loading executes Python from the drop-in dir (default off, permission-checked, logged) |
 | Session summarizer | `skills/parsidion/scripts/summarize_sessions.py` | Processes transcript content via Claude API; writes vault notes from AI-generated content |
-| Vault index | `skills/parsidion/scripts/update_index.py` | Reads all vault notes; writes SQLite database |
 | Semantic search | `skills/parsidion/scripts/vault_search.py`, `build_embeddings.py` | Reads SQLite database; returns paths for injection into session context |
 | Vault Visualizer | `visualizer/app/api/**/*.ts`, `visualizer/lib/apiAuth.ts` | The only network-facing component: a local Next.js server (port 3999) with read/write API routes over the vault directory. Same-origin (`Sec-Fetch-Site`) guard on every route; optional `VISUALIZER_TOKEN` bearer-token auth that gates both reads and writes (SEC-102); vault path validated against an allowlist (`resolveVault`) |
 
 ## Stdlib-Only Hook Constraint
 
-All hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`,
-`post_compact_hook.py`, `subagent_stop_hook.py`, `codex_session_start_hook.py`,
-`codex_stop_hook.py`, `codex_subagent_stop_hook.py`, `gemini_session_start_hook.py`,
-`gemini_session_end_hook.py`, `vault_common.py`, `update_index.py`) use only the **Python standard
-library**. No third-party packages are imported at runtime.
+The hot path — every module imported on a hook event — uses only the **Python standard
+library**. No third-party packages are imported at runtime. This is structurally enforced by
+`tests/test_stdlib_only.py`, which imports each in-scope module in a fresh interpreter with
+`rich`, `fastembed`, `sqlite_vec`, `anyio`, `yaml`, `numpy`, `PIL`, `requests`, and `aiohttp`
+poisoned in `sys.modules`; a violation — even a transitive one — fails CI.
+
+**In scope (enforced):**
+
+- The `core/` library package: `vault_config`, `vault_path`, `vault_fs`, `vault_index`,
+  `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_constants`, `vault_metrics`,
+  `vault_health`, `subproc_util`
+- The flat re-export shims: `vault_common`, `vault_config`, `vault_path`, `vault_fs`,
+  `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_tui`
+- Supporting libraries imported by hooks: `ai_backend`, `parmem_backend`, `agent_adapter`,
+  `vault_health`, `prompt_templates`, `note_schema`
+- Every hook entry point: `session_start_hook`, `session_stop_hook`, `subagent_stop_hook`,
+  `pre_compact_hook`, `post_compact_hook`, `codex_session_start_hook`, `codex_stop_hook`,
+  `codex_subagent_stop_hook`, `gemini_session_start_hook`, `gemini_session_end_hook`
+
+**Out of scope (explicit-invocation tools):** the CLI and build tools — `vault_new.py`,
+`vault_review.py`, `vault_export.py`, `vault_merge.py`, `vault_conflicts.py`,
+`vault_doctor.py`, `vault_stats.py`, `vault_search.py`, `build_embeddings.py`,
+`build_graph.py`, `vault_embed_serve.py`, `update_index.py`, `summarize_sessions.py`,
+`embed_eval*.py`, `html-to-md.py` — are user-invoked and legitimately use guarded optional
+extras. `build_graph.py` is a PEP 723 script requiring `numpy`; `summarize_sessions.py` and
+`build_embeddings.py` are PEP 723 scripts with inline dependency declarations that run in
+isolated `uv` environments and are never executed by hook events. None of these are imported
+from the hot path.
 
 This constraint is intentional and security-relevant:
 
@@ -59,17 +82,12 @@ This constraint is intentional and security-relevant:
 - It prevents a compromised package in the Python environment from intercepting vault writes
   or session context
 
-**Exception:** `summarize_sessions.py` and `build_embeddings.py` are PEP 723 scripts with
-inline dependency declarations. They run in isolated `uv` environments and are never executed
-automatically by hook events — they require explicit user invocation.
+The Vault Visualizer is a TypeScript/Next.js component (not Python) and is therefore out of
+scope for the stdlib-only constraint, but its network-facing routes are listed above and are
+covered by the same vulnerability-disclosure process.
 
-The Gemini adapter hooks (`gemini_session_start_hook.py`, `gemini_session_end_hook.py`) are
-likewise stdlib-only; the existing guarantee carries over to the Gemini surface. The Vault
-Visualizer is a TypeScript/Next.js component (not Python) and is therefore out of scope for
-the stdlib-only constraint, but its network-facing routes are listed above and are covered
-by the same vulnerability-disclosure process.
-
-Any contribution that adds a third-party import to a hook script or to `vault_common.py`
+Any contribution that adds a third-party import to an in-scope module (the `core/` package,
+any flat re-export shim, the hook entry points, or the supporting libraries listed above)
 will be rejected on security grounds, even if the package is widely trusted.
 
 ## Reporting a Vulnerability

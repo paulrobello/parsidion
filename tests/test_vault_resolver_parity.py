@@ -247,6 +247,8 @@ class TestVaultResolutionVectors:
         assert set(_EXCLUDED_FROM_PYTHON) == {
             "vault-root-overrides-default-typescript",
             "vault-root-forbidden-rejected-typescript",
+            "cwd-marker-ignored-typescript",
+            "claude-vault-env-ignored-typescript",
         }, (
             "TypeScript-only vector set changed; update this assertion to "
             "acknowledge the new exclusion (or make the vector shared)."

@@ -41,6 +41,8 @@ A unified command-line interface for discovering and executing tools from multip
 
 ## Overview
 
+> **Verified against `mcpl` v0.1.2 (August 2026).** Command surface and flags may drift in later releases; check `mcpl --version` and `mcpl --help` if a command below is rejected.
+
 **Purpose:** MCP Launchpad solves the tool-discovery problem that emerges when AI agents work across many MCP servers. Without it, an agent must know in advance which server provides which tool — a brittle assumption as configurations grow and change. `mcpl` provides a single search interface across all configured servers, letting agents find and call tools dynamically.
 
 **Key Features:**

@@ -40,6 +40,7 @@ __all__: list[str] = [
     # Parse warning collector
     "record_parse_warning",
     "drain_parse_warnings",
+    "_PARSE_WARNINGS_MAX",  # tests assert the cap value
     # Slug utility
     "slugify",
     # Note search
@@ -57,8 +58,16 @@ __all__: list[str] = [
     "ensure_note_index_schema",
     "query_note_index",
     "load_graph_metadata",
+    "note_index_age",
     # Graph parsing
     "parse_related_stems",
+    # Private helpers re-exported because tests reach into them via the
+    # vault_index shim (e.g. ``vault_index._walk_vault_notes(tmp_vault)``).
+    "_find_notes_by_project_walk",
+    "_find_notes_by_tag_walk",
+    "_find_notes_by_type_walk",
+    "_find_recent_notes_walk",
+    "_walk_vault_notes",
 ]
 
 # ---------------------------------------------------------------------------

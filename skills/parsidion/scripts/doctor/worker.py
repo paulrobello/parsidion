@@ -35,6 +35,45 @@ from doctor.headings import _auto_fix_headings, _auto_fix_self_refs
 from doctor.links import _auto_repair_broken_wikilinks
 
 
+def _classify_repair_outcome(
+    *,
+    fixed_content: str | None,
+    other: list[Issue],
+    link_fix_made: bool,
+    heading_fix_made: bool,
+    self_ref_fix_made: bool,
+    repair_status: str,
+    prev_status: str,
+) -> tuple[str, str]:
+    """Compute ``(icon, final_repair_status)`` for one repaired note.
+
+    QA-004: lifts the status-icon + ``repair_status`` bookkeeping out of
+    :func:`_repair_one` so the worker body reads as a sequence of repair
+    stages instead of an interleaved series of fix / status / print
+    concerns. Pure reorganisation — every branch mirrors the prior inline
+    logic verbatim.
+
+    * ``icon`` is one of ``"✓"`` (success — AI fix landed, or a Python-only
+      fix landed without any Claude call), ``"✗"`` (no fix landed at all),
+      or ``"~"`` (partial — the AI call failed but a Python-only fix
+      earlier in the pipeline did land).
+    * A ``repair_status`` of ``"timeout"`` upgrades to ``"needs_review"``
+      when the note's previous run also timed out, so a transient hang
+      becomes a flag for human intervention on the second consecutive
+      occurrence. All other statuses pass through unchanged.
+    """
+    if fixed_content:
+        icon = "✓"
+    elif (link_fix_made or heading_fix_made or self_ref_fix_made) and not other:
+        # Fixed by Python, no Claude needed
+        icon = "✓"
+    else:
+        if repair_status == "timeout" and prev_status == "timeout":
+            repair_status = "needs_review"
+        icon = "✗" if not (link_fix_made or self_ref_fix_made) else "~"
+    return icon, repair_status
+
+
 def _repair_one(
     note_path: Path,
     note_issues: list[Issue],
@@ -132,15 +171,18 @@ def _repair_one(
             else "failed"
         )
 
-    if fixed_content:
-        icon = "✓"
-    elif (link_fix_made or heading_fix_made or self_ref_fix_made) and not other:
-        # Fixed by Python, no Claude needed
-        icon = "✓"
-    else:
-        if repair_status == "timeout" and prev_status == "timeout":
-            repair_status = "needs_review"
-        icon = "✗" if not (link_fix_made or self_ref_fix_made) else "~"
+    # QA-004: status-icon + repair_status bookkeeping lifted to
+    # _classify_repair_outcome so the worker body reads as a sequence of
+    # repair stages rather than interleaved fix / status / print concerns.
+    icon, repair_status = _classify_repair_outcome(
+        fixed_content=fixed_content,
+        other=other,
+        link_fix_made=link_fix_made,
+        heading_fix_made=heading_fix_made,
+        self_ref_fix_made=self_ref_fix_made,
+        repair_status=repair_status,
+        prev_status=prev_status,
+    )
 
     with lock:
         msg = f"  {rel} ({len(repairable)} issue(s)) … {icon}"

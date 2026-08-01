@@ -277,6 +277,49 @@ def _log_hook_error(hook_name: str) -> None:
         pass
 
 
+def _should_skip(input_data: dict[str, object], cwd: str) -> str | None:
+    """Return a skip reason if :func:`main` should bail before doing work.
+
+    QA-004: lifts the input-validation + SEC-004 transcript-path security
+    guard chain out of :func:`main` so the body reads as a short list of
+    early-returns instead of a 30-line sequence of if/print/stdout/return
+    quads. Each guard's skip-reason string is returned without the
+    ``"[session_stop_hook] skipping: "`` prefix; the caller adds it so the
+    format stays consistent.
+
+    The cheaper presence/existence checks come first because they don't
+    need the SEC-004 root-allowlist work; the allowlist check runs last so
+    a missing transcript never pays for the roots computation.
+
+    Args:
+        input_data: Parsed stdin JSON dict.
+        cwd: Session cwd (used to compute the allowed transcript roots).
+
+    Returns:
+        Skip-reason string, or ``None`` when the input passes every guard
+        and main() may proceed.
+    """
+    transcript_path_str = str(input_data.get("transcript_path", ""))
+    if not transcript_path_str:
+        return "no transcript_path in input"
+
+    transcript_path = Path(transcript_path_str)
+    if not transcript_path.is_file():
+        return f"transcript not found: {transcript_path}"
+
+    # SEC-004: Validate transcript path is under an allowed root (Claude
+    # Code ~/.claude, pi ~/.pi, or cwd/.pi). Do not collapse or weaken this
+    # guard — it is the only check preventing an attacker-controlled cwd
+    # from pointing the hook at an arbitrary filesystem location.
+    if not vault_common.is_allowed_transcript_path(transcript_path, cwd=cwd):
+        roots = ", ".join(
+            str(p) for p in vault_common.allowed_transcript_roots(cwd=cwd)
+        )
+        return f"transcript outside allowed roots ({roots}): {transcript_path}"
+
+    return None
+
+
 def main() -> None:
     """Entry point: read session JSON from stdin, analyze transcript, save learnings."""
     parser = argparse.ArgumentParser(
@@ -339,36 +382,20 @@ def main() -> None:
                 vault_common.resolve_vault(cwd=cwd), session_id
             )
 
-        if not transcript_path_str:
+        # QA-004: input-validation + SEC-004 transcript-path security
+        # guards lifted to _should_skip so the body below reads as a
+        # straight-line pipeline. The SEC-004 guard is preserved verbatim
+        # — see _should_skip for why it must not be weakened.
+        skip_reason = _should_skip(input_data, cwd)
+        if skip_reason is not None:
             print(
-                "[session_stop_hook] skipping: no transcript_path in input",
+                f"[session_stop_hook] skipping: {skip_reason}",
                 file=sys.stderr,
             )
             sys.stdout.write("{}")
             return
 
         transcript_path = Path(transcript_path_str)
-        if not transcript_path.is_file():
-            print(
-                f"[session_stop_hook] skipping: transcript not found: {transcript_path}",
-                file=sys.stderr,
-            )
-            sys.stdout.write("{}")
-            return
-
-        # SEC-004: Validate transcript path is under an allowed root
-        # (Claude Code ~/.claude, pi ~/.pi, or cwd/.pi).
-        if not vault_common.is_allowed_transcript_path(transcript_path, cwd=cwd):
-            roots = ", ".join(
-                str(p) for p in vault_common.allowed_transcript_roots(cwd=cwd)
-            )
-            print(
-                "[session_stop_hook] skipping: transcript outside allowed roots "
-                f"({roots}): {transcript_path}",
-                file=sys.stderr,
-            )
-            sys.stdout.write("{}")
-            return
 
         # Resolve vault path from cwd (supports multi-vault)
         vault_path: Path = vault_common.resolve_vault(cwd=cwd)
