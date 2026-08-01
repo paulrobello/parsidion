@@ -3,7 +3,7 @@ name = "parsidion-mcp"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp>=3.4.4",
+    "fastmcp>=3.4.5",
     "parsidion[search]",
 ]
 
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-timeout>=2.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.21",
+    "ruff>=0.16.1",
     "pyright>=1.1.411",
 ]
 
@@ -44,6 +44,8 @@ timeout = 10
 
 [tool.ruff]
 target-version = "py313"
+# Opt out of ruff 0.16+'s Python-in-Markdown formatting (keep docs as authored).
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "B", "BLE", "UP"]

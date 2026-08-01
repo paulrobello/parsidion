@@ -92,7 +92,9 @@ timeout = 10
 
 [tool.ruff]
 target-version = "py313"
-exclude = ["parsidion-mcp"]
+# extend-exclude (not exclude) preserves ruff's defaults (.git, .venv, __pycache__, …);
+# *.md opts out of ruff 0.16+'s new Python-in-Markdown formatting so docs stay as authored.
+extend-exclude = ["parsidion-mcp", "*.md"]
 
 [tool.ruff.lint]
 select = [
@@ -136,11 +138,11 @@ constraint-dependencies = [
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.6.0",
+    "pre-commit>=4.6.1",
     "pytest>=9.1.1",
     "pytest-timeout>=2.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.21",
+    "ruff>=0.16.1",
     "pyright>=1.1.411",
     "rich>=15.0.0",
 ]
