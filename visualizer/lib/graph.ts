@@ -32,6 +32,8 @@ export interface GraphData {
     incremental?: boolean
     /** Wiki edges contributed by par-mem body-link enrichment; absent when the enrichment was skipped or added nothing. */
     parmem_body_links?: number
+    /** Outcome of par-mem body-link enrichment when attempted (absent when --no-parmem was passed): 'fresh' = ran; 'skipped:index-stale' / '-absent' / '-invalid' = non-fresh index, skipped; 'unavailable' / 'error' = backend failure. */
+    parmem_body_status?: string
   }
   nodes: NoteNode[]
   edges: GraphEdge[]

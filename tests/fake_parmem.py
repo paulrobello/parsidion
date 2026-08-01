@@ -11,9 +11,33 @@ fake health server answers 200 on ``/health`` so
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
+
+
+def fresh_repos_payload(vault: Path, *, stale: bool = False) -> dict:
+    """Build a ``par-mem repos --json`` payload classifying *vault*.
+
+    ``parmem_backend._vault_repo_state`` matches by ``os.path.realpath`` on
+    ``root_path`` or a worktree ``path`` and reads the worktree's ``stale``
+    flag. By default the fake's ``repos`` payload is empty → ``"absent"``; this
+    builds a payload the classifier reads as ``"fresh"`` (or ``"stale"`` with
+    ``stale=True``) for the given vault, so enrichment-attempting tests clear
+    the freshness gate in ``build_parmem_body_edges``.
+    """
+    rv = os.path.realpath(str(vault))
+    return {
+        "repositories": [
+            {
+                "root_path": rv,
+                "worktrees": [{"path": rv, "is_primary": True, "stale": bool(stale)}],
+            }
+        ],
+        "_meta": {"count": 1},
+    }
+
 
 # Script body for the fake binary. The shebang is prepended at install time
 # with the CURRENT interpreter (sys.executable) so the script never depends

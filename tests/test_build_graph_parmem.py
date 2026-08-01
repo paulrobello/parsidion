@@ -30,7 +30,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import build_graph  # noqa: E402
 import vault_common  # noqa: E402
 
-from tests.fake_parmem import FakeHealth, FakeParMem  # noqa: E402
+from tests.fake_parmem import FakeHealth, FakeParMem, fresh_repos_payload  # noqa: E402
 
 
 def make_embeddings_db(vault: Path, stems_with_folders: list[tuple[str, str]]) -> None:
@@ -102,6 +102,7 @@ class TestBodyLinksAppended:
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
         fake_parmem.configure(
+            repos=fresh_repos_payload(tmp_vault),
             doc_links={
                 "links": [
                     {
@@ -113,12 +114,13 @@ class TestBodyLinksAppended:
                 ],
                 "total": 1,
                 "truncated": False,
-            }
+            },
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
         assert graph["edges"] == [{"s": "a", "t": "b", "w": 1.0, "kind": "wiki"}]
         assert graph["meta"]["parmem_body_links"] == 1
+        assert graph["meta"]["parmem_body_status"] == "fresh"
 
 
 class TestDedupeAgainstFrontmatter:
@@ -132,6 +134,7 @@ class TestDedupeAgainstFrontmatter:
         make_embeddings_db(tmp_vault, NOTES)
         set_related(tmp_vault, "a", "[[b]]")
         fake_parmem.configure(
+            repos=fresh_repos_payload(tmp_vault),
             doc_links={
                 "links": [
                     {
@@ -143,7 +146,7 @@ class TestDedupeAgainstFrontmatter:
                 ],
                 "total": 1,
                 "truncated": False,
-            }
+            },
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
@@ -152,6 +155,7 @@ class TestDedupeAgainstFrontmatter:
         # outnumbered by it.
         assert graph["edges"] == [{"s": "a", "t": "b", "w": 1.0, "kind": "wiki"}]
         assert "parmem_body_links" not in graph["meta"]
+        assert graph["meta"]["parmem_body_status"] == "fresh"
 
 
 class TestUnmappedAndSelfLinksDropped:
@@ -164,6 +168,7 @@ class TestUnmappedAndSelfLinksDropped:
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
         fake_parmem.configure(
+            repos=fresh_repos_payload(tmp_vault),
             doc_links={
                 "links": [
                     {
@@ -181,12 +186,13 @@ class TestUnmappedAndSelfLinksDropped:
                 ],
                 "total": 2,
                 "truncated": False,
-            }
+            },
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
         assert graph["edges"] == []
         assert "parmem_body_links" not in graph["meta"]
+        assert graph["meta"]["parmem_body_status"] == "fresh"
 
 
 class TestNoParmemFlag:
@@ -249,6 +255,9 @@ class TestParmemDisabledOutputIdentical:
         out_disabled = tmp_path / "graph-disabled.json"
         graph_disabled = run_build_graph(tmp_vault, out_disabled)
         fake_parmem.assert_no_call("doc-links", settle=0.1)
+        # Freshness gate never even runs: config availability fails first, so
+        # the `repos` probe is never issued either.
+        fake_parmem.assert_no_call("repos", settle=0.1)
 
         # Run 2 (control): binary entirely absent from PATH, config default
         # (enabled) — the pre-integration behavior.
@@ -279,12 +288,95 @@ class TestParmemFailureGraphStillWritten:
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(exit_codes={"doc-links": 1})
+        fake_parmem.configure(
+            repos=fresh_repos_payload(tmp_vault), exit_codes={"doc-links": 1}
+        )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
         assert out.exists()
         assert graph["edges"] == []
         assert "parmem_body_links" not in graph["meta"]
+        # Fresh index, but the doc-links fetch failed — recorded as an error,
+        # distinct from "ran cleanly, found nothing".
+        assert graph["meta"]["parmem_body_status"] == "error"
+
+
+class TestFreshnessGate:
+    """build_parmem_body_edges must skip enrichment when the index is not fresh.
+
+    A stale / mid-catch-up index returns a partial, run-to-run-variable link
+    set; trusting it made two builds over identical input diverge. The gate
+    skips the nondeterministic ``doc-links`` fetch entirely and records the
+    reason in ``meta.parmem_body_status``.
+    """
+
+    _A_TO_B = {
+        "links": [
+            {
+                "source_path": "Debugging/a.md",
+                "target_path": "Patterns/b.md",
+                "target_is_doc": True,
+                "count": 2,
+            }
+        ],
+        "total": 1,
+        "truncated": False,
+    }
+
+    def test_stale_index_skips_enrichment_and_fetch(
+        self,
+        tmp_vault: Path,
+        fake_parmem: FakeParMem,
+        fake_parmem_health: FakeHealth,
+        tmp_path: Path,
+    ) -> None:
+        make_embeddings_db(tmp_vault, NOTES)
+        fake_parmem.configure(
+            repos=fresh_repos_payload(tmp_vault, stale=True), doc_links=self._A_TO_B
+        )
+        out = tmp_path / "graph.json"
+        graph = run_build_graph(tmp_vault, out)
+        assert graph["meta"]["parmem_body_status"] == "skipped:index-stale"
+        assert "parmem_body_links" not in graph["meta"]
+        assert graph["edges"] == []
+        # The nondeterministic fetch is gated off — doc-links never runs...
+        fake_parmem.assert_no_call("doc-links", settle=0.1)
+        # ...but the freshness probe itself did.
+        fake_parmem.wait_for_call("repos")
+
+    def test_absent_index_skips_enrichment(
+        self,
+        tmp_vault: Path,
+        fake_parmem: FakeParMem,
+        fake_parmem_health: FakeHealth,
+        tmp_path: Path,
+    ) -> None:
+        make_embeddings_db(tmp_vault, NOTES)
+        # Default repos payload is empty -> vault classified "absent".
+        fake_parmem.configure(doc_links=self._A_TO_B)
+        out = tmp_path / "graph.json"
+        graph = run_build_graph(tmp_vault, out)
+        assert graph["meta"]["parmem_body_status"] == "skipped:index-absent"
+        assert "parmem_body_links" not in graph["meta"]
+        fake_parmem.assert_no_call("doc-links", settle=0.1)
+
+    def test_stale_index_is_deterministic(
+        self,
+        tmp_vault: Path,
+        fake_parmem: FakeParMem,
+        fake_parmem_health: FakeHealth,
+        tmp_path: Path,
+    ) -> None:
+        make_embeddings_db(tmp_vault, NOTES)
+        fake_parmem.configure(
+            repos=fresh_repos_payload(tmp_vault, stale=True), doc_links=self._A_TO_B
+        )
+        g1 = run_build_graph(tmp_vault, tmp_path / "g1.json")
+        g2 = run_build_graph(tmp_vault, tmp_path / "g2.json")
+        del g1["meta"]["generated"]
+        del g2["meta"]["generated"]
+        assert g1 == g2
+        assert g1["meta"]["parmem_body_status"] == "skipped:index-stale"
 
 
 class TestArc038GraphSchemaValidation:

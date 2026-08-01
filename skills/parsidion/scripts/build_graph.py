@@ -112,6 +112,18 @@ GRAPH_JSON_SCHEMA: dict = {
                         "Absent when enrichment was skipped or added nothing."
                     ),
                 },
+                "parmem_body_status": {
+                    "type": "string",
+                    "description": (
+                        "Outcome of par-mem body-link enrichment when it was "
+                        "attempted (present whenever --no-parmem was not passed). "
+                        "'fresh' = index current, enrichment ran (count in "
+                        "parmem_body_links when >=1); 'skipped:index-stale' / "
+                        "'skipped:index-absent' / 'skipped:index-invalid' = a "
+                        "non-fresh index made enrichment non-deterministic so it "
+                        "was skipped; 'unavailable' / 'error' = backend failure."
+                    ),
+                },
             },
         },
         "nodes": {
@@ -691,23 +703,39 @@ def build_parmem_body_edges(
     vault_root: Path,
     rel_path_to_stem: dict[str, str],
     existing_keys: set[tuple[str, str]],
-) -> list[dict]:
-    """Wiki edges from par-mem's in-body doc links (frontmatter pass can't see them).
+) -> tuple[list[dict], str]:
+    """Wiki edges from par-mem's in-body doc links + an outcome status.
 
-    Never raises and returns [] whenever par-mem is unavailable or fails, so the
-    graph build is byte-identical to the pre-integration output in every
-    degraded case.
+    The index must be FRESH before its body links are trusted: a stale or
+    mid-catch-up index returns a partial, run-to-run-variable link set, which
+    would make two builds over identical input diverge. When the index is not
+    fresh the nondeterministic ``doc_links_raw`` fetch is skipped entirely.
+
+    Returns ``(edges, status)``. ``status`` is ``"fresh"`` when enrichment ran
+    cleanly (edges may still be empty if par-mem found no new in-body links);
+    otherwise a reason: ``skipped:index-stale`` / ``skipped:index-absent`` /
+    ``skipped:index-invalid`` (non-fresh index), ``unavailable`` (backend off /
+    unreachable), or ``error`` (doc-links fetch failed). Never raises and never
+    breaks the build — on any failure the graph is byte-identical to the
+    pre-integration output apart from the recorded ``status``.
     """
     try:
         import parmem_backend
     except ImportError:
-        return []
+        return [], "unavailable"
     try:
         if not parmem_backend.resolve_parmem_backend(vault_root):
-            return []
+            return [], "unavailable"
+        is_fresh, state = parmem_backend.vault_index_fresh(vault_root)
+        if not is_fresh:
+            if state in ("stale", "absent", "invalid"):
+                return [], f"skipped:index-{state}"
+            return [], state  # "unavailable" / "error"
         links = parmem_backend.doc_links_raw(cwd=vault_root, vault=vault_root)
-        if not links:
-            return []
+        if links is None:
+            # Fresh index, but the fetch itself failed — already logged inside
+            # doc_links_raw. Distinct from "ran cleanly, found nothing".
+            return [], "error"
         edges = []
         seen = set(existing_keys)
         for link in links:
@@ -720,9 +748,9 @@ def build_parmem_body_edges(
                 continue
             seen.add((s, t))
             edges.append({"s": s, "t": t, "w": 1.0, "kind": "wiki"})
-        return edges
+        return edges, "fresh"
     except Exception:  # noqa: BLE001 — enrichment must never break the build
-        return []
+        return [], "error"
 
 
 def write_graph_json(graph: dict, output_path: Path) -> None:
@@ -898,6 +926,7 @@ def main() -> None:
     vault_root_str = str(vault_root) + "/"
 
     body_edges: list[dict] = []
+    parmem_status = ""
     if args.use_parmem:
         print(
             "Enriching with par-mem body links...", end="", file=sys.stderr, flush=True
@@ -909,10 +938,15 @@ def main() -> None:
                 rel = rel[len(vault_root_str) :]
             rel_path_to_stem[rel] = note["stem"]
         existing_keys = {(e["s"], e["t"]) for e in wiki_edges}
-        body_edges = build_parmem_body_edges(
+        body_edges, parmem_status = build_parmem_body_edges(
             vault_root, rel_path_to_stem, existing_keys
         )
-        print(f"  → {len(body_edges)} pairs", file=sys.stderr)
+        detail = (
+            f"{len(body_edges)} pairs"
+            if parmem_status == "fresh"
+            else f"skipped ({parmem_status})"
+        )
+        print(f"  → {detail}", file=sys.stderr)
 
     all_edges = semantic_edges + wiki_edges + body_edges
     total_edges = len(all_edges)
@@ -953,6 +987,7 @@ def main() -> None:
             "max_neighbors": args.max_neighbors,
             **incremental_meta,
             **({"parmem_body_links": len(body_edges)} if body_edges else {}),
+            **({"parmem_body_status": parmem_status} if parmem_status else {}),
         },
         "nodes": nodes,
         "edges": all_edges,

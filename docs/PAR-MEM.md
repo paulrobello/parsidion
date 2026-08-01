@@ -216,7 +216,8 @@ a note's body, which `build_graph.py` cannot see on its own.
 On every run (unless `--no-parmem` is passed), `build_graph.py` calls
 `resolve_parmem_backend()` — the same availability probe search uses (config
 gate + binary on `PATH` + daemon `/health`; see "Troubleshooting" below) —
-and, when it succeeds, runs:
+then checks the par-mem index is **fresh** for the vault (see "Freshness"
+below) before it runs:
 
 ```bash
 par-mem doc-links --json --targets doc --limit 200000
@@ -227,19 +228,33 @@ resolves to two distinct, known note stems becomes an extra
 `{"s", "t", "w": 1.0, "kind": "wiki"}` edge, deduplicated against the
 frontmatter-derived wiki edges (and against itself). When one or more edges
 were added, the output `graph.json`'s `meta` gains a `parmem_body_links`
-count; when none were added — par-mem unavailable, no body links found, or
-`--no-parmem` was passed — the key is omitted entirely (not written as
-zero), and the `nodes`/`edges` content matches the pre-integration output.
+count; when none were added the key is omitted entirely (not written as
+zero). Whenever enrichment was attempted (i.e. `--no-parmem` was *not*
+passed) `meta` also carries a `parmem_body_status` string recording the
+outcome — `fresh` (ran cleanly), `skipped:index-stale` /
+`skipped:index-absent` / `skipped:index-invalid` (index not fresh,
+enrichment skipped), or `unavailable` / `error` (backend failure). When
+`--no-parmem` was passed, neither key is present and the `nodes`/`edges`
+content matches the pre-integration output.
 
 - **Opt out:** `build_graph.py --no-parmem` skips the enrichment
   unconditionally.
 - **Troubleshooting:** enrichment silently contributes zero edges whenever
   the standard availability probe fails — same probe as search; see
   "Troubleshooting" above for how to diagnose it.
-- **Freshness:** enrichment reads par-mem's index as-is, not a live
-  recompute — a body link written moments before a `graph.json` rebuild may
-  not appear until the *next* rebuild, since the background reindex and the
-  graph build are decoupled by design.
+- **Freshness (determinism gate):** a stale or mid-catch-up index returns a
+  partial, run-to-run-variable link set, which would make two `graph.json`
+  builds over identical input diverge. So before trusting body links,
+  `build_graph.py` asks `par-mem repos --json` whether the vault's index is
+  current (`parmem_backend.vault_index_fresh`); when it is not fresh the
+  `doc-links` fetch is skipped entirely and `meta.parmem_body_status`
+  records `skipped:index-stale` (or `-absent` / `-invalid`). The build stays
+  deterministic regardless of index state — re-run after the background
+  reindex completes to pick up body links. This probe is side-effect-free: it
+  never spawns a reindex itself (unlike the search path's
+  `ensure_vault_indexed`, which kicks one on stale). A body link written
+  moments before a rebuild may still not appear until the next one, since the
+  background reindex and the graph build are decoupled by design.
 
 The visualizer surfaces the integration three ways: the `?` search prefix runs
 semantic search through `vault_search.py` (par-mem's warm daemon when enabled,

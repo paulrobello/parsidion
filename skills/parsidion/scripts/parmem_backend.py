@@ -619,11 +619,41 @@ def _vault_repo_state(payload: object, vault: Path) -> str:
     return "absent"
 
 
+def _repos_state(vault: Path) -> str:
+    """Fetch ``par-mem repos --json`` and classify *vault*.
+
+    Returns ``"unavailable"`` (par-mem off / binary missing / daemon down /
+    launch-timeout / nonzero exit), ``"invalid"`` (unparseable or unexpected
+    payload), or the :func:`_vault_repo_state` verdict (``"fresh"`` /
+    ``"stale"`` / ``"absent"``). Failures other than plain unavailability are
+    logged with the module's ``repos`` reason tags. Never raises.
+    """
+    if _resolve_binary(vault) is None:
+        return "unavailable"
+    started = time.monotonic()
+    _, result = _run_parmem(
+        ["repos", "--json"], cwd=vault, timeout=_timeout_s(vault), vault=vault
+    )
+    if result is None or result.returncode != 0:
+        _log_event(vault, "repos", "spawn-timeout-or-nonzero", started)
+        return "unavailable"
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        _log_event(vault, "repos", "bad-json", started)
+        return "invalid"
+    state = _vault_repo_state(payload, vault)
+    if state == "invalid":
+        _log_event(vault, "repos", "unexpected-shape", started)
+    return state
+
+
 def ensure_vault_indexed(vault: Path | None = None) -> bool:
     """Return True when the current query may be served by par-mem.
 
-    Freshness comes from ``par-mem repos --json`` (the verbatim
-    list_indexed_repositories result; proxy-only — exit 2 without a daemon):
+    Freshness comes from :func:`_repos_state` (``par-mem repos --json``, the
+    verbatim list_indexed_repositories result; proxy-only — exit 2 without a
+    daemon):
 
     - **fresh** → True.
     - **stale** → kick a detached background ``par-mem index`` and STILL
@@ -631,28 +661,14 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
       while the reindex catches up.
     - **absent** → kick a background index and return False so the CURRENT
       query falls back to embeddings (a later query picks par-mem up).
-    - **failed/garbled ``repos``** → False WITHOUT spawning — never reindex
+    - **unavailable/invalid** → False WITHOUT spawning — never reindex
       blind when the daemon cannot even list its repositories.
 
     Never raises.
     """
     try:
         vault = vault or resolve_vault()
-        if _resolve_binary(vault) is None:
-            return False
-        started = time.monotonic()
-        _, result = _run_parmem(
-            ["repos", "--json"], cwd=vault, timeout=_timeout_s(vault), vault=vault
-        )
-        if result is None or result.returncode != 0:
-            _log_event(vault, "repos", "spawn-timeout-or-nonzero", started)
-            return False
-        try:
-            payload = json.loads(result.stdout)
-        except (json.JSONDecodeError, ValueError):
-            _log_event(vault, "repos", "bad-json", started)
-            return False
-        state = _vault_repo_state(payload, vault)
+        state = _repos_state(vault)
         if state == "fresh":
             return True
         if state == "stale":
@@ -661,7 +677,26 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
         if state == "absent":
             spawn_background_index(vault)
             return False
-        _log_event(vault, "repos", "unexpected-shape", started)
-        return False
+        return False  # unavailable or invalid — never spawn blind
     except Exception:  # noqa: BLE001 — contract: never raises
         return False
+
+
+def vault_index_fresh(vault: Path | None = None) -> tuple[bool, str]:
+    """Return ``(is_fresh, reason)`` for deterministic-build callers.
+
+    Only ``(True, "fresh")`` authorizes trusting par-mem's body-link
+    enrichment; every other state returns ``(False, reason)`` so the caller
+    skips enrichment instead of emitting partial, run-to-run-variable edges
+    from a stale or mid-catch-up index. ``reason`` is the :func:`_repos_state`
+    verdict (``fresh`` / ``stale`` / ``absent`` / ``invalid`` /
+    ``unavailable``). Side-effect-free — unlike :func:`ensure_vault_indexed`,
+    this never spawns a background reindex (the build path must not mutate
+    index state). Never raises.
+    """
+    try:
+        vault = vault or resolve_vault()
+        state = _repos_state(vault)
+        return (state == "fresh", state)
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return (False, "error")
