@@ -60,6 +60,9 @@ py-modules = [
     "vault_hooks",
     "vault_adaptive",
     "ai_backend",
+    # ENH-003: imported unconditionally by vault_search; must ship or a clean
+    # wheel install fails on `import vault_search`.
+    "vault_embed_serve",
     # ARC-004: these are now stdlib-only re-export shims over core/; they must
     # ship so a clean wheel install can import them (subproc_util is imported by
     # ai_backend/parmem_backend; vault_constants by vault_fs/vault_hooks).

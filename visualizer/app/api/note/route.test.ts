@@ -27,6 +27,7 @@ let secondaryVault: string
 let originalHome: string | undefined
 let originalVaultRoot: string | undefined
 let originalVisualizerToken: string | undefined
+let originalXdgConfig: string | undefined
 
 function setupVaults() {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'arc002-home-'))
@@ -53,9 +54,14 @@ function setupVaults() {
   originalHome = process.env.HOME
   originalVaultRoot = process.env.VAULT_ROOT
   originalVisualizerToken = process.env.VISUALIZER_TOKEN
+  originalXdgConfig = process.env.XDG_CONFIG_HOME
   process.env.HOME = tmpHome
   delete process.env.VAULT_ROOT // force getDefaultVault() to use $HOME/ParsidionVault
   delete process.env.VISUALIZER_TOKEN // tests run without token; mutations still pass requireAuth
+  // GitHub's Ubuntu runners set XDG_CONFIG_HOME; without clearing it,
+  // getVaultsConfigPath() reads the runner's vaults.yaml (which has no
+  // "secondary" vault), so named-vault writes return 400.
+  delete process.env.XDG_CONFIG_HOME
 }
 
 function teardownVaults() {
@@ -65,6 +71,8 @@ function teardownVaults() {
   else process.env.VAULT_ROOT = originalVaultRoot
   if (originalVisualizerToken === undefined) delete process.env.VISUALIZER_TOKEN
   else process.env.VISUALIZER_TOKEN = originalVisualizerToken
+  if (originalXdgConfig === undefined) delete process.env.XDG_CONFIG_HOME
+  else process.env.XDG_CONFIG_HOME = originalXdgConfig
 
   try {
     fs.rmSync(tmpHome, { recursive: true, force: true })
