@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-31
+
+The ENH-001…008 enhancement backlog ships — a ~3× smaller `graph.json`, incremental graph rebuilds, an opt-in persistent embedding service, a DB-first metadata read path, shared Python↔TypeScript parity fixtures, a documented agent-adapter registry, a composite vault-health score, and externalized versioned prompts with a full eval harness. Plus a determinism fix for par-mem body-link enrichment.
+
+### Added
+- **Graph: cap semantic edges per node (top-K nearest neighbours)** (`ENH-001`) — `build_graph.py` keeps each note's strongest 15 neighbours (configurable via `--max-neighbors`; `0` restores all-pairs) instead of emitting every pair above the floor, cutting the live vault's `graph.json` from 47.5 MB / 376k edges to ~15.6 MB / 110k edges (mean degree 67.6 → 15.8) while preserving every `[[wikilink]]` edge.
+- **Incremental graph generation** (`ENH-002`) — `--incremental` recomputes only notes whose mtime changed since `meta.generated` (a `schema_version` forces a full rebuild on format change), making freshness cheap enough to default on.
+- **Persistent embedding service** (`ENH-003`) — an opt-in AF_UNIX daemon (`embeddings.service_enabled`) lets short-lived `vault_search` callers share one warm ~67 MB ONNX model instead of each cold-loading it; an in-process embedding cache is shared across the summarizer's dedup/backlink calls.
+- **`note_index` as the metadata read path** (`ENH-004`) — `find_notes_by_project/tag/type/recent` are now DB-first (walk fallback retained for mutation paths), removing the class of walk-vs-DB disagreement.
+- **Shared Python↔TypeScript parity fixtures** (`ENH-005`) — vault-resolution vectors and the `graph.json` JSON Schema are emitted from the Python side and consumed by both test suites, so cross-language drift becomes a CI failure (`make parity-fixtures-check`).
+- **`AgentAdapter` registry** (`ENH-006`) — a documented, data-only extension point (claude/codex/gemini/pi + opt-in external drop-ins) drives `connect`/`disconnect` and the installer's merge/remove; the five codex/gemini hook shims collapse onto one parameterized module.
+- **`vault-stats --health` composite score** (`ENH-007`) — one 0–100 vault-health grade with per-dimension grades and next actions; the default output of bare `vault-stats`.
+- **Externalized versioned prompts + eval harness** (`ENH-008`) — the six prompts live as templates under `templates/prompts/` with a strict variable contract (`prompt_templates.render`), and `tools/eval/prompt_eval_run.py` scores all six against golden cases via a per-prompt evaluator dispatch (render/parse/score; no AI billed by the test suite).
+
+### Changed
+- **Prompt-eval harness is per-prompt** — the driver dispatches over `tools/eval/evaluators/` (one module per prompt); each prompt has its own output shape and rubric rather than the former note-specific monolith.
+- **Documentation synced** — ARCHITECTURE, MCP, PROMPTS, VISUALIZER, EMBEDDINGS, EMBEDDINGS_EVAL, AGENT-ADAPTERS, MCPL, README, VAULT_SYNC reconciled to the current implementation.
+
+### Fixed
+- **par-mem body-link enrichment is now deterministic** — `build_graph.py` gates the enrichment on a fresh index (`parmem_backend.vault_index_fresh`) and records the outcome in `meta.parmem_body_status`, so a stale / mid-catch-up index no longer makes two builds over identical input diverge (0 then 234 body-links seconds apart).
+- **`note_index` str-tolerance** — consistent type coercion across the read-path surface.
+
 ## [0.14.0] - 2026-07-30
 
 ### Security
@@ -721,7 +743,8 @@ Major new feature enabling multiple isolated vaults with per-vault configuration
 - 8 note templates (daily, project, language, framework, pattern, debugging, tool, research)
 - Architecture documentation with Mermaid diagrams (`docs/ARCHITECTURE.md`)
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/paulrobello/parsidion/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/paulrobello/parsidion/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/paulrobello/parsidion/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/paulrobello/parsidion/compare/v0.12.1...v0.12.2
