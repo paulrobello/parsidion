@@ -1,9 +1,9 @@
 """ENH-008 Step 4 — golden-set anonymization gate.
 
-The golden transcripts under ``tests/fixtures/prompts/golden/`` feed the prompt
-eval harness. They are derived from real session transcripts, so they are
-treated as sensitive by default (the audit found session metadata leaking
-through ``.bak`` files — SEC-104). This test scans every fixture for the
+The golden fixtures under ``tests/fixtures/prompts/golden/<prompt>/`` feed the
+prompt eval harness. They are derived from real session transcripts and notes,
+so they are treated as sensitive by default (the audit found session metadata
+leaking through ``.bak`` files — SEC-104). This test scans every fixture for the
 leakage signatures the plan names and fails on the first hit:
 
 - absolute home paths (``/Users/<name>``, ``/home/<name>``)
@@ -24,7 +24,10 @@ from pathlib import Path
 
 import pytest
 
-_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "prompts" / "golden"
+_FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "prompts" / "golden"
+# summarize-session's golden cases live in their own subdir (one per prompt).
+# Its count + rubric-field checks are note-specific, so they target this dir.
+_SUMMARIZE_SESSION_DIR = _FIXTURE_ROOT / "summarize-session"
 
 
 # Leakage signatures. Each is a compiled regex; a match anywhere in any
@@ -57,52 +60,66 @@ _LEAK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"-----BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY-----"),
     ),
     # Maintainer-specific identifiers (the real names this vault belongs to).
-    # A golden transcript must never reference a specific person.
+    # A golden fixture must never reference a specific person.
     ("maintainer username", re.compile(r"\bprobello\b", re.IGNORECASE)),
 ]
 
 
-def _fixture_files() -> list[Path]:
-    """Every transcript + expected YAML in the golden directory."""
-    if not _FIXTURE_DIR.is_dir():
+def _all_fixture_files() -> list[Path]:
+    """Every fixture file across all per-prompt golden subdirs.
+
+    The anonymization scan covers every prompt's fixtures — they are all
+    derived from real session/note data.
+    """
+    if not _FIXTURE_ROOT.is_dir():
         return []
     return sorted(
         p
-        for p in _FIXTURE_DIR.iterdir()
+        for p in _FIXTURE_ROOT.rglob("*")
         if p.is_file() and p.suffix in (".md", ".yaml", ".yml")
     )
 
 
+def _summarize_session_files() -> list[Path]:
+    if not _SUMMARIZE_SESSION_DIR.is_dir():
+        return []
+    return sorted(p for p in _SUMMARIZE_SESSION_DIR.iterdir() if p.is_file())
+
+
 def test_golden_directory_has_expected_case_count() -> None:
-    """The plan calls for 8-12 golden cases. Fail if the set shrinks."""
-    transcripts = [p for p in _fixture_files() if p.name.endswith(".transcript.md")]
+    """The plan calls for 8+ summarize-session cases. Fail if the set shrinks."""
+    transcripts = [
+        p for p in _summarize_session_files() if p.name.endswith(".transcript.md")
+    ]
     assert 8 <= len(transcripts) <= 20, (
-        f"expected 8-12 golden transcripts, found {len(transcripts)}: "
+        f"expected 8-20 summarize-session transcripts, found {len(transcripts)}: "
         f"{[p.name for p in transcripts]}"
     )
     # Every transcript has a matching .expected.yaml.
     for t in transcripts:
         stem = t.name.removesuffix(".transcript.md")
-        expected = _FIXTURE_DIR / f"{stem}.expected.yaml"
+        expected = _SUMMARIZE_SESSION_DIR / f"{stem}.expected.yaml"
         assert expected.is_file(), f"missing expected YAML for {t.name}: {expected}"
 
 
-@pytest.mark.parametrize("fixture_path", _fixture_files())
+@pytest.mark.parametrize("fixture_path", _all_fixture_files())
 def test_golden_fixture_is_anonymized(fixture_path: Path) -> None:
     """No fixture file contains a leakage signature."""
     text = fixture_path.read_text(encoding="utf-8")
     for label, pattern in _LEAK_PATTERNS:
         match = pattern.search(text)
         assert match is None, (
-            f"{fixture_path.name}: {label} leakage at offset "
+            f"{fixture_path.relative_to(_FIXTURE_ROOT)}: {label} leakage at offset "
             f"{match.start() if match else '?'}: {match.group(0) if match else ''!r}"
         )
 
 
 def test_golden_expected_yaml_has_required_fields() -> None:
-    """Every expected-characteristics YAML declares the rubric fields."""
-    expected_files = [p for p in _fixture_files() if p.name.endswith(".expected.yaml")]
-    assert expected_files, "no .expected.yaml files found"
+    """Every summarize-session expected.yaml declares the note-rubric fields."""
+    expected_files = [
+        p for p in _summarize_session_files() if p.name.endswith(".expected.yaml")
+    ]
+    assert expected_files, "no summarize-session .expected.yaml files found"
     required = {
         "should_produce_note",
         "expected_type",
