@@ -19,6 +19,31 @@ unchanged.  A handful of underscore-prefixed private symbols are ALSO
 re-exported purely for backward-compat test access — they are importable
 from ``vault_common`` but deliberately omitted from ``__all__``; new code
 should import them from their defining submodule instead.
+
+ARC-001 POLICY -- DEPRECATED RE-EXPORT SURFACE
+==============================================
+
+This module is a **compatibility shim** retained for external callers
+(``parsidion-mcp`` and any out-of-tree integrations) plus callers that have
+not yet been migrated. **New symbols MUST NOT be added to the re-export
+surface below** -- new code imports directly from the relevant
+``core.<module>`` instead.
+
+Every ``from <shim> import (...)`` block and the ``__all__`` enumeration
+below carries a ``# deprecated: import directly from core.<module>`` marker.
+Follow those markers when:
+
+  * adding new symbols -- add them to the ``core.<module>`` implementation
+    only; do NOT extend the re-export lists here.
+  * migrating call sites -- rewrite ``from vault_common import X`` as
+    ``from core.<module> import X`` (the marker tells you which module X
+    lives in). ``import vault_common`` callers become one or more explicit
+    ``from core.<module> import X`` lines.
+
+The flat per-module shims at the scripts root (``vault_config.py``,
+``vault_path.py``, ``vault_fs.py``, ...) are intentionally NOT collapsed to
+``import *`` here -- that is QA-005 and depends on this deprecation landing
+first. See ``AUDIT.md`` [ARC-001] and ``AUDIT-REMEDIATION-PLAN.md`` Phase 2.
 """
 
 # ---------------------------------------------------------------------------
@@ -30,6 +55,7 @@ should import them from their defining submodule instead.
 # re-exported for backward compatibility only — existing tests import them via
 # vault_common.  They are intentionally omitted from __all__ and should not be
 # used in new code; access them from vault_config directly instead.
+# deprecated: import directly from core.vault_config
 from vault_config import (  # noqa: F401
     _CONFIG_SCHEMA,
     _clear_config_cache,
@@ -44,6 +70,7 @@ from vault_config import (  # noqa: F401
 )
 
 # vault_path: path resolution, constants, secure logging
+# deprecated: import directly from core.vault_path
 from vault_path import (  # noqa: F401
     DEFAULT_VAULT_NAME,
     EMBEDDINGS_DB_FILENAME,
@@ -66,6 +93,7 @@ from vault_path import (  # noqa: F401
 )
 
 # vault_fs: file locking, pending queue, git, daily notes
+# deprecated: import directly from core.vault_fs
 from vault_fs import (  # noqa: F401
     append_session_to_daily,
     append_to_pending,
@@ -85,6 +113,7 @@ from vault_fs import (  # noqa: F401
 )
 
 # vault_index: frontmatter, note search, context building
+# deprecated: import directly from core.vault_index
 from vault_index import (  # noqa: F401
     EXCLUDE_DIRS,
     VAULT_DIRS,
@@ -109,6 +138,7 @@ from vault_index import (  # noqa: F401
 )
 
 # vault_hooks: hook event logging, env helpers, transcript analysis
+# deprecated: import directly from core.vault_hooks
 from vault_hooks import (  # noqa: F401
     TRANSCRIPT_CATEGORIES,
     TRANSCRIPT_CATEGORY_LABELS,
@@ -134,6 +164,7 @@ from vault_hooks import (  # noqa: F401
 )
 
 # vault_adaptive: per-note usefulness tracking, last-seen state
+# deprecated: import directly from core.vault_adaptive
 from vault_adaptive import (  # noqa: F401
     get_injected_stems,
     get_last_seen_path,
@@ -147,6 +178,9 @@ from vault_adaptive import (  # noqa: F401
 
 __version__ = "0.15.0"
 
+# deprecated: import directly from core.<module> -- this enumeration is retained
+# for backwards-compat external callers and is NOT extended. New public symbols
+# live in the relevant core.<module> and are imported from there directly.
 __all__: list[str] = [
     # Version
     "__version__",

@@ -12,7 +12,10 @@ import subprocess
 import sys
 from datetime import date
 
-import vault_common
+# ARC-001: imported directly from core.* instead of the vault_common facade.
+from core.vault_fs import ensure_vault_dirs
+from core.vault_index import slugify
+from core.vault_path import resolve_vault
 
 # ENH-008 Step 2: the type→folder map and the valid type set live once in
 # ``note_schema``. ``vault-new`` excludes ``daily`` (the stop hook owns daily
@@ -45,7 +48,7 @@ def _build_slug(title: str) -> str:
             file=sys.stderr,
         )
         title = " ".join(words[:_MAX_SLUG_WORDS])
-    return vault_common.slugify(title)
+    return slugify(title)
 
 
 def _build_frontmatter(
@@ -190,7 +193,7 @@ Examples:
         tags = [t.strip() for t in args.tags.split(",") if t.strip()]
 
     # Resolve vault path
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
     # Build slug and target path
     slug = _build_slug(args.title)
@@ -208,7 +211,7 @@ Examples:
 
     # Ensure vault directories exist (unless dry-run)
     if not args.dry_run:
-        vault_common.ensure_vault_dirs(vault_path)
+        ensure_vault_dirs(vault_path)
 
     # Verify the target directory exists
     if not target_dir.exists() and not args.dry_run:

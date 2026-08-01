@@ -98,14 +98,17 @@ class TestPostCompactFraming:
     ) -> None:
         daily = self._write_daily(tmp_path)
         # Bypass vault resolution: call main() directly with the daily path
-        # monkeypatched as the daily note path.
+        # monkeypatched as the daily note path. ARC-001: post_compact_hook now
+        # imports today_daily_path / resolve_vault directly from core.*, so the
+        # patches target those names on the module itself rather than the
+        # former vault_common facade attribute.
         monkeypatch.setattr(
-            post_compact_hook.vault_common,
+            post_compact_hook,
             "today_daily_path",
             lambda vault=None: daily,
         )
         monkeypatch.setattr(
-            post_compact_hook.vault_common,
+            post_compact_hook,
             "resolve_vault",
             lambda cwd="": tmp_path,
         )

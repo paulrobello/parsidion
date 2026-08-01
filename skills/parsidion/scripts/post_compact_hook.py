@@ -13,9 +13,11 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-import vault_common
+# ARC-001: imported directly from core.* instead of the vault_common facade.
+from core.vault_fs import today_daily_path
+from core.vault_path import resolve_vault, rotate_log_file, secure_log_dir
 
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
+_HOOK_ERROR_LOG = secure_log_dir() / "parsidion-hook-errors.log"
 _SNAPSHOT_HEADING = "## Pre-Compact Snapshot"
 
 
@@ -34,7 +36,7 @@ def _log_hook_error(hook_name: str) -> None:
         ts = datetime.now().isoformat(timespec="seconds")
         tb = traceback.format_exc()
         entry = f"[{ts}] {hook_name}\n{tb}\n"
-        vault_common.rotate_log_file(_HOOK_ERROR_LOG)
+        rotate_log_file(_HOOK_ERROR_LOG)
         with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
             fh.write(entry)
     except Exception:  # noqa: BLE001 — logging must never raise
@@ -95,9 +97,9 @@ def main() -> None:
 
     try:
         # Resolve vault path from cwd (supports multi-vault)
-        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+        vault_path: Path = resolve_vault(cwd=cwd)
 
-        daily_path = vault_common.today_daily_path(vault=vault_path)
+        daily_path = today_daily_path(vault=vault_path)
 
         if not daily_path.is_file():
             # Fallback: legacy un-namespaced path (pre-migration vault)

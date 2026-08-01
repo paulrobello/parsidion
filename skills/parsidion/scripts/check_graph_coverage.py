@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-from vault_common import VAULT_ROOT
+from core.vault_path import VAULT_ROOT
 
 GRAPH_JSON: Path = VAULT_ROOT / ".obsidian" / "graph.json"
 CLAUDE_MD: Path = VAULT_ROOT / "CLAUDE.md"

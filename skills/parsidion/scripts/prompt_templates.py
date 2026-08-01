@@ -35,7 +35,9 @@ from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
-import vault_common
+# ARC-001: imported directly from core.* instead of the vault_common facade.
+from core.vault_index import parse_frontmatter
+from core.vault_path import resolve_templates_dir
 
 __all__ = [
     "PromptError",
@@ -93,7 +95,7 @@ class PromptTemplate:
 #: :func:`vault_common.resolve_templates_dir`. Tests reset the cache after
 #: monkeypatching the resolver.
 def _templates_dir() -> Path:
-    return vault_common.resolve_templates_dir() / "prompts"
+    return resolve_templates_dir() / "prompts"
 
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
@@ -145,7 +147,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
         body = body[2:]
     elif body.startswith("\n"):
         body = body[1:]
-    fm = vault_common.parse_frontmatter(fm_text)
+    fm = parse_frontmatter(fm_text)
     if not isinstance(fm, dict):
         return {}, text
     return fm, body
