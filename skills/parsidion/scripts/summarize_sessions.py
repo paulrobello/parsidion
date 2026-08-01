@@ -46,7 +46,7 @@ import traceback
 from datetime import date  # noqa: F401 — re-exported for tests (summarize_sessions.date.today())
 from functools import partial
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 import anyio  # type: ignore[import-untyped]
 from anyio import to_thread  # type: ignore[import-untyped]
@@ -284,6 +284,15 @@ def _early_gate(
     ``(entry, sentinel)`` tuple when a guard trips (``_STALE`` / ``_DEAD`` /
     ``_DEFERRED``), or ``None`` to signal the caller should continue with
     normal summarization.
+
+    QA-003: this stage reads ``_ACTIVE_SESSION_GRACE_SECS`` via bare-name
+    resolution through this module's globals so test monkeypatches of
+    ``summarize_sessions._ACTIVE_SESSION_GRACE_SECS`` take effect (the same
+    constraint that keeps the anyio core in the entry shim — see
+    ``summarizer/__init__.py``). The same applies to ``_resolve_note_stem``
+    inside ``_apply_merge_decision``. The four stage helpers stay here as a
+    result; their linear call sequence in ``summarize_one`` IS the decision
+    dispatch's state machine.
     """
     transcript_path_str = str(entry.get("transcript_path", ""))
     session_id = str(entry.get("session_id") or Path(transcript_path_str).stem)
@@ -845,8 +854,17 @@ from summarizer.lock import (  # noqa: E402,F401 — re-exported for tests
 )
 
 
-def main() -> None:
-    """Parse arguments and run the summarizer."""
+# ---------------------------------------------------------------------------
+# QA-003: ``main`` was the repo's #2 churn×complexity hotspot (complexity 27).
+# The argparse definition, the defaults→config→CLI option resolution, the
+# result categorisation, and the dequeue/rebuild/commit/summary finalisation
+# are pure sub-operations; lifting them into named helpers collapses ``main``
+# into a thin orchestrator and makes each piece independently testable.
+# ---------------------------------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the summarizer CLI parser."""
     parser = argparse.ArgumentParser(
         description="AI-powered session summarizer for Parsidion vault",
     )
@@ -907,9 +925,25 @@ def main() -> None:
         default=None,
         help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
-    args = parser.parse_args()
+    return parser
 
-    # Resolve options: defaults → config → CLI args
+
+class _SummarizerOptions(NamedTuple):
+    """Resolved summarizer options after defaults → config → CLI merge."""
+
+    model: str | None
+    persist: bool
+    max_parallel: int
+    tail_lines: int
+    tail_bytes: int | None
+    max_cleaned_chars: int
+    cluster_model: str | None
+    rebuild_graph: bool | None
+    graph_include_daily: bool | None
+
+
+def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
+    """Resolve defaults → config → CLI args (CLI wins) into a typed bundle."""
     configured_model = vault_common.get_config("summarizer", "model", None)
     if args.model is not None:
         model: str | None = args.model
@@ -923,29 +957,19 @@ def main() -> None:
     # there was no way to disable from the CLI for a single run.
     persist: bool = _resolve(args.persist, "summarizer", "persist", False)
     max_parallel: int = vault_common.get_config(
-        "summarizer",
-        "max_parallel",
-        _DEFAULT_MAX_PARALLEL,
+        "summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL
     )
     tail_lines: int = vault_common.get_config(
-        "summarizer",
-        "transcript_tail_lines",
-        _DEFAULT_TRANSCRIPT_TAIL_LINES,
+        "summarizer", "transcript_tail_lines", _DEFAULT_TRANSCRIPT_TAIL_LINES
     )
     tail_bytes: int | None = vault_common.get_config(
-        "summarizer",
-        "transcript_tail_bytes",
-        _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+        "summarizer", "transcript_tail_bytes", _DEFAULT_TRANSCRIPT_TAIL_BYTES
     )
     max_cleaned_chars: int = vault_common.get_config(
-        "summarizer",
-        "max_cleaned_chars",
-        _DEFAULT_MAX_CLEANED_CHARS,
+        "summarizer", "max_cleaned_chars", _DEFAULT_MAX_CLEANED_CHARS
     )
     configured_cluster_model = vault_common.get_config(
-        "summarizer",
-        "cluster_model",
-        None,
+        "summarizer", "cluster_model", None
     )
     cluster_model: str | None = (
         configured_cluster_model
@@ -953,13 +977,172 @@ def main() -> None:
         and configured_cluster_model.strip()
         else None
     )
-
     rebuild_graph: bool | None = _resolve(
         args.rebuild_graph, "summarizer", "rebuild_graph", False
     )
     graph_include_daily: bool | None = _resolve(
         args.graph_include_daily, "summarizer", "graph_include_daily", False
     )
+    return _SummarizerOptions(
+        model=model,
+        persist=persist,
+        max_parallel=max_parallel,
+        tail_lines=tail_lines,
+        tail_bytes=tail_bytes,
+        max_cleaned_chars=max_cleaned_chars,
+        cluster_model=cluster_model,
+        rebuild_graph=rebuild_graph,
+        graph_include_daily=graph_include_daily,
+    )
+
+
+class _RunTotals(NamedTuple):
+    """Categorised ``run_all`` results, bucketed by terminal sentinel."""
+
+    successful: list[dict[str, object]]
+    stale: list[dict[str, object]]  # includes _DEAD re-queue purges
+    skipped: list[dict[str, object]]
+    failed: list[dict[str, object]]
+    deferred: list[dict[str, object]]
+
+
+def _categorize_results(
+    results: list[tuple[dict[str, object], Path | str | None]],
+    dry_run: bool,
+) -> _RunTotals:
+    """Bucket ``run_all`` results by their terminal sentinel.
+
+    Stale entries are purged from the queue since the transcript can never be
+    recovered; write-gate skips are purged because the backend already decided
+    they are transient and retrying would loop.
+    """
+    successful: list[dict[str, object]] = []
+    stale: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    deferred: list[dict[str, object]] = []
+    for entry, written_path in results:
+        if written_path == _STALE:
+            stale.append(entry)
+        elif written_path == _SKIPPED:
+            skipped.append(entry)
+        elif written_path == _DEAD:
+            # Re-queued dead-lettered session — purge like stale.
+            stale.append(entry)
+        elif written_path == _DEFERRED:
+            # Active session — leave in queue for a later run.
+            deferred.append(entry)
+        elif written_path is not None:
+            print(f"  Written: {written_path}")
+            successful.append(entry)
+        elif not dry_run:
+            failed.append(entry)
+    return _RunTotals(successful, stale, skipped, failed, deferred)
+
+
+def _dequeue_and_finalize(
+    totals: _RunTotals,
+    *,
+    source_path: Path,
+    vault_path: Path,
+    sessions_mode: bool,
+    rebuild_graph: bool | None,
+    graph_include_daily: bool | None,
+) -> None:
+    """Dequeue processed entries, persist sticky dead-letters, rebuild + commit.
+
+    Runs only when ``not dry_run``. Failed entries get their attempts counter
+    bumped (and are dead-lettered at ``_MAX_ATTEMPTS``, or on attempt 1 when
+    the failure is classified non-retryable — see ARC-030).
+    """
+    successful = totals.successful
+    stale = totals.stale
+    skipped = totals.skipped
+    failed = totals.failed
+
+    removable = successful + stale + skipped
+    # ARC-030: pass the structured failure record (dict) through to
+    # remove_processed so it can honor the retryable flag. Fall back to
+    # the legacy plain-string shape for entries queued by older code.
+    failed_reasons: dict[str, object] = {
+        str(e.get("session_id") or e.get("transcript_path", "")): (
+            e[_FAILURE_REASON_KEY]
+            if isinstance(e.get(_FAILURE_REASON_KEY), dict)
+            else _format_failure_record(e.get(_FAILURE_REASON_KEY))
+        )
+        for e in failed
+    }
+    if not sessions_mode:
+        # Make write-gate skips sticky: record them in dead_letters so a
+        # future stop-hook re-queue is caught by the _DEAD guard instead of
+        # re-billing an AI call to re-evaluate a session already judged
+        # transient. (Skips are also dequeued below via `removable`.)
+        for entry in skipped:
+            _raw_attempts = entry.get("attempts")
+            _attempts = _raw_attempts if isinstance(_raw_attempts, int) else 0
+            _append_dead_letter(
+                source_path,
+                entry,
+                _attempts,
+                "write-gate skip (transient)",
+            )
+    # ARC-048(d): always honor the dequeue lifecycle (queue OR --sessions
+    # FILE). Previously --sessions skipped this block entirely, so a re-run
+    # of the same FILE re-processed every entry, re-billed an AI call for
+    # each, and (because write_note merges on slug collision) appended a
+    # fresh ``## Session update`` block to each note — quietly compounding
+    # duplicate content on every invocation. The sticky dead-letter write
+    # above remains queue-only (it writes a sibling dead_letters.jsonl and
+    # would litter an arbitrary source directory); --sessions mode still
+    # dequeues via ``removable`` without that side effect.
+    if failed_reasons:
+        remove_processed(source_path, removable, failed=failed_reasons)
+    elif removable:
+        remove_processed(source_path, removable)
+
+    # Rebuild vault index and commit all new notes + updated index
+    if successful:
+        rebuild_index(
+            vault_path,
+            rebuild_graph=rebuild_graph,
+            graph_include_daily=graph_include_daily,
+        )
+        # SEC-002: sanitize project names to prevent embedded newlines in commit messages
+        projects = {
+            str(e.get("project", "unknown"))
+            .replace("\n", " ")
+            .replace("\r", "")
+            .strip()
+            for e in successful
+        }
+        project_str = ", ".join(sorted(projects))
+        vault_common.git_commit_vault(
+            f"chore(vault): add session notes [{project_str}]",
+            vault=vault_path,
+        )
+
+
+def _print_run_summary(total: int, totals: _RunTotals) -> None:
+    """Print the human-readable run summary and clear the progress file."""
+    successful, stale, skipped, failed, deferred = totals
+    summary_parts = [f"{len(successful)} written"]
+    if stale:
+        summary_parts.append(f"{len(stale)} purged (stale/dead-lettered)")
+    if skipped:
+        summary_parts.append(f"{len(skipped)} skipped by write-gate")
+    if deferred:
+        summary_parts.append(f"{len(deferred)} deferred (active)")
+    if failed:
+        summary_parts.append(f"{len(failed)} failed")
+    print(f"Done. {total} session(s) processed: {', '.join(summary_parts)}.")
+    _clear_progress()  # Remove progress file when done (#13)
+
+
+def main() -> None:
+    """Parse arguments and run the summarizer."""
+    parser = _build_parser()
+    args = parser.parse_args()
+    options = _resolve_options(args)
 
     # Resolve vault
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
@@ -1023,7 +1206,7 @@ def main() -> None:
         print(f"No pending sessions in {source_path}")
         return
 
-    model_label = model or "backend large default"
+    model_label = options.model or "backend large default"
     print(f"Processing {len(entries)} session(s) with model {model_label}...")
     if args.dry_run:
         print("[dry-run mode — nothing will be written]")
@@ -1033,125 +1216,31 @@ def main() -> None:
         anyio.run(
             run_all,
             entries,
-            model,
+            options.model,
             args.dry_run,
-            persist,
+            options.persist,
             vault_path,
-            max_parallel,
-            tail_lines,
-            tail_bytes,
-            max_cleaned_chars,
-            cluster_model,
+            options.max_parallel,
+            options.tail_lines,
+            options.tail_bytes,
+            options.max_cleaned_chars,
+            options.cluster_model,
         ),
     )
 
-    # Categorise results: written notes, stale (missing transcript), write-gate
-    # skips, and hard failures. Stale entries are purged from the queue since
-    # the transcript can never be recovered; write-gate skips are purged because
-    # the backend already decided they are transient and retrying would loop.
-    successful_entries: list[dict[str, object]] = []
-    stale_entries: list[dict[str, object]] = []
-    skipped_entries: list[dict[str, object]] = []
-    failed_entries: list[dict[str, object]] = []
-    deferred_entries: list[dict[str, object]] = []
-    for entry, written_path in results:
-        if written_path == _STALE:
-            stale_entries.append(entry)
-        elif written_path == _SKIPPED:
-            skipped_entries.append(entry)
-        elif written_path == _DEAD:
-            # Re-queued dead-lettered session — purge like stale.
-            stale_entries.append(entry)
-        elif written_path == _DEFERRED:
-            # Active session — leave in queue for a later run.
-            deferred_entries.append(entry)
-        elif written_path is not None:
-            print(f"  Written: {written_path}")
-            successful_entries.append(entry)
-        elif not args.dry_run:
-            failed_entries.append(entry)
-
-    skipped_count = len(skipped_entries)
-    failed_count = len(failed_entries)
-    deferred_count = len(deferred_entries)
+    totals = _categorize_results(results, args.dry_run)
 
     if not args.dry_run:
-        # Remove processed, stale, and write-gate skipped entries from pending
-        # file; failed entries get their attempts counter bumped (and are
-        # dead-lettered at _MAX_ATTEMPTS, or on attempt 1 when the failure is
-        # classified non-retryable — see ARC-030).
-        removable = successful_entries + stale_entries + skipped_entries
-        # ARC-030: pass the structured failure record (dict) through to
-        # remove_processed so it can honor the retryable flag. Fall back to
-        # the legacy plain-string shape for entries queued by older code.
-        failed_reasons: dict[str, object] = {
-            str(e.get("session_id") or e.get("transcript_path", "")): (
-                e[_FAILURE_REASON_KEY]
-                if isinstance(e.get(_FAILURE_REASON_KEY), dict)
-                else _format_failure_record(e.get(_FAILURE_REASON_KEY))
-            )
-            for e in failed_entries
-        }
-        if not args.sessions:
-            # Make write-gate skips sticky: record them in dead_letters so a
-            # future stop-hook re-queue is caught by the _DEAD guard instead of
-            # re-billing an AI call to re-evaluate a session already judged
-            # transient. (Skips are also dequeued below via `removable`.)
-            for entry in skipped_entries:
-                _raw_attempts = entry.get("attempts")
-                _attempts = _raw_attempts if isinstance(_raw_attempts, int) else 0
-                _append_dead_letter(
-                    source_path,
-                    entry,
-                    _attempts,
-                    "write-gate skip (transient)",
-                )
-        # ARC-048(d): always honor the dequeue lifecycle (queue OR --sessions
-        # FILE). Previously --sessions skipped this block entirely, so a re-run
-        # of the same FILE re-processed every entry, re-billed an AI call for
-        # each, and (because write_note merges on slug collision) appended a
-        # fresh ``## Session update`` block to each note — quietly compounding
-        # duplicate content on every invocation. The sticky dead-letter write
-        # above remains queue-only (it writes a sibling dead_letters.jsonl and
-        # would litter an arbitrary source directory); --sessions mode still
-        # dequeues via ``removable`` without that side effect.
-        if failed_reasons:
-            remove_processed(source_path, removable, failed=failed_reasons)
-        elif removable:
-            remove_processed(source_path, removable)
+        _dequeue_and_finalize(
+            totals,
+            source_path=source_path,
+            vault_path=vault_path,
+            sessions_mode=bool(args.sessions),
+            rebuild_graph=options.rebuild_graph,
+            graph_include_daily=options.graph_include_daily,
+        )
 
-        # Rebuild vault index and commit all new notes + updated index
-        if successful_entries:
-            rebuild_index(
-                vault_path,
-                rebuild_graph=rebuild_graph,
-                graph_include_daily=graph_include_daily,
-            )
-            # SEC-002: sanitize project names to prevent embedded newlines in commit messages
-            projects = {
-                str(e.get("project", "unknown"))
-                .replace("\n", " ")
-                .replace("\r", "")
-                .strip()
-                for e in successful_entries
-            }
-            project_str = ", ".join(sorted(projects))
-            vault_common.git_commit_vault(
-                f"chore(vault): add session notes [{project_str}]",
-                vault=vault_path,
-            )
-
-    summary_parts = [f"{len(successful_entries)} written"]
-    if stale_entries:
-        summary_parts.append(f"{len(stale_entries)} purged (stale/dead-lettered)")
-    if skipped_count:
-        summary_parts.append(f"{skipped_count} skipped by write-gate")
-    if deferred_count:
-        summary_parts.append(f"{deferred_count} deferred (active)")
-    if failed_count:
-        summary_parts.append(f"{failed_count} failed")
-    print(f"Done. {len(entries)} session(s) processed: {', '.join(summary_parts)}.")
-    _clear_progress()  # Remove progress file when done (#13)
+    _print_run_summary(len(entries), totals)
 
 
 if __name__ == "__main__":

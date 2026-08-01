@@ -9,6 +9,24 @@
 # ///
 """Unified vault search: semantic (positional query) or metadata (filter flags).
 
+Partial re-export shim over the ``cli.search`` package (ARC-005). The
+embeddings backend, metadata SQL query, grep body filter, output
+formatters, env-var helpers, and the interactive TUI delegate have moved to
+focused submodules under ``cli.search``; they are re-exported below so every
+existing ``import vault_search`` consumer (vault_tui, vault_links,
+parsidion-mcp, the summarizer's dedup pass, and the test suite) keeps
+working byte-for-byte.
+
+What stays here and why:
+    ``search_with_meta``, ``search``, ``LAST_BACKEND``, and ``main`` remain
+    in this entry shim because ``tests/test_vault_search_backend.py``
+    monkeypatches ``vault_search._search_embeddings`` and Python resolves
+    bare names in the *caller's* module globals at call time. Keeping
+    ``search_with_meta`` (which calls ``_search_embeddings``) in the same
+    module the test patches is the only way the patch takes effect without
+    rewriting every test to patch ``cli.search.embeddings`` instead — the
+    same exception the ``summarizer/`` split took for its anyio core.
+
 Semantic mode — provide a natural language query:
     vault_search.py "sqlite vector search" --top 5
     vault_search.py "hook patterns" --json
@@ -27,355 +45,77 @@ field (cosine similarity); metadata results set ``score`` to ``null``.
 """
 
 import argparse
-import functools
 import json
 import os
-import re
-import socket
-import sqlite3
-import struct
-import subprocess
 import sys
-import threading
-import time
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import parmem_backend
 import vault_common
-import vault_embed_serve
-from vault_config import apply_decay_score
 
-_DEFAULT_MODEL: str = vault_common.get_config(
-    "embeddings", "model", "BAAI/bge-small-en-v1.5"
+# ---------------------------------------------------------------------------
+# Re-exports from cli.search.* — every symbol the original vault_search.py
+# exposed remains importable from ``vault_search`` (function objects are
+# immutable, so ``from cli.search.X import f`` + ``vault_search.f(...)`` is a
+# stable binding for external callers; only module-global *assignments* need
+# the ``__getattr__`` live-attribute pattern, and the only mutable global is
+# ``LAST_BACKEND`` which stays defined below).
+# ---------------------------------------------------------------------------
+from cli.search._common import (  # noqa: F401 — re-exports
+    _DEFAULT_MODEL,
+    _EMBED_MODEL_LOCK,
+    _ENV_PREFIX,
+    _VALID_BACKENDS,
+    SearchResultEnvelope,
+    _configured_search_backend,
+)
+from cli.search.embeddings import (  # noqa: F401 — re-exports
+    _SERVICE_SPAWN_DEBOUNCE_S,
+    _apply_decay,
+    _embed_query,
+    _embeddings_service_active,
+    _get_embedding_model,
+    _last_service_spawn_attempt,
+    _open_db_semantic,
+    _pack_vector,
+    _search_embeddings,
+    _service_embed,
+    _spawn_service,
+)
+from cli.search.format import (  # noqa: F401 — re-exports
+    _env_float,
+    _env_int,
+    _format_rich,
+    _format_text,
+)
+from cli.search.metadata import (  # noqa: F401 — re-exports
+    _apply_grep_filter,
+    _get_all_notes_as_results,
+    query,
 )
 
 
-# ---------------------------------------------------------------------------
-# Semantic search
-# ---------------------------------------------------------------------------
+def _interactive_search(vault: Path | None = None, backend: str | None = None) -> None:
+    """Launch the interactive vault search TUI.
 
-
-def _open_db_semantic(db_path: Path) -> sqlite3.Connection:
-    """Open embeddings DB with sqlite-vec extension loaded.
-
-    Args:
-        db_path: Path to the SQLite embeddings database.
-
-    Returns:
-        An open sqlite3.Connection with sqlite-vec loaded.
+    ``vault_tui`` is imported lazily inside this function body so importing
+    ``vault_search`` for metadata/grep modes does not pull in ``curses`` or
+    ``fastembed`` eagerly. This deferred cross-import is the ARC-023 contract
+    that keeps the vault_search <-> vault_tui edge cycle-free; it must stay in
+    this entry shim (see ``tests/test_vault_imports.py``).
     """
-    try:
-        import sqlite_vec  # type: ignore[import-untyped]
-    except ImportError:
-        print(
-            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    conn = sqlite3.connect(db_path)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
-    return conn
+    from vault_tui import interactive_search  # noqa: PLC0415 — lazy, avoids import cycle
 
-
-def _pack_vector(vec: list[float]) -> bytes:
-    """Pack a float32 vector as a BLOB for sqlite-vec query parameter.
-
-    Args:
-        vec: List of float values.
-
-    Returns:
-        Packed binary representation.
-    """
-    return struct.pack(f"{len(vec)}f", *vec)
-
-
-def _apply_decay(score: float, mtime: float, now: float) -> float:
-    """Apply temporal decay to a semantic search score.
-
-    ARC-023: thin wrapper around ``vault_config.apply_decay_score`` (the
-    canonical implementation moved there to break the vault_search ↔
-    parmem_backend top-level cycle). Kept as a private alias so existing
-    internal call sites and parmem_backend's lazy import (if any older copy of
-    the module still references it) keep resolving during the transition.
-    New code should call ``vault_config.apply_decay_score`` directly.
-    """
-    return apply_decay_score(score, mtime, now)
-
-
-# ENH-003: the fastembed ONNX model is ~67 MB and dominates a search whose real
-# work is a sqlite-vec ANN lookup. Cache one instance per model name for the
-# process lifetime (maxsize=2 covers the default plus one override), and
-# serialise embed() so the shared instance is safe under the summarizer's
-# max_parallel fan-out. lru_cache does not memoise exceptions, so a missing
-# fastembed still degrades gracefully (the call-site guard below) and is retried
-# rather than sticky-cached.
-_EMBED_MODEL_LOCK = threading.Lock()
-
-
-@functools.lru_cache(maxsize=2)
-def _get_embedding_model(model_name: str):  # type: ignore[no-untyped-def]
-    """Return a process-cached fastembed ``TextEmbedding`` for *model_name*."""
-    from fastembed import TextEmbedding  # type: ignore[import-untyped]
-
-    return TextEmbedding(model_name=model_name)
+    interactive_search(vault, backend=backend)
 
 
 # ---------------------------------------------------------------------------
-# ENH-003: optional persistent embedding service (vault_embed_serve.py)
+# Backend routing + public search API.
+# These three (search_with_meta / search / LAST_BACKEND) stay in this entry
+# shim so the ``tests/test_vault_search_backend.py`` monkeypatch of
+# ``vault_search._search_embeddings`` resolves at call time — see the module
+# docstring. ``main`` stays with them because it reads ``LAST_BACKEND``.
 # ---------------------------------------------------------------------------
-# AF_UNIX, lives outside the synced vault tree. Contacted only from
-# _search_embeddings — i.e. only when par-mem did not serve — and only when
-# embeddings.service_enabled is true and the backend is not par-mem-only
-# (the user's constraint). A daemon miss is normal: it falls back to the
-# in-process cached model, so the service is an optimization, never a
-# dependency. Nothing here raises.
-_SERVICE_SPAWN_DEBOUNCE_S = 30.0
-_last_service_spawn_attempt = 0.0
-
-
-def _embeddings_service_active() -> bool:
-    """True only when the persistent embedding service should be used.
-
-    Two hard guards: explicit opt-in via ``embeddings.service_enabled``
-    (default false), AND the backend must not be par-mem-only — par-mem serves
-    retrieval without local query embeddings, so the service would never be
-    consulted and must not run. ``_search_embeddings`` is itself only reached
-    when par-mem didn't serve under ``auto``, so the second guard mainly covers
-    an explicit ``search.backend: par-mem`` setting.
-    """
-    if vault_common.get_config("embeddings", "service_enabled", False) is not True:
-        return False
-    if _configured_search_backend() == "par-mem":
-        return False
-    return True
-
-
-def _spawn_service(vault: Path, model_name: str) -> None:
-    """Best-effort detached launch of the embed service.
-
-    Debounced so a daemon that fails to start isn't re-spawned every call. A
-    no-op when one is already running: the daemon self-guards via its PID file
-    (a second launch sees the live PID and exits immediately).
-    """
-    global _last_service_spawn_attempt
-    now = time.monotonic()
-    if now - _last_service_spawn_attempt < _SERVICE_SPAWN_DEBOUNCE_S:
-        return
-    _last_service_spawn_attempt = now
-    try:
-        script = Path(__file__).resolve().parent / "vault_embed_serve.py"
-        if not script.exists():
-            return
-        idle = int(
-            vault_common.get_config("embeddings", "service_idle_exit", 600) or 600
-        )
-        subprocess.Popen(
-            [
-                str(script),
-                "--vault",
-                str(vault),
-                "--model",
-                model_name,
-                "--idle-exit",
-                str(idle),
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=vault_common.env_without_claudecode(),
-        )
-    except Exception:  # noqa: BLE001 — best-effort; in-process fallback covers failure
-        pass
-
-
-def _service_embed(
-    query: str, model_name: str, vault: Path, timeout: float = 5.0
-) -> list[float] | None:
-    """Ask the running service to embed *query*; return the vector or None."""
-    try:
-        path = vault_embed_serve.socket_path(vault)
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(timeout)
-            s.connect(str(path))
-            s.sendall(
-                (json.dumps({"text": query, "model": model_name}) + "\n").encode(
-                    "utf-8"
-                )
-            )
-            buf = bytearray()
-            while True:
-                chunk = s.recv(8192)
-                if not chunk:
-                    break
-                buf.extend(chunk)
-                if b"\n" in chunk:
-                    break
-        payload = json.loads(buf.split(b"\n", 1)[0].decode("utf-8", "replace"))
-        vec = payload.get("vector") if isinstance(payload, dict) else None
-        if isinstance(vec, list):
-            return [float(x) for x in vec]
-    except Exception:  # noqa: BLE001 — absence/failure is normal; caller falls back
-        return None
-    return None
-
-
-def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]:
-    """Embed *query*: prefer the opt-in service, else the in-process cache.
-
-    The service is tried only when ``_embeddings_service_active`` is true; any
-    miss falls back to the cached in-process model (loaded once per process).
-    """
-    resolved = vault or vault_common.resolve_vault()
-    if _embeddings_service_active():
-        _spawn_service(resolved, model_name)
-        vec = _service_embed(query, model_name, resolved)
-        if vec is not None:
-            return vec
-    model = _get_embedding_model(model_name)
-    with _EMBED_MODEL_LOCK:
-        embedded = list(model.embed([query]))
-    return [float(x) for x in embedded[0]]
-
-
-def _search_embeddings(
-    query: str,
-    top: int = 10,
-    min_score: float = 0.45,
-    model_name: str = _DEFAULT_MODEL,
-    vault: Path | None = None,
-) -> list[dict[str, object]]:
-    """Embeddings-backend semantic search (the always-on fallback path).
-
-    Returns an empty list gracefully when embeddings.db does not exist.
-
-    Args:
-        query: Natural language query string.
-        top: Maximum number of results to return.
-        min_score: Minimum cosine similarity threshold (0.0–1.0).
-        model_name: fastembed model ID used when the index was built.
-        vault: Optional vault path. Defaults to resolve_vault().
-
-    Returns:
-        List of result dicts with keys: score, stem, title, folder, tags, path.
-        Sorted by score descending.
-    """
-    db_path = vault_common.get_embeddings_db_path(vault)
-    if not db_path.exists():
-        return []
-
-    try:
-        query_vec = _embed_query(query, model_name, vault)
-        query_blob = _pack_vector(list(query_vec))
-    except Exception:  # noqa: BLE001 — graceful fallback
-        return []
-
-    decay_enabled: bool = vault_common.get_config(
-        "embeddings",
-        "decay_enabled",
-        True,
-    )
-    now = time.time() if decay_enabled else 0.0
-
-    try:
-        conn = _open_db_semantic(db_path)
-        cursor = conn.execute(
-            """
-            SELECT stem, path, folder, title, tags,
-                   (1.0 - vec_distance_cosine(embedding, ?)) AS score,
-                   mtime
-            FROM note_embeddings
-            ORDER BY score DESC
-            LIMIT ?
-            """,
-            (query_blob, top),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-    except Exception:  # noqa: BLE001 — graceful fallback
-        return []
-
-    results: list[dict[str, object]] = []
-    for stem, path, folder, title, tags_str, score, mtime in rows:
-        if decay_enabled and mtime:
-            score = _apply_decay(score, mtime, now)
-        if score < min_score:
-            continue
-        tags_raw: str = tags_str if isinstance(tags_str, str) else ""
-        tags: list[str] = [t.strip() for t in tags_raw.split(",") if t.strip()]
-        results.append(
-            {
-                "score": round(float(score), 4),
-                "stem": stem,
-                "title": title,
-                "folder": folder,
-                "tags": tags,
-                "path": path,
-                "summary": "",
-                "note_type": "",
-                "project": "",
-                "confidence": "",
-                "mtime": None,
-                "related": [],
-                "is_stale": False,
-                "incoming_links": 0,
-            }
-        )
-
-    return results
-
-
-_VALID_BACKENDS: frozenset[str] = frozenset({"auto", "par-mem", "embeddings", "none"})
-
-
-def _configured_search_backend() -> str:
-    """Return the validated ``search.backend`` config value (default: auto)."""
-    value = vault_common.get_config("search", "backend", "auto")
-    normalized = str(value).strip().lower() if value is not None else "auto"
-    return normalized if normalized in _VALID_BACKENDS else "auto"
-
-
-# ARC-031: ``SearchResultEnvelope`` replaces the ``global LAST_BACKEND`` module
-# attribute. The global conflated "which backend served the most recent call"
-# into process-wide state, making it unsafe to call ``search()`` concurrently
-# (two threads would clobber each other's backend label) and forcing every
-# caller that wanted the backend to first call ``search()`` and then read the
-# global. The envelope returns both pieces from a single call, and the
-# ``score_kind`` discriminator lets callers apply ``min_score`` correctly
-# (cosines vs RRF rank-fusion values are not comparable on the same scale).
-class SearchResultEnvelope(tuple):
-    """Named-tuple-style envelope: ``(results, backend, score_kind)``.
-
-    ``backend`` is one of ``"par-mem" | "embeddings" | "none"``.
-    ``score_kind`` is ``"cosine"`` for the embeddings backend, ``"rrf"`` for
-    par-mem, and ``None`` when no results were produced (``backend == "none"``).
-    """
-
-    __slots__ = ()
-
-    def __new__(
-        cls,
-        results: list[dict[str, object]],
-        backend: str,
-        score_kind: str | None,
-    ) -> "SearchResultEnvelope":
-        return tuple.__new__(cls, (results, backend, score_kind))
-
-    @property
-    def results(self) -> list[dict[str, object]]:
-        return self[0]  # type: ignore[return-value]
-
-    @property
-    def backend(self) -> str:
-        return self[1]  # type: ignore[return-value]
-
-    @property
-    def score_kind(self) -> str | None:
-        return self[2]  # type: ignore[return-value]
 
 
 def search_with_meta(
@@ -487,464 +227,6 @@ def search(
     )
     LAST_BACKEND = envelope.backend
     return envelope.results
-
-
-# ---------------------------------------------------------------------------
-# Metadata search
-# ---------------------------------------------------------------------------
-
-
-def query(
-    *,
-    tag: str | None = None,
-    folder: str | None = None,
-    note_type: str | None = None,
-    project: str | None = None,
-    recent_days: int | None = None,
-    changed_since: str | None = None,
-    as_of: str | None = None,
-    limit: int = 50,
-    vault: Path | None = None,
-) -> list[dict[str, object]]:
-    """Query the note_index table for metadata-filtered results.
-
-    Returns an empty list (not None) if the DB is absent or table missing.
-
-    Args:
-        tag: Exact tag token to match.
-        folder: Exact folder name to match.
-        note_type: Exact note_type to match.
-        project: Exact project name to match.
-        recent_days: Notes modified within this many days.
-        limit: Maximum result count.
-        vault: Optional vault path. Defaults to resolve_vault().
-
-    Returns:
-        List of result dicts with score set to null, sorted by mtime descending.
-    """
-    db_path = vault_common.get_embeddings_db_path(vault)
-    if not db_path.exists():
-        return []
-
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-    except sqlite3.OperationalError:
-        return []
-
-    try:
-        if (
-            conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            is None
-        ):
-            return []
-
-        # Defensive: a note_index predating the `date` migration (e.g. an
-        # embeddings-disabled vault never rebuilt) lacks the column. SELECTing
-        # `date` would raise OperationalError and silently return []. Detect it
-        # instead: non-date queries omit the column (still work); --as-of (which
-        # genuinely needs it) warns and returns [].
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(note_index)").fetchall()
-        }
-        has_date = "date" in columns
-        if as_of is not None and not has_date:
-            print(
-                "note_index schema is stale (no 'date' column); "
-                "run update_index.py to enable --as-of.",
-                file=sys.stderr,
-            )
-            return []
-
-        # SECURITY: The SQL WHERE clause is assembled from literal condition fragments
-        # only — no column names are ever derived from external input.  All filter
-        # values are passed as bound parameters (?).  Column names used below form a
-        # static whitelist: tags, folder, note_type, project, mtime.  Any future
-        # addition of a user-supplied column name must be added to this whitelist and
-        # reviewed for injection risk.
-        # Static whitelist (documentation only — all conditions below are literals):
-        #   _ALLOWED_QUERY_COLUMNS = {"tags", "folder", "note_type", "project", "mtime"}
-        conditions: list[str] = []
-        params: list[object] = []
-
-        if tag is not None:
-            # Tags are stored as ", ".join(sorted(tags_list)) — canonical format
-            # enforced at write time in update_index.py and build_embeddings.py.
-            # See ARC-004.
-            conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
-            params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
-
-        if folder is not None:
-            conditions.append("folder = ?")
-            params.append(folder)
-
-        if note_type is not None:
-            conditions.append("note_type = ?")
-            params.append(note_type)
-
-        if project is not None:
-            conditions.append("project = ?")
-            params.append(project)
-
-        if recent_days is not None:
-            cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
-            conditions.append("mtime >= ?")
-            params.append(cutoff)
-
-        if changed_since is not None:
-            cutoff = datetime.fromisoformat(changed_since).timestamp()
-            conditions.append("mtime >= ?")
-            params.append(cutoff)
-
-        if as_of is not None:
-            # ISO YYYY-MM-DD strings sort lexicographically; exclude empty dates.
-            conditions.append("date != '' AND date <= ?")
-            params.append(as_of)
-
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        date_col = ", date" if has_date else ""
-        sql = (
-            f"SELECT stem, path, folder, title, summary, tags, note_type, "
-            f"project, confidence, mtime, related, is_stale, incoming_links"
-            f"{date_col} "
-            f"FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
-        )
-        params.append(limit)
-
-        rows = conn.execute(sql, params).fetchall()
-    except sqlite3.Error:
-        return []
-    finally:
-        conn.close()
-
-    results: list[dict[str, object]] = []
-    for row in rows:
-        d = dict(row)
-        tags_str: str = d.get("tags", "") or ""
-        related_str: str = d.get("related", "") or ""
-        results.append(
-            {
-                "score": None,
-                "stem": d.get("stem", ""),
-                "title": d.get("title", ""),
-                "folder": d.get("folder", ""),
-                "tags": [t.strip() for t in tags_str.split(",") if t.strip()],
-                "path": d.get("path", ""),
-                "summary": d.get("summary", ""),
-                "note_type": d.get("note_type", ""),
-                "project": d.get("project", ""),
-                "confidence": d.get("confidence", ""),
-                "mtime": d.get("mtime"),
-                "related": [r.strip() for r in related_str.split(",") if r.strip()],
-                "is_stale": bool(d.get("is_stale", 0)),
-                "incoming_links": d.get("incoming_links", 0),
-                "date": d.get("date", ""),
-            }
-        )
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Grep / full-text body search
-# ---------------------------------------------------------------------------
-
-
-def _get_all_notes_as_results(
-    limit: int, vault: Path | None = None
-) -> list[dict[str, Any]]:
-    """Return all vault notes as result dicts suitable for grep filtering.
-
-    Tries the note_index DB first; falls back to a file walk via
-    ``vault_common.all_vault_notes()``.
-
-    Args:
-        limit: Maximum number of notes to return.
-        vault: Optional vault path. Defaults to resolve_vault().
-
-    Returns:
-        List of result dicts with ``score`` set to ``None``.
-    """
-    vault = vault or vault_common.resolve_vault()
-    db_path = vault_common.get_embeddings_db_path(vault)
-    if db_path.exists():
-        try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            if row is not None:
-                sql = (
-                    "SELECT stem, path, folder, title, summary, tags, note_type, "
-                    "project, confidence, mtime, related, is_stale, incoming_links "
-                    "FROM note_index ORDER BY mtime DESC LIMIT ?"
-                )
-                rows = conn.execute(sql, (limit,)).fetchall()
-                conn.close()
-                results: list[dict[str, Any]] = []
-                for r in rows:
-                    d = dict(r)
-                    tags_str: str = d.get("tags", "") or ""
-                    related_str: str = d.get("related", "") or ""
-                    results.append(
-                        {
-                            "score": None,
-                            "stem": d.get("stem", ""),
-                            "title": d.get("title", ""),
-                            "folder": d.get("folder", ""),
-                            "tags": [
-                                t.strip() for t in tags_str.split(",") if t.strip()
-                            ],
-                            "path": d.get("path", ""),
-                            "summary": d.get("summary", ""),
-                            "note_type": d.get("note_type", ""),
-                            "project": d.get("project", ""),
-                            "confidence": d.get("confidence", ""),
-                            "mtime": d.get("mtime"),
-                            "related": [
-                                r2.strip()
-                                for r2 in related_str.split(",")
-                                if r2.strip()
-                            ],
-                            "is_stale": bool(d.get("is_stale", 0)),
-                            "incoming_links": d.get("incoming_links", 0),
-                        }
-                    )
-                return results
-            conn.close()
-        except sqlite3.Error:
-            pass
-
-    # Fallback: file walk
-    fallback_results: list[dict[str, Any]] = []
-    for path in vault_common.all_vault_notes(vault)[:limit]:
-        stem = path.stem
-        folder = path.parent.name if path.parent != vault else ""
-        fallback_results.append(
-            {
-                "score": None,
-                "stem": stem,
-                "title": stem.replace("-", " ").title(),
-                "folder": folder,
-                "tags": [],
-                "path": str(path),
-                "summary": "",
-                "note_type": "",
-                "project": "",
-                "confidence": "",
-                "mtime": None,
-                "related": [],
-                "is_stale": False,
-                "incoming_links": 0,
-            }
-        )
-    return fallback_results
-
-
-def _apply_grep_filter(
-    results: list[dict[str, Any]],
-    pattern: str,
-    case_sensitive: bool,
-    has_filters: bool,
-    has_query: bool,
-    limit: int,
-    vault: Path | None = None,
-) -> list[dict[str, Any]]:
-    """Filter *results* (or all vault notes) by a regex pattern applied to note bodies.
-
-    When used standalone (no metadata filters and no semantic query), fetches
-    candidate notes from the DB or file walk first.
-
-    Args:
-        results: Existing results from semantic or metadata search (may be empty).
-        pattern: Regular expression pattern for ``re.search``.
-        case_sensitive: If True, disables ``re.IGNORECASE``.
-        has_filters: Whether metadata filter flags were supplied.
-        has_query: Whether a semantic query was supplied.
-        limit: Max results cap when fetching all notes standalone.
-        vault: Optional vault path. Defaults to resolve_vault().
-
-    Returns:
-        Filtered list of result dicts whose note bodies match *pattern*.
-    """
-    flags = 0 if case_sensitive else re.IGNORECASE
-
-    try:
-        compiled = re.compile(pattern, flags)
-    except re.error as exc:
-        print(f"--grep: invalid regex pattern: {exc}", file=sys.stderr)
-        sys.exit(2)
-
-    # Standalone grep — no prior results from semantic or metadata mode
-    if not has_filters and not has_query:
-        results = _get_all_notes_as_results(limit, vault)
-
-    matched: list[dict[str, Any]] = []
-    for result in results:
-        note_path_str = result.get("path", "")
-        if not note_path_str:
-            continue
-        note_path = Path(note_path_str)
-        if not note_path.exists():
-            continue
-        try:
-            content = note_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        body = vault_common.get_body(content)
-        if compiled.search(body):
-            # Normalise score to None for grep-only results
-            matched.append({**result, "score": result.get("score")})
-
-    return matched
-
-
-# ---------------------------------------------------------------------------
-# Output formatting
-# ---------------------------------------------------------------------------
-
-
-def _format_text(results: list[dict[str, Any]]) -> str:
-    """Format results as human-readable one-line-per-note text.
-
-    Args:
-        results: List of result dicts.
-
-    Returns:
-        Newline-separated string.
-    """
-    lines: list[str] = []
-    for r in results:
-        score = r.get("score")
-        tags = r.get("tags", [])
-        tags_str = ", ".join(str(t) for t in tags) if isinstance(tags, list) else ""
-        stale = " [STALE]" if r.get("is_stale") else ""
-        tags_label = f" [{tags_str}]" if tags_str else ""
-        score_label = f"{float(score):.4f}  " if isinstance(score, (int, float)) else ""
-        lines.append(
-            f"{score_label}{r['folder'] or '.'}/{r['stem']}{tags_label}{stale} — {r['title']}"
-        )
-    return "\n".join(lines)
-
-
-def _format_rich(results: list[dict[str, Any]]) -> None:
-    """Print results with Rich colorized one-line-per-note output.
-
-    Score is colored green (>=0.80), yellow (>=0.60), or red (<0.60).
-    Folder is cyan, stem bold, tags dim yellow, title bright white.
-
-    Args:
-        results: List of result dicts.
-    """
-    from rich.console import Console
-    from rich.text import Text
-
-    console = Console()
-    for r in results:
-        score = r.get("score")
-        tags = r.get("tags", [])
-        tags_str = ", ".join(str(t) for t in tags) if isinstance(tags, list) else ""
-        is_stale = bool(r.get("is_stale"))
-
-        line = Text()
-
-        if isinstance(score, (int, float)):
-            s = float(score)
-            score_style = (
-                "bold green" if s >= 0.80 else "yellow" if s >= 0.60 else "red"
-            )
-            line.append(f"{s:.4f}  ", style=score_style)
-
-        line.append(r.get("folder") or ".", style="cyan")
-        line.append("/", style="dim white")
-        line.append(str(r.get("stem", "")), style="bold white")
-
-        if tags_str:
-            line.append(" [", style="dim white")
-            line.append(tags_str, style="dim yellow")
-            line.append("]", style="dim white")
-
-        if is_stale:
-            line.append(" [STALE]", style="bold red")
-
-        line.append(" — ", style="dim white")
-        line.append(str(r.get("title", "")), style="bright_white")
-
-        console.print(line, soft_wrap=True)
-
-
-# ---------------------------------------------------------------------------
-# Env-var helpers
-# ---------------------------------------------------------------------------
-
-_ENV_PREFIX = "VAULT_SEARCH_"
-
-
-def _env_float(name: str, fallback: float) -> float:
-    """Return float from env var *name* or *fallback* on missing/invalid value.
-
-    Args:
-        name: Environment variable name (without prefix).
-        fallback: Value to use when the variable is absent or non-numeric.
-
-    Returns:
-        Parsed float or fallback.
-    """
-    raw = os.environ.get(_ENV_PREFIX + name)
-    if raw is None:
-        return fallback
-    try:
-        return float(raw)
-    except ValueError:
-        return fallback
-
-
-def _env_int(name: str, fallback: int) -> int:
-    """Return int from env var *name* or *fallback* on missing/invalid value.
-
-    Args:
-        name: Environment variable name (without prefix).
-        fallback: Value to use when the variable is absent or non-integer.
-
-    Returns:
-        Parsed int or fallback.
-    """
-    raw = os.environ.get(_ENV_PREFIX + name)
-    if raw is None:
-        return fallback
-    try:
-        return int(raw)
-    except ValueError:
-        return fallback
-
-
-# ---------------------------------------------------------------------------
-# Interactive TUI mode — delegated to vault_tui.py (ARC-014)
-# ---------------------------------------------------------------------------
-
-
-def _interactive_search(vault: Path | None = None, backend: str | None = None) -> None:
-    """Launch the interactive vault search TUI.
-
-    Delegates to ``vault_tui.interactive_search()`` via lazy import so that
-    importing ``vault_search`` for metadata/grep modes does not pull in
-    ``curses`` or ``fastembed`` eagerly.
-
-    Args:
-        vault: Optional vault path. Defaults to resolve_vault().
-        backend: ``auto | par-mem | embeddings | none`` override; None reads
-            the ``search.backend`` config key (default ``auto``).
-    """
-    from vault_tui import interactive_search  # noqa: PLC0415
-
-    interactive_search(vault, backend=backend)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
