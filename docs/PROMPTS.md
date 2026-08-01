@@ -148,11 +148,15 @@ uv run tools/eval/prompt_eval_run.py --prompt summarize-session --limit 3
 uv run tools/eval/prompt_eval_run.py --prompt summarize-session --no-cache
 ```
 
-The harness renders each prompt through the real `prompt_templates` loader (the same path
-production uses), calls the configured AI backend, and scores the output against the case's
-expected-characteristics YAML.
+The `--prompt` id selects among six evaluators (one per externalized prompt), each in
+`tools/eval/evaluators/<prompt>.py`. The harness renders the prompt through the real
+`prompt_templates` loader (the same path production uses), calls the configured AI backend,
+and scores the output against the case's `expected.yaml`.
 
 ### Scoring Rubric
+
+Each prompt has its own rubric in `tools/eval/evaluators/<prompt>.py` (weights always sum to
+100). The `summarize-session` rubric — the one the examples above exercise — is:
 
 | Check                       | Weight | How                                            |
 |-----------------------------|:------:|------------------------------------------------|
@@ -182,11 +186,22 @@ full re-run, or pass `--no-cache` for a single uncached run.
 
 ## Adding a Golden Case
 
-Each golden case is a pair of files under `tests/fixtures/prompts/golden/`:
+Golden cases live under `tests/fixtures/prompts/golden/<prompt_id>/` — one subdirectory per
+prompt, because each prompt has a different variable contract and a different rubric. The
+evaluator's `load_cases()` discovers every `*.expected.yaml` in that subdir.
 
-- `<NN>-<short-description>.transcript.md` — the cleaned transcript text (the form the
-  summarizer's prompt receives).
-- `<NN>-<short-description>.expected.yaml` — the expected characteristics.
+Each case is a small group of files sharing a `<NNN>-<short-description>` stem (three-digit
+number, kebab-case description). The `.expected.yaml` is always present; the input files are
+the prompt's render variables, named `<stem>.<variable>.md`:
+
+| Prompt              | Input fixtures                                                   |
+|---------------------|------------------------------------------------------------------|
+| `summarize-session` | `<stem>.transcript.md`                                           |
+| `summarize-chunk`   | `<stem>.chunk_text.md`                                           |
+| `select-notes`      | `<stem>.candidates_text.md`                                      |
+| `merge-notes`       | `<stem>.body_a.md` + `<stem>.body_b.md`                          |
+| `repair-frontmatter`| `<stem>.content.md` (other vars derived from `expected.yaml`)    |
+| `detect-conflicts`  | `<stem>.note_block.md`                                           |
 
 The expected YAML fields:
 
@@ -241,7 +256,9 @@ score in the commit message.
 | `skills/parsidion/scripts/summarizer/prompt.py` | `build_prompt` + tag/dedup renderers (uses the loader). |
 | `skills/parsidion/scripts/summarizer/notes.py` | `_stamp_prompt_version` — injects the version stamp. |
 | `tools/eval/prompt_eval_run.py` | Opt-in eval harness (PEP 723 script). |
+| `tools/eval/evaluators/_base.py` | Shared `BaseEvaluator`: flat-YAML parser, golden-case discovery, `ScoredCase`. |
+| `tools/eval/evaluators/<prompt>.py` | One evaluator per prompt: render / parse / score against `expected.yaml`. |
 | `tests/test_prompt_templates.py` | Byte-identical rendering gate + loader contract + ARC-010 convergence. |
 | `tests/test_note_index_prompt_version.py` | `note_index.prompt_version` column + migration. |
 | `tests/test_golden_fixtures_anonymization.py` | Golden-set anonymization gate. |
-| `tests/fixtures/prompts/golden/` | Golden transcripts + expected-characteristics YAML. |
+| `tests/fixtures/prompts/golden/<prompt_id>/` | Per-prompt golden cases: input fixtures + `expected.yaml`. |

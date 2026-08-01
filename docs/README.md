@@ -31,6 +31,7 @@ below with its intended audience and purpose.
 | [VAULT_SYNC.md](VAULT_SYNC.md) | Multi-machine vault sync: strategies, recommended git-based setup, post-merge hook, conflict handling, and troubleshooting. |
 | [CLAUDE.md](CLAUDE.md) | AI-assistant guidance specific to working in the `docs/` directory: points at the style guide and this index. |
 | [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) | Documentation standards for this project: formatting, diagrams, code block conventions, and the review checklist. |
+| [opus/](opus/) | Implementation plans for tracked enhancements ENH-001 through ENH-008 (semantic-edge capping, incremental graph generation, persistent embedding service, note-index single read path, cross-language parity fixtures, agent-adapter registry, vault health score, and prompt templates & eval). |
 | [superpowers/](superpowers/) | Implementation plans (`superpowers/plans/`) and design specs (`superpowers/specs/`) for major features (vault-explorer agent, subagent stop hook, parsidion-mcp, visualizer redesign, git diff viewer, multi-vault support, graph features, Codex/Gemini runtime hooks, and more). |
 
 > **Note:** `ideas.md` is gitignored locally (it is a personal scratchpad of visualizer enhancement ideas) and is intentionally not published to GitHub Pages or linked from this index.

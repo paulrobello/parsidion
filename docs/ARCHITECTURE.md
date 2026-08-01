@@ -439,7 +439,7 @@ The note-writing and chunk-summarizer prompts are externalized versioned templat
 
 ### Vault Doctor
 
-**Location:** `skills/parsidion/scripts/vault_doctor.py` (thin re-export shim) + the stdlib implementations in the `scripts/doctor/` subpackage (`_state.py`, `check.py`, `cli.py`, `daily.py`, `frontmatter.py`, `graph.py`, `headings.py`, `links.py`, `orchestrator.py`, `permissions.py`, `prefixes.py`, `protocol.py`, `subfolder.py`, `tags.py`, `worker.py`).
+**Location:** `skills/parsidion/scripts/vault_doctor.py` (thin re-export shim) + the stdlib implementations in the `scripts/doctor/` subpackage (`_state.py`, `check.py`, `cli.py`, `daily.py`, `frontmatter.py`, `graph.py`, `headings.py`, `links.py`, `orchestrator.py`, `permissions.py`, `prefixes.py`, `protocol.py`, `scan.py`, `subfolder.py`, `tags.py`, `worker.py`).
 
 An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via `claude -p` (haiku model by default). As of ARC-008 / QA-003, the original 3,128-line God module was decomposed into focused submodules behind a `Fixer`/`FixMode` protocol; every public and private symbol the original exposed remains importable from `vault_doctor`, so existing `import vault_doctor` callers and test `monkeypatch` sites keep working byte-for-byte. The shim re-exports stdlib modules (`argparse`, `subprocess`, `shutil`, etc.) and `ai_backend` / `vault_common` / `vault_fs` / `vault_links` so monkeypatching `vault_doctor.X` still patches every submodule that did `import X`.
 
@@ -622,7 +622,7 @@ A Claude Code agent definition (runs on Haiku) that scans `~/ParsidionVault/` fo
 
 ### Vault Common Library
 
-**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`vault_config.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `subproc_util.py`). The flat `vault_*.py` / `subproc_util.py` names at the scripts root are thin re-export shims over `core/`; `ai_backend.py` and `parmem_backend.py` stay at the scripts root (their internals are monkeypatched by tests, so they cannot be shimmed).
+**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`vault_config.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`). The flat `vault_*.py` / `subproc_util.py` names at the scripts root are thin re-export shims over `core/`; `ai_backend.py` and `parmem_backend.py` stay at the scripts root (their internals are monkeypatched by tests, so they cannot be shimmed).
 
 The shared utility library used by all hook scripts and the index generator. Uses only Python stdlib (no third-party dependencies). As of ARC-005, the implementation has been split into focused sub-modules; `vault_common.py` remains a thin re-export facade so existing `import vault_common` callers continue to work unchanged. ARC-004 moved these implementations into the `scripts/core/` subpackage (behind the flat re-export shims) and added `tests/test_stdlib_only.py`, which enforces the stdlib-only constraint by importing every `core/*` module and hook in a fresh interpreter with `rich`/`fastembed`/`sqlite_vec`/`anyio`/`yaml`/`numpy`/`PIL` poisoned in `sys.modules` — a forbidden import, even a transitive one, fails the gate.
 
@@ -684,7 +684,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 - No external dependencies (stdlib only) for maximum portability in hook contexts
 - Custom YAML parser via regex rather than importing `pyyaml`; the config parser (`_parse_config_yaml`) is similarly stdlib-only
 - File walking excludes `.obsidian/`, `Templates/`, `.git/`, `.trash/`, `TagsRoutes/`
-- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 10 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `subproc_util`) to reduce per-file LOC and improve maintainability
+- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 11 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`) to reduce per-file LOC and improve maintainability
 
 ### Index Generator
 
@@ -1245,7 +1245,8 @@ parsidion/
 │   └── pi/parsidion/                # pi agent adapter extension (parsidion.ts, parsidion.md, lib/parsidion-status.ts)
 ├── scripts/
 │   ├── show-context                 # CLI: preview session start context for any project
-│   └── install-pi-extension        # Install parsidion pi extension into ~/.pi/agent/extensions
+│   ├── install-pi-extension        # Install parsidion pi extension into ~/.pi/agent/extensions
+│   └── gen_parity_fixtures.py       # ENH-005 parity-fixture generator (consumed by `make parity-fixtures`)
 ├── visualizer/                      # Next.js vault visualizer (bun dev)
 │   ├── app/                         # Next.js App Router pages and API routes
 │   ├── components/                  # ReadingPane, GraphCanvas, FileExplorer, UnifiedSearch, TabBar, Toolbar, ViewToggle, HUDPanel, FrontmatterEditor, NewNoteDialog, ConfirmDialog, TemperatureBar, DiffViewer, CommitList, HistoryView, ConflictDialog, VaultSelector, VaultStats
@@ -1337,10 +1338,21 @@ parsidion/
 │   ├── test_vault_search.py
 │   ├── test_vault_search_backend.py
 │   └── test_vault_stats.py
+├── tools/                          # Standalone CLIs and eval harnesses (not installed into ~/.claude/)
+│   ├── migrate_memory.py           # One-time legacy memory migration
+│   ├── migrate_research.py         # One-time legacy research migration
+│   └── eval/                       # Embedding + prompt eval harness (ENH-007/ENH-008)
+│       ├── embed_eval.py           # Evaluates embedding search quality
+│       ├── embed_eval_common.py    # Shared eval utilities
+│       ├── embed_eval_generate.py  # Generate eval test data
+│       ├── embed_eval_report.py    # Generate eval reports
+│       ├── embed_eval_run.py       # Run embedding evaluations
+│       ├── prompt_eval_run.py      # Run prompt-template eval against golden transcripts
+│       └── evaluators/             # Pluggable evaluator strategies (select_notes, summarizer_*, merge_notes, detect_conflicts, repair_frontmatter)
 └── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── core/                    # ARC-004 stdlib implementations (10 modules) behind the flat shims below
+    │   ├── core/                    # ARC-004 stdlib implementations (11 modules) behind the flat shims below
     │   │   ├── vault_config.py      # Config loading, YAML parsing, validation
     │   │   ├── vault_constants.py   # Shared constants
     │   │   ├── vault_path.py        # Path resolution, vault constants, secure logging
@@ -1350,8 +1362,9 @@ parsidion/
     │   │   ├── vault_adaptive.py    # Per-note usefulness tracking, last-seen state
     │   │   ├── vault_links.py       # Shared backlink operations
     │   │   ├── vault_metrics.py     # Stdlib-only data layer for vault analytics
+    │   │   ├── vault_health.py      # Composite vault health-score data layer (ENH-007)
     │   │   └── subproc_util.py      # Shared subprocess helpers
-    │   ├── doctor/                  # ARC-008 vault_doctor implementation (15 focused submodules)
+    │   ├── doctor/                  # ARC-008 vault_doctor implementation (16 focused submodules)
     │   │   ├── _state.py            # Constants, data model, shared state
     │   │   ├── check.py             # Per-note issue scanner
     │   │   ├── cli.py               # Argparse CLI entry point
@@ -1364,10 +1377,11 @@ parsidion/
     │   │   ├── permissions.py       # File mode/secret-file hardening
     │   │   ├── prefixes.py          # Redundant-prefix stripper
     │   │   ├── protocol.py          # Fixer / FixMode protocol
+    │   │   ├── scan.py              # Read-only vault scan (vault_health + vault-conflicts reuse)
     │   │   ├── subfolder.py         # Prefix-cluster migration
     │   │   ├── tags.py              # Tag/session dedup
     │   │   └── worker.py            # Per-note repair worker
-    │   ├── summarizer/              # ARC-009 summarize_sessions helpers (state, queue, dedup, transcript, prompt, notes, etc.)
+    │   ├── summarizer/              # ARC-009 summarize_sessions helpers (10 modules: _state_const, dead_letter, dedup, failure, lock, notes, progress, prompt, queue, transcript)
     │   ├── vault_common.py          # Re-export facade over core/ (ARC-004/ARC-005)
     │   ├── vault_config.py          # Thin shim → core/vault_config.py
     │   ├── vault_path.py            # Thin shim → core/vault_path.py
@@ -1378,6 +1392,7 @@ parsidion/
     │   ├── vault_links.py           # Thin shim → core/vault_links.py
     │   ├── vault_constants.py       # Thin shim → core/vault_constants.py
     │   ├── vault_metrics.py         # Thin shim → core/vault_metrics.py
+    │   ├── vault_health.py          # Thin shim → core/vault_health.py (ENH-007)
     │   ├── subproc_util.py          # Thin shim → core/subproc_util.py
     │   ├── vault_search.py          # Unified search CLI: semantic (QUERY), metadata (--tag/--folder/...), or body search (--grep)
     │   ├── vault_tui.py             # Interactive curses TUI (extracted from vault_search.py)
@@ -1389,7 +1404,10 @@ parsidion/
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli)
     │   ├── parmem_backend.py        # Optional par-mem code-memory backend (availability probe + subprocess transport)
-    │   ├── agent_adapter.py         # Shared adapter registry for the codex/gemini hook shims (ARC-020)
+    │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/gemini/pi + opt-in external drop-ins (ARC-020, ENH-006)
+    │   ├── note_schema.py           # Single source of truth for note types, folders, required fields (ENH-008)
+    │   ├── prompt_templates.py      # Strict-variable loader for versioned prompt templates under templates/prompts/
+    │   ├── vault_embed_serve.py     # Optional persistent embedding service (ENH-003; AF_UNIX socket, opt-in via embeddings.service_enabled)
     │   ├── html-to-md.py            # HTML → clean markdown (PEP 723; used by research agent)
     │   ├── session_start_hook.py    # SessionStart hook
     │   ├── session_stop_wrapper.sh  # SessionEnd hook wrapper (immediate ack + nohup detach)
@@ -1410,14 +1428,7 @@ parsidion/
     │   ├── run_trigger_eval.sh      # Shell wrapper for eval (macOS/Linux)
     │   ├── run_trigger_eval.bat     # Batch wrapper for eval (Windows)
     │   ├── build_embeddings.py      # Builds fastembed vectors into embeddings.db
-    │   ├── build_graph.py           # Builds graph.json from embeddings.db for the visualizer (PEP 723; numpy)
-    │   ├── embed_eval.py            # Evaluates embedding search quality
-    │   ├── embed_eval_common.py     # Shared eval utilities
-    │   ├── embed_eval_generate.py   # Generate eval test data
-    │   ├── embed_eval_report.py     # Generate eval reports
-    │   ├── embed_eval_run.py        # Run embedding evaluations
-    │   ├── migrate_research.py      # One-time migration
-    │   └── migrate_memory.py        # One-time migration
+    │   └── build_graph.py           # Builds graph.json from embeddings.db for the visualizer (PEP 723; numpy)
     └── templates/
         ├── config.yaml              # Reference config with all defaults
         ├── prompts/                 # Reusable prompt fragments
@@ -1537,6 +1548,8 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [README.md](../README.md) - Project overview and quick reference
 - [VISUALIZER.md](VISUALIZER.md) - Vault Visualizer: architecture, features, and running instructions
 - [MCP.md](MCP.md) - parsidion-mcp: MCP server tools reference and installation
+- [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) - Agent adapter registry contract: how to add a runtime (claude/codex/gemini/pi + external drop-ins)
+- [PROMPTS.md](PROMPTS.md) - Versioned prompt templates: format, variable contract, and eval harness
 - [AGENTCHROME.md](AGENTCHROME.md) - AgentChrome browser CLI: installation and integration with the research agent
 - [EMBEDDINGS.md](EMBEDDINGS.md) - Embedding system: build pipeline, search, and evaluation
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) - Embedding search quality evaluation results

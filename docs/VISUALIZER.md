@@ -502,6 +502,7 @@ All API routes accept an optional `vault` query parameter:
 | `GET /api/vault/events?vault=<name>` | SSE stream of file/create/modify/delete and `graph:rebuilt` events |
 | `GET /api/vaults` | List available vaults |
 | `GET /api/stats?vault=<name>` | Pending summary count for the vault |
+| `GET /api/health?vault=<name>&fast=1` | Composite vault health report (ENH-007; `fast=1` skips the metadata-quality dimension) |
 | `POST /api/summarize?vault=<name>` | Spawn the summarizer subprocess for the vault (auth required) |
 | `GET /api/summarizer/status?vault=<name>` | Live summarizer run progress (processed/written/skipped/errors, pct) |
 | `GET /api/search?vault=<name>&q=<query>&top=<n>` | Semantic search via `vault_search.py` (spawned subprocess) |
@@ -661,11 +662,16 @@ graph LR
 ```typescript
 {
   meta: {
-    generated: string        // ISO timestamp of build
+    generated: string          // ISO timestamp of build
     note_count: number
     edge_count: number
     min_semantic_threshold: number
-    parmem_body_links?: number  // wiki edges added by par-mem body-link enrichment (absent when skipped/zero)
+    schema_version?: number    // on-disk graph.json shape version (GRAPH_SCHEMA_VERSION in build_graph.py); required since ENH-002 (schema_version 2)
+    include_daily?: boolean    // whether Daily-folder notes are included in the node set (ENH-002); participates in the incremental-compatibility check
+    max_neighbors?: number     // max semantic edges kept per note (top-K nearest neighbours); 0 disables the cap. Absent on graphs built before ENH-001
+    incremental?: boolean      // true when this graph was produced by an incremental rebuild (ENH-002); absent on full-rebuild graphs
+    parmem_body_links?: number  // wiki edges contributed by par-mem body-link enrichment (absent when skipped or added nothing)
+    parmem_body_status?: string // outcome of par-mem body-link enrichment when attempted (absent under --no-parmem): 'fresh' = ran; 'skipped:index-stale' / '-absent' / '-invalid' = non-fresh index; 'unavailable' / 'error' = backend failure
   }
   nodes: NoteNode[]
   edges: GraphEdge[]
@@ -759,6 +765,16 @@ The server retains up to 8 historical snapshots per vault in module scope (keyed
 | `vault` | string | No | Vault name (from vaults.yaml) |
 
 **Response (200):** `{ pendingSummaries: number }` — count of entries in the vault's `pending_summaries.jsonl`.
+
+**`GET /api/health`** — Composite vault health report (ENH-007). Runs `vault-stats --health --json` via `lib/vaultStatsServer.ts` so the visualizer and the CLI share the same scoring code. Expensive on large vaults (the metadata-quality dimension walks every note), so the client polls on demand rather than on the `/api/stats` cadence.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `vault` | string | No | Vault name (from vaults.yaml) |
+| `fast` | `1` | No | Skip the metadata-quality dimension (reported with a neutral score and `detail='skipped (--fast)'`) |
+
+**Response (200):** `VaultHealthReport` — `{ vault, overall, grade, dimensions: HealthDimension[], note_types, warnings }`, where each `HealthDimension` is `{ name, score, weight, detail, action }` (`action` is a concrete remediation command, or null when the dimension is healthy).
+**Errors:** 400 invalid vault · 503 `vault-stats` script not found · 500 health computation failed (including timeout).
 
 **`POST /api/summarize`** — Spawn the Parsidion summarizer subprocess (`summarize_sessions.py`) for the vault. Auth-required (mutation route).
 
@@ -989,6 +1005,7 @@ parsidion/
 │   │   ├── api/graph/rebuild/route.ts   # Trigger graph.json rebuild (POST)
 │   │   ├── api/search/route.ts          # Semantic vault search via vault_search.py (GET)
 │   │   ├── api/stats/route.ts           # Pending-summary count for VaultStats (GET)
+│   │   ├── api/health/route.ts          # Composite vault health report via vault-stats (GET, ENH-007)
 │   │   ├── api/summarize/route.ts       # Spawn the summarizer subprocess (POST, auth)
 │   │   └── api/summarizer/status/route.ts # Live summarizer run progress (GET)
 │   ├── components/
@@ -1002,7 +1019,7 @@ parsidion/
 │   │   ├── DiffViewer.tsx            # Diff renderer (unified / split / words modes)
 │   │   ├── Toolbar.tsx               # Top bar: tabs + vault selector + VaultStats + sync dot + new note
 │   │   ├── VaultSelector.tsx         # Multi-vault dropdown switcher
-│   │   ├── VaultStats.tsx            # PEND / NOTES chips; triggers + monitors summarizer runs
+│   │   ├── VaultStats.tsx            # PEND / NOTES chips; composite health grade chip (ENH-007); triggers + monitors summarizer runs
 │   │   ├── TabBar.tsx                # Scrollable tab strip with permanent Graph tab
 │   │   ├── UnifiedSearch.tsx         # ⌘K search input + dropdown
 │   │   ├── TemperatureBar.tsx        # Simulation energy indicator

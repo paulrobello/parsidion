@@ -61,6 +61,14 @@ note for a given query against this specific vault?**
 
 **Script location:** `tools/eval/embed_eval.py`
 
+`tools/eval/` also holds the sibling **prompt-eval harness** (`prompt_eval_run.py` plus the
+per-prompt `evaluators/` package), which scores Parsidion's six externalized AI prompts against
+golden cases under `tests/fixtures/prompts/golden/<prompt>/`. The two harnesses share conventions
+(PEP 723 scripts, Rich tables, timestamped JSON results under `tools/eval/results/`) but answer
+different questions: this one benchmarks **retrieval quality** (which embedding + chunking combo
+best surfaces a note); the prompt-eval harness scores **prompt quality**. See
+[PROMPTS.md](PROMPTS.md) for the latter.
+
 The harness is split across five modules:
 
 | Module | Purpose |
@@ -768,6 +776,9 @@ uv run tools/eval/embed_eval.py --eval --seed 42
 
 ## Related Documentation
 
+- [PROMPTS.md](PROMPTS.md) — sibling prompt-eval harness in `tools/eval/` that scores the six
+  externalized AI prompts (summarize-session, summarize-chunk, repair-frontmatter, merge-notes,
+  detect-conflicts, select-notes) against golden cases
 - [EMBEDDINGS.md](EMBEDDINGS.md) — production embedding index: build, search, configuration,
   and integration with hooks and agents
 - [ARCHITECTURE.md](ARCHITECTURE.md) — full system architecture including hook lifecycle,

@@ -376,7 +376,7 @@ mcpl auth login notion                              # Open browser for OAuth aut
 mcpl auth login figma --scope "read write"          # Request multiple scopes (space-separated)
 mcpl auth login custom --force                      # Force re-authentication
 mcpl auth login custom --client-id my-id --client-secret-stdin  # Provide credentials non-interactively
-mcpl auth login notion --timeout 120                # Extend browser callback timeout (seconds)
+mcpl auth login notion --timeout 240                # Extend browser callback timeout (default: 120 seconds)
 mcpl auth logout notion                             # Remove stored token for one server
 mcpl auth logout --all                              # Clear all stored tokens
 mcpl auth status                                    # Show authentication status for all servers

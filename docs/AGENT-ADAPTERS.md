@@ -26,7 +26,7 @@ behaviour from these; a field exists only when ≥2 runtimes use it or a runtime
 | | `parse_transcript_lines` | Optional `(lines) -> [str]` parser for assistant text. `None` falls back to the shape-agnostic parser. |
 | **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi). |
 | | `event_scripts` | Ordered `event -> hook-script-filename` map (e.g. `SessionStart -> codex_session_start_hook.py`). |
-| | `entry_matcher` | `matcher` for the hook entry (`""` codex, `"*"` gemini/claude). |
+| | `entry_matcher` | `matcher` for the hook entry (`""` codex/claude, `"*"` gemini). |
 | | `entry_timeout` + `timeout_unit` | Numeric timeout and its unit — **`"s"` (codex) or `"ms"` (gemini/claude)**. See [Timeout units](#timeout-units). |
 | | `entry_names` | Per-event `name` values when the runtime's schema requires one (gemini). `None` otherwise. |
 | | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). |

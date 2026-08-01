@@ -414,8 +414,9 @@ keep that cost down (ENH-003):
   invocations or hook subprocesses that would each cold-load the model — set
   `embeddings.service_enabled: true`. `vault_search` then transparently routes query embeddings
   through `vault_embed_serve.py`, a long-lived process that holds one warm model and serves embed
-  requests over a local Unix socket (`~/.claude/parsidion-embed/embed-<vault>.sock`, mode 0600 —
-  outside the synced vault tree, so multi-machine vault git sync never transports it). The service
+  requests over a local Unix socket (`~/.claude/parsidion-embed/embed-<vault-hash>.sock` —
+  `<vault-hash>` is a sha256 prefix of the resolved vault path, so each vault gets a stable unique socket;
+  mode 0600, outside the synced vault tree, so multi-machine vault git sync never transports it). The service
   is started lazily by the first enabled caller, idle-exits after `embeddings.service_idle_exit`
   seconds (default 600), and cleans up its socket/PID on exit.
 
@@ -739,10 +740,11 @@ par_mem:
 via `configure_vault_gitignore()`. This prevents the binary database file from being committed to
 vault git history. The file is reproducible from vault notes at any time by running a full rebuild.
 
-If you manage the vault gitignore manually, add this line:
+If you manage the vault gitignore manually, add this line (the glob matches the installer's
+pattern and also covers the SQLite WAL/SHM sidecars and the per-vault build lock):
 
 ```text
-embeddings.db
+embeddings.db*
 ```
 
 ### Post-Install Step
@@ -854,8 +856,9 @@ uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py
 **Symptom:** `build_embeddings.py` or `vault_search.py` fail with an import error referencing
 `fastembed` or `sqlite_vec`.
 
-**Cause:** Both scripts are PEP 723 scripts with inline dependency declarations (`fastembed`,
-`sqlite-vec`). Running them without `uv run` skips dependency installation.
+**Cause:** Both scripts are PEP 723 scripts with inline dependency declarations
+(`build_embeddings.py`: `fastembed`, `sqlite-vec`; `vault_search.py` adds `rich` for colorized
+output). Running them without `uv run` skips dependency installation.
 
 **Fix:** Always use `uv run` to invoke these scripts:
 

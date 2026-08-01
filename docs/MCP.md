@@ -18,6 +18,7 @@ A FastMCP-based MCP server that exposes the Parsidion vault knowledge management
   - [vault\_context](#vault_context)
   - [rebuild\_index](#rebuild_index)
   - [vault\_doctor](#vault_doctor)
+  - [vault\_health](#vault_health)
   - [code\_search](#code_search)
 - [Security](#security)
 - [Development](#development)
@@ -30,7 +31,7 @@ A FastMCP-based MCP server that exposes the Parsidion vault knowledge management
 
 `parsidion-mcp` solves the problem of Claude Desktop agents being unable to directly access the Parsidion vault. The Parsidion vault accumulates project knowledge, debugging solutions, architectural decisions, and reusable patterns across sessions — but Claude Desktop has no native mechanism to read or write those notes.
 
-`parsidion-mcp` bridges this gap by running as a local stdio MCP server. It wraps `vault_common` (the vault's shared library), `vault_search` (the semantic and metadata search engine), and the optional `parmem_backend` (the par-mem code-memory bridge) behind seven MCP tools, giving Claude Desktop the same vault access that Claude Code hook scripts enjoy.
+`parsidion-mcp` bridges this gap by running as a local stdio MCP server. It wraps `vault_common` (the vault's shared library), `vault_search` (the semantic and metadata search engine), and the optional `parmem_backend` (the par-mem code-memory bridge) behind eight MCP tools, giving Claude Desktop the same vault access that Claude Code hook scripts enjoy.
 
 Key capabilities:
 
@@ -39,6 +40,7 @@ Key capabilities:
 - Session-start-style context injection — project notes and recent activity surfaced as a compact index or full summaries
 - Index rebuild triggering from within a conversation
 - Vault health scanning and automated repair via `vault_doctor`
+- Composite vault health scoring across seven dimensions via `vault_health`
 - Natural-language code search over any par-mem-indexed repository via `code_search`
 
 The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires par-mem to be installed and its local daemon running (see [docs/PAR-MEM.md](PAR-MEM.md)); without par-mem the other six tools continue to work and `code_search` raises a clear `ValueError`. **Note:** par-mem itself is not yet publicly available (coming soon) — the other six tools work fully today; `code_search` activates automatically once par-mem ships.
@@ -58,6 +60,7 @@ graph TD
     ScriptsDir["~/.claude/skills/parsidion/scripts/"]
     UpdateIndex["update_index.py<br/>(subprocess)"]
     VaultDoctor["vault_doctor.py<br/>(subprocess)"]
+    VaultStats["vault_stats.py<br/>(subprocess)"]
     EmbeddingsDB["embeddings.db<br/>(SQLite + sqlite-vec)"]
     VaultRoot["~/ParsidionVault/<br/>(or ~/ClaudeVault/ for legacy installs)"]
 
@@ -68,6 +71,7 @@ graph TD
     MCP -->|"code_search tool"| ParmemBackend
     MCP -->|"rebuild_index (uv run)"| UpdateIndex
     MCP -->|"vault_doctor (uv run)"| VaultDoctor
+    MCP -->|"vault_health (uv run)"| VaultStats
 
     VaultSearch --> EmbeddingsDB
     VaultSearch --> VaultCommon
@@ -76,17 +80,20 @@ graph TD
     VaultCommon --> VaultRoot
     UpdateIndex --> ScriptsDir
     VaultDoctor --> ScriptsDir
+    VaultStats --> ScriptsDir
     UpdateIndex --> EmbeddingsDB
     UpdateIndex --> VaultRoot
+    VaultStats --> VaultRoot
 
-    subgraph "7 Exposed Tools"
+    subgraph "8 Exposed Tools"
         T1["vault_search"]
         T2["vault_read"]
         T3["vault_write"]
         T4["vault_context"]
         T5["rebuild_index"]
         T6["vault_doctor"]
-        T7["code_search"]
+        T7["vault_health"]
+        T8["code_search"]
     end
 
     MCP --- T1
@@ -96,12 +103,13 @@ graph TD
     MCP --- T5
     MCP --- T6
     MCP --- T7
+    MCP --- T8
 
     class Desktop external
     class MCP primary
     class VaultSearch,VaultCommon,ParmemBackend data
-    class ScriptsDir,T1,T2,T3,T4,T5,T6,T7 neutral
-    class UpdateIndex,VaultDoctor active
+    class ScriptsDir,T1,T2,T3,T4,T5,T6,T7,T8 neutral
+    class UpdateIndex,VaultDoctor,VaultStats active
     class ParmemDaemon,EmbeddingsDB,VaultRoot database
 
     classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
@@ -114,7 +122,7 @@ graph TD
 
 The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
 
-Script paths for `rebuild_index` and `vault_doctor` resolve from `vault_path.__file__` rather than the module-level `SCRIPTS_DIR` constant. `ops.py` derives its `SCRIPTS_DIR` as `Path(vault_path.__file__).resolve().parent`, so the subprocess runs the same code the MCP server imported via the editable install — not a possibly-drifted `~/.claude/skills/parsidion/scripts/` copy. On Unix this resolves to the same path because the installer symlinks `~/.claude/skills/parsidion` at the repo; on Windows (where the installer copies) the distinction matters.
+Script paths for `rebuild_index`, `vault_doctor`, and `vault_health` resolve from `vault_path.__file__` rather than the module-level `SCRIPTS_DIR` constant. `ops.py` derives its `SCRIPTS_DIR` as `Path(vault_path.__file__).resolve().parent`, so each subprocess runs the same code the MCP server imported via the editable install — not a possibly-drifted `~/.claude/skills/parsidion/scripts/` copy. On Unix this resolves to the same path because the installer symlinks `~/.claude/skills/parsidion` at the repo; on Windows (where the installer copies) the distinction matters.
 
 Every vault-touching tool also accepts an optional `vault` parameter (ARC-021) — a vault name from `~/.config/parsidion/vaults.yaml` or an absolute path — so multi-vault callers can target a specific vault instead of always hitting the resolver's default. The parameter threads through to `vault_common.resolve_vault(explicit=vault)` for the in-process tools and to a `--vault <path>` argv flag for the subprocess tools.
 
@@ -384,7 +392,7 @@ Scans all vault notes for structural issues — missing frontmatter fields, inva
 | `limit` | `int \| None` | `None` | Maximum notes to repair (only relevant when `fix=True`) |
 | `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
-The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
+The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`, `--fix-permissions`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
 
 #### Return Value
 
@@ -404,6 +412,38 @@ vault_doctor(fix=True, limit=10)
 
 # Repair all, errors only
 vault_doctor(fix=True, errors_only=True)
+```
+
+---
+
+### vault_health
+
+Returns the composite vault health report as JSON (ENH-007). Seven scored dimensions — index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, and file hygiene — are combined into a weighted overall grade. Each dimension carries a concrete `action` command when unhealthy, or `null` when healthy.
+
+Read-only: the tool never mutates the vault. It subprocessees `vault-stats --health --json` so the import and subprocess layers see the same code (the same pattern used by `rebuild_index` and `vault_doctor`).
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
+| `fast` | `bool` | `False` | Skip the metadata-quality scan so the report returns in well under a second on large vaults. The metadata dimension reports `detail='skipped (--fast)'` with a neutral score |
+
+#### Return Value
+
+The health report as a JSON string (compact, sorted keys). Raises `OpsToolError` on failure or timeout (60 seconds).
+
+#### Examples
+
+```python
+# Full health report for the default vault
+vault_health()
+
+# Fast report (skips metadata-quality scan)
+vault_health(fast=True)
+
+# Health report for a named vault
+vault_health(vault="work-vault")
 ```
 
 ---
@@ -451,7 +491,7 @@ The tool first calls `parmem_backend.resolve_parmem_backend()`. If par-mem is no
 
 **Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against the vault root (obtained via `vault_common.resolve_vault()`) using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — raises `VaultToolError("path escapes vault root")` immediately. No file system access occurs for rejected paths.
 
-**No external network calls.** The server and all seven tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py` and `vault_doctor.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local par-mem daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
+**No external network calls.** The server and all eight tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local par-mem daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
 
 The server has no authentication layer of its own because it is transport-bound to stdio. Only Claude Desktop (or another local process with stdio access) can communicate with it.
 
@@ -496,7 +536,7 @@ parsidion-mcp/
             ├── search.py     # vault_search tool
             ├── notes.py      # vault_read, vault_write
             ├── context.py    # vault_context
-            ├── ops.py        # rebuild_index, vault_doctor
+            ├── ops.py        # rebuild_index, vault_doctor, vault_health
             └── code_search.py # code_search tool (par-mem bridge)
 ```
 
