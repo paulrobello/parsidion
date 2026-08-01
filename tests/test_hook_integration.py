@@ -25,6 +25,25 @@ _SCRIPTS_DIR = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _register_tmp_vault_for_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SEC-P001: register tmp_path in a test-local vaults.yaml.
+
+    Every test in this module points CLAUDE_VAULT at tmp_path to avoid
+    touching the real vault. The resolver is now allowlist-based, so the
+    path must be registered in vaults.yaml (found via XDG_CONFIG_HOME) for
+    subprocess hooks to accept it.
+    """
+    _cfg_dir = tmp_path / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {tmp_path}\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+
+
 def _run_hook(
     script_name: str,
     payload: dict,

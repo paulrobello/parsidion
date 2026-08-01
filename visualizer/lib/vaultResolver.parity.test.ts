@@ -149,8 +149,9 @@ describe('ENH-005 — vault-resolution parity (shared fixture)', () => {
         'claude-vault-overrides-default-python',
         'cwd-marker-empty-falls-through-python',
         'cwd-marker-missing-falls-through-python',
-        'claude-vault-forbidden-rejected-python',
-        'arbitrary-existing-path-resolves-python',
+        'cwd-marker-arbitrary-falls-through-python',
+        'claude-vault-arbitrary-falls-through-python',
+        'claude-vault-forbidden-falls-through-python',
       ]),
     )
   })

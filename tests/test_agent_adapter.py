@@ -313,6 +313,13 @@ class TestExternalLoading:
         bad = ad / "bad.py"
         bad.write_text("ADAPTER = None")
         bad.chmod(0o666)  # group+other writable -> must be refused
+        # SEC-P001: register vault_dir in vaults.yaml so the allowlist
+        # resolver accepts the CLAUDE_VAULT reference.
+        (_cfg_dir := home / ".config" / "parsidion").mkdir(parents=True, exist_ok=True)
+        (_cfg_dir / "vaults.yaml").write_text(
+            f"vaults:\n  test: {vault_dir}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]

@@ -40,6 +40,7 @@ __all__: list[str] = [
     # Internal (re-exported for backward compat)
     "_VAULT_FORBIDDEN_PREFIXES",
     "_validate_vault_path",
+    "_named_vault_paths",
     "_resolve_vault_cached",
 ]
 
@@ -303,37 +304,76 @@ def is_path_inside_vault(path: Path, vault_root: Path) -> bool:
     return resolved.is_relative_to(root_resolved)
 
 
+def _named_vault_paths() -> set[Path]:
+    """Return the set of resolved paths registered in ``vaults.yaml``.
+
+    SEC-P001: backs the allowlist check in :func:`_resolve_vault_reference`.
+    Mirrors the TypeScript ``loadAllowedVaults`` pattern -- a single source
+    of truth for "which paths may a vault reference resolve to?"
+    """
+    try:
+        return set(list_named_vaults().values())
+    except OSError:
+        return set()
+
+
 def _resolve_vault_reference(reference: str) -> Path:
     """Resolve a vault reference (name or path) to an absolute Path.
 
+    SEC-P001: Allowlist resolver -- mirrors ``resolveVault()`` in
+    ``visualizer/lib/vaultResolver.ts``.  The reference must resolve to
+    either (a) a named vault registered in ``vaults.yaml``, or (b) the
+    default vault by its own path.  Arbitrary filesystem paths are
+    rejected even when they do not fall under
+    :data:`_VAULT_FORBIDDEN_PREFIXES`, closing the vector where a
+    malicious repo's ``cwd/.claude/vault`` or a crafted ``CLAUDE_VAULT``
+    could redirect vault writes to an attacker-chosen location.
+
+    The system-path guard (:func:`_validate_vault_path`) is retained as
+    defense-in-depth for local ``vaults.yaml`` misconfiguration (e.g. a
+    named vault registered to ``/etc``).
+
     Args:
-        reference: Either a vault name from vaults.yaml or an absolute/relative path.
+        reference: Either a vault name from vaults.yaml or a vault path.
 
     Returns:
-        Absolute Path to the vault directory.
+        Absolute Path to the resolved vault directory.
 
     Raises:
-        VaultConfigError: If reference is a name that doesn't exist in vaults.yaml,
-            or if the resolved path falls under a forbidden prefix.
+        VaultConfigError: If the reference is neither a named vault nor
+            the default vault, or if the resolved path falls under a
+            forbidden prefix.
     """
-    # First, try as a path
+    named = list_named_vaults()
+
+    # 1. Named-vault lookup (by name).
+    if reference in named:
+        resolved = named[reference].resolve()
+        _validate_vault_path(resolved)
+        return resolved
+
+    # 2. Path reference -- accept only when the resolved path matches a
+    #    registered named-vault path or the default vault path.  This is
+    #    the allowlist: an arbitrary existing path (e.g. ~/.ssh or
+    #    /tmp/evil) is rejected even though it is not under a forbidden
+    #    prefix.
     ref_path = Path(reference).expanduser()
-    if ref_path.is_absolute() or ref_path.exists():
-        resolved = ref_path.resolve()
-        _validate_vault_path(resolved)
-        return resolved
+    try:
+        candidate = ref_path.resolve()
+    except OSError:
+        candidate = ref_path
+    default = default_vault_root()
 
-    # If not a valid path, look up by name
-    named_vaults = list_named_vaults()
-    if reference in named_vaults:
-        resolved = named_vaults[reference]
-        _validate_vault_path(resolved)
-        return resolved
+    if candidate in _named_vault_paths() or candidate == default:
+        _validate_vault_path(candidate)
+        return candidate
 
-    # Not found
+    # 3. Not allowlisted.
     raise VaultConfigError(
-        f"Vault '{reference}' not found in {get_vaults_config_path()}. "
-        f"Available vaults: {', '.join(named_vaults.keys()) or '(none configured)'}"
+        f"Vault '{reference}' is not a named vault in "
+        f"{get_vaults_config_path()} and does not match the default "
+        f"vault ({default}). "
+        f"Available: {', '.join(named) or '(none configured)'}"
     )
 
 
@@ -392,6 +432,12 @@ def _resolve_vault_cached(
         return _resolve_vault_reference(explicit)
 
     # 2. Project-local vault (.claude/vault file)
+    # SEC-P001: .claude/vault is attacker-controlled (any repo can plant
+    # one), so the reference must pass the allowlist check.  A reference
+    # that resolves to a non-allowlisted path is silently skipped so a
+    # malicious repo cannot crash the hook -- it simply falls through to
+    # the next resolution branch instead of writing vault content into
+    # the attacker-chosen location.
     work_dir = Path(cwd) if cwd else Path.cwd()
     project_vault_file = work_dir / ".claude" / "vault"
     if project_vault_file.exists():
@@ -399,13 +445,18 @@ def _resolve_vault_cached(
             vault_ref = project_vault_file.read_text(encoding="utf-8").strip()
             if vault_ref:
                 return _resolve_vault_reference(vault_ref)
-        except OSError:
+        except (OSError, VaultConfigError):
             pass  # Fall through to next option
 
     # 3. Environment variable
+    # SEC-P001: CLAUDE_VAULT is user-controlled but fall through to the
+    # default on a non-allowlisted path rather than crashing the hook.
     env_vault = os.environ.get("CLAUDE_VAULT")
     if env_vault:
-        return _resolve_vault_reference(env_vault)
+        try:
+            return _resolve_vault_reference(env_vault)
+        except VaultConfigError:
+            pass  # Fall through to default
 
     # 4. Default vault
     # ARC-005 / ARC-009: Check vault_common's VAULT_ROOT so that RUNTIME

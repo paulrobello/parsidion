@@ -46,9 +46,17 @@ def _run_hook(
         extra_env: Additional env overrides.
         stdin_text: Optional raw stdin (used to feed malformed payloads).
     """
+    # SEC-P001: register tmp_vault in a test-local vaults.yaml so the
+    # subprocess allowlist resolver accepts the CLAUDE_VAULT reference.
+    _cfg_dir = tmp_vault / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {tmp_vault}\n", encoding="utf-8"
+    )
     env = {
         **os.environ,
         "CLAUDE_VAULT": str(tmp_vault),
+        "XDG_CONFIG_HOME": str(tmp_vault / ".config"),
         # Unset the recursion guard so the hook runs.
         "CLAUDE_VAULT_STOP_ACTIVE": "",
     }

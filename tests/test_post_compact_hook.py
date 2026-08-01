@@ -36,9 +36,17 @@ def _run_hook(
     stdin_text: str | None = None,
 ) -> subprocess.CompletedProcess:
     """Run post_compact_hook.py as a subprocess against ``tmp_vault``."""
+    # SEC-P001: register tmp_vault in a test-local vaults.yaml so the
+    # subprocess allowlist resolver accepts the CLAUDE_VAULT reference.
+    _cfg_dir = tmp_vault / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {tmp_vault}\n", encoding="utf-8"
+    )
     env = {
         **os.environ,
         "CLAUDE_VAULT": str(tmp_vault),
+        "XDG_CONFIG_HOME": str(tmp_vault / ".config"),
     }
     env["PYTHONPATH"] = f"{_SCRIPTS_DIR}{os.pathsep}{env.get('PYTHONPATH', '')}"
     if extra_env:

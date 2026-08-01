@@ -272,6 +272,12 @@ class TestConfiguredAnthropicEnv:
             "  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO\n",
             encoding="utf-8",
         )
+        _cfg_dir = tmp_path / ".config" / "parsidion"
+        _cfg_dir.mkdir(parents=True, exist_ok=True)
+        (_cfg_dir / "vaults.yaml").write_text(
+            f"vaults:\n  test: {tmp_path}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
         for name in (
             "ANTHROPIC_AUTH_TOKEN",
@@ -304,6 +310,12 @@ class TestConfiguredAnthropicEnv:
             "  ANTHROPIC_BASE_URL: https://config.example/anthropic\n",
             encoding="utf-8",
         )
+        _cfg_dir = tmp_path / ".config" / "parsidion"
+        _cfg_dir.mkdir(parents=True, exist_ok=True)
+        (_cfg_dir / "vaults.yaml").write_text(
+            f"vaults:\n  test: {tmp_path}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
         monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
@@ -326,6 +338,12 @@ class TestConfiguredAnthropicEnv:
             "  API_TIMEOUT_MS: 3000000\n",
             encoding="utf-8",
         )
+        _cfg_dir = tmp_path / ".config" / "parsidion"
+        _cfg_dir.mkdir(parents=True, exist_ok=True)
+        (_cfg_dir / "vaults.yaml").write_text(
+            f"vaults:\n  test: {tmp_path}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
         monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)

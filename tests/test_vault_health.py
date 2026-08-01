@@ -45,6 +45,14 @@ def _isolate_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     """
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
     vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    # SEC-P001: register tmp_path in a test-local vaults.yaml so the
+    # allowlist resolver accepts the CLAUDE_VAULT reference.
+    _cfg_dir = tmp_path / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {tmp_path}\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
     monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
     yield
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]

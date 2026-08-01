@@ -35,13 +35,19 @@ import vault_doctor  # noqa: E402
 
 
 @pytest.fixture()
-def tmp_vault(tmp_path: Path) -> Path:
+def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A vault with the minimal structure doctor expects."""
     v = tmp_path / "vault"
     v.mkdir()
     (v / "Daily").mkdir()
     (v / "Patterns").mkdir()
     (v / "Debugging").mkdir()
+    # SEC-P001: register v in a test-local vaults.yaml so any internal
+    # resolve_vault() call inside the doctor accepts it.
+    _cfg_dir = tmp_path / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(f"vaults:\n  test: {v}\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
     return v
 
 
@@ -49,6 +55,9 @@ def tmp_vault(tmp_path: Path) -> Path:
 def patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point vault_doctor at the temp vault (mirrors the existing test fixtures)."""
     monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
+    # SEC-P001: also point CLAUDE_VAULT at the temp vault so resolve_vault()
+    # inside doctor subroutines returns the test vault.
+    monkeypatch.setenv("CLAUDE_VAULT", str(tmp_vault))
 
 
 def _write_note(

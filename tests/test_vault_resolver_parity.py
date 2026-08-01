@@ -17,13 +17,17 @@ Two layers of cross-language agreement, both enforced here:
    :class:`TestVaultResolutionVectors`.
 
 The two resolvers are not identical (see the fixture's ``$comment`` and the
-``applies_to``-scoped vectors): Python is a 4-channel path-or-name resolver
-with a ``cwd/.claude/vault`` project-local file and ``CLAUDE_VAULT`` env var;
-TypeScript is an allowlist resolver (named vaults or the default path) with a
-``VAULT_ROOT`` default override. Where a channel genuinely only exists on one
-side, the vector carries ``"applies_to": ["python"]`` / ``["typescript"]`` and
-this suite asserts every vector is either executed or explicitly excluded --
-no silent skips.
+``applies_to``-scoped vectors): Python is a 4-channel resolver
+(explicit / cwd/.claude/vault / CLAUDE_VAULT / default); TypeScript is a
+single-channel allowlist resolver (named vaults or the default path) with a
+``VAULT_ROOT`` default override. SEC-P001 back-ported the TS allowlist to
+Python's reference resolver, so arbitrary paths are now rejected on both
+sides; Python's attacker-controlled channels (.claude/vault, CLAUDE_VAULT)
+additionally fall through to the default on rejection rather than crashing
+the hook. Where a channel genuinely only exists on one side, the vector
+carries ``"applies_to": ["python"]`` / ``["typescript"]`` and this suite
+asserts every vector is either executed or explicitly excluded -- no silent
+skips.
 
 CI-enforceable: yes -- part of the root ``pytest tests/`` invocation, and the
 fixture is structurally validated by ``scripts/gen_parity_fixtures.py`` under
@@ -242,7 +246,6 @@ class TestVaultResolutionVectors:
         # a deliberate ack here.
         assert set(_EXCLUDED_FROM_PYTHON) == {
             "vault-root-overrides-default-typescript",
-            "arbitrary-path-rejected-allowlist-typescript",
             "vault-root-forbidden-rejected-typescript",
         }, (
             "TypeScript-only vector set changed; update this assertion to "

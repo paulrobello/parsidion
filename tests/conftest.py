@@ -54,6 +54,11 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
     then clears the ``resolve_vault`` and ``load_config`` LRU caches before
     and after the test.
 
+    SEC-P001: The resolver is now allowlist-based -- CLAUDE_VAULT references
+    are accepted only when the path is registered in ``vaults.yaml``.  This
+    fixture writes a test-local ``vaults.yaml`` (via ``XDG_CONFIG_HOME``)
+    registering ``tmp_path`` so the allowlist check passes.
+
     The fixture does NOT create vault subdirectories — tests that need the
     standard layout should call ``vault_common.ensure_vault_dirs(tmp_vault)``
     or create dirs manually.
@@ -62,6 +67,15 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
     # from a previous test cannot bleed into this one.
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
     vault_common.load_config.cache_clear()
+
+    # SEC-P001: register tmp_path in a test-local vaults.yaml so the
+    # allowlist resolver accepts CLAUDE_VAULT references to it.
+    _cfg_dir = tmp_path / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {tmp_path}\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
 
     monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
 

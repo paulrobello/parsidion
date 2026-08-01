@@ -53,6 +53,14 @@ def _run_session_start_main_for_codex(
 
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
     vault_common._clear_config_cache()
+    # SEC-P001: register vault in a test-local vaults.yaml so the allowlist
+    # resolver accepts the CLAUDE_VAULT reference.
+    _cfg_dir = tmp_path / ".config" / "parsidion"
+    _cfg_dir.mkdir(parents=True, exist_ok=True)
+    (_cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {vault}\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
     monkeypatch.setenv("CLAUDE_VAULT", str(vault))
     monkeypatch.setattr(
         session_start_hook, "_build_candidates", lambda *_args, **_kwargs: [note]
