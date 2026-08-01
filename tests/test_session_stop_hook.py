@@ -115,6 +115,11 @@ def _run_session_stop_main_for_codex(
     monkeypatch.setattr(
         session_stop_hook.ai_backend, "_run_prompt_subprocess", fake_run
     )
+    monkeypatch.setattr(
+        session_stop_hook.ai_backend.shutil,
+        "which",
+        lambda name: f"/usr/local/bin/{name}",
+    )
     monkeypatch.setattr(sys, "argv", ["session_stop_hook.py", *argv])
     monkeypatch.setattr(
         sys,

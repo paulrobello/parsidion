@@ -72,6 +72,11 @@ def _run_session_start_main_for_codex(
     monkeypatch.setattr(
         session_start_hook.ai_backend, "_run_prompt_subprocess", fake_run
     )
+    monkeypatch.setattr(
+        session_start_hook.ai_backend.shutil,
+        "which",
+        lambda name: f"/usr/local/bin/{name}",
+    )
     monkeypatch.setattr(sys, "argv", ["session_start_hook.py", *argv])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"cwd": str(project)})))
     monkeypatch.setattr(sys, "stdout", io.StringIO())

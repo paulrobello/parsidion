@@ -299,6 +299,11 @@ class TestRunAiPrompt:
             )
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which — gate must pass so the
+        # (mocked) subprocess logic is exercised even where codex isn't installed.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
 
@@ -403,6 +408,11 @@ class TestRunAiPrompt:
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="failed")
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which — gate must pass so the
+        # (mocked) subprocess logic is exercised even where codex isn't installed.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
 
@@ -417,6 +427,11 @@ class TestRunAiPrompt:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which — gate must pass so the
+        # (mocked) subprocess logic is exercised even where codex isn't installed.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
 
@@ -433,6 +448,11 @@ class TestRunAiPrompt:
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which — gate must pass so the
+        # (mocked) subprocess logic is exercised even where codex isn't installed.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
         assert output_paths and not output_paths[0].exists()
@@ -450,6 +470,9 @@ class TestRunAiPrompt:
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         with pytest.raises(ai_backend.AiBackendTimeout):
             ai_backend.run_ai_prompt("hello", vault=vault, raise_on_timeout=True)
@@ -494,6 +517,11 @@ class TestRunAiPrompt:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which — gate must pass so the
+        # (mocked) subprocess logic is exercised even where codex isn't installed.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
         assert output_paths and not output_paths[0].exists()
@@ -510,6 +538,11 @@ class TestRunAiPrompt:
             raise FileNotFoundError("codex")
 
         monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        # SEC-117: command resolution via shutil.which — gate must pass so the
+        # (mocked) subprocess logic is exercised even where codex isn't installed.
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
 
         assert ai_backend.run_ai_prompt("hello", vault=vault) is None
         assert output_paths and not output_paths[0].exists()
