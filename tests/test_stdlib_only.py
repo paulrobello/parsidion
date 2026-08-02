@@ -66,6 +66,7 @@ _POISON_SETUP = "import sys\n" + "\n".join(
 _ENFORCEMENT_SCOPE = [
     # core/ stdlib-only library package
     "core.vault_config",
+    "core.vault_schema",
     "core.vault_path",
     "core.vault_fs",
     "core.vault_index",

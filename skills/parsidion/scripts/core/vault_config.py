@@ -9,6 +9,7 @@ are re-exported from ``vault_common`` for backward compatibility.
 
 from __future__ import annotations
 
+import copy
 import functools
 import math
 import re
@@ -17,6 +18,28 @@ from pathlib import Path
 from typing import Any
 
 from .vault_path import resolve_vault
+from .vault_schema import (
+    AdaptersConfig,
+    AdaptiveContextConfig,
+    AIConfig,
+    AIModelsConfig,
+    AnthropicEnvConfig,
+    CodexCliConfig,
+    DefaultsConfig,
+    EmbeddingsConfig,
+    EventLogConfig,
+    GitConfig,
+    ParMemConfig,
+    PreCompactHookConfig,
+    SearchConfig,
+    SessionStartHookConfig,
+    SessionStopHookConfig,
+    SubagentStopHookConfig,
+    SummarizerConfig,
+    VaultAppConfig,
+    VaultSectionConfig,
+    schema_dict,
+)
 
 __all__: list[str] = [
     # YAML parsing helpers (also used by vault_index for frontmatter)
@@ -28,6 +51,8 @@ __all__: list[str] = [
     "_parse_config_yaml",
     "_merge_config_dicts",
     "load_config",
+    "load_typed_config",
+    "_clear_typed_config_cache",
     "_load_config_cached",
     "_clear_config_cache",
     "get_config",
@@ -37,6 +62,29 @@ __all__: list[str] = [
     # Config validation
     "validate_config",
     "_CONFIG_SCHEMA",
+    # ENH-014: typed config access (single source of truth lives in
+    # vault_schema; re-exported here so callers can use ``from vault_config
+    # import VaultAppConfig`` and the per-section dataclasses for annotations).
+    "VaultAppConfig",
+    "schema_dict",
+    "AIConfig",
+    "AIModelsConfig",
+    "CodexCliConfig",
+    "SessionStartHookConfig",
+    "SessionStopHookConfig",
+    "SubagentStopHookConfig",
+    "PreCompactHookConfig",
+    "SummarizerConfig",
+    "EmbeddingsConfig",
+    "ParMemConfig",
+    "SearchConfig",
+    "AnthropicEnvConfig",
+    "GitConfig",
+    "DefaultsConfig",
+    "EventLogConfig",
+    "AdaptiveContextConfig",
+    "VaultSectionConfig",
+    "AdaptersConfig",
 ]
 
 # ---------------------------------------------------------------------------
@@ -367,6 +415,56 @@ def get_config(section: str, key: str, default: Any = None) -> Any:
     return default
 
 
+@functools.lru_cache(maxsize=8)
+def _load_typed_config_cached(vault: Path | None = None) -> VaultAppConfig:
+    """Build (and cache) the typed config from the parsed dict.
+
+    Cached separately from the public :func:`load_typed_config` so the public
+    wrapper can deep-copy on every return without defeating the cache. The
+    expensive work (file read + YAML parse) is already cached inside
+    :func:`load_config`; this cache only avoids re-running the cheap
+    dict-to-dataclass mapping.
+    """
+    parsed = load_config(vault=vault)
+    return VaultAppConfig.from_dict(parsed)
+
+
+def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
+    """Load the vault config as a typed :class:`VaultAppConfig`.
+
+    Reads the same parsed dict as :func:`load_config` (config.yaml layered
+    with config.local.yaml) and maps it onto the section dataclasses defined
+    in :mod:`vault_schema` -- the single source of truth for section/key names
+    and allowed types. Values pass through unchanged; absent keys are ``None``
+    on the section dataclass. No coercion, no validation side effects:
+    :func:`validate_config` remains the sole source of warnings.
+
+    Additive to the dict-returning :func:`load_config`; callers that prefer
+    typed attribute access (``cfg.summarizer.model``) can use this instead.
+    The underlying parse is cached (via :func:`load_config` and
+    :func:`_load_typed_config_cached`); each call returns a fresh deep copy so
+    callers can mutate their instance without corrupting the cache.
+
+    Args:
+        vault: Optional vault path. Defaults to :func:`resolve_vault`.
+
+    Returns:
+        A :class:`VaultAppConfig`. Absent or unreadable config files yield an
+        instance whose sections are all empty (every field ``None``).
+    """
+    return copy.deepcopy(_load_typed_config_cached(vault))
+
+
+# Expose cache management so tests/callers can invalidate the typed-config
+# cache the same way they do ``load_config.cache_clear()`` (via the
+# ``_clear_config_cache`` alias below). A named function -- rather than a
+# ``.cache_clear`` attribute bolted onto the public wrapper -- keeps the API
+# statically visible to type checkers.
+def _clear_typed_config_cache() -> None:
+    """Clear the :func:`load_typed_config` build cache (test helper)."""
+    _load_typed_config_cached.cache_clear()
+
+
 # ---------------------------------------------------------------------------
 # Embedding-score temporal decay
 # ---------------------------------------------------------------------------
@@ -412,127 +510,14 @@ def apply_decay_score(score: float, mtime: float, now: float) -> float:
 # Config validation
 # ---------------------------------------------------------------------------
 
-# Schema: section -> key -> expected Python type(s)
-_CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
-    "ai": {
-        "backend": (str,),
-    },
-    "ai_models": {
-        "claude": (dict,),
-        "codex": (dict,),
-    },
-    "codex_cli": {
-        "command": (str,),
-        "timeout": (int, float),
-        "sandbox": (str, type(None)),
-        "ephemeral": (bool,),
-        "skip_git_repo_check": (bool,),
-        "suppress_notify": (bool,),
-        "allow_danger_full_access": (bool,),
-    },
-    "session_start_hook": {
-        "ai_model": (str, type(None)),
-        "ai_cooldown_seconds": (int, float),
-        "ai_single_flight": (bool,),
-        "max_chars": (int,),
-        "ai_timeout": (int, float),
-        "recent_days": (int,),
-        "debug": (bool,),
-        "verbose_mode": (bool,),
-        "use_embeddings": (bool,),
-        "track_delta": (bool,),
-        "graph_expand": (bool,),
-        "graph_expand_max": (int,),
-        "graph_rerank": (bool,),
-    },
-    "session_stop_hook": {
-        "ai_model": (str, type(None)),
-        "ai_timeout": (int, float),
-        "auto_summarize": (bool,),
-        "auto_summarize_after": (int, type(None)),
-        "transcript_tail_lines": (int,),
-        "pi_transcript_tail_lines": (int,),
-        "transcript_tail_bytes": (int,),
-    },
-    "subagent_stop_hook": {
-        "enabled": (bool,),
-        "min_messages": (int,),
-        "excluded_agents": (str,),
-        "transcript_tail_bytes": (int,),
-    },
-    "pre_compact_hook": {
-        "lines": (int,),
-        "transcript_tail_bytes": (int,),
-    },
-    "summarizer": {
-        "model": (str, type(None)),
-        "max_parallel": (int,),
-        "transcript_tail_lines": (int,),
-        "transcript_tail_bytes": (int,),
-        "max_cleaned_chars": (int,),
-        "persist": (bool,),
-        "cluster_model": (str, type(None)),
-        "dedup_threshold": (float, int),
-        "dead_letter_retention_days": (int,),
-        "rebuild_graph": (bool,),
-        "graph_include_daily": (bool,),
-        "graph_incremental": (bool,),
-        "ai_timeout": (int, float, type(None)),
-    },
-    "embeddings": {
-        "enabled": (bool,),
-        "model": (str,),
-        "min_score": (float, int),
-        "top_k": (int,),
-        "decay_enabled": (bool,),
-        "decay_half_life_days": (float, int),
-        "decay_min_factor": (float, int),
-        "service_enabled": (bool,),  # ENH-003: opt-in persistent embedding service
-        "service_idle_exit": (int,),  # ENH-003: daemon idle-exit seconds
-    },
-    "par_mem": {
-        "enabled": (bool,),
-        "binary": (str,),
-        "timeout_s": (int, float),
-    },
-    "search": {
-        "backend": (str,),
-        "use_note_index": (bool,),
-    },
-    "anthropic_env": {
-        "ANTHROPIC_API_KEY": (str, type(None)),
-        "ANTHROPIC_AUTH_TOKEN": (str, type(None)),
-        "ANTHROPIC_BASE_URL": (str, type(None)),
-        "ANTHROPIC_CUSTOM_HEADERS": (str, type(None)),
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": (str, type(None)),
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": (str, type(None)),
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": (str, type(None)),
-        "API_TIMEOUT_MS": (int, str, type(None)),
-        "HTTPS_PROXY": (str, type(None)),
-        "HTTP_PROXY": (str, type(None)),
-    },
-    "git": {
-        "auto_commit": (bool,),
-    },
-    "defaults": {
-        "haiku_model": (str,),
-    },
-    "event_log": {
-        "enabled": (bool,),
-        "max_lines": (int,),
-        "path": (str, type(None)),
-    },
-    "adaptive_context": {
-        "enabled": (bool,),
-        "decay_days": (int, float),
-    },
-    "vault": {
-        "username": (str,),
-    },
-    "adapters": {
-        "load_external": (bool,),  # ENH-006: opt-in ~/.config/parsidion/adapters/*.py
-    },
-}
+# Schema: section -> key -> expected Python type(s).
+# ENH-014: derived from the dataclass annotations in vault_schema (the single
+# source of truth) rather than hand-maintained here. ``schema_dict()`` returns
+# the same structure -- section names, key names, and allowed-type tuples
+# (including ``type(None)`` where the annotation is ``X | None``) -- that the
+# literal below previously encoded, so ``validate_config`` and its ``__all__``
+# export are unchanged.
+_CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = schema_dict()
 
 
 def validate_config() -> list[str]:
