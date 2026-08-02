@@ -72,6 +72,7 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 - **[QA-005] / [ARC-012]** Tighten shim re-exports — 9 flat shims + 9 core modules — Shims switched to `from core.X import *` + explicit `__all__` in each `core/X.py`; stdlib modules (`re`, `sys`, `math`, …) no longer re-exported. Stdlib-only gate stays green.
 - **[QA-006]** Replace `!` assertions — `visualizer/app/api/note/{route,diff/route,history/route}.ts`, `GraphCanvas.tsx`, `graphDelta.ts`, `useForceLayout.ts`, `useVaultFiles.ts` — `stem!` → explicit 400 guard; `Map.get()!` → typed local + check. +4 missing-stem route tests.
 - **[QA-003]** `summarize_one` dispatch → `summarizer/pipeline.py` — `summarize_one` + its four stage helpers (`_early_gate`/`_apply_merge_decision`/`_handle_write_gate_decision`/`_apply_backlinks_and_strip_links`) extracted from the entry shim into a new `summarizer/pipeline.py`; the three anio-core deps (`preprocess_transcript_hierarchical`, `_summarize_chunk`, `_run_summarizer_prompt`) moved into `summarizer.transcript`/`summarizer.prompt` so the package stays self-contained (the shim is a PEP-723 script run as `__main__`, so submodules cannot import back from it). Test monkeypatches retargeted to the call-site module (`summarizer.pipeline.X` / `summarizer.transcript.X`) via lazy accessors; `_early_gate`'s `_ACTIVE_SESSION_GRACE_SECS` default-disable now hits pipeline's globals. Shim 1247 → 706 LOC (−43%). Gate green: 1311 passed/3 skipped.
+- **[QA-008]** `GraphCanvas` interactions hook — `visualizer/lib/useGraphCanvasInteractions.ts` (new) + `GraphCanvas.tsx` — Lifted the right-click context-menu actions, `findWikiPath`, and the toast banner out of `GraphCanvas.tsx` into `useGraphCanvasInteractions`. The menu actions are plain functions (no memoized consumers, and useCallback bodies that write refs are what `react-hooks/preserve-manual-memoization` rejects). `nodeContextMenu` + the path refs stay in `GraphCanvas`: they are consumed by `useSigmaInstance` at construction, and `useSigmaInstance` owns `sigmaRef`/`graphRef`, so there is a construction-order cycle the codebase already resolves with the callbackRef pattern — a full state lift would require `useSigmaInstance` to accept externally-owned refs (larger change, left as a follow-up). The audit's "edge-pruning" half was judged not separately extractable (one inline line in the edge-rebuild effect, not a discrete interaction). `GraphCanvas.tsx` 706 → 618 LOC (−12%). Gate green: `make visualizer-check` (tsc + lint + 258 tests + build).
 
 ### Documentation
 - **[DOC-001]** README release 0.14.0 → 0.15.0 (Critical).
@@ -90,13 +91,12 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 
 ## Deferred / Requires Follow-up 🔧
 
-The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008's container triad (`GraphPanel` + `SidebarPanel` + `ReadingPanePanel`), while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — ARC-008's optional Next→Vite framework swap (a product decision) or genuinely optional/low-value work (QA-007/008/009).
+The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008's container triad (`GraphPanel` + `SidebarPanel` + `ReadingPanePanel`), while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — ARC-008's optional Next→Vite framework swap (a product decision) or genuinely optional/low-value work (QA-007/009).
 
 | ID | Sev | Why deferred | Recommended approach | Effort |
 |----|-----|--------------|----------------------|--------|
 | **ARC-008** (Vite only) | Med | The optional Next→Vite framework swap. | `ReadingPanePanel` was extracted (prop-drilled, consistent with `GraphPanel`/`SidebarPanel`) — the suggested context/provider lift was judged unnecessary since `noteRefreshTrigger` threads cleanly as a single integer prop. Only the framework swap remains, and that is a separate product decision. | M |
 | **QA-007** | Low–Med | Structured logger for visualizer — deferred unless multi-user. | Adopt `pino` (or 20-line wrapper) when the visualizer grows a deployment. | M |
-| **QA-008** | Low | Optional `GraphCanvas` interactions hook extraction. | Lift context-menu + edge-pruning into `useGraphCanvasInteractions`. | S |
 | **QA-009** | Low | Eval dead-code sweep — tracked as **ENH-013** (board backlog). | Wire-or-delete genuinely-dead helpers in `tools/eval/`. | M |
 
 **No-action (closed by audit's own classification):** SEC-P004 (embedding-service socket, single-user threat model), SEC-P005 (`$EDITOR` argv, no injection path today), ARC-017 / DOC-012 (`MEMORY_REPORT.md` already gitignored), QA-010 (positive observation).
@@ -137,7 +137,7 @@ Full per-file list: `git diff --stat e0faf8c..main`.
 
 1. **Push `main`** when ready — local `main` (`aacfce1`) is ahead of `origin/main` (`e0faf8c`) by the 9 remediation commits; not pushed (push is outward-facing, left for explicit confirmation). Local main is already live for sessions via the symlink.
 2. **Re-run `/audit`** to regenerate AUDIT.md against the remediated state — it should show the 36 resolved issues closed.
-3. **Remaining deferred** (see table): ARC-008's optional Vite swap, plus the optional QA-007/008/009.
+3. **Remaining deferred** (see table): ARC-008's optional Vite swap, plus the optional QA-007/009.
 4. **`[tool.setuptools] packages` gap** (flagged, not an audit issue): add the `cli.*` subpackages to `pyproject.toml` before exercising wheel/sdist packaging — the editable/symlink install is unaffected.
 5. **Optional**: implement the `--approved-only` flag (enhancement **ENH-A**) now that DOC-002 corrected the README — `vault_review.py` already records approvals nothing consumes.
 5. **Sync installed location** after merge: `uv run install.py --force --yes` (skill/hooks source → `~/.claude/skills/parsidion`).

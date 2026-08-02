@@ -23,6 +23,7 @@ import {
 import type { NodeDelta } from '@/lib/graphDelta'
 import { useSigmaInstance } from '@/lib/useSigmaInstance'
 import type { RenderOptions } from '@/lib/useSigmaInstance'
+import { useGraphCanvasInteractions } from '@/lib/useGraphCanvasInteractions'
 
 export interface GraphCanvasHandle {
   flyToNode: (stem: string) => void
@@ -62,58 +63,6 @@ interface Props {
   onLayoutRestart?: () => void
   neighborhoodCenter?: string | null
   neighborhoodHops?: number
-}
-
-// QA-004: findWikiPath kept here — it is only called from GraphCanvas JSX
-// (the context-menu "Find Path Here" handler).
-function findWikiPath(
-  from: string,
-  to: string,
-  graph: AbstractGraph
-): { path: string[]; edgeIds: string[] } | null {
-  const adj = new Map<string, Array<{ neighbor: string; edgeId: string }>>()
-  ;(graph.nodes() as string[]).forEach((n: string) => adj.set(n, []))
-  ;(graph.edges() as string[]).forEach((e: string) => {
-    if (graph.getEdgeAttribute(e, 'kind') !== 'wiki') return
-    if (graph.getEdgeAttribute(e, 'overlay')) return
-    const src = graph.source(e) as string
-    const tgt = graph.target(e) as string
-    adj.get(src)?.push({ neighbor: tgt, edgeId: e })
-    adj.get(tgt)?.push({ neighbor: src, edgeId: e })
-  })
-
-  const parent = new Map<string, { from: string; edgeId: string }>()
-  const visited = new Set<string>([from])
-  const queue = [from]
-  let found = false
-
-  while (queue.length > 0 && !found) {
-    const curr = queue.shift()
-    if (curr === undefined) break // QA-006: replaces queue.shift()! — length>0 makes this unreachable
-    for (const { neighbor, edgeId } of (adj.get(curr) ?? [])) {
-      if (!visited.has(neighbor)) {
-        visited.add(neighbor)
-        parent.set(neighbor, { from: curr, edgeId })
-        if (neighbor === to) { found = true; break }
-        queue.push(neighbor)
-      }
-    }
-  }
-
-  if (!found) return null
-
-  const path: string[] = []
-  const edgeIds: string[] = []
-  let curr = to
-  while (curr !== from) {
-    path.unshift(curr)
-    const p = parent.get(curr)
-    if (!p) break // QA-006: replaces parent.get(curr)! — BFS reached `to`, so every step back has a parent entry
-    edgeIds.unshift(p.edgeId)
-    curr = p.from
-  }
-  path.unshift(from)
-  return { path, edgeIds }
 }
 
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
@@ -192,8 +141,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const pathSourceRef = useRef<string | null>(null)
   const pathNodesRef = useRef<Set<string>>(new Set())
   const pathEdgesRef = useRef<Set<string>>(new Set())
-  const [toastMsg, setToastMsg] = useState<string | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // QA-013b: sigma/graphology instance lifecycle extracted into useSigmaInstance.
   // flyToNode/applyNodeDelta are passed via refs because they read sigmaRef/graphRef
@@ -215,6 +162,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     setNodeContextMenu, setNodeDeltaVersion, applyNodeDeltaRef, flyToNodeRef,
     // Props read by the bootstrap closure
     data, activeTypes, showDaily, graphSource, threshold, onNodeClick, onBackgroundClick,
+  })
+
+  // QA-008: context-menu actions, path-finding, and toast extracted into a hook.
+  const interactions = useGraphCanvasInteractions({
+    graphRef, sigmaRef, latest,
+    setNodeContextMenu, pathSourceRef, pathNodesRef, pathEdgesRef,
+    onNodeClick, onOpenHistory,
   })
 
   // Compute neighborhood BFS when in local mode.
@@ -258,16 +212,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   }, [neighborhoodCenter, neighborhoodHops, data])
 
   useEffect(() => { neighborhoodRef.current = neighborhoodInfo }, [neighborhoodInfo, neighborhoodRef])
-
-  const showToast = useCallback((msg: string) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    setToastMsg(msg)
-    toastTimerRef.current = setTimeout(() => setToastMsg(null), 4000)
-  }, [])
-
-  useEffect(() => {
-    return () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current) }
-  }, [])
 
   useEffect(() => {
     sigmaRef.current?.refresh()
@@ -604,7 +548,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
               style={{ padding: '6px 12px', cursor: 'pointer', color: '#ccc' }}
               onMouseEnter={e => (e.currentTarget.style.background = MENU_BORDER)}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              onClick={() => { onNodeClick(nodeContextMenu.stem, true, false); setNodeContextMenu(null) }}
+              onClick={() => interactions.openInReadingPane(nodeContextMenu.stem)}
             >
               Open in Reading Pane
             </div>
@@ -613,7 +557,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
                 style={{ padding: '6px 12px', cursor: 'pointer', color: ACCENT_TEAL }}
                 onMouseEnter={e => (e.currentTarget.style.background = MENU_BORDER)}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                onClick={() => { onOpenHistory!(nodeContextMenu.stem); setNodeContextMenu(null) }}
+                onClick={() => interactions.viewHistory(nodeContextMenu.stem)}
               >
                 View History
               </div>
@@ -625,27 +569,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
                 style={{ padding: '6px 12px', cursor: 'pointer', color: HIGHLIGHT_COLOR }}
                 onMouseEnter={e => (e.currentTarget.style.background = MENU_BORDER)}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                onClick={() => {
-                  if (!graphRef.current) return
-                  const result = findWikiPath(pathSourceRef.current!, nodeContextMenu.stem, graphRef.current)
-                  setNodeContextMenu(null)
-                  if (result) {
-                    pathNodesRef.current = new Set(result.path)
-                    pathEdgesRef.current = new Set(result.edgeIds)
-                    const d = latest.current.data
-                    const titleMap = new Map(d?.nodes.map(n => [n.id, n.title]) ?? [])
-                    const breadcrumb = result.path.map(id => titleMap.get(id) ?? id).join(' → ')
-                    showToast(breadcrumb)
-                  } else {
-                    pathNodesRef.current = new Set()
-                    pathEdgesRef.current = new Set()
-                    showToast('No wiki-link path found')
-                    sigmaRef.current?.refresh()
-                    return // keep pathSourceRef set so user can pick a different destination
-                  }
-                  pathSourceRef.current = null
-                  sigmaRef.current?.refresh()
-                }}
+                onClick={() => interactions.findPathTo(nodeContextMenu.stem)}
               >
                 ⚡ Find Path Here
               </div>
@@ -655,13 +579,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
                 style={{ padding: '6px 12px', cursor: 'pointer', color: MUTED_NODE_COLOR }}
                 onMouseEnter={e => (e.currentTarget.style.background = MENU_BORDER)}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                onClick={() => {
-                  pathSourceRef.current = null
-                  pathNodesRef.current = new Set()
-                  pathEdgesRef.current = new Set()
-                  setNodeContextMenu(null)
-                  sigmaRef.current?.refresh()
-                }}
+                onClick={() => interactions.clearPathOrigin()}
               >
                 ✕ Clear Path Origin
               </div>
@@ -670,13 +588,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
                 style={{ padding: '6px 12px', cursor: 'pointer', color: pathSource ? '#f59e0b' : MUTED_NODE_COLOR }}
                 onMouseEnter={e => (e.currentTarget.style.background = MENU_BORDER)}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                onClick={() => {
-                  pathSourceRef.current = nodeContextMenu.stem
-                  pathNodesRef.current = new Set()
-                  pathEdgesRef.current = new Set()
-                  setNodeContextMenu(null)
-                  sigmaRef.current?.refresh()
-                }}
+                onClick={() => interactions.setPathOrigin(nodeContextMenu.stem)}
               >
                 {pathSource
                   ? `Origin: ${pathSource.slice(0, 18)}…`
@@ -686,7 +598,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           </div>
         )
       })()}
-      {toastMsg && (
+      {interactions.toastMsg && (
         <div style={{
           position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(6, 8, 18, 0.95)',
@@ -698,7 +610,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
           boxShadow: '0 4px 20px rgba(0,0,0,0.7)',
           zIndex: 500, pointerEvents: 'none',
         }}>
-          {toastMsg}
+          {interactions.toastMsg}
         </div>
       )}
     </div>
