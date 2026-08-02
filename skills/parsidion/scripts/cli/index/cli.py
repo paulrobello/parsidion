@@ -39,16 +39,21 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Include Daily folder notes in the graph (only used with --rebuild-graph)",
     )
+    # ENH-010: tri-state so the default (defer to config, which is on) can be
+    # overridden either way from the CLI. --graph-incremental forces it on;
+    # --no-graph-incremental forces a full rebuild.
     parser.add_argument(
         "--graph-incremental",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
             "Rebuild graph.json incrementally (ENH-002): reuse the previous "
             "graph and recompute only changed notes. Honoured only with "
-            "--rebuild-graph. Also enabled by summarizer.graph_incremental in "
-            "config.yaml. build_graph.py falls back to a full rebuild if the "
-            "previous graph is missing or was built under different parameters."
+            "--rebuild-graph. Defaults to the summarizer.graph_incremental "
+            "config value (on by default); pass --no-graph-incremental to "
+            "force a full rebuild. build_graph.py also falls back to a full "
+            "rebuild if the previous graph is missing or was built under "
+            "different parameters, so incremental is always safe."
         ),
     )
     return parser.parse_args()

@@ -412,12 +412,16 @@ def main() -> None:
             print("par-mem: background index launched")
 
     if args.rebuild_graph:
-        # ENH-002: graph_incremental is opt-in via --graph-incremental OR
-        # summarizer.graph_incremental in config.yaml. CLI flag wins; config
-        # is the silent default so nightly summarizer runs can opt in once.
-        incremental = args.graph_incremental or bool(
-            get_config("summarizer", "graph_incremental", False)
-        )
+        # ENH-010: graph rebuild is incremental by default. The CLI flag is a
+        # tri-state (None = defer); an explicit --graph-incremental /
+        # --no-graph-incremental wins, otherwise summarizer.graph_incremental
+        # decides (default True). build_graph.py falls back to a full rebuild
+        # if the previous graph is missing/unreadable or was built under
+        # different parameters, so defaulting to incremental is always safe.
+        if args.graph_incremental is not None:
+            incremental = args.graph_incremental
+        else:
+            incremental = bool(get_config("summarizer", "graph_incremental", True))
         _rebuild_graph(include_daily=args.graph_include_daily, incremental=incremental)
 
 

@@ -96,3 +96,27 @@ class TestExtractWikilinkStems:
         stems = update_index._extract_wikilink_stems(related)
         assert "note-a" in stems
         assert "bare" in stems
+
+
+class TestGraphIncrementalFlag:
+    """ENH-010: --graph-incremental is a tri-state so the default (defer to
+    config, now on) can be overridden either way from the CLI."""
+
+    def test_default_defers_to_config(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["update_index"])
+        assert update_index._parse_args().graph_incremental is None
+
+    def test_explicit_enable(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["update_index", "--graph-incremental"])
+        assert update_index._parse_args().graph_incremental is True
+
+    def test_explicit_disable(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        """--no-graph-incremental must force a full rebuild (the opt-out)."""
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["update_index", "--no-graph-incremental"])
+        assert update_index._parse_args().graph_incremental is False

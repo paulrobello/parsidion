@@ -1,5 +1,38 @@
 # ENH-010 — Incremental graph/embedding rebuild
 
+## Resolution (2026-08-01)
+
+Investigation found the plan's premise substantially already shipped, so this
+enhancement closed with a small default-flip rather than the full build-out:
+
+- **Embeddings (the dominant cost — 67 MB ONNX load + inference on N notes)
+  were already incremental-by-default.** `build_embeddings.py:incremental_update()`
+  does mtime-based add/change/delete with a model-dimension-mismatch guard, and
+  `update_index.py` runs it with `--incremental` whenever `embeddings.db` exists
+  (the post-merge sync hook does the same). Plan steps 1–2 were already done
+  using the existing `note_embeddings.mtime` column instead of a new
+  `note_state` table.
+- **The graph N×N rebuild was already incremental** — shipped as **ENH-002**
+  (`load_previous_graph`, `compute_changed_stems`, `extend_recompute_closure`,
+  `build_semantic_edges_incremental`), with `GRAPH_SCHEMA_VERSION=2` and a
+  test suite asserting the incremental edge set equals a full rebuild (plan
+  step 3).
+- **The one genuine gap was plan step 5**: graph incremental was opt-in/off by
+  default (`summarizer.graph_incremental: false`). This change flips it to
+  **on by default** so the nightly `--rebuild-graph` path is incremental
+  unless explicitly disabled. The `--graph-incremental` CLI flag became a
+  tri-state (`--no-graph-incremental` forces a full rebuild). `build_graph.py`
+  still falls back to a full rebuild on any compatibility mismatch, so
+  defaulting to incremental is always safe. On a dense vault (one giant
+  semantic component) the recompute closure expands to ~all notes and the win
+  is modest; on sparse vaults or small change sets it is real. `make graph`
+  (the manual one-off) stays a full rebuild by design.
+
+**Deferred (Phase 2, not done):** the optional `graph.delta.json` delta output
+the visualizer's `graph/delta` route could merge. Serving is already streamed +
+ETag-cached (ARC-015), so the payoff is minor; revisit only if the full-file
+write becomes a measured bottleneck.
+
 ## Goal
 Make `build_graph.py` re-embed only notes that changed since the last build, instead of re-embedding the whole vault every run — the dominant cost for large vaults. The serving side is already streamed + ETag-cached (ARC-015); the rebuild side is still full.
 

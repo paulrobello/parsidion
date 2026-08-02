@@ -230,7 +230,7 @@ Config sections:
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `pi_transcript_tail_lines` | `session_stop_hook.py` |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
-| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `persist`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily` | `summarize_sessions.py` |
+| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `persist`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental` | `summarize_sessions.py` |
 | `ai` | `backend` (`auto` \| `claude-cli` \| `codex-cli` \| `none`) | `ai_backend.py` — selects which prompt backend the hooks and summarizer use for AI calls |
 | `ai_models` | `claude.{small,large}`, `codex.{small,large}` | `ai_backend.py` — per-backend model tiers; `summarizer.model=null` falls back to `<backend>.large` |
 | `codex_cli` | `command`, `timeout`, `sandbox`, `ephemeral`, `skip_git_repo_check`, `suppress_notify` | `ai_backend.py` — only used when `ai.backend` resolves to `codex-cli` |
