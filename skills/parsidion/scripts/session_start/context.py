@@ -57,8 +57,9 @@ def _build_dead_letter_notice(vault_path: Path) -> str:
 
     Returns:
         Warning string like ``⚠ 2 session summary(ies) were dead-lettered
-        after repeated failures — inspect <vault>/dead_letters.jsonl or run
-        vault-stats --pending`` or empty string if absent/empty/unreadable.
+        (write-gate skips or failed summarization) — inspect
+        <vault>/dead_letters.jsonl or run vault-stats --pending`` or empty
+        string if absent/empty/unreadable.
     """
     dead_letter_path = vault_path / "dead_letters.jsonl"
     if not dead_letter_path.exists():
@@ -71,8 +72,9 @@ def _build_dead_letter_notice(vault_path: Path) -> str:
     if count == 0:
         return ""
     return (
-        f"⚠ {count} session summary(ies) were dead-lettered after repeated "
-        f"failures — inspect {dead_letter_path} or run vault-stats --pending"
+        f"⚠ {count} session summary(ies) were dead-lettered (write-gate skips "
+        f"or failed summarization) — inspect {dead_letter_path} or run "
+        f"vault-stats --pending"
     )
 
 
