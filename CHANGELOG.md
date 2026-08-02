@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Visualizer SSE route integration tests** (`ENH-012`) — end-to-end coverage for the `vault/events` Server-Sent-Events stream (open connection → write a note → assert a `file:created` frame arrives; abort → assert no further frame, proving the chokidar watcher is released) and ETag/304 + content-change cases for the `graph` route, via a shared `readNextSSEData` helper. Routes unchanged; 258 visualizer tests pass.
+
 ## [0.15.0] - 2026-07-31
 
 The ENH-001…008 enhancement backlog ships — a ~3× smaller `graph.json`, incremental graph rebuilds, an opt-in persistent embedding service, a DB-first metadata read path, shared Python↔TypeScript parity fixtures, a documented agent-adapter registry, a composite vault-health score, and externalized versioned prompts with a full eval harness. Plus a determinism fix for par-mem body-link enrichment.

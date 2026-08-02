@@ -80,6 +80,74 @@ export function makeRequest(
 }
 
 /**
+ * Read the next SSE `data:` frame from a stream reader within `timeoutMs`.
+ *
+ * Frames are separated by `\n\n`. Comment frames (lines starting with `:`)
+ * and blank frames are skipped — only `data: ` lines are collected. Returns
+ * the JSON-parsed payload of the first data frame, or `null` if no frame
+ * arrives before the timeout elapses or the stream closes/errors (which is
+ * the signal the caller uses to assert "no further events").
+ *
+ * ENH-012: used by the vault/events SSE integration test. Pure Web Streams +
+ * TextDecoder + setTimeout — no `bun:test` import — so `tsc --noEmit` stays
+ * clean when other test files import this.
+ */
+export async function readNextSSEData(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+): Promise<object | null> {
+  const decoder = new TextDecoder()
+  let buffer = ''
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now()
+    // Race the read against a timeout so the helper cannot hang forever on a
+    // silent stream. The timer is cleared on settle so it does not pin the
+    // event loop after the function returns.
+    let timerId: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<{ done: true; value: undefined }>(resolve => {
+      timerId = setTimeout(() => resolve({ done: true, value: undefined }), remaining)
+    })
+    let result: { done: boolean; value?: Uint8Array }
+    try {
+      result = (await Promise.race([reader.read(), timeout])) as {
+        done: boolean
+        value?: Uint8Array
+      }
+    } catch {
+      if (timerId !== undefined) clearTimeout(timerId)
+      // Stream errored mid-read (e.g. aborted); treat as "no more frames".
+      return null
+    }
+    if (timerId !== undefined) clearTimeout(timerId)
+    if (result.done || result.value === undefined) {
+      return null
+    }
+    buffer += decoder.decode(result.value, { stream: true })
+    // Pull complete frames (terminated by `\n\n`) out of the buffer.
+    let sep: number
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+      // Collect `data: ` lines; skip comment (`:`) and blank frames.
+      const dataPayload = frame
+        .split('\n')
+        .filter(line => line.startsWith('data: '))
+        .map(line => line.slice('data: '.length))
+        .join('\n')
+      if (dataPayload.length === 0) continue
+      try {
+        return JSON.parse(dataPayload) as object
+      } catch {
+        // Non-JSON data frame; keep scanning subsequent frames.
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Run the standard auth/CSRF matrix against any GET handler. Each route's
  * route.test.ts calls this with a `pathThatShould403` (the route's path-
  * traversal trigger — usually a `?path=../` or `?vault=../` query) and a
