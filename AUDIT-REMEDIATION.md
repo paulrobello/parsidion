@@ -19,11 +19,11 @@
 | 2 — Critical Architecture | ✅ | fix-architecture | 1 | 1 | 0 | 0 |
 | 3a — Security (remaining) | ✅ | fix-security | 2 | 2 | 0 | 2 no-action (SEC-P004/005) |
 | 3b — Architecture (remaining) | ✅ | fix-architecture | 9 | 9 | 0 | 6 deferred (ARC-005/006/008/009/016/017) |
-| 3c — Code Quality | ✅ | fix-code-quality | 6 | 6 | 0 | 5 deferred (QA-003/007/008/009/010) |
+| 3c — Code Quality | ✅ | fix-code-quality | 6 | 6 | 0 | 4 deferred (QA-007/008/009/010) |
 | 3d — Documentation | ✅ | fix-documentation | 11 | 11 | 0 | 1 skip (DOC-012) |
 | 4 — Verification | ✅ | orchestrator | — | — | — | — |
 
-**Overall**: **36 issues resolved** (of 44 audited). 30 in the initial phased pass + 6 in the follow-on refactor round (below). Remaining: 5 no-action/optional + 3 partial/contract-blocked, documented under Deferred. 0 regressions — the gate is fully green.
+**Overall**: **37 issues resolved** (of 44 audited). 30 in the initial phased pass + 6 in the follow-on refactor round + 1 in the QA-003 pipeline extraction (below). Remaining: 5 no-action/optional + 2 partial/contract-blocked, documented under Deferred. 0 regressions — the gate is fully green.
 
 > Note: ARC-012 was reassigned from Phase 3b → 3c during execution because it shares the flat re-export shim files with QA-005. Running both in the same agent (3c) sequenced them safely. It is counted under 3c.
 
@@ -40,7 +40,7 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 | **ARC-008** | ✅ (safe half) Visualizer `Home` 554→382 LOC; extracted `GraphPanel` + `SidebarPanel`; pinned exact versions (sigma/graphology/@types). ReadingPanePanel + Vite swap deferred. |
 | **ARC-009** | ✅ Broad-exception sweep: 18 best-effort `except Exception: pass` sites across 14 files now emit `stderr` diagnostics; all `# noqa: BLE001` preserved; hooks still never fail closed. |
 | **ARC-016** | ✅ README 1138→670 LOC (−41%), CHANGELOG 785→147 (−81%); deep content moved to `docs/{USAGE,MULTI_VAULT,PI_EXTENSION}.md`, old changelog archived. |
-| **QA-003** | ✅ (partial) `summarize_sessions.main` decomposed (complexity 27→<10). The `summarize_one`→`pipeline.py` relocation was reverted — blocked by the documented test-monkeypatch contract (tests patch `summarize_sessions.X`; bare-name resolution). `summarize_one` was already a thin orchestrator. |
+| **QA-003** | ✅ `summarize_sessions.main` decomposed (complexity 27→<10). The `summarize_one`→``summarizer/pipeline.py`` relocation was blocked here by the test-monkeypatch contract and deferred; completed in a follow-up (see Resolved → Code Quality). |
 
 **Follow-up flagged (not an audit issue):** `[tool.setuptools] packages` in `pyproject.toml` doesn't declare the `cli.*` subpackages — fine for editable/runtime/symlink install, but a clean wheel/sdist would silently omit them. Small fix when packaging is exercised.
 
@@ -71,6 +71,7 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 - **[QA-004]** De-cluster entrypoints — `session_stop_hook.py`, `doctor/worker.py` — Lifted the guard chain into `_should_skip(input) -> str|None`; wrapped `_repair_one` outcome in `_classify_repair_outcome(...)`. Security guards preserved verbatim.
 - **[QA-005] / [ARC-012]** Tighten shim re-exports — 9 flat shims + 9 core modules — Shims switched to `from core.X import *` + explicit `__all__` in each `core/X.py`; stdlib modules (`re`, `sys`, `math`, …) no longer re-exported. Stdlib-only gate stays green.
 - **[QA-006]** Replace `!` assertions — `visualizer/app/api/note/{route,diff/route,history/route}.ts`, `GraphCanvas.tsx`, `graphDelta.ts`, `useForceLayout.ts`, `useVaultFiles.ts` — `stem!` → explicit 400 guard; `Map.get()!` → typed local + check. +4 missing-stem route tests.
+- **[QA-003]** `summarize_one` dispatch → `summarizer/pipeline.py` — `summarize_one` + its four stage helpers (`_early_gate`/`_apply_merge_decision`/`_handle_write_gate_decision`/`_apply_backlinks_and_strip_links`) extracted from the entry shim into a new `summarizer/pipeline.py`; the three anio-core deps (`preprocess_transcript_hierarchical`, `_summarize_chunk`, `_run_summarizer_prompt`) moved into `summarizer.transcript`/`summarizer.prompt` so the package stays self-contained (the shim is a PEP-723 script run as `__main__`, so submodules cannot import back from it). Test monkeypatches retargeted to the call-site module (`summarizer.pipeline.X` / `summarizer.transcript.X`) via lazy accessors; `_early_gate`'s `_ACTIVE_SESSION_GRACE_SECS` default-disable now hits pipeline's globals. Shim 1247 → 706 LOC (−35%). Gate green: 1311 passed/3 skipped.
 
 ### Documentation
 - **[DOC-001]** README release 0.14.0 → 0.15.0 (Critical).
@@ -89,11 +90,10 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 
 ## Deferred / Requires Follow-up 🔧
 
-The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully, ARC-008 and QA-003 partially (see the Refactor Round table above). What remains deferred is below — either blocked by an architectural contract (QA-003), a larger state/product decision (ARC-008), or genuinely optional/low-value (QA-007/008/009).
+The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008 partially, while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — a larger state/product decision (ARC-008) or genuinely optional/low-value work (QA-007/008/009).
 
 | ID | Sev | Why deferred | Recommended approach | Effort |
 |----|-----|--------------|----------------------|--------|
-| **QA-003** (remainder) | Med | `summarize_one`→`summarizer/pipeline.py` extraction — **blocked by the test-monkeypatch contract** (tests patch `summarize_sessions.X`; Python bare-name resolution breaks when callers move to a submodule — same documented pattern as `summarizer/__init__.py`). The `main` hotspot was resolved in the refactor round. | To unblock: rewrite the affected tests to patch `summarizer.pipeline.X` (test-side change), then relocate the dispatch. `summarize_one` is already a thin orchestrator, so urgency is low. | M |
 | **ARC-008** (remainder) | Med | Visualizer `ReadingPanePanel` extraction + the optional Next→Vite framework swap. | `ReadingPanePanel` needs `noteRefreshTrigger`/`useVaultFiles` lifted into a context/provider (larger state refactor). The Vite swap is a separate product decision. | M–L |
 | **QA-007** | Low–Med | Structured logger for visualizer — deferred unless multi-user. | Adopt `pino` (or 20-line wrapper) when the visualizer grows a deployment. | M |
 | **QA-008** | Low | Optional `GraphCanvas` interactions hook extraction. | Lift context-menu + edge-pruning into `useGraphCanvasInteractions`. | S |
@@ -137,7 +137,7 @@ Full per-file list: `git diff --stat e0faf8c..main`.
 
 1. **Push `main`** when ready — local `main` (`aacfce1`) is ahead of `origin/main` (`e0faf8c`) by the 9 remediation commits; not pushed (push is outward-facing, left for explicit confirmation). Local main is already live for sessions via the symlink.
 2. **Re-run `/audit`** to regenerate AUDIT.md against the remediated state — it should show the 36 resolved issues closed.
-3. **Remaining deferred** (see table): QA-003 `pipeline.py` (blocked by the test-monkeypatch contract — unblock by rewriting tests to patch `summarizer.pipeline.X`), ARC-008 `ReadingPanePanel` + the optional Vite swap, plus the optional QA-007/008/009.
+3. **Remaining deferred** (see table): ARC-008 `ReadingPanePanel` + the optional Vite swap, plus the optional QA-007/008/009.
 4. **`[tool.setuptools] packages` gap** (flagged, not an audit issue): add the `cli.*` subpackages to `pyproject.toml` before exercising wheel/sdist packaging — the editable/symlink install is unaffected.
 5. **Optional**: implement the `--approved-only` flag (enhancement **ENH-A**) now that DOC-002 corrected the README — `vault_review.py` already records approvals nothing consumes.
 5. **Sync installed location** after merge: `uv run install.py --force --yes` (skill/hooks source → `~/.claude/skills/parsidion`).
