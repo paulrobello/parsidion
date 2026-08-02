@@ -658,6 +658,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 ## Related Documentation
 
 - [docs/README.md](docs/README.md) -- Navigation index for all files in the `docs/` directory
+- [docs/api/](docs/api/) -- Generated API reference (Python `core`/`installer`/`vault_*` modules and the visualizer TypeScript lib); regenerate with `make docs-api`
 - [docs/MCP.md](docs/MCP.md) -- parsidion-mcp MCP server: installation, configuration, and tools reference
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) -- System architecture, file layout, and hook design
 - [docs/EMBEDDINGS.md](docs/EMBEDDINGS.md) -- Semantic search setup, embeddings database, and evaluation

@@ -28,6 +28,13 @@ eval = [
     "sqlite-vec>=0.1.9,<1.0",
     "pillow>=12.3.0",
 ]
+# ENH-011: build-only API-reference generator. Declared as an extra so it stays
+# out of `dependencies = []` (the stdlib-only runtime constraint is sacred) and
+# is never pulled in by `make install` or `uv sync --group dev`. Materialized
+# on demand by the Makefile via `uv run --extra docs`.
+docs = [
+    "pdoc>=14.0.0",
+]
 
 [project.scripts]
 vault-search = "vault_search:main"

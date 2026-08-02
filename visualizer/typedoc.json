@@ -1,0 +1,12 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "tsconfig": "tsconfig.json",
+  "entryPointStrategy": "expand",
+  "entryPoints": ["lib"],
+  "exclude": ["**/*.test.ts", "**/__fixtures__/**"],
+  "readme": "none",
+  "githubPages": false,
+  "cleanOutputDir": true,
+  "excludePrivate": true,
+  "logLevel": "Error"
+}

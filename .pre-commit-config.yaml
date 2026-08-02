@@ -12,16 +12,26 @@ repos:
     hooks:
       - id: check-merge-conflict
       - id: detect-private-key
+        # ENH-011: skip the generated API-reference tree so minified/generated
+        # content can't trip a false positive.
+        exclude: ^docs/api/
       - id: end-of-file-fixer
+        # ENH-011: docs/api/ is a generated snapshot (pdoc/typedoc HTML) whose
+        # bytes must match `make docs-api` byte-for-byte; these mutators would
+        # rewrite trailing whitespace / final newlines and break the drift gate.
+        exclude: ^docs/api/
       - id: mixed-line-ending
+        exclude: ^docs/api/
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: ^docs/api/
       - id: check-docstring-first
       - id: check-toml
       - id: check-yaml
       - id: check-json
       - id: pretty-format-json
         args: [--autofix, --no-sort-keys]
+        exclude: ^docs/api/
   - repo: local
     hooks:
       - id: pyright

@@ -1,4 +1,4 @@
-.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check
+.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen
 
 # Format code with ruff
 fmt:
@@ -37,6 +37,63 @@ parity-fixtures:
 # No mutation: the generator compares in-process and reports the diff.
 parity-fixtures-check:
 	uv run python scripts/gen_parity_fixtures.py --check
+
+# === ENH-011: Generated API reference =============================================
+# `make docs-api` regenerates the committed snapshot under docs/api/ from
+# docstrings (pdoc) and JSDoc (typedoc). `make docs-api-check` regenerates to a
+# temp dir and diffs against docs/api/, exiting non-zero on drift.
+#
+# STANDALONE drift gate, intentionally NOT wired into `checkall`: pdoc lives in
+# the opt-in `docs` extra (not installed by `make install` or `uv sync --group
+# dev`) and typedoc lives in the visualizer devDeps, so adding them to
+# `checkall` would push a doc-generation toolchain onto every CI run. Run
+# `make docs-api` after editing docstrings/JSDoc and commit the result.
+#
+# build_graph.py (numpy), summarize_sessions.py (anyio), and build_embeddings.py
+# (fastembed/sqlite_vec guard) are skipped because their top-level imports are
+# not satisfiable from the lightweight `docs` extra; html-to-md.py is a PEP 723
+# script and not importable as a module (hyphen).
+PDOC_MODULES := core installer vault_common vault_config vault_path vault_fs \
+	vault_index vault_hooks vault_adaptive vault_metrics vault_tui vault_links \
+	vault_new vault_constants vault_resolve vault_health subproc_util ai_backend \
+	vault_embed_serve parmem_backend note_schema agent_adapter prompt_templates \
+	session_start_hook session_stop_hook pre_compact_hook post_compact_hook \
+	subagent_stop_hook codex_session_start_hook codex_stop_hook codex_subagent_stop_hook \
+	gemini_session_start_hook gemini_session_end_hook vault_search \
+	vault_review vault_export vault_merge vault_conflicts vault_doctor vault_stats \
+	update_index check_graph_coverage run_trigger_eval
+
+docs-api:
+	$(MAKE) docs-api-gen DOCS_API_OUT=docs/api
+
+docs-api-check:
+	@tmp=$$(mktemp -d); \
+	$(MAKE) docs-api-gen DOCS_API_OUT=$$tmp >/dev/null || { echo "docs-api generation failed" 1>&2; rm -rf $$tmp; exit 1; }; \
+	if diff -r docs/api $$tmp >/dev/null; then \
+		echo "docs/api is up to date"; rc=0; \
+	else \
+		echo "docs/api is stale -- run 'make docs-api' and commit the result" 1>&2; rc=1; \
+	fi; \
+	rm -rf $$tmp; exit $$rc
+
+# Internal generator shared by docs-api and docs-api-check so the two cannot
+# drift apart. Writes into $(DOCS_API_OUT). pdoc renders the runtime repr of
+# module-level constants (e.g. installer.paths.REPO_ROOT, vault_path.VAULT_ROOT)
+# which embed the checkout path and $HOME -- machine-specific values that would
+# make the committed snapshot fail docs-api-check on any other machine or CI.
+# pdoc has no flag to suppress default-value rendering and the offending
+# constants derive from __file__/Path.home(), so we scrub the two machine-
+# specific prefixes (repo root first, then home) to stable tokens. The result
+# is byte-identical regardless of who runs it.
+.PHONY: docs-api-gen
+docs-api-gen:
+	rm -rf $(abspath $(DOCS_API_OUT))
+	PYTHONHASHSEED=0 PYTHONPATH=skills/parsidion/scripts:. uv run --extra docs python -m pdoc \
+		-o $(abspath $(DOCS_API_OUT))/python $(PDOC_MODULES)
+	cd visualizer && bunx typedoc --out $(abspath $(DOCS_API_OUT))/visualizer \
+		--options typedoc.json
+	find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
+		xargs -0 perl -pi -e 's|\Q$(CURDIR)\E|<repo-root>|g; s|\Q$(HOME)\E|<home>|g'
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses

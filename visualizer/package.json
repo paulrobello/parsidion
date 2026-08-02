@@ -9,7 +9,8 @@
     "kill": "lsof -ti:3999 | xargs kill -9 2>/dev/null || true",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "docs": "typedoc --out ../docs/api/visualizer --options typedoc.json"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
@@ -33,6 +34,7 @@
     "eslint": "^10",
     "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
+    "typedoc": "^0.28.20",
     "typescript": "^6"
   },
   "overrides": {
