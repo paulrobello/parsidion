@@ -17,7 +17,7 @@ export const POST = withApi(async (req: NextRequest) => {
   // SEC-001 forbidden-prefix check is enforced inside resolveVault().
   let vaultPath: string
   try {
-    vaultPath = resolveVault(vault)
+    vaultPath = await resolveVault(vault)
   } catch (err) {
     if (err instanceof VaultConfigError) {
       return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })

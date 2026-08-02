@@ -32,6 +32,7 @@ __all__: list[str] = [
     "get_vaults_config_path",
     "list_named_vaults",
     "resolve_vault",
+    "resolve_vault_server",
     "default_vault_root",
     "resolve_templates_dir",
     "get_embeddings_db_path",
@@ -320,14 +321,15 @@ def _named_vault_paths() -> set[Path]:
 def _resolve_vault_reference(reference: str) -> Path:
     """Resolve a vault reference (name or path) to an absolute Path.
 
-    SEC-P001: Allowlist resolver -- mirrors ``resolveVault()`` in
-    ``visualizer/lib/vaultResolver.ts``.  The reference must resolve to
+    SEC-P001: Allowlist resolver. The reference must resolve to
     either (a) a named vault registered in ``vaults.yaml``, or (b) the
     default vault by its own path.  Arbitrary filesystem paths are
     rejected even when they do not fall under
     :data:`_VAULT_FORBIDDEN_PREFIXES`, closing the vector where a
     malicious repo's ``cwd/.claude/vault`` or a crafted ``CLAUDE_VAULT``
-    could redirect vault writes to an attacker-chosen location.
+    could redirect vault writes to an attacker-chosen location. This is
+    also the engine behind :func:`resolve_vault_server`, which the
+    visualizer's TypeScript resolver now delegates to (ENH-009).
 
     The system-path guard (:func:`_validate_vault_path`) is retained as
     defense-in-depth for local ``vaults.yaml`` misconfiguration (e.g. a
@@ -383,23 +385,16 @@ def resolve_vault(
 ) -> Path:
     """Resolve which vault to use based on precedence order.
 
-    QA-012: This logic is duplicated in ``visualizer/lib/vaultResolver.ts``.
-    Both implementations must stay in sync until vault resolution is served
-    through the parsidion-mcp server (long-term plan).
-
-    ARC-007: the TypeScript twin is deliberately NARROWER. It exposes only
-    (a) named vaults from ``vaults.yaml``, (b) the default vault, and (c)
-    a ``VAULT_ROOT`` default-override env var for the visualizer's server
-    use-case. It does NOT read ``cwd/.claude/vault`` or ``CLAUDE_VAULT``
-    because the visualizer is a long-lived server with no concept of a
-    "current project" and no user-supplied runtime env to inherit. The
-    channels are documented (not implemented) on the TS side and asserted
-    by the parity fixture
-    (``tests/fixtures/parity/vault-resolution.json``) and
-    ``tests/test_vault_resolver_parity.py`` /
-    ``visualizer/lib/vaultResolver.parity.test.ts``. Full unification is
-    deferred to ENH-009 (serve resolution through parsidion-mcp so the TS
-    side gets every channel via a single HTTP call).
+    ENH-009 (resolved): the visualizer no longer reimplements this in
+    TypeScript. Its ``vaultResolver.ts`` delegates to
+    :func:`resolve_vault_server` (the deliberately narrower server contract)
+    via the ``vault_resolve.py`` CLI, so the allowlist algorithm is
+    single-sourced here. The narrower contract is formalized as
+    :func:`resolve_vault_server` (named vaults + default + ``VAULT_ROOT``
+    override; no ``cwd/.claude/vault`` or ``CLAUDE_VAULT``, because a
+    long-lived server has no current project). The shared parity fixture
+    (``tests/fixtures/parity/vault-resolution.json``) still pins the
+    observable contract both the full and server resolvers must satisfy.
 
     Precedence (highest to lowest):
     1. explicit flag (path or vault name)
@@ -502,6 +497,89 @@ def _resolve_vault_cached(
             )
             return Path(vc_root)
     return default_vault_root()
+
+
+def _server_default_vault() -> Path:
+    """Default vault for a non-project context (the visualizer, CLIs).
+
+    Honors the ``VAULT_ROOT`` environment override -- the one default-vault
+    override the long-lived visualizer server has historically supported
+    (formerly TS ``getDefaultVault()``) -- then falls back to
+    :func:`default_vault_root`. Unlike :func:`resolve_vault`, a server has no
+    project context, so this never consults ``cwd/.claude/vault`` or
+    ``CLAUDE_VAULT``.
+    """
+    env_root = os.environ.get("VAULT_ROOT")
+    if env_root:
+        return Path(env_root).expanduser()
+    return default_vault_root()
+
+
+def resolve_vault_server(reference: str | None = None) -> Path:
+    """Canonical vault resolver for non-project contexts.
+
+    ENH-009: the single source of truth for the "server allowlist" contract.
+    The visualizer's TypeScript ``vaultResolver`` delegates to this (via the
+    ``vault_resolve.py`` CLI) instead of reimplementing the allowlist, so there
+    is no longer a second implementation to drift (was QA-012 / ARC-007 /
+    SEC-P001). ``resolveVault`` / ``getDefaultVault`` / ``listNamedVaults`` on
+    the TS side are thin subprocess callers over this function.
+
+    Resolution is an allowlist: *reference* must match either (a) a named vault
+    registered in ``vaults.yaml`` or (b) the default vault by its own path.
+    With no *reference* the default vault (honoring ``VAULT_ROOT``) is returned.
+    The ``cwd/.claude/vault`` and ``CLAUDE_VAULT`` channels of
+    :func:`resolve_vault` are intentionally absent -- a long-lived server has
+    no current project and no inherited runtime environment (ARC-007).
+
+    Args:
+        reference: Optional vault name or path. ``None``/empty resolves the
+            default vault.
+
+    Returns:
+        Absolute :class:`~pathlib.Path` to the resolved vault directory.
+
+    Raises:
+        VaultConfigError: If *reference* is neither a named vault nor the
+            default vault, or the resolved path falls under a forbidden prefix.
+    """
+    named = list_named_vaults()
+    default = _server_default_vault()
+
+    # Default vault (no reference).
+    if not reference:
+        try:
+            resolved = default.expanduser().resolve()
+        except OSError:
+            resolved = default.expanduser()
+        _validate_vault_path(resolved)
+        return resolved
+
+    # Named-vault lookup (by name).
+    if reference in named:
+        resolved = named[reference].resolve()
+        _validate_vault_path(resolved)
+        return resolved
+
+    # Path reference -- allowlist: must match a registered named-vault path or
+    # the default vault path. An arbitrary existing path is rejected even when
+    # it is not under a forbidden prefix (SEC-P001).
+    ref_path = Path(reference).expanduser()
+    try:
+        candidate = ref_path.resolve()
+    except OSError:
+        candidate = ref_path
+
+    if candidate in _named_vault_paths() or candidate == default:
+        _validate_vault_path(candidate)
+        return candidate
+
+    raise VaultConfigError(
+        f"Vault '{reference}' is not a named vault in "
+        f"{get_vaults_config_path()} and does not match the default "
+        f"vault ({default}). "
+        f"Available: {', '.join(named) or '(none configured)'}"
+    )
 
 
 def resolve_templates_dir() -> Path:

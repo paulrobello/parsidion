@@ -115,13 +115,8 @@
 - **Method**: This is the most-edited hook (high churn); decomposition reduces per-edit context load. The concerns are already coherent, so extraction is mechanical. **par-mem**: `get_symbol_context("build_session_context", repository_id="parsidion")` for the call graph.
 - **Verify**: `make checkall`; then test the hook manually per CLAUDE.md: `python skills/parsidion/scripts/session_start_hook.py <<'EOF' {"cwd": "/Users/probello/Repos/parsidion"} EOF`.
 
-### ARC-007 — Reconcile cross-language vault-resolution parity *(depends on SEC-P001)*
-- **Files**: `skills/parsidion/scripts/core/vault_path.py:340-375`; `visualizer/lib/vaultResolver.ts:174+`; `tests/fixtures/parity/vault-resolution.json`
-- **Steps**:
-  1. After SEC-P001, decide: either (a) add the missing channels (`cwd/.claude/vault`, `CLAUDE_VAULT`) to the TS resolver and a parity vector for each, or (b) document the TS resolver as a deliberately-narrower allowlist view and defer full unification to **ENH-009** (serve resolution through parsidion-mcp).
-  2. If (a): extend `visualizer/lib/vaultResolver.ts` and regenerate the fixture (`make parity-fixtures`).
-  3. If (b): add a code comment at both resolvers and a `docs/` note pointing to ENH-009; add parity vectors that assert the *current* (narrower TS) behavior so drift is still caught.
-- **Method**: The parity fixture is the single source of truth both tests consume; whatever you decide, encode it there. Prefer (b) unless the visualizer actually needs the extra channels today.
+### ARC-007 — Reconcile cross-language vault-resolution parity *(RESOLVED via ENH-009, 2026-08-01)*
+- **Outcome**: chose the Python-canonical path. Added `resolve_vault_server()` (the narrower server contract: named vaults + default + `VAULT_ROOT`; no `cwd/.claude/vault` / `CLAUDE_VAULT`) to `core/vault_path.py` and a stdlib `vault_resolve.py` CLI; the visualizer's `vaultResolver.ts` now delegates to it over the existing `runScript` subprocess path. The TS reimplementation is gone, so there is no longer a second implementation to drift. The shared parity fixture still pins the observable contract both resolvers must satisfy. MCP remains optional and is not on the visualizer's path. Plan: `docs/opus/ENH-009-python-canonical-vault-resolution.md`.
 - **Verify**: `make checkall` + `make parity-fixtures-check`.
 
 ### ARC-008 — Right-size visualizer stack + decompose `Home`

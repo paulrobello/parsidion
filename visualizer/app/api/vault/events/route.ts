@@ -124,7 +124,7 @@ export const GET = withApi(async (req: NextRequest) => {
   // SEC-009: validate the vault before opening the stream.
   let vaultPath: string
   try {
-    vaultPath = resolveVault(vaultParam)
+    vaultPath = await resolveVault(vaultParam)
   } catch (err) {
     if (err instanceof VaultConfigError) {
       console.warn('[vault/events] Rejected forbidden vault path:', vaultParam, '-', err.message)

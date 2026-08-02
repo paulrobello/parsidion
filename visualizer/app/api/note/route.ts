@@ -18,7 +18,7 @@ export const GET = withApi(async (req: NextRequest) => {
 
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vault)
+    vaultRoot = await resolveVault(vault)
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
@@ -85,7 +85,7 @@ export const POST = withApi(async (req: NextRequest) => {
 
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vaultParam)
+    vaultRoot = await resolveVault(vaultParam)
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
@@ -173,7 +173,7 @@ export const PUT = withApi(async (req: NextRequest) => {
 
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vaultParam)
+    vaultRoot = await resolveVault(vaultParam)
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }
@@ -207,7 +207,7 @@ export const DELETE = withApi(async (req: NextRequest) => {
 
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vault)
+    vaultRoot = await resolveVault(vault)
   } catch {
     return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })
   }

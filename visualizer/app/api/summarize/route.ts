@@ -11,7 +11,7 @@ export const POST = withApi(async (req: NextRequest) => {
   // SEC-005: Validate vault path before spawning the subprocess.
   let vaultPath: string
   try {
-    vaultPath = resolveVault(vault)
+    vaultPath = await resolveVault(vault)
   } catch (err) {
     if (err instanceof VaultConfigError) {
       return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })

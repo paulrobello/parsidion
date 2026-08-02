@@ -1,24 +1,19 @@
 // lib/vaultResolver.ts
 // Shared vault resolution logic for all API routes.
-// Server-side only (uses fs, path).
+// Server-side only (uses fs, path, child_process via runScript).
 //
-// QA-012: This file duplicates the vault resolution logic from the Python
-// vault_common.py:resolve_vault().  Both implementations must stay in sync.
-// Long-term plan: serve vault resolution through the parsidion-mcp server
-// so only the Python implementation is canonical.  See AUDIT.md [QA-012].
+// ENH-009: resolution is now Python-canonical. resolveVault / getDefaultVault
+// / listNamedVaults are thin async subprocess callers over the stdlib
+// vault_resolve.py CLI (which wraps core.vault_path.resolve_vault_server), so
+// the allowlist algorithm has exactly ONE implementation -- the former
+// TypeScript reimplementation is gone (was QA-012 / ARC-007 / SEC-P001). A
+// promise cache invalidated on vaults.yaml mtime means the subprocess runs at
+// most once per vault name per server lifetime.
 //
-// ARC-007: This resolver is DELIBERATELY NARROWER than the Python twin
-// (skills/parsidion/scripts/core/vault_path.py:resolve_vault). It exposes
-// only (a) named vaults from vaults.yaml, (b) the default vault, and (c)
-// the VAULT_ROOT default-override env var. It does NOT read cwd/.claude/vault
-// or CLAUDE_VAULT — the visualizer is a long-lived server with no notion of
-// a "current project" and no user-runtime env to inherit. The two sides are
-// pinned by a shared fixture at tests/fixtures/parity/vault-resolution.json
-// consumed by both tests/test_vault_resolver_parity.py and
-// visualizer/lib/vaultResolver.parity.test.ts; every vector is either run
-// on both sides or explicitly excluded via `applies_to`. Adding a new
-// channel here without extending the fixture will fail CI on both sides.
-// Full unification is deferred to ENH-009 (serve resolution via parsidion-mcp).
+// guardPath / validateVaultPath / the realpath* helpers are NOT vault
+// resolution -- they are HTTP-input containment checks (does this note path
+// the client sent fall inside the already-resolved vault root?), so they stay
+// here, untouched. Python never sees request paths.
 //
 // ARC-041: `import 'server-only'` makes the server-only-ness structural
 // rather than convention-enforced. Next.js swaps this import for a throw at
@@ -31,6 +26,9 @@ import 'server-only'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+
+import { findParsidionScript } from './scriptResolver'
+import { runScript, ScriptFailedError } from './runScript'
 
 // SEC-001: Mirror Python's _VAULT_FORBIDDEN_PREFIXES from vault_path.py.
 // Prevents resolveVault() from pointing the vault into system directories or
@@ -48,8 +46,10 @@ const VAULT_FORBIDDEN_PREFIXES: readonly string[] = [
 ]
 
 /**
- * Error thrown when a vault path resolves to a forbidden location.
- * SEC-001: mirrors Python VaultConfigError raised by _validate_vault_path().
+ * Error thrown when a vault path resolves to a forbidden location, or when a
+ * vault reference is not a known named/default vault.
+ * SEC-001: mirrors Python VaultConfigError raised by _validate_vault_path()
+ * / resolve_vault_server().
  */
 export class VaultConfigError extends Error {
   constructor(message: string) {
@@ -61,6 +61,9 @@ export class VaultConfigError extends Error {
 /**
  * Throws VaultConfigError if `resolved` falls under a forbidden prefix.
  * SEC-001: mirrors Python _validate_vault_path() in vault_path.py.
+ *
+ * Defense in depth on the TypeScript side; canonical validation lives in
+ * Python's resolve_vault_server() and runs on every delegated resolution.
  *
  * @param resolved - Fully resolved (path.resolve'd) vault path to validate.
  * @throws {VaultConfigError} If the path is under a forbidden prefix.
@@ -82,7 +85,8 @@ export interface NamedVault {
 
 /**
  * Returns the path to the vaults.yaml config file.
- * Follows XDG Base Directory specification.
+ * Follows XDG Base Directory specification. Used to stat the file for cache
+ * invalidation; the resolution itself is delegated to Python.
  */
 export function getVaultsConfigPath(): string {
   const xdg = process.env.XDG_CONFIG_HOME
@@ -105,116 +109,8 @@ export function getVaultsConfigPath(): string {
 }
 
 /**
- * Parses vaults.yaml and returns a list of named vaults.
- * Returns empty array if config doesn't exist or is invalid.
- */
-export function listNamedVaults(): NamedVault[] {
-  const configPath = getVaultsConfigPath()
-
-  if (!fs.existsSync(configPath)) {
-    return []
-  }
-
-  const content = fs.readFileSync(configPath, 'utf-8')
-  const vaults: NamedVault[] = []
-  const home = process.env.HOME || '~'
-
-  let inVaultsSection = false
-
-  for (const line of content.split('\n')) {
-    const stripped = line.trim()
-
-    // Skip empty lines and comments
-    if (!stripped || stripped.startsWith('#')) {
-      continue
-    }
-
-    // Detect start of vaults section
-    if (stripped === 'vaults:') {
-      inVaultsSection = true
-      continue
-    }
-
-    // End of vaults section (unindented non-empty line)
-    if (inVaultsSection && !line.startsWith(' ') && !line.startsWith('\t')) {
-      break
-    }
-
-    // Parse vault entry: "name: path" or "name:" (with path on next line)
-    if (inVaultsSection && stripped.includes(':')) {
-      const colonIdx = stripped.indexOf(':')
-      const name = stripped.slice(0, colonIdx).trim()
-      let vaultPath = stripped.slice(colonIdx + 1).trim()
-
-      // Remove quotes if present
-      if ((vaultPath.startsWith('"') && vaultPath.endsWith('"')) ||
-          (vaultPath.startsWith("'") && vaultPath.endsWith("'"))) {
-        vaultPath = vaultPath.slice(1, -1)
-      }
-
-      if (name && vaultPath) {
-        // Expand ~ to home directory
-        const expandedPath = vaultPath.startsWith('~')
-          ? path.join(home, vaultPath.slice(1))
-          : vaultPath
-
-        vaults.push({ name, path: expandedPath })
-      }
-    }
-  }
-
-  return vaults
-}
-
-/**
- * Resolves a vault name or path to an absolute vault path.
- * Falls back to the default vault if no vault is specified.
- *
- * Resolution is an allowlist: `vaultName` must match either a named vault
- * from vaults.yaml or the default vault. Arbitrary filesystem paths (e.g.
- * "/", "~", "$HOME/Documents") are rejected outright, even when they don't
- * hit VAULT_FORBIDDEN_PREFIXES — previously this was a denylist that let any
- * non-forbidden path through, so any string with `vault=` in it (like the
- * bare home directory) resolved and could be walked.
- *
- * The fully-resolved path is additionally validated against
- * VAULT_FORBIDDEN_PREFIXES as defense in depth (e.g. local misconfiguration
- * of VAULT_ROOT).
- *
- * @throws {VaultConfigError} If `vaultName` doesn't match a known vault, or
- *   the resolved path is under a forbidden prefix.
- */
-export function resolveVault(vaultName?: string | null): string {
-  const home = process.env.HOME || _home
-
-  if (!vaultName) {
-    const resolved = getDefaultVault()
-    validateVaultPath(path.resolve(resolved))
-    return resolved
-  }
-
-  const named = listNamedVaults().find(v => v.name === vaultName)
-  if (named) {
-    validateVaultPath(path.resolve(named.path))
-    return named.path
-  }
-
-  // Allow the default vault to be referenced by its own path (expanding ~
-  // the same way named-vault paths are expanded), not just by omitting the
-  // vault name.
-  const expanded = vaultName.startsWith('~') ? path.join(home, vaultName.slice(1)) : vaultName
-  const defaultVault = getDefaultVault()
-  if (path.resolve(expanded) === path.resolve(defaultVault)) {
-    validateVaultPath(path.resolve(defaultVault))
-    return defaultVault
-  }
-
-  throw new VaultConfigError(`Unknown vault: ${vaultName}`)
-}
-
-/**
- * Best-effort fs.realpathSync — falls back to the input path if it doesn't
- * exist (or can't be read) rather than throwing.
+ * Best-effort fs.realpathSync—falls back to the input path if it doesn't exist
+ * (or can't be read) rather than throwing.
  */
 function realpathOrSelf(p: string): string {
   try {
@@ -227,7 +123,7 @@ function realpathOrSelf(p: string): string {
 /**
  * Resolves `p` to its real (symlink-free) path. For paths that don't exist
  * yet (e.g. a note being created via PUT), walks up to the nearest existing
- * ancestor, realpaths that, and reattaches the nonexistent remainder — so
+ * ancestor, realpaths that, and reattaches the nonexistent remainder—so
  * symlinks in the existing portion of the path are still caught while the
  * not-yet-created target itself doesn't need to exist.
  */
@@ -267,20 +163,168 @@ export function guardPath(notePath: string, vaultRoot: string): boolean {
   return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep)
 }
 
+// ---------------------------------------------------------------------------
+// ENH-009: Python-canonical resolution. Everything below delegates to
+// vault_resolve.py (which wraps core.vault_path.resolve_vault_server) so the
+// resolution algorithm is single-sourced in Python.
+// ---------------------------------------------------------------------------
+
+/** Hard cap for the resolver subprocess. Resolution is cheap; 5s is generous. */
+const RESOLVE_TIMEOUT_MS = 5_000
+
+interface ServerVaultList {
+  default: string
+  named: NamedVault[]
+}
+
+/** Signature of the resolution inputs when the caches were last populated. */
+let _cachedConfigSig: string | null = null
+/** key `${name}` (empty string = default) -> resolved-path promise. */
+const _resolveCache = new Map<string, Promise<string>>()
+/** cached `--list` result promise. */
+let _listPromise: Promise<ServerVaultList> | null = null
+
+function yamlMtime(): number {
+  try {
+    return fs.statSync(getVaultsConfigPath()).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
 /**
- * Returns the default vault path without resolving a specific name.
+ * Fingerprint of every input resolution can depend on: the vaults.yaml
+ * mtime (named-vault set), HOME (default vault root), and VAULT_ROOT (default
+ * override). The caches are dropped whenever this changes, so a changed HOME
+ * or VAULT_ROOT never yields a stale cached path.
  */
-export function getDefaultVault(): string {
-  const home = process.env.HOME || '~'
+function configSignature(): string {
+  return `${yamlMtime()}:${process.env.HOME ?? ''}:${process.env.VAULT_ROOT ?? ''}`
+}
 
-  if (process.env.VAULT_ROOT) {
-    return process.env.VAULT_ROOT
+/** Drop both caches when any resolution input changes. */
+function invalidateIfStale(): void {
+  const sig = configSignature()
+  if (sig !== _cachedConfigSig) {
+    _cachedConfigSig = sig
+    _resolveCache.clear()
+    _listPromise = null
   }
+}
 
-  const current = path.join(home, 'ParsidionVault')
-  const legacy = path.join(home, 'ClaudeVault')
-  if (fs.existsSync(legacy) && !fs.existsSync(current)) {
-    return legacy
+/**
+ * Test-only: drop the resolution caches so cases that repoint HOME / rewrite
+ * vaults.yaml start from a clean slate. Mirrors Python's
+ * `resolve_vault.cache_clear()`. Not part of the public API.
+ */
+export function _clearResolutionCacheForTest(): void {
+  _cachedConfigSig = null
+  _resolveCache.clear()
+  _listPromise = null
+}
+
+function scriptNotFound(): ScriptFailedError {
+  return new ScriptFailedError(
+    'vault_resolve.py not found. Install the parsidion skill or run the visualizer from the source repo.',
+    '',
+    null,
+  )
+}
+
+/**
+ * Spawn vault_resolve.py with the given args and return its trimmed stdout.
+ * Exit code 1 is the script's contract for "not a known vault" (Python
+ * VaultConfigError) and is re-thrown as the TS {@link VaultConfigError} so
+ * routes map it to HTTP 400. Any other failure (missing script, timeout,
+ * unexpected exit) surfaces as {@link ScriptFailedError} -> HTTP 500.
+ */
+async function runResolveScript(args: readonly string[]): Promise<string> {
+  const script = findParsidionScript('vault_resolve.py')
+  if (!script) throw scriptNotFound()
+  try {
+    const { stdout } = await runScript('uv', ['run', '--no-project', script, ...args], {
+      timeoutMs: RESOLVE_TIMEOUT_MS,
+    })
+    return stdout.trim()
+  } catch (err) {
+    if (err instanceof ScriptFailedError && err.exitCode === 1) {
+      throw new VaultConfigError(err.stderr.trim() || 'vault resolution failed')
+    }
+    throw err
   }
-  return current
+}
+
+/**
+ * Resolves a vault name or path to an absolute vault path by delegating to
+ * Python's canonical resolver. Falls back to the default vault when no vault
+ * is specified.
+ *
+ * @throws {VaultConfigError} If `vaultName` doesn't match a known vault, or
+ *   the resolved path is under a forbidden prefix (validated in Python).
+ */
+export async function resolveVault(vaultName?: string | null): Promise<string> {
+  invalidateIfStale()
+  const key = vaultName ?? ''
+  const cached = _resolveCache.get(key)
+  if (cached) return cached
+
+  const promise = runResolveScript(key ? [key] : [])
+  // Don't cache rejections: a transient failure (e.g. timeout) should retry.
+  promise.catch(() => {
+    if (_resolveCache.get(key) === promise) _resolveCache.delete(key)
+  })
+  _resolveCache.set(key, promise)
+  return promise
+}
+
+/**
+ * Returns the default vault path without resolving a specific name, by
+ * delegating to Python. (Reuses the default-vault cache entry.)
+ */
+export async function getDefaultVault(): Promise<string> {
+  invalidateIfStale()
+  return resolveVault(undefined)
+}
+
+async function loadVaultList(): Promise<ServerVaultList> {
+  invalidateIfStale()
+  if (_listPromise) return _listPromise
+
+  const promise = (async () => {
+    const script = findParsidionScript('vault_resolve.py')
+    if (!script) throw scriptNotFound()
+    try {
+      const { stdout } = await runScript(
+        'uv',
+        ['run', '--no-project', script, '--list'],
+        { timeoutMs: RESOLVE_TIMEOUT_MS },
+      )
+      const parsed = JSON.parse(stdout) as {
+        default: string
+        named: { name: string; path: string }[]
+      }
+      return {
+        default: parsed.default,
+        named: parsed.named.map(v => ({ name: v.name, path: v.path })),
+      }
+    } catch (err) {
+      if (err instanceof ScriptFailedError && err.exitCode === 1) {
+        throw new VaultConfigError(err.stderr.trim() || 'vault resolution failed')
+      }
+      throw err
+    }
+  })()
+
+  _listPromise = promise
+  promise.catch(() => {
+    if (_listPromise === promise) _listPromise = null
+  })
+  return promise
+}
+
+/**
+ * Lists named vaults from vaults.yaml by delegating to Python.
+ */
+export async function listNamedVaults(): Promise<NamedVault[]> {
+  return (await loadVaultList()).named
 }

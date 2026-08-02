@@ -1,25 +1,27 @@
 // lib/vaultResolver.parity.test.ts
-// ENH-005: the TypeScript half of the shared vault-resolution parity contract.
+// ENH-005 / ENH-009: the TypeScript half of the shared vault-resolution
+// contract.
 //
 // Reads the SAME fixture as the Python suite
-// (tests/fixtures/parity/vault-resolution.json) and asserts resolveVault()
-// agrees with every TypeScript-applicable vector. The Python half lives at
-// tests/test_vault_resolver_parity.py. Neither language owns the test data;
-// both consume it, so a vector added on one side forces an ack on the other.
+// (tests/fixtures/parity/vault-resolution.json). Since ENH-009 the TypeScript
+// resolver DELEGATES to Python's resolve_vault_server (via vault_resolve.py),
+// so there is only one resolution implementation; this suite is now an
+// end-to-end check that the delegated path produces every fixture vector's
+// expected result. The Python half (the authoritative resolution-semantics
+// suite) lives at tests/test_vault_resolver_parity.py.
 //
-// The two resolvers are NOT identical (see the fixture's $comment): Python is
-// a 4-channel path-or-name resolver (explicit / cwd/.claude/vault /
-// CLAUDE_VAULT / default); TypeScript is an allowlist resolver (named vaults
-// or the default path) with a VAULT_ROOT default override. Vectors scoped to
-// channels that only exist on one side carry `applies_to`, and this suite
-// asserts every vector is either run or explicitly excluded -- no silent skips.
+// The vector loop spawns the real resolver through `uv`, so it is gated on uv
+// being installed (the visualizer CI job installs no Python toolchain — same
+// convention as searchServer.test.ts). The fixture-version and vector-
+// accounting tests are pure and always run, pinning the applies_to contract.
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { spawnSync } from 'child_process'
 
-import { resolveVault, VaultConfigError } from './vaultResolver'
+import { resolveVault, VaultConfigError, _clearResolutionCacheForTest } from './vaultResolver'
 
 const FIXTURE = path.join(
   import.meta.dir,
@@ -30,6 +32,19 @@ const FIXTURE = path.join(
   'parity',
   'vault-resolution.json',
 )
+
+// Point findParsidionScript at the real scripts dir so vault_resolve.py (and
+// its core.vault_path import) resolve deterministically.
+const REAL_SCRIPTS_DIR = path.join(
+  import.meta.dir,
+  '..',
+  '..',
+  'skills',
+  'parsidion',
+  'scripts',
+)
+const uvAvailable =
+  spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0
 
 interface Vector {
   name: string
@@ -74,7 +89,10 @@ function subst<T>(value: T): T {
 }
 
 function materialize(vec: Vector): void {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-'))
+  // realpath so {TMP} substitution matches Python's .resolve() output on macOS
+  // (the /var -> /private/var tmp symlink), the same /private-prefixing caveat
+  // the Python parity suite notes.
+  tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'parity-')))
 
   const home = subst(vec.env_HOME ?? '{TMP}')
   process.env.HOME = home
@@ -107,18 +125,22 @@ function cleanup(): void {
   }
 }
 
-describe('ENH-005 — vault-resolution parity (shared fixture)', () => {
+describe('ENH-005 / ENH-009 — vault-resolution parity (shared fixture)', () => {
   beforeEach(() => {
     savedEnv = {
       HOME: process.env.HOME,
       CLAUDE_VAULT: process.env.CLAUDE_VAULT,
       VAULT_ROOT: process.env.VAULT_ROOT,
       XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      PARSIDION_SCRIPTS_DIR: process.env.PARSIDION_SCRIPTS_DIR,
     }
+    process.env.PARSIDION_SCRIPTS_DIR = REAL_SCRIPTS_DIR
+    _clearResolutionCacheForTest()
   })
 
   afterEach(() => {
     cleanup()
+    _clearResolutionCacheForTest()
     for (const [k, v] of Object.entries(savedEnv)) {
       if (v === undefined) delete (process.env as Record<string, string | undefined>)[k]
       else (process.env as Record<string, string | undefined>)[k] = v
@@ -155,22 +177,24 @@ describe('ENH-005 — vault-resolution parity (shared fixture)', () => {
       ]),
     )
     // ARC-007: the four TS-only vectors are the inverse of the python-only
-    // channel vectors above. They pin that the TS resolver does NOT read
-    // cwd/.claude/vault, CLAUDE_VAULT, or use a VAULT_ROOT override the
-    // Python side ignores. Adding these channels to TS later requires
+    // channel vectors above. They pin that the server resolver does NOT read
+    // cwd/.claude/vault, CLAUDE_VAULT, and DOES honor a VAULT_ROOT override
+    // the Python full-resolver ignores. Adding these channels later requires
     // updating this set.
   })
 
   for (const vec of tsVectors) {
-    it(vec.name, () => {
+    it.skipIf(!uvAvailable)(vec.name, async () => {
       materialize(vec)
       const explicit = vec.explicit !== undefined && vec.explicit !== null
         ? subst(vec.explicit)
         : undefined
       if (vec.expect_error !== undefined) {
-        expect(() => resolveVault(explicit ?? null)).toThrow(VaultConfigError)
+        await expect(resolveVault(explicit ?? null)).rejects.toBeInstanceOf(
+          VaultConfigError,
+        )
       } else if (vec.expect !== undefined) {
-        const result = resolveVault(explicit ?? null)
+        const result = await resolveVault(explicit ?? null)
         // Resolve both sides so macOS /private prefixing and symlinks
         // (e.g. /etc -> /private/etc) don't make equal paths differ.
         const expected = subst(vec.expect)
@@ -178,6 +202,6 @@ describe('ENH-005 — vault-resolution parity (shared fixture)', () => {
       } else {
         throw new Error(`vector ${vec.name} has neither expect nor expect_error`)
       }
-    })
+    }, 20000)
   }
 })

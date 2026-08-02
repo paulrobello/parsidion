@@ -270,3 +270,123 @@ class TestVaultResolutionVectors:
             assert result.resolve() == expected.resolve(), (
                 f"{vec['name']}: expected {expected.resolve()}, got {result.resolve()}"
             )
+
+
+# ===========================================================================
+# ENH-009: resolve_vault_server — the canonical server-context resolver the
+# visualizer delegates to. This is the narrow allowlist (named vaults + default
+# + VAULT_ROOT override); it must NOT consult cwd/.claude/vault or CLAUDE_VAULT.
+# ===========================================================================
+
+
+def _server_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, vaults_yaml: str | None = None
+) -> Path:
+    """Point HOME and vaults.yaml at a temp tree; return the temp HOME."""
+    home = tmp_path
+    monkeypatch.setenv("HOME", str(home))
+    for var in ("CLAUDE_VAULT", "VAULT_ROOT", "XDG_CONFIG_HOME"):
+        monkeypatch.delenv(var, raising=False)
+    if vaults_yaml is not None:
+        config_dir = home / ".config" / "parsidion"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "vaults.yaml").write_text(vaults_yaml, encoding="utf-8")
+    return home
+
+
+class TestResolveVaultServer:
+    """The server resolver is the single source of truth for the visualizer."""
+
+    def test_default_vault(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _server_env(tmp_path, monkeypatch)
+        assert (
+            vault_path.resolve_vault_server(None).resolve()
+            == (tmp_path / "ParsidionVault").resolve()
+        )
+
+    def test_legacy_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _server_env(tmp_path, monkeypatch)
+        (tmp_path / "ClaudeVault").mkdir()
+        assert (
+            vault_path.resolve_vault_server(None).resolve()
+            == (tmp_path / "ClaudeVault").resolve()
+        )
+
+    def test_vault_root_env_overrides_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _server_env(tmp_path, monkeypatch)
+        custom = tmp_path / "custom-vault"
+        custom.mkdir()
+        monkeypatch.setenv("VAULT_ROOT", str(custom))
+        assert vault_path.resolve_vault_server(None).resolve() == custom.resolve()
+
+    def test_named_vault_by_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        named = tmp_path / "named-vault"
+        named.mkdir()
+        _server_env(
+            tmp_path,
+            monkeypatch,
+            vaults_yaml=f"vaults:\n  myvault: {named}\n",
+        )
+        assert vault_path.resolve_vault_server("myvault").resolve() == named.resolve()
+
+    def test_named_vault_by_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        named = tmp_path / "named-vault"
+        named.mkdir()
+        _server_env(
+            tmp_path,
+            monkeypatch,
+            vaults_yaml=f"vaults:\n  myvault: {named}\n",
+        )
+        assert vault_path.resolve_vault_server(str(named)).resolve() == named.resolve()
+
+    def test_unknown_name_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _server_env(tmp_path, monkeypatch)
+        with pytest.raises(vault_path.VaultConfigError):
+            vault_path.resolve_vault_server("no-such-vault")
+
+    def test_arbitrary_path_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _server_env(tmp_path, monkeypatch)
+        other = tmp_path / "not-allowlisted"
+        other.mkdir()
+        with pytest.raises(vault_path.VaultConfigError):
+            vault_path.resolve_vault_server(str(other))
+
+    def test_forbidden_prefix_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # VAULT_ROOT pointing under a forbidden prefix (/etc is in the list
+        # regardless of HOME -- the prefix list is fixed at import time, so a
+        # home-independent system path is the reliable trigger) must be refused
+        # even though the env override is honored for the default computation.
+        _server_env(tmp_path, monkeypatch)
+        monkeypatch.setenv("VAULT_ROOT", "/etc/parsidion-forbidden-test")
+        with pytest.raises(vault_path.VaultConfigError):
+            vault_path.resolve_vault_server(None)
+
+    def test_does_not_consult_claude_vault(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The server has no runtime env: CLAUDE_VAULT must NOT be honored."""
+        _server_env(tmp_path, monkeypatch)
+        env_vault = tmp_path / "env-vault"
+        env_vault.mkdir()
+        monkeypatch.setenv("CLAUDE_VAULT", str(env_vault))
+        # Falls through to the default, NOT the CLAUDE_VAULT path.
+        assert (
+            vault_path.resolve_vault_server(None).resolve()
+            == (tmp_path / "ParsidionVault").resolve()
+        )

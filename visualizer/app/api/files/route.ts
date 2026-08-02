@@ -44,7 +44,7 @@ export const GET = withApi(async (req: NextRequest) => {
   const vault = req.nextUrl.searchParams.get('vault')
   let vaultRoot: string
   try {
-    vaultRoot = resolveVault(vault)
+    vaultRoot = await resolveVault(vault)
   } catch (err) {
     if (err instanceof VaultConfigError) {
       return NextResponse.json({ error: 'Invalid vault path' }, { status: 400 })

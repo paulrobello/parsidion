@@ -5,23 +5,21 @@
 // precisely the class of bug one test here would have caught — the contract
 // was checked nowhere.
 //
-// Covers the seven cases flagged in ARC-016 step 1:
-//   1. `..` traversal rejected (guardPath)
-//   2. symlink escaping the vault rejected (guardPath)
-//   3. VAULT_FORBIDDEN_PREFIXES enforced (validateVaultPath)
-//   4. sibling directory (~/ParsidionVault-evil) rejected (startsWith check)
-//   5. unknown vault name rejected by the allowlist (resolveVault)
-//   6. realpathAllowingMissing: not-yet-created file inside vault OK, outside NOT
-//   7. resolution precedence: explicit → .claude/vault → env → default
-//
-// vaultResolver.ts itself is owned by the 3b agent; this test file is the
-// 3c half of ARC-016. The two layers compose: any code change to the resolver
-// must keep these contracts intact.
+// Two layers of coverage:
+//   - guardPath / validateVaultPath / getVaultsConfigPath are pure, server-side
+//     path-traversal defenses. They are tested hermetically (no subprocess).
+//   - resolveVault / getDefaultVault / listNamedVaults now DELEGATE to the
+//     Python vault_resolve.py CLI (ENH-009). Their happy paths are exercised
+//     end-to-end through the real script, gated on `uv` being installed (the
+//     visualizer CI job intentionally installs no Python toolchain — same
+//     convention as searchServer.test.ts). The error path (missing script) is
+//     always covered.
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { spawnSync } from 'child_process'
 
 import {
   resolveVault,
@@ -31,21 +29,51 @@ import {
   getDefaultVault,
   listNamedVaults,
   getVaultsConfigPath,
+  _clearResolutionCacheForTest,
 } from './vaultResolver'
+import { ScriptFailedError } from './runScript'
+
+// The real scripts dir (skills/parsidion/scripts) resolved from this test file
+// (visualizer/lib). Pointing PARSIDION_SCRIPTS_DIR here makes
+// findParsidionScript('vault_resolve.py') deterministic regardless of cwd or
+// whether the skill is installed.
+const REAL_SCRIPTS_DIR = path.join(
+  import.meta.dir,
+  '..',
+  '..',
+  'skills',
+  'parsidion',
+  'scripts',
+)
+
+// uv-gated tests need the Python toolchain the visualizer CI job omits.
+const uvAvailable =
+  spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0
 
 let tmpHome: string
+// Python's resolver returns .resolve()'d paths, which on macOS resolves the
+// /var -> /private/var tmp symlink. Build expected paths from the realpath so
+// the comparison agrees (same /private-prefixing caveat the parity suite notes).
+let realHome: string
 let originalHome: string | undefined
 let originalVaultRoot: string | undefined
 let originalXdg: string | undefined
+let originalScriptsDir: string | undefined
 
 function setup(): void {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-resolver-'))
+  realHome = fs.realpathSync(tmpHome)
   originalHome = process.env.HOME
   originalVaultRoot = process.env.VAULT_ROOT
   originalXdg = process.env.XDG_CONFIG_HOME
+  originalScriptsDir = process.env.PARSIDION_SCRIPTS_DIR
   process.env.HOME = tmpHome
+  process.env.PARSIDION_SCRIPTS_DIR = REAL_SCRIPTS_DIR
   delete process.env.VAULT_ROOT
   delete process.env.XDG_CONFIG_HOME
+  // Each case repoints HOME / rewrites vaults.yaml; never inherit a cached
+  // resolution from a prior case.
+  _clearResolutionCacheForTest()
 }
 
 function teardown(): void {
@@ -55,6 +83,9 @@ function teardown(): void {
   else process.env.VAULT_ROOT = originalVaultRoot
   if (originalXdg === undefined) delete process.env.XDG_CONFIG_HOME
   else process.env.XDG_CONFIG_HOME = originalXdg
+  if (originalScriptsDir === undefined) delete process.env.PARSIDION_SCRIPTS_DIR
+  else process.env.PARSIDION_SCRIPTS_DIR = originalScriptsDir
+  _clearResolutionCacheForTest()
   try {
     fs.rmSync(tmpHome, { recursive: true, force: true })
   } catch {
@@ -191,39 +222,125 @@ describe('ARC-016 / QA-004 — vaultResolver.ts path-traversal defense', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Case 5: unknown vault name rejected by the allowlist
+  // Cases 5 & 7 + listNamedVaults: resolution now delegates to Python's
+  // vault_resolve.py (ENH-009). Happy paths run end-to-end through the real
+  // script where uv is available; the missing-script error path always runs.
   // -------------------------------------------------------------------------
-  describe('resolveVault — allowlist enforcement', () => {
-    it('rejects an unknown vault name not in vaults.yaml', () => {
-      expect(() => resolveVault('does-not-exist')).toThrow(VaultConfigError)
+  describe('resolveVault — Python delegation (ENH-009)', () => {
+    // The unknown-name / arbitrary-path rejections need the Python script to
+    // run (it emits exit 1 -> VaultConfigError). The missing-script path does
+    // not reach uv, so it always runs.
+    it.skipIf(!uvAvailable)(
+      'rejects an unknown vault name with VaultConfigError',
+      async () => {
+        await expect(resolveVault('does-not-exist')).rejects.toBeInstanceOf(
+          VaultConfigError,
+        )
+      },
+      20000,
+    )
+
+    it.skipIf(!uvAvailable)(
+      'rejects an arbitrary filesystem path (not just a name)',
+      async () => {
+        await expect(resolveVault('/')).rejects.toBeInstanceOf(VaultConfigError)
+        await expect(resolveVault('~')).rejects.toBeInstanceOf(VaultConfigError)
+      },
+      20000,
+    )
+
+    it('rejects when the resolver script is missing (no Python toolchain)', async () => {
+      // Point at an empty dir so findParsidionScript returns null. This runs
+      // everywhere (CI included) — it exercises the scriptNotFound path that
+      // does not need uv.
+      process.env.PARSIDION_SCRIPTS_DIR = path.join(tmpHome, 'no-scripts-here')
+      await expect(resolveVault(null)).rejects.toBeInstanceOf(ScriptFailedError)
     })
 
-    it('rejects an arbitrary filesystem path (not just a name)', () => {
-      // Pre-SEC-001, any non-forbidden path resolved. Now: arbitrary paths
-      // are rejected outright; only named entries (or the default) are allowed.
-      expect(() => resolveVault('/')).toThrow(VaultConfigError)
-      expect(() => resolveVault('~')).toThrow(VaultConfigError)
-    })
+    it.skipIf(!uvAvailable)(
+      'resolves the default vault when no name is given',
+      async () => {
+        // Default is $HOME/ParsidionVault (no legacy ClaudeVault present here).
+        expect(await resolveVault(null)).toBe(path.join(realHome, 'ParsidionVault'))
+        expect(await resolveVault(undefined)).toBe(path.join(realHome, 'ParsidionVault'))
+        expect(await resolveVault('')).toBe(path.join(realHome, 'ParsidionVault'))
+      },
+      20000,
+    )
 
-    it('resolves a named vault that IS registered in vaults.yaml', () => {
-      const named = path.join(tmpHome, 'MyNamedVault')
-      fs.mkdirSync(named, { recursive: true })
-      // Write a vaults.yaml under $XDG_CONFIG_HOME or $HOME/.config/parsidion
-      const configDir = path.join(tmpHome, '.config', 'parsidion')
-      fs.mkdirSync(configDir, { recursive: true })
-      fs.writeFileSync(
-        path.join(configDir, 'vaults.yaml'),
-        `vaults:\n  my-named: ${named}\n`,
-      )
-      expect(resolveVault('my-named')).toBe(named)
-    })
+    it.skipIf(!uvAvailable)(
+      'resolves a named vault registered in vaults.yaml',
+      async () => {
+        const named = path.join(tmpHome, 'MyNamedVault')
+        fs.mkdirSync(named, { recursive: true })
+        const configDir = path.join(tmpHome, '.config', 'parsidion')
+        fs.mkdirSync(configDir, { recursive: true })
+        fs.writeFileSync(
+          path.join(configDir, 'vaults.yaml'),
+          `vaults:\n  my-named: ${named}\n`,
+        )
+        // Python .resolve()s the registered path, so compare to the realpath.
+        expect(await resolveVault('my-named')).toBe(path.join(realHome, 'MyNamedVault'))
+      },
+      20000,
+    )
+  })
 
-    it('falls back to the default vault when no name is given', () => {
-      // Default is $HOME/ParsidionVault (no legacy ClaudeVault present here).
-      expect(resolveVault(null)).toBe(path.join(tmpHome, 'ParsidionVault'))
-      expect(resolveVault(undefined)).toBe(path.join(tmpHome, 'ParsidionVault'))
-      expect(resolveVault('')).toBe(path.join(tmpHome, 'ParsidionVault'))
-    })
+  describe('resolution precedence & listing (ENH-009)', () => {
+    it.skipIf(!uvAvailable)(
+      'VAULT_ROOT env var beats HOME-based default',
+      async () => {
+        process.env.VAULT_ROOT = path.join(realHome, 'EnvVault')
+        expect(await getDefaultVault()).toBe(path.join(realHome, 'EnvVault'))
+      },
+      20000,
+    )
+
+    it.skipIf(!uvAvailable)(
+      'HOME-based default selects ParsidionVault when neither legacy nor env set',
+      async () => {
+        expect(await getDefaultVault()).toBe(path.join(realHome, 'ParsidionVault'))
+      },
+      20000,
+    )
+
+    it.skipIf(!uvAvailable)(
+      'falls back to legacy ClaudeVault when ParsidionVault does not exist',
+      async () => {
+        fs.mkdirSync(path.join(tmpHome, 'ClaudeVault'), { recursive: true })
+        expect(await getDefaultVault()).toBe(path.join(realHome, 'ClaudeVault'))
+      },
+      20000,
+    )
+
+    it.skipIf(!uvAvailable)(
+      'resolveVault(unknown) does not consult VAULT_ROOT — allowlist still enforced',
+      async () => {
+        // VAULT_ROOT changes the *default*; it does not add to the allowlist.
+        process.env.VAULT_ROOT = path.join(tmpHome, 'EnvVault')
+        await expect(resolveVault('still-unknown')).rejects.toBeInstanceOf(
+          VaultConfigError,
+        )
+      },
+      20000,
+    )
+
+    it.skipIf(!uvAvailable)(
+      'listNamedVaults returns vaults registered in vaults.yaml',
+      async () => {
+        const configDir = path.join(tmpHome, '.config', 'parsidion')
+        fs.mkdirSync(configDir, { recursive: true })
+        fs.writeFileSync(
+          path.join(configDir, 'vaults.yaml'),
+          ['vaults:', '  primary: ~/PrimaryVault', '  secondary: /tmp/SecondaryVault', ''].join(
+            '\n',
+          ),
+        )
+        const result = await listNamedVaults()
+        expect(result.map(v => v.name)).toEqual(['primary', 'secondary'])
+      },
+      20000,
+    )
   })
 
   // -------------------------------------------------------------------------
@@ -253,93 +370,16 @@ describe('ARC-016 / QA-004 — vaultResolver.ts path-traversal defense', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Case 7: resolution precedence — explicit → .claude/vault → env → default
+  // vaults.yaml config-path resolution (pure; no Python)
   // -------------------------------------------------------------------------
-  describe('resolution precedence (ARC-016 step 1 final case)', () => {
-    it('VAULT_ROOT env var beats HOME-based default', () => {
-      process.env.VAULT_ROOT = path.join(tmpHome, 'EnvVault')
-      expect(getDefaultVault()).toBe(path.join(tmpHome, 'EnvVault'))
-    })
-
-    it('HOME-based default selects ParsidionVault when neither legacy nor env set', () => {
-      expect(getDefaultVault()).toBe(path.join(tmpHome, 'ParsidionVault'))
-    })
-
-    it('falls back to legacy ClaudeVault when ParsidionVault does not exist', () => {
-      // Create ClaudeVault but NOT ParsidionVault — default flips to legacy.
-      fs.mkdirSync(path.join(tmpHome, 'ClaudeVault'), { recursive: true })
-      expect(getDefaultVault()).toBe(path.join(tmpHome, 'ClaudeVault'))
-    })
-
-    it('prefers ParsidionVault over legacy ClaudeVault when both exist', () => {
-      fs.mkdirSync(path.join(tmpHome, 'ParsidionVault'), { recursive: true })
-      fs.mkdirSync(path.join(tmpHome, 'ClaudeVault'), { recursive: true })
-      expect(getDefaultVault()).toBe(path.join(tmpHome, 'ParsidionVault'))
-    })
-
-    it('resolveVault(unknown) does not consult VAULT_ROOT — allowlist still enforced', () => {
-      // VAULT_ROOT changes the *default*; it does not add to the allowlist.
-      // So an unknown name must still be rejected even with VAULT_ROOT set.
-      process.env.VAULT_ROOT = path.join(tmpHome, 'EnvVault')
-      expect(() => resolveVault('still-unknown')).toThrow(VaultConfigError)
-    })
-
-    it('resolveVault allows the default-vault PATH to be passed explicitly', () => {
-      // The allowlist also accepts the default vault's own path (with ~ expansion),
-      // so a client that knows the resolved path can pass it directly.
-      const def = path.join(tmpHome, 'ParsidionVault')
-      fs.mkdirSync(def, { recursive: true })
-      expect(resolveVault(def)).toBe(def)
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // vaults.yaml parsing
-  // -------------------------------------------------------------------------
-  describe('listNamedVaults — vaults.yaml parsing', () => {
-    it('returns empty when vaults.yaml is absent', () => {
-      expect(listNamedVaults()).toEqual([])
-    })
-
-    it('returns empty when vaults.yaml has no vaults section', () => {
-      const configDir = path.join(tmpHome, '.config', 'parsidion')
-      fs.mkdirSync(configDir, { recursive: true })
-      fs.writeFileSync(
-        path.join(configDir, 'vaults.yaml'),
-        '# nothing here\ndefault: ~/ParsidionVault\n',
-      )
-      expect(listNamedVaults()).toEqual([])
-    })
-
-    it('parses named vaults with ~ expansion', () => {
-      const configDir = path.join(tmpHome, '.config', 'parsidion')
-      fs.mkdirSync(configDir, { recursive: true })
-      fs.writeFileSync(
-        path.join(configDir, 'vaults.yaml'),
-        [
-          'vaults:',
-          '  primary: ~/PrimaryVault',
-          '  secondary: /tmp/SecondaryVault',
-          '  quoted: "~/QuotedVault"',
-          '',
-        ].join('\n'),
-      )
-      const result = listNamedVaults()
-      const names = result.map(v => v.name)
-      expect(names).toEqual(['primary', 'secondary', 'quoted'])
-      const primary = result.find(v => v.name === 'primary')!
-      expect(primary.path).toBe(path.join(tmpHome, 'PrimaryVault'))
-      const quoted = result.find(v => v.name === 'quoted')!
-      expect(quoted.path).toBe(path.join(tmpHome, 'QuotedVault'))
-    })
-
-    it('getVaultsConfigPath honors XDG_CONFIG_HOME', () => {
+  describe('getVaultsConfigPath — XDG resolution', () => {
+    it('honors XDG_CONFIG_HOME', () => {
       process.env.XDG_CONFIG_HOME = path.join(tmpHome, 'xdg')
       const p = getVaultsConfigPath()
       expect(p.startsWith(path.join(tmpHome, 'xdg'))).toBe(true)
     })
 
-    it('getVaultsConfigPath falls back to legacy parsidion-cc dir', () => {
+    it('falls back to legacy parsidion-cc dir', () => {
       // When XDG is unset and ~/.config/parsidion doesn't exist but
       // ~/.config/parsidion-cc does, use the legacy dir.
       const legacy = path.join(tmpHome, '.config', 'parsidion-cc')

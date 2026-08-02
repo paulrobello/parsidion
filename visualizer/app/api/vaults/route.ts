@@ -12,8 +12,8 @@ export interface VaultInfo {
 }
 
 export const GET = withApi(async () => {
-  const namedVaults = listNamedVaults()
-  const defaultVaultPath = getDefaultVault()
+  const namedVaults = await listNamedVaults()
+  const defaultVaultPath = await getDefaultVault()
 
   // Build vault list with default marker
   const vaults: VaultInfo[] = namedVaults.map(v => ({
