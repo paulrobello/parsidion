@@ -67,7 +67,24 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
     # Unit tests simulate completed/idle sessions; disable the active-session
     # guard by default. Tests that exercise the guard re-enable it explicitly.
     monkeypatch.setattr(mod, "_ACTIVE_SESSION_GRACE_SECS", 0)
+    # QA-003: _early_gate now lives in summarizer.pipeline and reads
+    # _ACTIVE_SESSION_GRACE_SECS from ITS globals; default-disable there too.
+    import summarizer.pipeline as _pipeline
+
+    monkeypatch.setattr(_pipeline, "_ACTIVE_SESSION_GRACE_SECS", 0)
     return mod
+
+
+def _pipeline_module() -> types.ModuleType:
+    """Return ``summarizer.pipeline`` for monkeypatching (QA-003).
+
+    ``summarize_one`` and its stage helpers moved into ``summarizer.pipeline``;
+    their bare-name dependencies resolve there, so patches must target that
+    module. Imported lazily — safe after ``_fresh_summarize_sessions``.
+    """
+    import summarizer.pipeline
+
+    return summarizer.pipeline
 
 
 def _write_pending(path: Path, entries: list[dict[str, object]]) -> None:
@@ -250,10 +267,14 @@ def _prepare_merge_test(
     async def fake_prompt(*args: object, **kwargs: object) -> str:
         return json.dumps(decision)
 
-    monkeypatch.setattr(mod, "preprocess_transcript_hierarchical", fake_preprocess)
-    monkeypatch.setattr(mod, "_run_summarizer_prompt", fake_prompt)
-    monkeypatch.setattr(mod, "_find_dedup_candidates", lambda *a, **k: [])
-    monkeypatch.setattr(mod, "build_prompt", lambda *a, **k: "prompt")
+    monkeypatch.setattr(
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(_pipeline_module(), "_run_summarizer_prompt", fake_prompt)
+    monkeypatch.setattr(
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
+    )
+    monkeypatch.setattr(_pipeline_module(), "build_prompt", lambda *a, **k: "prompt")
     monkeypatch.setattr(
         mod.vault_common, "get_config", lambda section, key, default=None: default
     )
@@ -277,10 +298,12 @@ def test_merge_with_unresolvable_target_fails_with_real_reason(
         tmp_path,
         {"decision": "merge", "target": "[[missing-note]]", "new_content": "body"},
     )
-    monkeypatch.setattr(mod, "_resolve_note_stem", lambda stem, vault: None)
+    monkeypatch.setattr(
+        _pipeline_module(), "_resolve_note_stem", lambda stem, vault: None
+    )
     # The generic write path must never be reached with raw decision JSON
     monkeypatch.setattr(
-        mod,
+        _pipeline_module(),
         "write_note",
         lambda *a, **k: pytest.fail("fell through to generic write path"),
     )
@@ -311,7 +334,7 @@ def test_merge_with_missing_fields_fails_with_real_reason(
     mod = _fresh_summarize_sessions(monkeypatch)
     entry = _prepare_merge_test(mod, monkeypatch, tmp_path, {"decision": "merge"})
     monkeypatch.setattr(
-        mod,
+        _pipeline_module(),
         "write_note",
         lambda *a, **k: pytest.fail("fell through to generic write path"),
     )

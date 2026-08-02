@@ -61,6 +61,11 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
     # Unit tests simulate completed/idle sessions; disable the active-session
     # guard by default. Tests that exercise the guard re-enable it explicitly.
     monkeypatch.setattr(mod, "_ACTIVE_SESSION_GRACE_SECS", 0)
+    # QA-003: _early_gate now lives in summarizer.pipeline and reads
+    # _ACTIVE_SESSION_GRACE_SECS from ITS globals; default-disable there too.
+    import summarizer.pipeline as _pipeline
+
+    monkeypatch.setattr(_pipeline, "_ACTIVE_SESSION_GRACE_SECS", 0)
     return mod
 
 
@@ -77,6 +82,21 @@ def _transcript_module() -> types.ModuleType:
     import summarizer.transcript
 
     return summarizer.transcript
+
+
+def _pipeline_module() -> types.ModuleType:
+    """Return ``summarizer.pipeline`` for monkeypatching (QA-003).
+
+    ``summarize_one`` and its stage helpers (_early_gate / _apply_merge_decision /
+    _handle_write_gate_decision / _apply_backlinks_and_strip_links) moved out of
+    the entry shim into ``summarizer.pipeline``; their bare-name dependencies
+    (preprocess / prompt runner / dedup / build_prompt / _ACTIVE_SESSION_GRACE_SECS)
+    resolve there, so patches must target that module. Imported lazily — safe
+    after ``_fresh_summarize_sessions`` has installed its anyio stub.
+    """
+    import summarizer.pipeline
+
+    return summarizer.pipeline
 
 
 def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
@@ -413,14 +433,14 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         raise AssertionError((section, key, default))
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
     monkeypatch.setattr(
-        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )
 
     entry = {
@@ -475,13 +495,13 @@ def test_summarize_one_preserves_skip_write_gate(
         return '{"decision": "skip", "reason": "routine transient session"}'
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
     monkeypatch.setattr(
-        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )
 
     async def run() -> tuple[dict[str, object], Path | str | None]:
@@ -517,7 +537,7 @@ def test_summarize_one_defers_active_session(
     deferred — left in the queue untouched — rather than summarized mid-flight."""
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     # Re-enable the guard (the shared helper disables it for unit tests).
-    monkeypatch.setattr(summarize_sessions, "_ACTIVE_SESSION_GRACE_SECS", 120)
+    monkeypatch.setattr(_pipeline_module(), "_ACTIVE_SESSION_GRACE_SECS", 120)
     transcript_path = tmp_path / "session.jsonl"
     transcript_path.write_text(
         '{"type":"user","content":"in progress"}\n', encoding="utf-8"
@@ -574,13 +594,13 @@ def test_summarize_one_preserves_skip_write_gate_when_fenced(
         )
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
     monkeypatch.setattr(
-        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )
 
     async def run() -> tuple[dict[str, object], Path | str | None]:
@@ -636,13 +656,13 @@ def test_summarize_one_preserves_dry_run_markdown_note_path(
         )
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
     monkeypatch.setattr(
-        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )
 
     _entry, written = asyncio.run(
@@ -1490,13 +1510,13 @@ def test_summarize_one_merge_rejects_invalid_frontmatter_leaves_target_byte_iden
         )
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
     monkeypatch.setattr(
-        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )
 
     async def run() -> tuple[dict[str, object], Path | str | None]:
@@ -1579,13 +1599,13 @@ def test_summarize_one_merge_valid_content_backs_up_target_and_writes_atomically
         )
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript_hierarchical", fake_preprocess
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
     )
     monkeypatch.setattr(
-        summarize_sessions, "_find_dedup_candidates", lambda *a, **k: []
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )
     # Force strip_unresolved_wikilinks to be a no-op so [[some-other]] stays
     # (the test exercises the merge write path, not link stripping).
