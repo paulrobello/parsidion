@@ -519,7 +519,6 @@ def _dequeue_and_finalize(
     skipped = totals.skipped
     failed = totals.failed
 
-    removable = successful + stale + skipped
     # ARC-030: pass the structured failure record (dict) through to
     # remove_processed so it can honor the retryable flag. Fall back to
     # the legacy plain-string shape for entries queued by older code.
@@ -531,31 +530,34 @@ def _dequeue_and_finalize(
         )
         for e in failed
     }
-    if not sessions_mode:
-        # Make write-gate skips sticky: record them in dead_letters so a
-        # future stop-hook re-queue is caught by the _DEAD guard instead of
-        # re-billing an AI call to re-evaluate a session already judged
-        # transient. (Skips are also dequeued below via `removable`.)
-        for entry in skipped:
-            _raw_attempts = entry.get("attempts")
-            _attempts = _raw_attempts if isinstance(_raw_attempts, int) else 0
-            _append_dead_letter(
-                source_path,
-                entry,
-                _attempts,
-                "write-gate skip (transient)",
-            )
+    # Queue mode: write-gate skips get a bounded retry budget (the gate is
+    # stochastic on borderline sessions — a session dead-lettered "skip" can
+    # produce a high-quality note on re-evaluation), so they are NOT purged
+    # here. Their keys go to remove_processed, which re-queues them (bumping a
+    # "skips" counter) until _MAX_SKIPS, then sticky dead-letters.
+    # --sessions mode is a one-shot explicit file: skips are simply purged
+    # (no retry, no dead-letter side effect in an arbitrary source directory).
+    if sessions_mode:
+        removable = successful + stale + skipped
+        skip_retry_keys: set[str] = set()
+    else:
+        removable = successful + stale
+        skip_retry_keys = {
+            str(e.get("session_id") or e.get("transcript_path", "")) for e in skipped
+        }
     # ARC-048(d): always honor the dequeue lifecycle (queue OR --sessions
     # FILE). Previously --sessions skipped this block entirely, so a re-run
     # of the same FILE re-processed every entry, re-billed an AI call for
     # each, and (because write_note merges on slug collision) appended a
     # fresh ``## Session update`` block to each note — quietly compounding
-    # duplicate content on every invocation. The sticky dead-letter write
-    # above remains queue-only (it writes a sibling dead_letters.jsonl and
-    # would litter an arbitrary source directory); --sessions mode still
+    # duplicate content on every invocation. The sticky skip dead-lettering
+    # now lives inside remove_processed's skip_retry path and is queue-only
+    # (skip_retry_keys is empty in --sessions mode); --sessions mode still
     # dequeues via ``removable`` without that side effect.
-    if failed_reasons:
-        remove_processed(source_path, removable, failed=failed_reasons)
+    if failed_reasons or skip_retry_keys:
+        remove_processed(
+            source_path, removable, failed=failed_reasons, skip_retry=skip_retry_keys
+        )
     elif removable:
         remove_processed(source_path, removable)
 

@@ -54,6 +54,17 @@ _ACTIVE_SESSION_GRACE_SECS = 120
 # every run forever.  Tracked via the optional "attempts" field (absent = 0).
 _MAX_ATTEMPTS = 3
 
+# Write-gate skip retry budget. The write-gate decision is STOCHASTIC on
+# borderline sessions — the same transcript can flip skip→save across runs
+# (verified 2026-08-02: a session dead-lettered "write-gate skip (transient)"
+# produced a high-quality note when re-evaluated). So a single skip must NOT
+# permanently shelve a session. A skipped entry is re-queued (with its "skips"
+# counter bumped) this many times before it is sticky dead-lettered; after this
+# many consecutive skips the session is judged genuinely transient. Tracked via
+# the optional "skips" field (absent = 0). See
+# summarize_sessions._dequeue_and_finalize + queue.remove_processed.
+_MAX_SKIPS = 2
+
 # Dead-letter retention (days): entries in dead_letters.jsonl older than this
 # are pruned on each run.  Write-gate skips are made sticky (a re-queue is
 # caught by the _DEAD guard), so without retention the file grows without

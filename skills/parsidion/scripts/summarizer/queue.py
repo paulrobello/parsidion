@@ -13,7 +13,7 @@ from pathlib import Path
 
 import vault_common
 
-from summarizer._state_const import _MAX_ATTEMPTS
+from summarizer._state_const import _MAX_ATTEMPTS, _MAX_SKIPS
 from summarizer.dead_letter import _append_dead_letter
 from summarizer.failure import _failure_record_retryable, _format_failure_record
 
@@ -57,6 +57,7 @@ def remove_processed(
     pending_path: Path,
     processed_entries: list[dict[str, object]],
     failed: dict[str, object] | None = None,
+    skip_retry: set[str] | None = None,
 ) -> None:
     """Remove successfully processed entries from the pending file.
 
@@ -81,6 +82,12 @@ def remove_processed(
             (``{"kind", "retryable", "detail"}``). A legacy plain-string value
             is still accepted for backward compatibility and treated as
             retryable.
+        skip_retry: Set of session_id/transcript_path keys for write-gate-skipped
+            entries. The write-gate decision is stochastic on borderline sessions,
+            so a skipped entry is re-queued (its ``skips`` counter bumped) until
+            it has skipped ``_MAX_SKIPS`` times, after which it is sticky
+            dead-lettered with the ``write-gate skip (transient)`` label. Mirrors
+            the ``failed``/``attempts`` retry path.
     """
     if not pending_path.exists():
         return
@@ -138,6 +145,32 @@ def remove_processed(
                             _append_dead_letter(pending_path, entry, attempts, label)
                             continue
                         entry["attempts"] = attempts
+                        remaining.append(json.dumps(entry))
+                        continue
+                    if skip_retry and key in skip_retry:
+                        # Write-gate skip: the decision is stochastic on
+                        # borderline sessions, so re-evaluate up to _MAX_SKIPS
+                        # times before sticky dead-lettering — one skip must
+                        # not permanently shelve a recoverable session.
+                        raw_skips = entry.get("skips")
+                        skips = (raw_skips if isinstance(raw_skips, int) else 0) + 1
+                        if skips >= _MAX_SKIPS:
+                            print(
+                                f"Warning: dead-letter purge of session "
+                                f"{entry.get('session_id') or entry.get('transcript_path', '?')} "
+                                f"(project: {entry.get('project', 'unknown')}) "
+                                f"after {skips} write-gate skips "
+                                f"last failure: write-gate skip (transient)",
+                                file=sys.stderr,
+                            )
+                            _append_dead_letter(
+                                pending_path,
+                                entry,
+                                skips,
+                                "write-gate skip (transient)",
+                            )
+                            continue
+                        entry["skips"] = skips
                         remaining.append(json.dumps(entry))
                         continue
                     remaining.append(line)

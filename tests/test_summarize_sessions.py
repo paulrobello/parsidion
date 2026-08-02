@@ -781,11 +781,16 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
     assert "backend large default" in captured.out
 
 
-def test_main_removes_write_gate_skips_from_default_pending_queue(
+def test_main_requeues_write_gate_skips_in_default_queue(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """In queue mode a first write-gate skip is re-queued via skip_retry, not purged.
+
+    The gate is stochastic on borderline sessions, so a skip is given a retry
+    budget (re-queued with a ``skips`` counter) rather than removed on sight.
+    """
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -798,6 +803,7 @@ def test_main_removes_write_gate_skips_from_default_pending_queue(
         "categories": ["research"],
     }
     removed: list[dict[str, object]] = []
+    seen_skip_retry: list[set[str] | None] = []
 
     def fake_get_config(section: str, key: str, default: object = None) -> object:
         return default
@@ -821,10 +827,14 @@ def test_main_removes_write_gate_skips_from_default_pending_queue(
         return [(entries[0], summarize_sessions._SKIPPED)]
 
     def fake_remove_processed(
-        pending_path: Path, processed_entries: list[dict[str, object]]
+        pending_path: Path,
+        processed_entries: list[dict[str, object]],
+        failed: dict[str, object] | None = None,
+        skip_retry: set[str] | None = None,
     ) -> None:
         assert pending_path == pending
         removed.extend(processed_entries)
+        seen_skip_retry.append(skip_retry)
 
     def fake_anyio_run(
         func: Callable[..., Coroutine[Any, Any, object]], *args: object
@@ -853,7 +863,10 @@ def test_main_removes_write_gate_skips_from_default_pending_queue(
     summarize_sessions.main()
 
     captured = capsys.readouterr()
-    assert removed == [entry]
+    # The skip is NOT purged on first occurrence — it is routed to skip_retry so
+    # remove_processed can re-queue it (retry budget for stochastic gate decisions).
+    assert removed == []
+    assert seen_skip_retry == [{"skip-session"}]
     assert "1 skipped by write-gate" in captured.out
     assert "failed" not in captured.out
 

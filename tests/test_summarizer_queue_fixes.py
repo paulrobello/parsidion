@@ -180,6 +180,66 @@ def test_remove_processed_purges_at_attempts_cap_with_warning(
 
 
 # ---------------------------------------------------------------------------
+# remove_processed: write-gate skip retry budget (stochastic-skip recovery)
+# ---------------------------------------------------------------------------
+
+
+def test_remove_processed_requeues_first_write_gate_skip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A first write-gate skip is re-queued (skips bumped), not dead-lettered.
+
+    The gate is stochastic on borderline sessions, so one skip must not
+    permanently shelve a recoverable session.
+    """
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    skipped_entry: dict[str, object] = {"session_id": "skip1", "project": "p1"}
+    other: dict[str, object] = {"session_id": "s2", "project": "p2"}
+    _write_pending(pending, [skipped_entry, other])
+
+    mod.remove_processed(pending, [], skip_retry={"skip1"})
+
+    entries = [json.loads(line) for line in _read_pending_lines(pending)]
+    assert [e["session_id"] for e in entries] == ["skip1", "s2"]
+    skip1 = next(e for e in entries if e["session_id"] == "skip1")
+    assert skip1["skips"] == 1  # absent -> 0 -> +1
+    # Not dead-lettered on the first skip.
+    assert not (tmp_path / "dead_letters.jsonl").exists()
+
+
+def test_remove_processed_dead_letters_skip_at_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A skip reaching _MAX_SKIPS (2) is sticky dead-lettered + purged."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    pending = tmp_path / "pending_summaries.jsonl"
+    # One skip already recorded (one re-evaluation happened); this run is the
+    # _MAX_SKIPS-th (2nd) consecutive skip -> sticky dead-letter.
+    terminal: dict[str, object] = {
+        "session_id": "skip1",
+        "project": "myproj",
+        "skips": 1,
+    }
+    survivor: dict[str, object] = {"session_id": "s2", "project": "p2"}
+    _write_pending(pending, [terminal, survivor])
+
+    mod.remove_processed(pending, [], skip_retry={"skip1"})
+
+    entries = [json.loads(line) for line in _read_pending_lines(pending)]
+    assert [e["session_id"] for e in entries] == ["s2"]  # skip1 purged
+    dead = (tmp_path / "dead_letters.jsonl").read_text(encoding="utf-8").splitlines()
+    rec = json.loads(dead[0])
+    assert rec["session_id"] == "skip1"
+    assert rec["last_failure"] == "write-gate skip (transient)"
+    err = capsys.readouterr().err
+    assert "skip1" in err
+    assert "2 write-gate skips" in err
+
+
+# ---------------------------------------------------------------------------
 # run_all: progress counter classification
 # ---------------------------------------------------------------------------
 
