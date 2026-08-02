@@ -37,7 +37,7 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 |----|---------|
 | **ARC-005** | ✅ All four CLI God-files decomposed: `vault_stats`→`cli/stats/`, `vault_search`→`cli/search/`, `vault_merge`→`cli/merge/`, `update_index`→`cli/index/`. Thin re-export shims remain; public entrypoints unchanged; monkeypatched helpers kept in shims per bare-name resolution contract. |
 | **ARC-006** | ✅ `session_start_hook.py` 1253→701 LOC → `session_start/` subpackage (`ai_selector`, `graph_retrieval`, `seed_selection`, `context`). |
-| **ARC-008** | ✅ (safe half) Visualizer `Home` 554→382 LOC; extracted `GraphPanel` + `SidebarPanel`; pinned exact versions (sigma/graphology/@types). ReadingPanePanel + Vite swap deferred. |
+| **ARC-008** | ✅ (container triad) Visualizer `Home` 554→373 LOC; extracted `GraphPanel` + `SidebarPanel` + `ReadingPanePanel` (the third sibling container, prop-drilled like its siblings; the suggested context/provider lift was judged unnecessary since `noteRefreshTrigger` threads cleanly as a single integer prop); pinned exact versions (sigma/graphology/@types). Only the optional Next→Vite framework swap remains deferred. |
 | **ARC-009** | ✅ Broad-exception sweep: 18 best-effort `except Exception: pass` sites across 14 files now emit `stderr` diagnostics; all `# noqa: BLE001` preserved; hooks still never fail closed. |
 | **ARC-016** | ✅ README 1138→670 LOC (−41%), CHANGELOG 785→147 (−81%); deep content moved to `docs/{USAGE,MULTI_VAULT,PI_EXTENSION}.md`, old changelog archived. |
 | **QA-003** | ✅ `summarize_sessions.main` decomposed (complexity 27→<10). The `summarize_one`→``summarizer/pipeline.py`` relocation was blocked here by the test-monkeypatch contract and deferred; completed in a follow-up (see Resolved → Code Quality). |
@@ -90,11 +90,11 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 
 ## Deferred / Requires Follow-up 🔧
 
-The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008 partially, while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — a larger state/product decision (ARC-008) or genuinely optional/low-value work (QA-007/008/009).
+The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008's container triad (`GraphPanel` + `SidebarPanel` + `ReadingPanePanel`), while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — ARC-008's optional Next→Vite framework swap (a product decision) or genuinely optional/low-value work (QA-007/008/009).
 
 | ID | Sev | Why deferred | Recommended approach | Effort |
 |----|-----|--------------|----------------------|--------|
-| **ARC-008** (remainder) | Med | Visualizer `ReadingPanePanel` extraction + the optional Next→Vite framework swap. | `ReadingPanePanel` needs `noteRefreshTrigger`/`useVaultFiles` lifted into a context/provider (larger state refactor). The Vite swap is a separate product decision. | M–L |
+| **ARC-008** (Vite only) | Med | The optional Next→Vite framework swap. | `ReadingPanePanel` was extracted (prop-drilled, consistent with `GraphPanel`/`SidebarPanel`) — the suggested context/provider lift was judged unnecessary since `noteRefreshTrigger` threads cleanly as a single integer prop. Only the framework swap remains, and that is a separate product decision. | M |
 | **QA-007** | Low–Med | Structured logger for visualizer — deferred unless multi-user. | Adopt `pino` (or 20-line wrapper) when the visualizer grows a deployment. | M |
 | **QA-008** | Low | Optional `GraphCanvas` interactions hook extraction. | Lift context-menu + edge-pruning into `useGraphCanvasInteractions`. | S |
 | **QA-009** | Low | Eval dead-code sweep — tracked as **ENH-013** (board backlog). | Wire-or-delete genuinely-dead helpers in `tools/eval/`. | M |
@@ -137,7 +137,7 @@ Full per-file list: `git diff --stat e0faf8c..main`.
 
 1. **Push `main`** when ready — local `main` (`aacfce1`) is ahead of `origin/main` (`e0faf8c`) by the 9 remediation commits; not pushed (push is outward-facing, left for explicit confirmation). Local main is already live for sessions via the symlink.
 2. **Re-run `/audit`** to regenerate AUDIT.md against the remediated state — it should show the 36 resolved issues closed.
-3. **Remaining deferred** (see table): ARC-008 `ReadingPanePanel` + the optional Vite swap, plus the optional QA-007/008/009.
+3. **Remaining deferred** (see table): ARC-008's optional Vite swap, plus the optional QA-007/008/009.
 4. **`[tool.setuptools] packages` gap** (flagged, not an audit issue): add the `cli.*` subpackages to `pyproject.toml` before exercising wheel/sdist packaging — the editable/symlink install is unaffected.
 5. **Optional**: implement the `--approved-only` flag (enhancement **ENH-A**) now that DOC-002 corrected the README — `vault_review.py` already records approvals nothing consumes.
 5. **Sync installed location** after merge: `uv run install.py --force --yes` (skill/hooks source → `~/.claude/skills/parsidion`).

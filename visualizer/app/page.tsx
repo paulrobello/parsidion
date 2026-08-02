@@ -3,17 +3,16 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { loadGraphData, loadGraphDelta, applyGraphDelta } from '@/lib/graph'
 import type { GraphData, NoteNode } from '@/lib/graph'
-import { computeLinkedStems } from '@/lib/linkedNotes'
 import type { GraphCanvasHandle } from '@/components/GraphCanvas'
 import { useVisualizerState } from '@/lib/useVisualizerState'
 import { useVaultFiles } from '@/lib/useVaultFiles'
 import type { VaultFile } from '@/lib/vaultFile'
 import { Toolbar } from '@/components/Toolbar'
-import { ReadingPane } from '@/components/ReadingPane'
 import { NewNoteDialog } from '@/components/NewNoteDialog'
 import { HistoryView } from '@/components/HistoryView'
 import { GraphPanel } from '@/components/GraphPanel'
 import { SidebarPanel } from '@/components/SidebarPanel'
+import { ReadingPanePanel } from '@/components/ReadingPanePanel'
 
 export default function Home() {
   const [graphData, setGraphData] = useState<GraphData | null>(null)
@@ -131,11 +130,6 @@ export default function Home() {
       mtime: 0,
     }
   }, [state.activeNode, state.activeTab, vaultFileMap, vaultFileByPath, selectedVaultPath])
-
-  const linkedStems = useMemo(
-    () => (graphData && activeNode ? computeLinkedStems(graphData.edges, activeNode.id) : []),
-    [graphData, activeNode],
-  )
 
   // Auto-collapse sidebar on narrow viewports
   useEffect(() => {
@@ -340,21 +334,18 @@ export default function Home() {
                 />
               ) : (
                 <>
-                  {/* Reading pane — hidden in graph mode but not unmounted */}
-                  <div style={{ flex: 1, display: state.viewMode === 'read' ? 'flex' : 'none', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-                    <ReadingPane
-                      node={activeNode}
-                      fetchContent={state.fetchNoteContent}
-                      onNavigate={handleNavigate}
-                      onSave={state.saveNote}
-                      onDelete={handleDelete}
-                      onOpenHistory={state.openHistory}
-                      nodes={graphData.nodes}
-                      refreshTrigger={noteRefreshTrigger}
-                      visible={state.viewMode === 'read'}
-                      linkedStems={linkedStems}
-                    />
-                  </div>
+                  {/* Reading pane — hidden in graph mode but not unmounted (ARC-008: JSX moved to ReadingPanePanel). */}
+                  <ReadingPanePanel
+                    activeNode={activeNode}
+                    graphData={graphData}
+                    refreshTrigger={noteRefreshTrigger}
+                    visible={state.viewMode === 'read'}
+                    fetchContent={state.fetchNoteContent}
+                    onNavigate={handleNavigate}
+                    onSave={state.saveNote}
+                    onDelete={handleDelete}
+                    onOpenHistory={state.openHistory}
+                  />
 
                   {/* Graph view — always mounted to preserve layout (ARC-008: JSX moved to GraphPanel). */}
                   <GraphPanel
