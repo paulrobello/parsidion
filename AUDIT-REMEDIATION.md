@@ -91,15 +91,14 @@ The initial pass deferred six large structural refactors as "Long-term Backlog."
 
 ## Deferred / Requires Follow-up 🔧
 
-The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008's container triad (`GraphPanel` + `SidebarPanel` + `ReadingPanePanel`), while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — ARC-008's optional Next→Vite framework swap (a product decision) or genuinely optional/low-value work (QA-007/009).
+The initial phased pass deferred the large structural refactors as "Long-term (Backlog)"; the user then directed continuing them, and the refactor round resolved ARC-005/006/009/016 fully and ARC-008's container triad (`GraphPanel` + `SidebarPanel` + `ReadingPanePanel`), while a follow-up completed QA-003 (see the Refactor Round table above and Resolved → Code Quality). What remains deferred is below — ARC-008's optional Next→Vite framework swap (a product decision) or genuinely optional/low-value work (QA-009).
 
 | ID | Sev | Why deferred | Recommended approach | Effort |
 |----|-----|--------------|----------------------|--------|
 | **ARC-008** (Vite only) | Med | The optional Next→Vite framework swap. | `ReadingPanePanel` was extracted (prop-drilled, consistent with `GraphPanel`/`SidebarPanel`) — the suggested context/provider lift was judged unnecessary since `noteRefreshTrigger` threads cleanly as a single integer prop. Only the framework swap remains, and that is a separate product decision. | M |
-| **QA-007** | Low–Med | Structured logger for visualizer — deferred unless multi-user. | Adopt `pino` (or 20-line wrapper) when the visualizer grows a deployment. | M |
-| **QA-009** | Low | Eval dead-code sweep — tracked as **ENH-013** (board backlog). | Wire-or-delete genuinely-dead helpers in `tools/eval/`. | M |
+| **QA-009** | Low | Eval dead-code sweep — tracked as **ENH-013** (board backlog). | Wire-or-delete genuinely-dead helpers in `tools/eval/`. **Re-verified 2026-08-02**: par-mem analyzer gaps unchanged with a current index (`f1ba922`) — `find_dead_code` still false-flags all 10 `tools/eval/` candidates; remains blocked on par-mem. | M |
 
-**No-action (closed by audit's own classification):** SEC-P004 (embedding-service socket, single-user threat model), SEC-P005 (`$EDITOR` argv, no injection path today), ARC-017 / DOC-012 (`MEMORY_REPORT.md` already gitignored), QA-010 (positive observation).
+**No-action (closed by audit's own classification):** SEC-P004 (embedding-service socket, single-user threat model), SEC-P005 (`$EDITOR` argv, no injection path today), ARC-017 / DOC-012 (`MEMORY_REPORT.md` already gitignored), QA-007 (structured logger — the visualizer is single-user multi-agent, so the audit's own "adopt only if it grows a multi-user deployment" condition never triggers), QA-010 (positive observation).
 
 ---
 
