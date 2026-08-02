@@ -64,6 +64,21 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
     return mod
 
 
+def _transcript_module() -> types.ModuleType:
+    """Return ``summarizer.transcript`` for monkeypatching (QA-003).
+
+    The hierarchical preprocessors (``preprocess_transcript_hierarchical``,
+    ``_summarize_chunk``) moved out of the entry shim into ``summarizer.transcript``;
+    their bare-name dependencies resolve there, so patches must target that module.
+    Imported lazily because ``summarizer.transcript`` pulls in ``summarizer.prompt``
+    → ``anyio``, which is only present once ``_fresh_summarize_sessions`` has
+    installed its stub.
+    """
+    import summarizer.transcript
+
+    return summarizer.transcript
+
+
 def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -83,6 +98,10 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
         ),
     )
     sys.modules.pop("summarize_sessions", None)
+    # QA-003: _run_summarizer_prompt now lives in summarizer.prompt, which is
+    # imported once and cached (unlike the shim, re-imported per test). Pop it
+    # so this test's custom to_thread stub is picked up on the fresh import.
+    sys.modules.pop("summarizer.prompt", None)
     summarize_sessions = importlib.import_module("summarize_sessions")
     calls: list[dict[str, object]] = []
 
@@ -202,7 +221,9 @@ def test_summarize_chunk_uses_small_tier_backend(
         return 42
 
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _transcript_module(),
+        "_run_summarizer_prompt",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
 
@@ -232,7 +253,9 @@ def test_summarize_chunk_falls_back_to_first_500_chars_on_backend_none(
         return None
 
     monkeypatch.setattr(
-        summarize_sessions, "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _transcript_module(),
+        "_run_summarizer_prompt",
+        fake_run_summarizer_prompt,
     )
 
     result = asyncio.run(
@@ -277,9 +300,11 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
         return f"summary {chunk_num}"
 
     monkeypatch.setattr(
-        summarize_sessions, "preprocess_transcript", fake_preprocess_transcript
+        _transcript_module(),
+        "preprocess_transcript",
+        fake_preprocess_transcript,
     )
-    monkeypatch.setattr(summarize_sessions, "_summarize_chunk", fake_summarize_chunk)
+    monkeypatch.setattr(_transcript_module(), "_summarize_chunk", fake_summarize_chunk)
 
     result = asyncio.run(
         summarize_sessions.preprocess_transcript_hierarchical(
@@ -334,7 +359,7 @@ def test_preprocess_transcript_hierarchical_chunks_real_oversized_transcripts(
         )
         return f"summary {chunk_num}"
 
-    monkeypatch.setattr(summarize_sessions, "_summarize_chunk", fake_summarize_chunk)
+    monkeypatch.setattr(_transcript_module(), "_summarize_chunk", fake_summarize_chunk)
 
     result = asyncio.run(
         summarize_sessions.preprocess_transcript_hierarchical(

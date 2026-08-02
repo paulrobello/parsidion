@@ -9,22 +9,29 @@ write-gate JSON detection in ``summarize_one`` is not defeated by a fenced
 decision blob.
 
 The hierarchical chunking path (``_summarize_chunk``,
-``preprocess_transcript_hierarchical``) remains in the entry shim because tests
-monkeypatch those functions on ``summarize_sessions``.
+``preprocess_transcript_hierarchical``) lives here alongside the base cleaner
+(QA-003). ``_summarize_chunk`` delegates to the backend prompt runner in
+:mod:`summarizer.prompt`; tests monkeypatch these on this module
+(``summarizer.transcript.X``), and the entry shim re-exports them so legacy
+``summarize_sessions.X`` references keep resolving.
 """
 
 from __future__ import annotations
 
 import json
+import sys
+import traceback
 from pathlib import Path
 
 import vault_common
+from prompt_templates import render
 
 from summarizer._state_const import (
     _DEFAULT_MAX_CLEANED_CHARS,
     _DEFAULT_TRANSCRIPT_TAIL_BYTES,
     _DEFAULT_TRANSCRIPT_TAIL_LINES,
 )
+from summarizer.prompt import _run_summarizer_prompt
 
 
 def _strip_code_fence(text: str) -> str:
@@ -174,3 +181,114 @@ def preprocess_transcript(
     if max_chars is None:
         return cleaned
     return cleaned[:max_chars]
+
+
+async def _summarize_chunk(
+    chunk_text: str,
+    chunk_num: int,
+    total_chunks: int,
+    model: str | None,
+    vault: Path,
+) -> str:
+    """Summarize one chunk of a long transcript using a cheaper model.
+
+    Args:
+        chunk_text: The transcript chunk to summarize.
+        chunk_num: 1-based index of this chunk.
+        total_chunks: Total number of chunks.
+        model: Model ID to use for summarization.
+        vault: Vault path used for backend configuration and execution context.
+
+    Returns:
+        A summary string (3-5 sentences). Falls back to a truncated version of
+        chunk_text on failure.
+    """
+    # ENH-008: chunk-summarizer prompt lives in templates/prompts/summarize-chunk.md.
+    prompt = render(
+        "summarize-chunk",
+        chunk_num=chunk_num,
+        total_chunks=total_chunks,
+        chunk_text=chunk_text,
+    )
+    try:
+        result_text = await _run_summarizer_prompt(
+            prompt,
+            model=model,
+            model_tier="small",
+            purpose="summarizer-chunk",
+            timeout=vault_common.get_config("summarizer", "ai_timeout", None),
+            vault=vault,
+        )
+    except Exception:  # noqa: BLE001
+        print(
+            f"  [chunk-summarizer] Unexpected error on chunk {chunk_num}/{total_chunks}:\n"
+            + traceback.format_exc(),
+            file=sys.stderr,
+        )
+        result_text = None
+
+    if result_text:
+        return result_text
+    # Fallback: return truncated raw chunk
+    return chunk_text[:500]
+
+
+async def preprocess_transcript_hierarchical(
+    transcript_path_str: str,
+    tail_lines: int,
+    max_cleaned_chars: int,
+    cluster_model: str | None,
+    vault: Path,
+    tail_bytes: int | None = None,
+) -> str:
+    """Pre-process a transcript, using hierarchical summarization for long ones.
+
+    For transcripts within the character limit, returns the cleaned text
+    unchanged. For transcripts exceeding the limit, splits into chunks,
+    summarizes each chunk with a cheaper model, and returns the combined
+    chunk summaries.
+
+    Args:
+        transcript_path_str: String path to the transcript JSONL file.
+        tail_lines: Number of trailing transcript lines to read.
+        max_cleaned_chars: Maximum characters threshold.
+        tail_bytes: Byte ceiling on the raw tail, bounding huge-line transcripts.
+        cluster_model: Model ID to use for chunk summarization.
+        vault: Vault path used for chunk summarization backend calls.
+
+    Returns:
+        Cleaned dialogue string, or hierarchical summary string for long sessions.
+    """
+    cleaned = preprocess_transcript(transcript_path_str, tail_lines, None, tail_bytes)
+    if len(cleaned) <= max_cleaned_chars:
+        return cleaned
+
+    # Split into chunks at newline boundaries
+    chunk_size = max_cleaned_chars // 3
+    chunks: list[str] = []
+    remaining = cleaned
+    while remaining:
+        if len(remaining) <= chunk_size:
+            chunks.append(remaining)
+            break
+        # Find a newline near the chunk boundary to avoid mid-sentence cuts
+        split_pos = remaining.rfind("\n", 0, chunk_size)
+        if split_pos == -1:
+            split_pos = chunk_size
+        chunks.append(remaining[:split_pos])
+        remaining = remaining[split_pos:].lstrip("\n")
+
+    total = len(chunks)
+    print(
+        f"  [hierarchical] Session too long ({len(cleaned)} chars), "
+        f"summarizing {total} chunks..."
+    )
+
+    summaries: list[str] = []
+    for i, chunk in enumerate(chunks):
+        summary = await _summarize_chunk(chunk, i + 1, total, cluster_model, vault)
+        summaries.append(summary)
+
+    header = f"[Hierarchical summary from {total} transcript segments]"
+    body = "\n\n".join(f"Segment {i + 1}:\n{s}" for i, s in enumerate(summaries))
+    return f"{header}\n\n{body}"

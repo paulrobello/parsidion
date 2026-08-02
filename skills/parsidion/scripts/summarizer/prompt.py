@@ -20,6 +20,12 @@ from __future__ import annotations
 
 import string
 from datetime import date
+from functools import partial
+from pathlib import Path
+from typing import cast
+
+import ai_backend
+from anyio import to_thread  # type: ignore[import-untyped]
 
 from prompt_templates import load_prompt, render
 from summarizer._state_const import _VALID_NOTE_TYPES
@@ -154,3 +160,35 @@ def build_prompt(
         valid_types=valid_types,
         session_id=session_id,
     )
+
+
+async def _run_summarizer_prompt(
+    prompt: str,
+    *,
+    model: str | None,
+    model_tier: ai_backend.ModelTier,
+    purpose: str,
+    timeout: int | float | None,
+    vault: Path,
+) -> str | None:
+    """Run a summarizer prompt through the configured AI backend.
+
+    QA-003: moved here from the entry shim so :mod:`summarizer.pipeline` can
+    import it without reaching back into the PEP-723 entry script. Tests swap
+    ``sys.modules["anyio"]`` per test (real anyio is not installed in the dev
+    env); this module is imported once and cached, so the stub-swap test
+    (``test_run_summarizer_prompt_delegates_to_ai_backend_in_thread``) pops
+    ``summarizer.prompt`` to force a re-import against its own stub.
+    """
+    result = await to_thread.run_sync(
+        partial(
+            ai_backend.run_ai_prompt,
+            prompt,
+            model=model,
+            model_tier=model_tier,
+            purpose=purpose,
+            timeout=timeout,
+            vault=vault,
+        )
+    )
+    return cast(str | None, result)

@@ -44,14 +44,12 @@ import sys
 import time
 import traceback
 from datetime import date  # noqa: F401 — re-exported for tests (summarize_sessions.date.today())
-from functools import partial
 from pathlib import Path
 from typing import NamedTuple, cast
 
 import anyio  # type: ignore[import-untyped]
-from anyio import to_thread  # type: ignore[import-untyped]
 
-import ai_backend
+import ai_backend  # noqa: F401 — re-exported for tests (summarize_sessions.ai_backend)
 import vault_common
 import vault_links
 from vault_path import is_path_inside_vault
@@ -84,33 +82,10 @@ from summarizer._state_const import (  # noqa: F401 — re-exported for tests
 
 from summarizer.transcript import (  # noqa: E402,F401 — re-exported for tests
     _strip_code_fence,
+    _summarize_chunk,
     preprocess_transcript,
+    preprocess_transcript_hierarchical,
 )
-
-
-async def _run_summarizer_prompt(
-    prompt: str,
-    *,
-    model: str | None,
-    model_tier: ai_backend.ModelTier,
-    purpose: str,
-    timeout: int | float | None,
-    vault: Path,
-) -> str | None:
-    """Run a summarizer prompt through the configured AI backend."""
-
-    result = await to_thread.run_sync(
-        partial(
-            ai_backend.run_ai_prompt,
-            prompt,
-            model=model,
-            model_tier=model_tier,
-            purpose=purpose,
-            timeout=timeout,
-            vault=vault,
-        )
-    )
-    return cast(str | None, result)
 
 
 from summarizer.failure import (  # noqa: E402,F401 — re-exported for tests
@@ -140,6 +115,7 @@ from summarizer.prompt import (  # noqa: E402,F401 — re-exported for tests
     _load_prompt_template,
     _render_dedup_block,
     _render_tags_instruction,
+    _run_summarizer_prompt,
     build_prompt,
 )
 from prompt_templates import load_prompt, render  # noqa: E402,F401 — re-exported for tests
@@ -160,117 +136,6 @@ from summarizer.notes import (  # noqa: E402,F401 — re-exported for tests
     parse_note_type,
     write_note,
 )
-
-
-async def _summarize_chunk(
-    chunk_text: str,
-    chunk_num: int,
-    total_chunks: int,
-    model: str | None,
-    vault: Path,
-) -> str:
-    """Summarize one chunk of a long transcript using a cheaper model.
-
-    Args:
-        chunk_text: The transcript chunk to summarize.
-        chunk_num: 1-based index of this chunk.
-        total_chunks: Total number of chunks.
-        model: Model ID to use for summarization.
-        vault: Vault path used for backend configuration and execution context.
-
-    Returns:
-        A summary string (3-5 sentences). Falls back to a truncated version of
-        chunk_text on failure.
-    """
-    # ENH-008: chunk-summarizer prompt lives in templates/prompts/summarize-chunk.md.
-    prompt = render(
-        "summarize-chunk",
-        chunk_num=chunk_num,
-        total_chunks=total_chunks,
-        chunk_text=chunk_text,
-    )
-    try:
-        result_text = await _run_summarizer_prompt(
-            prompt,
-            model=model,
-            model_tier="small",
-            purpose="summarizer-chunk",
-            timeout=vault_common.get_config("summarizer", "ai_timeout", None),
-            vault=vault,
-        )
-    except Exception:  # noqa: BLE001
-        print(
-            f"  [chunk-summarizer] Unexpected error on chunk {chunk_num}/{total_chunks}:\n"
-            + traceback.format_exc(),
-            file=sys.stderr,
-        )
-        result_text = None
-
-    if result_text:
-        return result_text
-    # Fallback: return truncated raw chunk
-    return chunk_text[:500]
-
-
-async def preprocess_transcript_hierarchical(
-    transcript_path_str: str,
-    tail_lines: int,
-    max_cleaned_chars: int,
-    cluster_model: str | None,
-    vault: Path,
-    tail_bytes: int | None = None,
-) -> str:
-    """Pre-process a transcript, using hierarchical summarization for long ones.
-
-    For transcripts within the character limit, returns the cleaned text
-    unchanged. For transcripts exceeding the limit, splits into chunks,
-    summarizes each chunk with a cheaper model, and returns the combined
-    chunk summaries.
-
-    Args:
-        transcript_path_str: String path to the transcript JSONL file.
-        tail_lines: Number of trailing transcript lines to read.
-        max_cleaned_chars: Maximum characters threshold.
-        tail_bytes: Byte ceiling on the raw tail, bounding huge-line transcripts.
-        cluster_model: Model ID to use for chunk summarization.
-        vault: Vault path used for chunk summarization backend calls.
-
-    Returns:
-        Cleaned dialogue string, or hierarchical summary string for long sessions.
-    """
-    cleaned = preprocess_transcript(transcript_path_str, tail_lines, None, tail_bytes)
-    if len(cleaned) <= max_cleaned_chars:
-        return cleaned
-
-    # Split into chunks at newline boundaries
-    chunk_size = max_cleaned_chars // 3
-    chunks: list[str] = []
-    remaining = cleaned
-    while remaining:
-        if len(remaining) <= chunk_size:
-            chunks.append(remaining)
-            break
-        # Find a newline near the chunk boundary to avoid mid-sentence cuts
-        split_pos = remaining.rfind("\n", 0, chunk_size)
-        if split_pos == -1:
-            split_pos = chunk_size
-        chunks.append(remaining[:split_pos])
-        remaining = remaining[split_pos:].lstrip("\n")
-
-    total = len(chunks)
-    print(
-        f"  [hierarchical] Session too long ({len(cleaned)} chars), "
-        f"summarizing {total} chunks..."
-    )
-
-    summaries: list[str] = []
-    for i, chunk in enumerate(chunks):
-        summary = await _summarize_chunk(chunk, i + 1, total, cluster_model, vault)
-        summaries.append(summary)
-
-    header = f"[Hierarchical summary from {total} transcript segments]"
-    body = "\n\n".join(f"Segment {i + 1}:\n{s}" for i, s in enumerate(summaries))
-    return f"{header}\n\n{body}"
 
 
 def _early_gate(
