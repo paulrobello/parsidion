@@ -92,6 +92,15 @@ packages = [
     "core",
     "doctor",
     "summarizer",
+    # ARC-005: the CLI God-files decomposed into cli/{stats,search,merge,index};
+    # vault_search / vault_stats / vault_merge / update_index import them, so a
+    # clean (non-editable) wheel install fails on `import vault_search`
+    # (ModuleNotFoundError: No module named 'cli') unless they ship.
+    "cli",
+    "cli.index",
+    "cli.merge",
+    "cli.search",
+    "cli.stats",
 ]
 
 [tool.setuptools.package-dir]
