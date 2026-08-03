@@ -421,7 +421,7 @@ The note-writing and chunk-summarizer prompts are externalized versioned templat
 | `persist` | `false` | Accepted for backwards compatibility; CLI backends control persistence via backend config |
 | `cluster_model` | `claude-haiku-4-5-20251001` | Chunk-model for hierarchical summarization; defaults to `defaults.haiku_model` |
 | `dedup_threshold` | `0.80` | Cosine similarity above which a note is considered a near-duplicate and skipped |
-| `dead_letter_retention_days` | `7` | Prune `dead_letters.jsonl` entries older than N days each run (write-gate skips are sticky, so the file grows without this); `<=0` disables pruning |
+| `dead_letter_retention_days` | `7` | Prune `dead_letters.jsonl` entries older than N days each run (write-gate skips are retried up to `_MAX_SKIPS` (2) before becoming sticky, so the file grows without this); `<=0` disables pruning |
 | `rebuild_graph` | `false` | Rebuild visualizer `graph.json` after indexing (same as `--rebuild-graph` CLI flag) |
 | `graph_include_daily` | `false` | Include Daily notes in graph rebuild (same as `--graph-include-daily` CLI flag) |
 

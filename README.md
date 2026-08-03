@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.15.0:** the enhancement backlog ships — `graph.json` is ~3× smaller (semantic edges capped per node) with optional incremental rebuilds, a composite `vault-stats --health` score, externalized versioned prompts scored by a per-prompt eval harness (all six prompts), a documented `AgentAdapter` registry (claude/codex/gemini/pi + external drop-ins), an opt-in persistent embedding service, a DB-first metadata read path, and shared Python↔TypeScript parity fixtures. Plus a determinism fix for par-mem body-link enrichment. See the [Changelog](CHANGELOG.md).
+> **New in 0.16.0:** vault memory-capture + persistence hardening — the summarizer retries write-gate skips before dropping a session (was silently losing valuable captures to a single stochastic skip), and vault git auto-commit self-heals stale `index.lock`s (root causes of a 4-day commit stall, fixed). Plus the visualizer `Home` container triad completes (`ReadingPanePanel`) and a `GraphCanvas` interactions hook. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -645,7 +645,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.15.0** (ENH-001…008 backlog ships — ~3× smaller `graph.json` via top-K semantic edges, incremental graph rebuilds, opt-in persistent embedding service, DB-first `note_index` read path, shared Python↔TypeScript parity fixtures, documented `AgentAdapter` registry, composite `vault-stats --health` score, externalized versioned prompts + eval harness; plus a par-mem body-link determinism fix). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.16.0** (summarizer retries write-gate skips before dropping a session; vault git auto-commit self-heals stale `index.lock`s; visualizer `Home` container triad complete via `ReadingPanePanel`; `GraphCanvas` interactions hook). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

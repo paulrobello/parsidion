@@ -176,7 +176,7 @@ from vault_adaptive import (  # noqa: F401
     update_usefulness_scores,
 )
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 # deprecated: import directly from core.<module> -- this enumeration is retained
 # for backwards-compat external callers and is NOT extended. New public symbols

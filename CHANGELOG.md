@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-02
+
+Vault memory-capture and persistence hardening: the summarizer no longer silently drops valuable sessions to a single stochastic write-gate skip, and vault git auto-commit self-heals from stale locks (the root causes of a 4-day commit stall, fixed). Plus the visualizer `Home` container decomposition finishes and a `GraphCanvas` interactions hook lands.
+
 ### Added
+- **Stale `.git/index.lock` self-heal** — `git_commit_vault` detects and clears a lock left by a killed git process before staging, only when it is older than 300 s and no live process holds it (best-effort `lsof` cross-check). A stale lock had silently blocked every vault commit for days.
+- **`GraphCanvas` interactions hook** (`QA-008`) — right-click context-menu actions, path-finding, and the toast banner extracted into `useGraphCanvasInteractions`; `GraphCanvas.tsx` 706 → 618 LOC.
 - **Visualizer SSE route integration tests** (`ENH-012`) — end-to-end coverage for the `vault/events` Server-Sent-Events stream (open connection → write a note → assert a `file:created` frame arrives; abort → assert no further frame, proving the chokidar watcher is released) and ETag/304 + content-change cases for the `graph` route, via a shared `readNextSSEData` helper. Routes unchanged; 258 visualizer tests pass.
+
+### Changed
+- **Visualizer `Home` container triad complete** (`ARC-008`) — `ReadingPanePanel` extracted as the third sibling container (after `GraphPanel`/`SidebarPanel`), prop-drilled to match them; `Home` 382 → 373 LOC. The audit's suggested context/provider lift was judged unnecessary (`noteRefreshTrigger` threads cleanly as a single integer prop).
+
+### Fixed
+- **Summarizer no longer loses sessions to a single write-gate skip** — the write-gate decision is stochastic on borderline sessions (a session dead-lettered "skip" produced a high-quality note when re-evaluated with identical input), but a skip was made permanently sticky on the first decision, silently dropping valuable sessions. Skips now get a retry budget: re-queued (bumping a `skips` counter) up to `_MAX_SKIPS` (2) before sticky dead-lettering, mirroring the failure retry path.
+- **Vault git auto-commit stall** — `git_commit_vault` exited 1 on its `:(exclude)config.yaml` pathspec because `config.yaml` is gitignored (the installer default), so it silently bailed before committing. The exclude is now emitted only when `config.yaml` is not already gitignored (checked via `git check-ignore`); secrets stay protected either way.
+- **Misleading session-start warning** — "dead-lettered after repeated failures" overstated it (~78% of dead-letters are write-gate skips, many at 0 attempts); reworded to "(write-gate skips or failed summarization)".
 
 ## [0.15.0] - 2026-07-31
 
@@ -141,7 +155,8 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/paulrobello/parsidion/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/paulrobello/parsidion/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/paulrobello/parsidion/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/paulrobello/parsidion/compare/v0.12.2...v0.13.0
