@@ -137,6 +137,16 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2.2.0
 
+      - name: Install uv
+        # ENH-009: resolveVault delegates to vault_resolve.py via
+        # `uv run --no-project`, so route tests that resolve a vault (e.g.
+        # unknown-vault -> 400) need uv on PATH. Without it the spawn fails
+        # (ENOENT: uv) and the route returns 500 instead of 400.
+        uses: astral-sh/setup-uv@v5
+
+      - name: Provision Python for the vault resolver
+        run: uv python install 3.13
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
