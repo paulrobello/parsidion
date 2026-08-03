@@ -690,6 +690,20 @@ def migrate_pending_paths(dry_run: bool = False, vault: Path | None = None) -> i
 # ---------------------------------------------------------------------------
 
 
+def _git_path_ignored(path: str, vault: Path) -> bool:
+    """Return True if *path* (vault-relative) is gitignored in the vault repo."""
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "--quiet", path],
+            cwd=str(vault),
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def git_commit_vault(
     message: str, vault: Path | None = None, paths: list[Path] | None = None
 ) -> bool:
@@ -724,9 +738,19 @@ def git_commit_vault(
             # The vault-root config.yaml may contain secrets (e.g.
             # ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN under anthropic_env),
             # so auto-commits must never stage it — it would end up on
-            # remotes via the documented multi-machine git sync.  Callers
-            # that pass explicit paths are honored unchanged.
-            add_args = ["git", "add", "-A", "--", ".", ":(exclude)config.yaml"]
+            # remotes via the documented multi-machine git sync.
+            #
+            # config.yaml is normally gitignored (the installer adds it), in
+            # which case `git add -A` already skips it AND an explicit
+            # :(exclude)config.yaml pathspec makes `git add` exit 1 ("paths are
+            # ignored") — silently breaking every auto-commit (the root cause of
+            # the 2026-07-29 commit stall). Only emit the exclude when
+            # config.yaml is NOT already gitignored.
+            add_args = ["git", "add", "-A", "--", "."]
+            if (vault / "config.yaml").exists() and not _git_path_ignored(
+                "config.yaml", vault
+            ):
+                add_args.append(":(exclude)config.yaml")
 
         result = subprocess.run(
             add_args,

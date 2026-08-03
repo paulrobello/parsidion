@@ -211,6 +211,27 @@ class TestGitCommitVault:
         assert "Projects/config.yaml" in tracked
         assert "config.yaml" not in tracked
 
+    def test_auto_commit_succeeds_when_config_yaml_is_gitignored(
+        self, git_repo: Path
+    ) -> None:
+        # config.yaml IS gitignored (the installer default). The redundant
+        # :(exclude)config.yaml pathspec must NOT be emitted — it makes
+        # `git add` exit 1 ("paths are ignored") and silently breaks every
+        # auto-commit (regression: the 2026-07-29 commit stall).
+        (git_repo / ".gitignore").write_text("config.yaml\n", encoding="utf-8")
+        (git_repo / "config.yaml").write_text(
+            "anthropic_env:\n  ANTHROPIC_API_KEY: sk-secret\n", encoding="utf-8"
+        )
+        (git_repo / "Patterns").mkdir()
+        (git_repo / "Patterns" / "note.md").write_text("# Note\n", encoding="utf-8")
+
+        assert vault_fs.git_commit_vault("test commit", vault=git_repo) is True
+
+        tracked = _git_ls_files(git_repo)
+        assert "Patterns/note.md" in tracked
+        assert ".gitignore" in tracked
+        assert "config.yaml" not in tracked  # gitignored -> not staged
+
     def test_explicit_paths_are_honored_unchanged(self, git_repo: Path) -> None:
         config = git_repo / "config.yaml"
         config.write_text("git:\n  auto_commit: true\n", encoding="utf-8")
