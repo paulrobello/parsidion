@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -231,6 +233,37 @@ class TestGitCommitVault:
         assert "Patterns/note.md" in tracked
         assert ".gitignore" in tracked
         assert "config.yaml" not in tracked  # gitignored -> not staged
+
+    def test_stale_index_lock_is_cleared_and_commit_succeeds(
+        self, git_repo: Path
+    ) -> None:
+        # A stale .git/index.lock (old, no holder) silently blocked every git
+        # op for days (2026-07-29 stall). git_commit_vault must clear it + commit.
+        (git_repo / "Patterns").mkdir()
+        (git_repo / "Patterns" / "note.md").write_text("# Note\n", encoding="utf-8")
+        lock = git_repo / ".git" / "index.lock"
+        lock.write_text("")
+        old = time.time() - 3600  # 1 hour ago -> provably stale
+        os.utime(lock, (old, old))
+        assert lock.exists()
+
+        assert vault_fs.git_commit_vault("after stale lock", vault=git_repo) is True
+
+        assert not lock.exists()  # cleared
+        assert "Patterns/note.md" in _git_ls_files(git_repo)
+
+    def test_fresh_index_lock_is_left_in_place(self, git_repo: Path) -> None:
+        # A fresh lock (a possibly-live git op) must NOT be removed.
+        (git_repo / "Patterns").mkdir()
+        (git_repo / "Patterns" / "note.md").write_text("# Note\n", encoding="utf-8")
+        lock = git_repo / ".git" / "index.lock"
+        lock.write_text("")  # mtime = now -> too fresh to clear safely
+
+        assert (
+            vault_fs.git_commit_vault("blocked by fresh lock", vault=git_repo) is False
+        )
+
+        assert lock.exists()  # NOT cleared (could be a live git op)
 
     def test_explicit_paths_are_honored_unchanged(self, git_repo: Path) -> None:
         config = git_repo / "config.yaml"

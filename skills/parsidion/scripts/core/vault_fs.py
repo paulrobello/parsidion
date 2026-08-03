@@ -16,6 +16,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import IO, Any
@@ -704,6 +705,54 @@ def _git_path_ignored(path: str, vault: Path) -> bool:
     return result.returncode == 0
 
 
+# A git operation killed mid-commit leaves .git/index.lock behind; every
+# subsequent git add/commit then fails with "Unable to create index.lock",
+# which git_commit_vault swallows silently (the 2026-07-29 stall). Vault git
+# ops finish in seconds, so a lock older than this is stale.
+_STALE_INDEX_LOCK_AGE_SECS = 300
+
+
+def _git_lock_holder(lock: Path) -> bool:
+    """Return True if a live process holds *lock* open (best-effort ``lsof``)."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-t", str(lock)],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        # lsof unavailable / errored -> assume no holder (fall back to age test).
+        return False
+    return bool(result.stdout.strip())
+
+
+def _clear_stale_index_lock(vault: Path) -> bool:
+    """Remove a stale ``.git/index.lock`` blocking the vault repo.
+
+    Only removes a lock that is older than ``_STALE_INDEX_LOCK_AGE_SECS`` AND
+    not held by any live process, so a genuinely running git operation is never
+    disturbed. Returns True if a stale lock was removed.
+    """
+    lock = vault / ".git" / "index.lock"
+    if not lock.exists():
+        return False
+    try:
+        age = time.time() - lock.stat().st_mtime
+    except OSError:
+        return False
+    if age < _STALE_INDEX_LOCK_AGE_SECS or _git_lock_holder(lock):
+        return False
+    try:
+        lock.unlink()
+        print(
+            f"Warning: removed stale .git/index.lock (age {int(age)}s) in {vault}",
+            file=sys.stderr,
+        )
+        return True
+    except OSError:
+        return False
+
+
 def git_commit_vault(
     message: str, vault: Path | None = None, paths: list[Path] | None = None
 ) -> bool:
@@ -729,6 +778,10 @@ def git_commit_vault(
     git_marker = vault / ".git"
     if not (git_marker.is_dir() or git_marker.is_file()):
         return False
+
+    # A stale .git/index.lock (left by a killed git process) would make the
+    # add/commit below fail silently; clear it first if it is provably stale.
+    _clear_stale_index_lock(vault)
 
     try:
         # Stage files
