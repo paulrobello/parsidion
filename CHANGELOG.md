@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Session-start semantic search no longer depends on the local `embeddings.db`** — `_run_semantic_search` and its caller `_select_seed_notes` gated `vault_search` on the local fastembed DB existing, so under `search.backend: par-mem` the par-mem retrieval path still silently no-op'd when the DB was absent or deleted. The gate is now the configured backend: `embeddings.db` is required only for the local-embeddings path (an explicit `embeddings` backend, or `auto` when par-mem is unavailable). par-mem serves retrieval without it, so removing the now-unused `embeddings.db` is safe.
+
 ## [0.16.0] - 2026-08-02
 
 Vault memory-capture and persistence hardening: the summarizer no longer silently drops valuable sessions to a single stochastic write-gate skip, and vault git auto-commit self-heals from stale locks (the root causes of a 4-day commit stall, fixed). Plus the visualizer `Home` container decomposition finishes and a `GraphCanvas` interactions hook lands.

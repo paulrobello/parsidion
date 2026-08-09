@@ -337,8 +337,9 @@ def _select_seed_notes(
 ) -> tuple[list[Path], set[Path]]:
     """Collect and de-duplicate the seed note set for the standard context path.
 
-    Merges project notes, recent notes, and semantic-search blends (when
-    ``embeddings.db`` is present), then ensures today's daily note is included.
+    Merges project notes, recent notes, and semantic-search blends (served by
+    the configured backend — par-mem, or local ``embeddings.db`` as fallback),
+    then ensures today's daily note is included.
     Order is preserved. The returned ``seen`` set carries resolved paths so
     graph-neighbour expansion (:func:`_apply_graph_retrieval`) dedups against
     the same index.
