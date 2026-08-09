@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-08-08
+
+Session-start semantic search is decoupled from the local `embeddings.db`: under `search.backend: par-mem` the retrieval path no longer silently no-op'd when the local fastembed DB was absent or deleted — the gate is now the configured backend, so par-mem serves retrieval without it.
+
 ### Fixed
 - **Session-start semantic search no longer depends on the local `embeddings.db`** — `_run_semantic_search` and its caller `_select_seed_notes` gated `vault_search` on the local fastembed DB existing, so under `search.backend: par-mem` the par-mem retrieval path still silently no-op'd when the DB was absent or deleted. The gate is now the configured backend: `embeddings.db` is required only for the local-embeddings path (an explicit `embeddings` backend, or `auto` when par-mem is unavailable). par-mem serves retrieval without it, so removing the now-unused `embeddings.db` is safe.
 
