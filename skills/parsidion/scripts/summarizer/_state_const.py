@@ -102,7 +102,13 @@ class FailureReason(enum.Enum):
 
     TRANSCRIPT_READ = ("transcript_read", True)
     AI_BACKEND_ERROR = ("ai_backend_error", True)
-    NO_RESULT = ("no_result", True)
+    # NO_RESULT is split into its three underlying causes so logs/queues name
+    # *why* the backend yielded nothing instead of one opaque bucket. All share
+    # the ``no_result`` prefix: ``--reason no_result`` (prefix match) recovers
+    # legacy ``no_result`` entries and every granular kind alike.
+    NO_RESULT_TIMEOUT = ("no_result_timeout", True)
+    NO_RESULT_EMPTY = ("no_result_empty", True)
+    NO_RESULT_BACKEND = ("no_result_backend", True)
     BACKUP_FAILED = ("backup_failed", True)
     UNHANDLED = ("unhandled", True)
     MERGE_MALFORMED = ("merge_malformed", False)

@@ -232,7 +232,7 @@ def test_summarize_chunk_uses_small_tier_backend(
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     calls: list[dict[str, object]] = []
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         calls.append({"prompt": prompt, **kwargs})
         return "backend summary"
 
@@ -412,7 +412,7 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
     async def fake_preprocess(*args: object, **kwargs: object) -> str:
         return "cleaned transcript"
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         calls.append({"prompt": prompt, **kwargs})
         return (
             "---\n"
@@ -423,7 +423,7 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
             "confidence: high\n"
             "---\n"
             "# Test Note\n\nUseful note."
-        )
+        ), None
 
     def fake_get_config(section: str, key: str, default: object = None) -> object:
         if (section, key, default) == ("summarizer", "ai_timeout", None):
@@ -436,7 +436,9 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
     monkeypatch.setattr(
@@ -490,15 +492,17 @@ def test_summarize_one_preserves_skip_write_gate(
     async def fake_preprocess(*args: object, **kwargs: object) -> str:
         return "cleaned transcript"
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         calls.append({"prompt": prompt, **kwargs})
-        return '{"decision": "skip", "reason": "routine transient session"}'
+        return '{"decision": "skip", "reason": "routine transient session"}', None
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -588,16 +592,18 @@ def test_summarize_one_preserves_skip_write_gate_when_fenced(
     async def fake_preprocess(*args: object, **kwargs: object) -> str:
         return "cleaned transcript"
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         return (
             '```json\n{"decision": "skip", "reason": "routine transient session"}\n```'
-        )
+        ), None
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -643,7 +649,7 @@ def test_summarize_one_preserves_dry_run_markdown_note_path(
     async def fake_preprocess(*args: object, **kwargs: object) -> str:
         return "cleaned transcript"
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         return (
             "---\n"
             "date: 2026-04-27\n"
@@ -653,13 +659,15 @@ def test_summarize_one_preserves_dry_run_markdown_note_path(
             "confidence: high\n"
             "---\n"
             "# Test Note\n\nUseful note."
-        )
+        ), None
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -1505,7 +1513,7 @@ def test_summarize_one_merge_rejects_invalid_frontmatter_leaves_target_byte_iden
     async def fake_preprocess(*args: object, **kwargs: object) -> str:
         return "cleaned transcript"
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         # Malicious/corrupted merge decision: new_content lacks required fields
         # and would corrupt the trusted note if written unchecked.
         return json.dumps(
@@ -1520,13 +1528,15 @@ def test_summarize_one_merge_rejects_invalid_frontmatter_leaves_target_byte_iden
                     "# Real Note\n\nHostile takeover.\n"
                 ),
             }
-        )
+        ), None
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -1602,20 +1612,22 @@ def test_summarize_one_merge_valid_content_backs_up_target_and_writes_atomically
         "# Real Note\n\nUpdated insight.\n"
     )
 
-    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> str:
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
         return json.dumps(
             {
                 "decision": "merge",
                 "target": "[[real-note]]",
                 "new_content": new_content,
             }
-        )
+        ), None
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
     monkeypatch.setattr(
-        _pipeline_module(), "_run_summarizer_prompt", fake_run_summarizer_prompt
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -1656,3 +1668,56 @@ def test_summarize_one_merge_valid_content_backs_up_target_and_writes_atomically
     backup = vault / ".trash" / "backup" / today / "Debugging" / "real-note.md"
     assert backup.is_file(), "merge backup must be created before the overwrite"
     assert backup.read_text(encoding="utf-8") == original
+
+
+def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    records = [
+        {"session_id": "s1", "transcript_path": "/tmp/x.jsonl", "project": "p",
+         "categories": ["x"], "timestamp": "2026-08-01T00:00:00", "source": "session",
+         "attempts": 3, "last_failure": "no_result: /tmp/x.jsonl",
+         "dead_lettered_at": "2026-08-01T00:00:00"},
+        {"session_id": "s2", "transcript_path": "/tmp/y.jsonl", "project": "p",
+         "categories": ["x"], "timestamp": "2026-08-01T00:00:00", "source": "session",
+         "attempts": 3, "last_failure": "no_result_timeout: /tmp/y.jsonl",
+         "dead_lettered_at": "2026-08-01T00:00:00"},
+        {"session_id": "s3", "transcript_path": "/tmp/z.jsonl", "project": "p",
+         "categories": ["x"], "timestamp": "2026-08-01T00:00:00", "source": "session",
+         "attempts": 1, "last_failure": "note_validation: write_note returned None",
+         "dead_lettered_at": "2026-08-01T00:00:00"},
+    ]
+    dl = vault / "dead_letters.jsonl"
+    dl.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+    pending = vault / "pending_summaries.jsonl"
+    pending.write_text("", encoding="utf-8")
+
+    requeue = summarize_sessions._requeue_dead_letters
+
+    # dry-run counts without mutating: 'no_result' prefix matches legacy + timeout
+    assert requeue(vault, reason="no_result", min_age_days=0, max_count=0, dry_run=True) == 2
+    assert len(dl.read_text(encoding="utf-8").splitlines()) == 3
+
+    # real run moves the 2 no_result entries out of dead_letters, into pending
+    assert requeue(vault, reason="no_result", min_age_days=0, max_count=0) == 2
+    remaining = [
+        json.loads(line)
+        for line in dl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [r["session_id"] for r in remaining] == ["s3"]
+    moved = [
+        json.loads(line)
+        for line in pending.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert {e["session_id"] for e in moved} == {"s1", "s2"}
+    # fresh pending entries drop dead-letter bookkeeping
+    assert "last_failure" not in moved[0]
+    assert "attempts" not in moved[0]
+
+    # reason filter is a prefix: 'note_validation' now matches the lone survivor
+    assert requeue(vault, reason="note_validation", min_age_days=0, max_count=0, dry_run=True) == 1

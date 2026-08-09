@@ -238,6 +238,18 @@ def _extract_claude_json_result(stdout: str) -> str | None:
     return text
 
 
+# Cause labels returned by ``run_ai_prompt_with_cause`` alongside the text
+# (``None`` on success). Lets the summarizer record *why* a prompt yielded
+# nothing instead of collapsing four distinct backend outcomes into one None,
+# so timeout / launch-failure / non-zero-exit / empty-output are distinguishable
+# in logs and the dead-letter queue.
+CAUSE_TIMEOUT = "timeout"
+CAUSE_LAUNCH = "launch"
+CAUSE_NONZERO = "nonzero"
+CAUSE_EMPTY = "empty"
+CAUSE_DISABLED = "disabled"
+
+
 def _run_claude_prompt(
     prompt: str,
     *,
@@ -246,7 +258,7 @@ def _run_claude_prompt(
     cwd: str | Path | None,
     vault: Path | None,
     raise_on_timeout: bool,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     # SEC-123: pass the prompt on stdin instead of as ``argv`` so up to
     # ~12 KB of transcript is not visible via ``ps auxww``. ``claude -p``
     # with no prompt positional reads from stdin.
@@ -271,26 +283,27 @@ def _run_claude_prompt(
     except subprocess.TimeoutExpired as exc:
         if raise_on_timeout:
             raise AiBackendTimeout("AI backend prompt timed out") from exc
-        return None
+        return None, CAUSE_TIMEOUT
     except OSError:
-        return None
+        return None, CAUSE_LAUNCH
 
     if result is None:
         # Launch failure (binary not found, etc.) — helper already
         # swallowed the OSError; no extra diagnostics to log here.
-        return None
+        return None, CAUSE_LAUNCH
 
     if result.returncode != 0:
         _log_backend_failure(
             "claude -p", result.returncode, result.stdout, result.stderr
         )
-        return None
+        return None, CAUSE_NONZERO
     output = _extract_claude_json_result(result.stdout)
     if not output:
         _log_backend_failure(
             "claude -p", result.returncode, result.stdout, result.stderr
         )
-    return output or None
+        return None, CAUSE_EMPTY
+    return output, None
 
 
 def _config_str(section: str, key: str, default: str, vault: Path | None = None) -> str:
@@ -404,7 +417,7 @@ def _run_codex_prompt(
     cwd: str | Path | None,
     vault: Path | None,
     raise_on_timeout: bool,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     command_raw = _config_str("codex_cli", "command", "codex", vault=vault)
     try:
         command = _resolve_codex_command(command_raw)
@@ -413,7 +426,7 @@ def _run_codex_prompt(
         # back to None (the caller's existing fallback path).
         sys.stderr.write(f"[ai_backend] {exc}\n")
         sys.stderr.flush()
-        return None
+        return None, CAUSE_LAUNCH
 
     codex_timeout = (
         timeout
@@ -465,14 +478,14 @@ def _run_codex_prompt(
         if result is None:
             # Launch failure — helper already swallowed OSError. No
             # stdout/stderr to log here.
-            return None
+            return None, CAUSE_LAUNCH
         if result.returncode != 0:
             # ARC-048e: log the failure so empty-result failures are
             # diagnosable on the Codex path (parity with _run_claude_prompt).
             _log_backend_failure(
                 "codex exec", result.returncode, result.stdout, result.stderr
             )
-            return None
+            return None, CAUSE_NONZERO
         try:
             output = output_path.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError):
@@ -482,7 +495,7 @@ def _run_codex_prompt(
                 "could not be read.\n"
             )
             sys.stderr.flush()
-            return None
+            return None, CAUSE_EMPTY
         if not output:
             # ARC-048e: empty output despite rc=0 — log so the user can
             # tell this apart from a launch failure.
@@ -491,13 +504,14 @@ def _run_codex_prompt(
                 f"(stderr={result.stderr.strip()[:200]!r}).\n"
             )
             sys.stderr.flush()
-        return output or None
+            return None, CAUSE_EMPTY
+        return output, None
     except subprocess.TimeoutExpired as exc:
         if raise_on_timeout:
             raise AiBackendTimeout("AI backend prompt timed out") from exc
-        return None
+        return None, CAUSE_TIMEOUT
     except OSError:
-        return None
+        return None, CAUSE_LAUNCH
     finally:
         if output_path is not None:
             try:
@@ -506,7 +520,7 @@ def _run_codex_prompt(
                 pass
 
 
-def run_ai_prompt(
+def run_ai_prompt_with_cause(
     prompt: str,
     *,
     model: str | None = None,
@@ -516,16 +530,20 @@ def run_ai_prompt(
     purpose: str = "general",
     vault: Path | None = None,
     raise_on_timeout: bool = False,
-) -> str | None:
-    """Run a prompt through the configured prompt AI backend.
+) -> tuple[str | None, str | None]:
+    """Run a prompt through the configured prompt AI backend, returning a cause.
 
-    Returns ``None`` for disabled backends and all recoverable CLI failures so
-    callers can preserve their existing heuristic/fallback paths.
+    Returns ``(text, cause)`` where ``text`` is the assistant's reply (or
+    ``None``) and ``cause`` is ``None`` on success, else one of the ``CAUSE_*``
+    labels (timeout/launch/nonzero/empty/disabled) naming *why* no text was
+    produced. Use this when the caller records the failure reason (e.g. the
+    summarizer's dead-letter classification); prefer :func:`run_ai_prompt` when
+    only the text matters.
     """
     del purpose
     backend = resolve_ai_backend(vault=vault)
     if backend == "none":
-        return None
+        return None, CAUSE_DISABLED
 
     resolved_model = resolve_ai_model(
         backend,
@@ -550,3 +568,33 @@ def run_ai_prompt(
         vault=vault,
         raise_on_timeout=raise_on_timeout,
     )
+
+
+def run_ai_prompt(
+    prompt: str,
+    *,
+    model: str | None = None,
+    model_tier: ModelTier = "small",
+    timeout: int | float | None = None,
+    cwd: str | Path | None = None,
+    purpose: str = "general",
+    vault: Path | None = None,
+    raise_on_timeout: bool = False,
+) -> str | None:
+    """Run a prompt through the configured prompt AI backend.
+
+    Returns ``None`` for disabled backends and all recoverable CLI failures so
+    callers can preserve their existing heuristic/fallback paths. Thin wrapper
+    over :func:`run_ai_prompt_with_cause`; callers that need to distinguish
+    *why* the backend returned nothing should call that directly.
+    """
+    return run_ai_prompt_with_cause(
+        prompt,
+        model=model,
+        model_tier=model_tier,
+        timeout=timeout,
+        cwd=cwd,
+        purpose=purpose,
+        vault=vault,
+        raise_on_timeout=raise_on_timeout,
+    )[0]

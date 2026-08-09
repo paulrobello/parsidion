@@ -206,3 +206,91 @@ def _prune_dead_letters(vault: Path, retention_days: int) -> int:
         print(f"Warning: could not prune dead-letter records: {e}", file=sys.stderr)
         return 0
     return pruned
+
+
+def _read_dead_letters(vault: Path) -> list[dict[str, object]]:
+    """Return every record in ``dead_letters.jsonl`` (best-effort read).
+
+    Companion to :func:`_dead_lettered_ids` for callers that need the full
+    record — e.g. ``--retry-dead-letters``, which filters on ``last_failure``
+    and ``dead_lettered_at``. Best-effort: any read error or malformed line is
+    skipped, never raised.
+    """
+    path = vault / "dead_letters.jsonl"
+    if not path.is_file():
+        return []
+    records: list[dict[str, object]] = []
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+    except OSError:
+        pass
+    return records
+
+
+def _remove_dead_letters_by_session_ids(vault: Path, session_ids: set[str]) -> int:
+    """Atomically drop dead-letter records whose ``session_id`` is in the set.
+
+    Used by ``--retry-dead-letters`` to pull entries back into the live queue:
+    once removed here, :func:`_dead_lettered_ids` no longer returns them, so
+    ``_early_gate`` stops skipping the re-queued session. Mirrors
+    :func:`_prune_dead_letters`' locked read + tmp/``os.replace`` rewrite
+    (crash-atomic, preserves 0o600). Returns the number removed.
+    """
+    if not session_ids or not (vault / "dead_letters.jsonl").is_file():
+        return 0
+    path = vault / "dead_letters.jsonl"
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as e:
+        print(f"Warning: could not open dead-letter file: {e}", file=sys.stderr)
+        return 0
+    kept: list[str] = []
+    removed = 0
+    try:
+        with open(fd, "r+", encoding="utf-8") as f:
+            _flock_exclusive(f)
+            try:
+                raw_lines = f.read().splitlines()
+            finally:
+                f.seek(0)
+            for raw in raw_lines:
+                s = raw.strip()
+                if not s:
+                    continue
+                try:
+                    record = json.loads(s)
+                except (json.JSONDecodeError, ValueError):
+                    kept.append(s)
+                    continue
+                if str(record.get("session_id", "")) in session_ids:
+                    removed += 1
+                    continue
+                kept.append(s)
+            if removed == 0:
+                return 0
+            tmp = path.with_suffix(".jsonl.tmp")
+            try:
+                tmp_fd = os.open(str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                with open(tmp_fd, "w", encoding="utf-8") as out:
+                    if kept:
+                        out.write("\n".join(kept) + "\n")
+                os.replace(tmp, path)
+            finally:
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except OSError:
+                    pass
+        return removed
+    except OSError as e:
+        print(f"Warning: could not rewrite dead-letter file: {e}", file=sys.stderr)
+        return 0

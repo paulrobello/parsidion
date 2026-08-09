@@ -41,6 +41,7 @@ import subprocess  # noqa: F401 — re-exported for test monkeypatch (mod.subpro
 import sys
 import traceback
 from datetime import date  # noqa: F401 — re-exported for tests (summarize_sessions.date.today())
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, cast
 
@@ -294,6 +295,8 @@ from summarizer.dead_letter import (  # noqa: E402,F401 — re-exported for test
     _append_dead_letter,
     _dead_lettered_ids,
     _prune_dead_letters,
+    _read_dead_letters,
+    _remove_dead_letters_by_session_ids,
 )
 from summarizer.queue import (  # noqa: E402,F401 — re-exported for tests
     _resolve,
@@ -357,6 +360,43 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run vault_doctor --fix-all (frontmatter, tags, subfolders) before summarizing.",
     )
     parser.add_argument(
+        "--retry-dead-letters",
+        action="store_true",
+        default=False,
+        help=(
+            "Re-queue retryable dead-lettered sessions into the pending queue, "
+            "then summarize. Most no_result dead-letters are transient and "
+            "succeed on a later retry; the 3-strike graveyard otherwise loses "
+            "them. Removes matches from dead_letters.jsonl so they are actually "
+            "re-processed (the _dead_lettered_ids guard otherwise skips them). "
+            "Pairs with --reason / --min-age-days / --max-count."
+        ),
+    )
+    parser.add_argument(
+        "--reason",
+        default="no_result",
+        help=(
+            "With --retry-dead-letters: re-queue entries whose last_failure "
+            "starts with this prefix (default 'no_result' covers the legacy "
+            "opaque kind and no_result_timeout/empty/backend)."
+        ),
+    )
+    parser.add_argument(
+        "--min-age-days",
+        type=float,
+        default=0.0,
+        help=(
+            "With --retry-dead-letters: only re-queue entries dead-lettered at "
+            "least this many days ago (cooldown; default 0 = all matching)."
+        ),
+    )
+    parser.add_argument(
+        "--max-count",
+        type=int,
+        default=0,
+        help="With --retry-dead-letters: cap the number re-queued (0 = no cap).",
+    )
+    parser.add_argument(
         "--rebuild-graph",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -385,6 +425,73 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
     return parser
+
+
+def _requeue_dead_letters(
+    vault: Path,
+    *,
+    reason: str,
+    min_age_days: float,
+    max_count: int,
+    dry_run: bool = False,
+) -> int:
+    """Pull retryable dead-lettered sessions back into the pending queue.
+
+    Filters ``dead_letters.jsonl`` by ``last_failure`` prefix (e.g.
+    ``"no_result"`` matches the legacy opaque kind and every granular
+    ``no_result_*`` cause) and an optional minimum age, REMOVES the matches
+    from ``dead_letters.jsonl`` (so ``_dead_lettered_ids`` no longer feeds
+    them to ``_early_gate`` and the re-queued session is actually processed),
+    then appends fresh copies to ``pending_summaries.jsonl``. Returns the
+    number re-queued (or the count that WOULD be re-queued when ``dry_run``).
+
+    Most ``no_result`` dead-letters are transient (rate-limit, momentary empty
+    response, load) and succeed on a later retry; the permanent 3-strike
+    graveyard was losing them. This gives them a second chance — successes
+    write notes, repeat failures re-dead-letter.
+    """
+    records = _read_dead_letters(vault)
+    now = datetime.now()
+    matches: list[dict[str, object]] = []
+    for record in records:
+        if not str(record.get("last_failure", "")).startswith(reason):
+            continue
+        if min_age_days > 0:
+            try:
+                age = now - datetime.fromisoformat(str(record.get("dead_lettered_at")))
+            except (ValueError, TypeError):
+                age = timedelta(0)
+            if age < timedelta(days=min_age_days):
+                continue
+        matches.append(record)
+    if max_count > 0:
+        matches = matches[:max_count]
+    if dry_run:
+        return len(matches)
+    if not matches:
+        return 0
+    session_ids = {str(m.get("session_id", "")) for m in matches}
+    _remove_dead_letters_by_session_ids(vault, session_ids)
+    requeued = 0
+    for record in matches:
+        raw_cats = record.get("categories") or []
+        categories = (
+            {str(c): [] for c in raw_cats} if isinstance(raw_cats, list) else {}
+        )
+        vault_common.append_to_pending(
+            Path(str(record.get("transcript_path", ""))),
+            str(record.get("project", "unknown")),
+            categories,
+            force=True,  # already passed the hook's significance gate once
+            source=str(record.get("source", "session")),
+            agent_type=(
+                str(record["agent_type"]) if record.get("agent_type") else None
+            ),
+            session_id=(str(record.get("session_id", "")) or None),
+            vault=vault,
+        )
+        requeued += 1
+    return requeued
 
 
 class _SummarizerOptions(NamedTuple):
@@ -654,6 +761,38 @@ def main() -> None:
                 "continuing with summarization.",
                 file=sys.stderr,
             )
+
+    # --retry-dead-letters: pull retryable failures out of the dead-letter
+    # graveyard back into the live pending queue, then fall through to the
+    # normal pending flow. Must run before read_pending so the re-queued
+    # entries are picked up; removing them from dead_letters.jsonl is what lets
+    # _early_gate process them instead of skipping as already-dead-lettered.
+    if args.retry_dead_letters:
+        requeued = _requeue_dead_letters(
+            vault_path,
+            reason=args.reason,
+            min_age_days=args.min_age_days,
+            max_count=args.max_count,
+            dry_run=args.dry_run,
+        )
+        if args.dry_run:
+            print(
+                f"[dry-run] would re-queue {requeued} dead-lettered session(s) "
+                f"matching --reason '{args.reason}'."
+            )
+            return
+        if requeued == 0:
+            print(
+                f"No dead-lettered sessions matching --reason '{args.reason}'"
+                + (
+                    f" (min-age-days={args.min_age_days})"
+                    if args.min_age_days > 0
+                    else ""
+                )
+                + " to retry."
+            )
+            return
+        print(f"Re-queued {requeued} dead-lettered session(s) into the pending queue.")
 
     # Determine source file
     if args.sessions:

@@ -294,6 +294,10 @@ env -u CLAUDECODE uv run ~/.claude/skills/parsidion/scripts/summarize_sessions.p
 | `--dry-run, -n` | Preview what would be written without creating notes | — |
 | `--model MODEL` | Explicit large-model override (default: backend large model) | `summarizer.model` |
 | `--persist` | Accepted for backwards compatibility; currently unused | `summarizer.persist` |
+| `--retry-dead-letters` | Re-queue retryable dead-lettered sessions into the pending queue, then summarize. Removes them from `dead_letters.jsonl` so they are actually re-processed (the `_dead_lettered_ids` guard otherwise skips them). Most `no_result` dead-letters are transient and succeed on a later retry; the 3-strike graveyard otherwise loses them | — |
+| `--reason PREFIX` | With `--retry-dead-letters`: re-queue entries whose `last_failure` starts with this prefix (default `no_result` covers the legacy opaque kind and `no_result_timeout`/`empty`/`backend`) | — |
+| `--min-age-days N` | With `--retry-dead-letters`: only re-queue entries dead-lettered at least N days ago (cooldown; default 0 = all matching) | — |
+| `--max-count N` | With `--retry-dead-letters`: cap the number re-queued (0 = no cap) | — |
 
 Uses the configured prompt AI backend: Claude runs through `claude -p`, Codex runs through `codex exec`, and no Claude Agent SDK or Codex SDK is required for this summarizer path.
 Processes up to 5 sessions in parallel with `anyio` (configurable via `summarizer.max_parallel`).

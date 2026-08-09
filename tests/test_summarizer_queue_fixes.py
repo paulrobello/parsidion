@@ -324,13 +324,15 @@ def _prepare_merge_test(
     async def fake_preprocess(*args: object, **kwargs: object) -> str:
         return "cleaned dialogue"
 
-    async def fake_prompt(*args: object, **kwargs: object) -> str:
-        return json.dumps(decision)
+    async def fake_prompt(*args: object, **kwargs: object) -> object:
+        return json.dumps(decision), None
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
     )
-    monkeypatch.setattr(_pipeline_module(), "_run_summarizer_prompt", fake_prompt)
+    monkeypatch.setattr(
+        _pipeline_module(), "_run_summarizer_prompt_with_cause", fake_prompt
+    )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )

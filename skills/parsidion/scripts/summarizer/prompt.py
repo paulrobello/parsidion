@@ -192,3 +192,35 @@ async def _run_summarizer_prompt(
         )
     )
     return cast(str | None, result)
+
+
+async def _run_summarizer_prompt_with_cause(
+    prompt: str,
+    *,
+    model: str | None,
+    model_tier: ai_backend.ModelTier,
+    purpose: str,
+    timeout: int | float | None,
+    vault: Path,
+) -> tuple[str | None, str | None]:
+    """Like ``_run_summarizer_prompt`` but also returns the backend failure cause.
+
+    The top-level note-generation call uses this so an empty result can be
+    classified (timeout vs empty vs backend error) for the dead-letter record;
+    chunk/write-gate callers keep the text-only variant since they don't
+    dead-letter on ``no_result``.
+    """
+    return cast(
+        tuple[str | None, str | None],
+        await to_thread.run_sync(
+            partial(
+                ai_backend.run_ai_prompt_with_cause,
+                prompt,
+                model=model,
+                model_tier=model_tier,
+                purpose=purpose,
+                timeout=timeout,
+                vault=vault,
+            )
+        ),
+    )

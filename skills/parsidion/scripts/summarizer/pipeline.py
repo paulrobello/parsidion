@@ -27,6 +27,7 @@ import time
 import traceback
 from pathlib import Path
 
+import ai_backend
 import anyio  # type: ignore[import-untyped]  # annotation only (semaphore param)
 import vault_common
 import vault_links
@@ -55,8 +56,23 @@ from summarizer.notes import (
     inject_project_tag,
     write_note,
 )
-from summarizer.prompt import _run_summarizer_prompt, build_prompt
+from summarizer.prompt import (
+    _run_summarizer_prompt_with_cause,
+    build_prompt,
+)
 from summarizer.transcript import _strip_code_fence, preprocess_transcript_hierarchical
+
+# Map an ai_backend CAUSE_* (why a prompt returned no text) to the granular
+# FailureReason recorded in the dead-letter queue. Replaces the opaque single
+# ``no_result`` with timeout / empty / backend so the queue names the cause.
+# ``--reason no_result`` (prefix match) still recovers all three.
+_NO_RESULT_REASON_FOR_CAUSE: dict[str | None, FailureReason] = {
+    ai_backend.CAUSE_TIMEOUT: FailureReason.NO_RESULT_TIMEOUT,
+    ai_backend.CAUSE_EMPTY: FailureReason.NO_RESULT_EMPTY,
+    ai_backend.CAUSE_LAUNCH: FailureReason.NO_RESULT_BACKEND,
+    ai_backend.CAUSE_NONZERO: FailureReason.NO_RESULT_BACKEND,
+    ai_backend.CAUSE_DISABLED: FailureReason.NO_RESULT_BACKEND,
+}
 
 
 def _early_gate(
@@ -413,7 +429,7 @@ async def summarize_one(
         )
 
         try:
-            result_text = await _run_summarizer_prompt(
+            result_text, no_result_cause = await _run_summarizer_prompt_with_cause(
                 prompt,
                 model=model,
                 model_tier="large",
@@ -434,11 +450,15 @@ async def summarize_one(
             return entry, None
 
         if not result_text:
+            reason = _NO_RESULT_REASON_FOR_CAUSE.get(
+                no_result_cause, FailureReason.NO_RESULT_BACKEND
+            )
             print(
-                f"  No result from AI backend for {transcript_path_str}",
+                f"  No result from AI backend for {transcript_path_str} "
+                f"(cause={no_result_cause})",
                 file=sys.stderr,
             )
-            _mark_failure(entry, FailureReason.NO_RESULT, transcript_path_str)
+            _mark_failure(entry, reason, transcript_path_str)
             return entry, None
 
         gate_result = _handle_write_gate_decision(
