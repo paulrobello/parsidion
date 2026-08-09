@@ -354,7 +354,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--run-doctor",
         action="store_true",
         default=False,
-        help="Run vault_doctor before summarizing to fix legacy pending paths and stale files.",
+        help="Run vault_doctor --fix-all (frontmatter, tags, subfolders) before summarizing.",
     )
     parser.add_argument(
         "--rebuild-graph",
