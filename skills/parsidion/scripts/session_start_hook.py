@@ -168,9 +168,17 @@ def _run_semantic_search(
     if not vault_search_script.exists():
         return []
 
-    db_path = get_embeddings_db_path(vault=vault_path)
-    if not db_path.exists():
-        return []
+    # par-mem serves retrieval without a local embeddings DB. Only require
+    # embeddings.db for the local-embeddings path: an explicit ``embeddings``
+    # backend, or ``auto`` falling back when par-mem is unavailable. Matches
+    # vault_search.py's own backend routing.
+    backend = (get_config("search", "backend", "auto") or "auto").strip().lower()
+    if backend == "embeddings" or (
+        backend == "auto" and not parmem_backend.resolve_parmem_backend(vault_path)
+    ):
+        db_path = get_embeddings_db_path(vault=vault_path)
+        if not db_path.exists():
+            return []
 
     try:
         # Use Popen + start_new_session so the entire process group (uv + its
@@ -350,17 +358,18 @@ def _select_seed_notes(
 
     use_embeddings: bool = get_config("session_start_hook", "use_embeddings", True)
     if use_embeddings:
-        db_path = get_embeddings_db_path(vault=vault_path)
-        if db_path.exists():
-            vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
-            semantic_notes = _run_semantic_search(
-                project_name, _SEMANTIC_TOP_N, vault_search_script, vault_path
-            )
-            for note in semantic_notes:
-                resolved = note.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    all_notes.append(note)
+        # Backend-aware gating lives inside _run_semantic_search (par-mem needs
+        # no local embeddings.db), so just delegate; it returns [] when there is
+        # nothing to search rather than spawning vault_search pointlessly.
+        vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
+        semantic_notes = _run_semantic_search(
+            project_name, _SEMANTIC_TOP_N, vault_search_script, vault_path
+        )
+        for note in semantic_notes:
+            resolved = note.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                all_notes.append(note)
 
     daily_resolved = daily_path.resolve()
     if daily_resolved not in seen:
