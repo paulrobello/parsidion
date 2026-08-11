@@ -415,8 +415,18 @@ vault-search --changed-since 2026-06-01 --tag python   # combine with other filt
 | `HEADING_MISMATCH` | warning | No `#` heading found; first `##` heading should be promoted to `#` (skips daily notes) |
 | `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
 | `PREFIX_CLUSTER` | warning | 3+ flat notes share a kebab prefix — should be moved into a subfolder |
+| `NESTED_FM_KEY` | warning | Indented mapping key; the parser reads it as a top-level scalar |
+| `UNTERMINATED_FM_LIST` | error | Inline list opens with `[` but never closes on the same line |
+| `ORPHAN_FM_BRACKET` | warning | Stray `]` left as the first body line |
+| `SCALAR_LIST_FIELD` | warning | `tags`/`related`/`sources` holds a bare scalar, so its entries are lost |
+| `DUPLICATE_FM_KEY` | warning | Same top-level key twice; the parser is last-wins and drops the earlier value |
 
 Daily notes (`type: daily` or path under `Daily/`) are exempt from `confidence`, `related`, and orphan checks.
+
+The last five codes are **frontmatter-syntax** checks. `parse_frontmatter` implements a
+deliberately small YAML subset and never raises, so a note using a shape outside it
+silently gets the wrong value — these read the raw frontmatter text, the only place the
+damage is still visible.
 
 ### Running the doctor
 
@@ -454,9 +464,13 @@ For Claude CLI backend calls launched from inside Claude Code, unset `CLAUDECODE
 Repairs run in parallel (`--jobs N`, default 3). Each prompt AI subprocess (`claude -p` or `codex exec`) is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved. The per-call timeout (`--timeout SECS`) defaults to 120s — increase it when running many parallel workers to avoid spurious timeouts.
 
 Repairable codes (prompt AI backend can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
-Auto-repairable without prompt AI (Python-only): `BROKEN_WIKILINK` (exact/semantic match), `DUPLICATE_TAG` (merge via `--fix-tags`), `HEADING_MISMATCH` (promotes first `##` to `#`; enabled by default, disable with `--no-fix-headings`).
+Auto-repairable without prompt AI (Python-only): `BROKEN_WIKILINK` (exact stem match, prefix-strip match, then a `vault-search` semantic fallback that never returns a `Daily/` note — a journal page matches almost any topic, so substituting one satisfies "the link resolves" while destroying what the link meant; when nothing suitable is found the link is dropped instead), `DUPLICATE_TAG` (merge via `--fix-tags`), `HEADING_MISMATCH` (promotes first `##` to `#`; enabled by default, disable with `--no-fix-headings`).
 Auto-repairable via Python + prompt AI filter: `PREFIX_CLUSTER` — candidates are detected by Python, then the configured small model filters out generic-word false positives (e.g. 'fixing', 'missing'), keeping only specific subject names (project, library, OS, tool). Files are then moved and wikilinks patched by Python.
-Not auto-repairable (require manual fix): `FLAT_DAILY`.
+Not auto-repairable (require manual fix): `FLAT_DAILY`, and the five frontmatter-syntax
+codes. The syntax codes are detection-only by design — the AI repair path is deliberately
+not turned loose on structurally broken frontmatter. A note carrying one is left out of
+`doctor_state.json` entirely so every run re-reports it until it is fixed (a `skipped`
+state entry is permanent, unlike `ok`, which expires after `STATE_STALE_DAYS`).
 
 ### Singleton guard
 

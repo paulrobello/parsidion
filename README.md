@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.16.1:** session-start semantic search is decoupled from the local `embeddings.db` — under `search.backend: par-mem` the retrieval path no longer silently no-op'd when the local fastembed DB was absent or deleted; the gate is now the configured backend, so par-mem serves retrieval without it. See the [Changelog](CHANGELOG.md).
+> **New in 0.17.0:** vault-doctor integrity. Five malformed-frontmatter shapes that the parser silently mis-read — and that the scan therefore reported as clean — are now detected; the backlink writer no longer appends a duplicate `related:` key; and broken-wikilink repair no longer substitutes a daily journal note for a real target. Plus `--retry-dead-letters` to recover transient summarization failures. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -645,7 +645,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.16.1** (session-start semantic search decoupled from the local `embeddings.db`; par-mem serves retrieval without it under `search.backend: par-mem`). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.17.0** (vault-doctor integrity: five malformed-frontmatter checks, no more duplicate `related:` keys, no more daily-note wikilink substitutions, plus `--retry-dead-letters`). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

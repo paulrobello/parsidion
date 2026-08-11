@@ -452,13 +452,22 @@ An on-demand diagnostic and repair tool that scans vault notes for structural is
 | `INVALID_TYPE` | error | `type` not in allowed set |
 | `INVALID_DATE` | warning | `date` not in YYYY-MM-DD format |
 | `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field; repaired with semantic candidates from `vault-search` |
-| `BROKEN_WIKILINK` | warning | Link target not found in vault; auto-repaired via exact stem match or `vault-search` semantic lookup; removed if no match found |
+| `BROKEN_WIKILINK` | warning | Link target not found in vault; auto-repaired via exact stem match, prefix-strip match, or a `vault-search` semantic lookup that never returns a `Daily/` note; removed if no match found |
 | `SELF_REF` | warning | Note's `related` field contains a wikilink to itself (skipped for daily notes) |
 | `HEADING_MISMATCH` | warning | No `# heading` in body; first `##` heading promoted to `#` when `--fix-headings` is enabled (default) |
 | `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
 | `PREFIX_CLUSTER` | info | 3+ flat notes share a common prefix and could be reorganized into a subfolder |
+| `NESTED_FM_KEY` | warning | Indented mapping key; the parser reads it as a top-level scalar |
+| `UNTERMINATED_FM_LIST` | error | Inline list opens with `[` but never closes on the same line, so the parser stores it as the scalar `[` and mis-reads every following line |
+| `ORPHAN_FM_BRACKET` | warning | Stray `]` left as the first body line by a collapsed inline list |
+| `SCALAR_LIST_FIELD` | warning | `tags`/`related`/`sources` holds a bare scalar (`tags: a, b, c`), which collapses to one string and loses every entry |
+| `DUPLICATE_FM_KEY` | warning | Same top-level key appears twice; the parser is last-wins, so the earlier value is silently discarded |
 
 Daily notes are exempt from `confidence`, `related`, and orphan checks.
+
+**Frontmatter-syntax checks.** The last five codes exist because `parse_frontmatter` implements a deliberately small YAML subset and never raises: a note using a shape outside that subset silently yields the wrong value, so the scan reported it clean while its tags or sources were quietly dropped. These checks read the raw frontmatter text — the only place the damage is still visible — and mirror the parser's own state machine (block scalars, block sequences) so supported shapes stay silent.
+
+They are **detection-only**: none are in `REPAIRABLE_CODES`, so the AI repair path is never turned loose on structurally broken frontmatter. Because a `skipped` state entry is permanent (unlike `ok`, which expires after `STATE_STALE_DAYS`), a note whose only issues are these is left out of `doctor_state.json` entirely, so every run re-reports it until a human fixes it.
 
 **Prefix-cluster reorganization:** In `--fix` mode, after per-note repairs, the doctor also scans for groups of flat notes that share a common prefix and should be moved into a subfolder. Two cluster types are detected:
 - **Exact-stem clusters:** one note's stem is the exact prefix of 2+ sibling notes (e.g. `gpu-voxel-ray-marching-optimizations`, `gpu-voxel-ray-marching-optimizations-0853`, …) — relationship is unambiguous, so these bypass Claude filtering and are moved immediately.
@@ -504,9 +513,10 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 4. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
 5. Scans remaining notes for issues using stdlib-only checks
 6. Records clean notes as `ok` in state (skipped for 7 days)
-7. In `--fix-frontmatter` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match first, then `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the Claude prompt, then calls `claude -p` per note with haiku to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent. Uses `--jobs` parallel workers (default 3).
-8. Saves state after each run; escalates double-timeout to `needs_review`
-9. `--no-state` rescans all notes regardless of prior results
+7. In `--fix-frontmatter` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match, then prefix-strip match, then a `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. The semantic lookup never returns a `Daily/` note: journals name every project worked that day, so a link that is really a project name scores highest against a journal page, and substituting one satisfies "the link resolves" while destroying what the link meant. Dropping the link is preferred instead, since the backlink pass can refill `related` but a plausible wrong link is never revisited. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the Claude prompt, then calls `claude -p` per note with haiku to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent. Uses `--jobs` parallel workers (default 3).
+8. Commits the repaired notes under a message naming the repair, then reindexes. The reindex stages only `CLAUDE.md`/`TAGS.md`/`MANIFEST.md`, so without this step the repairs would sit uncommitted until an unrelated later hook swept them into a commit that never mentions them.
+9. Saves state after each run; escalates double-timeout to `needs_review`
+10. `--no-state` rescans all notes regardless of prior results
 
 The vault health summary (clean count, pending repair, needs review, manual fix) is included in `CLAUDE.md` by `update_index.py` after each index rebuild.
 
