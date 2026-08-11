@@ -23,6 +23,7 @@ from pathlib import Path
 import vault_common
 
 from doctor._state import (
+    DETECTION_ONLY_CODES,
     REPAIRABLE_CODES,
     STALE_COMMIT_MINUTES,
     Issue,
@@ -192,11 +193,18 @@ def _classify_repair_candidates(
         else:
             manual_only.append(p)
     for p in manual_only:
+        codes = [i.code for i in issues_by_note[p]]
+        # A "skipped" status is permanent as far as should_skip is concerned,
+        # so a note carrying a detection-only defect must NOT be recorded --
+        # otherwise the scanner announces it once and never mentions it again.
+        # Leaving it stateless means every run re-reports it until it is fixed.
+        if any(c in DETECTION_ONLY_CODES for c in codes):
+            continue
         key = _rel(p, vault)
         state.setdefault("notes", {})[key] = {
             "status": "skipped",
             "last_checked": today_str,
-            "issues": [i.code for i in issues_by_note[p]],
+            "issues": codes,
         }
     return repair_candidates, manual_only
 

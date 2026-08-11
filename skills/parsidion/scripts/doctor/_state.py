@@ -64,6 +64,21 @@ REPAIRABLE_CODES = frozenset(
         "SELF_REF",
     }
 )
+# Malformed-frontmatter shapes the scanner reports but deliberately does not
+# hand to the AI repair path. They must keep re-reporting until a human fixes
+# them: a note whose only issues are these lands in `manual_only`, and
+# `should_skip` treats the resulting "skipped" status as permanent (unlike
+# "ok", which expires after STATE_STALE_DAYS). Without an exemption the defect
+# would be announced once and then stay invisible forever.
+DETECTION_ONLY_CODES = frozenset(
+    {
+        "NESTED_FM_KEY",
+        "UNTERMINATED_FM_LIST",
+        "ORPHAN_FM_BRACKET",
+        "SCALAR_LIST_FIELD",
+        "DUPLICATE_FM_KEY",
+    }
+)
 DEFAULT_MODEL: str | None = None
 AI_TIMEOUT = 120  # seconds
 STATE_STALE_DAYS = 7  # re-check "ok" notes after this many days
