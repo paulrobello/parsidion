@@ -384,15 +384,90 @@ def find_related_by_semantic(
     return links
 
 
-# Regex that matches the entire `related` field including block-style entries.
-# Matches:
-#   Inline:  related: ["[[a]]", "[[b]]"]
-#   Block:   related:\n  - "[[a]]"\n  - "[[b]]"
-# Also handles mixed inline+block (the corruption this fix prevents).
-_RELATED_FIELD_RE = re.compile(
-    r"^related:\s*(?:\[.*?\])?\s*$(?:\n^[ \t]+-[ \t].*$)*",
-    re.MULTILINE,
-)
+# A top-level frontmatter key line (`key:` / `key: value` at indent 0). Used as
+# the hard stop when consuming a malformed `related` field so it can never
+# swallow the fields below it.
+_FM_TOP_LEVEL_KEY_RE = re.compile(r"^[A-Za-z][\w-]*\s*:")
+_RELATED_KEY_RE = re.compile(r"^related\s*:(.*)$")
+
+
+def _related_field_spans(fm_lines: list[str]) -> list[tuple[int, int]]:
+    """Return the ``[start, end)`` line span of every top-level ``related`` field.
+
+    A field spans its ``related:`` line plus whatever continuation the stdlib
+    parser would associate with it: indented block-sequence ``- item`` lines, or
+    the remainder of an inline ``[...]`` list wrapped across several lines.
+
+    This replaces a regex that required the line to end right after an optional
+    ``[...]``.  Two shapes in the live vault defeated it — a trailing ``#``
+    comment (the daily-note template placeholder) and a bare scalar — and the
+    caller's fallback was to *append* a second ``related:`` key, which is how 35
+    notes ended up with duplicate top-level keys.  Scanning lines matches every
+    shape and, by returning all spans, lets the caller collapse existing
+    duplicates instead of adding to them.
+    """
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(fm_lines)
+    while i < n:
+        match = _RELATED_KEY_RE.match(fm_lines[i])
+        if not match:
+            i += 1
+            continue
+        value = match.group(1).strip()
+        j = i + 1
+        if value.startswith("[") and value.count("[") > value.count("]"):
+            # Inline list opened but not closed on this line. Consume until the
+            # brackets balance -- wikilinks are themselves balanced, so they do
+            # not perturb the count.
+            depth = value.count("[") - value.count("]")
+            while j < n and depth > 0:
+                line = fm_lines[j]
+                if not line.strip() or _FM_TOP_LEVEL_KEY_RE.match(line):
+                    break  # never closed -- stop before the next field
+                depth += line.count("[") - line.count("]")
+                j += 1
+        elif not value:
+            while (
+                j < n
+                and fm_lines[j][:1] in " \t"
+                and fm_lines[j].strip().startswith("- ")
+            ):
+                j += 1
+        spans.append((i, j))
+        i = j
+    return spans
+
+
+def _replace_related_field(fm_inner: str, new_line: str) -> str:
+    """Return *fm_inner* with a single ``related`` field set to *new_line*.
+
+    The first existing field is replaced in place (preserving field order); any
+    further ``related`` fields are dropped, so a note that already carries
+    duplicates is healed rather than grown.  When no field exists the new line
+    is appended.
+    """
+    fm_lines = fm_inner.split("\n")
+    # `fm_inner` always ends with a newline, so split() leaves a trailing "".
+    had_trailing_newline = bool(fm_lines) and fm_lines[-1] == ""
+    if had_trailing_newline:
+        fm_lines = fm_lines[:-1]
+
+    spans = _related_field_spans(fm_lines)
+    if not spans:
+        out = [*fm_lines, new_line]
+    else:
+        out = []
+        prev = 0
+        for idx, (start, end) in enumerate(spans):
+            out.extend(fm_lines[prev:start])
+            if idx == 0:
+                out.append(new_line)
+            prev = end
+        out.extend(fm_lines[prev:])
+
+    text = "\n".join(out)
+    return f"{text}\n" if had_trailing_newline else text
 
 
 def inject_related_links(note_path: Path, new_links: list[str]) -> None:
@@ -434,27 +509,15 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     quoted_items = ", ".join(f'"{lnk}"' for lnk in merged)
     new_related_line = f"related: [{quoted_items}]"
 
-    # Operate only on the frontmatter block: applying _RELATED_FIELD_RE to
-    # the whole file would clobber a body line starting with `related:`
-    # (e.g. a note quoting the frontmatter schema).
+    # Operate only on the frontmatter block: scanning the whole file would
+    # clobber a body line starting with `related:` (e.g. a note quoting the
+    # frontmatter schema).
     match = _FRONTMATTER_RE.match(content)
     if match is None:
         # No frontmatter block -- nowhere safe to inject
         return
     inner_start, inner_end = match.start(1), match.end(1)
-    fm_inner = content[inner_start:inner_end]
-
-    # Replace the entire related field (inline or block-style)
-    if _RELATED_FIELD_RE.search(fm_inner):
-        fm_inner = _RELATED_FIELD_RE.sub(new_related_line, fm_inner, count=1)
-        # The regex's trailing \s*$ swallows the final newline when the
-        # related field is the last frontmatter line -- restore it so the
-        # closing --- fence stays on its own line.
-        if not fm_inner.endswith("\n"):
-            fm_inner += "\n"
-    else:
-        # Append before the closing --- (fm_inner always ends with \n)
-        fm_inner = f"{fm_inner}{new_related_line}\n"
+    fm_inner = _replace_related_field(content[inner_start:inner_end], new_related_line)
 
     updated = content[:inner_start] + fm_inner + content[inner_end:]
 

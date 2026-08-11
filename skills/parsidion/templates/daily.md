@@ -2,7 +2,7 @@
 date: {{date}}
 type: daily
 tags: [daily]
-related: []  # inline quoted array: ["[[note-one]]", "[[note-two]]"] -- no orphan notes allowed
+related: []
 provenance: observed
 ---
 
