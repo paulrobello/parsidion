@@ -276,6 +276,77 @@ class TestScanExecuteAppliesPythonOnlyFixes:
         assert repair_commits, f"no repair commit was made; got {messages}"
         assert "vault_doctor" in repair_commits[0]
 
+    def test_fix_all_never_substitutes_a_daily_note_for_a_broken_link(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Full pipeline guard for the 2026-08-10 regression.
+
+        A vault whose only plausible semantic match for a broken link is a daily
+        note must come out with the link dropped, not rewritten to
+        ``[[NN-probello]]``.
+        """
+        import json as _json
+
+        (tmp_vault / "Daily" / "2026-08").mkdir(parents=True, exist_ok=True)
+        daily = tmp_vault / "Daily/2026-08/10-probello.md"
+        daily.write_text(
+            "---\ndate: 2026-08-10\ntype: daily\ntags: [daily]\nrelated: []\n---\n\n"
+            "## Sessions\n\n### Session: par-rt-db\n",
+            encoding="utf-8",
+        )
+        _write_note(tmp_vault, "Patterns/keeper.md")
+        subject = tmp_vault / "Patterns/subject.md"
+        subject.write_text(
+            "---\n"
+            "date: 2026-08-10\n"
+            "type: pattern\n"
+            "confidence: high\n"
+            'related: ["[[par-rt-db]]", "[[keeper]]"]\n'
+            "---\n\n# Subject\n\nBody.\n",
+            encoding="utf-8",
+        )
+
+        # vault-search only ever offers the daily note.
+        class _Completed:
+            returncode = 0
+            stdout = _json.dumps(
+                [{"path": str(daily), "stem": daily.stem, "score": 0.95}]
+            )
+
+        monkeypatch.setattr(
+            vault_doctor.subprocess, "run", lambda *a, **kw: _Completed()
+        )
+        monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            vault_doctor.vault_common, "git_commit_vault", lambda *a, **kw: None
+        )
+
+        vault_doctor.run_scan_and_repair(
+            tmp_vault,
+            {"last_run": None, "notes": {}},
+            notes=[],
+            dry_run=False,
+            fix_frontmatter=True,
+            fix_sessions=False,
+            errors_only=False,
+            no_state=True,
+            model=None,
+            limit=0,
+            jobs=1,
+            timeout=10,
+            fix_headings=True,
+        )
+
+        after = subject.read_text(encoding="utf-8")
+        assert "-probello" not in after, f"daily note was substituted in:\n{after}"
+        assert "[[keeper]]" in after
+
     def test_self_ref_removed_on_execute(
         self,
         tmp_vault: Path,
