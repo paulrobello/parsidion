@@ -22,6 +22,162 @@ from doctor._state import (
 )
 from doctor.links import resolve_wikilink
 
+# ---------------------------------------------------------------------------
+# Frontmatter syntax checks
+# ---------------------------------------------------------------------------
+#
+# ``parse_frontmatter`` implements a deliberately small YAML subset and never
+# raises: a shape outside that subset silently yields the wrong value, so a note
+# whose tags/sources/related were quietly dropped still scanned clean. These
+# checks read the RAW frontmatter text, the only place the damage is still
+# visible. Each mirrors a shape found in the live vault; see
+# tests/test_frontmatter_syntax_checks.py.
+
+# Mirrors vault_index._FRONTMATTER_RE. Duplicated rather than imported because
+# that name is private to the parser; the shape (opening/closing bare fences) is
+# part of the note format, not of the parser's internals.
+_FM_BLOCK_RE = re.compile(r"\A---\s*\n(.*?\n)---\s*\n", re.DOTALL)
+_FM_KEY_LINE_RE = re.compile(r"^(\s*)([A-Za-z][\w-]*)\s*:(.*)$")
+_BLOCK_SCALAR_VALUES = (">", "|", ">-", "|-")
+# Fields the note schema defines as lists; a bare scalar here is data loss
+# (a space-separated `tags:` collapses to one string and drops every tag).
+_LIST_FIELDS = ("tags", "related", "sources")
+
+
+def _check_frontmatter_syntax(path: Path, content: str, fm: dict) -> list[Issue]:
+    """Detect malformed frontmatter shapes ``parse_frontmatter`` swallows."""
+    match = _FM_BLOCK_RE.match(content)
+    if match is None:
+        return []
+
+    issues: list[Issue] = []
+    lines = match.group(1).split("\n")
+
+    in_block_scalar = False
+    in_list = False
+    # Key whose inline `[` never closed, and the depth still outstanding.
+    open_list_key: str | None = None
+    depth = 0
+    unterminated: set[str] = set()
+    seen_keys: dict[str, int] = {}
+
+    for line in lines:
+        stripped = line.strip()
+
+        if open_list_key is not None:
+            # Consuming a wrapped inline list: only a new top-level key ends it.
+            key_match = _FM_KEY_LINE_RE.match(line)
+            if key_match and not key_match.group(1):
+                unterminated.add(open_list_key)
+                open_list_key = None
+                depth = 0
+            else:
+                depth += line.count("[") - line.count("]")
+                if depth <= 0:
+                    open_list_key = None
+                continue
+
+        if in_block_scalar:
+            if stripped and line[:1].isspace():
+                continue
+            in_block_scalar = False
+
+        if not stripped or stripped.startswith("#"):
+            continue
+        if in_list and stripped.startswith("- "):
+            continue
+
+        key_match = _FM_KEY_LINE_RE.match(line)
+        if key_match is None:
+            continue
+        indent, key, value = key_match.group(1), key_match.group(2), key_match.group(3)
+        value = value.strip()
+
+        if indent:
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "NESTED_FM_KEY",
+                    f"Indented mapping key '{key}' is not supported by the "
+                    "frontmatter parser and is read as a top-level scalar",
+                )
+            )
+            continue
+
+        seen_keys[key] = seen_keys.get(key, 0) + 1
+
+        in_list = not value
+        if value in _BLOCK_SCALAR_VALUES:
+            in_block_scalar = True
+            in_list = False
+            continue
+        if value.startswith("[") and value.count("[") > value.count("]"):
+            open_list_key = key
+            depth = value.count("[") - value.count("]")
+
+    if open_list_key is not None:
+        unterminated.add(open_list_key)
+
+    for key, count in sorted(seen_keys.items()):
+        if count > 1:
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "DUPLICATE_FM_KEY",
+                    f"Key '{key}' appears {count} times; the parser is "
+                    "last-wins, so the earlier value is silently discarded",
+                )
+            )
+
+    for key in sorted(unterminated):
+        issues.append(
+            Issue(
+                path,
+                "error",
+                "UNTERMINATED_FM_LIST",
+                f"Inline list '{key}' opens with '[' but never closes on the "
+                "same line; the parser stores it as the scalar '[' and "
+                "mis-reads every following line",
+            )
+        )
+
+    # An orphan close bracket left in the body by a collapsed inline list.
+    for bline in vault_common.get_body(content).splitlines():
+        if not bline.strip():
+            continue
+        if bline.strip() in ("]", "],"):
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "ORPHAN_FM_BRACKET",
+                    "Body starts with an orphan ']' — residue of an inline "
+                    "frontmatter list whose opening line was rewritten",
+                )
+            )
+        break
+
+    # A list-typed field holding a bare scalar. Skipped for a field already
+    # reported as unterminated, where the scalar is that defect's symptom.
+    for key in _LIST_FIELDS:
+        if key in unterminated:
+            continue
+        val = fm.get(key)
+        if isinstance(val, str) and val.strip():
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "SCALAR_LIST_FIELD",
+                    f"Field '{key}' must be a list but holds the scalar "
+                    f"{val.strip()!r}; its entries are lost",
+                )
+            )
+
+    return issues
+
 
 def check_note(
     path: Path, note_map: dict[str, list[Path]], vault_path: Path
@@ -59,6 +215,11 @@ def check_note(
         )
         # Can't check field-level issues without frontmatter
         return issues
+
+    # Shapes the parser silently mis-reads (nested keys, unterminated inline
+    # lists, orphan brackets, scalar-where-list). Run before the field checks
+    # so the root cause is reported alongside whatever symptom it produces.
+    issues.extend(_check_frontmatter_syntax(path, content, fm))
 
     # Required fields
     note_type_raw = fm.get("type", "")
