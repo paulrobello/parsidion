@@ -20,6 +20,19 @@ import vault_links
 from doctor._state import Issue, _active_vault, _backup_note
 
 
+def _is_daily_note(path: Path) -> bool:
+    """True when *path* lives under a ``Daily/`` folder.
+
+    Daily journals name every project worked that day, which makes them the
+    top semantic match for a broken link that is really a project name
+    (``[[par-rt-db]]``, ``[[fix-audit-remediation]]``). Substituting one
+    satisfies "the link resolves" while destroying what the link meant, and the
+    following re-scan then reports the note clean, so nothing surfaces it. A
+    dropped link is recoverable; a plausible wrong one is not.
+    """
+    return "Daily" in path.parts
+
+
 def build_note_map(notes: list[Path]) -> dict[str, list[Path]]:
     """Return stem (lowercase) → [paths] for all vault notes."""
     note_map: dict[str, list[Path]] = {}
@@ -77,7 +90,7 @@ def _find_link_replacement(
        links that broke when notes were migrated into subfolders and the prefix
        was stripped from the filename.
     3. Semantic fallback via vault-search — take the top result above min_score
-       that isn't exclude_path.
+       that is neither exclude_path nor a Daily note (see ``_is_daily_note``).
     Returns None if no match is found (caller should remove the link).
     """
     # Normalize: strip .md extension if present (some links use [[note.md]] format)
@@ -127,8 +140,11 @@ def _find_link_replacement(
         data = json.loads(result.stdout)
         exclude_resolved = str(exclude_path.resolve()) if exclude_path else None
         for item in data:
-            item_resolved = str(Path(str(item["path"])).resolve())
+            item_path = Path(str(item["path"]))
+            item_resolved = str(item_path.resolve())
             if exclude_resolved and item_resolved == exclude_resolved:
+                continue
+            if _is_daily_note(item_path):
                 continue
             return str(item["stem"])
     except (OSError, json.JSONDecodeError, subprocess.TimeoutExpired, KeyError):
@@ -246,8 +262,9 @@ def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
     """Return stem names of semantically similar vault notes for wikilink suggestions.
 
     Calls the ``vault-search`` CLI as a subprocess and returns up to *top_k* stem
-    names (excluding *path* itself).  Returns [] gracefully on any failure —
-    missing ``vault-search`` binary, absent ``embeddings.db``, JSON parse errors.
+    names (excluding *path* itself and any Daily note — see ``_is_daily_note``).
+    Returns [] gracefully on any failure — missing ``vault-search`` binary,
+    absent ``embeddings.db``, JSON parse errors.
     """
     try:
         content = path.read_text(encoding="utf-8")
@@ -277,6 +294,7 @@ def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
             str(item["stem"])
             for item in data
             if str(Path(str(item["path"])).resolve()) != self_path
+            and not _is_daily_note(Path(str(item["path"])))
         ][:top_k]
     except (OSError, json.JSONDecodeError, subprocess.TimeoutExpired, KeyError):
         return []

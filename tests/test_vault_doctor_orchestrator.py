@@ -219,6 +219,63 @@ class TestScanExecuteAppliesPythonOnlyFixes:
         # State was recorded for the repaired note.
         assert any("fixed" == v.get("status") for v in state.get("notes", {}).values())
 
+    def test_repairs_are_committed_by_the_repair_phase(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The repair phase must commit its own notes.
+
+        The reindex that follows stages only CLAUDE.md/TAGS.md/MANIFEST.md, so
+        without this the AI's edits sat dirty until an unrelated later hook
+        swept them into a 'chore(vault): session notes' commit — model-authored
+        changes attributed to a commit that never mentions them.
+        """
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        bad = tmp_vault / "Patterns/bad-heading.md"
+        bad.write_text(
+            "---\n"
+            "date: 2026-07-28\n"
+            "type: pattern\n"
+            "confidence: high\n"
+            'related: ["[[other-note]]"]\n'
+            "---\n"
+            "## Should Be H1\n"
+            "body\n",
+            encoding="utf-8",
+        )
+        messages: list[str] = []
+        monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            vault_doctor.vault_common,
+            "git_commit_vault",
+            lambda msg, **kw: messages.append(msg),
+        )
+
+        vault_doctor.run_scan_and_repair(
+            tmp_vault,
+            {"last_run": None, "notes": {}},
+            notes=[],
+            dry_run=False,
+            fix_frontmatter=True,
+            fix_sessions=False,
+            errors_only=False,
+            no_state=True,
+            model=None,
+            limit=0,
+            jobs=1,
+            timeout=10,
+            fix_headings=True,
+        )
+
+        repair_commits = [m for m in messages if "repair frontmatter" in m]
+        assert repair_commits, f"no repair commit was made; got {messages}"
+        assert "vault_doctor" in repair_commits[0]
+
     def test_self_ref_removed_on_execute(
         self,
         tmp_vault: Path,

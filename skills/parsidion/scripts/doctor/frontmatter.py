@@ -45,8 +45,13 @@ def repair_note(
     # For any non-daily note that must produce/fix a 'related' field, surface
     # real semantically-similar notes so the model picks actual wikilinks
     # instead of inventing targets that don't resolve to anything.
+    # BROKEN_WIKILINK belongs here: a note whose only issue was a broken link
+    # got an EMPTY candidate list while still being told every link must
+    # resolve, so the model invented a target — in practice a Daily note, whose
+    # stem it could guess from the note's own `date:` field.
     needs_related = any(
-        i.code in ("ORPHAN_NOTE", "MISSING_FIELD", "MISSING_FRONTMATTER")
+        i.code
+        in ("ORPHAN_NOTE", "MISSING_FIELD", "MISSING_FRONTMATTER", "BROKEN_WIKILINK")
         for i in issues
     )
     candidates: list[str] = (
@@ -67,7 +72,12 @@ def repair_note(
             "- 'related' MUST be a single-line inline YAML array of [[wikilinks]], "
             "exactly like:\n"
             '      related: ["[[some-note]]", "[[another-note]]"]\n'
-            "  Use only the real targets listed below; every [[link]] must resolve."
+            "  Use only the real targets listed below; every [[link]] must resolve.\n"
+            "- NEVER link a daily note (a stem like '10-probello' or any note under "
+            "Daily/). They match almost any topic and carry no meaning as a link.\n"
+            "- If a broken link has no genuinely related replacement in the list "
+            "below, DROP it rather than substituting a loosely-related note. "
+            "Removing a link is recoverable; a plausible wrong one is not."
         )
 
     prompt = render(

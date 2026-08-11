@@ -1677,18 +1677,39 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     vault = tmp_path / "vault"
     vault.mkdir()
     records = [
-        {"session_id": "s1", "transcript_path": "/tmp/x.jsonl", "project": "p",
-         "categories": ["x"], "timestamp": "2026-08-01T00:00:00", "source": "session",
-         "attempts": 3, "last_failure": "no_result: /tmp/x.jsonl",
-         "dead_lettered_at": "2026-08-01T00:00:00"},
-        {"session_id": "s2", "transcript_path": "/tmp/y.jsonl", "project": "p",
-         "categories": ["x"], "timestamp": "2026-08-01T00:00:00", "source": "session",
-         "attempts": 3, "last_failure": "no_result_timeout: /tmp/y.jsonl",
-         "dead_lettered_at": "2026-08-01T00:00:00"},
-        {"session_id": "s3", "transcript_path": "/tmp/z.jsonl", "project": "p",
-         "categories": ["x"], "timestamp": "2026-08-01T00:00:00", "source": "session",
-         "attempts": 1, "last_failure": "note_validation: write_note returned None",
-         "dead_lettered_at": "2026-08-01T00:00:00"},
+        {
+            "session_id": "s1",
+            "transcript_path": "/tmp/x.jsonl",
+            "project": "p",
+            "categories": ["x"],
+            "timestamp": "2026-08-01T00:00:00",
+            "source": "session",
+            "attempts": 3,
+            "last_failure": "no_result: /tmp/x.jsonl",
+            "dead_lettered_at": "2026-08-01T00:00:00",
+        },
+        {
+            "session_id": "s2",
+            "transcript_path": "/tmp/y.jsonl",
+            "project": "p",
+            "categories": ["x"],
+            "timestamp": "2026-08-01T00:00:00",
+            "source": "session",
+            "attempts": 3,
+            "last_failure": "no_result_timeout: /tmp/y.jsonl",
+            "dead_lettered_at": "2026-08-01T00:00:00",
+        },
+        {
+            "session_id": "s3",
+            "transcript_path": "/tmp/z.jsonl",
+            "project": "p",
+            "categories": ["x"],
+            "timestamp": "2026-08-01T00:00:00",
+            "source": "session",
+            "attempts": 1,
+            "last_failure": "note_validation: write_note returned None",
+            "dead_lettered_at": "2026-08-01T00:00:00",
+        },
     ]
     dl = vault / "dead_letters.jsonl"
     dl.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
@@ -1698,7 +1719,10 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     requeue = summarize_sessions._requeue_dead_letters
 
     # dry-run counts without mutating: 'no_result' prefix matches legacy + timeout
-    assert requeue(vault, reason="no_result", min_age_days=0, max_count=0, dry_run=True) == 2
+    assert (
+        requeue(vault, reason="no_result", min_age_days=0, max_count=0, dry_run=True)
+        == 2
+    )
     assert len(dl.read_text(encoding="utf-8").splitlines()) == 3
 
     # real run moves the 2 no_result entries out of dead_letters, into pending
@@ -1720,4 +1744,9 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     assert "attempts" not in moved[0]
 
     # reason filter is a prefix: 'note_validation' now matches the lone survivor
-    assert requeue(vault, reason="note_validation", min_age_days=0, max_count=0, dry_run=True) == 1
+    assert (
+        requeue(
+            vault, reason="note_validation", min_age_days=0, max_count=0, dry_run=True
+        )
+        == 1
+    )

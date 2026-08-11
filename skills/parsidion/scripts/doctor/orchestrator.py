@@ -456,6 +456,18 @@ def run_scan_and_repair(
         f"\nDone: {repaired} repaired, {failed} failed, {leftover} not yet processed."
     )
 
+    # Commit the repaired notes here, under a message that names them. The
+    # reindex below stages only CLAUDE.md/TAGS.md/MANIFEST.md, so without this
+    # the AI's edits sat dirty in the worktree until an unrelated later hook
+    # swept them into a "chore(vault): session notes" commit — attributing
+    # model-authored changes to a commit that does not mention them, and
+    # leaving no reviewable diff in between.
+    if repaired:
+        vault_common.git_commit_vault(
+            f"fix(vault): repair frontmatter in {repaired} note(s) via vault_doctor",
+            vault=vault,
+        )
+
     # Scan-and-repair is the LAST stage of the --fix-all pipeline; earlier
     # stages reindex only their own changes, so repairs must reindex here too.
     if repaired:
