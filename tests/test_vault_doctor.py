@@ -516,6 +516,156 @@ class TestAutoFixHeadings:
         assert result is False
 
 
+class TestAutoFixMetadataWrapper:
+    """Deterministic flattener for the `metadata:` wrapper (NESTED_FM_KEY)."""
+
+    def test_flattens_metadata_wrapper(self, vault: Path) -> None:
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "metadata:\n"
+            "  type: pattern\n"
+            "  project: par-rt-db\n"
+            "  confidence: high\n"
+            "  tags:\n"
+            "  - rust\n"
+            "  - serde\n"
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/wrapped.md", content)
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is True
+        updated = note.read_text(encoding="utf-8")
+        assert "metadata:" not in updated
+        assert "\ntype: pattern\n" in updated
+        assert "\nproject: par-rt-db\n" in updated
+        # Multi-line list items are dedented to column 0 and preserved.
+        assert "\ntags:\n- rust\n- serde\n" in updated
+
+    def test_drops_child_duplicate_of_top_level_key(self, vault: Path) -> None:
+        # A nested `related` scalar duplicates a top-level `related` list — the
+        # nested copy is dropped; the authoritative top-level list survives.
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "metadata:\n"
+            "  type: pattern\n"
+            '  related: "rust-client"\n'
+            'related: ["[[real-note]]"]\n'
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/dup.md", content)
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is True
+        updated = note.read_text(encoding="utf-8")
+        assert updated.count("related:") == 1
+        assert 'related: ["[[real-note]]"]' in updated
+        assert "rust-client" not in updated
+        assert "\ntype: pattern\n" in updated
+
+    def test_noop_for_indented_key_not_under_metadata(self, vault: Path) -> None:
+        # An indented key with no `metadata:` wrapper is left alone — the generic
+        # NESTED_FM_KEY warning still fires for it.
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "  weird-indented: value\n"
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/odd.md", content)
+        before = note.read_text(encoding="utf-8")
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is False
+        assert note.read_text(encoding="utf-8") == before
+
+    def test_noop_when_already_flat(self, vault: Path) -> None:
+        content = (
+            "---\ndate: 2026-08-11\ntype: pattern\ntags: [rust, serde]\n---\n# Body\n"
+        )
+        note = _write_note(vault, "Patterns/flat.md", content)
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is False
+
+    def test_idempotent(self, vault: Path) -> None:
+        content = "---\nmetadata:\n  type: pattern\n  date: 2026-08-11\n---\n# Body\n"
+        note = _write_note(vault, "Patterns/idem.md", content)
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is True
+        # Second run: no `metadata:` wrapper left → no-op.
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is False
+
+
+class TestAutoFixScalarListField:
+    """Deterministic scalar→list repair for tags/sources/related (SCALAR_LIST_FIELD)."""
+
+    def test_fixes_scalar_tags(self, vault: Path) -> None:
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "tags: rust serde cli\n"
+            'related: ["[[other]]"]\n'
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/scalar.md", content)
+        assert vault_doctor._auto_fix_scalar_list_field(note) is True
+        assert "tags: [rust, serde, cli]" in note.read_text(encoding="utf-8")
+
+    def test_fixes_scalar_sources(self, vault: Path) -> None:
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "sources: path/a.rs path/b.rs\n"
+            'related: ["[[other]]"]\n'
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/src.md", content)
+        assert vault_doctor._auto_fix_scalar_list_field(note) is True
+        assert "sources: [path/a.rs, path/b.rs]" in note.read_text(encoding="utf-8")
+
+    def test_fixes_related_scalar_containing_wikilinks(self, vault: Path) -> None:
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            'related: "[[alpha]] and [[beta]]"\n'
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/rel.md", content)
+        assert vault_doctor._auto_fix_scalar_list_field(note) is True
+        assert 'related: ["[[alpha]]", "[[beta]]"]' in note.read_text(encoding="utf-8")
+
+    def test_noop_for_bare_word_related(self, vault: Path) -> None:
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "related: some-bare-word\n"
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/bare.md", content)
+        before = note.read_text(encoding="utf-8")
+        assert vault_doctor._auto_fix_scalar_list_field(note) is False
+        assert note.read_text(encoding="utf-8") == before
+
+    def test_noop_when_already_list(self, vault: Path) -> None:
+        content = (
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "tags: [rust, serde]\n"
+            'related: ["[[other]]"]\n'
+            "---\n"
+            "# Body\n"
+        )
+        note = _write_note(vault, "Patterns/ok.md", content)
+        assert vault_doctor._auto_fix_scalar_list_field(note) is False
+
+
 # ---------------------------------------------------------------------------
 # Redundant prefix detection
 # ---------------------------------------------------------------------------

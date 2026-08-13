@@ -14,7 +14,9 @@ shapes were found in the live vault (7951 notes) with ad-hoc scripts:
 * a duplicate top-level key (35 notes), where last-wins silently discards the
   earlier value
 
-Detection is what these tests pin; repair stays manual.
+Detection is what these tests pin. ``NESTED_FM_KEY`` (the ``metadata:``
+wrapper shape) and ``SCALAR_LIST_FIELD`` now have deterministic repairs
+(see ``test_vault_doctor.py``); the other three codes stay manual.
 """
 
 from __future__ import annotations

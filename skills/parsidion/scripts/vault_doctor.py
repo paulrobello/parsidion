@@ -120,6 +120,8 @@ from doctor.frontmatter import (  # noqa: F401 — re-exports
     _FM_KEY_RE,
     _FM_LEAKED_MARKER_RE,
     _FM_RELATED_RE,
+    _auto_fix_metadata_wrapper,
+    _auto_fix_scalar_list_field,
     _frontmatter_stems,
     _normalize_repaired_note,
     _note_is_daily,

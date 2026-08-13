@@ -622,3 +622,92 @@ class TestFixModeRegistry:
         assert standalone_ran is False
         # fix_a + fix_b ran, fix_c did not.
         assert called == [tmp_vault.name, tmp_vault.name]
+
+
+class TestDeterministicFrontmatterPrePass:
+    """The two detection-only codes with a safe mechanical fix
+    (NESTED_FM_KEY ``metadata:`` wrapper, SCALAR_LIST_FIELD) are repaired by a
+    deterministic pre-pass — no AI backend call, even with fix_frontmatter=True.
+    """
+
+    def _run(self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
+        monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
+        monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
+        state: dict = {"last_run": None, "notes": {}}
+        vault_doctor.run_scan_and_repair(
+            tmp_vault,
+            state,
+            notes=[],
+            dry_run=False,
+            fix_frontmatter=True,
+            fix_sessions=False,
+            errors_only=False,
+            no_state=True,
+            model=None,
+            limit=0,
+            jobs=1,
+            timeout=10,
+            fix_headings=True,
+        )
+        return state
+
+    def test_metadata_wrapper_fixed_without_ai(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        bad = tmp_vault / "Patterns/wrapped.md"
+        bad.write_text(
+            "---\n"
+            "date: 2026-08-11\n"
+            "metadata:\n"
+            "  type: pattern\n"
+            "  confidence: high\n"
+            "  tags: [rust]\n"
+            '  related: ["[[other-note]]"]\n'
+            "---\n"
+            "# Heading\n",
+            encoding="utf-8",
+        )
+        calls: list[int] = []
+        monkeypatch.setattr(
+            vault_doctor.ai_backend,
+            "run_ai_prompt",
+            lambda *a, **kw: calls.append(1) or None,
+        )
+        state = self._run(tmp_vault, monkeypatch)
+        after = bad.read_text(encoding="utf-8")
+        assert "metadata:" not in after
+        assert "\ntype: pattern\n" in after
+        # No AI call: the deterministic pre-pass cleared the only issues.
+        assert calls == []
+        rel = str(bad.relative_to(tmp_vault))
+        assert state["notes"][rel]["status"] == "fixed"
+
+    def test_scalar_list_fixed_without_ai(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        bad = tmp_vault / "Patterns/scalar.md"
+        bad.write_text(
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "confidence: high\n"
+            "tags: rust serde\n"
+            'related: ["[[other-note]]"]\n'
+            "---\n"
+            "# Heading\n",
+            encoding="utf-8",
+        )
+        calls: list[int] = []
+        monkeypatch.setattr(
+            vault_doctor.ai_backend,
+            "run_ai_prompt",
+            lambda *a, **kw: calls.append(1) or None,
+        )
+        state = self._run(tmp_vault, monkeypatch)
+        after = bad.read_text(encoding="utf-8")
+        assert "tags: [rust, serde]" in after
+        assert calls == []
+        rel = str(bad.relative_to(tmp_vault))
+        assert state["notes"][rel]["status"] == "fixed"

@@ -210,3 +210,46 @@ class TestExecuteModeBackups:
         )
         assert backup.exists()
         assert backup.read_text(encoding="utf-8") == "# Overview\n"
+
+
+class TestDeterministicFrontmatterFixersBackUpFirst:
+    """``_auto_fix_metadata_wrapper`` / ``_auto_fix_scalar_list_field`` must back
+    the note up before overwriting it — same contract as every other execute-mode
+    fix.
+    """
+
+    def test_metadata_wrapper_fix_creates_backup(self, vault: Path) -> None:
+        note = _write_note(
+            vault,
+            "Patterns/wrapped.md",
+            "---\nmetadata:\n  type: pattern\n  date: 2026-08-11\n---\n# Body\n",
+        )
+        assert vault_doctor._auto_fix_metadata_wrapper(note) is True
+        backup = (
+            vault
+            / ".trash"
+            / "backup"
+            / date.today().isoformat()
+            / "Patterns"
+            / "wrapped.md"
+        )
+        assert backup.exists()
+        assert "metadata:" in backup.read_text(encoding="utf-8")  # pre-fix content
+
+    def test_scalar_list_fix_creates_backup(self, vault: Path) -> None:
+        note = _write_note(
+            vault,
+            "Patterns/scalar.md",
+            "---\ndate: 2026-08-11\ntype: pattern\ntags: a b c\n---\n# Body\n",
+        )
+        assert vault_doctor._auto_fix_scalar_list_field(note) is True
+        backup = (
+            vault
+            / ".trash"
+            / "backup"
+            / date.today().isoformat()
+            / "Patterns"
+            / "scalar.md"
+        )
+        assert backup.exists()
+        assert "tags: a b c" in backup.read_text(encoding="utf-8")  # pre-fix content

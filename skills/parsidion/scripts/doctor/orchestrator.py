@@ -32,7 +32,11 @@ from doctor._state import (
     should_skip,
 )
 from doctor.check import check_note
-from doctor.frontmatter import _note_is_daily  # noqa: F401 — re-export parity
+from doctor.frontmatter import (  # noqa: F401 — _note_is_daily re-export parity
+    _auto_fix_metadata_wrapper,
+    _auto_fix_scalar_list_field,
+    _note_is_daily,
+)
 from doctor.graph import _run_reindex, commit_stale_files
 from doctor.links import build_note_map, dedup_related_links
 from doctor.subfolder import (
@@ -207,6 +211,53 @@ def _classify_repair_candidates(
             "issues": codes,
         }
     return repair_candidates, manual_only
+
+
+def _run_deterministic_frontmatter_fixes(
+    issues_by_note: dict[Path, list[Issue]],
+    vault: Path,
+    state: dict,
+    note_map: dict[str, list[Path]],
+    today_str: str,
+) -> None:
+    """Deterministic (Python-only) repair for the two detection-only codes that
+    have a safe mechanical fix: ``NESTED_FM_KEY`` (a ``metadata:`` wrapper) and
+    ``SCALAR_LIST_FIELD``.
+
+    Runs before issue classification so fixed notes drop out of the AI-repair
+    candidate set. A fixed note is re-scanned: if any codes remain they stay in
+    ``issues_by_note`` and flow through the normal (possibly AI) repair path; if
+    it is now clean it is removed and recorded ``fixed`` in state. Never calls
+    the AI backend.
+    """
+    for note_path in list(issues_by_note.keys()):
+        codes = {i.code for i in issues_by_note[note_path]}
+        if not (codes & {"NESTED_FM_KEY", "SCALAR_LIST_FIELD"}):
+            continue
+        changed = False
+        # metadata-wrapper first: it lifts nested fields to top level, which
+        # the scalar-list fixer then sees as ordinary top-level lines.
+        if "NESTED_FM_KEY" in codes:
+            changed |= _auto_fix_metadata_wrapper(note_path)
+        if "SCALAR_LIST_FIELD" in codes:
+            changed |= _auto_fix_scalar_list_field(note_path)
+        if not changed:
+            continue
+        rel = note_path.relative_to(vault)
+        new_issues = check_note(note_path, note_map, vault)
+        if new_issues:
+            issues_by_note[note_path] = new_issues
+        else:
+            del issues_by_note[note_path]
+            state.setdefault("notes", {})[_rel(note_path, vault)] = {
+                "status": "fixed",
+                "last_checked": today_str,
+                "issues": [],
+            }
+        print(
+            f"  ✓ {rel}: flattened metadata/scalar frontmatter (deterministic)",
+            flush=True,
+        )
 
 
 def _apply_repairs_parallel(
@@ -426,6 +477,19 @@ def run_scan_and_repair(
 
     if dry_run:
         return
+
+    # Deterministic (Python-only) frontmatter repairs for the two detection-only
+    # codes that have a safe mechanical fix (metadata: wrapper, scalar list
+    # field). Runs before classification so fixed notes drop out of the AI-repair
+    # candidate set; remaining codes flow through the normal repair path.
+    if fix_frontmatter:
+        _run_deterministic_frontmatter_fixes(
+            issues_by_note, vault, state, note_map, today_str
+        )
+        if not issues_by_note:
+            print("✓ No issues remaining after deterministic frontmatter repairs.")
+            save_state(state, vault)
+            return
 
     # Classify repair candidates
     repair_candidates, manual_only = _classify_repair_candidates(

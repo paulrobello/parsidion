@@ -12,8 +12,16 @@ from pathlib import Path
 
 import ai_backend
 import vault_common
+import vault_fs
 
-from doctor._state import AI_TIMEOUT, DEFAULT_MODEL, VALID_TYPES, Issue, _active_vault
+from doctor._state import (
+    AI_TIMEOUT,
+    DEFAULT_MODEL,
+    VALID_TYPES,
+    Issue,
+    _active_vault,
+    _backup_note,
+)
 from doctor.links import _find_semantic_candidates, resolve_wikilink
 from prompt_templates import render
 
@@ -248,3 +256,183 @@ def _normalize_repaired_note(
         new_fm.append(new_related)
 
     return "\n".join(["---", *new_fm, "---", *body_lines])
+
+
+# ---------------------------------------------------------------------------
+# Deterministic (Python-only) frontmatter repairs — no Claude call.
+#
+# Two detection-only codes have a safe mechanical fix, so they are repaired
+# here rather than left for a human (and not routed through the AI path,
+# which is deliberately kept away from structurally broken frontmatter):
+#   * NESTED_FM_KEY      — fields wrapped under a `metadata:` mapping block.
+#   * SCALAR_LIST_FIELD  — tags/sources/related holding a bare scalar.
+# The orchestrator calls these as a pre-pass before issue classification
+# (see doctor.orchestrator._run_deterministic_frontmatter_fixes).
+# ---------------------------------------------------------------------------
+
+# A token that needs quoting inside an inline YAML list (would otherwise break
+# parsing or change meaning): comma, flow markers, comment/hash, quote chars,
+# or leading/trailing whitespace.
+_YAML_QUOTE_RE = re.compile(r"[,\[\]{}:#\"']|^\s|\s$")
+
+
+def _yaml_inline_scalar(token: str) -> str:
+    """Format *token* for an inline YAML list, quoting only when necessary."""
+    token = token.strip()
+    if token == "" or _YAML_QUOTE_RE.search(token):
+        return '"' + token.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return token
+
+
+def _auto_fix_metadata_wrapper(path: Path) -> bool:
+    """Flatten a single ``metadata:`` mapping wrapper to top-level keys.
+
+    Some AI-generated notes wrap the real frontmatter under a ``metadata:``
+    block. The frontmatter parser already flattens indented keys to top level,
+    so this is a structural cleanup that makes the file's YAML match what the
+    parser produces: the indented children are dedented to column 0 and the
+    ``metadata:`` line is dropped. A child whose key already exists as a
+    top-level field (or earlier in the wrapper) is dropped — the parser is
+    last-wins, so the existing top-level value is authoritative.
+
+    Returns True if the file was rewritten. Returns False (no-op) for any note
+    without this specific ``metadata:``-wrapper shape, so the generic
+    NESTED_FM_KEY warning still fires for other nested-key structures.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    lines = content.split("\n")
+    if not lines or _FM_DELIM_RE.match(lines[0]) is None:
+        return False
+    closers = [i for i in range(1, len(lines)) if _FM_DELIM_RE.match(lines[i])]
+    if not closers:
+        return False
+    closer = closers[0]
+    fm_lines = lines[1:closer]
+
+    # Locate a top-level `metadata:` key with at least one indented child.
+    metadata_idx: int | None = None
+    for i, ln in enumerate(fm_lines):
+        if (
+            ln.rstrip() == "metadata:"
+            and i + 1 < len(fm_lines)
+            and fm_lines[i + 1][:1].isspace()
+            and fm_lines[i + 1].strip()
+        ):
+            metadata_idx = i
+            break
+    if metadata_idx is None:
+        return False
+
+    # Extent of the wrapper's indented block.
+    block_end = metadata_idx + 1
+    while (
+        block_end < len(fm_lines)
+        and fm_lines[block_end][:1].isspace()
+        and fm_lines[block_end].strip()
+    ):
+        block_end += 1
+    block = fm_lines[metadata_idx + 1 : block_end]
+
+    # Top-level keys present outside the wrapper (authoritative for dedup).
+    top_keys: set[str] = set()
+    for idx, ln in enumerate(fm_lines):
+        if metadata_idx <= idx < block_end:
+            continue
+        if _FM_KEY_RE.match(ln):
+            top_keys.add(ln.split(":", 1)[0])
+
+    # Lift children (dedent to column 0); drop keys that duplicate a top-level
+    # key or an already-lifted key (and their following list items).
+    lifted: list[str] = []
+    emitted: set[str] = set()
+    skip = False
+    for ln in block:
+        stripped = ln.lstrip()
+        m = re.match(r"^([A-Za-z][\w-]*)\s*:", stripped)
+        if m:
+            k = m.group(1)
+            skip = k in top_keys or k in emitted
+            if skip:
+                continue
+            emitted.add(k)
+            lifted.append(stripped)
+        elif not skip:
+            lifted.append(stripped)
+
+    new_fm = fm_lines[:metadata_idx] + lifted + fm_lines[block_end:]
+    new_lines = lines[:1] + new_fm + lines[closer:]
+    new_content = "\n".join(new_lines)
+    if new_content == content:
+        return False
+
+    _backup_note(_active_vault(), path)
+    vault_fs.atomic_write_text(path, new_content)
+    return True
+
+
+def _auto_fix_scalar_list_field(path: Path) -> bool:
+    """Convert a scalar ``tags``/``sources``/``related`` value to a list.
+
+    ``tags`` and ``sources``: the scalar is whitespace-split into an inline
+    list. ``related``: only fixed when the scalar already contains a
+    ``[[wikilink]]`` (re-wrapped as ``"[[stem]]"``); a bare-word ``related``
+    is left for a human. Idempotent — a field that is already a list (or empty)
+    is a no-op.
+
+    Returns True if the file was rewritten.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    fm = vault_common.parse_frontmatter(content)
+    if not fm:
+        return False
+
+    edits: dict[str, str] = {}
+    for field in ("tags", "sources", "related"):
+        val = fm.get(field)
+        if not isinstance(val, str) or not val.strip():
+            continue
+        if field == "related":
+            stems = re.findall(r"\[\[([^\[\]]+)\]\]", val)
+            if not stems:
+                continue
+            items = ", ".join(f'"[[{s.split("|")[0].split("#")[0]}]]"' for s in stems)
+            edits[field] = f"[{items}]"
+        else:
+            items = ", ".join(_yaml_inline_scalar(t) for t in val.split())
+            if not items:
+                continue
+            edits[field] = f"[{items}]"
+    if not edits:
+        return False
+
+    lines = content.split("\n")
+    if not lines or _FM_DELIM_RE.match(lines[0]) is None:
+        return False
+    closers = [i for i in range(1, len(lines)) if _FM_DELIM_RE.match(lines[i])]
+    if not closers:
+        return False
+    closer = closers[0]
+
+    remaining = dict(edits)
+    for i in range(1, closer):
+        if not remaining:
+            break
+        m = re.match(r"^([A-Za-z][\w-]*)\s*:", lines[i])
+        if m and m.group(1) in remaining:
+            lines[i] = f"{m.group(1)}: {remaining.pop(m.group(1))}"
+    if remaining:
+        return False  # a targeted field was not a top-level line (e.g. still nested)
+
+    new_content = "\n".join(lines)
+    if new_content == content:
+        return False
+    _backup_note(_active_vault(), path)
+    vault_fs.atomic_write_text(path, new_content)
+    return True
