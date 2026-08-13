@@ -490,6 +490,63 @@ class TestFindPrefixClusters:
         assert any(p == "my-project" for p, _ in exact)
 
 
+class TestGenericPrefixDenylist:
+    """First-word clusters on generic modifier prefixes are never formed or
+    migrated -- stripping them would split a compound slug
+    (``client-side-x`` -> ``client/side-x``). See ``_GENERIC_PREFIX_DENYLIST``.
+    """
+
+    def test_is_generic_prefix_classifies_known_words(self) -> None:
+        for w in ("client", "code", "env", "id", "admin", "asset"):
+            assert vault_doctor._is_generic_prefix(w) is True
+        for w in ("redis", "serde", "extractor", "token", "obsidian"):
+            assert vault_doctor._is_generic_prefix(w) is False
+
+    def test_find_prefix_clusters_skips_denyalist_prefix(self, vault: Path) -> None:
+        for s in ("quality-baseline", "quality-review", "quality-remediation"):
+            _write_note(vault, f"Patterns/code-{s}.md", f"# {s}\n")
+        all_notes = list(vault_common.all_vault_notes(vault))
+        clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
+        assert "code" not in [p for _, p, _, _ in clusters]
+
+    def test_find_prefix_clusters_keeps_real_subject(self, vault: Path) -> None:
+        for s in ("caching", "pubsub", "streams"):
+            _write_note(vault, f"Patterns/redis-{s}.md", f"# {s}\n")
+        all_notes = list(vault_common.all_vault_notes(vault))
+        clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
+        assert "redis" in [p for _, p, _, _ in clusters]
+
+    def test_find_subfolder_candidates_skips_denyalist_prefix(
+        self, vault: Path
+    ) -> None:
+        for s in ("side-render", "side-state", "side-input"):
+            _write_note(vault, f"Patterns/client-{s}.md", f"# {s}\n")
+        candidates = vault_doctor.find_subfolder_candidates(vault)
+        for _folder, groups in candidates.items():
+            assert "client" not in [p for p, _ in groups]
+
+    def test_migrate_does_not_move_denyalist_cluster(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        notes = [
+            _write_note(vault, f"Patterns/env-{s}.md", f"# {s}\n")
+            for s in ("var-a", "var-b", "flag-c")
+        ]
+        # AI filter "keeps all" -- the denylist must still block env at detection.
+        monkeypatch.setattr(
+            vault_doctor,
+            "_filter_clusters_with_claude",
+            lambda clusters, **kw: clusters,
+        )
+        monkeypatch.setattr(vault_doctor.subprocess, "run", lambda *a, **kw: None)
+        vault_doctor.run_migrate_subfolders(vault, dry_run=False)
+        for note in notes:
+            assert note.exists(), (
+                "denylisted prefix must not migrate even if the AI filter keeps it"
+            )
+        assert not (vault / "Patterns" / "env").exists()
+
+
 # ---------------------------------------------------------------------------
 # Heading auto-fix
 # ---------------------------------------------------------------------------

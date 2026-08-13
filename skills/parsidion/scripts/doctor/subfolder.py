@@ -36,6 +36,68 @@ from doctor._state import (
 )
 
 
+# First-word prefixes that are generic modifiers / common abbreviations, NOT
+# specific subjects (a project/library/tool/OS). First-word migration on one of
+# these splits a compound slug -- ``client-side-x`` -> ``client/side-x``,
+# ``code-quality-x`` -> ``code/quality-x``, ``env-var-x`` -> ``env/var-x``,
+# ``id-scoped-x`` -> ``id/scoped-x``. The prompt-AI filter
+# (_filter_clusters_with_claude) is meant to reject these, but it is unreliable
+# on borderline common-tech words (it accepted every one of these on
+# 2026-08-12), so they are blocked deterministically here before the filter runs
+# and before any --fix-all auto-migration can re-mangle them. The AI filter
+# still gates prefixes NOT in this set. Real subjects (serde, redis, extractor,
+# token, ttl, subprocess, obsidian ...) are coined/proper-noun terms and are
+# never common English words, so they are safe. Extend the set as new
+# false-positives surface.
+_GENERIC_PREFIX_DENYLIST = frozenset(
+    {
+        # confirmed manglers (2026-08-12 vault_doctor --fix-all)
+        "admin",
+        "asset",
+        "client",
+        "code",
+        "env",
+        "id",
+        # other common modifiers / abbreviations that form compounds, not subjects
+        "additive",
+        "component",
+        "concurrent",
+        "conservative",
+        "cross",
+        "declarative",
+        "dedicated",
+        "dev",
+        "empty",
+        "file",
+        "find",
+        "guard",
+        "idempotent",
+        "live",
+        "mechanical",
+        "missing",
+        "module",
+        "multi",
+        "numeric",
+        "producer",
+        "responsive",
+        "secure",
+        "struct",
+        "two",
+        "vendored",
+        "watchdog",
+    }
+)
+
+
+def _is_generic_prefix(prefix: str) -> bool:
+    """True if *prefix* is a generic modifier word, not a specific subject.
+
+    Such prefixes are blocked from first-word cluster migration because
+    stripping them splits a compound slug. See ``_GENERIC_PREFIX_DENYLIST``.
+    """
+    return prefix.lower() in _GENERIC_PREFIX_DENYLIST
+
+
 def find_prefix_clusters(
     all_notes: list[Path],
     vault_path: Path,
@@ -110,6 +172,8 @@ def find_prefix_clusters(
             if len(cluster_notes) < PREFIX_CLUSTER_MIN:
                 continue
             if (folder / prefix).exists():
+                continue
+            if _is_generic_prefix(prefix):
                 continue
             clusters.append((folder, prefix, cluster_notes, None))
 
@@ -348,6 +412,7 @@ def find_subfolder_candidates(
             (prefix, sorted(notes_in_group))
             for prefix, notes_in_group in sorted(by_prefix.items())
             if len(notes_in_group) >= PREFIX_CLUSTER_MIN
+            and not _is_generic_prefix(prefix)
         ]
         if groups:
             result[folder_rel] = groups
