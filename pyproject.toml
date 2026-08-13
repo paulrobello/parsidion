@@ -1,6 +1,6 @@
 [project]
 name = "parsidion"
-version = "0.17.0"
+version = "0.18.0"
 # ARC-013: lowered from >=3.13. The stdlib-only hooks/scripts and the
 # installer use no 3.12+ syntax (no PEP 695 ``type`` statement, no
 # exception groups, no @override). All files annotated with ``X | Y``

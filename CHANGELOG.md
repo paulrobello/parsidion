@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-12
+
+Vault-doctor auto-repair release. Two malformed-frontmatter shapes that 0.17.0 taught the doctor to *detect* but deliberately left for a human (`NESTED_FM_KEY` and `SCALAR_LIST_FIELD`) are now repaired deterministically; and the prefix-subfolder migration no longer mangles compound slugs.
+
+### Added
+- **Deterministic frontmatter repair** — `NESTED_FM_KEY` (the `metadata:` mapping-wrapper shape) and `SCALAR_LIST_FIELD` (scalar `tags`/`sources`/`related`) now have Python-only repairs in a new orchestrator pre-pass that runs before issue classification. The doctor fixes them instead of leaving them for a human, with no AI backend call. The wrapper fix is byte-equivalent (`parse_frontmatter` already flattens indented keys to top level, so the rewrite just matches the parser's interpretation); a child key that duplicates a top-level key is dropped. Both codes stay in `DETECTION_ONLY_CODES` — the AI path is still never turned loose on structurally broken frontmatter.
+
+### Fixed
+- **Prefix-subfolder migration no longer mangles compound slugs** — first-word clustering plus the prompt-AI generic-word filter accepted common modifier prefixes (`client`, `code`, `env`, `id`, `admin`, `asset`) as "subjects", so `--fix-all` split compounds (`client-side-x` → `client/side-x`, `code-quality-x` → `code/quality-x`, `env-var-x` → `env/var-x`) and re-mangled the same notes on every run. A deterministic denylist (`_GENERIC_PREFIX_DENYLIST`) now blocks generic modifier / common-abbreviation prefixes before the AI filter, in both `find_prefix_clusters` and `find_subfolder_candidates`. Real subjects are coined / proper-noun terms (`serde`, `redis`, `extractor`, `token`, `ttl`, `subprocess`) and pass untouched; the AI filter still gates novel prefixes.
+
 ## [0.17.0] - 2026-08-11
 
 Vault-doctor integrity release. Five malformed-frontmatter shapes that `parse_frontmatter` silently mis-read — and that the scan therefore reported as clean — are now detected; the backlink writer no longer appends a duplicate `related:` key; and broken-wikilink repair no longer substitutes a daily journal note for a real target. 85 notes in the reference vault were repaired as a result, recovering 50 tags that had been collapsed into unsearchable strings.
