@@ -466,11 +466,13 @@ Repairs run in parallel (`--jobs N`, default 3). Each prompt AI subprocess (`cla
 Repairable codes (prompt AI backend can fix): `MISSING_FRONTMATTER`, `MISSING_FIELD`, `INVALID_TYPE`, `INVALID_DATE`, `ORPHAN_NOTE`.
 Auto-repairable without prompt AI (Python-only): `BROKEN_WIKILINK` (exact stem match, prefix-strip match, then a `vault-search` semantic fallback that never returns a `Daily/` note — a journal page matches almost any topic, so substituting one satisfies "the link resolves" while destroying what the link meant; when nothing suitable is found the link is dropped instead), `DUPLICATE_TAG` (merge via `--fix-tags`), `HEADING_MISMATCH` (promotes first `##` to `#`; enabled by default, disable with `--no-fix-headings`).
 Auto-repairable via Python + prompt AI filter: `PREFIX_CLUSTER` — candidates are detected by Python, then the configured small model filters out generic-word false positives (e.g. 'fixing', 'missing'), keeping only specific subject names (project, library, OS, tool). Files are then moved and wikilinks patched by Python.
-Not auto-repairable (require manual fix): `FLAT_DAILY`, and the five frontmatter-syntax
-codes. The syntax codes are detection-only by design — the AI repair path is deliberately
-not turned loose on structurally broken frontmatter. A note carrying one is left out of
-`doctor_state.json` entirely so every run re-reports it until it is fixed (a `skipped`
-state entry is permanent, unlike `ok`, which expires after `STATE_STALE_DAYS`).
+Auto-repairable without prompt AI (Python-only deterministic pre-pass): `NESTED_FM_KEY` (the `metadata:` mapping-wrapper shape — flattened to top level; other indented-key shapes still report) and `SCALAR_LIST_FIELD` (scalar `tags`/`sources` whitespace-split into a list; scalar `related` containing `[[wikilinks]]` re-wrapped). These run before issue classification; no AI backend call.
+Not auto-repairable (require manual fix): `FLAT_DAILY`, and the three remaining frontmatter-syntax
+codes (`UNTERMINATED_FM_LIST`, `ORPHAN_FM_BRACKET`, `DUPLICATE_FM_KEY`). Those syntax codes are
+detection-only by design — the AI repair path is deliberately not turned loose on structurally
+broken frontmatter. A note carrying one is left out of `doctor_state.json` entirely so every run
+re-reports it until it is fixed (a `skipped` state entry is permanent, unlike `ok`, which expires
+after `STATE_STALE_DAYS`).
 
 ### Singleton guard
 
