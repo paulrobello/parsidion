@@ -410,6 +410,21 @@ class TestFindTagDuplicates:
         assert away == "hooks"
         assert reason == "plural/singular"
 
+    def test_plural_singular_dominant_plural_skipped(self) -> None:
+        # io vs ios: the "-s" match is a semantic guess; a plural that
+        # dominates by 10x is a distinct tag, not drift onto a rare form.
+        counts = {"io": 1, "ios": 170}
+        pairs = vault_doctor._find_tag_duplicates(counts)
+        assert len(pairs) == 0
+
+    def test_plural_singular_moderately_common_plural_still_merges(self) -> None:
+        counts = {"pattern": 10, "patterns": 50}
+        pairs = vault_doctor._find_tag_duplicates(counts)
+        assert len(pairs) == 1
+        keep, away, _reason = pairs[0]
+        assert keep == "pattern"
+        assert away == "patterns"
+
     def test_hyphen_underscore(self) -> None:
         counts = {"par-ai-core": 3, "par_ai_core": 2}
         pairs = vault_doctor._find_tag_duplicates(counts)
@@ -488,6 +503,56 @@ class TestFindPrefixClusters:
         # Should find exact-stem cluster where base_note is not None
         exact = [(p, b) for _, p, _, b in clusters if b is not None]
         assert any(p == "my-project" for p, _ in exact)
+
+
+class TestCommonWordPrefix:
+    """Cluster subfolders are named after the longest common word prefix, not
+    the bare first word — otherwise compound slugs split mid-concept
+    (``fog-of-war-renderer`` → ``fog/of-war-renderer``).
+    """
+
+    def test_common_word_prefix_full_subject(self) -> None:
+        stems = [
+            "fog-of-war-design-pattern-for-tower",
+            "fog-of-war-renderer-implementation",
+            "fog-of-war-visibility-core-implementation",
+        ]
+        assert vault_doctor._common_word_prefix(stems) == "fog-of-war"
+
+    def test_common_word_prefix_single_word(self) -> None:
+        stems = ["bridge-flow-state", "bridge-layer-precedence", "bridge-y-offset"]
+        assert vault_doctor._common_word_prefix(stems) == "bridge"
+
+    def test_common_word_prefix_empty(self) -> None:
+        assert vault_doctor._common_word_prefix([]) == ""
+
+    def test_find_prefix_clusters_uses_full_compound_prefix(self, vault: Path) -> None:
+        for s in (
+            "design-pattern-for-tower",
+            "renderer-implementation",
+            "visibility-core-implementation",
+        ):
+            _write_note(vault, f"Patterns/fog-of-war-{s}.md", f"# {s}\n")
+        all_notes = list(vault_common.all_vault_notes(vault))
+        clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
+        first_word = [p for _, p, _, _ in clusters if p == "fog"]
+        compound = [p for _, p, _, _ in clusters if p == "fog-of-war"]
+        assert not first_word
+        assert compound
+
+    def test_find_subfolder_candidates_uses_full_compound_prefix(
+        self, vault: Path
+    ) -> None:
+        for s in (
+            "design-pattern-for-tower",
+            "renderer-implementation",
+            "visibility-core-implementation",
+        ):
+            _write_note(vault, f"Patterns/fog-of-war-{s}.md", f"# {s}\n")
+        candidates = vault_doctor.find_subfolder_candidates(vault)
+        prefixes = [p for groups in candidates.values() for p, _ in groups]
+        assert "fog" not in prefixes
+        assert "fog-of-war" in prefixes
 
 
 class TestGenericPrefixDenylist:

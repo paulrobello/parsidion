@@ -158,6 +158,7 @@ from doctor.prefixes import (  # noqa: F401 — re-exports
 from doctor.protocol import FixMode, run_fix_modes  # noqa: F401 — re-exports
 from doctor.subfolder import (  # noqa: F401 — re-exports
     _GENERIC_PREFIX_DENYLIST,
+    _common_word_prefix,
     _filter_clusters_with_claude,
     _is_generic_prefix,
     find_prefix_clusters,

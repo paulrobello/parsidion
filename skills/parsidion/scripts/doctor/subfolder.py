@@ -98,6 +98,25 @@ def _is_generic_prefix(prefix: str) -> bool:
     return prefix.lower() in _GENERIC_PREFIX_DENYLIST
 
 
+def _common_word_prefix(stems: list[str]) -> str:
+    """Longest common hyphen-delimited word prefix across *stems*.
+
+    Cluster detection groups notes by first word; the subfolder prefix must be
+    the full shared subject, not just that first word, or a compound slug gets
+    split mid-concept (``fog-of-war-renderer`` → ``fog/of-war-renderer``).
+    Returns at least the shared first word when *stems* is non-empty.
+    """
+    if not stems:
+        return ""
+    parts_list = [s.split("-") for s in stems]
+    common: list[str] = []
+    for words in zip(*parts_list, strict=False):
+        if len(set(words)) != 1:
+            break
+        common.append(words[0])
+    return "-".join(common)
+
+
 def find_prefix_clusters(
     all_notes: list[Path],
     vault_path: Path,
@@ -116,9 +135,12 @@ def find_prefix_clusters(
         These clusters bypass Claude filtering (relationship is unambiguous).
 
     **First-word** (base_note is None):
-        3+ notes share the same first ``-``-delimited word and that word represents
-        a specific named subject (project, library, OS …).  Generic words are filtered
-        out by ``_filter_clusters_with_claude`` before fixes are applied.
+        3+ notes share the same first ``-``-delimited word and the longest common
+        word prefix of the cluster represents a specific named subject (project,
+        library, OS …).  The subfolder is named after that full common prefix so
+        compound subjects stay intact (``fog-of-war-*`` → ``fog-of-war/``), not
+        just the first word.  Generic words are filtered out by
+        ``_filter_clusters_with_claude`` before fixes are applied.
 
     Returns list of ``(folder, prefix, notes, base_note | None)``.
     Only examines notes at depth-2 relative to vault root (e.g. Patterns/foo.md).
@@ -174,6 +196,12 @@ def find_prefix_clusters(
             if (folder / prefix).exists():
                 continue
             if _is_generic_prefix(prefix):
+                continue
+            # The subfolder subject is the longest common word prefix, not the
+            # bare first word — otherwise compound slugs split mid-concept
+            # (fog-of-war-renderer → fog/of-war-renderer).
+            prefix = _common_word_prefix([n.stem for n in cluster_notes])
+            if not prefix or (folder / prefix).exists():
                 continue
             clusters.append((folder, prefix, cluster_notes, None))
 
@@ -371,7 +399,9 @@ def find_subfolder_candidates(
     """Find notes that could be grouped into subfolders by common prefix.
 
     Scans all top-level vault folders (depth-2 notes only — e.g. Patterns/foo.md).
-    Groups notes within each folder by the first ``-``-delimited word in their stem.
+    Groups notes within each folder by the first ``-``-delimited word in their stem,
+    then names each group by the longest common word prefix of its notes so
+    compound subjects stay intact (``fog-of-war-*`` → ``fog-of-war/``).
     Returns only groups with >= PREFIX_CLUSTER_MIN (3) notes.
 
     Returns:
@@ -408,12 +438,16 @@ def find_subfolder_candidates(
                 continue
             by_prefix.setdefault(prefix, []).append(note)
 
-        groups = [
-            (prefix, sorted(notes_in_group))
-            for prefix, notes_in_group in sorted(by_prefix.items())
-            if len(notes_in_group) >= PREFIX_CLUSTER_MIN
-            and not _is_generic_prefix(prefix)
-        ]
+        groups = []
+        for prefix, notes_in_group in sorted(by_prefix.items()):
+            if len(notes_in_group) < PREFIX_CLUSTER_MIN:
+                continue
+            if _is_generic_prefix(prefix):
+                continue
+            prefix = _common_word_prefix([n.stem for n in notes_in_group])
+            if not prefix or (folder / prefix).exists():
+                continue
+            groups.append((prefix, sorted(notes_in_group)))
         if groups:
             result[folder_rel] = groups
 

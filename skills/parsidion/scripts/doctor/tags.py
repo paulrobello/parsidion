@@ -106,6 +106,16 @@ def _find_tag_duplicates(
 
             # Plural/singular (simple -s suffix)
             elif t1 + "s" == t2 or t2 + "s" == t1:
+                # A "-s" suffix match is a semantic guess, not a form variant:
+                # distinct tags can collide (io vs ios). When the "plural" form
+                # dominates its "singular" by an order of magnitude, the pair is
+                # two coexisting tags, not drift onto a rare typo form — skip it.
+                singular, plural = (t1, t2) if t1 + "s" == t2 else (t2, t1)
+                if tag_counts.get(plural, 0) >= 10 * max(
+                    1, tag_counts.get(singular, 0)
+                ):
+                    seen.add(pair_key)
+                    continue
                 reason = "plural/singular"
 
             # Exact duplicate with different casing
