@@ -31,3 +31,6 @@ visualizer/docs/superpowers/
 
 # graphify code-graph generator output (regenerated each run)
 graphify-out/
+
+# session memory files (live in ~/.claude/projects/, never in the repo)
+memory/
