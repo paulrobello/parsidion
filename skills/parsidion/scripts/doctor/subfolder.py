@@ -67,6 +67,7 @@ _GENERIC_PREFIX_DENYLIST = frozenset(
         "declarative",
         "dedicated",
         "dev",
+        "flaky",
         "empty",
         "file",
         "find",
