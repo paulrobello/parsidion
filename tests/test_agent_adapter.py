@@ -244,20 +244,21 @@ class TestRegistryCompleteness:
     """ENH-006: claude and pi are registered alongside codex/gemini, and the
     descriptor carries the installer-side fields the generic core reads."""
 
-    def test_all_four_builtins_registered(self) -> None:
+    def test_all_five_builtins_registered(self) -> None:
         assert set(agent_adapter.known_runtimes()) >= {
             "claude",
             "codex",
             "gemini",
             "pi",
+            "omp",
         }
 
-    def test_hook_runtimes_own_a_config_pi_does_not(self) -> None:
+    def test_hook_runtimes_own_a_config_pi_and_omp_do_not(self) -> None:
         hooky = {
             a.name for a in agent_adapter.all_adapters() if a.hooks_config_filename
         }
         assert {"claude", "codex", "gemini"} <= hooky
-        assert "pi" not in hooky  # pi is extension-only
+        assert {"pi", "omp"}.isdisjoint(hooky)  # pi/omp are extension-only
 
     def test_timeout_unit_is_explicit_per_runtime(self) -> None:
         # ARC-048a: codex is seconds; gemini/claude are milliseconds.

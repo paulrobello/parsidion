@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **omp (oh my pi) runtime support** — `install.py connect omp` / `disconnect omp`. omp is an extension-only runtime like pi: it reuses the same TypeScript extension source (`extensions/pi/parsidion/`), installed into `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; `--omp-home` overrides). Verified against omp 17.3.8: its extension loader resolves the extension's `@mariozechner/*` imports, emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`), and a headless run wrote a `SessionStart` event to `hook_events.log` with vault context injected. omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. `scripts/install-pi-extension` gained `--agent-name` so the post-install hint names the right runtime.
+
 ## [0.18.0] - 2026-08-12
 
 Vault-doctor auto-repair release. Two malformed-frontmatter shapes that 0.17.0 taught the doctor to *detect* but deliberately left for a human (`NESTED_FM_KEY` and `SCALAR_LIST_FIELD`) are now repaired deterministically; and the prefix-subfolder migration no longer mangles compound slugs.

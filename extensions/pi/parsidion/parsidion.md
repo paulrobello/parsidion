@@ -14,6 +14,21 @@ From the `parsidion` repo root:
 ./scripts/install-pi-extension --symlink
 ```
 
+The same extension also serves **omp** (oh my pi), which loads pi-compatible
+extensions from `$PI_CONFIG_DIR/agent/extensions` (default
+`~/.omp/agent/extensions`) and resolves the same `@mariozechner/*` imports:
+
+```bash
+uv run install.py connect omp
+# or directly:
+./scripts/install-pi-extension --extension-dir ~/.omp/agent/extensions --agent-name omp
+```
+
+Under omp the session file comes from omp's own session manager
+(`~/.omp/agent/sessions/...`), so transcripts, pre/post-compact, and
+session-stop capture all work unchanged. Subagent capture is a no-op under
+omp: its task tool does not emit pi's `subagent:result` custom messages.
+
 Manual install (without helper):
 
 ```bash

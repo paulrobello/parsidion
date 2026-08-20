@@ -1,7 +1,7 @@
 # Agent Adapters
 
 Parsidion is **agent-agnostic**: the same vault, hooks, and installer serve multiple coding-agent
-runtimes (Claude Code, Codex CLI, Gemini CLI, pi, and third-party runtimes). The mechanism is a
+runtimes (Claude Code, Codex CLI, Gemini CLI, pi, omp, and third-party runtimes). The mechanism is a
 single registry of **`AgentAdapter`** descriptors — one per runtime — that the hook shims, the
 installer, and `connect`/`disconnect` all read from. Adding a runtime is a data-only change against
 this contract rather than a copy-the-scripts ritual.
@@ -43,6 +43,7 @@ Registered at module import by `_register_builtin_adapters()`:
 | `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`. Timeout in **seconds**. |
 | `gemini` | `~/.gemini/settings.json` | `install()`/`uninstall()` | Generic core. Requires per-event `name`; timeout in **ms**. |
 | `pi` | none | `connect pi` runs `scripts/install-pi-extension` | Extension-only: ships a TypeScript extension that shells out to claude's hook scripts at runtime (preferring `uv run --no-project`). |
+| `omp` | none | `connect omp` runs `scripts/install-pi-extension --extension-dir <omp-home>/agent/extensions` | Extension-only, same source as pi. omp resolves its agent dir from `$PI_CONFIG_DIR` (default `~/.omp`); `--omp-home` overrides. omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every event it uses; subagent capture is a no-op under omp (no `subagent:result` messages). |
 
 ## Adding a runtime
 

@@ -286,16 +286,18 @@ _GEMINI_HOOK_NAMES: dict[str, str] = {
 
 
 def _register_builtin_adapters() -> None:
-    """Register the built-in runtimes: claude, codex, gemini, pi.
+    """Register the built-in runtimes: claude, codex, gemini, pi, omp.
 
     codex/gemini drive the hook shims via this registry (QA-008/ARC-020) and
     the installer reads their hook-registration data from the same descriptors
     (ENH-006). claude's native hooks predate the registry; it is registered
     for installer completeness (``known_runtimes``/``connect``) and a single
     observability naming convention — its native hook scripts keep running as
-    before. pi ships a TypeScript extension that shells out to claude's hook
-    scripts, so it carries no hook-registration data (``connect pi`` handles
-    the extension copy separately).
+    before. pi and omp ship a TypeScript extension that shells out to
+    claude's hook scripts, so they carry no hook-registration data
+    (``connect pi`` / ``connect omp`` handle the extension copy separately;
+    omp reuses the pi extension source, installed into
+    ``$PI_CONFIG_DIR/agent/extensions`` — default ``~/.omp/agent/extensions``).
     """
     register(
         AgentAdapter(
@@ -351,6 +353,13 @@ def _register_builtin_adapters() -> None:
             name="pi",
             display_name="pi",
             runtime_env_value="pi",
+        )
+    )
+    register(
+        AgentAdapter(
+            name="omp",
+            display_name="omp",
+            runtime_env_value="omp",
         )
     )
 

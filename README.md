@@ -114,10 +114,12 @@ uv run install.py connect claude      # install Claude Code integration only
 uv run install.py connect codex       # install Codex CLI integration (hooks + AGENTS.md)
 uv run install.py connect gemini      # install Gemini CLI integration (hooks + GEMINI.md)
 uv run install.py connect pi          # install the pi TypeScript extension (~/.pi/agent/extensions)
+uv run install.py connect omp         # install the same extension for omp (~/.omp/agent/extensions)
 uv run install.py disconnect codex    # remove Codex CLI integration
+uv run install.py disconnect omp      # remove the omp extension only
 ```
 
-`connect <claude|codex|gemini>` is a friendlier alias for `--runtime <agent>` that installs only one integration. `disconnect <...>` removes that agent's full Parsidion integration (equivalent to a targeted `--uninstall --runtime <agent>`).
+`connect <claude|codex|gemini|pi|omp>` is a friendlier alias for `--runtime <agent>` that installs only one integration (`connect pi` / `connect omp` install the shared TypeScript extension into the runtime's extensions directory instead of hooks). `disconnect <...>` removes that agent's full Parsidion integration (equivalent to a targeted `--uninstall --runtime <agent>`; `disconnect pi` / `disconnect omp` remove just the extension files).
 
 **Options:**
 

@@ -60,6 +60,8 @@ uv tool install --editable ".[tools]"
 # Connect parsidion to another coding agent (hooks + instructions injection)
 uv run install.py connect codex     # wires ~/.codex/AGENTS.md + codex hooks
 uv run install.py connect gemini    # wires ~/.gemini/GEMINI.md + gemini hooks
+uv run install.py connect pi        # installs the pi TypeScript extension (~/.pi/agent/extensions)
+uv run install.py connect omp       # installs the same extension for omp (~/.omp/agent/extensions)
 uv run install.py disconnect codex  # remove codex integration only
 
 # Rebuild the vault index (after creating/renaming/deleting notes)

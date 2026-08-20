@@ -892,36 +892,39 @@ def _connectable_runtimes() -> list[str]:
     return [a.name for a in agent_adapter.all_adapters()]
 
 
-def _connect_pi(args: argparse.Namespace) -> None:
-    """Install the pi TypeScript extension via the repo's dedicated installer.
+def _connect_extension_runtime(
+    args: argparse.Namespace, ext_dir: Path, label: str
+) -> None:
+    """Install the pi-family TypeScript extension via the repo's installer.
 
-    pi does not use Parsidion's hook-registration path (it shells out to the
-    Claude hook scripts at runtime), so ``connect pi`` runs
-    ``scripts/install-pi-extension``, which copies/symlinks the extension into
-    ``~/.pi/agent/extensions``.
+    pi and omp do not use Parsidion's hook-registration path (the extension
+    shells out to the Claude hook scripts at runtime), so ``connect pi`` /
+    ``connect omp`` run ``scripts/install-pi-extension``, which
+    copies/symlinks the extension into the runtime's extensions directory.
     """
     import subprocess  # noqa: PLC0415
 
     script = REPO_ROOT / "scripts" / "install-pi-extension"
     if not script.exists():
-        _err(f"pi extension installer not found: {script}")
+        _err(f"{label} extension installer not found: {script}")
         sys.exit(1)
-    cmd = ["bash", str(script)]
+    cmd = ["bash", str(script), "--extension-dir", str(ext_dir), "--agent-name", label]
     if args.dry_run:
         _step(f"Would run: {' '.join(cmd)}")
         return
     try:
         completed = subprocess.run(cmd, check=False)
     except OSError as exc:
-        _err(f"Could not run pi extension installer: {exc}")
+        _err(f"Could not run {label} extension installer: {exc}")
         sys.exit(1)
     if completed.returncode != 0:
         sys.exit(completed.returncode)
 
 
-def _disconnect_pi(args: argparse.Namespace) -> None:
-    """Remove the pi extension from ``~/.pi/agent/extensions``."""
-    ext_dir = Path.home() / ".pi" / "agent" / "extensions"
+def _disconnect_extension_runtime(
+    args: argparse.Namespace, ext_dir: Path, label: str
+) -> None:
+    """Remove the parsidion extension files from a pi-family *ext_dir*."""
     targets = ["parsidion.ts", "parsidion.md", "lib/parsidion-status.ts"]
     removed: list[str] = []
     for name in targets:
@@ -934,9 +937,41 @@ def _disconnect_pi(args: argparse.Namespace) -> None:
                 except OSError:
                     pass
     if removed:
-        _ok(f"Removed pi extension: {', '.join(removed)}")
+        _ok(f"Removed {label} extension: {', '.join(removed)}")
     else:
-        _warn("No pi extension found to remove.")
+        _warn(f"No {label} extension found to remove.")
+
+
+def _connect_pi(args: argparse.Namespace) -> None:
+    """Install the pi extension into ``~/.pi/agent/extensions``."""
+    _connect_extension_runtime(args, Path.home() / ".pi" / "agent" / "extensions", "pi")
+
+
+def _disconnect_pi(args: argparse.Namespace) -> None:
+    """Remove the pi extension from ``~/.pi/agent/extensions``."""
+    _disconnect_extension_runtime(
+        args, Path.home() / ".pi" / "agent" / "extensions", "pi"
+    )
+
+
+def _omp_extensions_dir(args: argparse.Namespace) -> Path:
+    """omp extensions dir: ``<omp-home>/agent/extensions``.
+
+    omp (like pi) resolves its agent directory from ``PI_CONFIG_DIR`` when
+    set, defaulting to ``~/.omp`` — mirror that so the extension lands where
+    the running omp actually reads it. ``--omp-home`` overrides.
+    """
+    return Path(args.omp_home).expanduser() / "agent" / "extensions"
+
+
+def _connect_omp(args: argparse.Namespace) -> None:
+    """Install the omp extension into ``~/.omp/agent/extensions``."""
+    _connect_extension_runtime(args, _omp_extensions_dir(args), "omp")
+
+
+def _disconnect_omp(args: argparse.Namespace) -> None:
+    """Remove the omp extension from ``~/.omp/agent/extensions``."""
+    _disconnect_extension_runtime(args, _omp_extensions_dir(args), "omp")
 
 
 def parse_args() -> argparse.Namespace:
@@ -977,6 +1012,16 @@ def parse_args() -> argparse.Namespace:
         "--gemini-home",
         default="~/.gemini",
         help="Gemini CLI home directory for hook settings (default: ~/.gemini)",
+    )
+    parser.add_argument(
+        "--omp-home",
+        metavar="PATH",
+        default=os.environ.get("PI_CONFIG_DIR", "~/.omp"),
+        help=(
+            "omp config home for 'connect omp' extension install "
+            "(default: $PI_CONFIG_DIR or ~/.omp); the extension is installed "
+            "into <omp-home>/agent/extensions"
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -1180,6 +1225,9 @@ def main() -> None:
             if args.agent == "pi":
                 _disconnect_pi(args)
                 return
+            if args.agent == "omp":
+                _disconnect_omp(args)
+                return
             claude_dir = Path(args.claude_dir).expanduser().resolve()
             settings_file = claude_dir / "settings.json"
             runtime = resolve_runtime_choice(
@@ -1202,6 +1250,9 @@ def main() -> None:
         # connect == targeted install for one runtime
         if args.agent == "pi":
             _connect_pi(args)
+            return
+        if args.agent == "omp":
+            _connect_omp(args)
             return
         install(args)
         return

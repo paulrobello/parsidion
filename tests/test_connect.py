@@ -150,6 +150,73 @@ class TestConnectVerbs:
         assert called["runtime"] == "codex"
 
 
+class TestConnectOmp:
+    """connect/disconnect omp install the shared pi-family extension.
+
+    omp is extension-only like pi: connect must shell out to
+    scripts/install-pi-extension with the omp extensions dir, never merge
+    hooks, and disconnect must remove exactly the three extension files.
+    """
+
+    def test_connect_omp_runs_extension_installer(self, monkeypatch):
+        import subprocess  # noqa: PLC0415
+
+        recorded: dict = {}
+
+        class _Result:
+            returncode = 0
+
+        def fake_run(cmd, check=False):  # noqa: ARG001
+            recorded["cmd"] = cmd
+            return _Result()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.delenv("PI_CONFIG_DIR", raising=False)
+        monkeypatch.setattr(sys, "argv", ["install.py", "connect", "omp"])
+        install_mod.main()
+
+        cmd = recorded["cmd"]
+        assert cmd[0] == "bash"
+        assert cmd[1].endswith("scripts/install-pi-extension")
+        # Expanded absolute path — a literal "~" would create a stray dir in cwd.
+        ext_dir = Path.home() / ".omp" / "agent" / "extensions"
+        assert cmd[2:] == ["--extension-dir", str(ext_dir), "--agent-name", "omp"]
+
+    def test_connect_omp_dry_run_executes_nothing(self, monkeypatch, capsys):
+        import subprocess  # noqa: PLC0415
+
+        def boom(*_args, **_kwargs):
+            raise AssertionError("dry-run must not execute the installer")
+
+        monkeypatch.setattr(subprocess, "run", boom)
+        monkeypatch.delenv("PI_CONFIG_DIR", raising=False)
+        monkeypatch.setattr(sys, "argv", ["install.py", "connect", "omp", "--dry-run"])
+        install_mod.main()
+        out = capsys.readouterr().out
+        assert "Would run:" in out
+        assert "--extension-dir" in out
+
+    def test_disconnect_omp_removes_only_extension_files(self, monkeypatch, tmp_path):
+        ext_dir = tmp_path / "agent" / "extensions"
+        (ext_dir / "lib").mkdir(parents=True)
+        for name in ("parsidion.ts", "parsidion.md", "lib/parsidion-status.ts"):
+            (ext_dir / name).write_text("x", encoding="utf-8")
+        decoy = ext_dir / "herdr-omp-agent-state.ts"
+        decoy.write_text("keep me", encoding="utf-8")
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["install.py", "disconnect", "omp", "--omp-home", str(tmp_path)],
+        )
+        install_mod.main()
+
+        assert not (ext_dir / "parsidion.ts").exists()
+        assert not (ext_dir / "parsidion.md").exists()
+        assert not (ext_dir / "lib" / "parsidion-status.ts").exists()
+        assert decoy.read_text(encoding="utf-8") == "keep me"
+
+
 # ---------------------------------------------------------------------------
 # SEC-116: connect codex/gemini must refuse symlinks that escape the agent
 # config dir, and disconnect must remove the instructions block + revert

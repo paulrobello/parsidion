@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Install the parsidion pi extension from this repo into ~/.pi/agent/extensions.
 #
-# Usage:
 #   ./scripts/install-pi-extension [--symlink] [--no-doc] [--extension-dir DIR]
+#                                   [--agent-name NAME]
 #
 # Options:
 #   --symlink            Install as symlinks instead of copying files
 #   --no-doc             Skip installing parsidion.md
-#   --extension-dir DIR  Target pi extension directory (default: ~/.pi/agent/extensions)
+#   --extension-dir DIR  Target extension directory (default: ~/.pi/agent/extensions)
+#   --agent-name NAME    Runtime label for the post-install hint (default: pi;
+#                        use "omp" when installing into ~/.omp/agent/extensions)
 #   --help, -h           Show this help
 #
 # Examples:
 #   ./scripts/install-pi-extension
 #   ./scripts/install-pi-extension --symlink
 #   ./scripts/install-pi-extension --extension-dir ~/.pi/agent/extensions
+#   ./scripts/install-pi-extension --extension-dir ~/.omp/agent/extensions --agent-name omp
+#
 
 set -euo pipefail
 
@@ -36,7 +40,7 @@ SRC_STATUS="$SRC_DIR/lib/parsidion-status.ts"
 MODE="copy"
 INSTALL_DOC="yes"
 EXT_DIR="${HOME}/.pi/agent/extensions"
-
+AGENT_NAME="pi"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --symlink)
@@ -57,6 +61,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             EXT_DIR="$2"
+            shift 2
+            ;;
+        --agent-name)
+            if [[ $# -lt 2 ]]; then
+                echo "error: --agent-name requires a value" >&2
+                exit 1
+            fi
+            AGENT_NAME="$2"
             shift 2
             ;;
         *)
@@ -111,6 +123,6 @@ echo "If script resolution ever fails in /parsidion status, set one of:"
 echo "  export PARSIDION_SCRIPTS_DIR=\"$REPO_ROOT/skills/parsidion/scripts\""
 echo "  export PARSIDION_DIR=\"$REPO_ROOT\""
 echo
-echo "Then in pi run:"
+echo "Then in ${AGENT_NAME} run:"
 echo "  /reload"
 echo "  /parsidion"
