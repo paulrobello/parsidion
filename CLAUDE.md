@@ -228,7 +228,7 @@ Config sections:
 
 | Section | Keys | Used by |
 |---|---|---|
-| `session_start_hook` | `ai_model`, `ai_cooldown_seconds`, `ai_single_flight`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings`, `track_delta`, `graph_expand`, `graph_expand_max`, `graph_rerank` | `session_start_hook.py` |
+| `session_start_hook` | `ai_model`, `ai_cooldown_seconds`, `ai_single_flight`, `ai_candidates_max`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings`, `track_delta`, `graph_expand`, `graph_expand_max`, `graph_rerank` | `session_start_hook.py` |
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `pi_transcript_tail_lines` | `session_stop_hook.py` |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |

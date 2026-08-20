@@ -72,6 +72,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     "session_start_hook": {
         "ai_model": (str, type(None)),
         "ai_cooldown_seconds": (int, float),
+        "ai_candidates_max": (int,),
         "ai_single_flight": (bool,),
         "max_chars": (int,),
         "ai_timeout": (int, float),

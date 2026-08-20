@@ -1158,6 +1158,143 @@ class TestBuildCandidatesGraphEnrichment:
         assert stems.count("neighbor") == 1
 
 
+class TestBuildCandidatesRanking:
+    """Python-side ranking/pruning of the AI-mode candidate pool.
+
+    Before this, _build_candidates returned an unordered pool (project walk
+    order + mtime) and _select_context_with_ai embedded whichever prefix fit
+    the 8000-char budget — on large vaults the selector never saw most of
+    the pool. The pool must now arrive ranked and capped.
+    """
+
+    def test_project_notes_survive_tight_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault, proj, _nbr, recent = _setup_graph_vault(monkeypatch, tmp_path)
+        # Second project note so the cap must choose between classes.
+        proj2 = vault / "Projects" / "proj-note-2.md"
+        proj2.write_text("# Proj 2\n", encoding="utf-8")
+        conn = sqlite3.connect(str(vault / "embeddings.db"))
+        _index_row(
+            conn,
+            stem="proj-note-2",
+            path=proj2,
+            project="vault",
+            mtime=2_000_000_000.0,
+        )
+        conn.close()
+
+        result = session_start_hook._build_candidates(
+            "vault", vault, graph_meta=None, graph_expand_max=0, max_candidates=2
+        )
+
+        stems = [p.stem for p in result]
+        assert len(result) == 2
+        assert set(stems) == {"proj-note", "proj-note-2"}
+        assert "recent-note" not in stems
+
+    def test_recency_breaks_ties_within_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
+
+        vault, proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
+        proj2 = vault / "Projects" / "proj-note-2.md"
+        proj2.write_text("# Proj 2\n", encoding="utf-8")
+        conn = sqlite3.connect(str(vault / "embeddings.db"))
+        _index_row(
+            conn,
+            stem="proj-note-2",
+            path=proj2,
+            project="vault",
+            mtime=2_000_000_000.0,
+        )
+        conn.close()
+        now = 2_000_000_000.0
+        # Same class (project), different file ages: newer wins the tie.
+        os.utime(proj, (now, now))
+        os.utime(proj2, (now - 86_400, now - 86_400))  # one day older
+
+        result = session_start_hook._build_candidates(
+            "vault", vault, graph_meta=None, graph_expand_max=0, max_candidates=0
+        )
+
+        assert [p.stem for p in result[:2]] == ["proj-note", "proj-note-2"]
+
+    def test_usefulness_outranks_plain_recency(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
+        import time as _time
+
+        from session_start import seed_selection
+
+        vault, _proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
+        plain = vault / "Patterns" / "plain-note.md"
+        useful = vault / "Patterns" / "useful-note.md"
+        plain.write_text("# Plain\n", encoding="utf-8")
+        useful.write_text("# Useful\n", encoding="utf-8")
+        now = _time.time()
+        # useful is 8 days old; plain is fresh. Plain wins on recency alone
+        # (+10 vs +2); useful's adaptive history (+10) must flip the order.
+        os.utime(useful, (now - 8 * 86_400, now - 8 * 86_400))
+        conn = sqlite3.connect(str(vault / "embeddings.db"))
+        _index_row(conn, stem="plain-note", path=plain, mtime=now)
+        _index_row(conn, stem="useful-note", path=useful, mtime=now)
+        conn.close()
+        monkeypatch.setattr(
+            seed_selection,
+            "load_usefulness_scores",
+            lambda: {"useful-note": {"hits": 10, "misses": 0, "last_hit": None}},
+        )
+
+        result = session_start_hook._build_candidates(
+            "vault", vault, graph_meta=None, graph_expand_max=0, max_candidates=0
+        )
+
+        stems = [p.stem for p in result]
+        assert stems.index("useful-note") < stems.index("plain-note")
+
+    def test_graph_neighbour_boost_survives_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault, _proj, nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
+        meta = session_start_hook.load_graph_metadata()
+        assert meta is not None  # fixture builds note_index
+        # Cap of 2: project note + neighbour survive; the fresh recent note
+        # loses to the old-but-graph-adjacent neighbour (15 > 10 recency).
+        result = session_start_hook._build_candidates(
+            "vault", vault, graph_meta=meta, graph_expand_max=8, max_candidates=2
+        )
+
+        stems = [p.stem for p in result]
+        assert set(stems) == {"proj-note", "neighbor"}
+
+    def test_zero_cap_keeps_all_ranked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault, _proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
+
+        result = session_start_hook._build_candidates(
+            "vault", vault, graph_meta=None, graph_expand_max=0, max_candidates=0
+        )
+
+        assert len([p.stem for p in result]) == 2  # proj-note + recent-note
+
+    def test_invalid_cap_falls_back_to_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault, _proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
+
+        result = session_start_hook._build_candidates(
+            "vault", vault, graph_meta=None, graph_expand_max=0, max_candidates=None
+        )
+
+        # Small fixture fits under the 48 default; sanity that ranking ran.
+        stems = [p.stem for p in result]
+        assert stems[0] == "proj-note"
+
+
 class TestAiBranchGraphEnrichment:
     """Phase 3 wiring: the AI branch feeds graph neighbors into the selector."""
 

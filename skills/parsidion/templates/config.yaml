@@ -23,6 +23,7 @@ session_start_hook:
   graph_expand: true       # Add 1-hop wikilink neighbours of selected notes (Tier 1 graph retrieval)
   graph_expand_max: 8      # Max neighbour notes added per session (best-connected first)
   graph_rerank: true       # Re-rank notes by seed-cluster tag overlap + hubness (Tier 2 graph retrieval)
+  ai_candidates_max: 48   # Cap on the AI selector's candidate pool, ranked project > graph adjacency > usefulness > recency > hubness (0 = unlimited)
 
 # Session stop hook (session_stop_hook.py)
 session_stop_hook:

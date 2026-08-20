@@ -137,6 +137,7 @@ class SessionStartHookConfig:
     ai_model: str | None = None
     ai_cooldown_seconds: int | float = None
     ai_single_flight: bool = None
+    ai_candidates_max: int = None
     max_chars: int = None
     ai_timeout: int | float = None
     recent_days: int = None

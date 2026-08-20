@@ -15,12 +15,27 @@ are test-monkeypatched, so they extract cleanly.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from vault_adaptive import load_usefulness_scores
 from vault_index import all_vault_notes, parse_frontmatter, query_note_index
 
-from .graph_retrieval import _enrich_with_graph
+from .graph_retrieval import _graph_neighbors
+
+# Default cap on the AI-selector candidate pool. The prompt embeds 6-line
+# summaries under an 8000-char budget; on large vaults the unranked pool
+# (project + recent + neighbours) can reach hundreds of notes, so without a
+# cap the selector only ever saw an arbitrary prefix.
+_DEFAULT_AI_CANDIDATES_MAX = 48
+
+_PROJECT_MATCH_SCORE = 30.0
+_GRAPH_NEIGHBOUR_SCORE = 15.0
+_RECENCY_WINDOW_DAYS = 10.0
+_RECENCY_MAX_SCORE = 10.0
+_USEFULNESS_MAX_SCORE = 10
+_HUBNESS_STEP = 5
+_HUBNESS_MAX_SCORE = 5
 
 
 def _build_candidates(
@@ -28,33 +43,41 @@ def _build_candidates(
     vault_path: Path,
     graph_meta: dict[str, dict[str, object]] | None = None,
     graph_expand_max: int = 0,
+    max_candidates: int | None = None,
 ) -> list[Path]:
-    """Collect candidate vault notes for AI selection.
+    """Collect, rank, and prune the AI-mode candidate pool.
 
-    Returns project-specific notes first, then all other notes sorted by
-    most recently modified.
+    Collection: project notes first (SQLite ``note_index`` when available,
+    filesystem walk otherwise), then 1-hop graph neighbours of the project
+    seeds spliced in after the project prefix, then other recent notes by
+    mtime.
 
-    ARC-011: Uses ``query_note_index()`` (SQLite) first for fast project
-    matching without reading every file.  Falls back to the full filesystem
-    walk when the database is absent or the table is missing.
+    Ranking: candidates are scored Python-side so the selector's prompt
+    carries the *best* subset rather than an arbitrary prefix — on large
+    vaults the raw pool reaches hundreds of notes while the prompt budget
+    holds only ~50 six-line summaries. Signals, strongest first: project
+    match, graph adjacency to the project seeds, adaptive usefulness
+    (hit/miss history), recency (10-day linear window), and hubness
+    (``incoming_links`` from graph metadata, when present). Ties break to
+    newer mtime, then path, so the order is deterministic.
 
-    When *graph_meta* is supplied with a positive *graph_expand_max*, 1-hop
-    wikilink neighbours of the project notes are spliced in immediately after
-    the project-notes prefix (Phase 3).  This is the AI-mode equivalent of
-    Tier 1 expansion: it widens the pool the selector reads so graph-related
-    prior art lands inside the prompt's character window.  Tier 2 rerank does
-    NOT apply here -- the selector ranks the pool itself.
+    Pruning: *max_candidates* caps the ranked pool (0 = keep all ranked
+    notes; ``None`` falls back to ``_DEFAULT_AI_CANDIDATES_MAX``). The
+    ``session_start_hook.ai_candidates_max`` config key feeds this.
 
     Args:
         project_name: The current project name (used to prioritize notes).
         vault_path: The vault root path.
         graph_meta: Optional output of ``vault_index.load_graph_metadata()``.
         graph_expand_max: Max graph neighbours to splice in (0 = disabled).
+        max_candidates: Cap on the ranked pool (0 = unlimited, None = default).
 
     Returns:
-        Ordered list of note paths; project notes first, then graph neighbours,
-        then other notes by mtime.
+        Ranked, pruned list of note paths.
     """
+    if not isinstance(max_candidates, int) or max_candidates < 0:
+        max_candidates = _DEFAULT_AI_CANDIDATES_MAX
+
     # ARC-011: Try SQLite first for project notes (O(1) index lookup)
     db_project_notes = query_note_index(project=project_name, limit=500)
     db_recent_notes = query_note_index(recent_days=30, limit=500)
@@ -63,47 +86,108 @@ def _build_candidates(
         # SQLite path: fast, no file reads needed for candidate list
         project_set = set(str(p) for p in db_project_notes)
         other_notes = [p for p in db_recent_notes if str(p) not in project_set]
-        return _enrich_with_graph(
-            db_project_notes + other_notes,
-            len(db_project_notes),
-            db_project_notes,
-            graph_meta,
-            vault_path,
-            graph_expand_max,
-        )
+        base = db_project_notes + other_notes
+        prefix_len = len(db_project_notes)
+        seeds = db_project_notes
+    else:
+        # Fallback: full filesystem walk (when embeddings.db is absent)
+        all_notes = all_vault_notes(vault=vault_path)
+        project_lower = project_name.lower()
 
-    # Fallback: full filesystem walk (when embeddings.db is absent)
-    all_notes = all_vault_notes(vault=vault_path)
-    project_lower = project_name.lower()
+        project_notes: list[Path] = []
+        other_notes_with_mtime: list[tuple[float, Path]] = []
 
-    project_notes: list[Path] = []
-    other_notes_with_mtime: list[tuple[float, Path]] = []
-
-    for note_path in all_notes:
-        try:
-            content = note_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        fm = parse_frontmatter(content)
-        proj_val = fm.get("project")
-        if isinstance(proj_val, str) and proj_val.lower() == project_lower:
-            project_notes.append(note_path)
-        else:
+        for note_path in all_notes:
             try:
-                mtime = note_path.stat().st_mtime
-            except OSError:
-                mtime = 0.0
-            other_notes_with_mtime.append((mtime, note_path))
+                content = note_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            fm = parse_frontmatter(content)
+            proj_val = fm.get("project")
+            if isinstance(proj_val, str) and proj_val.lower() == project_lower:
+                project_notes.append(note_path)
+            else:
+                try:
+                    mtime = note_path.stat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                other_notes_with_mtime.append((mtime, note_path))
 
-    other_notes_with_mtime.sort(key=lambda x: x[0], reverse=True)
-    return _enrich_with_graph(
-        project_notes + [p for _, p in other_notes_with_mtime],
-        len(project_notes),
-        project_notes,
+        other_notes_with_mtime.sort(key=lambda x: x[0], reverse=True)
+        project_set = set(str(p) for p in project_notes)
+        base = project_notes + [p for _, p in other_notes_with_mtime]
+        prefix_len = len(project_notes)
+        seeds = project_notes
+
+    # Phase 3 splice: 1-hop neighbours of the project seeds, after the
+    # project prefix. Computed once here so the same set feeds the scorer.
+    neighbours: list[Path] = []
+    if graph_meta and graph_expand_max > 0 and seeds:
+        neighbours = _graph_neighbors(seeds, graph_meta, vault_path, graph_expand_max)
+    existing = {str(p) for p in base}
+    fresh = [n for n in neighbours if str(n) not in existing]
+    enriched = base[:prefix_len] + fresh + base[prefix_len:]
+
+    return _rank_candidates(
+        enriched,
+        project_set,
+        {str(n) for n in neighbours},
         graph_meta,
-        vault_path,
-        graph_expand_max,
+        max_candidates,
     )
+
+
+def _rank_candidates(
+    candidates: list[Path],
+    project_paths: set[str],
+    neighbour_paths: set[str],
+    graph_meta: dict[str, dict[str, object]] | None,
+    max_candidates: int,
+) -> list[Path]:
+    """Score, de-duplicate, order, and cap the AI-mode candidate pool.
+
+    Scoring is deliberately cheap (no embeddings, no AI): one usefulness JSON
+    load, one ``stat`` per note, and graph metadata lookups when the index
+    exists. See :func:`_build_candidates` for the signal weights.
+    """
+    usefulness = load_usefulness_scores()
+    now = time.time()
+
+    def score_and_mtime(note: Path) -> tuple[float, float]:
+        key = str(note)
+        score = _PROJECT_MATCH_SCORE if key in project_paths else 0.0
+        if key in neighbour_paths:
+            score += _GRAPH_NEIGHBOUR_SCORE
+        stats = usefulness.get(note.stem)
+        if isinstance(stats, dict):
+            net = int(stats.get("hits", 0) or 0) - int(stats.get("misses", 0) or 0)
+            score += float(max(0, min(net, _USEFULNESS_MAX_SCORE)))
+        try:
+            mtime = note.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        age_days = max(0.0, (now - mtime) / 86400.0)
+        if age_days < _RECENCY_WINDOW_DAYS:
+            score += _RECENCY_MAX_SCORE * (1.0 - age_days / _RECENCY_WINDOW_DAYS)
+        meta = graph_meta.get(note.stem) if graph_meta else None
+        if meta:
+            raw = meta.get("incoming_links", 0)
+            if isinstance(raw, (int, float)):
+                score += min(int(raw) // _HUBNESS_STEP, _HUBNESS_MAX_SCORE)
+        return score, mtime
+
+    scored: list[tuple[float, float, str, Path]] = []
+    seen: set[str] = set()
+    for note in candidates:
+        key = str(note)
+        if key in seen:
+            continue
+        seen.add(key)
+        score, mtime = score_and_mtime(note)
+        scored.append((-score, -mtime, key, note))
+    scored.sort(key=lambda item: (item[0], item[1], item[2]))
+    ranked = [item[3] for item in scored]
+    return ranked[:max_candidates] if max_candidates > 0 else ranked
 
 
 def _rank_by_usefulness(notes: list[Path]) -> list[Path]:

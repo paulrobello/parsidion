@@ -442,8 +442,10 @@ def build_session_context(
 
     if ai_enabled or ai_model is not None:
         # Phase 3: widen the AI's candidate pool with 1-hop graph neighbours of
-        # the project notes so the selector sees related prior art.  Tier 2
-        # rerank is intentionally not applied -- the selector ranks the pool.
+        # the project notes so the selector sees related prior art.  The pool
+        # is ranked and pruned Python-side (project match > graph adjacency >
+        # adaptive usefulness > recency > hubness) so the selector's prompt
+        # carries the best subset, not an arbitrary 8000-char prefix.
         ai_graph_meta = load_graph_metadata()
         ai_max_add = 0
         if (
@@ -458,6 +460,7 @@ def build_session_context(
             vault_path,
             graph_meta=ai_graph_meta,
             graph_expand_max=ai_max_add,
+            max_candidates=get_config("session_start_hook", "ai_candidates_max", None),
         )
         ai_context = _select_context_with_ai(
             project_name, cwd, candidates, ai_model, max_chars, vault_path=vault_path

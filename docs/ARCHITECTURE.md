@@ -249,6 +249,7 @@ Fires when a Claude Code, Codex, or Gemini session begins. Loads relevant vault 
 | `ai_timeout` | `25` | AI call timeout in seconds |
 | `ai_cooldown_seconds` | `30` | Skip nested `claude -p` if AI SessionStart ran recently for this vault |
 | `ai_single_flight` | `true` | Allow only one nested `claude -p` SessionStart selector per vault at a time |
+| `ai_candidates_max` | `48` | Cap on the AI selector's ranked candidate pool (project > graph adjacency > adaptive usefulness > recency > hubness; `0` = unlimited) |
 | `recent_days` | `3` | Days to look back for recent notes |
 | `debug` | `false` | Append injected context + metadata to debug log in `$TMPDIR` |
 | `verbose_mode` | `false` | When true, inject full note summaries; default is compact one-line index |
