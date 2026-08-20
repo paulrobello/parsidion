@@ -373,6 +373,69 @@ class TestAiSelectionSafety:
         assert result == "### Note Title (path/to/note.md)\nKey point 1"
         assert stamped == [tmp_path]
 
+    def test_writes_cooldown_stamp_after_failed_ai_attempt(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A backend attempt that times out / returns empty must still rate-limit.
+
+        Otherwise a slow or down backend re-pays the full ai_timeout on every
+        session start (observed: `claude -p` hanging >60s while
+        session_start_hook.ai_model is configured).
+        """
+        monkeypatch.setattr(
+            session_start_hook,
+            "get_config",
+            lambda section, key, default=None: (
+                False
+                if (section, key) == ("session_start_hook", "ai_single_flight")
+                else 30
+                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
+                else 1
+                if (section, key) == ("session_start_hook", "ai_timeout")
+                else default
+            ),
+        )
+        monkeypatch.setattr(
+            session_start_hook,
+            "_is_ai_cooldown_active",
+            lambda vault_path: False,
+        )
+        monkeypatch.setattr(
+            session_start_hook,
+            "read_note_summary",
+            lambda path, max_lines=6: "Useful summary",
+        )
+
+        candidate = tmp_path / "note.md"
+        candidate.write_text("ignored", encoding="utf-8")
+
+        def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+            return ""
+
+        monkeypatch.setattr(
+            session_start_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        )
+
+        stamped: list[Path] = []
+        monkeypatch.setattr(
+            session_start_hook,
+            "_write_ai_cooldown_stamp",
+            lambda vault_path: stamped.append(vault_path),
+        )
+
+        result = session_start_hook._select_context_with_ai(
+            project_name="parsidion",
+            cwd=str(tmp_path),
+            candidate_notes=[candidate],
+            model="claude-haiku-test",
+            vault_path=tmp_path,
+        )
+
+        assert result == ""
+        assert stamped == [tmp_path]
+
 
 # ---------------------------------------------------------------------------
 # QA-007: AI cooldown helpers

@@ -322,6 +322,11 @@ def _select_context_with_ai(
         if output:
             _write_ai_cooldown_stamp(vault_path)
             return output.strip()
+        # Attempt completed without output (timeout, backend error, or empty
+        # response) — the full ai_timeout budget was already spent. Stamp the
+        # cooldown so back-to-back session starts don't re-pay it while the
+        # backend is slow or down; falls through to the standard path below.
+        _write_ai_cooldown_stamp(vault_path)
     except (FileNotFoundError, OSError):
         pass
     finally:

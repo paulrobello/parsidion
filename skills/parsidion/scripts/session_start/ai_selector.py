@@ -59,7 +59,11 @@ def _ai_stamp_path(vault_path: Path) -> Path:
 
 
 def _write_ai_cooldown_stamp(vault_path: Path) -> None:
-    """Update the per-vault cooldown stamp after a successful AI selection."""
+    """Update the per-vault cooldown stamp after a completed AI selection attempt.
+
+    Written on success AND on a failed/empty backend response: either way the
+    expensive attempt ran, and ``ai_cooldown_seconds`` rate-limits the next one.
+    """
     stamp_path = _ai_stamp_path(vault_path)
     try:
         stamp_path.write_text(f"{datetime.now().isoformat()}\n", encoding="utf-8")
