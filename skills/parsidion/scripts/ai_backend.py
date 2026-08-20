@@ -16,12 +16,16 @@ import subproc_util
 import vault_config
 from vault_hooks import env_without_claudecode
 
-AiBackend = Literal["claude-cli", "codex-cli", "none"]
+AiBackend = Literal["claude-cli", "codex-cli", "grok-cli", "none"]
 ModelTier = Literal["small", "large"]
 
 _CONFIG_BACKEND_AUTO = "auto"
 _DEFAULT_CLAUDE_TIMEOUT: int = 30
 _DEFAULT_CODEX_TIMEOUT: int = 60
+# grok-4.6 headless (`grok --prompt-file`) measured 17-40s per parsidion-sized
+# prompt (cold OAuth/session start on the high end), so the default budget is
+# generous; summarization prompts are larger than selector prompts.
+_DEFAULT_GROK_TIMEOUT: int = 120
 # ARC-006: These hardcoded model identifiers are deprecation risks — Anthropic
 # periodically retires dated model snapshots (e.g. ``-20251001`` suffixes).
 # Override them without touching this file by setting either:
@@ -45,6 +49,12 @@ _DEFAULT_CODEX_MODELS: dict[ModelTier, str] = {
     "small": "gpt-5.5",
     "large": "gpt-5.5",
 }
+# Both tiers map to grok-4.6 today (the tier split is a no-op, mirroring the
+# Codex default); override per tier via ``ai_models.grok.{small,large}``.
+_DEFAULT_GROK_MODELS: dict[ModelTier, str] = {
+    "small": "grok-4.6",
+    "large": "grok-4.6",
+}
 _CODEX_ENV_KEYS: frozenset[str] = frozenset(
     {
         "PATH",
@@ -58,6 +68,23 @@ _CODEX_ENV_KEYS: frozenset[str] = frozenset(
         "HTTPS_PROXY",
         "HTTP_PROXY",
         "CODEX_HOME",
+        "PARSIDION_RUNTIME",
+    }
+)
+# Grok needs the same minimal env as Codex (OAuth creds live in ~/.grok, so
+# HOME is the only required secret-adjacent variable).
+_GROK_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "TERM",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
         "PARSIDION_RUNTIME",
     }
 )
@@ -94,10 +121,10 @@ def resolve_ai_backend(vault: Path | None = None) -> AiBackend:
     """Resolve the configured prompt AI backend.
 
     Explicit ``ai.backend`` values win. ``auto`` inspects runtime hints and
-    prefers strong Codex runtime hints before the Claude fallback.
+    prefers strong Codex/Grok runtime hints before the Claude fallback.
     """
     configured = _configured_backend(vault=vault)
-    if configured in {"claude-cli", "codex-cli", "none"}:
+    if configured in {"claude-cli", "codex-cli", "grok-cli", "none"}:
         return cast(AiBackend, configured)
     if configured != _CONFIG_BACKEND_AUTO:
         return "claude-cli"
@@ -105,6 +132,8 @@ def resolve_ai_backend(vault: Path | None = None) -> AiBackend:
     runtime_hint = os.environ.get("PARSIDION_RUNTIME", "").strip().lower()
     if runtime_hint == "codex":
         return "codex-cli"
+    if runtime_hint == "grok":
+        return "grok-cli"
     if runtime_hint == "claude":
         return "claude-cli"
 
@@ -116,7 +145,7 @@ def resolve_ai_backend(vault: Path | None = None) -> AiBackend:
 
 
 def _model_from_config(
-    backend_key: Literal["claude", "codex"],
+    backend_key: Literal["claude", "codex", "grok"],
     model_tier: ModelTier,
     defaults: dict[ModelTier, str],
     vault: Path | None,
@@ -142,6 +171,8 @@ def resolve_ai_model(
         return None
     if backend == "codex-cli":
         return _model_from_config("codex", model_tier, _DEFAULT_CODEX_MODELS, vault)
+    if backend == "grok-cli":
+        return _model_from_config("grok", model_tier, _DEFAULT_GROK_MODELS, vault)
     return _model_from_config("claude", model_tier, _DEFAULT_CLAUDE_MODELS, vault)
 
 
@@ -272,11 +303,27 @@ def _run_claude_prompt(
     # thinking-dominated responses.
     cmd.extend(["--output-format", "json"])
 
+    # claude_cli.minimal_context (default true): replace the system prompt and
+    # run from a clean scratch cwd so the project's CLAUDE.md chain is not
+    # ingested — parsidion prompts are self-contained text transforms.
+    minimal_context = _config_bool("claude_cli", "minimal_context", True, vault=vault)
+    run_cwd: str | None = str(cwd) if cwd is not None else None
+    if minimal_context:
+        system_prompt = _config_str(
+            "claude_cli", "system_prompt", _MINIMAL_SYSTEM_PROMPT, vault=vault
+        )
+        cmd.extend(["--system-prompt", system_prompt])
+        run_cwd = str(_minimal_context_cwd())
+
     try:
         result = _run_prompt_subprocess(
             cmd,
-            timeout=timeout if timeout is not None else _DEFAULT_CLAUDE_TIMEOUT,
-            cwd=str(cwd) if cwd is not None else None,
+            timeout=timeout
+            if timeout is not None
+            else _config_timeout(
+                "claude_cli", "timeout", _DEFAULT_CLAUDE_TIMEOUT, vault=vault
+            ),
+            cwd=run_cwd,
             env=env_without_claudecode(vault=vault),
             stdin=prompt,
         )
@@ -343,39 +390,42 @@ def _config_timeout(
     return default
 
 
-def _resolve_codex_command(command: str) -> str:
-    """Resolve a configured ``codex_cli.command`` value to an executable path.
+def _resolve_configured_binary(command: str, label: str) -> str:
+    """Resolve a configured CLI ``command`` value to an executable path.
 
-    SEC-117: ``codex_cli.command`` is a config-file value that becomes
-    ``subprocess.argv[0]``, so apply the same gate ``par_mem.binary``
-    already gets. Bare names resolve via ``shutil.which``; values with a
-    path separator must point at an existing executable file. Returns the
-    resolved path on success, or the input unchanged when it already is
-    an absolute executable path. Raises ``FileNotFoundError`` when the
-    binary cannot be resolved so the caller can fall back rather than
-    silently launching a wrong binary.
+    SEC-117: config-file values that become ``subprocess.argv[0]`` get the
+    same gate ``par_mem.binary`` already has. Bare names resolve via
+    ``shutil.which``; values with a path separator must point at an existing
+    executable file. Raises ``FileNotFoundError`` when the binary cannot be
+    resolved so the caller can fall back rather than silently launching a
+    wrong binary.
     """
     if not command:
-        raise FileNotFoundError("codex_cli.command is empty")
+        raise FileNotFoundError(f"{label} is empty")
     # Bare command name: resolve via PATH.
     if "/" not in command and not os.path.isabs(command):
         resolved = shutil.which(command)
         if not resolved:
             raise FileNotFoundError(
-                f"codex_cli.command {command!r} not found on PATH; "
-                "install codex or set codex_cli.command to an absolute path."
+                f"{label} {command!r} not found on PATH; "
+                f"install the CLI or set {label} to an absolute path."
             )
         return resolved
     # Path-like value: must point at an existing executable.
     candidate = Path(command)
     if not candidate.exists():
         raise FileNotFoundError(
-            f"codex_cli.command {command!r} does not exist; "
-            "set codex_cli.command to an absolute path to a codex executable."
+            f"{label} {command!r} does not exist; "
+            f"set {label} to an absolute path to the executable."
         )
     if not os.access(candidate, os.X_OK):
-        raise FileNotFoundError(f"codex_cli.command {command!r} is not executable.")
+        raise FileNotFoundError(f"{label} {command!r} is not executable.")
     return str(candidate.resolve())
+
+
+def _resolve_codex_command(command: str) -> str:
+    """Resolve ``codex_cli.command`` (SEC-117 gate; see the shared helper)."""
+    return _resolve_configured_binary(command, "codex_cli.command")
 
 
 def _resolve_codex_sandbox(sandbox: str | None, vault: Path | None) -> str | None:
@@ -520,6 +570,130 @@ def _run_codex_prompt(
                 pass
 
 
+_MINIMAL_SYSTEM_PROMPT = (
+    "You are a text transformation assistant for a note-taking system. "
+    "Follow the user's instructions exactly and output only the requested "
+    "result with no extra commentary."
+)
+
+
+def _grok_env() -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if key in _GROK_ENV_KEYS}
+    env["PARSIDION_INTERNAL"] = "1"
+    return env
+
+
+def _minimal_context_cwd() -> Path:
+    """Return an empty non-git scratch dir for minimal-context CLI calls.
+
+    Grok scans repo-root → cwd for ``Agents.md`` / ``Claude.md`` (and loads
+    its skill catalog from the project), appending everything to the system
+    prompt. Running from an empty scratch dir outside any git repo keeps
+    those prompts hermetic.
+    """
+    clean = Path(tempfile.gettempdir()) / "parsidion-grok-clean"
+    clean.mkdir(parents=True, exist_ok=True)
+    return clean
+
+
+def _run_grok_prompt(
+    prompt: str,
+    *,
+    model: str | None,
+    timeout: int | float | None,
+    cwd: str | Path | None,
+    vault: Path | None,
+    raise_on_timeout: bool,
+) -> tuple[str | None, str | None]:
+    """Run a single-turn grok prompt via ``--prompt-file``.
+
+    ``grok_cli.minimal_context`` (default true) overrides the system prompt
+    and runs from a clean scratch cwd with tools, subagents, and web search
+    disabled — without it grok ingests the project's CLAUDE.md/AGENTS.md
+    rules and its full skill catalog, which is dead context for parsidion's
+    selector/summarizer prompts. SEC-123: the prompt travels via a temp
+    file, not ``argv``.
+    """
+    command_raw = _config_str("grok_cli", "command", "grok", vault=vault)
+    try:
+        command = _resolve_configured_binary(command_raw, "grok_cli.command")
+    except FileNotFoundError as exc:
+        sys.stderr.write(f"[ai_backend] {exc}\n")
+        sys.stderr.flush()
+        return None, CAUSE_LAUNCH
+
+    grok_timeout = (
+        timeout
+        if timeout is not None
+        else _config_timeout("grok_cli", "timeout", _DEFAULT_GROK_TIMEOUT, vault=vault)
+    )
+    minimal_context = _config_bool("grok_cli", "minimal_context", True, vault=vault)
+
+    prompt_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix="parsidion-grok-",
+            delete=False,
+        ) as prompt_file:
+            prompt_file.write(prompt)
+            prompt_path = Path(prompt_file.name)
+
+        cmd = [command, "--prompt-file", str(prompt_path), "--verbatim"]
+        if model:
+            cmd.extend(["--model", model])
+        if minimal_context:
+            system_prompt = _config_str(
+                "grok_cli", "system_prompt", _MINIMAL_SYSTEM_PROMPT, vault=vault
+            )
+            cmd.extend(
+                [
+                    "--cwd",
+                    str(_minimal_context_cwd()),
+                    "--system-prompt-override",
+                    system_prompt,
+                    "--tools",
+                    "",
+                    "--no-subagents",
+                    "--disable-web-search",
+                ]
+            )
+
+        result = _run_prompt_subprocess(
+            cmd,
+            timeout=grok_timeout,
+            cwd=str(cwd) if cwd is not None else None,
+            env=_grok_env(),
+        )
+        if result is None:
+            return None, CAUSE_LAUNCH
+        if result.returncode != 0:
+            _log_backend_failure(
+                "grok -p", result.returncode, result.stdout, result.stderr
+            )
+            return None, CAUSE_NONZERO
+        output = (result.stdout or "").strip()
+        if not output:
+            _log_backend_failure(
+                "grok -p", result.returncode, result.stdout, result.stderr
+            )
+            return None, CAUSE_EMPTY
+        return output, None
+    except subprocess.TimeoutExpired as exc:
+        if raise_on_timeout:
+            raise AiBackendTimeout("AI backend prompt timed out") from exc
+        return None, CAUSE_TIMEOUT
+    except OSError:
+        return None, CAUSE_LAUNCH
+    finally:
+        if prompt_path is not None:
+            try:
+                prompt_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def run_ai_prompt_with_cause(
     prompt: str,
     *,
@@ -553,6 +727,15 @@ def run_ai_prompt_with_cause(
     )
     if backend == "codex-cli":
         return _run_codex_prompt(
+            prompt,
+            model=resolved_model,
+            timeout=timeout,
+            cwd=cwd,
+            vault=vault,
+            raise_on_timeout=raise_on_timeout,
+        )
+    if backend == "grok-cli":
+        return _run_grok_prompt(
             prompt,
             model=resolved_model,
             timeout=timeout,

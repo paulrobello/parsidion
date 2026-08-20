@@ -233,8 +233,10 @@ Config sections:
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents` | `subagent_stop_hook.py` |
 | `pre_compact_hook` | `lines` | `pre_compact_hook.py` |
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `persist`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental` | `summarize_sessions.py` |
-| `ai` | `backend` (`auto` \| `claude-cli` \| `codex-cli` \| `none`) | `ai_backend.py` — selects which prompt backend the hooks and summarizer use for AI calls |
-| `ai_models` | `claude.{small,large}`, `codex.{small,large}` | `ai_backend.py` — per-backend model tiers; `summarizer.model=null` falls back to `<backend>.large` |
+| `ai` | `backend` (`auto` \| `claude-cli` \| `codex-cli` \| `grok-cli` \| `none`) | `ai_backend.py` — selects which prompt backend the hooks and summarizer use for AI calls |
+| `ai_models` | `claude.{small,large}`, `codex.{small,large}`, `grok.{small,large}` | `ai_backend.py` — per-backend model tiers; `summarizer.model=null` falls back to `<backend>.large` |
+| `claude_cli` | `minimal_context`, `system_prompt`, `timeout` | `ai_backend.py` — `claude -p` invocation; `minimal_context` (default true) replaces the system prompt and runs from a clean cwd so the project CLAUDE.md chain is not ingested |
+| `grok_cli` | `command`, `timeout`, `minimal_context`, `system_prompt` | `ai_backend.py` — `grok` CLI (OAuth login) invocation for `ai.backend: grok-cli`; `minimal_context` (default true) overrides the system prompt and disables tools/skills/web-search ingestion |
 | `codex_cli` | `command`, `timeout`, `sandbox`, `ephemeral`, `skip_git_repo_check`, `suppress_notify` | `ai_backend.py` — only used when `ai.backend` resolves to `codex-cli` |
 | `defaults` | `haiku_model` | All scripts that call Claude; superseded by `ai_models.<backend>` for tier-specific overrides. (`sonnet_model` is no longer read — use `ai_models.<backend>.large`.) |
 | `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled` (ENH-003 opt-in persistent embedding service; default false, never used under par-mem), `service_idle_exit` (daemon idle-exit seconds, default 600) | `build_embeddings.py`, `vault_search.py`, `vault_embed_serve.py` |

@@ -64,9 +64,10 @@ summarizer:
 # AI backend selection (ai_backend.py). Chooses which prompt backend the
 # hooks and the summarizer use for AI calls. Default ``auto`` picks the
 # first available backend: claude-cli on a Claude Code machine, codex-cli
-# where ``codex`` is on PATH. ``none`` disables AI features entirely.
+# where ``codex`` is on PATH; ``PARSIDION_RUNTIME=grok`` hints grok-cli.
+# ``none`` disables AI features entirely.
 ai:
-  backend: auto            # auto | claude-cli | codex-cli | none
+  backend: auto            # auto | claude-cli | codex-cli | grok-cli | none
 
 # Per-backend model configuration. Each backend has a ``small`` and
 # ``large`` tier: hooks use ``small`` (haiku-equivalent) for fast
@@ -79,6 +80,31 @@ ai_models:
   codex:
     small: gpt-5.5
     large: gpt-5.5
+  grok:
+    small: grok-4.6
+    large: grok-4.6
+
+# Claude CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
+# ``claude-cli`` (or ``auto`` resolves to it). ``minimal_context`` (default
+# true) passes ``--system-prompt`` and runs from a clean scratch cwd so
+# ``claude -p`` does not ingest the project's CLAUDE.md chain — parsidion
+# prompts are self-contained text transforms.
+claude_cli:
+  minimal_context: true
+  # system_prompt: ...    # Override the minimal system prompt text
+  # timeout: 30           # Per-prompt timeout in seconds
+
+# Grok CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
+# ``grok-cli``. ``command`` defaults to ``grok`` on PATH. ``minimal_context``
+# (default true) overrides the system prompt and runs from a clean scratch
+# cwd with tools, subagents, and web search disabled — grok otherwise
+# appends every CLAUDE.md/AGENTS.md it finds plus its full skill catalog to
+# the system prompt. Auth uses the CLI's own OAuth login.
+grok_cli:
+  command: grok           # PATH lookup or absolute path to the grok CLI
+  timeout: 120            # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40s)
+  minimal_context: true
+  # system_prompt: ...    # Override the minimal system prompt text
 
 # Codex CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
 # ``codex-cli`` (or ``auto`` resolves to it). ``command`` defaults to the

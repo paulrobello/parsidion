@@ -48,7 +48,18 @@ from vault_config import (
 # ---------------------------------------------------------------------------
 GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     "ai": {"backend": (str,)},
-    "ai_models": {"claude": (dict,), "codex": (dict,)},
+    "ai_models": {"claude": (dict,), "codex": (dict,), "grok": (dict,)},
+    "claude_cli": {
+        "minimal_context": (bool,),
+        "system_prompt": (str,),
+        "timeout": (int, float),
+    },
+    "grok_cli": {
+        "command": (str,),
+        "timeout": (int, float),
+        "minimal_context": (bool,),
+        "system_prompt": (str,),
+    },
     "codex_cli": {
         "command": (str,),
         "timeout": (int, float),
@@ -200,7 +211,7 @@ class TestSchemaEquivalence:
         assert vault_config._CONFIG_SCHEMA == vault_config.schema_dict()
 
     def test_section_count_matches(self) -> None:
-        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 18
+        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 20
 
     def test_no_schema_key_dropped_or_added(self) -> None:
         derived = vault_config.schema_dict()

@@ -34,6 +34,8 @@ from typing import Any, get_type_hints
 
 __all__ = [
     "AIConfig",
+    "GrokCliConfig",
+    "ClaudeCliConfig",
     "AIModelsConfig",
     "CodexCliConfig",
     "SessionStartHookConfig",
@@ -72,12 +74,47 @@ class AIConfig:
 class AIModelsConfig:
     """``ai_models`` section: per-backend model tiers.
 
-    ``claude``/``codex`` are free-form mappings (e.g. ``{small: ..., large: ...}``)
-    so they stay ``dict`` here and in the schema tuple.
+    ``claude``/``codex``/``grok`` are free-form mappings (e.g.
+    ``{small: ..., large: ...}``) so they stay ``dict`` here and in the
+    schema tuple.
     """
 
     claude: dict = None
     codex: dict = None
+    grok: dict = None
+
+
+@dataclass
+class ClaudeCliConfig:
+    """``claude_cli`` section: ``claude -p`` invocation parameters.
+
+    ``minimal_context`` (default true) replaces the system prompt and runs
+    from a clean scratch cwd so ``claude -p`` does not ingest the project's
+    CLAUDE.md chain, hooks, or plugin context — parsidion's selector /
+    summarizer prompts are pure text transforms.
+    """
+
+    minimal_context: bool = None
+    system_prompt: str = None
+    timeout: int | float = None
+
+
+@dataclass
+class GrokCliConfig:
+    """``grok_cli`` section: ``grok -p`` invocation parameters.
+
+    ``minimal_context`` (default true) runs single-turn prompts from a clean
+    scratch cwd with the system prompt overridden and built-in tools,
+    subagents, and web search disabled — grok otherwise ingests CLAUDE.md /
+    AGENTS.md rules and its full skill catalog from the working directory,
+    which is dead weight (and a prompt-injection surface) for parsidion's
+    pure text-transform prompts.
+    """
+
+    command: str = None
+    timeout: int | float = None
+    minimal_context: bool = None
+    system_prompt: str = None
 
 
 @dataclass
@@ -279,10 +316,12 @@ class VaultAppConfig:
     # overload-resolution hiccup that arises under ``from __future__ import
     # annotations`` when the factory is a dataclass whose own fields use the
     # ``attr: str = None`` pattern the module-level reportAssignmentType
-    # suppression covers. The lambda resolves to ``Callable[[], X]`` directly.
+    # suppression covers.
     ai: AIConfig = field(default_factory=lambda: AIConfig())
     ai_models: AIModelsConfig = field(default_factory=lambda: AIModelsConfig())
+    claude_cli: ClaudeCliConfig = field(default_factory=lambda: ClaudeCliConfig())
     codex_cli: CodexCliConfig = field(default_factory=lambda: CodexCliConfig())
+    grok_cli: GrokCliConfig = field(default_factory=lambda: GrokCliConfig())
     session_start_hook: SessionStartHookConfig = field(
         default_factory=lambda: SessionStartHookConfig()
     )

@@ -50,7 +50,14 @@ class TestConfigSchema:
         assert vault_config._CONFIG_SCHEMA["codex_cli"]["skip_git_repo_check"] == (
             bool,
         )
-        assert vault_config._CONFIG_SCHEMA["codex_cli"]["suppress_notify"] == (bool,)
+        assert vault_config._CONFIG_SCHEMA["ai_models"]["grok"] == (dict,)
+        assert vault_config._CONFIG_SCHEMA["grok_cli"]["command"] == (str,)
+        assert vault_config._CONFIG_SCHEMA["grok_cli"]["timeout"] == (int, float)
+        assert vault_config._CONFIG_SCHEMA["grok_cli"]["minimal_context"] == (bool,)
+        assert vault_config._CONFIG_SCHEMA["grok_cli"]["system_prompt"] == (str,)
+        assert vault_config._CONFIG_SCHEMA["claude_cli"]["minimal_context"] == (bool,)
+        assert vault_config._CONFIG_SCHEMA["claude_cli"]["system_prompt"] == (str,)
+        assert vault_config._CONFIG_SCHEMA["claude_cli"]["timeout"] == (int, float)
 
 
 class TestResolveAiBackend:
@@ -128,6 +135,22 @@ class TestResolveAiBackend:
 
         assert ai_backend.resolve_ai_backend(vault=vault) == "claude-cli"
 
+    def test_auto_uses_grok_runtime_hint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: auto\n")
+        monkeypatch.setenv("PARSIDION_RUNTIME", "grok")
+
+        assert ai_backend.resolve_ai_backend(vault=vault) == "grok-cli"
+
+    def test_explicit_grok_backend_wins(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: grok-cli\n")
+        monkeypatch.setenv("PARSIDION_RUNTIME", "claude")
+
+        assert ai_backend.resolve_ai_backend(vault=vault) == "grok-cli"
+
     def test_invalid_backend_falls_back_to_claude(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -150,6 +173,38 @@ class TestResolveAiModel:
         assert (
             ai_backend.resolve_ai_model("codex-cli", model_tier="large", vault=vault)
             == "gpt-5.5"
+        )
+
+    def test_grok_defaults_use_grok_4_6(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path)
+
+        assert (
+            ai_backend.resolve_ai_model("grok-cli", model_tier="small", vault=vault)
+            == "grok-4.6"
+        )
+        assert (
+            ai_backend.resolve_ai_model("grok-cli", model_tier="large", vault=vault)
+            == "grok-4.6"
+        )
+
+    def test_configured_grok_models_override_defaults(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai_models:\n  grok:\n    small: grok-fast\n    large: grok-pro\n",
+        )
+
+        assert (
+            ai_backend.resolve_ai_model("grok-cli", model_tier="small", vault=vault)
+            == "grok-fast"
+        )
+        assert (
+            ai_backend.resolve_ai_model("grok-cli", model_tier="large", vault=vault)
+            == "grok-pro"
         )
 
     def test_claude_defaults_are_tiered(
@@ -238,7 +293,11 @@ class TestRunAiPrompt:
     def test_claude_command_construction_and_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: claude-cli\n")
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: claude-cli\nclaude_cli:\n  minimal_context: false\n",
+        )
         monkeypatch.setenv("CLAUDECODE", "1")
         calls: list[tuple[list[str], dict[str, Any]]] = []
 
@@ -287,6 +346,178 @@ class TestRunAiPrompt:
 
         # Non-JSON stdout (older CLI / pre-JSON output) falls back to raw text.
         assert ai_backend.run_ai_prompt("hello", vault=vault) == "raw answer"
+
+    def test_claude_minimal_context_overrides_system_prompt_and_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default minimal_context: --system-prompt override + clean scratch cwd.
+
+        claude -p otherwise ingests the project's CLAUDE.md chain, which is
+        dead context (and an injection surface) for pure text-transform
+        prompts. Verified live: CLAUDE.md instructions leak into replies
+        without the override and disappear with it.
+        """
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: claude-cli\n")
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"result": "answer"}', stderr=""
+            )
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+
+        assert ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault) == "answer"
+        cmd, kwargs = calls[0]
+        assert (
+            cmd[cmd.index("--system-prompt") + 1] == ai_backend._MINIMAL_SYSTEM_PROMPT
+        )
+        assert kwargs["cwd"] == str(ai_backend._minimal_context_cwd())
+        assert kwargs["cwd"] != str(tmp_path)
+
+    def test_claude_cli_timeout_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: claude-cli\nclaude_cli:\n  timeout: 44\n",
+        )
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout='{"result": "answer"}', stderr=""
+            )
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+
+        assert ai_backend.run_ai_prompt("hello", vault=vault) == "answer"
+        assert calls[0][1]["timeout"] == 44
+
+    def test_grok_command_construction_minimal_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: grok-cli\n")
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            prompt_file = Path(cmd[cmd.index("--prompt-file") + 1])
+            assert prompt_file.read_text(encoding="utf-8") == "hello"
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="grok answer\n", stderr=""
+            )
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        result = ai_backend.run_ai_prompt(
+            "hello", model_tier="small", timeout=34, cwd=tmp_path, vault=vault
+        )
+
+        assert result == "grok answer"
+        cmd, kwargs = calls[0]
+        assert cmd[0] == "/usr/local/bin/grok"
+        # SEC-123: prompt travels via --prompt-file, never argv.
+        assert "hello" not in cmd
+        assert "--verbatim" in cmd
+        assert cmd[cmd.index("--model") + 1] == "grok-4.6"
+        # minimal_context (default): hermetic prompt — no CLAUDE/AGENTS
+        # ingestion, no tools, no subagents, no web search.
+        assert cmd[cmd.index("--system-prompt-override") + 1] == (
+            ai_backend._MINIMAL_SYSTEM_PROMPT
+        )
+        assert cmd[cmd.index("--cwd") + 1] == str(ai_backend._minimal_context_cwd())
+        assert cmd[cmd.index("--tools") + 1] == ""
+        assert "--no-subagents" in cmd
+        assert "--disable-web-search" in cmd
+        assert kwargs["timeout"] == 34
+        env = kwargs["env"]
+        assert env["PARSIDION_INTERNAL"] == "1"
+        assert "CLAUDECODE" not in env
+
+    def test_grok_minimal_context_false_keeps_project_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: grok-cli\ngrok_cli:\n  minimal_context: false\n",
+        )
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, stdout="grok answer", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        assert ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault) is not None
+        cmd, kwargs = calls[0]
+        assert "--system-prompt-override" not in cmd
+        assert "--cwd" not in cmd
+        assert "--no-subagents" not in cmd
+        assert kwargs["cwd"] == str(tmp_path)
+        # Default timeout: grok-4.6 headless measured 17-40s per prompt.
+        assert kwargs["timeout"] == ai_backend._DEFAULT_GROK_TIMEOUT
+
+    def test_grok_cli_config_controls_command_and_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: grok-cli\ngrok_cli:\n  timeout: 45\n",
+        )
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, stdout="grok answer", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        assert ai_backend.run_ai_prompt("hello", vault=vault) is not None
+        assert calls[0][1]["timeout"] == 45
+
+    def test_grok_unresolvable_command_returns_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: grok-cli\n")
+        monkeypatch.setattr(ai_backend.shutil, "which", lambda name: None)
+
+        assert ai_backend.run_ai_prompt("hello", vault=vault) is None
+
+    def test_grok_nonzero_exit_and_empty_output_return_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: grok-cli\n")
+        outcomes = [
+            subprocess.CompletedProcess([], 2, stdout="", stderr="boom"),
+            subprocess.CompletedProcess([], 0, stdout="  \n", stderr=""),
+        ]
+        monkeypatch.setattr(
+            ai_backend,
+            "_run_prompt_subprocess",
+            lambda cmd, **kwargs: outcomes.pop(0),
+        )
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        assert ai_backend.run_ai_prompt("hello", vault=vault) is None
+        assert ai_backend.run_ai_prompt("hello", vault=vault) is None
 
     def test_claude_empty_json_result_returns_none(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

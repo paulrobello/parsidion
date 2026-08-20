@@ -1413,7 +1413,7 @@ parsidion/
     │   ├── vault_merge.py           # CLI to merge two vault notes (vault-merge)
     │   ├── vault_conflicts.py       # CLI to detect contradictory notes (vault-conflicts)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
-    │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli)
+    │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli, grok-cli)
     │   ├── parmem_backend.py        # Optional par-mem code-memory backend (availability probe + subprocess transport)
     │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/gemini/pi + opt-in external drop-ins (ARC-020, ENH-006)
     │   ├── note_schema.py           # Single source of truth for note types, folders, required fields (ENH-008)
