@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-19
+
 ### Added
 
 - **omp (oh my pi) runtime support** — `install.py connect omp` / `disconnect omp`. omp is an extension-only runtime like pi: it reuses the same TypeScript extension source (`extensions/pi/parsidion/`), installed into `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; `--omp-home` overrides). Verified against omp 17.3.8: its extension loader resolves the extension's `@mariozechner/*` imports, emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`), and a headless run wrote a `SessionStart` event to `hook_events.log` with vault context injected. omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. `scripts/install-pi-extension` gained `--agent-name` so the post-install hint names the right runtime.
@@ -195,7 +197,10 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/paulrobello/parsidion/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/paulrobello/parsidion/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/paulrobello/parsidion/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/paulrobello/parsidion/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/paulrobello/parsidion/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/paulrobello/parsidion/compare/v0.13.0...v0.14.0
