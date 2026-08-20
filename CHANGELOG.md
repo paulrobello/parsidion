@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-08-20
+
+Grok Build CLI backend release. The prompt-AI layer gains a third backend (`grok-cli`, grok-4.6), both CLI backends now run hermetically (no CLAUDE.md/AGENTS.md/skill-catalog ingestion), the AI selector's candidate pool is ranked and pruned Python-side, and every runtime gives the SessionStart hook the same 60 s budget.
+
+### Added
+
+- **grok-cli prompt AI backend** — `ai.backend: grok-cli` (also auto-resolved from `PARSIDION_RUNTIME=grok`). Single-turn prompts run via `grok --prompt-file <tmp> --verbatim -m <model>` (prompt on file, never argv — SEC-123 parity) using the CLI's own OAuth login; grok-4.6 headless measures 8–40 s per prompt, so `grok_cli.timeout` defaults to 120 s. New `grok_cli` config section (`command`, `timeout`, `minimal_context`, `system_prompt`); `ai_models.grok.{small,large}` default to `grok-4.6`. Binary resolution shares the SEC-117 gate with codex (`_resolve_configured_binary`).
+- **Minimal-context mode for claude-cli and grok-cli** (`claude_cli.minimal_context` / `grok_cli.minimal_context`, default true). Verified live: grok appends every `CLAUDE.md`/`AGENTS.md` found from repo root to cwd plus its full skill catalog to the system prompt (injected instructions leaked verbatim into replies), and `--system-prompt-override` alone does **not** stop project-doc ingestion — so minimal mode also runs from an empty non-git scratch cwd (`--cwd` for grok, process cwd for claude) and, for grok, disables tools/subagents/web search. Claude's `--bare` was rejected for this purpose (it forbids OAuth/keychain auth). Both prompts are configurable via `<backend>_cli.system_prompt`.
+- **Ranked + pruned AI-selector candidate pool** — `_build_candidates` now scores candidates Python-side (project match 30 > graph adjacency to project seeds 15 > adaptive usefulness ≤10 > recency ≤10 over a 10-day linear window > hubness ≤5, ties to newer mtime then path — deterministic, no embeddings) and caps the pool at `session_start_hook.ai_candidates_max` (default 48, `0` = unlimited ranked). Previously the pool was unordered and `_select_context_with_ai` embedded whichever prefix fit the 8000-char budget — on a 15k-note vault the selector saw an arbitrary prefix of 839 candidates. Live: pool 839 → 48 ranked in 0.56 s.
+- **`claude_cli` config section** (`minimal_context`, `system_prompt`, `timeout`) and `ai_models.grok` in the typed config schema (golden snapshot 18 → 20 sections).
+
+### Fixed
+
+- **omp/pi "SessionStart hook exited with code 143"** — the extension killed `session_start_hook.py` at 12 s while the hook's documented worst case (AI selection + semantic blend + startup) is ~37 s; the fire-and-forget kill discarded all vault context. The AI cooldown stamp is now written after *any* completed backend attempt (success or failure), so a slow/hung backend rate-limits itself instead of re-paying the full `ai_timeout` on every session start.
+
+### Changed
+
+- **All SessionStart hook timeouts unified at 60 s** — Claude Code (`installer.paths._HOOK_OPTIONS`, applied to new registrations *and* existing lower-valued handlers on reinstall — legacy 10 s installs are raised automatically), gemini adapter (`entry_timeout` 10 s → 60 s), omp/pi extension (`HOOK_TIMEOUT_SESSION_START_MS`; was 12 s before 0.20.0). Codex already ran 60 s. The ARC-025 `--enable-ai-mode` 30 s special case is superseded and removed; `--enable-ai-mode` only drives the vault-config half now.
+
 ## [0.19.0] - 2026-08-19
 
 ### Added
@@ -198,6 +217,7 @@ That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebra
 `parsidion`, and every patch through 0.11.1.
 
 [Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.19.0...HEAD
+[0.20.0]: https://github.com/paulrobello/parsidion/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/paulrobello/parsidion/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/paulrobello/parsidion/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/paulrobello/parsidion/compare/v0.16.0...v0.17.0

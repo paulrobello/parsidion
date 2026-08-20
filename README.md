@@ -136,7 +136,7 @@ uv run install.py disconnect omp      # remove the omp extension only
 | `--yes / -y` | Skip all confirmation prompts; uses `~/ParsidionVault` if `--vault` not given, or legacy `~/ClaudeVault` when it already exists |
 | `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/settings.json`) |
 | `--skip-agent` | Do not install any agents |
-| `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml`, uses the configured prompt AI backend, and sets SessionStart timeout to 30 s |
+| `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml` and uses the configured prompt AI backend (SessionStart timeout is 60 s for every install regardless) |
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
 | `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, and `vault-conflicts` as global CLI commands via `uv tool install` |
 | `--schedule-summarizer` | Generate a launchd plist (macOS) or cron job (Linux) for nightly auto-summarization |
@@ -179,7 +179,7 @@ Gemini runtime hooks are separate from prompt AI backend selection. `--runtime g
 During interactive installation, the installer prompts for three optional features:
 
 1. **"Install CLI tools?"** (default: yes) — runs `uv tool install --editable ".[tools]"` to register `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, and `vault-conflicts` as global commands. Use `--install-tools` to enable this non-interactively (e.g. with `--yes`).
-2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml` and sets the SessionStart hook timeout to 30 s, enabling the configured prompt AI backend to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`).
+2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml`, enabling the configured prompt AI backend to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`). The SessionStart hook timeout is 60 s on every install, so no timeout adjustment is needed.
 3. **"Enable embeddings?"** (default: yes) — writes `embeddings.enabled = true` to `config.yaml`, enabling the vector index used by `vault-search` semantic mode and `session_start_hook` with `use_embeddings`. Requires ~67 MB model download on first run. Use `--enable-embeddings` to enable this non-interactively (e.g. with `--yes`).
 
 After installation, restart the selected runtime(s) to activate hooks. Optionally, open the vault path in Obsidian for graph visualization and note browsing -- this is not required for the system to work.
@@ -438,8 +438,10 @@ subagent_stop_hook:    # Subagent capture: enabled, min_messages, excluded_agent
 pre_compact_hook:      # lines (transcript tail to snapshot)
 summarizer:            # model, max_parallel, transcript_tail_lines/bytes, max_cleaned_chars,
                        # cluster_model, dedup_threshold, dead_letter_retention_days
-ai:                    # backend: auto | claude-cli | codex-cli | none
-ai_models:             # per-backend small/large model IDs (claude, codex)
+ai:                    # backend: auto | claude-cli | codex-cli | grok-cli | none
+ai_models:             # per-backend small/large model IDs (claude, codex, grok)
+claude_cli:            # minimal_context, system_prompt, timeout (claude -p invocation)
+grok_cli:              # command, timeout, minimal_context, system_prompt (grok CLI, OAuth)
 codex_cli:             # command, timeout, sandbox, ephemeral, skip_git_repo_check, suppress_notify
 anthropic_env:         # ANTHROPIC_API_KEY/AUTH_TOKEN/BASE_URL/CUSTOM_HEADERS,
                        # ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL, API_TIMEOUT_MS, HTTPS/HTTP_PROXY
@@ -458,7 +460,7 @@ adapters:              # load_external (opt-in ~/.config/parsidion/adapters/*.py
 For the full per-key reference (every option with type, default, and description), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **[Configuration](docs/ARCHITECTURE.md#configuration)**. The shipped template at `~/.claude/skills/parsidion/templates/config.yaml` is the canonical commented reference; copy it into your vault to get started.
 
 
-`ai.backend` controls prompt-style AI helpers used by session-start selection, session-stop classification, session summarization, vault doctor repairs, vault merge synthesis, and eval utilities. `auto` prefers the active runtime when Parsidion can detect it: Codex runtime hints use `codex exec`, Claude runtime hints use `claude -p`, and ambiguous environments keep the historical Claude CLI behavior.
+`ai.backend` controls prompt-style AI helpers used by session-start selection, session-stop classification, session summarization, vault doctor repairs, vault merge synthesis, and eval utilities. `auto` prefers the active runtime when Parsidion can detect it: Codex runtime hints use `codex exec`, Grok runtime hints (`PARSIDION_RUNTIME=grok`) use the `grok` CLI, Claude runtime hints use `claude -p`, and ambiguous environments keep the historical Claude CLI behavior. The claude-cli and grok-cli backends run with `minimal_context` (default on): the system prompt is replaced and the call runs from a clean scratch cwd so the project's CLAUDE.md/AGENTS.md chain and the CLI's skill catalog are not ingested — parsidion prompts are self-contained text transforms.
 
 Codex mode uses the Codex CLI and its normal authentication path. Parsidion does not read, copy, or manage `~/.codex/auth.json`, and this is not OpenAI API-key provider support. Prompt-style Codex calls default to `codex exec --ephemeral --sandbox read-only --skip-git-repo-check --config notify=[]` and write/read the final answer via `--output-last-message`. The `notify=[]` override suppresses user-configured Codex turn-complete notifications for internal Parsidion calls.
 
@@ -588,15 +590,14 @@ For the per-tool flag reference and the install/uninstall commands, see [docs/US
 
 ### Timeout errors with `--ai` flag
 
-- The `--ai` flag on session start/stop hooks requires a longer timeout (30 seconds) because it calls the configured prompt AI backend for AI-powered note selection. Claude backend uses `claude -p`; Codex backend uses `codex exec` with an internal recursion guard.
-- Update `settings.json` to set the hook timeout to `30000` ms:
+- The `--ai` flag on session start/stop hooks calls the configured prompt AI backend for note selection; headless backends (claude `claude -p`, codex `codex exec`, grok `grok --prompt-file`) can take 8–40 s per prompt. Every runtime registration now gives SessionStart 60 s (Claude Code installs are raised to it on reinstall), so manual timeout edits should no longer be needed:
   ```json
   {
     "command": "uv run --no-project ~/.claude/skills/parsidion/scripts/session_start_hook.py --ai",
-    "timeout": 30000
+    "timeout": 60000
   }
   ```
-- If timeouts persist, increase `ai_timeout` in `<resolved vault>/config.yaml`.
+- If timeouts persist, increase `ai_timeout` in `<resolved vault>/config.yaml` (grok-4.6 headless commonly needs 60 s).
 
 ### Summarizer fails to run
 
