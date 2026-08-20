@@ -342,7 +342,7 @@ def _register_builtin_adapters() -> None:
             hooks_config_filename="settings.json",
             event_scripts=_GEMINI_HOOK_SCRIPTS,
             entry_matcher="*",
-            entry_timeout=10000,
+            entry_timeout=60000,
             timeout_unit="ms",
             entry_names=_GEMINI_HOOK_NAMES,
             instructions_filename="GEMINI.md",

@@ -234,16 +234,53 @@ class TestConcurrentMergeHooksSerialized:
         assert len(locks) == 1, f"expected exactly one lock sidecar, got {locks}"
 
 
-class TestEnableAiModeMergeIntegration:
-    """ARC-025: enable_ai_mode's settings.json mutation is now merged into
-    merge_hooks (``enable_ai_mode=True``). The vault-config half of the
-    AI-mode flow still exists in installer.skill.enable_ai_mode — covered
-    here by asserting the merge writes a 30000ms SessionStart timeout in a
-    single write."""
+class TestSessionStartTimeout:
+    """SessionStart gets a 60s timeout (installer.paths._HOOK_OPTIONS),
+    matching the codex (60s) and omp/pi (60s) registrations — headless AI
+    selector backends run 8-40s. enable_ai_mode no longer changes it."""
 
-    def test_enable_ai_mode_raises_sessionstart_timeout_in_single_write(
-        self, tmp_path: Path
-    ) -> None:
+    @staticmethod
+    def _session_start_timeouts(settings_file: Path) -> list[object]:
+        merged = json.loads(settings_file.read_text(encoding="utf-8"))
+        return [
+            h.get("timeout")
+            for entry in merged.get("hooks", {}).get("SessionStart", [])
+            for h in entry.get("hooks", [])
+        ]
+
+    def test_new_registration_gets_60000(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}\n", encoding="utf-8")
+
+        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+
+        timeouts = self._session_start_timeouts(settings_file)
+        assert 60000 in timeouts, f"SessionStart timeout not 60000ms: {timeouts}"
+
+    def test_existing_lower_timeout_is_raised(self, tmp_path: Path) -> None:
+        """Reinstall must raise a legacy 10s registration, not skip it."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text("{}\n", encoding="utf-8")
+
+        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        # Downgrade to the legacy value, then merge again.
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        handler = settings["hooks"]["SessionStart"][0]["hooks"][0]
+        handler["timeout"] = 10000
+        settings_file.write_text(json.dumps(settings), encoding="utf-8")
+
+        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+
+        timeouts = self._session_start_timeouts(settings_file)
+        assert timeouts == [60000], (
+            f"legacy 10s SessionStart timeout not raised to 60000ms: {timeouts}"
+        )
+
+    def test_enable_ai_mode_does_not_change_timeout(self, tmp_path: Path) -> None:
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         settings_file = tmp_path / "settings.json"
@@ -257,38 +294,6 @@ class TestEnableAiModeMergeIntegration:
             enable_ai_mode=True,
         )
 
-        merged = json.loads(settings_file.read_text(encoding="utf-8"))
-        session_start_handlers = merged.get("hooks", {}).get("SessionStart", [])
-        timeouts = [
-            h.get("timeout")
-            for entry in session_start_handlers
-            for h in entry.get("hooks", [])
-        ]
-        assert 30000 in timeouts, (
-            f"enable_ai_mode=True did not raise SessionStart timeout to 30000ms; "
-            f"got timeouts={timeouts}"
-        )
-
-    def test_enable_ai_mode_false_keeps_default_timeout(self, tmp_path: Path) -> None:
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        settings_file = tmp_path / "settings.json"
-        settings_file.write_text("{}\n", encoding="utf-8")
-
-        install.merge_hooks(
-            claude_dir,
-            settings_file,
-            dry_run=False,
-            verbose=False,
-            enable_ai_mode=False,
-        )
-
-        merged = json.loads(settings_file.read_text(encoding="utf-8"))
-        session_start_handlers = merged.get("hooks", {}).get("SessionStart", [])
-        timeouts = [
-            h.get("timeout")
-            for entry in session_start_handlers
-            for h in entry.get("hooks", [])
-        ]
+        timeouts = self._session_start_timeouts(settings_file)
         assert 30000 not in timeouts
-        assert 10000 in timeouts
+        assert timeouts == [60000]

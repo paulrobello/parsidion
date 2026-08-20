@@ -64,6 +64,11 @@ _GEMINI_HOOK_NAMES: dict[str, str] = _agent_adapter._GEMINI_HOOK_NAMES
 _HOOK_OPTIONS: dict[str, dict] = {
     "SubagentStop": {"async": True},
     "SessionEnd": {"async": True},
+    # SessionStart runs vault retrieval plus (optionally) an AI selector
+    # prompt — headless CLI backends run 8-40s — so it gets the same 60s
+    # budget the codex (60s) and omp/pi (60s) runtimes allow. Kept here so
+    # the merge path raises existing 10s installs to it on reinstall.
+    "SessionStart": {"timeout": 60000},
 }
 
 _RUNTIME_CHOICES = ("claude", "codex", "gemini", "both", "all", "none")

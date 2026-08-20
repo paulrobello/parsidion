@@ -742,11 +742,12 @@ def merge_hooks(
     (``settings.json.lock``) so two concurrent installers — or an installer
     racing Claude Code's own settings write — cannot lose either side's
     changes. The write itself is the SEC-105 atomic tmp+replace.
-
-    ARC-025: when *enable_ai_mode* is True the SessionStart hook's timeout
-    is raised to 30000ms inside this same RMW cycle, so the file is written
-    once per install instead of twice via two independent RMWs (the former
-    ``enable_ai_mode`` helper did its own read/write).
+    SessionStart's timeout comes from ``installer.paths._HOOK_OPTIONS``
+    (60000ms — matches the codex and omp/pi runtimes) and is applied to both
+    new registrations and existing lower-valued handlers in this same RMW
+    cycle. *enable_ai_mode* no longer changes the timeout (the 60s budget
+    covers every selector backend); it only drives the vault-config half in
+    ``installer.skill``.
     """
     claude = _adapter("claude")
     with _file_lock(settings_file):
@@ -781,10 +782,6 @@ def merge_hooks(
             command = _build_managed_command(claude, claude_dir, event)
             event_hooks: list[dict] = hooks_section.setdefault(event, [])
             desired_options = _HOOK_OPTIONS.get(event, {})
-            # ARC-025: when AI mode is enabled, the SessionStart handler needs
-            # a 30s timeout (vs the default 10s) so claude-haiku can finish.
-            if enable_ai_mode and event == "SessionStart":
-                desired_options = {**desired_options, "timeout": 30000}
 
             existing_handler = _find_hook_handler(event_hooks, command)
             if existing_handler is not None:
@@ -808,13 +805,10 @@ def merge_hooks(
                     existing_handler.update(desired_options)
                 added.append(event)
                 continue
-
             hook_handler: dict = {
                 "type": "command",
                 "command": command,
-                "timeout": 30000
-                if (enable_ai_mode and event == "SessionStart")
-                else 10000,
+                "timeout": 10000,
             }
             hook_handler.update(desired_options)
 

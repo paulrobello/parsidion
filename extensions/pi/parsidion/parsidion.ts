@@ -79,9 +79,9 @@ const SUBAGENT_PROCESSED_ENTRY_TYPE = "parsidion:subagent-processed";
 const SUBAGENT_RESULT_MESSAGE_TYPE = "subagent:result";
 // SessionStart is invoked fire-and-forget (context is queued for the next
 // turn), so this cap only decides whether a slow hook is killed mid-run.
-// Must cover the hook's documented worst case: AI-mode selection
-// (session_start_hook.ai_timeout, default 25s) + semantic blend (10s) + startup.
-const HOOK_TIMEOUT_SESSION_START_MS = 40_000;
+// 60s matches the Claude Code and codex registrations; the hook's worst case
+// is an AI selector prompt (8-40s on headless CLI backends) + retrieval.
+const HOOK_TIMEOUT_SESSION_START_MS = 60_000;
 const HOOK_TIMEOUT_PRE_COMPACT_MS = 8_000;
 const HOOK_TIMEOUT_POST_COMPACT_MS = 6_000;
 const HOOK_TERMINATE_GRACE_MS = 1_500;
