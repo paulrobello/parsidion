@@ -13,4 +13,4 @@ The stdlib-only constraint is enforced on ``core.vault_adaptive`` by
 ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_adaptive import *  # noqa: F401,F403 -- controlled by core.vault_adaptive.__all__
+from core.vault_adaptive import *  # noqa: F403 -- controlled by core.vault_adaptive.__all__

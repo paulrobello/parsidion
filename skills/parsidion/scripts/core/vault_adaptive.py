@@ -11,6 +11,7 @@ are re-exported from ``vault_common`` for backward compatibility.
 from __future__ import annotations
 
 import json
+import sys
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -118,8 +119,8 @@ def save_last_seen(
             data = load_last_seen(vault)
             data[project] = ts
             _atomic_write_json(path, data)
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"[parsidion] last-seen state write skipped: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +194,8 @@ def save_injected_notes(project: str, stems: list[str]) -> None:
             data = load_last_seen()
             data[f"{project}__injected"] = ",".join(stems)
             _atomic_write_json(path, data)
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"[parsidion] injected-stems state write skipped: {exc}", file=sys.stderr)
 
 
 def update_usefulness_scores(
@@ -228,5 +229,5 @@ def update_usefulness_scores(
                 else:
                     entry["misses"] = entry.get("misses", 0) + 1
             _atomic_write_json(path, scores)
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"[parsidion] usefulness-score update skipped: {exc}", file=sys.stderr)

@@ -37,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from collections.abc import Callable, Iterator
 
-from installer.ui import _err, _warn
+from installer.ui import _err
 
 
 # A step body takes no arguments (it closes over the resolved install ctx).
@@ -91,10 +91,6 @@ class StepList:
     ``failed_steps`` and the run *continues* so a partial install surfaces
     as many independent failures as possible. The caller turns a non-empty
     ``failed_steps`` into a non-zero exit code.
-
-    ``undo_all()`` runs ``undo()`` in reverse order, best-effort: an undo
-    that raises is converted to a warning so one sticky step can't block the
-    rest of the teardown.
     """
 
     steps: list[Step] = field(default_factory=list)
@@ -127,11 +123,3 @@ class StepList:
                 self.failed_steps.append((step.name, exc))
                 _err(f"Step '{step.name}' failed: {exc}")
         return self.failed_steps
-
-    def undo_all(self, *, purge: bool = False) -> None:
-        """Run each step's ``undo()`` in reverse order; best-effort."""
-        for step in reversed(self.steps):
-            try:
-                step.undo(purge=purge)
-            except Exception as exc:  # noqa: BLE001 — teardown must not crash
-                _warn(f"Could not undo '{step.name}': {exc}")

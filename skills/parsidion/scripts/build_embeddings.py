@@ -29,7 +29,6 @@ from pathlib import Path
 # `search` extra sees an actionable error rather than a raw traceback.
 # Matches the pattern in vault_search.py:64-71.
 try:
-    import sqlite_vec  # type: ignore[import-untyped]
     from fastembed import TextEmbedding  # type: ignore[import-untyped]
 except ImportError:
     print(
@@ -41,6 +40,7 @@ except ImportError:
     sys.exit(1)
 
 import vault_common
+import vault_metrics
 
 _DEFAULT_MODEL: str = "BAAI/bge-small-en-v1.5"
 _EMBED_DIM: int = 384
@@ -62,10 +62,8 @@ def open_db(db_path: Path) -> sqlite3.Connection:
         An open sqlite3.Connection with WAL mode and the note_embeddings table
         already created.
     """
-    conn = sqlite3.connect(db_path)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
+    # QA-017: shared vec-loading connector from core.vault_metrics.
+    conn = vault_metrics.connect_with_vec(db_path)
 
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(

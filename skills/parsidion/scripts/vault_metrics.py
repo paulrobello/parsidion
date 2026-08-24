@@ -11,4 +11,4 @@ import those directly. The stdlib-only constraint is enforced on
 ``core.vault_metrics`` by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_metrics import *  # noqa: F401,F403 -- controlled by core.vault_metrics.__all__
+from core.vault_metrics import *  # noqa: F403 -- controlled by core.vault_metrics.__all__

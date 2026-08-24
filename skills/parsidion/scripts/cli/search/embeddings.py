@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 import vault_common
+import vault_metrics
 import vault_embed_serve
 from cli.search._common import (
     _DEFAULT_MODEL,
@@ -42,19 +43,13 @@ def _open_db_semantic(db_path: Path) -> sqlite3.Connection:
     Returns:
         An open sqlite3.Connection with sqlite-vec loaded.
     """
+    # QA-017: shared vec-loading connector from core.vault_metrics; the
+    # missing-extension diagnostic stays at this CLI boundary.
     try:
-        import sqlite_vec  # type: ignore[import-untyped]
-    except ImportError:
-        print(
-            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'",
-            file=sys.stderr,
-        )
+        return vault_metrics.connect_with_vec(db_path)
+    except vault_metrics.VecExtensionMissing as exc:
+        print(exc, file=sys.stderr)
         sys.exit(1)
-    conn = sqlite3.connect(db_path)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
-    return conn
 
 
 def _pack_vector(vec: list[float]) -> bytes:

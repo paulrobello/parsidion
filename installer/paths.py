@@ -18,6 +18,7 @@ from pathlib import Path
 # Importing it here lets installer/paths.py re-export the maps under their
 # historical installer-side names so existing call sites continue to work.
 import agent_adapter as _agent_adapter
+from core.vault_path import read_vaults_yaml
 
 # ---------------------------------------------------------------------------
 # Source layout (relative to the install script at repo root)
@@ -259,33 +260,9 @@ def _resolve_vault_root_for_uninstall() -> Path:
     """
     default = _default_vault_path()
     config_path = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
-    if not config_path.exists():
-        return default
-    try:
-        content = config_path.read_text(encoding="utf-8")
-    except OSError:
-        return default
-
-    named: dict[str, str] = {}
-    default_ref = ""
-    in_vaults = False
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped == "vaults:" or stripped.startswith("vaults:"):
-            in_vaults = True
-            continue
-        if in_vaults and line and not line[0].isspace() and ":" in stripped:
-            in_vaults = False
-        if in_vaults and ":" in stripped:
-            name, _, rest = stripped.partition(":")
-            name = name.strip().strip("'\"")
-            rest = rest.strip().strip("'\"")
-            if name and rest:
-                named[name] = rest
-        if stripped.startswith("default:") and not in_vaults:
-            default_ref = stripped.split(":", 1)[1].strip().strip("'\"")
+    # QA-004: shared reader from core.vault_path instead of a third
+    # hand-rolled vaults.yaml parse.
+    named, default_ref = read_vaults_yaml(config_path)
 
     if default_ref:
         try:

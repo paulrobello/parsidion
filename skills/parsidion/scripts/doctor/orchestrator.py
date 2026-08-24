@@ -32,6 +32,7 @@ from doctor._state import (
     should_skip,
 )
 from doctor.check import check_note
+from doctor.protocol import DoctorOptions, ScanContext
 from doctor.frontmatter import (  # noqa: F401 — _note_is_daily re-export parity
     _auto_fix_metadata_wrapper,
     _auto_fix_scalar_list_field,
@@ -75,29 +76,21 @@ def _display_cluster_plan(
 
 
 def _apply_prefix_clusters(
-    clusters: list[tuple[Path, str, list[Path], Path | None]],
-    all_notes: list[Path],
-    vault: Path,
-    state: dict,
-    explicit: bool,
-    no_state: bool,
-    vault_claude_md: Path,
-    vault_tags_md: Path,
-    target_notes: list[Path],
-    skipped_by_state: int,
-) -> tuple[int, list[Path], dict[str, list[Path]], list[Path], int]:
-    """Execute prefix-cluster moves and refresh the note map + target list.
+    clusters: list[tuple[Path, str, list[Path], Path | None]], ctx: ScanContext
+) -> int:
+    """Execute prefix-cluster moves and refresh the scan context in place.
 
-    Returns ``(cluster_repaired, all_notes, note_map, target_notes,
-    skipped_by_state)``.  When no moves happened the caller's ``target_notes``
-    and ``skipped_by_state`` are returned unchanged; the note map is rebuilt
-    only if at least one move succeeded.
+    QA-005: previously a 10-parameter function returning a 5-tuple the
+    caller destructured back into exactly the ``ScanContext`` fields; it
+    now mutates *ctx* (``all_notes``, ``note_map``, ``target_notes``,
+    ``skipped_by_state``) and returns just the number of moves made.
     """
+    vault = ctx.vault
     print("Reorganizing prefix clusters…\n")
     cluster_repaired = 0
     for cluster_folder, prefix, cluster_notes, base_note in clusters:
         moves = fix_prefix_cluster(
-            cluster_folder, prefix, cluster_notes, all_notes, base_note
+            cluster_folder, prefix, cluster_notes, ctx.all_notes, base_note
         )
         for old_path, new_path in moves:
             old_rel = old_path.relative_to(vault)
@@ -105,54 +98,52 @@ def _apply_prefix_clusters(
             print(f"  {old_rel}  →  {new_rel}")
             cluster_repaired += 1
     if not cluster_repaired:
-        return 0, all_notes, build_note_map(all_notes), target_notes, skipped_by_state
+        return 0
     vault_common.git_commit_vault(
         f"refactor(vault): reorganize {cluster_repaired} note(s) into prefix subfolders",
         vault=vault,
     )
     print()
     # Refresh after moves
-    all_notes = list(vault_common.all_vault_notes_walk(vault))
-    note_map = build_note_map(all_notes)
+    ctx.all_notes = list(vault_common.all_vault_notes_walk(vault))
+    ctx.note_map = build_note_map(ctx.all_notes)
     all_filtered = [
         p
-        for p in all_notes
-        if p != vault_claude_md and p != vault_tags_md and p.name != "MANIFEST.md"
+        for p in ctx.all_notes
+        if p != ctx.vault_claude_md
+        and p != ctx.vault_tags_md
+        and p.name != "MANIFEST.md"
     ]
-    if not explicit and not no_state:
-        new_target = [p for p in all_filtered if not should_skip(_rel(p, vault), state)]
-        new_skipped = len(all_filtered) - len(new_target)
+    if not ctx.explicit and not ctx.options.no_state:
+        new_target = [
+            p for p in all_filtered if not should_skip(_rel(p, vault), ctx.state)
+        ]
+        ctx.target_notes = new_target
+        ctx.skipped_by_state = len(all_filtered) - len(new_target)
     else:
-        new_target = all_filtered
-        new_skipped = 0
-    return cluster_repaired, all_notes, note_map, new_target, new_skipped
+        ctx.target_notes = all_filtered
+        ctx.skipped_by_state = 0
+    return cluster_repaired
 
 
-def _scan_notes_for_issues(
-    target_notes: list[Path],
-    note_map: dict[str, list[Path]],
-    vault: Path,
-    errors_only: bool,
-    state: dict,
-    today_str: str,
-) -> dict[Path, list[Issue]]:
+def _scan_notes_for_issues(ctx: ScanContext) -> dict[Path, list[Issue]]:
     """Run check_note over every target, recording clean notes in state.
 
     Returns the dict of notes with at least one issue.
     """
     issues_by_note: dict[Path, list[Issue]] = {}
-    for note in target_notes:
-        note_issues = check_note(note, note_map, vault)
-        if errors_only:
+    for note in ctx.target_notes:
+        note_issues = check_note(note, ctx.note_map, ctx.vault)
+        if ctx.options.errors_only:
             note_issues = [i for i in note_issues if i.severity == "error"]
-        key = _rel(note, vault)
+        key = _rel(note, ctx.vault)
         if note_issues:
             issues_by_note[note] = note_issues
         else:
             # Record as clean so it can be skipped next run
-            state.setdefault("notes", {})[key] = {
+            ctx.state.setdefault("notes", {})[key] = {
                 "status": "ok",
-                "last_checked": today_str,
+                "last_checked": ctx.today_str,
                 "issues": [],
             }
     return issues_by_note
@@ -261,30 +252,24 @@ def _run_deterministic_frontmatter_fixes(
 
 
 def _apply_repairs_parallel(
-    repair_candidates: list[tuple[Path, list[Issue]]],
-    model: str | None,
-    state: dict,
-    today_str: str,
-    jobs: int,
-    timeout: int,
-    note_map: dict[str, list[Path]],
-    fix_headings: bool,
-    vault: Path,
-    limit: int,
+    repair_candidates: list[tuple[Path, list[Issue]]], ctx: ScanContext
 ) -> tuple[int, int, int]:
     """Run _repair_one over the candidate batch via ThreadPoolExecutor.
 
-    Returns (repaired, failed, leftover).
+    Returns (repaired, failed, leftover). QA-005: model/jobs/timeout/
+    note_map/fix_headings/vault/limit arrive on the ScanContext instead of
+    as nine separate parameters.
     """
-    effective_limit = limit if limit > 0 else len(repair_candidates)
-    effective_jobs = max(1, jobs)
+    options = ctx.options
+    effective_limit = options.limit if options.limit > 0 else len(repair_candidates)
+    effective_jobs = max(1, options.jobs)
     repaired = 0
     failed = 0
     lock = threading.Lock()
 
     print(
         f"Repairing up to {effective_limit} note(s) via prompt AI "
-        f"({effective_jobs} parallel job(s), {timeout}s timeout)…\n"
+        f"({effective_jobs} parallel job(s), {options.timeout}s timeout)…\n"
     )
     batch = repair_candidates[:effective_limit]
     with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as executor:
@@ -293,14 +278,14 @@ def _apply_repairs_parallel(
                 _repair_one,
                 note_path,
                 note_issues,
-                model,
-                state,
-                today_str,
+                options.model,
+                ctx.state,
+                ctx.today_str,
                 lock,
-                timeout,
-                note_map,
-                fix_headings,
-                vault,
+                options.timeout,
+                ctx.note_map,
+                options.fix_headings,
+                ctx.vault,
             ): note_path
             for note_path, note_issues in batch
         }
@@ -309,7 +294,10 @@ def _apply_repairs_parallel(
                 success = future.result()
             except Exception as exc:  # noqa: BLE001
                 note_path = futures[future]
-                print(f"  {_rel(note_path, vault)} … ✗ (exception: {exc})", flush=True)
+                print(
+                    f"  {_rel(note_path, ctx.vault)} … ✗ (exception: {exc})",
+                    flush=True,
+                )
                 success = False
             if success:
                 repaired += 1
@@ -320,85 +308,53 @@ def _apply_repairs_parallel(
     return repaired, failed, leftover
 
 
-def run_scan_and_repair(
-    vault: Path,
-    state: dict,
-    *,
-    notes: list[Path],
-    dry_run: bool,
-    fix_frontmatter: bool,
-    fix_sessions: bool,
-    errors_only: bool,
-    no_state: bool,
-    model: str | None,
-    limit: int,
-    jobs: int,
-    timeout: int,
-    fix_headings: bool,
-) -> None:
-    """Run the core scan-and-repair pipeline.
+def _pre_scan_housekeeping(vault: Path, options: DoctorOptions) -> None:
+    """Best-effort vault housekeeping before the scan (QA-005 extraction).
 
-    Handles: legacy pending-path migration, session-consolidation check,
-    related-link dedup, stale-file auto-commit, prefix-cluster detection,
-    note scanning, issue reporting, and parallel AI-assisted repair.
-
-    All parameters are passed explicitly — this function does not read the
-    module-level ``_vault_path`` global.
-
-    Args:
-        vault: Resolved vault root path.
-        state: Loaded doctor state dict (may be mutated and saved).
-        notes: Explicit note paths to scan (empty list = all vault notes).
-        dry_run: When True, report issues but skip all writes and AI calls.
-        fix_frontmatter: When True, invoke the AI backend to repair issues.
-        fix_sessions: When True, print session-duplicate report and exit.
-        errors_only: When True, suppress warnings and only report/repair errors.
-        no_state: When True, skip the stale-state filter.
-        model: AI model override (None = backend default).
-        limit: Max notes to repair per run (0 = unlimited).
-        jobs: Parallel repair worker count.
-        timeout: Per-repair AI call timeout in seconds.
-        fix_headings: When True, auto-promote ## headings to #.
+    Legacy pending-path migration, related-link dedup, and the stale-file
+    auto-commit — each silent when there is nothing to do.
     """
-    # Auto-fix legacy pending paths (silent when nothing to fix)
-    fixed_paths = vault_common.migrate_pending_paths(dry_run=dry_run, vault=vault)
+    fixed_paths = vault_common.migrate_pending_paths(
+        dry_run=options.dry_run, vault=vault
+    )
     if fixed_paths:
-        action = "Would fix" if dry_run else "Fixed"
+        action = "Would fix" if options.dry_run else "Fixed"
         print(
-            f"{action} {fixed_paths} legacy transcript path(s) in pending_summaries.jsonl.\n"
+            f"{action} {fixed_paths} legacy transcript path(s) in "
+            "pending_summaries.jsonl.\n"
         )
 
-    # Session consolidation check
-    if fix_sessions:
-        run_fix_sessions(vault_path=vault)
-        sys.exit(0)
-
-    # Auto-deduplicate related wikilinks (silent when nothing to fix)
-    deduped = dedup_related_links(dry_run=dry_run, vault_path=vault)
+    deduped = dedup_related_links(dry_run=options.dry_run, vault_path=vault)
     if deduped:
-        action = "Would deduplicate" if dry_run else "Deduplicated"
+        action = "Would deduplicate" if options.dry_run else "Deduplicated"
         print(f"{action} related links in {deduped} note(s).\n")
 
-    # Auto-commit uncommitted vault files older than STALE_COMMIT_MINUTES
-    stale = commit_stale_files(dry_run=dry_run, vault_path=vault)
+    stale = commit_stale_files(dry_run=options.dry_run, vault_path=vault)
     if stale:
         rel_stale = [str(p.relative_to(vault)) for p in stale]
-        if dry_run:
+        if options.dry_run:
             print(
                 f"[dry-run] Would commit {len(stale)} stale file(s) "
                 f"(>= {STALE_COMMIT_MINUTES} min old):"
             )
         else:
             print(
-                f"Committed {len(stale)} stale file(s) (>= {STALE_COMMIT_MINUTES} min old):"
+                f"Committed {len(stale)} stale file(s) "
+                f"(>= {STALE_COMMIT_MINUTES} min old):"
             )
         for name in rel_stale:
             print(f"  {name}")
         print()
 
-    today_str = date.today().isoformat()
 
-    # Resolve target notes
+def _build_scan_context(
+    vault: Path,
+    state: dict,
+    notes: list[Path],
+    options: DoctorOptions,
+    today_str: str,
+) -> ScanContext:
+    """Resolve scan targets and build the ScanContext (QA-005 extraction)."""
     if notes:
         target_notes = [Path(n).resolve() for n in notes]
         explicit = True
@@ -416,7 +372,7 @@ def run_scan_and_repair(
     ]
 
     # Skip notes that have already been processed and are still fresh
-    if not explicit and not no_state:
+    if not explicit and not options.no_state:
         before = len(target_notes)
         target_notes = [
             p for p in target_notes if not should_skip(_rel(p, vault), state)
@@ -429,62 +385,103 @@ def run_scan_and_repair(
     all_notes = list(vault_common.all_vault_notes_walk(vault))
     note_map = build_note_map(all_notes)
 
-    # ── Prefix cluster detection and fixing ──────────────────────────────────
-    clusters = find_prefix_clusters(all_notes, vault)
-    if clusters and not dry_run:
+    return ScanContext(
+        vault=vault,
+        state=state,
+        options=options,
+        today_str=today_str,
+        explicit=explicit,
+        all_notes=all_notes,
+        note_map=note_map,
+        target_notes=target_notes,
+        skipped_by_state=skipped_by_state,
+        vault_claude_md=vault_claude_md,
+        vault_tags_md=vault_tags_md,
+    )
+
+
+def _detect_and_apply_prefix_clusters(ctx: ScanContext) -> None:
+    """Detect prefix clusters, display the plan, apply on request (QA-005)."""
+    clusters = find_prefix_clusters(ctx.all_notes, ctx.vault)
+    if clusters and not ctx.options.dry_run:
         # Filter out generic-word false positives using the configured prompt AI backend
-        clusters = _filter_clusters_with_claude(clusters, model=model, timeout=timeout)
+        clusters = _filter_clusters_with_claude(
+            clusters, model=ctx.options.model, timeout=ctx.options.timeout
+        )
     if clusters:
-        _display_cluster_plan(clusters, vault)
-        if not dry_run and fix_frontmatter:
-            (
-                _cluster_repaired,
-                all_notes,
-                note_map,
-                target_notes,
-                skipped_by_state,
-            ) = _apply_prefix_clusters(
-                clusters,
-                all_notes,
-                vault,
-                state,
-                explicit,
-                no_state,
-                vault_claude_md,
-                vault_tags_md,
-                target_notes,
-                skipped_by_state,
-            )
+        _display_cluster_plan(clusters, ctx.vault)
+        if not ctx.options.dry_run and ctx.options.fix_frontmatter:
+            _apply_prefix_clusters(clusters, ctx)
+
+
+def run_scan_and_repair(
+    vault: Path,
+    state: dict,
+    notes: list[Path],
+    options: DoctorOptions,
+) -> None:
+    """Run the core scan-and-repair pipeline.
+
+    Handles: legacy pending-path migration, session-consolidation check,
+    related-link dedup, stale-file auto-commit, prefix-cluster detection,
+    note scanning, issue reporting, and parallel AI-assisted repair.
+
+    QA-005: the twelve keyword flags previously threaded through every
+    stage now arrive as one frozen ``DoctorOptions``; the mutable scanning
+    state the stages trade back and forth (note lists, note map, skip
+    count) lives on a ``ScanContext`` instead of a 10-parameter /
+    5-tuple-return handoff.
+
+    Args:
+        vault: Resolved vault root path.
+        state: Loaded doctor state dict (may be mutated and saved).
+        notes: Explicit note paths to scan (empty list = all vault notes).
+        options: Frozen run flags (see ``DoctorOptions``).
+    """
+    _pre_scan_housekeeping(vault, options)
+
+    # Session consolidation check
+    if options.fix_sessions:
+        run_fix_sessions(vault_path=vault)
+        sys.exit(0)
+
+    today_str = date.today().isoformat()
+    ctx = _build_scan_context(vault, state, notes, options, today_str)
+
+    # ── Prefix cluster detection and fixing ──────────────────────────────────
+    _detect_and_apply_prefix_clusters(ctx)
 
     print(
-        f"Scanning {len(target_notes)} vault notes"
-        + (f" ({skipped_by_state} skipped — already OK)" if skipped_by_state else "")
+        f"Scanning {len(ctx.target_notes)} vault notes"
+        + (
+            f" ({ctx.skipped_by_state} skipped — already OK)"
+            if ctx.skipped_by_state
+            else ""
+        )
         + "…"
     )
 
     # Scan — also records clean notes in state
-    issues_by_note = _scan_notes_for_issues(
-        target_notes, note_map, vault, errors_only, state, today_str
-    )
+    issues_by_note = _scan_notes_for_issues(ctx)
 
     if not issues_by_note:
         print("✓ No issues found.")
-        if not dry_run:
+        if not options.dry_run:
             save_state(state, vault)
         return
 
     _summarise_issues(issues_by_note, vault)
 
-    if dry_run:
+    if options.dry_run:
         return
 
     # Deterministic (Python-only) frontmatter repairs for the two detection-only
     # codes that have a safe mechanical fix (metadata: wrapper, scalar list
     # field). Runs before classification so fixed notes drop out of the AI-repair
     # candidate set; remaining codes flow through the normal repair path.
-    if fix_frontmatter:
+    if options.fix_frontmatter:
         _run_deterministic_frontmatter_fixes(
-            issues_by_note, vault, state, note_map, today_str
+            issues_by_note, vault, state, ctx.note_map, ctx.today_str
         )
         if not issues_by_note:
             print("✓ No issues remaining after deterministic frontmatter repairs.")
@@ -501,27 +498,17 @@ def run_scan_and_repair(
         save_state(state, vault)
         return
 
-    if not fix_frontmatter:
+    if not options.fix_frontmatter:
         print(
             f"{len(repair_candidates)} note(s) have repairable issues.\n"
-            "Run with --fix-frontmatter to repair them via the configured prompt AI backend."
+            "Run with --fix-frontmatter to repair them via the configured "
+            "prompt AI backend."
         )
         save_state(state, vault)
         return
 
     # Apply repairs in parallel
-    repaired, failed, leftover = _apply_repairs_parallel(
-        repair_candidates,
-        model,
-        state,
-        today_str,
-        jobs,
-        timeout,
-        note_map,
-        fix_headings,
-        vault,
-        limit,
-    )
+    repaired, failed, leftover = _apply_repairs_parallel(repair_candidates, ctx)
 
     save_state(state, vault)
     print(

@@ -785,6 +785,8 @@ class TestValidateVaultPath:
         claude_path = str(Path.home() / ".claude" / "vault")
         path, error = installer_paths.validate_vault_path(claude_path)
         assert error is not None
+        assert "Cannot use system or Claude config directory" in error
+        assert ".claude" in error
 
 
 # ---------------------------------------------------------------------------

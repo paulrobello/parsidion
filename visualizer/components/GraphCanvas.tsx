@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState, forwardRef, useImperativeHandle } from 'react'
 import type { GraphData, GraphEdge, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
+import { addOverlayEdges, addPrimaryEdges } from '@/lib/graphEdges'
 import {
   getNodeColor, getNodeSize, getSemanticEdgeColor, recencyHeatColor,
   HIGHLIGHT_COLOR, MUTED_NODE_COLOR,
@@ -23,7 +24,7 @@ import {
 import type { NodeDelta } from '@/lib/graphDelta'
 import { useSigmaInstance } from '@/lib/useSigmaInstance'
 import type { RenderOptions } from '@/lib/useSigmaInstance'
-import { useGraphCanvasInteractions } from '@/lib/useGraphCanvasInteractions'
+import { useGraphCanvasInteractions, type NodeContextMenuState } from '@/lib/useGraphCanvasInteractions'
 
 export interface GraphCanvasHandle {
   flyToNode: (stem: string) => void
@@ -132,7 +133,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const highlightedEdgesRef = useRef<Set<string>>(new Set())
   const dragHasMovedRef = useRef(false)
 
-  const [nodeContextMenu, setNodeContextMenu] = useState<{ stem: string; x: number; y: number } | null>(null)
+  const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState | null>(null)
   // Bumped after each incremental node delta so the size + color effects re-run
   // and size/color newly-added and changed nodes (their deps are otherwise
   // mode-only, so they'd skip a pure data change). See applyNodeDelta.
@@ -159,7 +160,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     labelsOnHoverOnlyRef, hoveredNodeRef, highlightedNodesRef, highlightedEdgesRef,
     dragHasMovedRef, pathSourceRef, pathNodesRef, pathEdgesRef, latest,
     // State setters / callbacks (via refs)
-    setNodeContextMenu, setNodeDeltaVersion, applyNodeDeltaRef, flyToNodeRef,
+    setNodeContextMenu, applyNodeDeltaRef, flyToNodeRef,
     // Props read by the bootstrap closure
     data, activeTypes, showDaily, graphSource, threshold, onNodeClick, onBackgroundClick,
   })
@@ -215,19 +216,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
   useEffect(() => {
     sigmaRef.current?.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [neighborhoodCenter, neighborhoodHops])
+  }, [neighborhoodCenter, neighborhoodHops, sigmaRef])
 
   useEffect(() => {
     hideIsolatedRef.current = hideIsolated
     sigmaRef.current?.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideIsolated, hideIsolatedRef])
+  }, [hideIsolated, hideIsolatedRef, sigmaRef])
   useEffect(() => {
     labelsOnHoverOnlyRef.current = labelsOnHoverOnly
     sigmaRef.current?.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labelsOnHoverOnly])
+  }, [labelsOnHoverOnly, sigmaRef])
   useEffect(() => {
     const graph = graphRef.current
     const sigma = sigmaRef.current
@@ -240,26 +238,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     toRemove.forEach((e: string) => graph.dropEdge(e))
     // Add new overlay edges if enabled — no reheat
     if (showOverlayEdges) {
-      const gs = latest.current.graphSource
-      const thr = latest.current.threshold
       const visibleNodes = new Set(graph.nodes() as string[])
-      const overlayKind = gs === 'semantic' ? 'wiki' : 'semantic'
-      const overlayEdges = d.edges.filter(e => e.kind === overlayKind &&
-        (overlayKind === 'semantic' ? e.w >= thr : true))
-      for (const edge of overlayEdges) {
-        if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-        const col = overlayKind === 'wiki' ? 'rgba(123,97,255,0.18)' : 'rgba(150,150,160,0.18)'
-        try {
-          graph.addEdge(edge.s, edge.t, {
-            weight: 0.001, color: col, size: 0.8,
-            kind: overlayKind, overlay: true, originalColor: col,
-          })
-        } catch { /* skip */ }
-      }
+      addOverlayEdges(graph, d.edges, latest.current.graphSource, latest.current.threshold, visibleNodes)
     }
     sigma.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showOverlayEdges])
+  }, [showOverlayEdges, graphRef, sigmaRef])
 
   // Recompute similarity-filtered node set; reheat so newly visible/hidden nodes settle
   useEffect(() => {
@@ -278,8 +261,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     }
     sigmaRef.current?.refresh()
     reheat()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterNodesBySimilarity, threshold, graphSource, data, reheat, filteredNodesRef])
+  }, [filterNodesBySimilarity, threshold, graphSource, data, reheat, filteredNodesRef, sigmaRef])
 
   // Edge weight influence acts as a direct weight multiplier on graph edges.
   useEffect(() => {
@@ -291,8 +273,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       if (base != null) graph.setEdgeAttribute(e, 'weight', base * edgeWeightInfluence)
     })
     reheat()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edgeWeightInfluence, reheat])
+  }, [edgeWeightInfluence, reheat, graphRef])
 
   useEffect(() => {
     const graph = graphRef.current
@@ -322,8 +303,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       graph.setNodeAttribute(nodeId, 'size', size)
     })
     sigma.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeSizeMode, nodeSizeMap, nodeDeltaVersion])
+  }, [nodeSizeMode, nodeSizeMap, nodeDeltaVersion, graphRef, sigmaRef])
 
   // Recolor nodes when the color mode toggles. Color has no physics effect, so
   // this is a refresh-only update — do NOT call reheat().
@@ -346,8 +326,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       graph.setNodeAttribute(nodeId, 'originalColor', col)
     })
     sigma.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeColorMode, nodeDeltaVersion])
+  }, [nodeColorMode, nodeDeltaVersion, graphRef, sigmaRef])
 
   useEffect(() => {
     const graph = graphRef.current
@@ -363,8 +342,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       graph.setEdgeAttribute(e, 'originalColor', col)
     })
     sigma.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edgeColorMode, threshold])
+  }, [edgeColorMode, threshold, graphRef, sigmaRef])
 
   const flyToNode = useCallback((stem: string) => {
     if (!sigmaRef.current || !graphRef.current) return
@@ -375,9 +353,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       { x: nodePos.x, y: nodePos.y, ratio: 0.3 },
       { duration: 600, easing: 'cubicInOut' }
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  flyToNodeRef.current = flyToNode
+  }, [graphRef, sigmaRef])
+  useEffect(() => { flyToNodeRef.current = flyToNode }, [flyToNode])
 
   const selectNode = useCallback((stem: string) => {
     if (!sigmaRef.current || !graphRef.current) return
@@ -390,8 +367,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     ;(graph.edges(stem) as string[]).forEach((e: string) => neighborEdges.add(e))
     highlightedEdgesRef.current = neighborEdges
     sigmaRef.current.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [graphRef, sigmaRef])
 
   // temperature IS the energy metric exposed to the temperature bar
   const getEnergy = useCallback(() => temperatureRef.current, [temperatureRef])
@@ -405,7 +381,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   //   - refresh labels for kept (possibly renamed) nodes
   //   - reheat so the layout settles from current positions
   // Size/color for new + changed nodes are corrected by the size/color effects
-  // via nodeDeltaVersion (bumped by the caller) — not here.
+  // via nodeDeltaVersion — bumped here so every caller gets the re-render.
   const applyNodeDelta = useCallback((graph: AbstractGraph, d: GraphData, delta: NodeDelta) => {
     // If the dragged node was removed, stop dragging it (so mousemovebody and
     // the layout loop don't write to a missing node). Keep isDraggingRef true so
@@ -457,9 +433,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
 
     sigmaRef.current?.refresh()
     reheat()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reheat])
-  applyNodeDeltaRef.current = applyNodeDelta
+    setNodeDeltaVersion(v => v + 1)
+  }, [reheat, setNodeDeltaVersion, dragPositionRef, draggedNodeRef, sigmaRef, simVelocitiesRef])
+  useEffect(() => { applyNodeDeltaRef.current = applyNodeDelta }, [applyNodeDelta])
 
   // Apply activeTypes/showDaily toggle changes immediately via the same delta
   // path used for graph.json rebuilds — otherwise a chip toggle only takes
@@ -473,9 +449,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     const delta = computeNodeDelta(currentIds, newVisible)
     if (delta.added.length === 0 && delta.removed.length === 0) return
     applyNodeDelta(graph, d, delta)
-    setNodeDeltaVersion(v => v + 1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTypes, showDaily])
+  }, [activeTypes, showDaily, applyNodeDelta, graphRef])
 
   useEffect(() => {
     if (!sigmaRef.current || !graphRef.current || !data) return
@@ -485,31 +459,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     const ewi = latest.current.edgeWeightInfluence
     let edges: GraphEdge[] = filterEdges(data.edges, graphSource, threshold)
     if (latest.current.edgePruning) edges = pruneEdges(edges, latest.current.edgePruningK)
-    for (const edge of edges) {
-      if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-      const col = getSemanticEdgeColor(edge.w, edge.kind, latest.current.edgeColorMode, latest.current.threshold)
-      try {
-        graph.addEdge(edge.s, edge.t, {
-          weight: edge.w * ewi, baseWeight: edge.w, color: col,
-          size: edge.kind === 'wiki' ? 1.5 : 1,
-          kind: edge.kind, overlay: false, originalColor: col,
-        })
-      } catch { /* skip */ }
-    }
+    addPrimaryEdges(graph, edges, {
+      visibleNodes,
+      edgeWeightInfluence: ewi,
+      edgeColorMode: latest.current.edgeColorMode,
+      threshold: latest.current.threshold,
+    })
     if (latest.current.showOverlayEdges) {
-      const overlayKind = graphSource === 'semantic' ? 'wiki' : 'semantic'
-      const overlayEdges = data.edges.filter(e => e.kind === overlayKind &&
-        (overlayKind === 'semantic' ? e.w >= threshold : true))
-      for (const edge of overlayEdges) {
-        if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-        const col = overlayKind === 'wiki' ? 'rgba(123,97,255,0.18)' : 'rgba(150,150,160,0.18)'
-        try {
-          graph.addEdge(edge.s, edge.t, {
-            weight: 0.001, color: col, size: 0.8,
-            kind: overlayKind, overlay: true, originalColor: col,
-          })
-        } catch { /* skip */ }
-      }
+      addOverlayEdges(graph, data.edges, graphSource, threshold, visibleNodes)
     }
     highlightedNodesRef.current = new Set()
     highlightedEdgesRef.current = new Set()
@@ -522,8 +479,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // (which updates weights on existing edges and therefore only needs a ref), pruning requires a
   // full edge rebuild via graph.clearEdges(). The effect must re-run when pruning toggles or K
   // changes, so these must be real deps rather than ref-only values.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threshold, graphSource, data, reheat, edgePruning, edgePruningK])
+  }, [threshold, graphSource, data, reheat, edgePruning, edgePruningK, graphRef, sigmaRef])
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -532,8 +488,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         style={{ width: '100%', height: '100%', background: 'transparent' }}
       />
       {nodeContextMenu && (() => {
-        // Capture ref value once per render — prevents stale comparisons in JSX conditionals
-        const pathSource = pathSourceRef.current
+        // Captured at menu-open time (state), so no ref access during render.
+        const { pathSource } = nodeContextMenu
         return (
           <div
             style={{

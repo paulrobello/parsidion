@@ -346,10 +346,11 @@ def _normalize_underscores_in_frontmatter(
     """
     if vault_path is None:
         vault_path = _active_vault()
-    # Regex for project field: project: some_value
-    project_re = re.compile(r"^(project:\s*)(.+)$", re.MULTILINE)
 
-    found: list[tuple[Path, list[str]]] = []
+    # QA-014: one read per note. Pass 1 keeps (note, content, fm_match,
+    # issues) so the rewrite pass reuses the already-read content instead
+    # of re-reading and re-regex-parsing every candidate.
+    found: list[tuple[Path, str, re.Match[str], list[str]]] = []
     for note in notes:
         try:
             content = note.read_text(encoding="utf-8")
@@ -371,13 +372,13 @@ def _normalize_underscores_in_frontmatter(
         if "_" in proj:
             issues.append(f"project: {proj} → {proj.replace('_', '-')}")
         if issues:
-            found.append((note, issues))
+            found.append((note, content, fm_match, issues))
 
     if not found:
         return 0
 
     print(f"\nFound {len(found)} note(s) with underscores in tags/project:\n")
-    for note, issues in found[:20]:
+    for note, _content, _fm_match, issues in found[:20]:
         rel = note.relative_to(vault_path)
         print(f"  {rel}")
         for issue in issues:
@@ -390,66 +391,10 @@ def _normalize_underscores_in_frontmatter(
         return 0
 
     modified = 0
-    for note, _ in found:
-        try:
-            content = note.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        fm_match = re.match(r"^---\n(.*?\n)---", content, re.DOTALL)
-        if not fm_match:
-            continue
-        fm_text = fm_match.group(1)
-        original_fm = fm_text
+    for note, content, fm_match, _ in found:
+        fm_text = _rewrite_underscore_fields(fm_match.group(1))
 
-        # Fix tags: replace underscores with hyphens in tag values only
-        # Inline: tags: [par_ai_core, foo] or tags: ["par_ai_core", "foo"]
-        inline_m = _TAGS_INLINE_RE.search(fm_text)
-        if inline_m:
-            old_items = inline_m.group(2)
-            new_items = old_items.replace("_", "-")
-            if old_items != new_items:
-                fm_text = (
-                    fm_text[: inline_m.start(2)]
-                    + new_items
-                    + fm_text[inline_m.end(2) :]
-                )
-        else:
-            # Block sequence: replace underscores in "  - tag_name" lines.
-            # Bound the replacement at the end of the contiguous tags block —
-            # substituting through the rest of the frontmatter would corrupt
-            # later block-sequence fields (e.g. sources: URLs with underscores).
-            block_m = _TAGS_BLOCK_START_RE.search(fm_text)
-            if block_m:
-                after = fm_text[block_m.end() :]
-                all_lines = after.split("\n")
-                end_idx = 0
-                saw_item = False
-                for i, line in enumerate(all_lines):
-                    stripped = line.strip()
-                    if stripped.startswith("- "):
-                        saw_item = True
-                        end_idx = i + 1
-                    elif not stripped and not saw_item:
-                        # Leading blank line before first item — skip
-                        end_idx = i + 1
-                    else:
-                        break  # blank line after items, or next field
-                changed = False
-                for i in range(end_idx):
-                    line = all_lines[i]
-                    if line.startswith("  - ") and "_" in line:
-                        all_lines[i] = "  - " + line[4:].replace("_", "-")
-                        changed = True
-                if changed:
-                    fm_text = fm_text[: block_m.end()] + "\n".join(all_lines)
-
-        # Fix project field
-        fm_text = project_re.sub(
-            lambda m: m.group(1) + m.group(2).replace("_", "-"),
-            fm_text,
-        )
-
-        if fm_text != original_fm:
+        if fm_text != fm_match.group(1):
             new_content = (
                 content[: fm_match.start(1)] + fm_text + content[fm_match.end(1) :]
             )
@@ -460,6 +405,63 @@ def _normalize_underscores_in_frontmatter(
     if modified:
         print(f"  Normalized underscores → hyphens in {modified} note(s)")
     return modified
+
+
+def _rewrite_underscore_fields(fm_text: str) -> str:
+    """QA-014: the underscore-to-hyphen rewrite for one frontmatter block.
+
+    Rewrites tag values (inline list, quoted inline list, or block
+    sequence) and the scalar ``project`` field, leaving every other field
+    untouched.
+    """
+    # Regex for project field: project: some_value
+    project_re = re.compile(r"^(project:\s*)(.+)$", re.MULTILINE)
+
+    # Fix tags: replace underscores with hyphens in tag values only
+    # Inline: tags: [par_ai_core, foo] or tags: ["par_ai_core", "foo"]
+    inline_m = _TAGS_INLINE_RE.search(fm_text)
+    if inline_m:
+        old_items = inline_m.group(2)
+        new_items = old_items.replace("_", "-")
+        if old_items != new_items:
+            fm_text = (
+                fm_text[: inline_m.start(2)] + new_items + fm_text[inline_m.end(2) :]
+            )
+        return project_re.sub(
+            lambda m: m.group(1) + m.group(2).replace("_", "-"), fm_text
+        )
+
+    # Block sequence: replace underscores in "  - tag_name" lines.
+    # Bound the replacement at the end of the contiguous tags block —
+    # substituting through the rest of the frontmatter would corrupt
+    # later block-sequence fields (e.g. sources: URLs with underscores).
+    block_m = _TAGS_BLOCK_START_RE.search(fm_text)
+    if block_m:
+        after = fm_text[block_m.end() :]
+        all_lines = after.split("\n")
+        end_idx = 0
+        saw_item = False
+        for i, line in enumerate(all_lines):
+            stripped = line.strip()
+            if stripped.startswith("- "):
+                saw_item = True
+                end_idx = i + 1
+            elif not stripped and not saw_item:
+                # Leading blank line before first item — skip
+                end_idx = i + 1
+            else:
+                break  # blank line after items, or next field
+        changed = False
+        for i in range(end_idx):
+            line = all_lines[i]
+            if line.startswith("  - ") and "_" in line:
+                all_lines[i] = "  - " + line[4:].replace("_", "-")
+                changed = True
+        if changed:
+            fm_text = fm_text[: block_m.end()] + "\n".join(all_lines)
+
+    # Fix project field
+    return project_re.sub(lambda m: m.group(1) + m.group(2).replace("_", "-"), fm_text)
 
 
 def run_fix_sessions(vault_path: Path | None = None) -> None:

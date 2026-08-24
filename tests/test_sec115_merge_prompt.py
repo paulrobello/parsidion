@@ -63,6 +63,7 @@ class TestMergePromptInlinesBodies:
         ):
             result = vault_merge._ai_merge_bodies(note_a, note_b, title="Fruit")
         assert result is not None
+        assert "Merged" in result and "combined note" in result
         p = captured["prompt"]
         # Bodies are inlined inside the delimiters.
         assert "<note_a>" in p and "</note_a>" in p

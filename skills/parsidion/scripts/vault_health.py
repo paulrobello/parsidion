@@ -13,4 +13,4 @@ surface. The stdlib-only constraint is enforced on ``core.vault_health``
 by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_health import *  # noqa: F401,F403 -- controlled by core.vault_health.__all__
+from core.vault_health import *  # noqa: F403 -- controlled by core.vault_health.__all__

@@ -56,8 +56,8 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import vault_common  # noqa: E402
-from embed_eval_common import (  # noqa: E402
+import vault_common
+from embed_eval_common import (
     DEFAULT_CHUNKING,
     DEFAULT_MODELS,
     DEFAULT_NOTES_SAMPLE,
@@ -67,9 +67,9 @@ from embed_eval_common import (  # noqa: E402
     console,
     get_default_queries_file,
 )
-from embed_eval_generate import generate_ground_truth, load_ground_truth  # noqa: E402
-from embed_eval_report import display_results, generate_html_report, save_json_results  # noqa: E402
-from embed_eval_run import run_evaluation  # noqa: E402
+from embed_eval_generate import generate_ground_truth, load_ground_truth
+from embed_eval_report import display_results, generate_html_report, save_json_results
+from embed_eval_run import run_evaluation
 
 
 # ---------------------------------------------------------------------------

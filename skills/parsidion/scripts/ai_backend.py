@@ -11,4 +11,4 @@ target the implementation module — ``from core import ai_backend`` —
 because function bodies resolve their globals in ``core.ai_backend``.
 """
 
-from core.ai_backend import *  # noqa: F401,F403 -- controlled by core.ai_backend.__all__
+from core.ai_backend import *  # noqa: F403 -- controlled by core.ai_backend.__all__

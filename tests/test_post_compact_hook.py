@@ -10,7 +10,7 @@ resume after compaction. The hook swallows unexpected exceptions (``except
 Exception:  # noqa: BLE001``) so a regression cannot break the user's session;
 the contract pinned here is therefore "failures are recorded", not "failures
 are loud" — the swallowed-failure path writes a traceback to
-``parsidion-hook-errors.log`` via ``_log_hook_error``.
+``parsidion-hook-errors.log`` via the shared ``log_hook_error``.
 """
 
 from __future__ import annotations

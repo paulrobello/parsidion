@@ -17,3 +17,31 @@
 import { mock } from 'bun:test'
 
 mock.module('server-only', () => ({}))
+
+
+// QA-006: register happy-dom as the test DOM before any component test
+// imports React DOM. Registration is idempotent; library-only tests are
+// unaffected (they never touch the DOM globals).
+//
+// The registrator also copies happy-dom's fetch/Request/Response onto
+// globalThis, which breaks the API-route tests (bun's native Request
+// semantics differ — the route guards read headers off native Request
+// objects). Restore bun's natives right after registering so both worlds
+// coexist: window/document come from happy-dom, the fetch family stays
+// bun's.
+import { GlobalRegistrator } from '@happy-dom/global-registrator'
+
+if (typeof globalThis.window === 'undefined') {
+  const bunNatives = {
+    fetch: globalThis.fetch,
+    Request: globalThis.Request,
+    Response: globalThis.Response,
+    Headers: globalThis.Headers,
+    FormData: globalThis.FormData,
+    Blob: globalThis.Blob,
+    AbortController: globalThis.AbortController,
+    AbortSignal: globalThis.AbortSignal,
+  }
+  GlobalRegistrator.register()
+  Object.assign(globalThis, bunNatives)
+}

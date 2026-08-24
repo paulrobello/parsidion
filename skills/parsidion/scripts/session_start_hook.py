@@ -15,7 +15,7 @@ ARC-006: the implementation is decomposed into focused submodules under
 so existing ``import session_start_hook`` consumers and test ``monkeypatch``
 calls keep working byte-for-byte, and it keeps the orchestration core
 (``_run_semantic_search``, ``_select_seed_notes``, ``_select_context_with_ai``,
-``build_session_context``, ``_log_hook_error``, ``main``) inline because tests
+``build_session_context``, ``main``) inline because tests
 monkeypatch these functions and their patched callees on the
 ``session_start_hook`` module, and Python resolves bare names in the caller's
 own module globals at call time.  See ``session_start/__init__.py`` for the
@@ -43,7 +43,12 @@ from vault_adaptive import (
 )
 from vault_config import load_typed_config, validate_config
 from vault_fs import ensure_vault_dirs, today_daily_path
-from vault_hooks import env_without_claudecode, get_project_name, write_hook_event
+from vault_hooks import (
+    env_without_claudecode,
+    get_project_name,
+    log_hook_error,
+    write_hook_event,
+)
 from vault_index import (
     build_compact_index,
     build_context_block,
@@ -55,8 +60,6 @@ from vault_index import (
 from vault_path import (
     get_embeddings_db_path,
     resolve_vault,
-    rotate_log_file,
-    secure_log_dir,
 )
 
 # ARC-006: focused submodules.  These from-imports load the subpackage AND
@@ -65,8 +68,8 @@ from vault_path import (
 # ``._select_context_with_ai`` / etc. keep working after the extraction, and
 # what lets the codex/gemini adapters keep doing
 # ``from session_start_hook import build_session_context``.
-# noqa: F401 — re-exports are intentional.
-from session_start.ai_selector import (  # noqa: F401
+# re-exports are intentional.
+from session_start.ai_selector import (
     _AI_LOCK_FILENAME,
     _AI_STAMP_FILENAME,
     _ai_lock_path,
@@ -75,7 +78,7 @@ from session_start.ai_selector import (  # noqa: F401
     _try_acquire_ai_lock,
     _write_ai_cooldown_stamp,
 )
-from session_start.context import (  # noqa: F401
+from session_start.context import (
     _DEBUG_FILE,
     _assemble_context,
     _build_dead_letter_notice,
@@ -83,7 +86,7 @@ from session_start.context import (  # noqa: F401
     _build_pending_notice,
     _write_debug_log,
 )
-from session_start.graph_retrieval import (  # noqa: F401
+from session_start.graph_retrieval import (
     _DEFAULT_GRAPH_EXPAND,
     _DEFAULT_GRAPH_EXPAND_MAX,
     _DEFAULT_GRAPH_RERANK,
@@ -92,7 +95,7 @@ from session_start.graph_retrieval import (  # noqa: F401
     _graph_neighbors,
     _rank_by_graph,
 )
-from session_start.seed_selection import (  # noqa: F401
+from session_start.seed_selection import (
     _build_candidates,
     _rank_by_usefulness,
 )
@@ -108,8 +111,6 @@ _SEMANTIC_TIMEOUT: int = 10  # seconds
 # Characters reserved for the vault-context header injected before the AI-selected
 # note content.  Ensures the final output never slightly exceeds max_chars.
 _AI_CONTEXT_HEADER_RESERVE: int = 500
-
-_HOOK_ERROR_LOG = secure_log_dir() / "parsidion-hook-errors.log"
 
 try:
     import fcntl
@@ -513,38 +514,6 @@ def build_session_context(
     return context, notes_injected
 
 
-def _kill_process_group(proc: subprocess.Popen[str]) -> None:
-    """Terminate a process group and wait for it to fully exit."""
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except OSError:
-        proc.kill()
-    proc.wait()
-
-
-def _log_hook_error(hook_name: str) -> None:
-    """Append a timestamped traceback entry to the hook error log.
-
-    Called only from the outermost ``except Exception`` handler so that
-    unexpected programming errors (regressions, NameErrors, etc.) are
-    written to a persistent file rather than disappearing into stderr.
-    Best-effort — never raises.
-
-    Args:
-        hook_name: Short identifier for the hook (e.g. ``"session_start_hook"``).
-    """
-    try:
-        ts = datetime.now().isoformat(timespec="seconds")
-        tb = traceback.format_exc()
-        entry = f"[{ts}] {hook_name}\n{tb}\n"
-        rotate_log_file(_HOOK_ERROR_LOG)
-        with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
-            fh.write(entry)
-    except Exception as exc:  # noqa: BLE001 — logging must never raise
-        print(f"hook error log write failed: {exc}", file=sys.stderr)
-        pass
-
-
 def main() -> None:
     """Entry point: read session JSON from stdin, output context JSON to stdout."""
     if os.environ.get("PARSIDION_INTERNAL"):
@@ -688,7 +657,7 @@ def main() -> None:
         traceback.print_exc(file=sys.stderr)
         # Log unexpected programming errors to a persistent file so regressions
         # are visible without requiring manual stderr inspection.
-        _log_hook_error("session_start_hook")
+        log_hook_error("session_start_hook")
         # On any error, output valid JSON with empty context so the hook doesn't crash
         fallback: dict = {
             "hookSpecificOutput": {

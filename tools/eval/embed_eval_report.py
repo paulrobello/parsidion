@@ -28,7 +28,7 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from embed_eval_common import ComboResult, console  # noqa: E402
+from embed_eval_common import ComboResult, console
 
 
 # ---------------------------------------------------------------------------

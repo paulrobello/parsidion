@@ -47,22 +47,6 @@ def _open_db(vault: Path | None = None) -> sqlite3.Connection | None:
     return vault_metrics.open_db(vault)
 
 
-def _fetch_all(
-    conn: sqlite3.Connection, sql: str, params: tuple = ()
-) -> list[sqlite3.Row]:
-    """Execute *sql* and return all rows.
-
-    Args:
-        conn: Open DB connection.
-        sql: SQL query string.
-        params: Query parameters.
-
-    Returns:
-        List of Row objects.
-    """
-    return vault_metrics.fetch_all(conn, sql, params)
-
-
 def _collect_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     """Collect all tags from note_index; delegate to vault_metrics.
 

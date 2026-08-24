@@ -11,4 +11,4 @@ not part of the public surface. The stdlib-only constraint is enforced
 on ``core.vault_path`` by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_path import *  # noqa: F401,F403 -- controlled by core.vault_path.__all__
+from core.vault_path import *  # noqa: F403 -- controlled by core.vault_path.__all__

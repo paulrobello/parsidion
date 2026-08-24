@@ -13,13 +13,19 @@ remains importable without the ``tools``/``search`` extras installed.
 from __future__ import annotations
 
 import sqlite3
-import sys
 from pathlib import Path
 
 import vault_common
 
 _DEFAULT_SCAN_THRESHOLD = 0.92
 _DEFAULT_SCAN_TOP = 50
+
+
+class MergeScanError(Exception):
+    """Raised when the duplicate scan cannot run (missing DB/deps/read errors).
+
+    QA-016: library code raises; the CLI entrypoint catches this and exits 1.
+    """
 
 
 def _is_excluded_from_scan(path: str) -> bool:
@@ -55,20 +61,16 @@ def _scan_duplicates(
     """
     db_path = vault_common.get_embeddings_db_path(vault=vault_path)
     if not db_path.exists():
-        print(
-            "No embeddings database found. Run build_embeddings.py first.",
-            file=sys.stderr,
+        raise MergeScanError(
+            "No embeddings database found. Run build_embeddings.py first."
         )
-        sys.exit(1)
 
     try:
         import sqlite_vec  # type: ignore[import-untyped]
     except ImportError:
-        print(
-            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'",
-            file=sys.stderr,
+        raise MergeScanError(
+            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'"
         )
-        sys.exit(1)
 
     conn = sqlite3.connect(db_path)
     conn.enable_load_extension(True)
@@ -80,9 +82,8 @@ def _scan_duplicates(
             "SELECT stem, path, folder, title, tags, embedding FROM note_embeddings"
         ).fetchall()
     except Exception as exc:  # noqa: BLE001
-        print(f"Error reading embeddings: {exc}", file=sys.stderr)
         conn.close()
-        sys.exit(1)
+        raise MergeScanError(f"Error reading embeddings: {exc}") from exc
 
     rows = [r for r in rows if not _is_excluded_from_scan(str(r[1]))]
 
@@ -121,9 +122,8 @@ def _scan_duplicates(
             (max_dist, top),
         ).fetchall()
     except Exception as exc:  # noqa: BLE001
-        print(f"Error computing similarities: {exc}", file=sys.stderr)
         conn.close()
-        sys.exit(1)
+        raise MergeScanError(f"Error computing similarities: {exc}") from exc
     conn.close()
 
     pairs: list[tuple[float, int, int]] = []

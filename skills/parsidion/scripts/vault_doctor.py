@@ -60,24 +60,24 @@ never block a fix; prune ``.trash/backup/`` freely whenever you like.
 # ``vault_doctor.subprocess.run``, ``vault_doctor.ai_backend.run_ai_prompt``)
 # keep working — every submodule that does ``import shutil`` etc. sees the
 # patch because Python's module cache returns the same module object.
-import argparse  # noqa: F401 — re-exported for tests
-import atexit  # noqa: F401 — re-exported for tests
-import concurrent.futures  # noqa: F401 — re-exported for tests
-import errno  # noqa: F401 — re-exported for tests
-import json  # noqa: F401 — re-exported for tests
-import os  # noqa: F401 — re-exported for tests
-import re  # noqa: F401 — re-exported for tests
-import shutil  # noqa: F401 — re-exported for test monkeypatch (vault_doctor.shutil.copy2)
-import subprocess  # noqa: F401 — re-exported for test monkeypatch (vault_doctor.subprocess.run)
-import sys  # noqa: F401 — re-exported for tests
-import threading  # noqa: F401 — re-exported for tests
-from datetime import date, datetime  # noqa: F401 — re-exported for tests
-from pathlib import Path  # noqa: F401 — re-exported for tests
+import argparse  # re-exported for tests
+import atexit  # re-exported for tests
+import concurrent.futures  # re-exported for tests
+import errno  # re-exported for tests
+import json  # re-exported for tests
+import os  # re-exported for tests
+import re  # re-exported for tests
+import shutil  # re-exported for test monkeypatch (vault_doctor.shutil.copy2)
+import subprocess  # re-exported for test monkeypatch (vault_doctor.subprocess.run)
+import sys  # re-exported for tests
+import threading  # re-exported for tests
+from datetime import date, datetime  # re-exported for tests
+from pathlib import Path  # re-exported for tests
 
-import ai_backend  # noqa: F401 — re-exported for test monkeypatch (vault_doctor.ai_backend.run_ai_prompt)
-import vault_common  # noqa: F401 — re-exported for tests
-import vault_fs  # noqa: F401 — re-exported for test monkeypatch
-import vault_links  # noqa: F401 — re-exported for test monkeypatch
+import ai_backend  # re-exported for test monkeypatch (vault_doctor.ai_backend.run_ai_prompt)
+import vault_common  # re-exported for tests
+import vault_fs  # re-exported for test monkeypatch
+import vault_links  # re-exported for test monkeypatch
 
 # ---------------------------------------------------------------------------
 # Constants, data model, and shared state live in doctor._state so the
@@ -86,7 +86,7 @@ import vault_links  # noqa: F401 — re-exported for test monkeypatch
 # (including test ``monkeypatch.setattr``) keeps working byte-for-byte.
 # See doctor/_state.py for the test-patch compatibility contract.
 # ---------------------------------------------------------------------------
-from doctor._state import (  # noqa: F401 — re-exports
+from doctor._state import (  # re-exports
     AI_TIMEOUT,
     DEFAULT_MODEL,
     PREFIX_CLUSTER_MIN,
@@ -111,9 +111,9 @@ from doctor._state import (  # noqa: F401 — re-exports
     save_state,
     should_skip,
 )
-from doctor.check import check_note  # noqa: F401 — re-export
-from doctor.daily import run_migrate_daily_notes  # noqa: F401 — re-export
-from doctor.frontmatter import (  # noqa: F401 — re-exports
+from doctor.check import check_note  # re-export
+from doctor.daily import run_migrate_daily_notes  # re-export
+from doctor.frontmatter import (  # re-exports
     _FM_DELIM_RE,
     _FM_KEY_RE,
     _FM_LEAKED_MARKER_RE,
@@ -125,9 +125,9 @@ from doctor.frontmatter import (  # noqa: F401 — re-exports
     _note_is_daily,
     repair_note,
 )
-from doctor.graph import _run_reindex, commit_stale_files  # noqa: F401 — re-exports
-from doctor.headings import _auto_fix_headings, _auto_fix_self_refs  # noqa: F401 — re-exports
-from doctor.links import (  # noqa: F401 — re-exports
+from doctor.graph import _run_reindex, commit_stale_files  # re-exports
+from doctor.headings import _auto_fix_headings, _auto_fix_self_refs  # re-exports
+from doctor.links import (  # re-exports
     _auto_repair_broken_wikilinks,
     _find_link_replacement,
     _find_semantic_candidates,
@@ -135,13 +135,14 @@ from doctor.links import (  # noqa: F401 — re-exports
     dedup_related_links,
     resolve_wikilink,
 )
-from doctor.orchestrator import run_scan_and_repair  # noqa: F401 — re-export
-from doctor.scan import (  # noqa: F401 — re-exports (ENH-007 read-only scan path)
+from doctor.orchestrator import run_scan_and_repair  # re-export
+from doctor.protocol import DoctorOptions  # QA-005 re-export
+from doctor.scan import (  # re-exports (ENH-007 read-only scan path)
     ScanSummary,
     _git_tracked_gitignored,
     scan_notes_readonly,
 )
-from doctor.permissions import (  # noqa: F401 — re-exports
+from doctor.permissions import (  # re-exports
     _DIR_MODE,
     _FILE_MODE,
     _SECRET_FILE_GLOBS,
@@ -149,12 +150,12 @@ from doctor.permissions import (  # noqa: F401 — re-exports
     _chmod_if_exists,
     run_fix_permissions,
 )
-from doctor.prefixes import (  # noqa: F401 — re-exports
+from doctor.prefixes import (  # re-exports
     _find_redundant_prefixes,
     run_strip_prefixes,
 )
-from doctor.protocol import FixMode, run_fix_modes  # noqa: F401 — re-exports
-from doctor.subfolder import (  # noqa: F401 — re-exports
+from doctor.protocol import FixMode, run_fix_modes  # re-exports
+from doctor.subfolder import (  # re-exports
     _GENERIC_PREFIX_DENYLIST,
     _common_word_prefix,
     _filter_clusters_with_claude,
@@ -164,7 +165,7 @@ from doctor.subfolder import (  # noqa: F401 — re-exports
     fix_prefix_cluster,
     run_migrate_subfolders,
 )
-from doctor.tags import (  # noqa: F401 — re-exports
+from doctor.tags import (  # re-exports
     _TAGS_BLOCK_START_RE,
     _TAGS_INLINE_RE,
     _collect_all_tags,
@@ -176,12 +177,12 @@ from doctor.tags import (  # noqa: F401 — re-exports
     run_fix_sessions,
     run_fix_tags,
 )
-from doctor.worker import _repair_one  # noqa: F401 — re-export
+from doctor.worker import _repair_one  # re-export
 
 # CLI entry point — imported last so the submodule graph is fully populated
 # before main() can be invoked. ``if __name__ == "__main__": main()`` below
 # keeps this file invocable as ``uv run --no-project vault_doctor.py …``.
-from doctor.cli import main  # noqa: E402,F401 — script entry point
+from doctor.cli import main  # script entry point
 
 
 if __name__ == "__main__":

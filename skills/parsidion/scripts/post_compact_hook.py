@@ -10,38 +10,14 @@ import json
 import os
 import sys
 import traceback
-from datetime import datetime
 from pathlib import Path
 
 # ARC-001: imported directly from core.* instead of the vault_common facade.
 from core.vault_fs import today_daily_path
-from core.vault_path import resolve_vault, rotate_log_file, secure_log_dir
+from core.vault_hooks import log_hook_error
+from core.vault_path import resolve_vault
 
-_HOOK_ERROR_LOG = secure_log_dir() / "parsidion-hook-errors.log"
 _SNAPSHOT_HEADING = "## Pre-Compact Snapshot"
-
-
-def _log_hook_error(hook_name: str) -> None:
-    """Append a timestamped traceback entry to the hook error log.
-
-    Called only from the outermost ``except Exception`` handler so that
-    unexpected programming errors (regressions, NameErrors, etc.) are
-    written to a persistent file rather than disappearing into stderr.
-    Best-effort — never raises.
-
-    Args:
-        hook_name: Short identifier for the hook (e.g. ``"post_compact_hook"``).
-    """
-    try:
-        ts = datetime.now().isoformat(timespec="seconds")
-        tb = traceback.format_exc()
-        entry = f"[{ts}] {hook_name}\n{tb}\n"
-        rotate_log_file(_HOOK_ERROR_LOG)
-        with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
-            fh.write(entry)
-    except Exception as exc:  # noqa: BLE001 — logging must never raise
-        print(f"hook error log write failed: {exc}", file=sys.stderr)
-        pass
 
 
 def extract_latest_snapshot(daily_content: str) -> str | None:
@@ -145,7 +121,7 @@ def main() -> None:
 
     except Exception:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        _log_hook_error("post_compact_hook")
+        log_hook_error("post_compact_hook")
         sys.stdout.write("{}")
 
 

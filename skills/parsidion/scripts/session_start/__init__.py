@@ -19,7 +19,7 @@ Submodule layout:
                       log writer.
 
 The orchestration core (``_run_semantic_search``, ``_select_seed_notes``,
-``_select_context_with_ai``, ``build_session_context``, ``_log_hook_error``,
+``_select_context_with_ai``, ``build_session_context``,
 ``main``) stays in the entry shim because tests monkeypatch these functions
 and their patched callees (``find_notes_by_project``, ``find_recent_notes``,
 ``_release_ai_lock``, ``_try_acquire_ai_lock``, ``read_note_summary``,

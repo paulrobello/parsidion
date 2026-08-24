@@ -17,6 +17,7 @@ replace.
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime
 from io import TextIOWrapper
 from pathlib import Path
@@ -67,8 +68,8 @@ def _write_ai_cooldown_stamp(vault_path: Path) -> None:
     stamp_path = _ai_stamp_path(vault_path)
     try:
         stamp_path.write_text(f"{datetime.now().isoformat()}\n", encoding="utf-8")
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"[parsidion] AI cooldown stamp write skipped: {exc}", file=sys.stderr)
 
 
 def _release_ai_lock(lock_file: TextIOWrapper | None) -> None:

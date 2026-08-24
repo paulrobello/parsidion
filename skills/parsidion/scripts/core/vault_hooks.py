@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 from .vault_config import config_key_sources, load_config
@@ -21,7 +23,7 @@ from .vault_fs import (
     _git_path_ignored,
     write_hook_event,
 )  # ARC-023: re-export (impl moved to vault_fs)
-from .vault_path import resolve_vault
+from .vault_path import resolve_vault, rotate_log_file, secure_log_dir
 
 __all__: list[str] = [
     # Environment helpers
@@ -31,6 +33,8 @@ __all__: list[str] = [
     "_SAFE_ENV_KEYS",  # private name; re-exported by vault_common for back-comat
     # Hook event logging
     "write_hook_event",
+    # Persistent hook-error logging (QA-003)
+    "log_hook_error",
     # Transcript helpers
     "extract_text_from_content",
     "allowed_transcript_roots",
@@ -59,6 +63,31 @@ __all__: list[str] = [
 # pull in vault_hooks, which itself imports vault_fs). It is re-exported here
 # via the ``from .vault_fs import ...`` line below, so vault_hooks.write_hook_event
 # and every ``from .vault_hooks import write_hook_event`` caller keep working.
+
+
+def log_hook_error(hook_name: str) -> None:
+    """Append a timestamped traceback entry to the persistent hook error log.
+
+    QA-003: the single implementation of what was copy-pasted as
+    ``_log_hook_error`` into five hook scripts. Called only from a hook's
+    outermost ``except Exception`` handler so that unexpected programming
+    errors (regressions, NameErrors, etc.) are written to
+    ``~/.claude/logs/parsidion-hook-errors.log`` rather than disappearing
+    into stderr. Best-effort — never raises.
+
+    Args:
+        hook_name: Short identifier for the hook (e.g. ``"session_stop_hook"``).
+    """
+    error_log = secure_log_dir() / "parsidion-hook-errors.log"
+    try:
+        ts = datetime.now().isoformat(timespec="seconds")
+        tb = traceback.format_exc()
+        entry = f"[{ts}] {hook_name}\n{tb}\n"
+        rotate_log_file(error_log)
+        with open(error_log, "a", encoding="utf-8") as fh:
+            fh.write(entry)
+    except Exception as exc:  # noqa: BLE001 — logging must never raise
+        print(f"hook error log write failed: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from _migrate_common import (
+    append_keyword_tags,
+    report_footer,
+    report_header,
+    write_note_file,
+)
 from vault_common import (
     VAULT_ROOT,
     ensure_vault_dirs,
@@ -229,9 +235,7 @@ def _infer_tags(source_dir: str, stem: str) -> list[str]:
         "avatar": "avatar",
     }
     lower_stem: str = stem.lower()
-    for keyword, tag in keyword_tags.items():
-        if keyword in lower_stem and tag not in tags:
-            tags.append(tag)
+    append_keyword_tags(tags, keyword_tags, lower_stem)
 
     return tags if tags else ["research"]
 
@@ -577,10 +581,7 @@ def _print_report(
         else:
             migrated.append(entry)
 
-    mode: str = "EXECUTE" if execute else "DRY-RUN"
-    print(f"\n{'=' * 72}")
-    print(f"  Migration Report ({mode})")
-    print(f"{'=' * 72}\n")
+    report_header("Migration Report", execute)
 
     # Migrated files
     if migrated:
@@ -635,16 +636,12 @@ def _print_report(
             print(f"  SKIP  {src_rel}  ({entry.skip_reason})")
 
     # Summary
-    print(f"\n{'=' * 72}")
-    print(
-        f"  Summary: {len(migrated)} files to migrate, "
-        f"{len(duplicates)} duplicates, {len(skipped)} skipped"
+    report_footer(
+        f"{len(migrated)} files to migrate, "
+        f"{len(duplicates)} duplicates, {len(skipped)} skipped",
+        execute,
+        "files copied to vault",
     )
-    if not execute:
-        print("  Mode: DRY-RUN (no files written). Use --execute to migrate.")
-    else:
-        print("  Mode: EXECUTE (files copied to vault).")
-    print(f"{'=' * 72}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -659,16 +656,8 @@ def _execute_migration(entries: list[MigrationEntry]) -> int:
     for entry in entries:
         if entry.skipped:
             continue
-
-        # Ensure destination directory exists
-        entry.dst.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            content: str = _build_file_content(entry)
-            entry.dst.write_text(content, encoding="utf-8")
+        if write_note_file(entry.dst, _build_file_content(entry)):
             written += 1
-        except OSError as exc:
-            print(f"  ERROR writing {entry.dst}: {exc}", file=sys.stderr)
 
     return written
 

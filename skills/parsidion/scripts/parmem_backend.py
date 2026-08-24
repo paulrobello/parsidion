@@ -11,4 +11,4 @@ implementation module — ``from core import parmem_backend`` — because
 function bodies resolve their globals in ``core.parmem_backend``.
 """
 
-from core.parmem_backend import *  # noqa: F401,F403 -- controlled by core.parmem_backend.__all__
+from core.parmem_backend import *  # noqa: F403 -- controlled by core.parmem_backend.__all__

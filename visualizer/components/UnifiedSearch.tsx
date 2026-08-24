@@ -105,7 +105,12 @@ export function UnifiedSearch({ nodes, vault, onSelect }: Props) {
 
   // Narrowing the query after arrowing down can leave selectedIdx pointing past
   // the new (shorter) results array — reset it whenever results change.
-  useEffect(() => { setSelectedIdx(0) }, [items]) // eslint-disable-line react-hooks/set-state-in-effect
+  // Adjust-during-render (React docs) instead of a reset effect.
+  const [prevItems, setPrevItems] = useState(items)
+  if (prevItems !== items) {
+    setPrevItems(items)
+    setSelectedIdx(0)
+  }
 
   // Semantic mode opens the dropdown for loading/error/empty states too.
   const open = !dismissed && query.trim().length > 0 && (

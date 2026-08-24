@@ -65,7 +65,7 @@ from rich.table import Table  # type: ignore[import-untyped]
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
-from evaluators import EVALUATORS, ScoredCase  # noqa: E402
+from evaluators import EVALUATORS, ScoredCase
 
 _CACHE_DIR = (
     Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))

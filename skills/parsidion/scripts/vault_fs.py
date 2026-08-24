@@ -12,4 +12,4 @@ public surface. The stdlib-only constraint is enforced on
 ``core.vault_fs`` by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_fs import *  # noqa: F401,F403 -- controlled by core.vault_fs.__all__
+from core.vault_fs import *  # noqa: F403 -- controlled by core.vault_fs.__all__

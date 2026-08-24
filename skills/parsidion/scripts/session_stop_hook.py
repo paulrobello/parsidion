@@ -29,37 +29,12 @@ import json
 import os
 import sys
 import traceback
-from datetime import datetime
 from pathlib import Path
 
 import agent_adapter
 import parmem_backend
 import vault_common
-
-_HOOK_ERROR_LOG = vault_common.secure_log_dir() / "parsidion-hook-errors.log"
-
-
-def _log_hook_error(hook_name: str) -> None:
-    """Append a timestamped traceback entry to the hook error log.
-
-    Called only from the outermost ``except Exception`` handler so that
-    unexpected programming errors (regressions, NameErrors, etc.) are
-    written to a persistent file rather than disappearing into stderr.
-    Best-effort — never raises.
-
-    Args:
-        hook_name: Short identifier for the hook (e.g. ``"session_stop_hook"``).
-    """
-    try:
-        ts = datetime.now().isoformat(timespec="seconds")
-        tb = traceback.format_exc()
-        entry = f"[{ts}] {hook_name}\n{tb}\n"
-        vault_common.rotate_log_file(_HOOK_ERROR_LOG)
-        with open(_HOOK_ERROR_LOG, "a", encoding="utf-8") as fh:
-            fh.write(entry)
-    except Exception as exc:  # noqa: BLE001 — logging must never raise
-        print(f"hook error log write failed: {exc}", file=sys.stderr)
-        pass
+from vault_hooks import log_hook_error
 
 
 def _should_skip(input_data: dict[str, object], cwd: str) -> str | None:
@@ -186,7 +161,7 @@ def main() -> None:
         traceback.print_exc(file=sys.stderr)
         # Log unexpected programming errors to a persistent file so regressions
         # are visible without requiring manual stderr inspection.
-        _log_hook_error("session_stop_hook")
+        log_hook_error("session_stop_hook")
         # On any error, output empty JSON and exit cleanly
         sys.stdout.write("{}")
 

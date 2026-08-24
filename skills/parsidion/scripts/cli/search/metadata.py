@@ -12,11 +12,11 @@ from __future__ import annotations
 import re
 import sqlite3
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import vault_common
+from core.vault_index import _build_note_index_where
 from vault_path import is_path_inside_vault
 
 # SEC-020: one stderr note per process when DB-sourced paths get skipped.
@@ -92,52 +92,19 @@ def query(
             )
             return []
 
-        # SECURITY: The SQL WHERE clause is assembled from literal condition fragments
-        # only — no column names are ever derived from external input.  All filter
-        # values are passed as bound parameters (?).  Column names used below form a
-        # static whitelist: tags, folder, note_type, project, mtime.  Any future
-        # addition of a user-supplied column name must be added to this whitelist and
-        # reviewed for injection risk.
-        # Static whitelist (documentation only — all conditions below are literals):
-        #   _ALLOWED_QUERY_COLUMNS = {"tags", "folder", "note_type", "project", "mtime"}
-        conditions: list[str] = []
-        params: list[object] = []
-
-        if tag is not None:
-            # Tags are stored as ", ".join(sorted(tags_list)) — canonical format
-            # enforced at write time in update_index.py and build_embeddings.py.
-            # See ARC-004.
-            conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
-            params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
-
-        if folder is not None:
-            conditions.append("folder = ?")
-            params.append(folder)
-
-        if note_type is not None:
-            conditions.append("note_type = ?")
-            params.append(note_type)
-
-        if project is not None:
-            conditions.append("project = ?")
-            params.append(project)
-
-        if recent_days is not None:
-            cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
-            conditions.append("mtime >= ?")
-            params.append(cutoff)
-
-        if changed_since is not None:
-            cutoff = datetime.fromisoformat(changed_since).timestamp()
-            conditions.append("mtime >= ?")
-            params.append(cutoff)
-
-        if as_of is not None:
-            # ISO YYYY-MM-DD strings sort lexicographically; exclude empty dates.
-            conditions.append("date != '' AND date <= ?")
-            params.append(as_of)
-
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        # QA-009: shared WHERE builder — the condition assembly that was
+        # duplicated with query_note_index lives once in
+        # core.vault_index._build_note_index_where (injection-safety
+        # contract documented there).
+        where, params = _build_note_index_where(
+            tag=tag,
+            folder=folder,
+            note_type=note_type,
+            project=project,
+            recent_days=recent_days,
+            changed_since=changed_since,
+            as_of=as_of,
+        )
         date_col = ", date" if has_date else ""
         sql = (
             f"SELECT stem, path, folder, title, summary, tags, note_type, "

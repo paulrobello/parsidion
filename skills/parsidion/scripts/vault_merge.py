@@ -50,24 +50,24 @@ invocations against the same vault cannot interleave.
 import argparse
 import contextlib
 import hashlib
-import json  # noqa: F401 — re-exported (vault_merge.json) for backwards compat
-import os  # noqa: F401 — re-exported (vault_merge.os) for backwards compat
-import re  # noqa: F401 — re-exported (vault_merge.re) for backwards compat
-import shutil  # noqa: F401 — re-exported (vault_merge.shutil) for backwards compat
-import sqlite3  # noqa: F401 — re-exported (vault_merge.sqlite3) for backwards compat
-import subprocess  # noqa: F401 — re-exported (vault_merge.subprocess) for backwards compat
+import json  # re-exported (vault_merge.json) for backwards compat
+import os  # re-exported (vault_merge.os) for backwards compat
+import re  # re-exported (vault_merge.re) for backwards compat
+import shutil  # re-exported (vault_merge.shutil) for backwards compat
+import sqlite3  # re-exported (vault_merge.sqlite3) for backwards compat
+import subprocess  # re-exported (vault_merge.subprocess) for backwards compat
 import sys
-from collections.abc import Iterator  # noqa: F401 — re-exported for backwards compat
+from collections.abc import Iterator  # re-exported for backwards compat
 from pathlib import Path
 
-import ai_backend  # noqa: F401 — re-exported (vault_merge.ai_backend) for tests
-import vault_common  # noqa: F401 — re-exported (vault_merge.vault_common) for tests
-import vault_config  # noqa: F401 — re-exported (vault_merge.vault_config) for tests
-import vault_fs  # noqa: F401 — re-exported (vault_merge.vault_fs) for tests
-import vault_links  # noqa: F401 — re-exported (vault_merge.vault_links) for tests
+import ai_backend  # re-exported (vault_merge.ai_backend) for tests
+import vault_common  # re-exported (vault_merge.vault_common) for tests
+import vault_config  # re-exported (vault_merge.vault_config) for tests
+import vault_fs  # re-exported (vault_merge.vault_fs) for tests
+import vault_links  # re-exported (vault_merge.vault_links) for tests
 from vault_path import is_path_inside_vault
 from core.vault_index import serialize_frontmatter
-from prompt_templates import render  # noqa: F401 — re-exported (vault_merge.render)
+from prompt_templates import render  # re-exported (vault_merge.render)
 
 # ---------------------------------------------------------------------------
 # Re-exports from cli.merge.* — every symbol the original vault_merge.py
@@ -75,20 +75,20 @@ from prompt_templates import render  # noqa: F401 — re-exported (vault_merge.r
 # immutable so ``from cli.merge.X import f`` + ``vault_merge.f(...)`` is a
 # stable binding for external callers and the test suite.
 # ---------------------------------------------------------------------------
-from cli.merge.ai_helpers import (  # noqa: F401 — re-exports
+from cli.merge.ai_helpers import (  # re-exports
     _DEFAULT_AI_TIMEOUT,
     _configured_merge_model,
     _configured_merge_timeout,
     _is_valid_merge_body,
 )
-from cli.merge.frontmatter import (  # noqa: F401 — re-exports
+from cli.merge.frontmatter import (  # re-exports
     _WIKILINK_SPAN_RE,
     _parse_related_list,
     _parse_tags_list,
 )
-from cli.merge.index import _rebuild_index  # noqa: F401 — re-export
-from cli.merge.lookup import _find_note  # noqa: F401 — re-export
-from cli.merge.preview import (  # noqa: F401 — re-exports
+from cli.merge.index import _rebuild_index  # re-export
+from cli.merge.lookup import _find_note  # re-export
+from cli.merge.preview import (  # re-exports
     _MERGE_LOCK_FILENAME,
     _PREVIEW_DIRNAME,
     _delete_preview,
@@ -96,13 +96,14 @@ from cli.merge.preview import (  # noqa: F401 — re-exports
     _preview_cache_path,
     _preview_dir,
 )
-from cli.merge.scan import (  # noqa: F401 — re-exports
+from cli.merge.scan import (  # re-exports
     _DEFAULT_SCAN_THRESHOLD,
     _DEFAULT_SCAN_TOP,
     _is_excluded_from_scan,
     _scan_duplicates,
+    MergeScanError,
 )
-from cli.merge.display import _print_diff_summary  # noqa: F401 — re-export
+from cli.merge.display import _print_diff_summary  # re-export
 
 
 class AIMergeOutputError(RuntimeError):
@@ -555,9 +556,14 @@ def main() -> None:
     try:
         # --scan mode: find near-duplicate pairs across the whole vault
         if args.scan:
-            _scan_duplicates(
-                threshold=args.threshold, top=args.top, vault_path=vault_path
-            )
+            try:
+                _scan_duplicates(
+                    threshold=args.threshold, top=args.top, vault_path=vault_path
+                )
+            except MergeScanError as exc:
+                # QA-016: the scan library raises; only the CLI exits.
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
             return
 
         # Require NOTE_A and NOTE_B when not scanning

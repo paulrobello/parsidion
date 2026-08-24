@@ -21,6 +21,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from _migrate_common import (
+    append_keyword_tags,
+    report_footer,
+    report_header,
+    write_note_file,
+)
 from vault_common import (
     VAULT_ROOT,
     ensure_vault_dirs,
@@ -287,11 +293,7 @@ def _infer_tags(note_type: str, project: str, heading: str) -> list[str]:
         "sqlite": "sqlite",
         "macos": "macos",
     }
-    for keyword, tag in keyword_tags.items():
-        if keyword in heading_lower and tag not in tags:
-            tags.append(tag)
-
-    return tags
+    return append_keyword_tags(tags, keyword_tags, heading_lower)
 
 
 def _resolve_dest_collision(dest: Path) -> Path:
@@ -436,10 +438,7 @@ def _print_report(
     execute: bool,
 ) -> None:
     """Print a human-readable migration report."""
-    mode: str = "EXECUTE" if execute else "DRY-RUN"
-    print(f"\n{'=' * 72}")
-    print(f"  Memory Migration Report ({mode})")
-    print(f"{'=' * 72}\n")
+    report_header("Memory Migration Report", execute)
 
     if notes:
         # Group by vault folder for clarity
@@ -471,16 +470,11 @@ def _print_report(
         print("  No vault notes to create.\n")
 
     # Summary
-    print(f"{'=' * 72}")
-    print(
-        f"  Summary: {files_processed} memory files processed, "
-        f"{len(notes)} vault notes created"
+    report_footer(
+        f"{files_processed} memory files processed, {len(notes)} vault notes created",
+        execute,
+        "files written, originals backed up",
     )
-    if not execute:
-        print("  Mode: DRY-RUN (no files written). Use --execute to migrate.")
-    else:
-        print("  Mode: EXECUTE (files written, originals backed up).")
-    print(f"{'=' * 72}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -493,13 +487,8 @@ def _execute_migration(notes: list[VaultNote], sources_to_backup: set[Path]) -> 
     written: int = 0
 
     for note in notes:
-        note.dest.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            note.dest.write_text(note.content, encoding="utf-8")
+        if write_note_file(note.dest, note.content):
             written += 1
-        except OSError as exc:
-            print(f"  ERROR writing {note.dest}: {exc}", file=sys.stderr)
 
     # Back up original memory files
     backed_up: int = 0

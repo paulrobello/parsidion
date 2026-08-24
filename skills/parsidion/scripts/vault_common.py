@@ -57,7 +57,7 @@ playbook is preserved in git history).
 # vault_common.  They are intentionally omitted from __all__ and should not be
 # used in new code; access them from vault_config directly instead.
 # deprecated: import directly from core.vault_config
-from vault_config import (  # noqa: F401
+from vault_config import (
     _CONFIG_SCHEMA,
     _clear_config_cache,
     _load_config_cached,
@@ -73,7 +73,7 @@ from vault_config import (  # noqa: F401
 
 # vault_path: path resolution, constants, secure logging
 # deprecated: import directly from core.vault_path
-from vault_path import (  # noqa: F401
+from vault_path import (
     DEFAULT_VAULT_NAME,
     EMBEDDINGS_DB_FILENAME,
     LEGACY_DEFAULT_VAULT_NAME,
@@ -96,7 +96,7 @@ from vault_path import (  # noqa: F401
 
 # vault_fs: file locking, pending queue, git, daily notes
 # deprecated: import directly from core.vault_fs
-from vault_fs import (  # noqa: F401
+from vault_fs import (
     append_session_to_daily,
     append_to_pending,
     atomic_write_text,
@@ -116,7 +116,7 @@ from vault_fs import (  # noqa: F401
 
 # vault_index: frontmatter, note search, context building
 # deprecated: import directly from core.vault_index
-from vault_index import (  # noqa: F401
+from vault_index import (
     EXCLUDE_DIRS,
     VAULT_DIRS,
     all_vault_notes,
@@ -143,7 +143,7 @@ from vault_index import (  # noqa: F401
 
 # vault_hooks: hook event logging, env helpers, transcript analysis
 # deprecated: import directly from core.vault_hooks
-from vault_hooks import (  # noqa: F401
+from vault_hooks import (
     TRANSCRIPT_CATEGORIES,
     TRANSCRIPT_CATEGORY_LABELS,
     SAFE_ENV_KEYS,  # QA-012: public alias
@@ -161,6 +161,7 @@ from vault_hooks import (  # noqa: F401
     is_gemini_transcript_path,
     is_pi_transcript_path,
     is_process_running,
+    log_hook_error,
     parse_codex_transcript_lines,
     parse_gemini_transcript_lines,
     parse_transcript_lines,
@@ -169,7 +170,7 @@ from vault_hooks import (  # noqa: F401
 
 # vault_adaptive: per-note usefulness tracking, last-seen state
 # deprecated: import directly from core.vault_adaptive
-from vault_adaptive import (  # noqa: F401
+from vault_adaptive import (
     get_injected_stems,
     get_last_seen_path,
     get_usefulness_path,
@@ -266,6 +267,7 @@ __all__: list[str] = [
     "slugify",
     "git_commit_vault",
     "write_hook_event",
+    "log_hook_error",
     "get_last_seen_path",
     "load_last_seen",
     "save_last_seen",

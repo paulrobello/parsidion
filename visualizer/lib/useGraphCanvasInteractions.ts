@@ -38,6 +38,8 @@ export interface NodeContextMenuState {
   stem: string
   x: number
   y: number
+  /** Path-origin stem captured from the ref at menu-open time. */
+  pathSource: string | null
 }
 
 // QA-004: findWikiPath lives here — it is only called from the Find Path action.

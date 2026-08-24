@@ -31,6 +31,8 @@ __all__: list[str] = [
     "VaultConfigError",
     "get_vaults_config_path",
     "list_named_vaults",
+    "read_vaults_yaml",
+    "render_vaults_yaml",
     "resolve_vault",
     "resolve_vault_server",
     "default_vault_root",
@@ -170,6 +172,160 @@ def get_vaults_config_path() -> Path:
     return config_dir / "vaults.yaml"
 
 
+def read_vaults_yaml(path: Path | None = None) -> tuple[dict[str, str], str | None]:
+    """Parse ``vaults.yaml`` into its named entries and ``default`` value.
+
+    QA-004: the single ``vaults.yaml`` reader. The installer's record and
+    uninstall paths previously carried two private copies of this parse; both
+    now call this function, and ``list_named_vaults`` is built on it too.
+
+    Values are returned raw (no ``expanduser``/``resolve``) so writers can
+    re-emit them verbatim; callers resolve when they need a real path.
+
+    Args:
+        path: Config file to read. Defaults to ``get_vaults_config_path()``.
+
+    Returns:
+        ``(vaults, default)`` where *vaults* maps entry names to their raw
+        path strings and *default* is the raw ``default:`` value or None.
+        ``({}, None)`` when the file is missing or unreadable.
+    """
+    config_path = path if path is not None else get_vaults_config_path()
+    if not config_path.exists():
+        return {}, None
+    try:
+        content = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}, None
+
+    vaults: dict[str, str] = {}
+    default: str | None = None
+    in_vaults = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "vaults:" or stripped.startswith("vaults:"):
+            in_vaults = True
+            continue
+        # End of vaults: section on a new top-level key.
+        if in_vaults and line and not line[0].isspace() and ":" in stripped:
+            in_vaults = False
+        if in_vaults and ":" in stripped:
+            name, _, rest = stripped.partition(":")
+            name = name.strip().strip("'\"")
+            rest = rest.strip().strip("'\"")
+            if name and rest:
+                vaults[name] = rest
+        if stripped.startswith("default:") and not in_vaults:
+            default = stripped.split(":", 1)[1].strip().strip("'\"") or None
+    return vaults, default
+
+
+def render_vaults_yaml(
+    vaults: dict[str, str],
+    default: str,
+    vault_name: str,
+    vault_path_str: str,
+    original: str,
+) -> str:
+    """Return new vaults.yaml content with *vault_name* and ``default:`` set.
+
+    QA-004: the single ``vaults.yaml`` writer body (moved from the
+    installer's ``_render_vaults_yaml_for_record``, with its unreachable
+    ``if vault_name not in vaults`` branch deleted and the original-names
+    scan precomputed once). Preserves the file's existing structure
+    (comments, the ``vaults:`` section, the ``default:`` line, other
+    top-level keys) and only mutates the two relevant lines. Falls back to
+    a fresh template when the file is empty or has no recognised
+    ``vaults:`` section. The output round-trips through
+    ``read_vaults_yaml`` unchanged.
+    """
+    vaults[vault_name] = vault_path_str
+    new_default = vault_path_str
+
+    has_vaults_section = "\nvaults:" in ("\n" + original) or original.startswith(
+        "vaults:"
+    )
+    if not has_vaults_section:
+        # Build a minimal file from scratch.
+        lines = ["# Named vaults for parsidion"]
+        lines.append("# Populated by `install.py --vault` (ARC-019).")
+        lines.append("")
+        lines.append("vaults:")
+        for name, path in vaults.items():
+            lines.append(f"  {name}: {path}")
+        lines.append("")
+        lines.append(f"default: {new_default}")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Rewrite line-by-line, inserting/updating the named entry and the
+    # default line. Idempotent on a second run. The existing-entry scan is
+    # hoisted out of the loop (it was re-splitting *original* per line).
+    has_named_entry = any(
+        ln.strip().startswith(f"{vault_name}:") for ln in original.splitlines()
+    )
+    out: list[str] = []
+    in_vaults = False
+    inserted_named = False
+    wrote_default = False
+    for line in original.splitlines():
+        stripped = line.strip()
+        if stripped == "vaults:" or stripped.startswith("vaults:"):
+            out.append(line)
+            in_vaults = True
+            # Emit our entry first when the original section has no slot
+            # for it, so the new value lands inside the section even when
+            # the section is empty.
+            if not has_named_entry:
+                out.append(f"  {vault_name}: {vault_path_str}")
+                inserted_named = True
+            continue
+        if in_vaults and line and not line[0].isspace():
+            # Leaving the vaults: section.
+            if not inserted_named and vault_name not in {
+                ln.strip().split(":", 1)[0].strip()
+                for ln in out
+                if ln.startswith("  ") and ":" in ln
+            }:
+                # Didn't find a slot above; append at section end.
+                insert_at = len(out)
+                while insert_at > 0 and out[insert_at - 1].strip() == "":
+                    insert_at -= 1
+                out.insert(insert_at, f"  {vault_name}: {vault_path_str}")
+            in_vaults = False
+        if in_vaults and stripped.startswith(f"{vault_name}:"):
+            out.append(f"  {vault_name}: {vault_path_str}")
+            inserted_named = True
+            continue
+        if stripped.startswith("default:") and not in_vaults:
+            out.append(f"default: {new_default}")
+            wrote_default = True
+            continue
+        out.append(line)
+
+    if not inserted_named:
+        # The vaults: section was non-empty but had no slot for our name
+        # (e.g. it only had comments). Append at the end of the section.
+        for i, ln in enumerate(out):
+            if ln.strip() == "vaults:" or ln.strip().startswith("vaults:"):
+                # Insert after the last consecutive indented entry.
+                j = i + 1
+                while j < len(out) and (
+                    out[j].startswith("  ") or out[j].strip() == ""
+                ):
+                    j += 1
+                out.insert(j, f"  {vault_name}: {vault_path_str}")
+                inserted_named = True
+                break
+    if not wrote_default:
+        out.append(f"default: {new_default}")
+    if not out[-1].endswith("\n"):
+        out.append("")
+    return "\n".join(out)
+
+
 def list_named_vaults() -> dict[str, Path]:
     """Load named vaults from vaults.yaml configuration.
 
@@ -180,52 +336,10 @@ def list_named_vaults() -> dict[str, Path]:
         Dictionary mapping vault names to their absolute paths.
         Empty dict if config file doesn't exist or has no vaults section.
     """
-    config_path = get_vaults_config_path()
-    if not config_path.exists():
-        return {}
-
-    try:
-        content = config_path.read_text(encoding="utf-8")
-    except OSError:
-        return {}
-
-    vaults: dict[str, Path] = {}
-    in_vaults_section = False
-
-    for line in content.splitlines():
-        stripped = line.strip()
-
-        # Skip empty lines and comments
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        # Detect vaults section start
-        if stripped == "vaults:" or stripped.startswith("vaults:"):
-            in_vaults_section = True
-            continue
-
-        # Detect end of vaults section (new top-level key)
-        if (
-            in_vaults_section
-            and stripped
-            and not stripped.startswith("-")
-            and ":" in stripped
-        ):
-            # Check if this is a new top-level key (no leading spaces)
-            if line and not line[0].isspace():
-                break
-
-        # Parse vault entries
-        if in_vaults_section and ":" in stripped:
-            # Handle both "name: path" and "name:" formats
-            parts = stripped.split(":", 1)
-            if len(parts) == 2:
-                name = parts[0].strip().strip('"').strip("'")
-                path_str = parts[1].strip().strip('"').strip("'")
-                if name and path_str:
-                    vaults[name] = Path(path_str).expanduser().resolve()
-
-    return vaults
+    vaults, _default = read_vaults_yaml()
+    return {
+        name: Path(path_str).expanduser().resolve() for name, path_str in vaults.items()
+    }
 
 
 # SEC-007: Forbidden vault path prefixes -- prevents resolve_vault() from
@@ -421,6 +535,11 @@ def resolve_vault(
     normalized_cwd: str | None = None
     if cwd is not None:
         normalized_cwd = str(Path(cwd).resolve())
+    # A Path explicit (e.g. doctor/cli.py's ``--vault`` uses ``type=Path``)
+    # must be coerced to str before the named-vault dict lookup in
+    # _resolve_vault_reference, which is keyed by vault NAME.
+    if explicit is not None and not isinstance(explicit, str):
+        explicit = str(explicit)
     return _resolve_vault_cached(explicit, normalized_cwd)
 
 

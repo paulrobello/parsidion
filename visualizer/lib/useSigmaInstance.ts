@@ -11,13 +11,15 @@
 import { useRef, useCallback, useEffect } from 'react'
 import type { GraphData, GraphEdge, GraphSource } from '@/lib/graph'
 import { filterEdges } from '@/lib/graph'
+import { addOverlayEdges, addPrimaryEdges } from '@/lib/graphEdges'
 import {
-  getNodeColor, getNodeSize, getSemanticEdgeColor, recencyHeatColor, LABEL_COLOR,
+  getNodeColor, getNodeSize, recencyHeatColor, LABEL_COLOR,
 } from '@/lib/sigma-colors'
 import type { EdgeColorMode, NodeSizeMode, NodeColorMode } from '@/lib/sigma-colors'
 import type Sigma from 'sigma'
 import type { MouseCoords } from 'sigma/types'
 import type { AbstractGraph } from 'graphology-types'
+import type { NodeContextMenuState } from './useGraphCanvasInteractions'
 import { drawNodeLabel, drawNodeHover } from '@/lib/sigma-renderers'
 import { makeNodeReducer, makeEdgeReducer } from '@/lib/useGraphReducers'
 import type { NeighborhoodInfo } from '@/lib/useGraphReducers'
@@ -93,8 +95,7 @@ export interface UseSigmaInstanceOptions {
   // hook's ref). The callbackRef pattern breaks the cycle: GraphCanvas assigns
   // the real callbacks to these refs right after defining them; by the time the
   // hook's effects run (post-commit), the refs are populated.
-  setNodeContextMenu: React.Dispatch<React.SetStateAction<{ stem: string; x: number; y: number } | null>>
-  setNodeDeltaVersion: React.Dispatch<React.SetStateAction<number>>
+  setNodeContextMenu: React.Dispatch<React.SetStateAction<NodeContextMenuState | null>>
   applyNodeDeltaRef: React.RefObject<((graph: AbstractGraph, d: GraphData, delta: NodeDelta) => void) | undefined>
   flyToNodeRef: React.RefObject<((stem: string) => void) | undefined>
 
@@ -120,7 +121,7 @@ export function useSigmaInstance(opts: UseSigmaInstanceOptions): SigmaInstanceRe
     labelsOnHoverOnlyRef, hoveredNodeRef, highlightedNodesRef, highlightedEdgesRef,
     dragHasMovedRef, pathSourceRef, pathNodesRef, pathEdgesRef, latest,
     // State setters / callbacks (flyToNode/applyNodeDelta via refs — see above)
-    setNodeContextMenu, setNodeDeltaVersion, applyNodeDeltaRef, flyToNodeRef,
+    setNodeContextMenu, applyNodeDeltaRef, flyToNodeRef,
     // Props
     data, activeTypes, showDaily, graphSource, threshold, onNodeClick, onBackgroundClick,
   } = opts
@@ -188,7 +189,6 @@ export function useSigmaInstance(opts: UseSigmaInstanceOptions): SigmaInstanceRe
         teardownInstance()   // large turnover → discard and re-bootstrap below
       } else {
         applyNodeDeltaRef.current!(graph, data, delta)
-        setNodeDeltaVersion(v => v + 1)
         return () => { /* delta is synchronous; never kill sigma on a data change */ }
       }
     }
@@ -281,32 +281,15 @@ export function useSigmaInstance(opts: UseSigmaInstanceOptions): SigmaInstanceRe
       const ewi = latest.current.edgeWeightInfluence
       let edges: GraphEdge[] = filterEdges(data.edges, graphSource, threshold)
       if (latest.current.edgePruning) edges = pruneEdges(edges, latest.current.edgePruningK)
-      for (const edge of edges) {
-        if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-        const col = getSemanticEdgeColor(edge.w, edge.kind, latest.current.edgeColorMode, latest.current.threshold)
-        try {
-          graph.addEdge(edge.s, edge.t, {
-            weight: edge.w * ewi, baseWeight: edge.w, color: col,
-            size: edge.kind === 'wiki' ? 1.5 : 1,
-            kind: edge.kind, overlay: false, originalColor: col,
-          })
-        } catch { /* duplicate */ }
-      }
+      addPrimaryEdges(graph, edges, {
+        visibleNodes,
+        edgeWeightInfluence: ewi,
+        edgeColorMode: latest.current.edgeColorMode,
+        threshold: latest.current.threshold,
+      })
       // Overlay edges (other source, visual-only — weight=0.001 so FA2 ignores them)
       if (latest.current.showOverlayEdges) {
-        const overlayKind = graphSource === 'semantic' ? 'wiki' : 'semantic'
-        const overlayEdges = data.edges.filter(e => e.kind === overlayKind &&
-          (overlayKind === 'semantic' ? e.w >= threshold : true))
-        for (const edge of overlayEdges) {
-          if (!visibleNodes.has(edge.s) || !visibleNodes.has(edge.t)) continue
-          const col = overlayKind === 'wiki' ? 'rgba(123,97,255,0.18)' : 'rgba(150,150,160,0.18)'
-          try {
-            graph.addEdge(edge.s, edge.t, {
-              weight: 0.001, color: col, size: 0.8,
-              kind: overlayKind, overlay: true, originalColor: col,
-            })
-          } catch { /* duplicate */ }
-        }
+        addOverlayEdges(graph, data.edges, graphSource, threshold, visibleNodes)
       }
 
       if (cancelled) return
@@ -431,7 +414,7 @@ export function useSigmaInstance(opts: UseSigmaInstanceOptions): SigmaInstanceRe
         if (orig instanceof MouseEvent) orig.preventDefault()
         const x = orig instanceof MouseEvent ? orig.clientX : 0
         const y = orig instanceof MouseEvent ? orig.clientY : 0
-        setNodeContextMenu({ stem: node, x, y })
+        setNodeContextMenu({ stem: node, x, y, pathSource: pathSourceRef.current })
       })
       sigma.on('clickStage', () => {
         onBackgroundClick()

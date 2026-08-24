@@ -35,36 +35,40 @@ MANIFEST.md files (detailed note listings in table format).
 Uses only Python stdlib.
 """
 
-import argparse  # noqa: F401 — re-exported (update_index.argparse) for backwards compat
+import argparse  # re-exported (update_index.argparse) for backwards compat
 import atexit
-import json  # noqa: F401 — re-exported (update_index.json) for backwards compat
+import json  # re-exported (update_index.json) for backwards compat
 import os
-import re  # noqa: F401 — re-exported (update_index.re) for backwards compat
-import subprocess  # noqa: F401 — re-exported (update_index.subprocess) for backwards compat
+import re  # re-exported (update_index.re) for backwards compat
+import subprocess  # re-exported (update_index.subprocess) for backwards compat
 import sys
 import time
-from collections import Counter  # noqa: F401 — re-exported (update_index.Counter) for backwards compat
-from datetime import datetime, timedelta  # noqa: F401 — re-exported for backwards compat
+from collections import (
+    Counter,
+)  # re-exported (update_index.Counter) for backwards compat
+from datetime import datetime, timedelta  # re-exported for backwards compat
 from pathlib import Path
-from typing import NamedTuple  # noqa: F401 — re-exported (update_index.NamedTuple) for backwards compat
+from typing import (
+    NamedTuple,
+)  # re-exported (update_index.NamedTuple) for backwards compat
 
 from vault_common import (
-    all_vault_notes_walk,  # noqa: F401 — re-exported for backwards compat
-    ensure_vault_dirs,  # noqa: F401 — re-exported for backwards compat
-    extract_title,  # noqa: F401 — re-exported (update_index.extract_title)
-    get_body,  # noqa: F401 — re-exported for backwards compat
+    all_vault_notes_walk,  # re-exported for backwards compat
+    ensure_vault_dirs,  # re-exported for backwards compat
+    extract_title,  # re-exported (update_index.extract_title)
+    get_body,  # re-exported for backwards compat
     get_config,
     get_embeddings_db_path,
     git_commit_vault,
     is_process_running,
-    parse_frontmatter,  # noqa: F401 — re-exported for backwards compat
+    parse_frontmatter,  # re-exported for backwards compat
     resolve_vault,
     write_hook_event,
 )
-from vault_index import drain_parse_warnings, record_parse_warning  # noqa: F401 — re-exports
-from vault_fs import atomic_write_text  # noqa: F401 — re-exported (update_index.atomic_write_text)
+from vault_index import drain_parse_warnings, record_parse_warning  # re-exports
+from vault_fs import atomic_write_text  # re-exported (update_index.atomic_write_text)
 
-import parmem_backend  # noqa: F401 — re-exported (update_index.parmem_backend) for backwards compat
+import parmem_backend  # re-exported (update_index.parmem_backend) for backwards compat
 
 # ---------------------------------------------------------------------------
 # Re-exports from cli.index.* — every symbol the original update_index.py
@@ -72,20 +76,20 @@ import parmem_backend  # noqa: F401 — re-exported (update_index.parmem_backend
 # immutable so ``from cli.index.X import f`` + ``update_index.f(...)`` is a
 # stable binding for external callers and the test suite.
 # ---------------------------------------------------------------------------
-from cli.index._common import (  # noqa: F401 — re-exports
+from cli.index._common import (  # re-exports
     FOLDER_ORDER,
     RECENT_DAYS,
     RECENT_MAX,
     STALE_DAYS,
     SUMMARY_MAX_CHARS,
 )
-from cli.index.db import _write_note_index_to_db  # noqa: F401 — re-export
-from cli.index.graph import (  # noqa: F401 — re-exports
+from cli.index.db import _write_note_index_to_db  # re-export
+from cli.index.graph import (  # re-exports
     _find_build_graph_script,
     _rebuild_graph,
 )
-from cli.index.models import NoteEntry, NoteRecord  # noqa: F401 — re-exports
-from cli.index.parse import (  # noqa: F401 — re-exports
+from cli.index.models import NoteEntry, NoteRecord  # re-exports
+from cli.index.parse import (  # re-exports
     _WIKILINK_RE,
     _extract_summary,
     _extract_title,
@@ -93,13 +97,13 @@ from cli.index.parse import (  # noqa: F401 — re-exports
     _folder_name,
     _wikilink,
 )
-from cli.index.build import (  # noqa: F401 — re-exports
+from cli.index.build import (  # re-exports
     _build_note_db_rows,
     _compute_incoming_link_counts,
     build_index,
 )
-from cli.index.render import build_manifests, build_tags_md  # noqa: F401 — re-exports
-from cli.index.cli import _parse_args  # noqa: F401 — re-export
+from cli.index.render import build_manifests, build_tags_md  # re-exports
+from cli.index.cli import _parse_args  # re-export
 
 
 # ---------------------------------------------------------------------------

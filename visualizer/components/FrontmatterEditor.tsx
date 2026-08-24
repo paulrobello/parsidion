@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import type { FrontmatterFields } from '@/lib/frontmatter'
 import type { NoteNode } from '@/lib/graph'
 import { TYPE_COLORS } from '@/lib/sigma-colors'
@@ -201,7 +201,14 @@ function ChipInput({ values, onChange, placeholder, normalize, suggestions }: {
       .slice(0, 8)
   }, [suggestions, input, values])
 
-  useEffect(() => { setSelectedIdx(0) }, [filtered]) // eslint-disable-line react-hooks/set-state-in-effect
+  // Adjust-during-render (React docs) instead of a reset effect: when the
+  // suggestion list changes, clamp the highlight back to the first row in
+  // this same render.
+  const [prevFiltered, setPrevFiltered] = useState(filtered)
+  if (prevFiltered !== filtered) {
+    setPrevFiltered(filtered)
+    setSelectedIdx(0)
+  }
 
   const add = useCallback((raw: string) => {
     const val = normalize ? normalize(raw) : raw.trim()
@@ -339,7 +346,11 @@ function RelatedInput({ values, onChange, nodes }: {
   }, [input, nodes, values])
 
   // Reset selectedIdx when results change
-  useEffect(() => { setSelectedIdx(0) }, [results]) // eslint-disable-line react-hooks/set-state-in-effect
+  const [prevResults, setPrevResults] = useState(results)
+  if (prevResults !== results) {
+    setPrevResults(results)
+    setSelectedIdx(0)
+  }
 
   const add = useCallback((stem: string) => {
     if (stem && !values.includes(stem)) onChange([...values, stem])

@@ -11,7 +11,7 @@ point (``vault-stats = "vault_stats:main"`` in ``pyproject.toml``) so every
 
 Submodule layout:
     _common     — shared console + DB helpers (_get_console, _open_db,
-                  _fetch_all, _collect_tags).
+                  _collect_tags).
     summary     — run_summary + run_no_db_summary (the DB / no-DB fallback
                   pair for the same logical view).
     overview    — run_stale, run_top_linked, run_by_project, run_growth,

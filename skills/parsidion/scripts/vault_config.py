@@ -11,4 +11,4 @@ latter are not part of the public surface. The stdlib-only constraint is
 enforced on ``core.vault_config`` by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_config import *  # noqa: F401,F403 -- controlled by core.vault_config.__all__
+from core.vault_config import *  # noqa: F403 -- controlled by core.vault_config.__all__

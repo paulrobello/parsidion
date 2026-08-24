@@ -37,22 +37,22 @@ vault_links.py.  This file now imports and delegates to that module.
 import argparse
 import atexit
 import os
-import subprocess  # noqa: F401 — re-exported for test monkeypatch (mod.subprocess.run)
+import subprocess  # re-exported for test monkeypatch (mod.subprocess.run)
 import sys
 import traceback
-from datetime import date  # noqa: F401 — re-exported for tests (summarize_sessions.date.today())
+from datetime import date  # re-exported for tests (summarize_sessions.date.today())
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, cast
 
 import anyio  # type: ignore[import-untyped]
 
-import ai_backend  # noqa: F401 — re-exported for tests (summarize_sessions.ai_backend)
+import ai_backend  # re-exported for tests (summarize_sessions.ai_backend)
 import vault_common
-import vault_links  # noqa: F401 — re-exported for tests (summarize_sessions.vault_links)
+import vault_links  # re-exported for tests (summarize_sessions.vault_links)
 
 # Constants, sentinels, enums, regexes, and default config values (ARC-009).
-from summarizer._state_const import (  # noqa: F401 — re-exported for tests
+from summarizer._state_const import (  # re-exported for tests
     _ACTIVE_SESSION_GRACE_SECS,
     _DEAD,
     _DEAD_LETTER_RETENTION_DAYS,
@@ -77,7 +77,7 @@ from summarizer._state_const import (  # noqa: F401 — re-exported for tests
     FailureReason,
 )
 
-from summarizer.transcript import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.transcript import (  # re-exported for tests
     _strip_code_fence,
     _summarize_chunk,
     preprocess_transcript,
@@ -85,20 +85,20 @@ from summarizer.transcript import (  # noqa: E402,F401 — re-exported for tests
 )
 
 
-from summarizer.failure import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.failure import (  # re-exported for tests
     _failure_record_retryable,
     _format_failure_record,
     _mark_failure,
 )
 
-from summarizer.progress import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.progress import (  # re-exported for tests
     _PROGRESS_FILE,
     _clear_progress,
     _write_progress,
 )
 
 
-from summarizer.dedup import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.dedup import (  # re-exported for tests
     _find_dedup_candidates,
     _resolve_note_stem,
     read_existing_tags,
@@ -106,7 +106,7 @@ from summarizer.dedup import (  # noqa: E402,F401 — re-exported for tests
 )
 
 
-from summarizer.prompt import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.prompt import (  # re-exported for tests
     _PROMPT_TEMPLATE_CACHE,
     _TAG_RULES_COMMON,
     _load_prompt_template,
@@ -115,10 +115,10 @@ from summarizer.prompt import (  # noqa: E402,F401 — re-exported for tests
     _run_summarizer_prompt,
     build_prompt,
 )
-from prompt_templates import load_prompt, render  # noqa: E402,F401 — re-exported for tests
+from prompt_templates import load_prompt, render  # re-exported for tests
 
 
-from summarizer.notes import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.notes import (  # re-exported for tests
     _backfill_tags_if_empty,
     _backup_note,
     _clean_tag,
@@ -135,7 +135,7 @@ from summarizer.notes import (  # noqa: E402,F401 — re-exported for tests
 )
 
 
-from summarizer.pipeline import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.pipeline import (  # re-exported for tests
     _apply_backlinks_and_strip_links,
     _apply_merge_decision,
     _early_gate,
@@ -291,14 +291,14 @@ async def run_all(
     return results
 
 
-from summarizer.dead_letter import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.dead_letter import (  # re-exported for tests
     _append_dead_letter,
     _dead_lettered_ids,
     _prune_dead_letters,
     _read_dead_letters,
     _remove_dead_letters_by_session_ids,
 )
-from summarizer.queue import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.queue import (  # re-exported for tests
     _resolve,
     read_pending,
     rebuild_index,
@@ -306,7 +306,7 @@ from summarizer.queue import (  # noqa: E402,F401 — re-exported for tests
 )
 
 
-from summarizer.lock import (  # noqa: E402,F401 — re-exported for tests
+from summarizer.lock import (  # re-exported for tests
     _load_summarizer_state,
     _summarizer_claim_lock_file,
     _summarizer_state_file,

@@ -29,7 +29,7 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import vault_common  # noqa: E402
+import vault_common
 
 console = Console()
 

@@ -601,6 +601,86 @@ def _note_index_enabled(vault: str | Path | None = None) -> bool:  # noqa: ARG00
     return bool(get_config("search", "use_note_index", True))
 
 
+def _build_note_index_where(
+    *,
+    tag: str | None = None,
+    folder: str | None = None,
+    note_type: str | None = None,
+    project: str | None = None,
+    recent_days: int | None = None,
+    changed_since: str | None = None,
+    as_of: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build the note_index metadata-filter WHERE clause (QA-009).
+
+    The single home for the condition assembly previously duplicated
+    between ``query_note_index`` here and ``cli.search.metadata.query``
+    (par-mem similarity 0.908). Callers keep their own SELECT lists,
+    result mapping, and schema/containment guards.
+
+    SECURITY: The SQL WHERE clause is assembled from literal condition
+    fragments only -- no column names are ever derived from external input.
+    All filter values are passed as bound parameters (?). Column names used
+    form a static whitelist: tags, folder, note_type, project, mtime, date.
+    Any future addition of a user-supplied column name must be added to
+    this whitelist and reviewed for injection risk.
+
+    Args:
+        tag: Exact tag token to match in the comma-separated tags column.
+        folder: Exact folder name to match.
+        note_type: Exact note_type value to match.
+        project: Exact project value to match.
+        recent_days: Only return notes modified within this many days.
+        changed_since: Only return notes modified on/after this ISO datetime.
+        as_of: Only return notes whose frontmatter date is on/before this
+            ISO date (empty dates excluded).
+
+    Returns:
+        ``(where, params)`` -- ``where`` is "" or "WHERE c1 AND c2 ...";
+        ``params`` holds the bound values in placeholder order.
+    """
+    conditions: list[str] = []
+    params: list[object] = []
+
+    if tag is not None:
+        # 4-pattern exact-token match to avoid partial hits (e.g. "python"
+        # must not match "python-decorator").  Tags are stored as
+        # ", ".join(sorted(tags_list)) -- canonical format enforced at write
+        # time in update_index.py and build_embeddings.py.  See ARC-004.
+        conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
+        params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
+
+    if folder is not None:
+        conditions.append("folder = ?")
+        params.append(folder)
+
+    if note_type is not None:
+        conditions.append("note_type = ?")
+        params.append(note_type)
+
+    if project is not None:
+        conditions.append("project = ?")
+        params.append(project)
+
+    if recent_days is not None:
+        cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
+        conditions.append("mtime >= ?")
+        params.append(cutoff)
+
+    if changed_since is not None:
+        cutoff = datetime.fromisoformat(changed_since).timestamp()
+        conditions.append("mtime >= ?")
+        params.append(cutoff)
+
+    if as_of is not None:
+        # ISO YYYY-MM-DD strings sort lexicographically; exclude empty dates.
+        conditions.append("date != '' AND date <= ?")
+        params.append(as_of)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    return where, params
+
+
 def query_note_index(
     *,
     tag: str | None = None,
@@ -650,43 +730,15 @@ def query_note_index(
         if row is None:
             return None
 
-        # SECURITY: The SQL WHERE clause is assembled from literal condition fragments
-        # only -- no column names are ever derived from external input.  All filter
-        # values are passed as bound parameters (?).  Column names used below form a
-        # static whitelist: tags, folder, note_type, project, mtime.  Any future
-        # addition of a user-supplied column name must be added to this whitelist and
-        # reviewed for injection risk.
-        # Static whitelist (documentation only -- all conditions below are literals):
-        #   _ALLOWED_QUERY_COLUMNS = {"tags", "folder", "note_type", "project", "mtime"}
-        conditions: list[str] = []
-        params: list[object] = []
-
-        if tag is not None:
-            # 4-pattern exact-token match to avoid partial hits (e.g. "python" must not
-            # match "python-decorator").  Tags are stored as ", ".join(sorted(tags_list))
-            # -- canonical format enforced at write time in update_index.py and
-            # build_embeddings.py.  See ARC-004.
-            conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
-            params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
-
-        if folder is not None:
-            conditions.append("folder = ?")
-            params.append(folder)
-
-        if note_type is not None:
-            conditions.append("note_type = ?")
-            params.append(note_type)
-
-        if project is not None:
-            conditions.append("project = ?")
-            params.append(project)
-
-        if recent_days is not None:
-            cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
-            conditions.append("mtime >= ?")
-            params.append(cutoff)
-
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        # QA-009: shared WHERE builder (see _build_note_index_where for the
+        # injection-safety contract).
+        where, params = _build_note_index_where(
+            tag=tag,
+            folder=folder,
+            note_type=note_type,
+            project=project,
+            recent_days=recent_days,
+        )
         sql = f"SELECT path FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
         params.append(limit)
 

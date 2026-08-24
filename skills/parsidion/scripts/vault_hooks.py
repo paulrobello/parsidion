@@ -11,4 +11,4 @@ public surface. The stdlib-only constraint is enforced on
 ``core.vault_hooks`` by ``tests/test_stdlib_only.py``.
 """
 
-from core.vault_hooks import *  # noqa: F401,F403 -- controlled by core.vault_hooks.__all__
+from core.vault_hooks import *  # noqa: F403 -- controlled by core.vault_hooks.__all__

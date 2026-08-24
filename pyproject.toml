@@ -143,6 +143,33 @@ ignore = [
     "B904",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# QA-019: the ARC-005/ARC-006 flat compatibility shims exist to re-export
+# names for tests, parsidion-mcp, and the installer — every F401 there is
+# deliberate, so the exemption lives here instead of on each line.
+"skills/parsidion/scripts/vault_common.py" = ["F401"]
+"skills/parsidion/scripts/vault_doctor.py" = ["F401", "E402"]
+"skills/parsidion/scripts/update_index.py" = ["F401", "E402"]
+"skills/parsidion/scripts/vault_merge.py" = ["F401"]
+"skills/parsidion/scripts/vault_stats.py" = ["F401"]
+"skills/parsidion/scripts/summarize_sessions.py" = ["F401", "E402"]
+"skills/parsidion/scripts/session_start_hook.py" = ["F401"]
+"skills/parsidion/scripts/ai_backend.py" = ["F401"]
+"skills/parsidion/scripts/parmem_backend.py" = ["F401"]
+"skills/parsidion/scripts/subproc_util.py" = ["F401"]
+"skills/parsidion/scripts/vault_config.py" = ["F401"]
+"skills/parsidion/scripts/vault_constants.py" = ["F401"]
+"skills/parsidion/scripts/vault_adaptive.py" = ["F401"]
+"skills/parsidion/scripts/vault_hooks.py" = ["F401"]
+"skills/parsidion/scripts/vault_fs.py" = ["F401"]
+"skills/parsidion/scripts/vault_health.py" = ["F401"]
+"skills/parsidion/scripts/vault_links.py" = ["F401"]
+"skills/parsidion/scripts/vault_index.py" = ["F401"]
+"skills/parsidion/scripts/vault_path.py" = ["F401"]
+"skills/parsidion/scripts/vault_metrics.py" = ["F401"]
+# tools/eval: the sys.path bootstrap must precede the imports it enables.
+"tools/eval/*.py" = ["E402"]
+
 [tool.pyright]
 extraPaths = [
     "skills/parsidion/scripts",

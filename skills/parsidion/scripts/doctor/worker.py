@@ -79,6 +79,116 @@ def _classify_repair_outcome(
     return icon, repair_status
 
 
+def _python_fix_stages(
+    note_path: Path,
+    repairable: list[Issue],
+    note_map: dict[str, list[Path]] | None,
+    fix_headings: bool,
+    vault_path: Path,
+    lock: threading.Lock,
+    rel: Path,
+) -> tuple[list[Issue], bool, bool, bool]:
+    """Run the Python-only repair stages for one note (QA-005 extraction).
+
+    Steps 0-1 of the worker: heading promotion, self-reference removal,
+    and broken-link repair — none of which call the AI backend. Returns
+    ``(other, heading_fix_made, self_ref_fix_made, link_fix_made)`` where
+    *other* is the remaining repairable issues (plus a synthetic
+    ORPHAN_NOTE when the link repair stripped every related entry).
+    """
+    broken = [i for i in repairable if i.code == "BROKEN_WIKILINK"]
+    heading_issues = [i for i in repairable if i.code == "HEADING_MISMATCH"]
+    self_ref_issues = [i for i in repairable if i.code == "SELF_REF"]
+    other = [
+        i
+        for i in repairable
+        if i.code not in ("BROKEN_WIKILINK", "HEADING_MISMATCH", "SELF_REF")
+    ]
+
+    # Step 0: Python-based heading promotion (no Claude needed)
+    heading_fix_made = False
+    if heading_issues and fix_headings:
+        heading_fix_made = _auto_fix_headings(note_path)
+        if heading_fix_made:
+            with lock:
+                print(f"  ✓ {rel}: promoted ## heading to #", flush=True)
+
+    # Step 0b: Python-based self-reference removal (no Claude needed)
+    self_ref_fix_made = False
+    if self_ref_issues:
+        self_ref_fix_made = _auto_fix_self_refs(note_path)
+        if self_ref_fix_made:
+            with lock:
+                print(f"  ✓ {rel}: removed self-referencing wikilink(s)", flush=True)
+
+    # Step 1: Python-based broken-link repair (no Claude needed)
+    link_fix_made = False
+    if broken and note_map is not None:
+        fixed_content, became_orphan = _auto_repair_broken_wikilinks(
+            note_path, broken, note_map
+        )
+        if fixed_content:
+            _backup_note(vault_path, note_path)
+            vault_fs.atomic_write_text(note_path, fixed_content + "\n")
+            link_fix_made = True
+
+        # Step 2: If note became orphan (all related removed, no candidates
+        # found), inject a synthetic ORPHAN_NOTE issue so the AI's orphan
+        # repair fires.
+        if became_orphan:
+            other.append(
+                Issue(
+                    note_path,
+                    "warning",
+                    "ORPHAN_NOTE",
+                    "All related links removed — no candidates found",
+                )
+            )
+
+    return other, heading_fix_made, self_ref_fix_made, link_fix_made
+
+
+def _ai_repair_stage(
+    note_path: Path,
+    other: list[Issue],
+    model: str | None,
+    timeout: int,
+    note_map: dict[str, list[Path]] | None,
+    vault_path: Path,
+    rel: Path,
+) -> tuple[str | None, str]:
+    """Run the AI repair for the remaining issues (QA-005 extraction).
+
+    Step 3 of the worker: call the backend, normalise its output, and write
+    only when the result can be made valid. Returns
+    ``(fixed_content, repair_status)``.
+    """
+    # SEC-033(d): the note as it stands right before the AI call — the
+    # deterministic passes above may already have rewritten it, and this
+    # is the body the AI repair must preserve.
+    original_content = note_path.read_text(encoding="utf-8")
+    fixed_content, repair_status = repair_note(note_path, other, model, timeout)
+    if not fixed_content:
+        return None, repair_status
+
+    # Normalize the AI output before writing: defend against malformed
+    # frontmatter (missing closing ---, leaked markers, fabricated or
+    # badly-nested wikilinks). Reject (don't write) if it cannot be
+    # made valid, so the note is retried instead of being corrupted.
+    normalized = _normalize_repaired_note(
+        fixed_content, note_map, _note_is_daily(rel, fixed_content)
+    )
+    if normalized is None:
+        return None, "failed"
+
+    # SEC-033(d): only the frontmatter block comes from the AI;
+    # the body is the original's, byte-for-byte.
+    normalized = splice_frontmatter_onto_original(normalized, original_content)
+    _backup_note(vault_path, note_path)
+    vault_fs.atomic_write_text(note_path, normalized.rstrip("\n") + "\n")
+    return fixed_content, repair_status
+
+
 def _repair_one(
     note_path: Path,
     note_issues: list[Issue],
@@ -100,83 +210,23 @@ def _repair_one(
     broken = [i for i in repairable if i.code == "BROKEN_WIKILINK"]
     heading_issues = [i for i in repairable if i.code == "HEADING_MISMATCH"]
     self_ref_issues = [i for i in repairable if i.code == "SELF_REF"]
-    other = [
-        i
-        for i in repairable
-        if i.code not in ("BROKEN_WIKILINK", "HEADING_MISMATCH", "SELF_REF")
-    ]
 
     with lock:
         prev_status = state.get("notes", {}).get(key, {}).get("status", "")
 
-    # Step 0: Python-based heading promotion (no Claude needed)
-    heading_fix_made = False
-    if heading_issues and fix_headings:
-        heading_fix_made = _auto_fix_headings(note_path)
-        if heading_fix_made:
-            with lock:
-                print(f"  ✓ {rel}: promoted ## heading to #", flush=True)
+    # QA-005: steps 0-2 (heading promotion, self-ref removal, broken-link
+    # repair) lifted to _python_fix_stages; step 3 (AI repair for the
+    # remaining issues) to _ai_repair_stage.
+    other, heading_fix_made, self_ref_fix_made, link_fix_made = _python_fix_stages(
+        note_path, repairable, note_map, fix_headings, vault_path, lock, rel
+    )
 
-    # Step 0b: Python-based self-reference removal (no Claude needed)
-    self_ref_fix_made = False
-    if self_ref_issues:
-        self_ref_fix_made = _auto_fix_self_refs(note_path)
-        if self_ref_fix_made:
-            with lock:
-                print(f"  ✓ {rel}: removed self-referencing wikilink(s)", flush=True)
-
-    # Step 1: Python-based broken-link repair (no Claude needed)
-    link_fix_made = False
-    became_orphan = False
-    if broken and note_map is not None:
-        fixed_content, became_orphan = _auto_repair_broken_wikilinks(
-            note_path, broken, note_map
-        )
-        if fixed_content:
-            _backup_note(vault_path, note_path)
-            vault_fs.atomic_write_text(note_path, fixed_content + "\n")
-            link_fix_made = True
-
-    # Step 2: If note became orphan (all related removed, no candidates found),
-    #         inject a synthetic ORPHAN_NOTE issue so Claude's orphan repair fires
-    if became_orphan:
-        other.append(
-            Issue(
-                note_path,
-                "warning",
-                "ORPHAN_NOTE",
-                "All related links removed — no candidates found",
-            )
-        )
-
-    # Step 3: Claude repair for remaining issues (MISSING_FIELD, ORPHAN_NOTE, etc.)
     fixed_content = None
     repair_status = "failed"
     if other:
-        # SEC-033(d): the note as it stands right before the AI call — the
-        # deterministic passes above may already have rewritten it, and this
-        # is the body the AI repair must preserve.
-        original_content = note_path.read_text(encoding="utf-8")
-        fixed_content, repair_status = repair_note(note_path, other, model, timeout)
-        if fixed_content:
-            # Normalize the AI output before writing: defend against malformed
-            # frontmatter (missing closing ---, leaked markers, fabricated or
-            # badly-nested wikilinks). Reject (don't write) if it cannot be
-            # made valid, so the note is retried instead of being corrupted.
-            normalized = _normalize_repaired_note(
-                fixed_content, note_map, _note_is_daily(rel, fixed_content)
-            )
-            if normalized is None:
-                fixed_content = None
-                repair_status = "failed"
-            else:
-                # SEC-033(d): only the frontmatter block comes from the AI;
-                # the body is the original's, byte-for-byte.
-                normalized = splice_frontmatter_onto_original(
-                    normalized, original_content
-                )
-                _backup_note(vault_path, note_path)
-                vault_fs.atomic_write_text(note_path, normalized.rstrip("\n") + "\n")
+        fixed_content, repair_status = _ai_repair_stage(
+            note_path, other, model, timeout, note_map, vault_path, rel
+        )
     elif broken or heading_issues or self_ref_issues:
         # Only broken wikilinks / heading / self-ref fixes — no Claude call needed
         repair_status = (

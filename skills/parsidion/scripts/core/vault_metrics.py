@@ -29,6 +29,8 @@ __all__: list[str] = [
     # DB helpers
     "open_db",
     "fetch_all",
+    "connect_with_vec",
+    "VecExtensionMissing",
     # Collectors
     "collect_summary",
     "collect_stale",
@@ -70,6 +72,45 @@ def open_db(vault: Path | None = None) -> sqlite3.Connection | None:
         return conn
     except sqlite3.Error:
         return None
+
+
+class VecExtensionMissing(ImportError):
+    """sqlite-vec is not installed (raised by connect_with_vec, QA-017).
+
+    Subclasses ImportError so existing ``except ImportError`` handlers
+    keep catching it.
+    """
+
+
+def connect_with_vec(db_path: Path) -> sqlite3.Connection:
+    """Open *db_path* read-write with the sqlite-vec extension loaded.
+
+    QA-017: the single sqlite-vec-loading connector, previously
+    copy-pasted in build_embeddings.open_db and
+    cli.search.embeddings._open_db_semantic. The optional import lives in
+    this branch so the stdlib-only gate stays green for callers that
+    never touch the vector path.
+
+    Args:
+        db_path: Path to the SQLite database file.
+
+    Returns:
+        An open sqlite3.Connection with sqlite-vec loaded.
+
+    Raises:
+        VecExtensionMissing: sqlite-vec is not installed.
+    """
+    try:
+        import sqlite_vec  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise VecExtensionMissing(
+            "sqlite-vec not installed — run: uv tool install --editable '.[tools]'"
+        ) from exc
+    conn = sqlite3.connect(db_path)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+    return conn
 
 
 def fetch_all(

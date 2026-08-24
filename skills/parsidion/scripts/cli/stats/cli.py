@@ -317,12 +317,12 @@ _MODES: dict[str, _ModeEntry] = {
         None,
     ),
     "weekly": (
-        lambda conn, args, vault: run_weekly(conn, dry_run=args.dry_run, vault=vault),
+        lambda conn, args, vault: run_weekly(dry_run=args.dry_run, vault=vault),
         False,
         None,
     ),
     "monthly": (
-        lambda conn, args, vault: run_monthly(conn, dry_run=args.dry_run, vault=vault),
+        lambda conn, args, vault: run_monthly(dry_run=args.dry_run, vault=vault),
         False,
         None,
     ),

@@ -31,7 +31,7 @@ from doctor.daily import run_migrate_daily_notes
 from doctor.orchestrator import run_scan_and_repair
 from doctor.permissions import run_fix_permissions
 from doctor.prefixes import run_strip_prefixes
-from doctor.protocol import FixMode, run_fix_modes
+from doctor.protocol import DoctorOptions, FixMode, run_fix_modes
 from doctor.subfolder import run_migrate_subfolders
 from doctor.tags import run_fix_tags
 
@@ -335,14 +335,16 @@ def main() -> None:
         _state._vault_path,
         state,
         notes=list(args.notes),
-        dry_run=args.dry_run,
-        fix_frontmatter=args.fix_frontmatter,
-        fix_sessions=args.fix_sessions,
-        errors_only=args.errors_only,
-        no_state=args.no_state,
-        model=args.model,
-        limit=args.limit,
-        jobs=args.jobs,
-        timeout=args.timeout,
-        fix_headings=args.fix_headings,
+        options=DoctorOptions(
+            dry_run=args.dry_run,
+            fix_frontmatter=args.fix_frontmatter,
+            fix_sessions=args.fix_sessions,
+            errors_only=args.errors_only,
+            no_state=args.no_state,
+            model=args.model,
+            limit=args.limit,
+            jobs=args.jobs,
+            timeout=args.timeout,
+            fix_headings=args.fix_headings,
+        ),
     )
