@@ -14,8 +14,11 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-import vault_common
-from .vault_index import _FRONTMATTER_RE
+# ARC-001: import siblings directly — core/ must not round-trip through the
+# deprecated root-shim facade.
+from .vault_config import get_config
+from .vault_index import _FRONTMATTER_RE, all_vault_notes_walk, parse_frontmatter
+from .vault_path import get_embeddings_db_path, resolve_vault
 
 __all__ = [
     "find_related_by_tags",
@@ -198,7 +201,7 @@ def strip_unresolved_wikilinks(content: str, vault: Path) -> tuple[str, int]:
     Returns:
         ``(new_content, removed_count)``.
     """
-    valid = {p.stem.lower() for p in vault_common.all_vault_notes_walk(vault)}
+    valid = {p.stem.lower() for p in all_vault_notes_walk(vault)}
 
     def _resolves(target: str) -> bool:
         t = target.split("|")[0].split("#")[0].strip().split("/")[-1].lower()
@@ -263,7 +266,7 @@ def find_related_by_tags(
         new_tags: Tags from the new note's frontmatter.
         max_links: Maximum number of related note wikilinks to return.
         vault_notes: Pre-collected list of vault note paths.  When ``None``
-            (default), calls ``vault_common.all_vault_notes_walk()``.  Callers
+            (default), calls ``all_vault_notes_walk()``.  Callers
             that already have the list should pass it to avoid a redundant
             vault walk.  See ARC-010.
         vault: Optional vault path. Defaults to resolve_vault().
@@ -277,11 +280,7 @@ def find_related_by_tags(
 
     new_tag_set = set(new_tags)
     candidates: list[tuple[int, Path]] = []
-    notes = (
-        vault_notes
-        if vault_notes is not None
-        else vault_common.all_vault_notes_walk(vault)
-    )
+    notes = vault_notes if vault_notes is not None else all_vault_notes_walk(vault)
 
     for note_path in notes:
         # Skip the note itself and daily notes
@@ -295,7 +294,7 @@ def find_related_by_tags(
         except (OSError, UnicodeDecodeError):
             continue
 
-        fm = vault_common.parse_frontmatter(content)
+        fm = parse_frontmatter(content)
         existing_tags = fm.get("tags")
         if not isinstance(existing_tags, list):
             continue
@@ -332,9 +331,9 @@ def find_related_by_semantic(
         List of ``"[[stem]]"`` wikilink strings, sorted by semantic similarity.
     """
     # Support legacy vault_root parameter
-    vault = vault or vault_root or vault_common.resolve_vault()
+    vault = vault or vault_root or resolve_vault()
 
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -345,7 +344,7 @@ def find_related_by_semantic(
             content = new_note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             return []
-        fm = vault_common.parse_frontmatter(content)
+        fm = parse_frontmatter(content)
         note_tags = fm.get("tags") or []
         if not isinstance(note_tags, list):
             note_tags = []
@@ -366,7 +365,7 @@ def find_related_by_semantic(
         items = vault_search.search(
             query=query,
             top=max_links + 1,
-            min_score=vault_common.get_config("embeddings", "min_score", 0.45),
+            min_score=get_config("embeddings", "min_score", 0.45),
             vault=vault,
         )
     except Exception:  # noqa: BLE001
@@ -487,7 +486,7 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     except (OSError, UnicodeDecodeError):
         return
 
-    fm = vault_common.parse_frontmatter(content)
+    fm = parse_frontmatter(content)
     existing_related = fm.get("related") or []
     if not isinstance(existing_related, list):
         existing_related = []
@@ -549,7 +548,7 @@ def add_backlinks_to_existing(
         new_note_path: Path to the newly written note.
         related_notes: List of ``"[[stem]]"`` wikilinks for existing notes.
         vault_notes: Pre-collected list of vault note paths.  When ``None``
-            (default), calls ``vault_common.all_vault_notes_walk()``.  Callers
+            (default), calls ``all_vault_notes_walk()``.  Callers
             that already have the list should pass it to avoid a redundant
             vault walk.  See ARC-010.
         vault: Optional vault path. Defaults to resolve_vault().
@@ -561,11 +560,7 @@ def add_backlinks_to_existing(
     modified: list[Path] = []
 
     # Build a stem -> path index from all vault notes once
-    notes = (
-        vault_notes
-        if vault_notes is not None
-        else vault_common.all_vault_notes_walk(vault)
-    )
+    notes = vault_notes if vault_notes is not None else all_vault_notes_walk(vault)
     stem_index: dict[str, Path] = {}
     for note_path in notes:
         stem_index[note_path.stem] = note_path

@@ -20,7 +20,10 @@ import time
 from datetime import datetime, UTC
 from pathlib import Path
 
-import vault_common
+# ARC-001: import siblings directly — core/ must not round-trip through the
+# deprecated root-shim facade.
+from .vault_index import all_vault_notes, parse_related_stems
+from .vault_path import get_embeddings_db_path, resolve_vault
 
 __all__: list[str] = [
     # DB helpers
@@ -58,7 +61,7 @@ def open_db(vault: Path | None = None) -> sqlite3.Connection | None:
     Returns:
         An open connection, or None if the DB is absent or unreadable.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
     try:
@@ -319,7 +322,7 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
     total_targets = 0
     dangling_targets = 0
     for r in all_rows:
-        for target in vault_common.parse_related_stems(r["related"] or ""):
+        for target in parse_related_stems(r["related"] or ""):
             total_targets += 1
             if target not in valid_stems:
                 dangling_targets += 1
@@ -351,7 +354,7 @@ def collect_pending(vault: Path | None = None) -> dict:
         project_counts (dict), oldest_ts (str|None), token_estimate (int),
         entries (list of dicts).
     """
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or resolve_vault()
     pending_path = vault / "pending_summaries.jsonl"
     if not pending_path.exists():
         return {
@@ -426,7 +429,7 @@ def collect_dead_letters(vault: Path | None = None) -> dict:
         3 dicts with project/last_failure/dead_lettered_at, most recent
         first).
     """
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or resolve_vault()
     dead_letter_path = vault / "dead_letters.jsonl"
     if not dead_letter_path.exists():
         return {"exists": False, "total": 0, "recent": []}
@@ -467,7 +470,7 @@ def collect_hooks(last_n: int = 20, vault: Path | None = None) -> dict:
     Returns:
         Dict with keys: exists (bool), total (int), events (list of dicts).
     """
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or resolve_vault()
     log_path = vault / "hook_events.log"
     if not log_path.exists():
         return {"exists": False, "total": 0, "events": []}
@@ -536,9 +539,9 @@ def collect_timeline(
         # no-DB walk gets the same EXCLUDE_DIRS / CLAUDE.md / TAGS.md /
         # MANIFEST.md / SEC-106 symlink filtering as every other read path,
         # instead of a raw rglob that silently includes them.
-        vault = vault or vault_common.resolve_vault()
+        vault = vault or resolve_vault()
         if vault.exists():
-            for md in vault_common.all_vault_notes(vault):
+            for md in all_vault_notes(vault):
                 try:
                     mtime = md.stat().st_mtime
                 except OSError:
@@ -605,7 +608,7 @@ def collect_no_db_summary(vault: Path | None = None) -> dict:
         Dict with keys: vault_exists (bool), total (int),
         by_folder (list of {folder, n} sorted by n desc).
     """
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or resolve_vault()
     if not vault.exists():
         return {"vault_exists": False, "total": 0, "by_folder": []}
 
@@ -615,7 +618,7 @@ def collect_no_db_summary(vault: Path | None = None) -> dict:
     # TAGS.md, and MANIFEST.md exactly like the DB-backed summary does.
     counts: dict[str, int] = {}
     total = 0
-    for md in vault_common.all_vault_notes(vault):
+    for md in all_vault_notes(vault):
         folder = md.parent.name if md.parent != vault else "(root)"
         counts[folder] = counts.get(folder, 0) + 1
         total += 1

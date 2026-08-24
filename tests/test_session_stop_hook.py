@@ -4,6 +4,9 @@ Tests cover:
 - detect_categories (via vault_common) — categorization of transcript texts
 - append_to_pending (via vault_common) — JSONL queue writes and deduplication
 
+Since ARC-002 the classify/persist pipeline lives in ``agent_adapter.run_session_end``;
+``session_stop_hook.main`` is the Claude invocation shim. Monkeypatches that
+target pipeline internals are therefore aimed at ``agent_adapter`` (QA-002).
 These tests import vault_common directly (the canonical implementation) and
 use tmp_path for all file I/O to avoid touching the real vault.
 """
@@ -15,8 +18,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import agent_adapter
 import pytest
-
 import session_stop_hook
 import vault_common
 
@@ -84,29 +87,31 @@ def _run_session_stop_main_for_codex(
     monkeypatch.delenv("CLAUDE_VAULT_STOP_ACTIVE", raising=False)
     monkeypatch.delenv("PARSIDION_INTERNAL", raising=False)
     monkeypatch.setattr(
-        session_stop_hook.vault_common,
+        agent_adapter.vault_common,
         "is_allowed_transcript_path",
         lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
-        session_stop_hook.vault_common, "ensure_vault_dirs", lambda **_kwargs: None
+        agent_adapter.vault_common, "ensure_vault_dirs", lambda **_kwargs: None
     )
     monkeypatch.setattr(
-        session_stop_hook, "append_session_to_daily", lambda *_args, **_kwargs: None
+        agent_adapter.vault_common,
+        "append_session_to_daily",
+        lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        session_stop_hook, "append_to_pending", lambda *_args, **_kwargs: None
+        agent_adapter.vault_common, "append_to_pending", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(
-        session_stop_hook.vault_common,
+        agent_adapter.vault_common,
         "git_commit_vault",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        session_stop_hook, "_launch_summarizer_if_pending", lambda *_args: None
+        agent_adapter, "_launch_summarizer_if_pending", lambda *_args: None
     )
     monkeypatch.setattr(
-        session_stop_hook.vault_common, "write_hook_event", lambda **_kwargs: None
+        agent_adapter.vault_common, "write_hook_event", lambda **_kwargs: None
     )
 
     calls: list[list[str]] = []
@@ -120,11 +125,9 @@ def _run_session_stop_main_for_codex(
         )
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    monkeypatch.setattr(agent_adapter.ai_backend, "_run_prompt_subprocess", fake_run)
     monkeypatch.setattr(
-        session_stop_hook.ai_backend, "_run_prompt_subprocess", fake_run
-    )
-    monkeypatch.setattr(
-        session_stop_hook.ai_backend.shutil,
+        agent_adapter.ai_backend.shutil,
         "which",
         lambda name: f"/usr/local/bin/{name}",
     )
@@ -175,18 +178,16 @@ def test_classify_session_with_ai_uses_small_tier_backend(
         calls.append({"prompt": prompt, **kwargs})
         return '{"should_queue": true, "categories": ["research"], "summary": "Found docs."}'
 
+    monkeypatch.setattr(agent_adapter.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
     monkeypatch.setattr(
-        session_stop_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
-    )
-    monkeypatch.setattr(
-        session_stop_hook.vault_common,
+        agent_adapter.vault_common,
         "get_config",
         lambda section, key, default=None: (
             9 if (section, key) == ("session_stop_hook", "ai_timeout") else default
         ),
     )
 
-    result = session_stop_hook._classify_session_with_ai(
+    result = agent_adapter._classify_session_with_ai(
         ["I researched the Codex CLI non-interactive mode and found codex exec."],
         "parsidion",
         None,

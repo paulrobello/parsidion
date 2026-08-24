@@ -1,14 +1,11 @@
 [project]
 name = "parsidion"
 version = "0.20.0"
-# ARC-013: lowered from >=3.13. The stdlib-only hooks/scripts and the
-# installer use no 3.12+ syntax (no PEP 695 ``type`` statement, no
-# exception groups, no @override). All files annotated with ``X | Y``
-# union syntax also carry ``from __future__ import annotations`` so the
-# runtime requirement is 3.10 (PEP 604); pinning to 3.11 leaves one
-# release of headroom for the optional dependency stack (sqlite-vec,
-# fastembed) and for tomllib should it be adopted later.
-requires-python = ">=3.11"
+# ARC-009: raised back from >=3.11 (ARC-013's headroom experiment). CI
+# (.github/workflows/ci.yml), parsidion-mcp, and README/CONTRIBUTING/
+# ARCHITECTURE all already assume 3.13 and nothing tests 3.11; the root
+# floor was the only outlier, so the floor now matches reality.
+requires-python = ">=3.13"
 dependencies = []
 
 [project.optional-dependencies]
@@ -114,9 +111,9 @@ addopts = "-v --cov=skills/parsidion/scripts --cov-report=term-missing"
 timeout = 10
 
 [tool.ruff]
-# ARC-013: keep ruff's target aligned with requires-python so the lint
-# gate catches syntax that would not run on the declared minimum.
-target-version = "py311"
+# Keep ruff's target aligned with requires-python (ARC-009: >=3.13) so the
+# lint gate catches syntax that would not run on the declared minimum.
+target-version = "py313"
 # extend-exclude (not exclude) preserves ruff's defaults (.git, .venv, __pycache__, …);
 # *.md opts out of ruff 0.16+'s new Python-in-Markdown formatting so docs stay as authored.
 extend-exclude = ["parsidion-mcp", "*.md"]

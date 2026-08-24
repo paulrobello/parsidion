@@ -29,8 +29,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-import vault_common
-import vault_metrics
+# ARC-001: import siblings directly — core/ must not round-trip through the
+# deprecated root-shim facade (``import vault_metrics`` here previously
+# resolved to the root shim module, not this package's sibling).
+from . import vault_metrics
+from .vault_index import all_vault_notes_walk, note_index_age
+from .vault_path import get_embeddings_db_path, resolve_vault
 
 __all__: list[str] = [
     # Data model
@@ -220,7 +224,7 @@ def score_index_freshness(vault: Path) -> DimensionScore:
 
     # --- note_index component ---
     try:
-        index_age_s = vault_common.note_index_age(vault)
+        index_age_s = note_index_age(vault)
     except Exception:  # noqa: BLE001 — note_index_age reads files; never raise
         index_age_s = 0.0
     # Treat as days of staleness, capped at the curve ceiling so a vault that
@@ -406,7 +410,7 @@ def score_metadata_quality(vault: Path, *, scan=None) -> DimensionScore:
 def score_embedding_coverage(vault: Path) -> DimensionScore:
     """Embedding coverage: notes-with-embeddings ÷ total notes."""
     weight = DIMENSION_WEIGHTS["embedding_coverage"]
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return DimensionScore(
             name="embedding_coverage",
@@ -586,7 +590,7 @@ def score_file_hygiene(vault: Path) -> DimensionScore:
     # are often shared), but other-write or sticky is a misconfiguration.
     bad_mode_files: list[str] = []
     try:
-        for md in vault_common.all_vault_notes_walk(vault):
+        for md in all_vault_notes_walk(vault):
             try:
                 st = md.stat()
             except OSError:
@@ -727,9 +731,7 @@ def compute_health_report(
         degrade to low scores with detail strings (and metadata-scan failure
         is wrapped so a broken ``check_note`` cannot abort the whole report).
     """
-    resolved = vault_common.resolve_vault(
-        explicit=vault if isinstance(vault, str) else None
-    )
+    resolved = resolve_vault(explicit=vault if isinstance(vault, str) else None)
     # Pre-compute the metadata scan once so the dimension reuses it without
     # walking the vault twice. Skipped under --fast so the report renders in
     # well under a second on a 5k-note vault.

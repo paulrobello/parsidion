@@ -24,6 +24,8 @@ behaviour from these; a field exists only when ≥2 runtimes use it or a runtime
 | **Hook side** | `hook_event_name_start` / `hook_event_name_end` | Names emitted to `hook_events.log` for `vault-stats --hooks` observability. |
 | | `is_transcript_path` | Optional `(path, cwd) -> bool` validator for the runtime's transcript files. `None` skips the check. |
 | | `parse_transcript_lines` | Optional `(lines) -> [str]` parser for assistant text. `None` falls back to the shape-agnostic parser. |
+| | `read_transcript_tail` | Optional `(path, tail_lines) -> [str]` transcript-tail reader. `None` falls back to the shared byte-bounded reader (`transcript_tail_bytes` ceiling, SEC-022). |
+| | `always_log_daily` | When `true`, write a daily-note session entry even with no detected categories (Claude's 'General' entry). Default `false` — daily entries only when categories are found. |
 | **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi). |
 | | `event_scripts` | Ordered `event -> hook-script-filename` map (e.g. `SessionStart -> codex_session_start_hook.py`). |
 | | `entry_matcher` | `matcher` for the hook entry (`""` codex/claude, `"*"` gemini). |
@@ -39,7 +41,7 @@ Registered at module import by `_register_builtin_adapters()`:
 
 | Runtime | Hooks | Connect path | Notes |
 |---|---|---|---|
-| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (AI-mode timeout raise, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. |
+| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (AI-mode timeout raise, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). |
 | `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`. Timeout in **seconds**. |
 | `gemini` | `~/.gemini/settings.json` | `install()`/`uninstall()` | Generic core. Requires per-event `name`; timeout in **ms**. |
 | `pi` | none | `connect pi` runs `scripts/install-pi-extension` | Extension-only: ships a TypeScript extension that shells out to claude's hook scripts at runtime (preferring `uv run --no-project`). |
