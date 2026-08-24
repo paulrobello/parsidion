@@ -18,6 +18,20 @@ fallback. The integration is pure stdlib (`shutil.which` + `subprocess` +
 `urllib`), mirroring how parsidion already treats `mcpl` and `agentchrome`
 as optional external CLIs.
 
+## Table of Contents
+
+- [What it adds](#what-it-adds)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Score semantics](#score-semantics)
+- [Index freshness](#index-freshness)
+- [Degradation matrix](#degradation-matrix)
+- [Troubleshooting](#troubleshooting)
+- [Graph & Visualization](#graph--visualization)
+- [Graph enrichment](#graph-enrichment)
+- [Related Documentation](#related-documentation)
+
 ## What it adds
 
 - **Better vault search:** par-mem's markdown indexing understands
@@ -268,4 +282,4 @@ Graph Analysis panel shows a `body links` chip when `graph.json` carries
 - [README.md](../README.md) — project overview and optional external tools
 - [docs/EMBEDDINGS.md](EMBEDDINGS.md) — the local embeddings pipeline (the fallback)
 - [docs/MCP.md](MCP.md) — parsidion-mcp server, including the `code_search` tool
-- [docs/MCPL.md](MCPL.md) — the same optional-external-CLI integration pattern
+- [docs/archive/MCPL.md](archive/MCPL.md) — the same optional-external-CLI integration pattern (legacy reference, not installed)

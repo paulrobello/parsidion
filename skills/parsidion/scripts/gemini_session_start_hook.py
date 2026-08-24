@@ -9,6 +9,7 @@ from agent_adapter import get, run_session_start
 
 
 def main() -> None:
+    """Run the generic session-start context builder for the Gemini adapter."""
     adapter = get("gemini")
     assert adapter is not None, "gemini adapter not registered"
     run_session_start(adapter)

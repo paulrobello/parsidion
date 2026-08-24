@@ -44,6 +44,7 @@ def _emit_list() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Resolve a vault name/path to its absolute path and print it as JSON."""
     parser = argparse.ArgumentParser(
         prog="vault_resolve.py",
         description="Resolve a Parsidion vault name/path to its absolute path.",

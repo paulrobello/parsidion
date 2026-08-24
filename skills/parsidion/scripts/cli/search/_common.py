@@ -63,12 +63,15 @@ class SearchResultEnvelope(tuple):
 
     @property
     def results(self) -> list[dict[str, object]]:
+        """The ranked result rows from the search."""
         return self[0]  # type: ignore[return-value]
 
     @property
     def backend(self) -> str:
+        """Name of the backend that produced the results."""
         return self[1]  # type: ignore[return-value]
 
     @property
     def score_kind(self) -> str | None:
+        """Score semantics of ``results`` (e.g. ``"cosine"``) or ``None`` for unscored modes."""
         return self[2]  # type: ignore[return-value]

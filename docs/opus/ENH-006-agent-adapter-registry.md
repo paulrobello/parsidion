@@ -1,5 +1,7 @@
 # ENH-006 — `AgentAdapter` registry with a documented third-party extension point
 
+> **Status**: shipped in 0.15.0
+
 > **Impact**: medium · **Effort**: medium · **Status**: done
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 > **Sequencing: land audit item QA-008 / ARC-020 first.** That work collapses the five copy-pasted hook

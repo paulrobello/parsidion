@@ -31,9 +31,11 @@
 
             <h2>Submodules</h2>
             <ul>
+                    <li><a href="installer/cli.html">cli</a></li>
                     <li><a href="installer/colors.html">colors</a></li>
                     <li><a href="installer/hooks.html">hooks</a></li>
                     <li><a href="installer/paths.html">paths</a></li>
+                    <li><a href="installer/plan.html">plan</a></li>
                     <li><a href="installer/schedule.html">schedule</a></li>
                     <li><a href="installer/skill.html">skill</a></li>
                     <li><a href="installer/steps.html">steps</a></li>
@@ -69,11 +71,13 @@ installer    </h1>
   hooks    — hook merge/remove for Claude, Codex, Gemini
   schedule — launchd/cron nightly-summarizer scheduler
   vault    — vault dir creation, git setup, config.yaml, vaults.yaml
-  skill    — skill/agent/script install, AI mode, legacy cleanup, uninstall</p>
+  skill    — skill/agent/script install, AI mode, legacy cleanup, uninstall
+  plan     — InstallPlan matrix, option prompts, StepList builder (ARC-008)
+  cli      — argument parsing + the install()/uninstall() driver (ARC-008)</p>
 
-<p>install.py remains the public entry point and re-exports all public symbols
-so that <code>import install; install.&lt;name&gt;</code> continues to work for test suites
-and callers that rely on the flat public API.</p>
+<p><code>install.py</code> is a thin entry shim over <code><a href="installer/cli.html#main">installer.cli.main</a></code> (ARC-008);
+it no longer re-exports the installer API — import from the owning
+sub-module instead.</p>
 </div>
 
                         <input id="mod-installer-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
@@ -90,23 +94,25 @@ and callers that rely on the flat public API.</p>
 </span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">  schedule — launchd/cron nightly-summarizer scheduler</span>
 </span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">  vault    — vault dir creation, git setup, config.yaml, vaults.yaml</span>
 </span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">  skill    — skill/agent/script install, AI mode, legacy cleanup, uninstall</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">install.py remains the public entry point and re-exports all public symbols</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="sd">so that ``import install; install.&lt;name&gt;`` continues to work for test suites</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">and callers that rely on the flat public API.</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_sys</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span> <span class="k">as</span> <span class="n">_Path</span>
-</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>
-</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="c1"># ENH-006: make the skill&#39;s scripts/ importable so installer sub-modules can</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a><span class="c1"># read the agent_adapter runtime registry. Runs once at package import, before</span>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="c1"># any sub-module body, so a sub-module can `import agent_adapter` unconditionally.</span>
-</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a><span class="n">_SCRIPTS_DIR</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a>    <span class="n">_Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;skills&quot;</span> <span class="o">/</span> <span class="s2">&quot;parsidion&quot;</span> <span class="o">/</span> <span class="s2">&quot;scripts&quot;</span>
-</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a><span class="p">)</span>
-</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a><span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">_SCRIPTS_DIR</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_sys</span><span class="o">.</span><span class="n">path</span><span class="p">:</span>
-</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a>    <span class="n">_sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">_SCRIPTS_DIR</span><span class="p">))</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="sd">  plan     — InstallPlan matrix, option prompts, StepList builder (ARC-008)</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">  cli      — argument parsing + the install()/uninstall() driver (ARC-008)</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">``install.py`` is a thin entry shim over ``installer.cli.main`` (ARC-008);</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="sd">it no longer re-exports the installer API — import from the owning</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="sd">sub-module instead.</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>
+</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_sys</span>
+</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span> <span class="k">as</span> <span class="n">_Path</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>
+</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="c1"># ENH-006: make the skill&#39;s scripts/ importable so installer sub-modules can</span>
+</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a><span class="c1"># read the agent_adapter runtime registry. Runs once at package import, before</span>
+</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a><span class="c1"># any sub-module body, so a sub-module can `import agent_adapter` unconditionally.</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a><span class="n">_SCRIPTS_DIR</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a>    <span class="n">_Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;skills&quot;</span> <span class="o">/</span> <span class="s2">&quot;parsidion&quot;</span> <span class="o">/</span> <span class="s2">&quot;scripts&quot;</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a><span class="p">)</span>
+</span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a><span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">_SCRIPTS_DIR</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_sys</span><span class="o">.</span><span class="n">path</span><span class="p">:</span>
+</span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a>    <span class="n">_sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">_SCRIPTS_DIR</span><span class="p">))</span>
 </span></pre></div>
 
 

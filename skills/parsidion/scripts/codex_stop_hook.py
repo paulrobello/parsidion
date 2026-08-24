@@ -12,6 +12,7 @@ from agent_adapter import get, run_session_end
 
 
 def main() -> None:
+    """Run the generic session-end pipeline for the Codex adapter."""
     adapter = get("codex")
     assert adapter is not None, "codex adapter not registered"
     run_session_end(adapter)

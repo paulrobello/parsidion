@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.18.0:** vault-doctor auto-repair. `metadata:`-wrapper and scalar-list frontmatter defects are now fixed deterministically (no AI call), and the prefix-subfolder migration no longer mangles compound slugs like `client-side` or `code-quality` — a generic-word denylist blocks the AI filter's false-positives. See the [Changelog](CHANGELOG.md).
+> **New in 0.20.0:** grok-cli prompt AI backend (grok-4.6) joins claude-cli and codex-cli; both CLI backends now run hermetically (no project-doc or skill-catalog ingestion via `minimal_context`); the session-start AI selector's candidate pool is ranked and pruned Python-side; and every runtime gives the SessionStart hook the same 60 s budget. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -46,7 +46,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
 - **Claude Code, Codex CLI, and/or Gemini CLI** -- runtime integration target(s) selected during install
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
-- **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server; used by the research agent as a fallback search gateway (see [docs/MCPL.md](docs/MCPL.md))
+- **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional, legacy) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server. Not installed by Parsidion; the research agent only considers it when already on `PATH` (see [docs/archive/MCPL.md](docs/archive/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
 - **par-mem** (optional; **coming soon — not yet publicly available**) -- Rust code-memory daemon; when released and installed, vault semantic search upgrades to hybrid BM25+vector+graph retrieval with silent fallback to local embeddings, and agents gain a cross-repo code-memory bridge (see [docs/PAR-MEM.md](docs/PAR-MEM.md)). parsidion works fully without it today.
 
@@ -96,7 +96,8 @@ uv run install.py --dry-run
 # Migrate a legacy default vault from ~/ClaudeVault to ~/ParsidionVault
 uv run install.py --migrate-vault --yes
 
-# Also install vault-search as a global CLI command
+# Also install the seven vault CLI tools as global commands
+# (vault-search, vault-new, vault-stats, vault-review, vault-export, vault-merge, vault-conflicts)
 uv run install.py --force --yes --install-tools
 
 # Schedule nightly auto-summarization (launchd on macOS, cron on Linux)
@@ -108,6 +109,13 @@ uv run install.py --schedule-summarizer --graph-include-daily
 
 # To disable graph rebuild:
 uv run install.py --schedule-summarizer --no-rebuild-graph
+
+# Install the omp extension into a non-default omp home (default: $PI_CONFIG_DIR or ~/.omp)
+uv run install.py connect omp --omp-home ~/custom-omp
+
+# During uninstall, also remove ~/.config/parsidion/vaults.yaml (always preserved otherwise;
+# has no effect unless the Claude integration is being removed and is required even under --yes)
+uv run install.py --uninstall --purge-config --yes
 
 # Friendly multi-agent verbs — install or remove one runtime integration
 uv run install.py connect claude      # install Claude Code integration only
@@ -253,7 +261,7 @@ A Haiku-powered read-only subagent that isolates vault lookups from the main ses
 
 ### Research Agent (`~/.claude/agents/research-agent.md`)
 
-Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter. Fetches pages via `agentchrome dom get-html "css:html"` piped through `html-to-md.py` for noise-free markdown (curl fallback if agentchrome unavailable). Uses `mcpl` as a fallback search gateway when Brave Search hits rate limits -- see [docs/MCPL.md](docs/MCPL.md) for mcpl setup.
+Technical research agent that searches the vault first, conducts web research, and saves findings to the appropriate vault folder with proper YAML frontmatter. Fetches pages via `agentchrome dom get-html "css:html"` piped through `html-to-md.py` for noise-free markdown (curl fallback if agentchrome unavailable). May fall back to `mcpl` for search when Brave Search hits rate limits, but only if it is already installed (`which mcpl`) -- see [docs/archive/MCPL.md](docs/archive/MCPL.md) for the legacy reference.
 
 ### Vault Deduplicator Agent (`~/.claude/agents/vault-deduplicator.md`)
 
@@ -297,8 +305,8 @@ All hooks read `<resolved vault>/config.yaml` for settings (see [Configuration](
 
 | Hook Event | Script | Timeout | Config section | Notes |
 |------------|--------|---------|----------------|-------|
-| SessionStart | `session_start_hook.py` | 10 s (30 s with `--ai`) | `session_start_hook` | `--ai [MODEL]` or `session_start_hook.ai_model` enables selection through the configured prompt AI backend |
-| SessionEnd | `session_stop_wrapper.sh` → `session_stop_hook.py` | 10 s | `session_stop_hook` | Shell wrapper outputs `{}` immediately; Python script runs detached via `nohup` |
+| SessionStart | `session_start_hook.py` | 60 s (registered by the installer; covers `--ai`) | `session_start_hook` | `--ai [MODEL]` or `session_start_hook.ai_model` enables selection through the configured prompt AI backend |
+| SessionEnd | `session_stop_wrapper.sh` → `session_stop_hook.py` | async | `session_stop_hook` | Shell wrapper outputs `{}` immediately; Python script runs detached via `nohup` |
 | PreCompact | `pre_compact_hook.py` | 10 s | `pre_compact_hook` | Configurable transcript lines |
 | PostCompact | `post_compact_hook.py` | 10 s | — | Reads last Pre-Compact Snapshot from today's daily note and returns it as `additionalContext` |
 | SubagentStop | `subagent_stop_hook.py` | async | `subagent_stop_hook` | Non-blocking; skips agents listed in `excluded_agents` |
@@ -402,7 +410,7 @@ Replace the path with the output of `which parsidion-mcp`. See [docs/MCP.md](doc
 
 ## Configuration
 
-All hooks and the summarizer read `<resolved vault>/config.yaml`. Precedence: **defaults → config.yaml → config.local.yaml → CLI args** (last one wins). `config.local.yaml` is an optional, always-gitignored overlay in the same vault directory, deep-merged over `config.yaml` section-by-section.
+All hooks and the summarizer read `<resolved vault>/config.yaml`. Precedence: **defaults → config.yaml → config.local.yaml → CLI args** (last one wins). `config.local.yaml` is an optional, always-gitignored overlay in the same vault directory, deep-merged over `config.yaml` section-by-section. Environment variables Parsidion reads at runtime (`CLAUDE_VAULT`, `PARSIDION_RUNTIME`, `VAULT_SEARCH_*`, and others) are catalogued in [docs/USAGE.md](docs/USAGE.md#environment-variables).
 
 Copy the template to get started:
 ```bash
@@ -464,7 +472,7 @@ For the full per-key reference (every option with type, default, and description
 
 Codex mode uses the Codex CLI and its normal authentication path. Parsidion does not read, copy, or manage `~/.codex/auth.json`, and this is not OpenAI API-key provider support. Prompt-style Codex calls default to `codex exec --ephemeral --sandbox read-only --skip-git-repo-check --config notify=[]` and write/read the final answer via `--output-last-message`. The `notify=[]` override suppresses user-configured Codex turn-complete notifications for internal Parsidion calls.
 
-`summarize_sessions.py` uses the configured prompt AI backend: Claude runs through `claude -p`, Codex runs through `codex exec`, and no Claude Agent SDK or Codex SDK is required for this path. Leave `summarizer.model` and `summarizer.cluster_model` as `null` to use backend-aware large/small defaults from `ai_models.<backend>`.
+`summarize_sessions.py` uses the configured prompt AI backend: Claude runs through `claude -p`, Codex runs through `codex exec`, and grok runs through `grok --prompt-file` (OAuth login via the `grok` CLI). No Claude Agent SDK, Codex SDK, or Grok SDK is required for this path. Leave `summarizer.model` and `summarizer.cluster_model` as `null` to use backend-aware large/small defaults from `ai_models.<backend>`.
 
 ## Multi-Vault Support
 
@@ -555,7 +563,7 @@ vault-stats                                        # composite 0–100 health sc
 vault-stats --pending                              # pending queue + dead-letter status
 vault-stats --dashboard                            # every mode combined
 
-# Summarize queued sessions (Claude uses `claude -p`, Codex uses `codex exec`)
+# Summarize queued sessions (backend-aware: `claude -p`, `codex exec`, or `grok --prompt-file`)
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py
 
 # Scan + repair vault structural issues
@@ -601,8 +609,14 @@ For the per-tool flag reference and the install/uninstall commands, see [docs/US
 
 ### Summarizer fails to run
 
-- The summarizer uses the configured prompt AI backend. Claude backend calls run through `claude -p`; Codex backend calls run through `codex exec`.
-- No Claude Agent SDK or Codex SDK is required for the summarizer path.
+- The summarizer uses the configured prompt AI backend. Claude backend calls run through `claude -p`; Codex backend calls run through `codex exec`; grok backend calls run through `grok --prompt-file`.
+- No Claude Agent SDK, Codex SDK, or Grok SDK is required for the summarizer path.
+
+### Grok backend prompts fail or report an auth error
+
+- The `grok-cli` backend authenticates with the grok CLI's own OAuth login. Run `grok` once interactively and complete the login before the first Parsidion AI call; credentials are stored under `~/.grok`.
+- `grok-4.6` headless prompts measure 17–40 s each, so `grok_cli.timeout` defaults to 120 s. If prompts time out, raise it in `<resolved vault>/config.yaml`.
+- Set `ai.backend: grok-cli` (or export `PARSIDION_RUNTIME=grok` for auto-resolution) and check that `grok` is on `PATH` or set `grok_cli.command` to its absolute path.
 - If using the Claude CLI backend from inside Claude Code, unset the guard variable: `env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py`
 - Check that `pending_summaries.jsonl` exists and has entries.
 
@@ -617,7 +631,7 @@ For the per-tool flag reference and the install/uninstall commands, see [docs/US
 
 Parsidion is designed to minimize token usage. The lifecycle hooks (`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`) are **pure Python scripts** that run locally -- they read transcripts, parse frontmatter, and write files without calling any AI model. The only places that use API tokens are:
 
-- **Session summarizer** (`summarize_sessions.py`) -- runs on-demand (not automatically) via the configured prompt AI backend. By default it uses the backend large model (`ai_models.<backend>.large`) to generate vault notes from queued transcripts. Long transcripts are pre-chunked and summarized by the backend small model (`ai_models.<backend>.small`) first to reduce cost.
+- **Session summarizer** (`summarize_sessions.py`) -- runs via the configured prompt AI backend. It launches automatically when the SessionEnd hook's queue threshold is reached (`session_stop_hook.auto_summarize`), runs on demand, and runs nightly when `--schedule-summarizer` is scheduled. By default it uses the backend large model (`ai_models.<backend>.large`) to generate vault notes from queued transcripts. Long transcripts are pre-chunked and summarized by the backend small model (`ai_models.<backend>.small`) first to reduce cost.
 - **AI-powered note selection** (optional `--ai` flag on `SessionStart`) -- uses the configured prompt AI backend's small model to intelligently pick which vault notes to inject. Disabled by default.
 - **Semantic dedup** during summarization -- uses local embeddings/search to compare candidate notes against existing vault content before writing.
 
@@ -648,7 +662,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.18.0** (vault-doctor auto-repair: deterministic `metadata:`-wrapper and scalar-list frontmatter fixes, plus a generic-word denylist that stops prefix-subfolder migration from splitting compound slugs). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.20.0** (grok-cli prompt AI backend; minimal-context hermetic prompts for claude-cli and grok-cli; ranked and pruned AI-selector candidate pool; SessionStart timeout unified at 60 s across runtimes). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
@@ -666,7 +680,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) -- System architecture, file layout, and hook design
 - [docs/EMBEDDINGS.md](docs/EMBEDDINGS.md) -- Semantic search setup, embeddings database, and evaluation
 - [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md) -- Evaluation harness for benchmarking embedding models and chunking strategies
-- [docs/MCPL.md](docs/MCPL.md) -- MCP Launchpad CLI: installation, configuration, and integration with Claude Code
+- [docs/archive/MCPL.md](docs/archive/MCPL.md) -- Legacy MCP Launchpad CLI reference (not installed; retained for history)
 - [docs/PAR-MEM.md](docs/PAR-MEM.md) -- par-mem code-memory backend: optional hybrid vault search, code-memory bridge, and 3D vault visualization
 - [docs/AGENTCHROME.md](docs/AGENTCHROME.md) -- AgentChrome browser control CLI: installation, capabilities, and integration with the research agent
 - [docs/VISUALIZER.md](docs/VISUALIZER.md) -- Vault Visualizer: architecture, graph engine, data model, and configuration

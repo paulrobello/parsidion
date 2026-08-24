@@ -1,5 +1,7 @@
 # ENH-011 — Generated API reference under `docs/api/`
 
+> **Status**: shipped 2026-08-01
+
 ## Goal
 Generate an always-current API reference from the code's existing docstrings/JSDoc so the public surface (Python `core/*`, `vault_*` CLIs, and the visualizer TS lib) is discoverable without reading source — closing the gap the documentation audit noted ("no generated API reference or `docs/api/` directory").
 

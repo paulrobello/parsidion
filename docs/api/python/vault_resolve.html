@@ -123,42 +123,43 @@ vault_resolve.py --list    # {"default","named":[{"name","path"},...]} JSON
 </span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>
 </span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a>
 </span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
-</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a>        <span class="n">prog</span><span class="o">=</span><span class="s2">&quot;vault_resolve.py&quot;</span><span class="p">,</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos">49</span></a>        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Resolve a Parsidion vault name/path to its absolute path.&quot;</span><span class="p">,</span>
-</span><span id="L-50"><a href="#L-50"><span class="linenos">50</span></a>    <span class="p">)</span>
-</span><span id="L-51"><a href="#L-51"><span class="linenos">51</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-</span><span id="L-52"><a href="#L-52"><span class="linenos">52</span></a>        <span class="s2">&quot;name&quot;</span><span class="p">,</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos">53</span></a>        <span class="n">nargs</span><span class="o">=</span><span class="s2">&quot;?&quot;</span><span class="p">,</span>
-</span><span id="L-54"><a href="#L-54"><span class="linenos">54</span></a>        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Vault name (from vaults.yaml) or path. Omit to resolve the default vault.&quot;</span><span class="p">,</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos">55</span></a>    <span class="p">)</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos">56</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos">57</span></a>        <span class="s2">&quot;--list&quot;</span><span class="p">,</span>
-</span><span id="L-58"><a href="#L-58"><span class="linenos">58</span></a>        <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
-</span><span id="L-59"><a href="#L-59"><span class="linenos">59</span></a>        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Emit {&quot;default&quot;,&quot;named&quot;:[...]} JSON and exit.&#39;</span><span class="p">,</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos">60</span></a>    <span class="p">)</span>
-</span><span id="L-61"><a href="#L-61"><span class="linenos">61</span></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos">62</span></a>
-</span><span id="L-63"><a href="#L-63"><span class="linenos">63</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="L-64"><a href="#L-64"><span class="linenos">64</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">list</span><span class="p">:</span>
-</span><span id="L-65"><a href="#L-65"><span class="linenos">65</span></a>            <span class="k">return</span> <span class="n">_emit_list</span><span class="p">()</span>
-</span><span id="L-66"><a href="#L-66"><span class="linenos">66</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">resolve_vault_server</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">name</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="L-67"><a href="#L-67"><span class="linenos">67</span></a>        <span class="k">return</span> <span class="mi">0</span>
-</span><span id="L-68"><a href="#L-68"><span class="linenos">68</span></a>    <span class="k">except</span> <span class="n">VaultConfigError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-</span><span id="L-69"><a href="#L-69"><span class="linenos">69</span></a>        <span class="c1"># Exit 1 is the contract for &quot;not a known vault&quot; so the TS caller can</span>
-</span><span id="L-70"><a href="#L-70"><span class="linenos">70</span></a>        <span class="c1"># map it to its VaultConfigError (HTTP 400). Unexpected errors use a</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos">71</span></a>        <span class="c1"># distinct code (2) so they surface as server errors, not client errors.</span>
-</span><span id="L-72"><a href="#L-72"><span class="linenos">72</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="L-73"><a href="#L-73"><span class="linenos">73</span></a>        <span class="k">return</span> <span class="mi">1</span>
-</span><span id="L-74"><a href="#L-74"><span class="linenos">74</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — pragma: no cover; surface as a server error (exit 2), not a 400</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos">75</span></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">traceback</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos">76</span></a>
-</span><span id="L-77"><a href="#L-77"><span class="linenos">77</span></a>        <span class="n">traceback</span><span class="o">.</span><span class="n">print_exc</span><span class="p">()</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos">78</span></a>        <span class="k">return</span> <span class="mi">2</span>
-</span><span id="L-79"><a href="#L-79"><span class="linenos">79</span></a>
+</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve a vault name/path to its absolute path and print it as JSON.&quot;&quot;&quot;</span>
+</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+</span><span id="L-49"><a href="#L-49"><span class="linenos">49</span></a>        <span class="n">prog</span><span class="o">=</span><span class="s2">&quot;vault_resolve.py&quot;</span><span class="p">,</span>
+</span><span id="L-50"><a href="#L-50"><span class="linenos">50</span></a>        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Resolve a Parsidion vault name/path to its absolute path.&quot;</span><span class="p">,</span>
+</span><span id="L-51"><a href="#L-51"><span class="linenos">51</span></a>    <span class="p">)</span>
+</span><span id="L-52"><a href="#L-52"><span class="linenos">52</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos">53</span></a>        <span class="s2">&quot;name&quot;</span><span class="p">,</span>
+</span><span id="L-54"><a href="#L-54"><span class="linenos">54</span></a>        <span class="n">nargs</span><span class="o">=</span><span class="s2">&quot;?&quot;</span><span class="p">,</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos">55</span></a>        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Vault name (from vaults.yaml) or path. Omit to resolve the default vault.&quot;</span><span class="p">,</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos">56</span></a>    <span class="p">)</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos">57</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+</span><span id="L-58"><a href="#L-58"><span class="linenos">58</span></a>        <span class="s2">&quot;--list&quot;</span><span class="p">,</span>
+</span><span id="L-59"><a href="#L-59"><span class="linenos">59</span></a>        <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos">60</span></a>        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Emit {&quot;default&quot;,&quot;named&quot;:[...]} JSON and exit.&#39;</span><span class="p">,</span>
+</span><span id="L-61"><a href="#L-61"><span class="linenos">61</span></a>    <span class="p">)</span>
+</span><span id="L-62"><a href="#L-62"><span class="linenos">62</span></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+</span><span id="L-63"><a href="#L-63"><span class="linenos">63</span></a>
+</span><span id="L-64"><a href="#L-64"><span class="linenos">64</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos">65</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">list</span><span class="p">:</span>
+</span><span id="L-66"><a href="#L-66"><span class="linenos">66</span></a>            <span class="k">return</span> <span class="n">_emit_list</span><span class="p">()</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos">67</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">resolve_vault_server</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">name</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="L-68"><a href="#L-68"><span class="linenos">68</span></a>        <span class="k">return</span> <span class="mi">0</span>
+</span><span id="L-69"><a href="#L-69"><span class="linenos">69</span></a>    <span class="k">except</span> <span class="n">VaultConfigError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos">70</span></a>        <span class="c1"># Exit 1 is the contract for &quot;not a known vault&quot; so the TS caller can</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos">71</span></a>        <span class="c1"># map it to its VaultConfigError (HTTP 400). Unexpected errors use a</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos">72</span></a>        <span class="c1"># distinct code (2) so they surface as server errors, not client errors.</span>
+</span><span id="L-73"><a href="#L-73"><span class="linenos">73</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos">74</span></a>        <span class="k">return</span> <span class="mi">1</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos">75</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — pragma: no cover; surface as a server error (exit 2), not a 400</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos">76</span></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">traceback</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos">77</span></a>
+</span><span id="L-78"><a href="#L-78"><span class="linenos">78</span></a>        <span class="n">traceback</span><span class="o">.</span><span class="n">print_exc</span><span class="p">()</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos">79</span></a>        <span class="k">return</span> <span class="mi">2</span>
 </span><span id="L-80"><a href="#L-80"><span class="linenos">80</span></a>
-</span><span id="L-81"><a href="#L-81"><span class="linenos">81</span></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos">82</span></a>    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos">81</span></a>
+</span><span id="L-82"><a href="#L-82"><span class="linenos">82</span></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos">83</span></a>    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </span></pre></div>
 
 
@@ -175,42 +176,45 @@ vault_resolve.py --list    # {"default","named":[{"name","path"},...]} JSON
     </div>
     <a class="headerlink" href="#main"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="main-47"><a href="#main-47"><span class="linenos">47</span></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="main-48"><a href="#main-48"><span class="linenos">48</span></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
-</span><span id="main-49"><a href="#main-49"><span class="linenos">49</span></a>        <span class="n">prog</span><span class="o">=</span><span class="s2">&quot;vault_resolve.py&quot;</span><span class="p">,</span>
-</span><span id="main-50"><a href="#main-50"><span class="linenos">50</span></a>        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Resolve a Parsidion vault name/path to its absolute path.&quot;</span><span class="p">,</span>
-</span><span id="main-51"><a href="#main-51"><span class="linenos">51</span></a>    <span class="p">)</span>
-</span><span id="main-52"><a href="#main-52"><span class="linenos">52</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-</span><span id="main-53"><a href="#main-53"><span class="linenos">53</span></a>        <span class="s2">&quot;name&quot;</span><span class="p">,</span>
-</span><span id="main-54"><a href="#main-54"><span class="linenos">54</span></a>        <span class="n">nargs</span><span class="o">=</span><span class="s2">&quot;?&quot;</span><span class="p">,</span>
-</span><span id="main-55"><a href="#main-55"><span class="linenos">55</span></a>        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Vault name (from vaults.yaml) or path. Omit to resolve the default vault.&quot;</span><span class="p">,</span>
-</span><span id="main-56"><a href="#main-56"><span class="linenos">56</span></a>    <span class="p">)</span>
-</span><span id="main-57"><a href="#main-57"><span class="linenos">57</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-</span><span id="main-58"><a href="#main-58"><span class="linenos">58</span></a>        <span class="s2">&quot;--list&quot;</span><span class="p">,</span>
-</span><span id="main-59"><a href="#main-59"><span class="linenos">59</span></a>        <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
-</span><span id="main-60"><a href="#main-60"><span class="linenos">60</span></a>        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Emit {&quot;default&quot;,&quot;named&quot;:[...]} JSON and exit.&#39;</span><span class="p">,</span>
-</span><span id="main-61"><a href="#main-61"><span class="linenos">61</span></a>    <span class="p">)</span>
-</span><span id="main-62"><a href="#main-62"><span class="linenos">62</span></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
-</span><span id="main-63"><a href="#main-63"><span class="linenos">63</span></a>
-</span><span id="main-64"><a href="#main-64"><span class="linenos">64</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="main-65"><a href="#main-65"><span class="linenos">65</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">list</span><span class="p">:</span>
-</span><span id="main-66"><a href="#main-66"><span class="linenos">66</span></a>            <span class="k">return</span> <span class="n">_emit_list</span><span class="p">()</span>
-</span><span id="main-67"><a href="#main-67"><span class="linenos">67</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">resolve_vault_server</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">name</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="main-68"><a href="#main-68"><span class="linenos">68</span></a>        <span class="k">return</span> <span class="mi">0</span>
-</span><span id="main-69"><a href="#main-69"><span class="linenos">69</span></a>    <span class="k">except</span> <span class="n">VaultConfigError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-</span><span id="main-70"><a href="#main-70"><span class="linenos">70</span></a>        <span class="c1"># Exit 1 is the contract for &quot;not a known vault&quot; so the TS caller can</span>
-</span><span id="main-71"><a href="#main-71"><span class="linenos">71</span></a>        <span class="c1"># map it to its VaultConfigError (HTTP 400). Unexpected errors use a</span>
-</span><span id="main-72"><a href="#main-72"><span class="linenos">72</span></a>        <span class="c1"># distinct code (2) so they surface as server errors, not client errors.</span>
-</span><span id="main-73"><a href="#main-73"><span class="linenos">73</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="main-74"><a href="#main-74"><span class="linenos">74</span></a>        <span class="k">return</span> <span class="mi">1</span>
-</span><span id="main-75"><a href="#main-75"><span class="linenos">75</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — pragma: no cover; surface as a server error (exit 2), not a 400</span>
-</span><span id="main-76"><a href="#main-76"><span class="linenos">76</span></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">traceback</span>
-</span><span id="main-77"><a href="#main-77"><span class="linenos">77</span></a>
-</span><span id="main-78"><a href="#main-78"><span class="linenos">78</span></a>        <span class="n">traceback</span><span class="o">.</span><span class="n">print_exc</span><span class="p">()</span>
-</span><span id="main-79"><a href="#main-79"><span class="linenos">79</span></a>        <span class="k">return</span> <span class="mi">2</span>
+</span><span id="main-48"><a href="#main-48"><span class="linenos">48</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve a vault name/path to its absolute path and print it as JSON.&quot;&quot;&quot;</span>
+</span><span id="main-49"><a href="#main-49"><span class="linenos">49</span></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+</span><span id="main-50"><a href="#main-50"><span class="linenos">50</span></a>        <span class="n">prog</span><span class="o">=</span><span class="s2">&quot;vault_resolve.py&quot;</span><span class="p">,</span>
+</span><span id="main-51"><a href="#main-51"><span class="linenos">51</span></a>        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Resolve a Parsidion vault name/path to its absolute path.&quot;</span><span class="p">,</span>
+</span><span id="main-52"><a href="#main-52"><span class="linenos">52</span></a>    <span class="p">)</span>
+</span><span id="main-53"><a href="#main-53"><span class="linenos">53</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+</span><span id="main-54"><a href="#main-54"><span class="linenos">54</span></a>        <span class="s2">&quot;name&quot;</span><span class="p">,</span>
+</span><span id="main-55"><a href="#main-55"><span class="linenos">55</span></a>        <span class="n">nargs</span><span class="o">=</span><span class="s2">&quot;?&quot;</span><span class="p">,</span>
+</span><span id="main-56"><a href="#main-56"><span class="linenos">56</span></a>        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Vault name (from vaults.yaml) or path. Omit to resolve the default vault.&quot;</span><span class="p">,</span>
+</span><span id="main-57"><a href="#main-57"><span class="linenos">57</span></a>    <span class="p">)</span>
+</span><span id="main-58"><a href="#main-58"><span class="linenos">58</span></a>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+</span><span id="main-59"><a href="#main-59"><span class="linenos">59</span></a>        <span class="s2">&quot;--list&quot;</span><span class="p">,</span>
+</span><span id="main-60"><a href="#main-60"><span class="linenos">60</span></a>        <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
+</span><span id="main-61"><a href="#main-61"><span class="linenos">61</span></a>        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Emit {&quot;default&quot;,&quot;named&quot;:[...]} JSON and exit.&#39;</span><span class="p">,</span>
+</span><span id="main-62"><a href="#main-62"><span class="linenos">62</span></a>    <span class="p">)</span>
+</span><span id="main-63"><a href="#main-63"><span class="linenos">63</span></a>    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+</span><span id="main-64"><a href="#main-64"><span class="linenos">64</span></a>
+</span><span id="main-65"><a href="#main-65"><span class="linenos">65</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="main-66"><a href="#main-66"><span class="linenos">66</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">list</span><span class="p">:</span>
+</span><span id="main-67"><a href="#main-67"><span class="linenos">67</span></a>            <span class="k">return</span> <span class="n">_emit_list</span><span class="p">()</span>
+</span><span id="main-68"><a href="#main-68"><span class="linenos">68</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">resolve_vault_server</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">name</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="main-69"><a href="#main-69"><span class="linenos">69</span></a>        <span class="k">return</span> <span class="mi">0</span>
+</span><span id="main-70"><a href="#main-70"><span class="linenos">70</span></a>    <span class="k">except</span> <span class="n">VaultConfigError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+</span><span id="main-71"><a href="#main-71"><span class="linenos">71</span></a>        <span class="c1"># Exit 1 is the contract for &quot;not a known vault&quot; so the TS caller can</span>
+</span><span id="main-72"><a href="#main-72"><span class="linenos">72</span></a>        <span class="c1"># map it to its VaultConfigError (HTTP 400). Unexpected errors use a</span>
+</span><span id="main-73"><a href="#main-73"><span class="linenos">73</span></a>        <span class="c1"># distinct code (2) so they surface as server errors, not client errors.</span>
+</span><span id="main-74"><a href="#main-74"><span class="linenos">74</span></a>        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="main-75"><a href="#main-75"><span class="linenos">75</span></a>        <span class="k">return</span> <span class="mi">1</span>
+</span><span id="main-76"><a href="#main-76"><span class="linenos">76</span></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — pragma: no cover; surface as a server error (exit 2), not a 400</span>
+</span><span id="main-77"><a href="#main-77"><span class="linenos">77</span></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">traceback</span>
+</span><span id="main-78"><a href="#main-78"><span class="linenos">78</span></a>
+</span><span id="main-79"><a href="#main-79"><span class="linenos">79</span></a>        <span class="n">traceback</span><span class="o">.</span><span class="n">print_exc</span><span class="p">()</span>
+</span><span id="main-80"><a href="#main-80"><span class="linenos">80</span></a>        <span class="k">return</span> <span class="mi">2</span>
 </span></pre></div>
 
 
-    
+            <div class="docstring"><p>Resolve a vault name/path to its absolute path and print it as JSON.</p>
+</div>
+
 
                 </section>
     </main>

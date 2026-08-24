@@ -83,7 +83,7 @@ Saving after a successful solve is as important as searching before. Every unsav
 ├── CLAUDE.md            # Auto-generated lean index (stats, conventions, recent activity, folder pointers)
 ├── TAGS.md              # Auto-generated full tag cloud + tag list (for summarizer tag reuse)
 ├── config.yaml          # Optional — hook/summarizer settings (see Configuration)
-├── Daily/               # Session summaries (Daily/YYYY-MM/DD.md)
+├── Daily/               # Session summaries (Daily/YYYY-MM/DD-{username}.md)
 ├── Projects/            # Per-project context and decisions
 ├── Languages/           # Python, Rust, TypeScript, Swift, etc.
 ├── Frameworks/          # Next.js, FastAPI, Textual, Rich, etc.
@@ -143,7 +143,7 @@ Research/
 | Long-form research and analysis | `Research/` |
 | General knowledge, concepts, reference material | `Knowledge/` |
 | Per-project decisions, architecture, key paths | `Projects/` |
-| Daily session summaries | `Daily/YYYY-MM/DD.md` (e.g. `Daily/2026-03/13.md`) |
+| Daily session summaries | `Daily/YYYY-MM/DD-{username}.md` (e.g. `Daily/2026-03/13-probello.md`; username from `vault.username`, default `$USER`) |
 
 ### Frontmatter Standard
 
@@ -413,7 +413,7 @@ vault-search --changed-since 2026-06-01 --tag python   # combine with other filt
 | `ORPHAN_NOTE` | warning | No `[[wikilinks]]` in `related` field |
 | `BROKEN_WIKILINK` | warning | Link target not found in vault |
 | `HEADING_MISMATCH` | warning | No `#` heading found; first `##` heading should be promoted to `#` (skips daily notes) |
-| `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD.md` |
+| `FLAT_DAILY` | warning | `Daily/YYYY-MM-DD.md` instead of `Daily/YYYY-MM/DD-{username}.md` |
 | `PREFIX_CLUSTER` | warning | 3+ flat notes share a kebab prefix — should be moved into a subfolder |
 | `NESTED_FM_KEY` | warning | Indented mapping key; the parser reads it as a top-level scalar |
 | `UNTERMINATED_FM_LIST` | error | Inline list opens with `[` but never closes on the same line |
@@ -459,7 +459,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --errors-
 
 For Claude CLI backend calls launched from inside Claude Code, unset `CLAUDECODE` as shown above. Codex backend calls use `codex exec` with an internal recursion guard.
 
-`--fix-all` is equivalent to `--fix-frontmatter --fix-tags --migrate-subfolders --execute`. The nightly cron via `summarize_sessions.py --run-doctor` uses `--fix-all`.
+`--fix-all` is equivalent to `--fix-frontmatter --fix-tags --strip-prefixes --migrate-subfolders --migrate-daily-notes --fix-permissions --execute`. Note that `--strip-prefixes` performs a vault-wide bulk file rename (rewriting wikilinks across every note) and `--migrate-daily-notes` renames legacy flat dailies to `DD-{username}.md` — run `--fix-all` on a clean git tree so a rename can be reverted. The nightly cron via `summarize_sessions.py --run-doctor` uses `--fix-all`.
 
 Repairs run in parallel (`--jobs N`, default 3). Each prompt AI subprocess (`claude -p` or `codex exec`) is independent so parallelism is safe; state updates and console output are guarded by a lock so lines are never interleaved. The per-call timeout (`--timeout SECS`) defaults to 120s — increase it when running many parallel workers to avoid spurious timeouts.
 

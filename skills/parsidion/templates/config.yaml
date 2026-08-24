@@ -32,6 +32,7 @@ session_stop_hook:
   auto_summarize: true     # Auto-launch summarizer when pending entries exist
   auto_summarize_after: 1  # Queue threshold to trigger auto-summarizer (0 = always, 1 = default)
   transcript_tail_lines: 200      # Lines to inspect by default
+  transcript_tail_bytes: 1500000  # Byte ceiling on the raw tail; bounds huge-line transcripts
   pi_transcript_tail_lines: 1000  # Deeper fallback tail for pi transcripts when no assistant text is found
 
 # Subagent stop hook (subagent_stop_hook.py)
@@ -41,10 +42,12 @@ subagent_stop_hook:
   # Agent types to skip — these run constantly as vault system internals.
   # Value is a comma-separated string (config parser limitation).
   excluded_agents: "vault-explorer,research-agent"
+  transcript_tail_bytes: 1500000  # Byte ceiling on the subagent transcript tail; bounds huge-line rollouts
 
 # Pre-compact hook (pre_compact_hook.py)
 pre_compact_hook:
   lines: 200               # Transcript lines to analyse
+  transcript_tail_bytes: 1500000  # Byte ceiling on the transcript tail read
 
 # Session summarizer (summarize_sessions.py)
 summarizer:
@@ -54,7 +57,6 @@ summarizer:
   transcript_tail_bytes: 262144  # Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts) so cleaning/chunking cannot explode
   max_cleaned_chars: 12000
   ai_timeout: 120          # Per-summarizer-prompt timeout in seconds (null = backend default)
-  persist: false           # SDK session persistence (for debugging)
   cluster_model: claude-haiku-4-5-20251001  # Model for hierarchical chunk summarization; used when a transcript exceeds max_cleaned_chars
   dedup_threshold: 0.80                    # Cosine similarity threshold for near-duplicate detection (0.0-1.0); set to 1.0 to disable
   dead_letter_retention_days: 7            # Prune dead_letters.jsonl entries older than N days each run (write-gate skips are sticky, so the file grows without this); <=0 disables
@@ -117,10 +119,13 @@ codex_cli:
   command: codex           # PATH lookup or absolute path to the codex CLI
   timeout: 60              # Per-prompt timeout in seconds
   sandbox: read-only       # read-only | workspace-write | danger-full-access
-  ephemeral: false         # Start each prompt with no session state
-  skip_git_repo_check: false
-  suppress_notify: false
-  # allow_danger_full_access: true   # SEC-117: required to actually use sandbox: danger-full-access
+  # The three booleans below are shown at their code defaults (true). Copying
+  # the template with them set to false would silently flip parsidion's
+  # internal codex invocations to persistent, repo-checking, notifying runs.
+  ephemeral: true          # Start each prompt with no session state
+  skip_git_repo_check: true
+  suppress_notify: true    # Suppress user turn-complete notifications for internal calls
+  # allow_danger_full_access: false  # SEC-117 opt-in required for sandbox: danger-full-access (default false)
 
 # Embeddings / semantic search (build_embeddings.py, vault_search.py)
 embeddings:
@@ -212,7 +217,7 @@ event_log:
 # Adaptive context tracking (#17) — derank notes never referenced by Claude
 adaptive_context:
   enabled: false           # Track per-note usefulness; derank unreferenced notes over time
-  decay_days: 30           # Days without reference before score decays
+  decay_days: 30           # RESERVED — not yet read by code (implementation tracked as ENH-016)
 
 # Vault identity — used for per-user daily note filenames (team vault sharing)
 vault:

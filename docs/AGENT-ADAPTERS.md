@@ -10,6 +10,17 @@ The registry lives in [`skills/parsidion/scripts/agent_adapter.py`](../skills/pa
 and is stdlib-only (it is imported by both the hook shims and the installer, both of which are bound
 by the [stdlib-only rule](../CLAUDE.md)).
 
+## Table of Contents
+
+- [The `AgentAdapter` contract](#the-agentadapter-contract)
+- [Built-in runtimes](#built-in-runtimes)
+- [Adding a runtime](#adding-a-runtime)
+- [External adapters](#external-adapters)
+- [Timeout units](#timeout-units)
+- [Stdlib-only rule](#stdlib-only-rule)
+- [Architecture notes](#architecture-notes)
+- [Related documentation](#related-documentation)
+
 ## The `AgentAdapter` contract
 
 Each field names one thing that varies between runtimes. The installer drives all per-runtime

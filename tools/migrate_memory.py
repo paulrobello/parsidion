@@ -4,7 +4,7 @@
 **One-time migration utility** -- this script is intended to be run once during
 initial vault setup to import pre-existing Claude Code memory files.  It is not
 part of the regular hook pipeline and can be safely ignored after migration.
-See ARC-013 in AUDIT.md.
+Exists per the 2026-08-01 audit cycle's ARC-013 (dead-code review kept it).
 
 Scans global memory (``~/.claude/memory/``) and per-project memory
 (``~/.claude/projects/*/memory/``) for markdown files. Parses ``##`` sections,

@@ -241,90 +241,89 @@ never block a fix; prune <code>.trash/backup/</code> freely whenever you like.</
 </span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>    <span class="n">_backed_up_this_run</span><span class="p">,</span>
 </span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>    <span class="n">_get_state_file</span><span class="p">,</span>
 </span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>    <span class="n">_rel</span><span class="p">,</span>
-</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>    <span class="n">_release_pid</span><span class="p">,</span>
-</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>    <span class="n">_resolve_shim_vault_path</span><span class="p">,</span>
-</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>    <span class="n">_vault_path</span><span class="p">,</span>
-</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="n">_write_json_atomic</span><span class="p">,</span>
-</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="n">_write_pid</span><span class="p">,</span>
-</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>    <span class="n">is_process_running</span><span class="p">,</span>
-</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>    <span class="n">load_state</span><span class="p">,</span>
-</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a>    <span class="n">save_state</span><span class="p">,</span>
-</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a>    <span class="n">should_skip</span><span class="p">,</span>
-</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="p">)</span>
-</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.check</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_note</span>  <span class="c1"># noqa: F401 — re-export</span>
-</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.daily</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_migrate_daily_notes</span>  <span class="c1"># noqa: F401 — re-export</span>
-</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.frontmatter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a>    <span class="n">_FM_DELIM_RE</span><span class="p">,</span>
-</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a>    <span class="n">_FM_KEY_RE</span><span class="p">,</span>
-</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>    <span class="n">_FM_LEAKED_MARKER_RE</span><span class="p">,</span>
-</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a>    <span class="n">_FM_RELATED_RE</span><span class="p">,</span>
-</span><span id="L-123"><a href="#L-123"><span class="linenos">123</span></a>    <span class="n">_auto_fix_metadata_wrapper</span><span class="p">,</span>
-</span><span id="L-124"><a href="#L-124"><span class="linenos">124</span></a>    <span class="n">_auto_fix_scalar_list_field</span><span class="p">,</span>
-</span><span id="L-125"><a href="#L-125"><span class="linenos">125</span></a>    <span class="n">_frontmatter_stems</span><span class="p">,</span>
-</span><span id="L-126"><a href="#L-126"><span class="linenos">126</span></a>    <span class="n">_normalize_repaired_note</span><span class="p">,</span>
-</span><span id="L-127"><a href="#L-127"><span class="linenos">127</span></a>    <span class="n">_note_is_daily</span><span class="p">,</span>
-</span><span id="L-128"><a href="#L-128"><span class="linenos">128</span></a>    <span class="n">repair_note</span><span class="p">,</span>
-</span><span id="L-129"><a href="#L-129"><span class="linenos">129</span></a><span class="p">)</span>
-</span><span id="L-130"><a href="#L-130"><span class="linenos">130</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">_run_reindex</span><span class="p">,</span> <span class="n">commit_stale_files</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-131"><a href="#L-131"><span class="linenos">131</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.headings</span><span class="w"> </span><span class="kn">import</span> <span class="n">_auto_fix_headings</span><span class="p">,</span> <span class="n">_auto_fix_self_refs</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-132"><a href="#L-132"><span class="linenos">132</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.links</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-133"><a href="#L-133"><span class="linenos">133</span></a>    <span class="n">_auto_repair_broken_wikilinks</span><span class="p">,</span>
-</span><span id="L-134"><a href="#L-134"><span class="linenos">134</span></a>    <span class="n">_find_link_replacement</span><span class="p">,</span>
-</span><span id="L-135"><a href="#L-135"><span class="linenos">135</span></a>    <span class="n">_find_semantic_candidates</span><span class="p">,</span>
-</span><span id="L-136"><a href="#L-136"><span class="linenos">136</span></a>    <span class="n">build_note_map</span><span class="p">,</span>
-</span><span id="L-137"><a href="#L-137"><span class="linenos">137</span></a>    <span class="n">dedup_related_links</span><span class="p">,</span>
-</span><span id="L-138"><a href="#L-138"><span class="linenos">138</span></a>    <span class="n">resolve_wikilink</span><span class="p">,</span>
-</span><span id="L-139"><a href="#L-139"><span class="linenos">139</span></a><span class="p">)</span>
-</span><span id="L-140"><a href="#L-140"><span class="linenos">140</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.orchestrator</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_scan_and_repair</span>  <span class="c1"># noqa: F401 — re-export</span>
-</span><span id="L-141"><a href="#L-141"><span class="linenos">141</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.scan</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports (ENH-007 read-only scan path)</span>
-</span><span id="L-142"><a href="#L-142"><span class="linenos">142</span></a>    <span class="n">ScanSummary</span><span class="p">,</span>
-</span><span id="L-143"><a href="#L-143"><span class="linenos">143</span></a>    <span class="n">_git_tracked_gitignored</span><span class="p">,</span>
-</span><span id="L-144"><a href="#L-144"><span class="linenos">144</span></a>    <span class="n">scan_notes_readonly</span><span class="p">,</span>
-</span><span id="L-145"><a href="#L-145"><span class="linenos">145</span></a><span class="p">)</span>
-</span><span id="L-146"><a href="#L-146"><span class="linenos">146</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.permissions</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-147"><a href="#L-147"><span class="linenos">147</span></a>    <span class="n">_DIR_MODE</span><span class="p">,</span>
-</span><span id="L-148"><a href="#L-148"><span class="linenos">148</span></a>    <span class="n">_FILE_MODE</span><span class="p">,</span>
-</span><span id="L-149"><a href="#L-149"><span class="linenos">149</span></a>    <span class="n">_SECRET_FILE_GLOBS</span><span class="p">,</span>
-</span><span id="L-150"><a href="#L-150"><span class="linenos">150</span></a>    <span class="n">_SECRET_FILES</span><span class="p">,</span>
-</span><span id="L-151"><a href="#L-151"><span class="linenos">151</span></a>    <span class="n">_chmod_if_exists</span><span class="p">,</span>
-</span><span id="L-152"><a href="#L-152"><span class="linenos">152</span></a>    <span class="n">run_fix_permissions</span><span class="p">,</span>
-</span><span id="L-153"><a href="#L-153"><span class="linenos">153</span></a><span class="p">)</span>
-</span><span id="L-154"><a href="#L-154"><span class="linenos">154</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.prefixes</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-155"><a href="#L-155"><span class="linenos">155</span></a>    <span class="n">_find_redundant_prefixes</span><span class="p">,</span>
-</span><span id="L-156"><a href="#L-156"><span class="linenos">156</span></a>    <span class="n">run_strip_prefixes</span><span class="p">,</span>
-</span><span id="L-157"><a href="#L-157"><span class="linenos">157</span></a><span class="p">)</span>
-</span><span id="L-158"><a href="#L-158"><span class="linenos">158</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.protocol</span><span class="w"> </span><span class="kn">import</span> <span class="n">FixMode</span><span class="p">,</span> <span class="n">run_fix_modes</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-159"><a href="#L-159"><span class="linenos">159</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.subfolder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-160"><a href="#L-160"><span class="linenos">160</span></a>    <span class="n">_GENERIC_PREFIX_DENYLIST</span><span class="p">,</span>
-</span><span id="L-161"><a href="#L-161"><span class="linenos">161</span></a>    <span class="n">_filter_clusters_with_claude</span><span class="p">,</span>
-</span><span id="L-162"><a href="#L-162"><span class="linenos">162</span></a>    <span class="n">_is_generic_prefix</span><span class="p">,</span>
-</span><span id="L-163"><a href="#L-163"><span class="linenos">163</span></a>    <span class="n">find_prefix_clusters</span><span class="p">,</span>
-</span><span id="L-164"><a href="#L-164"><span class="linenos">164</span></a>    <span class="n">find_subfolder_candidates</span><span class="p">,</span>
-</span><span id="L-165"><a href="#L-165"><span class="linenos">165</span></a>    <span class="n">fix_prefix_cluster</span><span class="p">,</span>
-</span><span id="L-166"><a href="#L-166"><span class="linenos">166</span></a>    <span class="n">run_migrate_subfolders</span><span class="p">,</span>
-</span><span id="L-167"><a href="#L-167"><span class="linenos">167</span></a><span class="p">)</span>
-</span><span id="L-168"><a href="#L-168"><span class="linenos">168</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.tags</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
-</span><span id="L-169"><a href="#L-169"><span class="linenos">169</span></a>    <span class="n">_TAGS_BLOCK_START_RE</span><span class="p">,</span>
-</span><span id="L-170"><a href="#L-170"><span class="linenos">170</span></a>    <span class="n">_TAGS_INLINE_RE</span><span class="p">,</span>
-</span><span id="L-171"><a href="#L-171"><span class="linenos">171</span></a>    <span class="n">_collect_all_tags</span><span class="p">,</span>
-</span><span id="L-172"><a href="#L-172"><span class="linenos">172</span></a>    <span class="n">_find_session_duplicates</span><span class="p">,</span>
-</span><span id="L-173"><a href="#L-173"><span class="linenos">173</span></a>    <span class="n">_find_tag_duplicates</span><span class="p">,</span>
-</span><span id="L-174"><a href="#L-174"><span class="linenos">174</span></a>    <span class="n">_normalize_underscores_in_frontmatter</span><span class="p">,</span>
-</span><span id="L-175"><a href="#L-175"><span class="linenos">175</span></a>    <span class="n">_replace_tag_in_note</span><span class="p">,</span>
-</span><span id="L-176"><a href="#L-176"><span class="linenos">176</span></a>    <span class="n">_update_graph_json_tags</span><span class="p">,</span>
-</span><span id="L-177"><a href="#L-177"><span class="linenos">177</span></a>    <span class="n">run_fix_sessions</span><span class="p">,</span>
-</span><span id="L-178"><a href="#L-178"><span class="linenos">178</span></a>    <span class="n">run_fix_tags</span><span class="p">,</span>
-</span><span id="L-179"><a href="#L-179"><span class="linenos">179</span></a><span class="p">)</span>
-</span><span id="L-180"><a href="#L-180"><span class="linenos">180</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.worker</span><span class="w"> </span><span class="kn">import</span> <span class="n">_repair_one</span>  <span class="c1"># noqa: F401 — re-export</span>
-</span><span id="L-181"><a href="#L-181"><span class="linenos">181</span></a>
-</span><span id="L-182"><a href="#L-182"><span class="linenos">182</span></a><span class="c1"># CLI entry point — imported last so the submodule graph is fully populated</span>
-</span><span id="L-183"><a href="#L-183"><span class="linenos">183</span></a><span class="c1"># before main() can be invoked. ``if __name__ == &quot;__main__&quot;: main()`` below</span>
-</span><span id="L-184"><a href="#L-184"><span class="linenos">184</span></a><span class="c1"># keeps this file invocable as ``uv run --no-project vault_doctor.py …``.</span>
-</span><span id="L-185"><a href="#L-185"><span class="linenos">185</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">main</span>  <span class="c1"># noqa: E402,F401 — script entry point</span>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>    <span class="n">_resolve_shim_vault_path</span><span class="p">,</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>    <span class="n">_vault_path</span><span class="p">,</span>
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>    <span class="n">_write_json_atomic</span><span class="p">,</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="n">is_process_running</span><span class="p">,</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="n">load_state</span><span class="p">,</span>
+</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>    <span class="n">save_state</span><span class="p">,</span>
+</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>    <span class="n">should_skip</span><span class="p">,</span>
+</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a><span class="p">)</span>
+</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.check</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_note</span>  <span class="c1"># noqa: F401 — re-export</span>
+</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.daily</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_migrate_daily_notes</span>  <span class="c1"># noqa: F401 — re-export</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.frontmatter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a>    <span class="n">_FM_DELIM_RE</span><span class="p">,</span>
+</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a>    <span class="n">_FM_KEY_RE</span><span class="p">,</span>
+</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a>    <span class="n">_FM_LEAKED_MARKER_RE</span><span class="p">,</span>
+</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a>    <span class="n">_FM_RELATED_RE</span><span class="p">,</span>
+</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>    <span class="n">_auto_fix_metadata_wrapper</span><span class="p">,</span>
+</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a>    <span class="n">_auto_fix_scalar_list_field</span><span class="p">,</span>
+</span><span id="L-123"><a href="#L-123"><span class="linenos">123</span></a>    <span class="n">_frontmatter_stems</span><span class="p">,</span>
+</span><span id="L-124"><a href="#L-124"><span class="linenos">124</span></a>    <span class="n">_normalize_repaired_note</span><span class="p">,</span>
+</span><span id="L-125"><a href="#L-125"><span class="linenos">125</span></a>    <span class="n">_note_is_daily</span><span class="p">,</span>
+</span><span id="L-126"><a href="#L-126"><span class="linenos">126</span></a>    <span class="n">repair_note</span><span class="p">,</span>
+</span><span id="L-127"><a href="#L-127"><span class="linenos">127</span></a><span class="p">)</span>
+</span><span id="L-128"><a href="#L-128"><span class="linenos">128</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">_run_reindex</span><span class="p">,</span> <span class="n">commit_stale_files</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-129"><a href="#L-129"><span class="linenos">129</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.headings</span><span class="w"> </span><span class="kn">import</span> <span class="n">_auto_fix_headings</span><span class="p">,</span> <span class="n">_auto_fix_self_refs</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-130"><a href="#L-130"><span class="linenos">130</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.links</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-131"><a href="#L-131"><span class="linenos">131</span></a>    <span class="n">_auto_repair_broken_wikilinks</span><span class="p">,</span>
+</span><span id="L-132"><a href="#L-132"><span class="linenos">132</span></a>    <span class="n">_find_link_replacement</span><span class="p">,</span>
+</span><span id="L-133"><a href="#L-133"><span class="linenos">133</span></a>    <span class="n">_find_semantic_candidates</span><span class="p">,</span>
+</span><span id="L-134"><a href="#L-134"><span class="linenos">134</span></a>    <span class="n">build_note_map</span><span class="p">,</span>
+</span><span id="L-135"><a href="#L-135"><span class="linenos">135</span></a>    <span class="n">dedup_related_links</span><span class="p">,</span>
+</span><span id="L-136"><a href="#L-136"><span class="linenos">136</span></a>    <span class="n">resolve_wikilink</span><span class="p">,</span>
+</span><span id="L-137"><a href="#L-137"><span class="linenos">137</span></a><span class="p">)</span>
+</span><span id="L-138"><a href="#L-138"><span class="linenos">138</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.orchestrator</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_scan_and_repair</span>  <span class="c1"># noqa: F401 — re-export</span>
+</span><span id="L-139"><a href="#L-139"><span class="linenos">139</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.scan</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports (ENH-007 read-only scan path)</span>
+</span><span id="L-140"><a href="#L-140"><span class="linenos">140</span></a>    <span class="n">ScanSummary</span><span class="p">,</span>
+</span><span id="L-141"><a href="#L-141"><span class="linenos">141</span></a>    <span class="n">_git_tracked_gitignored</span><span class="p">,</span>
+</span><span id="L-142"><a href="#L-142"><span class="linenos">142</span></a>    <span class="n">scan_notes_readonly</span><span class="p">,</span>
+</span><span id="L-143"><a href="#L-143"><span class="linenos">143</span></a><span class="p">)</span>
+</span><span id="L-144"><a href="#L-144"><span class="linenos">144</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.permissions</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-145"><a href="#L-145"><span class="linenos">145</span></a>    <span class="n">_DIR_MODE</span><span class="p">,</span>
+</span><span id="L-146"><a href="#L-146"><span class="linenos">146</span></a>    <span class="n">_FILE_MODE</span><span class="p">,</span>
+</span><span id="L-147"><a href="#L-147"><span class="linenos">147</span></a>    <span class="n">_SECRET_FILE_GLOBS</span><span class="p">,</span>
+</span><span id="L-148"><a href="#L-148"><span class="linenos">148</span></a>    <span class="n">_SECRET_FILES</span><span class="p">,</span>
+</span><span id="L-149"><a href="#L-149"><span class="linenos">149</span></a>    <span class="n">_chmod_if_exists</span><span class="p">,</span>
+</span><span id="L-150"><a href="#L-150"><span class="linenos">150</span></a>    <span class="n">run_fix_permissions</span><span class="p">,</span>
+</span><span id="L-151"><a href="#L-151"><span class="linenos">151</span></a><span class="p">)</span>
+</span><span id="L-152"><a href="#L-152"><span class="linenos">152</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.prefixes</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-153"><a href="#L-153"><span class="linenos">153</span></a>    <span class="n">_find_redundant_prefixes</span><span class="p">,</span>
+</span><span id="L-154"><a href="#L-154"><span class="linenos">154</span></a>    <span class="n">run_strip_prefixes</span><span class="p">,</span>
+</span><span id="L-155"><a href="#L-155"><span class="linenos">155</span></a><span class="p">)</span>
+</span><span id="L-156"><a href="#L-156"><span class="linenos">156</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.protocol</span><span class="w"> </span><span class="kn">import</span> <span class="n">FixMode</span><span class="p">,</span> <span class="n">run_fix_modes</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-157"><a href="#L-157"><span class="linenos">157</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.subfolder</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-158"><a href="#L-158"><span class="linenos">158</span></a>    <span class="n">_GENERIC_PREFIX_DENYLIST</span><span class="p">,</span>
+</span><span id="L-159"><a href="#L-159"><span class="linenos">159</span></a>    <span class="n">_common_word_prefix</span><span class="p">,</span>
+</span><span id="L-160"><a href="#L-160"><span class="linenos">160</span></a>    <span class="n">_filter_clusters_with_claude</span><span class="p">,</span>
+</span><span id="L-161"><a href="#L-161"><span class="linenos">161</span></a>    <span class="n">_is_generic_prefix</span><span class="p">,</span>
+</span><span id="L-162"><a href="#L-162"><span class="linenos">162</span></a>    <span class="n">find_prefix_clusters</span><span class="p">,</span>
+</span><span id="L-163"><a href="#L-163"><span class="linenos">163</span></a>    <span class="n">find_subfolder_candidates</span><span class="p">,</span>
+</span><span id="L-164"><a href="#L-164"><span class="linenos">164</span></a>    <span class="n">fix_prefix_cluster</span><span class="p">,</span>
+</span><span id="L-165"><a href="#L-165"><span class="linenos">165</span></a>    <span class="n">run_migrate_subfolders</span><span class="p">,</span>
+</span><span id="L-166"><a href="#L-166"><span class="linenos">166</span></a><span class="p">)</span>
+</span><span id="L-167"><a href="#L-167"><span class="linenos">167</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.tags</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 — re-exports</span>
+</span><span id="L-168"><a href="#L-168"><span class="linenos">168</span></a>    <span class="n">_TAGS_BLOCK_START_RE</span><span class="p">,</span>
+</span><span id="L-169"><a href="#L-169"><span class="linenos">169</span></a>    <span class="n">_TAGS_INLINE_RE</span><span class="p">,</span>
+</span><span id="L-170"><a href="#L-170"><span class="linenos">170</span></a>    <span class="n">_collect_all_tags</span><span class="p">,</span>
+</span><span id="L-171"><a href="#L-171"><span class="linenos">171</span></a>    <span class="n">_find_session_duplicates</span><span class="p">,</span>
+</span><span id="L-172"><a href="#L-172"><span class="linenos">172</span></a>    <span class="n">_find_tag_duplicates</span><span class="p">,</span>
+</span><span id="L-173"><a href="#L-173"><span class="linenos">173</span></a>    <span class="n">_normalize_underscores_in_frontmatter</span><span class="p">,</span>
+</span><span id="L-174"><a href="#L-174"><span class="linenos">174</span></a>    <span class="n">_replace_tag_in_note</span><span class="p">,</span>
+</span><span id="L-175"><a href="#L-175"><span class="linenos">175</span></a>    <span class="n">_update_graph_json_tags</span><span class="p">,</span>
+</span><span id="L-176"><a href="#L-176"><span class="linenos">176</span></a>    <span class="n">run_fix_sessions</span><span class="p">,</span>
+</span><span id="L-177"><a href="#L-177"><span class="linenos">177</span></a>    <span class="n">run_fix_tags</span><span class="p">,</span>
+</span><span id="L-178"><a href="#L-178"><span class="linenos">178</span></a><span class="p">)</span>
+</span><span id="L-179"><a href="#L-179"><span class="linenos">179</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.worker</span><span class="w"> </span><span class="kn">import</span> <span class="n">_repair_one</span>  <span class="c1"># noqa: F401 — re-export</span>
+</span><span id="L-180"><a href="#L-180"><span class="linenos">180</span></a>
+</span><span id="L-181"><a href="#L-181"><span class="linenos">181</span></a><span class="c1"># CLI entry point — imported last so the submodule graph is fully populated</span>
+</span><span id="L-182"><a href="#L-182"><span class="linenos">182</span></a><span class="c1"># before main() can be invoked. ``if __name__ == &quot;__main__&quot;: main()`` below</span>
+</span><span id="L-183"><a href="#L-183"><span class="linenos">183</span></a><span class="c1"># keeps this file invocable as ``uv run --no-project vault_doctor.py …``.</span>
+</span><span id="L-184"><a href="#L-184"><span class="linenos">184</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">doctor.cli</span><span class="w"> </span><span class="kn">import</span> <span class="n">main</span>  <span class="c1"># noqa: E402,F401 — script entry point</span>
+</span><span id="L-185"><a href="#L-185"><span class="linenos">185</span></a>
 </span><span id="L-186"><a href="#L-186"><span class="linenos">186</span></a>
-</span><span id="L-187"><a href="#L-187"><span class="linenos">187</span></a>
-</span><span id="L-188"><a href="#L-188"><span class="linenos">188</span></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-</span><span id="L-189"><a href="#L-189"><span class="linenos">189</span></a>    <span class="n">main</span><span class="p">()</span>
+</span><span id="L-187"><a href="#L-187"><span class="linenos">187</span></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+</span><span id="L-188"><a href="#L-188"><span class="linenos">188</span></a>    <span class="n">main</span><span class="p">()</span>
 </span></pre></div>
 
 

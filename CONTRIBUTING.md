@@ -51,25 +51,32 @@ Thank you for your interest in contributing to Parsidion. This guide covers the 
 
 ### stdlib-only rule
 
-Any script under `skills/parsidion/scripts/` **must use Python stdlib exclusively**, except the **eleven** PEP 723 scripts listed below, which declare their own inline dependencies via a `# /// script` block. `install.py` at the repo root follows the same stdlib-only constraint. No `pip install`, no `uv add`. The `pyproject.toml` intentionally has no runtime dependencies.
+Any script under `skills/parsidion/scripts/` **must use Python stdlib exclusively**, except the **seven** PEP 723 scripts listed below, which declare their own inline dependencies via a `# /// script` block. `install.py` at the repo root follows the same stdlib-only constraint. No `pip install`, no `uv add`. The `pyproject.toml` intentionally has no runtime dependencies.
 
 **Why:** Hook scripts run inside Claude Code's lifecycle events. Adding third-party dependencies would break the zero-dependency guarantee and complicate installation.
 
-**PEP 723 exception list** (verified by `grep -lE "^# /// script" skills/parsidion/scripts/*.py`):
+**PEP 723 exception list** (verified by `grep -lE "^# /// script" skills/parsidion/scripts/*.py tools/eval/*.py`):
 
 | Script | Inline dep |
 |---|---|
 | `summarize_sessions.py` | `anyio` |
 | `build_embeddings.py` | `fastembed`, `sqlite-vec`, `pillow` |
+| `vault_embed_serve.py` | `fastembed` |
 | `vault_search.py` | `fastembed`, `sqlite-vec` |
 | `vault_stats.py` | (PEP 723 metadata-only; no third-party runtime imports) |
 | `build_graph.py` | `numpy` |
 | `html-to-md.py` | `beautifulsoup4`, `html2text` |
-| `embed_eval.py` | `fastembed`, `sqlite-vec`, `rich` |
-| `embed_eval_common.py` | (shared inline metadata) |
-| `embed_eval_generate.py` | (shared inline metadata) |
-| `embed_eval_report.py` | (shared inline metadata) |
-| `embed_eval_run.py` | `fastembed`, `sqlite-vec` |
+
+The **eval harness** under `tools/eval/` is also PEP 723 (developer-only, outside the stdlib gate's scope):
+
+| Script | Inline dep |
+|---|---|
+| `tools/eval/embed_eval.py` | `fastembed`, `sqlite-vec`, `rich` |
+| `tools/eval/embed_eval_common.py` | (shared inline metadata) |
+| `tools/eval/embed_eval_generate.py` | (shared inline metadata) |
+| `tools/eval/embed_eval_report.py` | (shared inline metadata) |
+| `tools/eval/embed_eval_run.py` | `fastembed`, `sqlite-vec` |
+| `tools/eval/prompt_eval_run.py` | `rich`, `pyyaml` |
 
 `vault_new.py` is **not** on this list — it is stdlib-only and has no `# /// script` block. If you add a new PEP 723 script, append it here and update `CLAUDE.md`'s "Exceptions" bullet to match.
 
@@ -94,7 +101,9 @@ Use modern Python type annotations throughout:
    uv run install.py --force --yes
    ```
 
-   For a single-file quick sync:
+   On **macOS/Linux** the installer symlinks `~/.claude/skills/parsidion` back to this
+   checkout, so edits under `skills/` are already live — no sync needed. The copy form
+   applies to **Windows only** (where the installer falls back to `shutil.copytree`):
    ```bash
    cp skills/parsidion/scripts/vault_common.py ~/.claude/skills/parsidion/scripts/vault_common.py
    ```
@@ -121,7 +130,7 @@ mechanical move of text from any wording change into distinct commits.
 
 Two contracts are shared between Python and TypeScript and must stay in sync:
 
-- **Vault resolution** — `skills/parsidion/scripts/vault_path.py:resolve_vault()` and `visualizer/lib/vaultResolver.ts:resolveVault()` are pinned by a single vector set at `tests/fixtures/parity/vault-resolution.json`, consumed by both `tests/test_vault_resolver_parity.py` and `visualizer/lib/vaultResolver.parity.test.ts`. **Changing either resolver requires updating the fixture** — add or edit a vector, then run both test files. Every vector runs on both sides unless it carries an explicit `applies_to` (and each suite asserts no vector is silently skipped).
+- **Vault resolution** — resolution is single-sourced in Python: `core/vault_path.py:resolve_vault_server()` (the narrower server contract: named vaults + default + `VAULT_ROOT`) is the canonical resolver, and `visualizer/lib/vaultResolver.ts:resolveVault()` **delegates** to it via the stdlib `vault_resolve.py` CLI rather than reimplementing the rules (ENH-009 — there is no second implementation to drift). The shared observable behaviour is pinned by a single vector set at `tests/fixtures/parity/vault-resolution.json`, consumed by both `tests/test_vault_resolver_parity.py` and `visualizer/lib/vaultResolver.parity.test.ts`. **Changing the resolver requires updating the fixture** — add or edit a vector, then run both test files. Every vector runs on both sides unless it carries an explicit `applies_to` (and each suite asserts no vector is silently skipped).
 - **`graph.json` schema** — `tests/fixtures/graph.schema.json` is *generated* from `GRAPH_JSON_SCHEMA` in `skills/parsidion/scripts/build_graph.py`. Do not hand-edit the fixture; run `make parity-fixtures` after changing `GRAPH_JSON_SCHEMA`. CI runs `make parity-fixtures-check` (regenerate-to-temp + diff) and fails on drift.
 
 ## Testing Hooks Manually

@@ -2,8 +2,8 @@
 
 Archived release notes for Parsidion versions **0.1.0 through 0.11.1**. These entries
 predate the current generation of work; they are preserved here for historical reference.
-For the latest releases (0.12.x, 0.13.x, 0.14.x, 0.15.x, and `[Unreleased]`), see the
-main [../CHANGELOG.md](../CHANGELOG.md).
+For the latest releases (0.12.x onward and `[Unreleased]`), see the
+main [../../CHANGELOG.md](../../CHANGELOG.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

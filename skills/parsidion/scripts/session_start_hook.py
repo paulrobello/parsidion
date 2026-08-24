@@ -6,8 +6,8 @@ and recent notes, and outputs additionalContext as JSON to stdout.
 
 Optional --ai flag uses the configured AI backend to intelligently select the
 most relevant notes rather than relying on recency and project tags alone.
-Note: when --ai is used, increase the hook timeout in settings.json to at
-least 30000ms to allow time for the AI call to complete.
+The installer registers a 60 s SessionStart timeout for every runtime, so no
+manual settings.json timeout edit is needed for the AI call.
 
 ARC-006: the implementation is decomposed into focused submodules under
 ``session_start/`` (``graph_retrieval``, ``seed_selection``, ``ai_selector``,
@@ -563,7 +563,7 @@ def main() -> None:
         help=(
             "Use the specified model to intelligently select the most relevant "
             "vault notes (no MODEL = configured backend default). "
-            "Requires increasing the hook timeout in settings.json to >= 30000ms."
+            "The installer's 60 s SessionStart timeout covers the AI call."
         ),
     )
     parser.add_argument(

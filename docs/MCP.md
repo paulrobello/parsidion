@@ -324,6 +324,8 @@ By default it produces a compact one-line-per-note index (title, folder, tags) t
 
 The compact index is truncated at 2000 characters with a "N more notes" indicator.
 
+The resolved vault root is threaded explicitly through every helper call (SEC-032), so concurrent `vault_context` calls against different `vault` references cannot read the wrong vault — no module-global vault state is mutated during the call.
+
 #### Parameters
 
 | Parameter | Type | Default | Description |

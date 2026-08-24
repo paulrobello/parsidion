@@ -1,5 +1,7 @@
 # ENH-009 — Make vault resolution Python-canonical
 
+> **Status**: shipped 2026-08-01
+
 > Reframed 2026-08-01. The original framing ("serve vault resolution through
 > the parsidion-mcp server") ran against Parsidion's stated architecture: the
 > Python CLI/skill layer is the access layer of record, and the MCP server is
@@ -126,7 +128,7 @@ The TypeScript side delegates instead of re-implementing:
 - `visualizer/lib/vaultResolver.test.ts`, `visualizer/lib/vaultResolver.parity.test.ts` — rework.
 - `tests/fixtures/parity/vault-resolution.json` — reflect single-sourcing (if the contract shape changes).
 - `CLAUDE.md`, inline docstrings/comments — update the long-term-plan notes.
-- `docs/opus/ENH-009-mcp-vault-resolution.md` — deleted (superseded by this file).
+- an earlier draft plan for MCP-side vault resolution (filename `ENH-009-mcp-vault-resolution`) — deleted from `docs/opus/`; superseded by this file.
 
 ## Verification
 

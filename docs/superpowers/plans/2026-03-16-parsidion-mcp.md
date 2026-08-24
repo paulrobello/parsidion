@@ -1,5 +1,7 @@
 # parsidion-mcp Implementation Plan
 
+> **Status**: shipped — retained as the historical design record (DOC-027).
+
 > **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.

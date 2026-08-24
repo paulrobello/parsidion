@@ -1,5 +1,7 @@
 # ENH-013 — Wire-or-delete dead helpers in `tools/eval/`
 
+> **Status**: obsolete — investigation fa06be8 found every candidate a false positive
+
 ## Goal
 Reduce `find_dead_code` noise and make the eval harness's live surface honest by wiring-or-deleting the genuinely-dead helpers the code-quality audit (QA-009) identified — distinguishing them from the false positives.
 

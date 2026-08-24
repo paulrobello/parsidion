@@ -45,6 +45,9 @@
                     <a class="variable" href="#REQUIRED_FRONTMATTER_FIELDS">REQUIRED_FRONTMATTER_FIELDS</a>
             </li>
             <li>
+                    <a class="variable" href="#FRONTMATTER_FIELD_ORDER">FRONTMATTER_FIELD_ORDER</a>
+            </li>
+            <li>
                     <a class="variable" href="#REQUIRED_KNOWLEDGE_FIELDS">REQUIRED_KNOWLEDGE_FIELDS</a>
             </li>
             <li>
@@ -173,42 +176,60 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="c1">#: Fields required on every note, of any type.</span>
 </span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="n">REQUIRED_FRONTMATTER_FIELDS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;date&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;tags&quot;</span><span class="p">})</span>
 </span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="c1">#: Fields required on knowledge notes (i.e. non-daily). Daily notes are exempt</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="c1">#: from ``confidence`` and ``related``.</span>
-</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="n">REQUIRED_KNOWLEDGE_FIELDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;confidence&quot;</span><span class="p">,</span> <span class="s2">&quot;related&quot;</span><span class="p">)</span>
-</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a>
-</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="c1">#: Valid values for the optional ``provenance`` frontmatter field.</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="n">VALID_PROVENANCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>    <span class="p">{</span><span class="s2">&quot;explicit&quot;</span><span class="p">,</span> <span class="s2">&quot;inferred&quot;</span><span class="p">,</span> <span class="s2">&quot;corrected&quot;</span><span class="p">,</span> <span class="s2">&quot;observed&quot;</span><span class="p">,</span> <span class="s2">&quot;imported&quot;</span><span class="p">}</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="p">)</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>
-</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a><span class="c1">#: Valid values for the ``confidence`` frontmatter field.</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a><span class="n">VALID_CONFIDENCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;high&quot;</span><span class="p">,</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span> <span class="s2">&quot;low&quot;</span><span class="p">})</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a><span class="c1"># Tag rules (shared by every prompt that instructs the model on tags)</span>
-</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>
-</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="c1">#: The kebab-case / short-singular tag rule, stated once. Both branches of the</span>
-</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a><span class="c1">#: summarizer&#39;s tag instruction (existing-tags vs. fresh-vault) interpolate</span>
-</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="c1">#: this so a single edit updates both. Prompt templates that mention tags also</span>
-</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="c1">#: interpolate ``{tag_rules}`` from this constant.</span>
-</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="n">TAG_RULES</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>    <span class="s2">&quot;  NEVER use underscores — always kebab-case (hyphens);</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>    <span class="s2">&quot;  prefer short singular tags: &#39;voxel&#39; not &#39;voxel-engine&#39;, &#39;hook&#39; not &#39;hooks&#39;)&quot;</span>
-</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="p">)</span>
-</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>
-</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="c1">#: Comma-separated, sorted list of valid note types — the form prompts inject</span>
-</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a><span class="c1">#: as ``{note_types}``. Pre-computed so prompt rendering does not have to import</span>
-</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="c1">#: the frozenset at render time (the loader stays free of domain knowledge).</span>
-</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="c1">#: Canonical serialization order for the known frontmatter fields (ARC-005).</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="c1">#: ``core.vault_index.serialize_frontmatter`` emits these keys first (when</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="c1">#: present), then any extra fields in insertion order. Mirrors the field order</span>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="c1">#: in the note-template frontmatter and ``visualizer/lib/frontmatter.ts``;</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="c1">#: the parity fixture ``tests/fixtures/parity/frontmatter.json`` pins the</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="c1">#: Python and TS emitters to this order.</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="n">FRONTMATTER_FIELD_ORDER</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>    <span class="s2">&quot;date&quot;</span><span class="p">,</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>    <span class="s2">&quot;type&quot;</span><span class="p">,</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>    <span class="s2">&quot;tags&quot;</span><span class="p">,</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>    <span class="s2">&quot;project&quot;</span><span class="p">,</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>    <span class="s2">&quot;confidence&quot;</span><span class="p">,</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>    <span class="s2">&quot;sources&quot;</span><span class="p">,</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>    <span class="s2">&quot;related&quot;</span><span class="p">,</span>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>    <span class="s2">&quot;provenance&quot;</span><span class="p">,</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>    <span class="s2">&quot;session_id&quot;</span><span class="p">,</span>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="p">)</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>
+</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="c1">#: Fields required on knowledge notes (i.e. non-daily). Daily notes are exempt</span>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="c1">#: from ``confidence`` and ``related``.</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="n">REQUIRED_KNOWLEDGE_FIELDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;confidence&quot;</span><span class="p">,</span> <span class="s2">&quot;related&quot;</span><span class="p">)</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="c1">#: Valid values for the optional ``provenance`` frontmatter field.</span>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="n">VALID_PROVENANCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>    <span class="p">{</span><span class="s2">&quot;explicit&quot;</span><span class="p">,</span> <span class="s2">&quot;inferred&quot;</span><span class="p">,</span> <span class="s2">&quot;corrected&quot;</span><span class="p">,</span> <span class="s2">&quot;observed&quot;</span><span class="p">,</span> <span class="s2">&quot;imported&quot;</span><span class="p">}</span>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="p">)</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="c1">#: Valid values for the ``confidence`` frontmatter field.</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="n">VALID_CONFIDENCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;high&quot;</span><span class="p">,</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span> <span class="s2">&quot;low&quot;</span><span class="p">})</span>
 </span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>
-</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a>
-</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="k">def</span><span class="w"> </span><span class="nf">folder_for</span><span class="p">(</span><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the vault folder for *note_type*, falling back to the default.&quot;&quot;&quot;</span>
-</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>    <span class="k">if</span> <span class="n">note_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>        <span class="k">return</span> <span class="n">DEFAULT_FOLDER</span>
-</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>    <span class="k">return</span> <span class="n">TYPE_FOLDERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">note_type</span><span class="p">,</span> <span class="n">DEFAULT_FOLDER</span><span class="p">)</span>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="c1"># Tag rules (shared by every prompt that instructs the model on tags)</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="c1">#: The kebab-case / short-singular tag rule, stated once. Both branches of the</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="c1">#: summarizer&#39;s tag instruction (existing-tags vs. fresh-vault) interpolate</span>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="c1">#: this so a single edit updates both. Prompt templates that mention tags also</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="c1">#: interpolate ``{tag_rules}`` from this constant.</span>
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a><span class="n">TAG_RULES</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="s2">&quot;  NEVER use underscores — always kebab-case (hyphens);</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="s2">&quot;  prefer short singular tags: &#39;voxel&#39; not &#39;voxel-engine&#39;, &#39;hook&#39; not &#39;hooks&#39;)&quot;</span>
+</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a><span class="p">)</span>
+</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>
+</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a><span class="c1">#: Comma-separated, sorted list of valid note types — the form prompts inject</span>
+</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a><span class="c1">#: as ``{note_types}``. Pre-computed so prompt rendering does not have to import</span>
+</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="c1">#: the frozenset at render time (the loader stays free of domain knowledge).</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
+</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a>
+</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a>
+</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a><span class="k">def</span><span class="w"> </span><span class="nf">folder_for</span><span class="p">(</span><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the vault folder for *note_type*, falling back to the default.&quot;&quot;&quot;</span>
+</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>    <span class="k">if</span> <span class="n">note_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a>        <span class="k">return</span> <span class="n">DEFAULT_FOLDER</span>
+</span><span id="L-123"><a href="#L-123"><span class="linenos">123</span></a>    <span class="k">return</span> <span class="n">TYPE_FOLDERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">note_type</span><span class="p">,</span> <span class="n">DEFAULT_FOLDER</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -259,6 +280,18 @@ stdlib-only contract as the <code>core/</code> package and is covered by
         
     </div>
     <a class="headerlink" href="#REQUIRED_FRONTMATTER_FIELDS"></a>
+    
+    
+
+                </section>
+                <section id="FRONTMATTER_FIELD_ORDER">
+                    <div class="attr variable">
+            <span class="name">FRONTMATTER_FIELD_ORDER</span><span class="annotation">: tuple[str, ...]</span>        =
+<span class="default_value">(&#39;date&#39;, &#39;type&#39;, &#39;tags&#39;, &#39;project&#39;, &#39;confidence&#39;, &#39;sources&#39;, &#39;related&#39;, &#39;provenance&#39;, &#39;session_id&#39;)</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FRONTMATTER_FIELD_ORDER"></a>
     
     
 
@@ -335,11 +368,11 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 
     </div>
     <a class="headerlink" href="#folder_for"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="folder_for-102"><a href="#folder_for-102"><span class="linenos">102</span></a><span class="k">def</span><span class="w"> </span><span class="nf">folder_for</span><span class="p">(</span><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="folder_for-103"><a href="#folder_for-103"><span class="linenos">103</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the vault folder for *note_type*, falling back to the default.&quot;&quot;&quot;</span>
-</span><span id="folder_for-104"><a href="#folder_for-104"><span class="linenos">104</span></a>    <span class="k">if</span> <span class="n">note_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="folder_for-105"><a href="#folder_for-105"><span class="linenos">105</span></a>        <span class="k">return</span> <span class="n">DEFAULT_FOLDER</span>
-</span><span id="folder_for-106"><a href="#folder_for-106"><span class="linenos">106</span></a>    <span class="k">return</span> <span class="n">TYPE_FOLDERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">note_type</span><span class="p">,</span> <span class="n">DEFAULT_FOLDER</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="folder_for-120"><a href="#folder_for-120"><span class="linenos">120</span></a><span class="k">def</span><span class="w"> </span><span class="nf">folder_for</span><span class="p">(</span><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="folder_for-121"><a href="#folder_for-121"><span class="linenos">121</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the vault folder for *note_type*, falling back to the default.&quot;&quot;&quot;</span>
+</span><span id="folder_for-122"><a href="#folder_for-122"><span class="linenos">122</span></a>    <span class="k">if</span> <span class="n">note_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="folder_for-123"><a href="#folder_for-123"><span class="linenos">123</span></a>        <span class="k">return</span> <span class="n">DEFAULT_FOLDER</span>
+</span><span id="folder_for-124"><a href="#folder_for-124"><span class="linenos">124</span></a>    <span class="k">return</span> <span class="n">TYPE_FOLDERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">note_type</span><span class="p">,</span> <span class="n">DEFAULT_FOLDER</span><span class="p">)</span>
 </span></pre></div>
 
 

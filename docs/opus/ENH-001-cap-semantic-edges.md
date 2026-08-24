@@ -1,5 +1,7 @@
 # ENH-001 — Cap semantic edges per node instead of emitting all pairs above a threshold
 
+> **Status**: shipped in 0.15.0
+
 > **Impact**: high · **Effort**: small · **Status**: ✅ done
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 >

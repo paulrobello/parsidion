@@ -1,5 +1,7 @@
 # ENH-010 — Incremental graph/embedding rebuild
 
+> **Status**: shipped 2026-08-01 (d405ef4)
+
 ## Resolution (2026-08-01)
 
 Investigation found the plan's premise substantially already shipped, so this

@@ -16,28 +16,14 @@
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="runguards"><span class="tsd-kind-call-signature">runGuards</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">req</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">NextRequest</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">opts</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">mutation</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="../types/apiAuth.GuardResult.html" class="tsd-signature-type tsd-kind-type-alias">GuardResult</a><a href="#runguards" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Runs every guard a handler needs, in the same order SEC-102 established:</p>
-<ol>
-<li><a href="apiAuth.requireToken.html" class="tsd-kind-function">requireToken</a> — bearer-token check (covers non-browser clients
-on every method when VISUALIZER_TOKEN is set).</li>
-<li><a href="apiAuth.requireSameOrigin.html" class="tsd-kind-function">requireSameOrigin</a> — Sec-Fetch-Site check (covers browser
-drive-by on every method).</li>
-<li>For mutations (POST/PUT/DELETE/PATCH), additionally the Content-Type
-check from <a href="apiAuth.requireAuth.html" class="tsd-kind-function">requireAuth</a>. The token check inside requireAuth
-is a duplicate of step 1, so for read methods we skip requireAuth
-entirely (the Content-Type check is meaningless on a GET anyway).</li>
-</ol>
-</div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
 <ul class="tsd-parameter-list">
 <li><span><span class="tsd-kind-parameter">req</span>: <span class="tsd-signature-type">NextRequest</span></span></li>
 <li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">opts</span>: <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">mutation</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span> <span class="tsd-signature-symbol">}</span></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="../types/apiAuth.GuardResult.html" class="tsd-signature-type tsd-kind-type-alias">GuardResult</a></h4><p>A NextResponse when the request must be rejected, or null when
-the handler should run.</p>
-<aside class="tsd-sources">
+<h4 class="tsd-returns-title">Returns <a href="../types/apiAuth.GuardResult.html" class="tsd-signature-type tsd-kind-type-alias">GuardResult</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/paulrobello/parsidion/blob/63413d12e35853d83c98b20f3fbb67ffaaf535a8/visualizer/lib/apiAuth.ts#L169">lib/apiAuth.ts:169</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in lib/apiAuth.ts:243</li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

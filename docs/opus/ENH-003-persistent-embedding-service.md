@@ -1,5 +1,7 @@
 # ENH-003 — Eliminate per-spawn embedding model loads
 
+> **Status**: shipped in 0.15.0
+
 > **Impact**: high · **Effort**: medium · **Status**: done
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 > **Overlap note:** Step 1 below is the same change as audit item ARC-027(c). If `/fix-audit` has already

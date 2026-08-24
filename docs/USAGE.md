@@ -58,7 +58,7 @@ vault-search --grep "pattern" -f Patterns             # combine with metadata fi
 # Temporal filters (metadata mode) — narrow by note mtime
 vault-search --changed-since 2026-06-01               # notes modified on/after a date
 vault-search --changed-since 2026-06-01 -T python     # combine with other metadata filters
-vault-search --as-of 2026-05-15 "fastapi middleware"  # semantic search against note state at a past date
+vault-search --as-of 2026-05-15 "fastapi middleware"  # metadata filter: notes dated on/before a date (not semantic)
 
 # Interactive curses TUI (real-time results, navigation, editor integration)
 vault-search --interactive
@@ -135,7 +135,7 @@ vault-export --zip ~/vault.zip     # export filtered subset as zip
 ## Merge near-duplicate notes
 
 ```bash
-# Backend-aware: uses the configured prompt AI backend (claude -p or codex exec).
+# Backend-aware: uses the configured prompt AI backend (claude -p, codex exec, or grok).
 # NOTE_A survives; NOTE_B is moved to .trash/.
 vault-merge --scan                                # list near-duplicate pairs (no merge)
 vault-merge NOTE_A NOTE_B --execute               # merge two notes
@@ -149,14 +149,14 @@ vault-merge NOTE_A NOTE_B --dry-run               # preview merged body without 
 
 ```bash
 vault-conflicts                    # interactive: scan similar pairs, resolve contradictions via prompt AI backend
-vault-conflicts --scan-only        # list candidate conflict pairs only (no AI, no writes)
+vault-conflicts --scan-only        # scan + write conflicts/report.json, no TUI (AI still runs unless --no-ai)
 vault-conflicts --json             # machine-readable output for scripting
 vault-conflicts --no-ai            # list pairs without invoking the AI backend
 ```
 
 ## Summarize queued sessions
 
-Generates structured vault notes via the configured prompt AI backend: Claude uses `claude -p`, Codex uses `codex exec`; no Claude Agent SDK or Codex SDK required.
+Generates structured vault notes via the configured prompt AI backend (`ai.backend` in `config.yaml`): `claude-cli` runs `claude -p`, `codex-cli` runs `codex exec`, and `grok-cli` runs `grok --prompt-file` using the CLI's own OAuth login. `auto` (the default) picks the backend from runtime hints — `PARSIDION_RUNTIME=grok` selects grok-cli. No Claude Agent SDK, Codex SDK, or Grok SDK is required.
 
 ```bash
 # Process all pending sessions (run from a terminal, not inside Claude Code)
@@ -181,7 +181,8 @@ Scan for issues and repair via the configured prompt AI backend.
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --dry-run
 
 # Repair repairable issues. For Claude CLI backend inside Claude Code, unset CLAUDECODE;
-# Codex backend uses codex exec plus an internal recursion guard.
+# Codex backend uses codex exec plus an internal recursion guard; grok backend uses
+# grok --prompt-file with the CLI's OAuth login (no CLAUDECODE guard applies).
 env -u CLAUDECODE uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix --limit 20
 
 # Errors only; skip warnings
@@ -224,6 +225,7 @@ bash ~/.claude/skills/parsidion/scripts/run_trigger_eval.sh
 
 ```python
 import sys
+from pathlib import Path
 sys.path.insert(0, str(Path.home() / ".claude/skills/parsidion/scripts"))
 from vault_common import find_notes_by_tag, find_notes_by_project
 ```
@@ -257,6 +259,31 @@ uv run install.py --uninstall
 # Uninstall only hook registrations
 uv run install.py --uninstall-hooks
 ```
+
+## Environment variables
+
+Variables Parsidion reads at runtime. Real environment variables always win over `config.yaml` values (see `anthropic_env` for API-key forwarding).
+
+| Variable | Read by | Effect | Default |
+|---|---|---|---|
+| `CLAUDE_VAULT` | `core/vault_path.py` (resolver channel 3) | Resolve the vault by path or by name from `vaults.yaml` | unset |
+| `VAULT_ROOT` | `core/vault_path.py` (`resolve_vault_server`) | Override the default vault root for server-side resolution (visualizer/MCP path) | unset |
+| `CLAUDE_TEMPLATES_DIR` | `core/vault_path.py` | Override the note-templates directory | `~/.claude/skills/parsidion/templates` |
+| `XDG_CONFIG_HOME` | `core/vault_path.py` | Base for `~/.config/parsidion/vaults.yaml` lookup | `~/.config` |
+| `XDG_CACHE_HOME` | `tools/eval/prompt_eval_run.py` | Cache dir for prompt-eval results | `~/.cache` |
+| `USER` / `USERNAME` | `core/vault_fs.py` (`get_vault_username`) | Daily-note filename suffix when `vault.username` is blank | `$USER` (Windows: `$USERNAME`) |
+| `CODEX_HOME` | `core/vault_hooks.py` | Codex config/sessions root (transcript allowlist) | `~/.codex` |
+| `CODEX_SANDBOX`, `CODEX_SESSION_ID` | `core/ai_backend.py` | Runtime hints: auto-select the `codex-cli` prompt backend | unset |
+| `GEMINI_HOME` | `core/vault_hooks.py` | Gemini config root (transcript allowlist) | `~/.gemini` |
+| `PARSIDION_RUNTIME` | `core/ai_backend.py` | Runtime hint for `ai.backend: auto` (`grok` selects grok-cli, `codex` codex-cli, `claude` claude-cli) | unset |
+| `CLAUDECODE` | `core/ai_backend.py` | Runtime hint (claude-cli); stripped from child environments via `env_without_claudecode()` | unset |
+| `CLAUDE_VAULT_STOP_ACTIVE` | `session_stop_hook.py`, `subagent_stop_hook.py` | Recursion guard: set while a Parsidion-launched summarizer runs so nested session-end hooks do not re-queue | unset |
+| `PARSIDION_INTERNAL` | hooks, `agent_adapter.py` | Recursion guard for Parsidion-internal CLI invocations | unset |
+| `PARSIDION_SCRIPTS_DIR` | pi/omp extension (`scriptRunner.ts`) | Force the hook-scripts directory the extension invokes | installed `~/.claude/skills/parsidion/scripts` |
+| `PARSIDION_DIR` | pi/omp extension (`scriptRunner.ts`) | Parsidion checkout root; scripts resolve under `<dir>/skills/parsidion/scripts` | unset |
+| `NO_COLOR` | `installer/colors.py` | Disable installer colour output | unset |
+| `VAULT_SEARCH_*` | `vault_search.py` | Per-flag defaults: `VAULT_SEARCH_FORMAT`, `VAULT_SEARCH_MIN_SCORE`, `VAULT_SEARCH_TOP`, `VAULT_SEARCH_MODEL` (CLI flag > env > config) | unset |
+| `VISUALIZER_TOKEN` | `visualizer/lib/apiAuth.ts` | When set at server start, every API request requires this bearer token | unset (token auth off) |
 
 ## Related Documentation
 

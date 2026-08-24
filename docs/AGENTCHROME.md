@@ -413,6 +413,6 @@ If agentchrome cannot connect to Chrome, ensure:
 ## Related Documentation
 
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — System architecture, including the research agent that uses agentchrome
-- [docs/MCPL.md](MCPL.md) — MCP Launchpad CLI: alternative search tools used alongside agentchrome
+- [docs/archive/MCPL.md](archive/MCPL.md) — Legacy MCP Launchpad CLI reference (not installed): alternative search tools used alongside agentchrome
 - [docs/MCP.md](MCP.md) — MCP server configuration and available tools
 - [README.md](../README.md) — Project overview and prerequisites

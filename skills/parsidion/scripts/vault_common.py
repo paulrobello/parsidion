@@ -42,8 +42,9 @@ Follow those markers when:
 
 The flat per-module shims at the scripts root (``vault_config.py``,
 ``vault_path.py``, ``vault_fs.py``, ...) are intentionally NOT collapsed to
-``import *`` here -- that is QA-005 and depends on this deprecation landing
-first. See ``AUDIT.md`` [ARC-001] and ``AUDIT-REMEDIATION-PLAN.md`` Phase 2.
+``import *`` here -- that was the QA-005 follow-up to this deprecation,
+planned in the 2026-08-01 audit remediation (ARC-001, Phase 2; that cycle's
+playbook is preserved in git history).
 """
 
 # ---------------------------------------------------------------------------

@@ -200,6 +200,7 @@ def _cleanup(sock_path: Path, pid_file: Path, our_pid: int) -> None:
 
 
 def main() -> int:
+    """Parse CLI args and serve embed requests until idle-exit or shutdown."""
     parser = argparse.ArgumentParser(
         description="Parsidion persistent embedding service (ENH-003)."
     )

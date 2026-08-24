@@ -1,5 +1,7 @@
 # MCP Launchpad (mcpl)
 
+> **Legacy — not installed.** The `mcpl` CLI is not part of the Parsidion toolchain and its use as a live integration is discouraged (DOC-011). This document is retained for historical reference only; the research agent's Brave-Search fallback step checks `which mcpl` before considering it.
+
 A unified command-line interface for discovering and executing tools from multiple Model Context Protocol (MCP) servers, enabling AI agents like Claude Code to access any configured MCP capability through a single, consistent gateway.
 
 ## Table of Contents

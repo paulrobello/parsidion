@@ -429,4 +429,4 @@ The redesign replaced the previous full-screen graph layout entirely. Key migrat
 ## Related Documentation
 
 - [DOCUMENTATION_STYLE_GUIDE.md](../../DOCUMENTATION_STYLE_GUIDE.md) — Documentation standards
-- [../README.md](../README.md) — Superpowers documentation index
+- [docs/README.md](../../README.md) — Documentation index

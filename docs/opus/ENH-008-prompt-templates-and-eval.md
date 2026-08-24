@@ -1,6 +1,6 @@
 # ENH-008 — Externalize prompts and evaluate them with the existing eval harness
 
-> **Impact**: medium · **Effort**: large · **Status**: not started
+> **Impact**: medium · **Effort**: large · **Status**: shipped in 0.15.0
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 > **Sequencing note:** audit item ARC-029 covers moving prompts out of inline literals. If it has landed,
 > start at Step 3 (versioning) — Steps 1–2 are the same work. This plan's distinct contribution is
@@ -150,11 +150,11 @@ for `/Users/`, `$HOME` expansions, and common key patterns, and fails if any are
 Extend the existing harness rather than building a parallel one. Read `embed_eval_common.py` and
 `embed_eval_run.py` first and match their conventions for result shape, output location, and CLI flags.
 
-New `skills/parsidion/scripts/prompt_eval_run.py` (PEP 723, like its siblings):
+New `tools/eval/prompt_eval_run.py` (PEP 723, like its siblings):
 
 ```bash
-uv run skills/parsidion/scripts/prompt_eval_run.py --prompt summarize-session --model haiku
-uv run skills/parsidion/scripts/prompt_eval_run.py --prompt summarize-session --compare 1.0.0 1.1.0
+uv run tools/eval/prompt_eval_run.py --prompt summarize-session --model haiku
+uv run tools/eval/prompt_eval_run.py --prompt summarize-session --compare 1.0.0 1.1.0
 ```
 
 Scoring per golden case:
@@ -190,7 +190,7 @@ Link from `CLAUDE.md`, `CONTRIBUTING.md`, and `docs/ARCHITECTURE.md`.
 | `skills/parsidion/scripts/summarize_sessions.py` | use loader + `note_schema`; drop the duplicated tag rules |
 | `skills/parsidion/scripts/vault_doctor.py`, `vault_merge.py`, `vault_conflicts.py`, `session_start_hook.py` | use loader |
 | `skills/parsidion/scripts/update_index.py` | `prompt_version` column |
-| `skills/parsidion/scripts/prompt_eval_run.py` | new — eval driver |
+| `tools/eval/prompt_eval_run.py` | new — eval driver |
 | `tests/fixtures/prompts/golden/**` | new — transcripts + expectations |
 | `tests/test_prompt_templates.py` | new |
 | `docs/PROMPTS.md` | new |
@@ -216,7 +216,7 @@ uv run pytest tests/ -k anonymi -v
 env -u CLAUDECODE uv run --no-project skills/parsidion/scripts/summarize_sessions.py --dry-run
 
 # Eval baseline — record the score before any prompt edit
-uv run skills/parsidion/scripts/prompt_eval_run.py --prompt summarize-session --model haiku
+uv run tools/eval/prompt_eval_run.py --prompt summarize-session --model haiku
 ```
 
 The byte-identical rendering test is the acceptance criterion for Steps 1–2. Externalization that

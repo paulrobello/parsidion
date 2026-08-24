@@ -1,6 +1,6 @@
 # ENH-004 — Make `note_index` the single read path and retire vault-wide `os.walk`
 
-> **Impact**: medium · **Effort**: medium · **Status**: not started
+> **Impact**: medium · **Effort**: medium · **Status**: shipped in 0.15.0
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 > **Sequencing: land audit item SEC-106 first.** It adds symlink containment to the walk; doing this
 > enhancement first risks moving the read path before the check exists and losing it.

@@ -1,5 +1,7 @@
 # ENH-012 — SSE route integration tests for the visualizer
 
+> **Status**: shipped 2026-08-01
+
 ## Goal
 Add integration tests for the visualizer's Server-Sent-Events routes (`vault/events`, `graph`) that exercise a real vault watcher end-to-end — closing the test-coverage gap the code-quality audit flagged ("the SSE `vault/events` and `graph` routes have no integration test that exercises a real watcher").
 

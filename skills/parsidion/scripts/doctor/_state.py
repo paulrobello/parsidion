@@ -97,6 +97,8 @@ PREFIX_CLUSTER_MIN = (
 
 @dataclass
 class Issue:
+    """One doctor finding: a detected defect on a note, pre-repair."""
+
     path: Path
     severity: str  # "error" | "warning"
     code: str

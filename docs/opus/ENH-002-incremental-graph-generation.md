@@ -1,6 +1,6 @@
 # ENH-002 — Incremental graph generation
 
-> **Impact**: high · **Effort**: medium · **Status**: not started
+> **Impact**: high · **Effort**: medium · **Status**: shipped in 0.15.0
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 > **Sequencing: land ENH-001 first.** Both edit `build_semantic_edges`, and ENH-001 shrinks the working
 > set this feature has to reason about.

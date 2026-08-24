@@ -1,5 +1,7 @@
 # ENH-014 — Typed config schema via stdlib dataclasses
 
+> **Status**: shipped 2026-08-01
+
 ## Goal
 Replace the untyped-dict config returned by `core/vault_config.py` with validated dataclass schemas per section, so a typo'd config key is caught at startup instead of silently falling back to the default — without violating the stdlib-only constraint (no pydantic/ruamel).
 

@@ -207,3 +207,30 @@ jobs:
 
       - name: Test
         run: bun test parsidion-status.test.ts
+
+  docs-api-checks:
+    name: docs/api — generated reference drift check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (SEC-028)
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0 (SEC-028)
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5 (SEC-028)
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install visualizer dependencies (typedoc)
+        working-directory: visualizer
+        run: bun install --frozen-lockfile
+
+      - name: docs/api drift check
+        # DOC-003: pdoc (docs extra) + typedoc (visualizer devDeps) regenerate
+        # to a temp dir and diff against the committed docs/api snapshot.
+        # typedoc.json pins gitRevision: "main" so "Defined in" links stay
+        # stable across commits instead of embedding the build's commit SHA.
+        run: make docs-api-check

@@ -1,5 +1,7 @@
 # parsidion-mcp Design Spec
 
+> **Status**: shipped — retained as the historical design record (DOC-027).
+
 > **Note:** Historical design document. Path references and project names may reflect the legacy `parsidion-cc` name (renamed to `parsidion` in v0.7.0). Do not edit this document.
 
 This document specifies the architecture and implementation of `parsidion-mcp`, a FastMCP-based MCP server that exposes the Parsidion vault knowledge management system to Claude Desktop and other MCP-capable clients.

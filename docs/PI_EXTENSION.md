@@ -1,11 +1,12 @@
 # pi Extension Install
 
-Install, configure, and smoke-test the Parsidion extension for the [pi](https://github.com/anthropics/pi) coding agent. The pi adapter is a TypeScript extension that shells out to Parsidion's Python hook scripts, so the same vault and queue path used by Claude Code, Codex CLI, and Gemini CLI works for pi sessions too.
+Install, configure, and smoke-test the Parsidion extension for the [pi](https://github.com/badlogic/pi-mono) coding agent (and for [omp](https://github.com/badlogic/pi-mono), which loads the same extension — the `@mariozechner/*` npm scope and the `badlogic/pi-mono` repository are the same author). The pi adapter is a TypeScript extension that shells out to Parsidion's Python hook scripts, so the same vault and queue path used by Claude Code, Codex CLI, and Gemini CLI works for pi sessions too.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Install](#install)
+- [omp (oh my pi)](#omp-oh-my-pi)
 - [Effective Anthropic / GLM Configuration](#effective-anthropic--glm-configuration)
 - [Smoke Tests](#smoke-tests)
 - [Troubleshooting](#troubleshooting)
@@ -55,6 +56,17 @@ Then in pi:
 - resolved script directory
 - transcript/session details
 - effective Anthropic / GLM config status
+
+## omp (oh my pi)
+
+omp is an extension-only runtime like pi and reuses this same TypeScript extension source, installed into omp's own extensions directory instead:
+
+```bash
+uv run install.py connect omp
+uv run install.py disconnect omp
+```
+
+The extension lands in `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; override with `install.py connect omp --omp-home <dir>`). omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`). omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. Verified against omp 17.3.8 (0.19.0 release notes).
 
 ## Effective Anthropic / GLM Configuration
 

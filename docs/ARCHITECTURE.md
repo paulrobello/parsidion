@@ -1,6 +1,6 @@
 # Parsidion Architecture
 
-An agent-agnostic markdown knowledge vault that gives coding assistants persistent memory, cross-session context, and a searchable store of everything they learn. Claude Code is the primary adapter; Codex CLI, Gemini CLI, and pi are also supported. The system is augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
+An agent-agnostic markdown knowledge vault that gives coding assistants persistent memory, cross-session context, and a searchable store of everything they learn. Claude Code is the primary adapter; Codex CLI, Gemini CLI, pi, and omp are also supported. The system is augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -52,7 +52,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
 - Graph retrieval at session start: Tier 1 expands the injected note set with 1-hop wikilink neighbours of selected notes; Tier 2 re-ranks by seed-cluster tag overlap + hubness (default on, configurable via `graph_expand`/`graph_expand_max`/`graph_rerank`)
 - Obsidian graph view with domain-based color grouping
-- Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), and pi agent (`extensions/pi/parsidion/`)
+- Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), pi agent (`extensions/pi/parsidion/`), and omp (`install.py connect omp` — reuses the pi extension, installed into `~/.omp/agent/extensions`)
 
 **Runtime requirements:**
 - Python 3.13+ (stdlib only -- no third-party packages)
@@ -274,22 +274,22 @@ Fires when a Claude Code, Codex, or Gemini session begins. Loads relevant vault 
 
 **AI-powered mode (`--ai [MODEL]`):**
 
-Pass `--ai` (or `--ai <model-id>`) to the hook command, or set `session_start_hook.ai_model` in config.yaml, to enable intelligent note selection via `claude -p`. When enabled:
+Pass `--ai` (or `--ai <model-id>`) to the hook command, or set `session_start_hook.ai_model` in config.yaml, to enable intelligent note selection via the configured prompt AI backend (`claude-cli`, `codex-cli`, or `grok-cli`; see the `ai` section under [Configuration](#configuration)). When enabled:
 
 1. Collects **all** vault notes as candidates — project-tagged notes first (via `query_note_index` SQLite lookup, with a filesystem-walk fallback), then 1-hop wikilink neighbours of those project notes spliced in by `_enrich_with_graph()` (when `graph_expand` is enabled), then the rest sorted by mtime descending. Tier 2 rerank does not apply in AI mode — the selector ranks the pool itself.
 2. Builds a summarised candidate block (up to 8000 chars) from note titles and first 6 body lines
-3. Runs `claude -p <prompt> --model <model> --no-session-persistence` with `CLAUDECODE` unset so it can be called from within an active session; timeout is controlled by `session_start_hook.ai_timeout` (default 25 s)
+3. Sends the prompt through `ai_backend.run_ai_prompt` (the claude-cli path runs `claude -p` with `CLAUDECODE` unset so it can be called from within an active session); timeout is controlled by `session_start_hook.ai_timeout` (default 25 s)
 4. Claude selects and formats the most relevant notes as context (target ≤ `max_chars - 500` chars)
 5. Falls back silently to standard behaviour on timeout, missing binary, or non-zero exit
 
-Default model: `claude-haiku-4-5-20251001`. Override with `--ai claude-sonnet-4-6`, any valid model ID, or `session_start_hook.ai_model` in config.yaml.
+Default model: the configured backend's small tier (`ai_models.<backend>.small` — e.g. `claude-haiku-4-5-20251001` for claude-cli, `grok-4.6` for grok-cli, which maps both tiers to the same model). Override with `--ai <model-id>` valid for the configured backend, or `session_start_hook.ai_model` in config.yaml.
 
-**Hook timeout:** The default 10 s hook timeout must be increased to at least `30000` ms when using `--ai`.
+**Hook timeout:** The installer registers a 60 s SessionStart timeout for every runtime (existing installs with a lower value are raised on reinstall), so no manual `settings.json` edit is needed when using `--ai`. For reference, the registration the installer writes:
 
 ```json
 {
   "command": "uv run --no-project ~/.claude/skills/parsidion/scripts/session_start_hook.py --ai",
-  "timeout": 30000
+  "timeout": 60000
 }
 ```
 
@@ -330,14 +330,14 @@ Registered under the Claude `SessionEnd` hook event — fires once when the sess
 
 **AI-powered mode (`--ai [MODEL]`):**
 
-Pass `--ai` (or `--ai <model-id>`) to the hook command, or set `session_stop_hook.ai_model` in config.yaml, to enable semantic classification via `claude -p`. When enabled:
+Pass `--ai` (or `--ai <model-id>`) to the hook command, or set `session_stop_hook.ai_model` in config.yaml, to enable semantic classification via the configured prompt AI backend. When enabled:
 
 1. Samples the first 10 assistant messages (up to 1500 chars total)
-2. Asks Claude to determine `should_queue`, `categories`, and a one-sentence `summary`; timeout is controlled by `session_stop_hook.ai_timeout` (default 25 s)
+2. Asks the backend to determine `should_queue`, `categories`, and a one-sentence `summary`; timeout is controlled by `session_stop_hook.ai_timeout` (default 25 s)
 3. Skips queuing if `should_queue` is false (avoids storing routine sessions)
 4. Falls back silently to keyword heuristics on timeout, missing binary, or non-zero exit
 
-Default model: `claude-haiku-4-5-20251001`. Override with `--ai <model-id>` or `session_stop_hook.ai_model` in config.yaml. Requires increasing the hook timeout in `settings.json` to at least `30000` ms.
+Default model: the configured backend's small tier (`ai_models.<backend>.small`). Override with `--ai <model-id>` or `session_stop_hook.ai_model` in config.yaml. The SessionEnd hook is registered `async` by the installer, so the AI call runs in the background and is not subject to a hook timeout.
 
 #### PreCompact Hook
 
@@ -404,7 +404,7 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 
 **Location:** `skills/parsidion/scripts/summarize_sessions.py`
 
-An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. Claude-backed runs use `claude -p`; Codex-backed runs use `codex exec`. Gemini runtime hooks can queue transcripts, but there is no Gemini prompt backend yet. No Claude Agent SDK or Codex SDK is required for this path.
+An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. `claude-cli` runs use `claude -p`; `codex-cli` runs use `codex exec`; `grok-cli` runs use `grok --prompt-file` with the CLI's own OAuth login (credentials under `~/.grok`). Gemini runtime hooks can queue transcripts, but there is no Gemini prompt backend yet. No Claude Agent SDK, Codex SDK, or Grok SDK is required for this path.
 
 The note-writing and chunk-summarizer prompts are externalized versioned templates under `skills/parsidion/templates/prompts/`, rendered through the strict-variable loader in `prompt_templates.py`, and every AI-generated note is stamped with a `prompt_version: <id>@<semver>` field in its frontmatter. See [docs/PROMPTS.md](PROMPTS.md) for the template format, the variable contract, and the opt-in eval harness that scores a prompt edit against a golden transcript set.
 
@@ -414,29 +414,30 @@ The note-writing and chunk-summarizer prompts are externalized versioned templat
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `model` | `claude-sonnet-4-6` | Explicit large-model override; defaults to `defaults.sonnet_model` |
+| `model` | `null` | Explicit large-model override; `null` falls back to `ai_models.<backend>.large` |
 | `max_parallel` | `5` | Concurrent summarization tasks |
 | `transcript_tail_lines` | `400` | Transcript lines to read per entry |
 | `transcript_tail_bytes` | `262144` | Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts) so cleaning/chunking cannot explode |
 | `max_cleaned_chars` | `12000` | Maximum characters after cleaning |
-| `persist` | `false` | Accepted for backwards compatibility; CLI backends control persistence via backend config |
-| `cluster_model` | `claude-haiku-4-5-20251001` | Chunk-model for hierarchical summarization; defaults to `defaults.haiku_model` |
+| `ai_timeout` | `120` | Per-summarizer-prompt timeout in seconds (`null` = the backend's own default) |
+| `cluster_model` | `null` | Chunk-model for hierarchical summarization; `null` falls back to `ai_models.<backend>.small` |
 | `dedup_threshold` | `0.80` | Cosine similarity above which a note is considered a near-duplicate and skipped |
 | `dead_letter_retention_days` | `7` | Prune `dead_letters.jsonl` entries older than N days each run (write-gate skips are retried up to `_MAX_SKIPS` (2) before becoming sticky, so the file grows without this); `<=0` disables pruning |
 | `rebuild_graph` | `false` | Rebuild visualizer `graph.json` after indexing (same as `--rebuild-graph` CLI flag) |
 | `graph_include_daily` | `false` | Include Daily notes in graph rebuild (same as `--graph-include-daily` CLI flag) |
+| `graph_incremental` | `true` | Rebuild `graph.json` incrementally — reuse the previous graph and recompute only changed notes (ENH-010; falls back to a full rebuild when the previous graph is missing or was built under different parameters) |
 
 **Behavior:**
 1. Reads entries from `pending_summaries.jsonl`
 2. Pre-processes each transcript via `preprocess_transcript_hierarchical()`: if the cleaned dialogue fits within `max_cleaned_chars`, it is used as-is; if it exceeds the limit, it is split into chunks, each chunk is summarized by the backend small model (or explicit `cluster_model`), and the chunk summaries are concatenated for the final note prompt
 3. **Write-gate filter:** before generating a note, the configured backend evaluates whether the session contains reusable insight. Transient sessions (dead-ends, routine builds, session-specific context) return `{"decision": "skip"}` and are not saved to the vault
 4. **Semantic dedup:** before writing a note, runs `vault_search.py` to check for near-duplicate existing notes (cosine similarity ≥ `dedup_threshold`); skips writing if a near-duplicate is found
-5. Calls the configured prompt AI backend (Claude CLI or Codex CLI; up to `max_parallel` parallel tasks) to generate structured notes
+5. Calls the configured prompt AI backend (claude-cli, codex-cli, or grok-cli; up to `max_parallel` parallel tasks) to generate structured notes
 6. **Automated backlinks:** after writing a new note, delegates to `vault_links.add_backlinks_to_existing()` to inject bidirectional `[[wikilinks]]` — updating both the new note's `related` field and matching existing notes
 7. Saves notes to the appropriate vault subfolder (`Debugging/`, `Patterns/`, `Research/`, etc.) with YAML frontmatter
 8. Removes processed entries from the queue, rebuilds the vault index, and commits via `git_commit_vault`
 
-**When using `ai.backend: claude-cli`, run from a separate terminal** (or with `env -u CLAUDECODE`) because nested Claude CLI invocations are blocked inside Claude Code. Codex-backed summarization uses `codex exec` and does not require the Claude Agent SDK.
+**When using `ai.backend: claude-cli`, run from a separate terminal** (or with `env -u CLAUDECODE`) because nested Claude CLI invocations are blocked inside Claude Code. Codex-backed summarization uses `codex exec` and grok-backed summarization uses `grok --prompt-file`; neither is affected by the `CLAUDECODE` guard and neither requires the Claude Agent SDK. Run `grok` once interactively to complete its OAuth login before the first grok-backed summarization.
 
 ### Vault Doctor
 
@@ -545,7 +546,7 @@ A Claude Code agent definition (runs on Sonnet) that conducts technical research
 2. Uses NotebookLM (if available) for deep synthesis of source material
 3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
 4. Fetches raw HTML via `agentchrome dom get-html "css:html"`, pipes through `~/.claude/skills/parsidion/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
-5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/MCPL.md`) was also requested
+5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/RESEARCH-NOTES.md`) was also requested
 6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
 7. Runs `update_index.py` after saving vault notes
 8. Provides a summary report of findings and gaps
@@ -1040,6 +1041,7 @@ session_start_hook:  # session_start_hook.py
   ai_model: null     # Model for AI note selection (null = disabled)
   ai_cooldown_seconds: 30  # Skip nested claude -p if AI SessionStart ran recently for this vault
   ai_single_flight: true   # Allow only one nested claude -p SessionStart selector per vault at a time
+  ai_candidates_max: 48    # Cap on the AI selector's ranked candidate pool (0 = unlimited)
   max_chars: 4000    # Max context injection characters
   ai_timeout: 25     # AI call timeout in seconds
   recent_days: 3     # Days to look back for recent notes
@@ -1057,32 +1059,72 @@ session_stop_hook:   # session_stop_hook.py
   auto_summarize: true  # Auto-launch summarizer when pending entries exist
   auto_summarize_after: 1  # Queue threshold to trigger auto-summarizer (0 = always)
   transcript_tail_lines: 200      # Default tail lines to parse
+  transcript_tail_bytes: 1500000  # Byte ceiling on the raw tail; bounds huge-line transcripts
   pi_transcript_tail_lines: 1000  # Fallback pi tail when default tail has no assistant text
 
 subagent_stop_hook:  # subagent_stop_hook.py
   enabled: true      # Set false to disable subagent transcript capture
   min_messages: 3    # Minimum assistant turns before queuing (pi default is 1 when unset)
   excluded_agents: "vault-explorer,research-agent"  # comma-separated skip list
+  transcript_tail_bytes: 1500000  # Byte ceiling on the subagent transcript tail
 
 pre_compact_hook:    # pre_compact_hook.py
   lines: 200         # Transcript lines to analyse
+  transcript_tail_bytes: 1500000  # Byte ceiling on the transcript tail read
 
 summarizer:          # summarize_sessions.py
-  model: claude-sonnet-4-6  # Large model for final note generation
+  model: null        # Large model for final note generation (null = ai_models.<backend>.large)
   max_parallel: 5
   transcript_tail_lines: 400
   transcript_tail_bytes: 262144  # Byte ceiling on raw tail; bounds huge-line transcripts
   max_cleaned_chars: 12000
-  persist: false     # accepted for backwards compatibility
-  cluster_model: claude-haiku-4-5-20251001  # Small model for hierarchical chunk summarization
+  ai_timeout: 120    # Per-summarizer-prompt timeout in seconds (null = backend default)
+  cluster_model: null  # Small model for hierarchical chunk summarization (null = ai_models.<backend>.small)
   dedup_threshold: 0.80  # Cosine similarity above which a near-duplicate note is detected and skipped
   dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days; <=0 disables
   rebuild_graph: false                     # Rebuild visualizer graph.json after indexing
   graph_include_daily: false               # Include Daily notes in graph rebuild
+  graph_incremental: true                  # ENH-010: incremental graph rebuild (full rebuild fallback is automatic)
 
-defaults:            # Centralized model IDs; all scripts fall back to these
-  haiku_model: claude-haiku-4-5-20251001
-  sonnet_model: claude-sonnet-4-6
+defaults:            # Legacy centralized model IDs
+  haiku_model: claude-haiku-4-5-20251001  # sonnet_model is no longer read — use ai_models.<backend>.large
+
+ai:                  # Prompt backend selection (ai_backend.py)
+  backend: auto      # auto | claude-cli | codex-cli | grok-cli | none; auto uses runtime hints (PARSIDION_RUNTIME, CODEX_SANDBOX/CODEX_SESSION_ID, CLAUDECODE) and falls back to claude-cli; none disables AI features
+
+ai_models:           # Per-backend model tiers; hooks use small, the summarizer uses large
+  claude:
+    small: claude-haiku-4-5-20251001
+    large: claude-sonnet-4-6
+  codex:
+    small: gpt-5.5
+    large: gpt-5.5
+  grok:
+    small: grok-4.6  # Both tiers map to grok-4.6 today (mirrors the codex default)
+    large: grok-4.6
+
+claude_cli:          # claude -p invocation (ai_backend.py); used when ai.backend resolves to claude-cli
+  minimal_context: true    # Replace the system prompt and run from a clean scratch cwd so the project CLAUDE.md chain is not ingested
+  # system_prompt: ...     # Override the minimal system prompt text
+  # timeout: 30            # Per-prompt timeout in seconds
+
+grok_cli:            # grok CLI invocation (ai_backend.py); used when ai.backend is grok-cli; auth via the CLI's own OAuth login (~/.grok)
+  command: grok      # PATH lookup or absolute path to the grok CLI
+  timeout: 120       # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40 s per prompt)
+  minimal_context: true    # Override the system prompt and disable tools/subagents/web search so CLAUDE.md/AGENTS.md rules and skill catalogs are not ingested
+  # system_prompt: ...     # Override the minimal system prompt text
+
+codex_cli:           # codex exec invocation (ai_backend.py); used when ai.backend resolves to codex-cli
+  command: codex     # PATH lookup or absolute path to the codex CLI
+  timeout: 60        # Per-prompt timeout in seconds
+  sandbox: read-only         # read-only | workspace-write | danger-full-access (the latter also needs allow_danger_full_access)
+  ephemeral: true             # Start each prompt with no session state (code default)
+  skip_git_repo_check: true   # code default
+  suppress_notify: true       # Suppress user-configured turn-complete notifications for internal calls (code default)
+  # allow_danger_full_access: false  # SEC-117 opt-in required to actually use sandbox: danger-full-access
+
+adapters:            # agent_adapter.py — external adapter loading
+  load_external: false  # Opt-in: execute Python adapters from ~/.config/parsidion/adapters/ (permission-checked, load-time logged)
 
 embeddings:          # build_embeddings.py, vault_search.py
   enabled: true                    # Set false to disable embedding builds and note_index writes
@@ -1092,6 +1134,8 @@ embeddings:          # build_embeddings.py, vault_search.py
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
+  service_enabled: false          # ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while par-mem serves retrieval
+  service_idle_exit: 600          # Seconds the embedding service stays alive idle before exiting
 
 par_mem:             # Optional par-mem code-memory backend (external CLI + daemon)
   enabled: true            # Probe for par-mem when available; false = never probe
@@ -1100,6 +1144,7 @@ par_mem:             # Optional par-mem code-memory backend (external CLI + daem
 
 search:              # vault_search.py backend selection
   backend: auto            # auto | par-mem | embeddings | none
+  use_note_index: true     # Read note metadata from note_index; false walks the filesystem instead
 
 git:
   auto_commit: true  # Auto-commit vault changes after writes
@@ -1118,6 +1163,7 @@ anthropic_env:       # Optional: Anthropic-compatible transport settings
 
 event_log:           # all hooks — structured JSON event log
   enabled: true      # Write hook events to hook_events.log
+  max_lines: 10000   # Rotate (keep the second half) when the log exceeds this many lines
   path: null         # Override log path (null = ~/ParsidionVault/hook_events.log)
 
 adaptive_context:    # session_start_hook.py — derank notes never referenced by Claude
@@ -1128,7 +1174,7 @@ vault:               # Vault identity — used for per-user daily note filenames
   username: ""       # Username suffix for daily notes (DD-{username}.md). Defaults to $USER if blank.
 ```
 
-**Model defaults:** The `defaults` section sets `haiku_model` and `sonnet_model` used across hooks and the summarizer. The summarizer's `model` and `cluster_model` can override these per-task. Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) use `defaults.haiku_model` when AI mode is enabled unless `ai_model` is explicitly set. Anthropic-compatible transport settings (API key, base URL, proxy, timeouts) can be defined in `anthropic_env` using their real env var names, with precedence **environment > `anthropic_env` > default behavior**.
+**Model defaults:** Model selection is tier-based: hooks use `ai_models.<backend>.small` and the summarizer uses `ai_models.<backend>.large` for `summarizer.model: null` / `cluster_model: null`. The `defaults` section keeps only the legacy `haiku_model` (a fallback for scripts that have not migrated to tiers; `sonnet_model` is no longer read). Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) use the backend small tier when AI mode is enabled unless `ai_model` is explicitly set. Anthropic-compatible transport settings (API key, base URL, proxy, timeouts) can be defined in `anthropic_env` using their real env var names, with precedence **environment > `anthropic_env` > default behavior**.
 
 **`git.auto_commit`:** When `false`, `git_commit_vault()` returns immediately without staging or committing. This disables all automatic vault git commits across hooks and the summarizer.
 
@@ -1276,7 +1322,7 @@ parsidion/
 │   ├── EMBEDDINGS.md                # Embedding system: build pipeline and search
 │   ├── EMBEDDINGS_EVAL.md           # Embedding search quality evaluation
 │   ├── AGENTCHROME.md               # AgentChrome browser CLI integration
-│   ├── MCPL.md                      # MCP Launchpad integration
+│   ├── MCPL.md → archive/MCPL.md    # Legacy MCP Launchpad reference (not installed)
 │   ├── VAULT_SYNC.md                # Multi-machine vault sync guide
 │   ├── README.md                    # Documentation index
 │   ├── CLAUDE.md                    # Doc-folder AI guidance
@@ -1416,7 +1462,7 @@ parsidion/
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli, grok-cli)
     │   ├── parmem_backend.py        # Optional par-mem code-memory backend (availability probe + subprocess transport)
-    │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/gemini/pi + opt-in external drop-ins (ARC-020, ENH-006)
+    │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/gemini/pi/omp + opt-in external drop-ins (ARC-020, ENH-006)
     │   ├── note_schema.py           # Single source of truth for note types, folders, required fields (ENH-008)
     │   ├── prompt_templates.py      # Strict-variable loader for versioned prompt templates under templates/prompts/
     │   ├── vault_embed_serve.py     # Optional persistent embedding service (ENH-003; AF_UNIX socket, opt-in via embeddings.service_enabled)
@@ -1558,6 +1604,9 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 ## Related Documentation
 
 - [README.md](../README.md) - Project overview and quick reference
+- [USAGE.md](USAGE.md) - Complete vault CLI reference and environment variables
+- [MULTI_VAULT.md](MULTI_VAULT.md) - Multi-vault setup with `vaults.yaml` and the `--vault` flag
+- [PI_EXTENSION.md](PI_EXTENSION.md) - pi and omp extension install, smoke tests, and troubleshooting
 - [VISUALIZER.md](VISUALIZER.md) - Vault Visualizer: architecture, features, and running instructions
 - [MCP.md](MCP.md) - parsidion-mcp: MCP server tools reference and installation
 - [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) - Agent adapter registry contract: how to add a runtime (claude/codex/gemini/pi + external drop-ins)
@@ -1565,7 +1614,7 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [AGENTCHROME.md](AGENTCHROME.md) - AgentChrome browser CLI: installation and integration with the research agent
 - [EMBEDDINGS.md](EMBEDDINGS.md) - Embedding system: build pipeline, search, and evaluation
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) - Embedding search quality evaluation results
-- [MCPL.md](MCPL.md) - MCP Launchpad integration and usage
+- [archive/MCPL.md](archive/MCPL.md) - Legacy MCP Launchpad reference (not installed; kept for history)
 - [PAR-MEM.md](PAR-MEM.md) - par-mem code-memory backend: configuration, score semantics, and degradation matrix
 - [VAULT_SYNC.md](VAULT_SYNC.md) - Multi-machine vault sync: git-based setup and conflict handling
 - [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) - Documentation formatting standards

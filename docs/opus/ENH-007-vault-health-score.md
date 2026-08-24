@@ -1,6 +1,6 @@
 # ENH-007 — `vault-stats --health`: one composite vault health score
 
-> **Impact**: medium · **Effort**: small · **Status**: not started
+> **Impact**: medium · **Effort**: small · **Status**: shipped in 0.15.0
 > Source: Opus deep audit, 2026-07-28, commit `8e5d549`
 
 ## Goal
