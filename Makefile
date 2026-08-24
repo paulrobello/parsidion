@@ -83,17 +83,29 @@ docs-api-check:
 # make the committed snapshot fail docs-api-check on any other machine or CI.
 # pdoc has no flag to suppress default-value rendering and the offending
 # constants derive from __file__/Path.home(), so we scrub the two machine-
-# specific prefixes (repo root first, then home) to stable tokens. The result
-# is byte-identical regardless of who runs it.
+# specific prefixes (repo root first, then home) to stable tokens.
+#
+# DOC-003: scrubbing alone is not enough -- pdoc decides whether to emit its
+# "view-value toggle" widget from the PRE-scrubbed length of the rendered
+# default, so a checkout whose absolute path crosses pdoc's threshold (e.g. a
+# deep agent worktree, or /home/runner/work/... in CI) renders different HTML
+# than a shallow one. Importing through a fixed-length symlink fixes the
+# length of every __file__-derived repr; the scrub below still rewrites the
+# token. PYTHONPATH must carry the absolute symlink because os.getcwd()
+# resolves symlinks and would otherwise re-embed the real path.
 .PHONY: docs-api-gen
+PDOC_GEN_ROOT := /tmp/parsidion-docs-gen
 docs-api-gen:
+	@ln -sfn "$(CURDIR)" $(PDOC_GEN_ROOT)
 	rm -rf $(abspath $(DOCS_API_OUT))
-	PYTHONHASHSEED=0 PYTHONPATH=skills/parsidion/scripts:. uv run --extra docs python -m pdoc \
+	PYTHONHASHSEED=0 \
+		PYTHONPATH=$(PDOC_GEN_ROOT)/skills/parsidion/scripts:$(PDOC_GEN_ROOT) \
+		uv run --extra docs python -m pdoc \
 		-o $(abspath $(DOCS_API_OUT))/python $(PDOC_MODULES)
 	cd visualizer && bunx typedoc --out $(abspath $(DOCS_API_OUT))/visualizer \
 		--options typedoc.json
 	find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
-		xargs -0 perl -pi -e 's|\Q$(CURDIR)\E|<repo-root>|g; s|\Q$(HOME)\E|<home>|g'
+		xargs -0 perl -pi -e 's|\Q$(PDOC_GEN_ROOT)\E|<repo-root>|g; s|\Q$(CURDIR)\E|<repo-root>|g; s|\Q$(HOME)\E|<home>|g'
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses
