@@ -91,6 +91,32 @@ class TestResolveParmemBackend:
         monkeypatch.setenv("PATH", str(empty))
         assert parmem_backend.resolve_parmem_backend() is True
 
+    def test_untrusted_binary_falls_back_to_default(
+        self,
+        tmp_vault: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_parmem: FakeParMem,
+        fake_parmem_health: FakeHealth,
+        capsys,
+    ) -> None:
+        """SEC-007: a group/world-writable configured binary is refused.
+
+        A synced config.yaml pointing ``par_mem.binary`` at an
+        attacker-writable script must not win; the default ``par-mem`` from
+        PATH is used instead.
+        """
+        evil = tmp_path / "evil-par-mem"
+        evil.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        evil.chmod(0o777)  # group+world writable -> untrusted
+        _write_config(tmp_vault, f"par_mem:\n  binary: {evil}\n")
+
+        assert parmem_backend.resolve_parmem_backend() is True
+        assert parmem_backend._resolve_binary(vault=tmp_vault) == str(
+            fake_parmem.binary_path
+        )
+        assert "SEC-007" in capsys.readouterr().err
+
     def test_result_cached_until_reset(
         self,
         tmp_vault: Path,

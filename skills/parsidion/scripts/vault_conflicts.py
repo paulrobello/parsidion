@@ -18,6 +18,10 @@ from typing import Any
 
 import vault_common
 from prompt_templates import render
+from vault_path import is_path_inside_vault
+
+# SEC-020: one stderr note per process when DB-sourced paths get skipped.
+_skipped_outside_warned = False
 
 _DEFAULT_TOPIC_THRESHOLD = 0.75
 _DEFAULT_MAX_CLUSTER = 8
@@ -120,8 +124,21 @@ def _load_embeddings(
     records: list[dict[str, str]] = []
     vectors: list[list[float]] = []
     blobs = []
+    global _skipped_outside_warned
     for stem, path, folder, title, tags, blob in rows:
         if _is_excluded(path):
+            continue
+        # SEC-020: embeddings.db is a tamperable store; a row whose path
+        # resolves outside the vault must not reach _read_body or the
+        # contradiction prompt. Mirrors _paths_from_rows in vault_index.
+        if not is_path_inside_vault(Path(path), vault):
+            if not _skipped_outside_warned:
+                _skipped_outside_warned = True
+                print(
+                    "vault-conflicts: skipped note rows whose paths resolve "
+                    "outside the vault (tampered embeddings.db?); SEC-020",
+                    file=sys.stderr,
+                )
             continue
         records.append(
             {

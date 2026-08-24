@@ -17,6 +17,15 @@ from pathlib import Path
 from typing import Any
 
 import vault_common
+from vault_path import is_path_inside_vault
+
+# SEC-020: one stderr note per process when DB-sourced paths get skipped.
+_skipped_outside_warned = False
+
+# SEC-021: bounds for --grep — giant patterns scale catastrophic
+# backtracking, and unbounded body reads let one huge note dominate a scan.
+_MAX_GREP_PATTERN_CHARS = 512
+_MAX_GREP_SCAN_BYTES = 1024 * 1024  # 1 MiB per note
 
 
 def query(
@@ -291,6 +300,13 @@ def _apply_grep_filter(
     """
     flags = 0 if case_sensitive else re.IGNORECASE
 
+    # SEC-021: compile once; reject oversized patterns before compiling.
+    if len(pattern) > _MAX_GREP_PATTERN_CHARS:
+        print(
+            f"--grep: pattern exceeds {_MAX_GREP_PATTERN_CHARS} characters",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     try:
         compiled = re.compile(pattern, flags)
     except re.error as exc:
@@ -302,6 +318,8 @@ def _apply_grep_filter(
         results = _get_all_notes_as_results(limit, vault)
 
     matched: list[dict[str, Any]] = []
+    global _skipped_outside_warned
+    vault_root = vault if vault is not None else vault_common.resolve_vault()
     for result in results:
         note_path_str = result.get("path", "")
         if not note_path_str:
@@ -309,8 +327,23 @@ def _apply_grep_filter(
         note_path = Path(note_path_str)
         if not note_path.exists():
             continue
+        # SEC-020: results can carry DB-sourced path strings (note_index /
+        # embeddings.db); never read a note body outside the vault.
+        if not is_path_inside_vault(note_path, vault_root):
+            if not _skipped_outside_warned:
+                _skipped_outside_warned = True
+                print(
+                    "vault-search: skipped results whose paths resolve outside "
+                    "the vault (tampered embeddings.db?); SEC-020",
+                    file=sys.stderr,
+                )
+            continue
         try:
-            content = note_path.read_text(encoding="utf-8")
+            # SEC-021: read at most 1 MiB per note so one huge file cannot
+            # dominate the scan; decode errors are replaced, not fatal.
+            with note_path.open("rb") as f:
+                raw = f.read(_MAX_GREP_SCAN_BYTES)
+            content = raw.decode("utf-8", errors="replace")
         except OSError:
             continue
         body = vault_common.get_body(content)

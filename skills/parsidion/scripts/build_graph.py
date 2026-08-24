@@ -19,6 +19,7 @@ import sqlite3
 import sys
 import datetime
 from pathlib import Path
+from typing import IO
 
 import numpy as np
 
@@ -753,6 +754,25 @@ def build_parmem_body_edges(
         return [], "error"
 
 
+def _open_tmp_exclusive(tmp_path: Path) -> IO[str]:
+    """Open *tmp_path* for writing, creating it exclusively (SEC-005).
+
+    ``O_EXCL`` refuses any existing entry — including a planted
+    ``graph.json.tmp`` symlink, which a plain ``open(..., "w")`` would follow
+    and clobber through the rename. A stale tmp from a crashed write is
+    unlinked (unlink never follows a symlink) and the open retried once;
+    a second failure means something is racing us and propagates. Mirrors
+    ``core/vault_fs.atomic_write_text``.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(tmp_path, flags, 0o666)
+    except FileExistsError:
+        tmp_path.unlink()
+        fd = os.open(tmp_path, flags, 0o666)
+    return os.fdopen(fd, "w", encoding="utf-8")
+
+
 def write_graph_json(graph: dict, output_path: Path) -> None:
     """Write graph.json via tmp + atomic replace.
 
@@ -760,7 +780,7 @@ def write_graph_json(graph: dict, output_path: Path) -> None:
     truncated JSON mid-write.
     """
     tmp_path = output_path.parent / (output_path.name + ".tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with _open_tmp_exclusive(tmp_path) as f:
         json.dump(graph, f, separators=(",", ":"))
     tmp_path.replace(output_path)
 
@@ -775,7 +795,7 @@ def _schema_path_for(graph_output: Path) -> Path:
 def write_graph_schema(schema: dict, output_path: Path) -> None:
     """Write graph.schema.json via tmp + atomic replace (same pattern as graph.json)."""
     tmp_path = output_path.parent / (output_path.name + ".tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with _open_tmp_exclusive(tmp_path) as f:
         json.dump(schema, f, indent=2)
         f.write("\n")
     tmp_path.replace(output_path)

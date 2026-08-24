@@ -24,10 +24,11 @@ from pathlib import Path
 from typing import Any
 
 import vault_config
+import vault_fs
 from subproc_util import run_with_pgkill
 from vault_config import apply_decay_score
 from vault_hooks import env_without_claudecode, write_hook_event
-from vault_path import get_embeddings_db_path, resolve_vault
+from vault_path import get_embeddings_db_path, is_path_inside_vault, resolve_vault
 
 _DEFAULT_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
@@ -104,6 +105,26 @@ def _resolve_binary(vault: Path | None = None) -> str | None:
             binary = _config_value("par_mem", "binary", _DEFAULT_BINARY, vault=vault)
             if isinstance(binary, str) and binary.strip():
                 which = shutil.which(binary.strip())
+                # SEC-007: a path-like par_mem.binary from a synced
+                # config.yaml can point at an attacker-writable script; it
+                # must pass the ownership/write-bits gate. Bare names (and
+                # the default) stay on plain PATH resolution. On refusal,
+                # fall back to the default command name.
+                raw = binary.strip()
+                if (
+                    which
+                    and ("/" in raw or os.path.isabs(raw))
+                    and not vault_fs.is_trusted_executable(which)
+                ):
+                    fallback = shutil.which(_DEFAULT_BINARY)
+                    print(
+                        f"parmem_backend: par_mem.binary {raw!r} failed the "
+                        f"trust check (not owned by the current user or "
+                        f"group/world-writable); using "
+                        f"{fallback!r} instead. SEC-007",
+                        file=sys.stderr,
+                    )
+                    which = fallback
                 if which and _health_ok():
                     resolved = which
         _RESOLVE_CACHE[key] = resolved
@@ -459,6 +480,13 @@ def parmem_search(
             raw_score = hit.get("score")
             if not isinstance(rel, str) or not rel.lower().endswith(".md"):
                 continue
+            # SEC-020: par-mem JSON is external input; a file_path outside
+            # the vault (absolute or ../-laden) must be dropped before it
+            # reaches the result set or a file read. `vault / rel` collapses
+            # an absolute rel to itself, so the containment check holds for
+            # both shapes.
+            if not is_path_inside_vault(vault / rel, vault):
+                continue
             if raw_score is None:
                 # Rank-preserving fallback: a hit without a score (older
                 # daemon predating --diagnostics, or a lane that omits one)
@@ -484,6 +512,11 @@ def parmem_search(
                 row = index_rows.get(stem)
                 if row is None:
                     continue  # not a vault note (MANIFEST.md, TAGS.md, ...)
+                # SEC-020: note_index rows carry DB-sourced path strings; a
+                # tampered row must not inject an outside path into results.
+                row_path = Path(str(row.get("path") or ""))
+                if row_path.name and not is_path_inside_vault(row_path, vault):
+                    continue
                 final = _decayed_score(raw_score, row.get("mtime"), vault)
                 scored.append((final, _result_from_index_row(row, final)))
             else:

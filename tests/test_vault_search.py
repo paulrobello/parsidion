@@ -290,6 +290,46 @@ class TestApplyGrepFilter:
         assert len(matched) == 1
         assert matched[0]["stem"] == "grep-note"
 
+    def test_sec020_outside_vault_path_is_skipped(
+        self, vault: Path, tmp_path: Path, capsys
+    ) -> None:
+        """SEC-020: a result path resolving outside the vault is not read."""
+        _make_db(vault)
+        _insert_note(vault, stem="in-note", body="# Title\nsafe body")
+        outside = tmp_path.parent / "outside-grep-secret.md"
+        outside.write_text("# evil\nmatchme secret", encoding="utf-8")
+        results = [
+            {
+                "score": None,
+                "stem": "evil-note",
+                "path": str(outside),
+                "title": "Evil",
+                "folder": "Patterns",
+                "tags": [],
+                "note_type": "pattern",
+                "project": "",
+                "confidence": "",
+                "mtime": None,
+                "related": [],
+                "is_stale": False,
+                "incoming_links": 0,
+            }
+        ]
+        from cli.search import metadata as _metadata_mod  # noqa: PLC0415
+
+        _metadata_mod._skipped_outside_warned = False
+        matched = vault_search._apply_grep_filter(
+            results,
+            "matchme",
+            case_sensitive=False,
+            has_filters=True,
+            has_query=False,
+            limit=50,
+            vault=vault,
+        )
+        assert matched == []
+        assert "SEC-020" in capsys.readouterr().err
+
     def test_case_insensitive_by_default(self, vault: Path) -> None:
         _make_db(vault)
         path = _insert_note(
@@ -424,3 +464,85 @@ class TestGetAllNotesAsResults:
         r = results[0]
         for key in ("stem", "path", "folder", "tags", "score", "title"):
             assert key in r, f"Missing key: {key}"
+
+
+class TestSec021BoundedGrepAndLimits:
+    """SEC-021: --grep pattern size / body-scan caps and bounded -n/-l."""
+
+    def _run_main_expecting_usage_error(
+        self, argv: list[str], monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["vault-search", *argv])
+        with pytest.raises(SystemExit) as exc:
+            vault_search.main()
+        assert exc.value.code == 2
+        assert "between 1 and 1000" in capsys.readouterr().err
+
+    def test_negative_limit_is_a_usage_error(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        self._run_main_expecting_usage_error(
+            ["-l", "-5", "-f", "Patterns"], monkeypatch, capsys
+        )
+
+    def test_limit_over_1000_is_a_usage_error(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        self._run_main_expecting_usage_error(
+            ["-l", "1001", "-f", "Patterns"], monkeypatch, capsys
+        )
+
+    def test_negative_top_is_a_usage_error(
+        self, vault: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        self._run_main_expecting_usage_error(
+            ["-n", "-3", "some query"], monkeypatch, capsys
+        )
+
+    def test_oversized_grep_pattern_is_rejected(self, vault: Path) -> None:
+        with pytest.raises(SystemExit) as exc:
+            vault_search._apply_grep_filter(
+                [],
+                "a" * 513,
+                case_sensitive=False,
+                has_filters=True,
+                has_query=False,
+                limit=50,
+                vault=vault,
+            )
+        assert exc.value.code == 2
+
+    def test_grep_body_scan_capped_at_one_mib(self, vault: Path) -> None:
+        _make_db(vault)
+        # Needle placed beyond the 1 MiB scan boundary must not be found;
+        # one placed at the start must be.
+        big = _insert_note(
+            vault,
+            stem="big-note",
+            body="x" * (1024 * 1024 + 4096) + "NEEDLE_BEYOND",
+        )
+        early = _insert_note(vault, stem="early-note", body="NEEDLE_EARLY here")
+        results = [
+            {"score": None, "stem": "big-note", "path": str(big)},
+            {"score": None, "stem": "early-note", "path": str(early)},
+        ]
+        beyond = vault_search._apply_grep_filter(
+            [results[0]],
+            "NEEDLE_BEYOND",
+            case_sensitive=False,
+            has_filters=True,
+            has_query=False,
+            limit=50,
+            vault=vault,
+        )
+        assert beyond == []
+        within = vault_search._apply_grep_filter(
+            [results[1]],
+            "NEEDLE_EARLY",
+            case_sensitive=False,
+            has_filters=True,
+            has_query=False,
+            limit=50,
+            vault=vault,
+        )
+        assert [r["stem"] for r in within] == ["early-note"]

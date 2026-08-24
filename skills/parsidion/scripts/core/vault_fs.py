@@ -52,6 +52,8 @@ __all__: list[str] = [
     # Re-exported from vault_constants for callers that import via vault_fs
     # (test_vault_imports asserts vault_fs.TRANSCRIPT_CATEGORY_LABELS works).
     "TRANSCRIPT_CATEGORY_LABELS",
+    # Security gates
+    "is_trusted_executable",
 ]
 
 # ---------------------------------------------------------------------------
@@ -290,7 +292,9 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
     observing a half-written file.  When *path* already exists, its
     permission bits are copied onto the tmp file before the replace so an
     existing ``chmod`` is not silently reset.  The tmp file is removed if
-    either the write or the replace fails.
+    either the write or the replace fails.  The tmp sibling is created
+    exclusively (``O_CREAT | O_EXCL``, plus ``O_NOFOLLOW`` where available)
+    so a planted ``.tmp`` symlink is never written through (SEC-005).
 
     Args:
         path: Destination file path.
@@ -305,7 +309,23 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
 
     tmp = path.parent / (path.name + ".tmp")
     try:
-        tmp.write_text(content, encoding=encoding)
+        # SEC-005: create the tmp sibling exclusively and never through a
+        # symlink. A planted `X.md.tmp -> ~/.claude/settings.json` used to be
+        # followed by write_text, so the rename clobbered the target. O_EXCL
+        # refuses any existing entry (symlink included); O_NOFOLLOW is kept as
+        # defence in depth (same pattern as session_start/context.py).
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(tmp, flags, 0o666)
+        except FileExistsError:
+            # Stale tmp from a crashed write, or a planted symlink: unlink
+            # the entry itself (unlink never follows a symlink, so the
+            # target is untouched) and retry exactly once. A second failure
+            # means something is actively racing us — surface it.
+            tmp.unlink()
+            fd = os.open(tmp, flags, 0o666)
+        with os.fdopen(fd, "w", encoding=encoding) as f:
+            f.write(content)
         if existing_mode is not None:
             os.chmod(tmp, existing_mode)
         tmp.replace(path)
@@ -703,6 +723,27 @@ def _git_path_ignored(path: str, vault: Path) -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
+
+
+def is_trusted_executable(path: Path | str) -> bool:
+    """SEC-007: gate config-sourced binaries by ownership and write bits.
+
+    True only when *path* resolves to a file owned by the current uid
+    (POSIX only — skipped on Windows, which has no uid) with no group or
+    other write bits, mirroring the writable-file refusal agent_adapter
+    applies to external adapter files. Any ``OSError`` (missing file,
+    permission, dangling symlink) returns False so callers can fall back.
+    """
+    try:
+        resolved = Path(path).resolve()
+        st = resolved.stat()
+        if os.name != "nt" and st.st_uid != os.getuid():
+            return False
+        if stat.S_IMODE(st.st_mode) & 0o022:
+            return False
+        return True
+    except OSError:
+        return False
 
 
 # A git operation killed mid-commit leaves .git/index.lock behind; every

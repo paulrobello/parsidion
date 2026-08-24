@@ -14,6 +14,7 @@ from typing import Any, Literal, cast
 
 import subproc_util
 import vault_config
+import vault_fs
 from vault_hooks import env_without_claudecode
 
 AiBackend = Literal["claude-cli", "codex-cli", "grok-cli", "none"]
@@ -390,7 +391,9 @@ def _config_timeout(
     return default
 
 
-def _resolve_configured_binary(command: str, label: str) -> str:
+def _resolve_configured_binary(
+    command: str, label: str, default_command: str | None = None
+) -> str:
     """Resolve a configured CLI ``command`` value to an executable path.
 
     SEC-117: config-file values that become ``subprocess.argv[0]`` get the
@@ -399,6 +402,13 @@ def _resolve_configured_binary(command: str, label: str) -> str:
     executable file. Raises ``FileNotFoundError`` when the binary cannot be
     resolved so the caller can fall back rather than silently launching a
     wrong binary.
+
+    SEC-007: a path-like value must additionally pass
+    ``vault_fs.is_trusted_executable`` (owned by the current uid, not
+    group/world-writable) — a synced config.yaml must not be able to point
+    the backend at an attacker-writable script. On failure the *default*
+    command name (when given) is resolved via ``shutil.which`` as a
+    fallback; if that also fails, ``FileNotFoundError`` propagates.
     """
     if not command:
         raise FileNotFoundError(f"{label} is empty")
@@ -420,12 +430,28 @@ def _resolve_configured_binary(command: str, label: str) -> str:
         )
     if not os.access(candidate, os.X_OK):
         raise FileNotFoundError(f"{label} {command!r} is not executable.")
+    if not vault_fs.is_trusted_executable(candidate):
+        if default_command is not None:
+            fallback = shutil.which(default_command)
+            if fallback:
+                sys.stderr.write(
+                    f"[ai_backend] {label} {command!r} failed the trust "
+                    f"check (not owned by the current user or group/world-"
+                    f"writable); using {fallback!r} from PATH instead. "
+                    f"SEC-007\n"
+                )
+                sys.stderr.flush()
+                return fallback
+        raise FileNotFoundError(
+            f"{label} {command!r} failed the trust check "
+            f"(not owned by the current user or group/world-writable)."
+        )
     return str(candidate.resolve())
 
 
 def _resolve_codex_command(command: str) -> str:
-    """Resolve ``codex_cli.command`` (SEC-117 gate; see the shared helper)."""
-    return _resolve_configured_binary(command, "codex_cli.command")
+    """Resolve ``codex_cli.command`` (SEC-117/SEC-007 gates; shared helper)."""
+    return _resolve_configured_binary(command, "codex_cli.command", "codex")
 
 
 def _resolve_codex_sandbox(sandbox: str | None, vault: Path | None) -> str | None:
@@ -616,7 +642,7 @@ def _run_grok_prompt(
     """
     command_raw = _config_str("grok_cli", "command", "grok", vault=vault)
     try:
-        command = _resolve_configured_binary(command_raw, "grok_cli.command")
+        command = _resolve_configured_binary(command_raw, "grok_cli.command", "grok")
     except FileNotFoundError as exc:
         sys.stderr.write(f"[ai_backend] {exc}\n")
         sys.stderr.flush()

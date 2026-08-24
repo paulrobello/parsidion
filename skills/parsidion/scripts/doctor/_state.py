@@ -22,7 +22,6 @@ Stdlib-only.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -111,7 +110,6 @@ class Issue:
 # Schema for doctor_state.json:
 # {
 #   "last_run": "2026-03-13T14:30:00",
-#   "pid": 12345,                    # PID of the currently-running doctor (if any)
 #   "notes": {
 #     "Research/foo.md": {
 #       "status": "ok" | "fixed" | "failed" | "timeout" | "skipped",
@@ -120,6 +118,9 @@ class Issue:
 #     }
 #   }
 # }
+# SEC-016: the singleton "pid" field is gone — doctor exclusion now uses the
+# flock on <vault>/.doctor.lock (see doctor/cli.py), released by the kernel on
+# process death. A stale "pid" key in an old state file is inert residue.
 # "ok"           — no issues found; skip for STATE_STALE_DAYS before re-checking
 # "fixed"        — prompt AI repaired it; re-check next run to confirm
 # "failed"       — prompt AI returned no output; retry next run
@@ -232,22 +233,6 @@ def should_skip(key: str, state: dict) -> bool:
 # QA-007: is_process_running moved to vault_common.py (canonical implementation).
 # Local alias preserves all existing call sites unchanged.
 is_process_running = vault_common.is_process_running
-
-
-def _write_pid(state: dict, vault_path: Path) -> None:
-    """Write *state* (including pid) to the state file immediately."""
-    _write_json_atomic(state, _get_state_file(vault_path))
-
-
-def _release_pid(vault_path: Path) -> None:
-    """Clear our pid from the state file at process exit."""
-    try:
-        current = load_state(vault_path)
-        if current.get("pid") == os.getpid():
-            current.pop("pid", None)
-            _write_json_atomic(current, _get_state_file(vault_path))
-    except Exception:  # noqa: BLE001
-        pass  # best-effort cleanup
 
 
 # ---------------------------------------------------------------------------

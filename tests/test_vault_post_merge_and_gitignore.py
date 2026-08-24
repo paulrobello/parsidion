@@ -14,7 +14,11 @@ These pin two security invariants:
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from installer.vault import (
     _POST_MERGE_HOOK_TEMPLATE,
@@ -23,6 +27,7 @@ from installer.vault import (
     _is_current_post_merge_hook,
     configure_vault_gitignore,
     install_vault_post_merge_hook,
+    remove_vault_post_merge_hook,
 )
 
 
@@ -32,7 +37,8 @@ class TestTemplateInvariants:
     def test_every_uv_run_line_carries_no_project(self) -> None:
         rendered = _POST_MERGE_HOOK_TEMPLATE.format(
             marker=_POST_MERGE_MARKER,
-            scripts_dir="~/.claude/skills/parsidion/scripts",
+            update_index_script="/opt/scripts/update_index.py",
+            build_embeddings_script="/opt/scripts/build_embeddings.py",
         )
         uv_run_lines = [
             ln for ln in rendered.splitlines() if ln.lstrip().startswith("uv run")
@@ -179,3 +185,80 @@ class TestConfigureVaultGitignore:
         ]
         assert "# config.yaml" in lines
         assert "config.yaml" in lines
+
+
+class TestSec012PostMergeHookPath:
+    """SEC-012: the hook must carry shell-quoted absolute script paths.
+
+    The v1 template interpolated ``~/...`` inside double quotes, where
+    neither bash nor uv expands ``~`` — with ``set -e`` every ``git pull``
+    ended non-zero. The rendered hook must contain no ``"~`` sequence, must
+    survive a home directory containing spaces (``bash -n``), and a stale
+    v1 hook must be regenerated / removed as ours.
+    """
+
+    def _install(self, tmp_path: Path, home_name: str = "home") -> tuple[Path, Path]:
+        vault = tmp_path / "vault"
+        (vault / ".git" / "hooks").mkdir(parents=True, exist_ok=True)
+        claude_dir = tmp_path / home_name / ".claude"
+        (claude_dir / "skills" / "parsidion" / "scripts").mkdir(parents=True)
+        install_vault_post_merge_hook(vault, claude_dir, dry_run=False)
+        return vault / ".git" / "hooks" / "post-merge", claude_dir
+
+    def test_no_double_quoted_tilde(self, tmp_path: Path) -> None:
+        hook_path, _ = self._install(tmp_path)
+        content = hook_path.read_text(encoding="utf-8")
+        assert '"~' not in content
+        assert "update_index.py" in content
+        assert "build_embeddings.py" in content
+
+    def test_home_with_space_yields_valid_bash(self, tmp_path: Path) -> None:
+        if shutil.which("bash") is None:
+            pytest.skip("bash not available")
+        hook_path, claude_dir = self._install(tmp_path, home_name="home with space")
+        result = subprocess.run(
+            ["bash", "-n", str(hook_path)], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+        content = hook_path.read_text(encoding="utf-8")
+        assert '"~' not in content
+        # The absolute script path under the space-containing home is present.
+        assert str(claude_dir / "skills" / "parsidion" / "scripts") in content
+
+    def test_v1_tilde_hook_is_regenerated(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        hooks_dir = vault / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        hook_path = hooks_dir / "post-merge"
+        v1_body = (
+            "#!/bin/bash\n"
+            "# parsidion post-merge hook — rebuilds vault index and embeddings"
+            " after pull\n"
+            "set -e\n"
+            'uv run --no-project "~/.claude/skills/parsidion/scripts'
+            '/update_index.py"\n'
+            'uv run --no-project "~/.claude/skills/parsidion/scripts'
+            '/build_embeddings.py" --incremental\n'
+        )
+        hook_path.write_text(v1_body, encoding="utf-8")
+        assert not _is_current_post_merge_hook(v1_body)  # v2 marker required
+
+        claude_dir = tmp_path / ".claude"
+        (claude_dir / "skills" / "parsidion" / "scripts").mkdir(parents=True)
+        install_vault_post_merge_hook(vault, claude_dir, dry_run=False)
+
+        new_body = hook_path.read_text(encoding="utf-8")
+        assert _POST_MERGE_MARKER in new_body
+        assert '"~' not in new_body
+
+    def test_v1_tilde_hook_is_removed_on_uninstall(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        hook_path = vault / ".git" / "hooks" / "post-merge"
+        hook_path.parent.mkdir(parents=True)
+        hook_path.write_text(
+            "#!/bin/bash\n# parsidion post-merge hook\nset -e\n"
+            'uv run --no-project "~/x/update_index.py"\n',
+            encoding="utf-8",
+        )
+        remove_vault_post_merge_hook(vault, dry_run=False)
+        assert not hook_path.exists()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -146,6 +147,15 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
         "uv.toml",
         "setup.py",
         ".venv/",
+        # atomic_write_text / build_graph stage writes through <name>.tmp
+        # siblings before the rename; a stale or planted tmp must never be
+        # synced. SEC-005.
+        "*.tmp",
+        # Staged merge previews (vault-merge --dry-run cache) can hold note
+        # bodies; machine-local. SEC-013.
+        ".merge_previews/",
+        # Doctor singleton lock (SEC-016 flock); machine-local.
+        ".doctor.lock",
     ]
 
     if gitignore.exists():
@@ -212,20 +222,27 @@ def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
 
 
 # Marker comment used to identify our post-merge hook.
-_POST_MERGE_MARKER = "# parsidion post-merge hook"
+# SEC-012: bumped to v2 — the v1 template interpolated "~/..." inside double
+# quotes, where neither bash nor uv expands ~, so every post-merge run died
+# under `set -e` after each `git pull`. v1 hooks are recognised as stale-ours
+# and regenerated on the next install.
+_POST_MERGE_MARKER = "# parsidion post-merge hook v2"
 # Markers from older parsidion releases whose hooks are still installed on
 # real machines. Recognising them lets install_vault_post_merge_hook
-# regenerate a stale hook instead of skipping it as "not ours". SEC-101.
-_POST_MERGE_LEGACY_MARKERS = ("# parsidion-cc post-merge hook",)
+# regenerate a stale hook instead of skipping it as "not ours". SEC-101/SEC-012.
+_POST_MERGE_LEGACY_MARKERS = (
+    "# parsidion-cc post-merge hook",
+    "# parsidion post-merge hook",
+)
 
 _POST_MERGE_HOOK_TEMPLATE = """\
 #!/bin/bash
 {marker} — rebuilds vault index and embeddings after pull
 set -e
 echo "[parsidion] Rebuilding vault index..."
-uv run --no-project "{scripts_dir}/update_index.py"
+uv run --no-project {update_index_script}
 echo "[parsidion] Updating embeddings (incremental)..."
-uv run --no-project "{scripts_dir}/build_embeddings.py" --incremental
+uv run --no-project {build_embeddings_script} --incremental
 echo "[parsidion] Post-merge sync complete."
 """
 
@@ -235,6 +252,8 @@ def _is_current_post_merge_hook(existing: str) -> bool:
 
     A hook that carries our current marker but lacks `--no-project` on every
     `uv run` line is the SEC-101 defect and must be regenerated, not skipped.
+    A hook carrying any pre-v2 marker is the SEC-012 double-quoted-`~` defect
+    and is likewise not current (the marker itself must match v2 exactly).
     """
     if _POST_MERGE_MARKER not in existing:
         return False
@@ -266,11 +285,12 @@ def install_vault_post_merge_hook(
     hook_path = hooks_dir / "post-merge"
 
     scripts_dir = claude_dir / "skills" / SKILL_NAME / "scripts"
-    try:
-        rel = scripts_dir.relative_to(Path.home())
-        scripts_rel = f"~/{rel.as_posix()}"
-    except ValueError:
-        scripts_rel = scripts_dir.as_posix()
+    # SEC-012: the hook used to interpolate "~/..." inside double quotes,
+    # where neither bash nor uv expands ~ — every post-merge run died under
+    # `set -e`. Emit shell-quoted absolute script paths instead, which also
+    # survive homes containing spaces.
+    update_index_script = shlex.quote(str(scripts_dir / "update_index.py"))
+    build_embeddings_script = shlex.quote(str(scripts_dir / "build_embeddings.py"))
 
     if hook_path.exists():
         existing = hook_path.read_text(encoding="utf-8")
@@ -303,7 +323,8 @@ def install_vault_post_merge_hook(
     hooks_dir.mkdir(parents=True, exist_ok=True)
     hook_content = _POST_MERGE_HOOK_TEMPLATE.format(
         marker=_POST_MERGE_MARKER,
-        scripts_dir=scripts_rel,
+        update_index_script=update_index_script,
+        build_embeddings_script=build_embeddings_script,
     )
     # ARC-018: atomic write + chmod via tmp so a crash mid-write cannot leave
     # the hook half-written (the prior write_text was non-atomic).
@@ -326,7 +347,11 @@ def remove_vault_post_merge_hook(
         return
 
     content = hook_path.read_text(encoding="utf-8")
-    if _POST_MERGE_MARKER not in content:
+    # SEC-012: also recognise pre-v2 hooks so uninstall removes them instead
+    # of leaving the broken double-quoted-~ version behind.
+    if _POST_MERGE_MARKER not in content and not any(
+        marker in content for marker in _POST_MERGE_LEGACY_MARKERS
+    ):
         return
 
     _step(f"Remove vault post-merge hook: {hook_path}", dry_run=dry_run)

@@ -92,6 +92,33 @@ class TestAtomicWriteText:
         assert target.read_text(encoding="utf-8") == "old\n"
         assert not (tmp_path / "note.md.tmp").exists()
 
+    def test_tmp_symlink_is_never_followed(self, tmp_path: Path) -> None:
+        """SEC-005: a planted `<name>.tmp` symlink must not be written through."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        secret = outside / "settings.json"
+        secret.write_text("sensitive\n", encoding="utf-8")
+
+        target = tmp_path / "CLAUDE.md"
+        (tmp_path / "CLAUDE.md.tmp").symlink_to(secret)
+
+        vault_fs.atomic_write_text(target, "# index\n")
+
+        assert secret.read_text(encoding="utf-8") == "sensitive\n"
+        assert target.read_text(encoding="utf-8") == "# index\n"
+        # The planted symlink itself was removed; the secret is untouched.
+        assert not (tmp_path / "CLAUDE.md.tmp").is_symlink()
+
+    def test_stale_regular_tmp_is_retried(self, tmp_path: Path) -> None:
+        """SEC-005: a stale `.tmp` left by a crashed write is unlinked and retried."""
+        target = tmp_path / "note.md"
+        (tmp_path / "note.md.tmp").write_text("stale\n", encoding="utf-8")
+
+        vault_fs.atomic_write_text(target, "fresh\n")
+
+        assert target.read_text(encoding="utf-8") == "fresh\n"
+        assert not (tmp_path / "note.md.tmp").exists()
+
 
 # ---------------------------------------------------------------------------
 # vault_doctor._backup_note

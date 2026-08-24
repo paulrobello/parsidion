@@ -51,6 +51,7 @@ __all__: list[str] = [
     "_parse_config_yaml",
     "_merge_config_dicts",
     "load_config",
+    "config_key_sources",
     "load_typed_config",
     "_clear_typed_config_cache",
     "_load_config_cached",
@@ -368,6 +369,40 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
             pass
 
     return _deep_copy_config(config)
+
+
+def config_key_sources(vault: Path | None = None) -> dict[tuple[str, str], str]:
+    """Map each first-level ``section.key`` to the config file it came from.
+
+    SEC-007: callers must distinguish values that originate in the
+    git-synced ``config.yaml`` from those in the machine-local
+    ``config.local.yaml`` before honoring them (e.g. network-affecting
+    ``anthropic_env`` keys). Values are ``"config.yaml"`` /
+    ``"config.local.yaml"``; keys absent from both files are absent from
+    the map. On conflict ``config.local.yaml`` wins, mirroring
+    :func:`load_config`'s merge order.
+
+    Deliberately uncached: it re-reads the two small files on each call so
+    it can never disagree with a ``load_config.cache_clear()`` in tests.
+    """
+    if vault is None:
+        vault = resolve_vault()
+
+    sources: dict[tuple[str, str], str] = {}
+    for file_name in ("config.yaml", "config.local.yaml"):
+        path = vault / file_name
+        if not path.is_file():
+            continue
+        try:
+            data = _parse_config_yaml(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        for section, values in data.items():
+            if not isinstance(values, dict):
+                continue
+            for key in values:
+                sources[(str(section), str(key))] = file_name
+    return sources
 
 
 def _deep_copy_config(obj: Any) -> Any:

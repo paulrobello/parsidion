@@ -12,11 +12,16 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
-from .vault_config import load_config
+from .vault_config import config_key_sources, load_config
 from .vault_constants import TRANSCRIPT_CATEGORY_LABELS
-from .vault_fs import write_hook_event  # ARC-023: re-export (impl moved to vault_fs)
+from .vault_fs import (
+    _git_path_ignored,
+    write_hook_event,
+)  # ARC-023: re-export (impl moved to vault_fs)
+from .vault_path import resolve_vault
 
 __all__: list[str] = [
     # Environment helpers
@@ -124,6 +129,23 @@ _CONFIGURABLE_ENV_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# SEC-007: keys that redirect where requests (and auth headers) are sent.
+# Unlike the benign keys above, a value planted in a git-synced config.yaml
+# can silently point the AI backends at an attacker-controlled endpoint, so
+# they are honored only from config.local.yaml or a non-tracked config.yaml.
+_NETWORK_AFFECTING_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_CUSTOM_HEADERS",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+    }
+)
+
+# Warn-once latch for refused network-affecting keys (per process).
+_untrusted_network_env_warned = False
+
 # QA-012: public alias — export SAFE_ENV_KEYS (no leading underscore) so callers
 # can reference it without accessing a private name.  _SAFE_ENV_KEYS remains
 # available for backward compatibility (referenced in docs and existing callers).
@@ -147,19 +169,59 @@ def _configured_env_defaults(vault: Path | None = None) -> dict[str, str]:
 
     Environment variables are represented in config under the ``anthropic_env``
     section using their real env var names as keys.
+
+    SEC-007: network-affecting keys (see ``_NETWORK_AFFECTING_ENV_KEYS``) are
+    honored only when their effective value comes from ``config.local.yaml``
+    or when ``config.yaml`` is not git-tracked in the vault repo — a synced
+    ``config.yaml`` must not be able to redirect where requests and auth
+    headers are sent. Refused keys are reported once on stderr.
     """
+    global _untrusted_network_env_warned
+
     config = load_config(vault=vault)
     section = config.get("anthropic_env")
     if not isinstance(section, dict):
         return {}
 
+    has_network_keys = any(key in section for key in _NETWORK_AFFECTING_ENV_KEYS)
+    sources: dict[tuple[str, str], str] = (
+        config_key_sources(vault=vault) if has_network_keys else {}
+    )
+    # Lazily computed: True only when the vault is a git repo AND config.yaml
+    # is not gitignored there (i.e. the file syncs to a remote).
+    tracked_config_yaml: bool | None = None
+
     resolved: dict[str, str] = {}
+    refused: list[str] = []
     for key in _CONFIGURABLE_ENV_KEYS:
         if key not in section:
             continue
         value = _coerce_env_value(section[key])
-        if value is not None:
-            resolved[key] = value
+        if value is None:
+            continue
+        if (
+            key in _NETWORK_AFFECTING_ENV_KEYS
+            and sources.get(("anthropic_env", key)) != "config.local.yaml"
+        ):
+            if tracked_config_yaml is None:
+                vault_dir = vault if vault is not None else resolve_vault()
+                tracked_config_yaml = (vault_dir / ".git").exists() and (
+                    not _git_path_ignored("config.yaml", vault_dir)
+                )
+            if tracked_config_yaml:
+                refused.append(key)
+                continue
+        resolved[key] = value
+
+    if refused and not _untrusted_network_env_warned:
+        _untrusted_network_env_warned = True
+        print(
+            "vault_hooks: ignoring anthropic_env network keys "
+            f"{', '.join(sorted(refused))} from tracked config.yaml "
+            "(honored only from config.local.yaml or a gitignored "
+            "config.yaml); SEC-007",
+            file=sys.stderr,
+        )
     return resolved
 
 
@@ -405,15 +467,22 @@ def is_process_running(pid: int) -> bool:
     """Return True if a process with *pid* is currently running.
 
     Uses ``os.kill(pid, 0)`` which sends no signal but checks process existence.
-    Returns True on PermissionError (process exists but we lack permission).
 
     QA-007: Canonical implementation shared by update_index.py and vault_doctor.py.
+
+    SEC-016: PermissionError now returns False. A PID we cannot signal
+    belongs to another user, which under parsidion's single-user threat
+    model means it is not one of our stale processes — the old True made
+    a leftover ``pid: 1`` permanently block every PID-file singleton guard
+    (doctor runs were stuck until the state file was hand-edited). Callers
+    that need real mutual exclusion use ``vault_fs.try_singleton_lock``
+    (flock), not this probe.
 
     Args:
         pid: Process ID to check.
 
     Returns:
-        True if the process is running (or exists but we cannot signal it).
+        True if the process is running and signalable by us.
     """
     try:
         os.kill(pid, 0)
@@ -421,7 +490,8 @@ def is_process_running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True  # process exists; we lack permission to signal it
+        # Cannot signal -> not ours -> report not running (SEC-016).
+        return False
 
 
 # ---------------------------------------------------------------------------

@@ -229,6 +229,30 @@ def search(
     return envelope.results
 
 
+def _bounded_count(text: str) -> int:
+    """SEC-021: argparse type for ``-n``/``-l`` — an integer in 1..1000.
+
+    Unbounded counts (negative or huge) let a single invocation request an
+    unlimited SQL ``LIMIT`` (SQLite treats a negative LIMIT as unlimited) or
+    an unbounded result scan; out-of-range values are a usage error (exit 2).
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid int value: {text!r}") from None
+    if not 1 <= value <= 1000:
+        raise argparse.ArgumentTypeError(
+            f"value must be between 1 and 1000, got {value}"
+        )
+    return value
+
+
+def _clamp_default_count(value: int) -> int:
+    """SEC-021: apply the same 1..1000 bound to env/config-derived defaults
+    (argparse type functions do not run on defaults)."""
+    return max(1, min(1000, value))
+
+
 def main() -> None:
     """CLI entry point: semantic search or metadata filter depending on args."""
     parser = argparse.ArgumentParser(
@@ -267,16 +291,16 @@ def main() -> None:
     # Semantic-only flags
     _cfg_top_k: int = vault_common.get_config("embeddings", "top_k", 10)
     _cfg_min_score: float = vault_common.get_config("embeddings", "min_score", 0.45)
-    _eff_top_k = _env_int("TOP", _cfg_top_k)
+    _eff_top_k = _clamp_default_count(_env_int("TOP", _cfg_top_k))
     _eff_min_score = _env_float("MIN_SCORE", _cfg_min_score)
     _eff_model = os.environ.get(_ENV_PREFIX + "MODEL", _DEFAULT_MODEL)
     parser.add_argument(
         "--top",
         "-n",
-        type=int,
+        type=_bounded_count,
         default=_eff_top_k,
         metavar="N",
-        help=f"Semantic: max results (default {_eff_top_k}, env: VAULT_SEARCH_TOP).",
+        help=f"Semantic: max results, 1-1000 (default {_eff_top_k}, env: VAULT_SEARCH_TOP).",
     )
     parser.add_argument(
         "--min-score",
@@ -363,14 +387,14 @@ def main() -> None:
         help="Full-text: disable case-insensitive matching for --grep.",
     )
 
-    _eff_limit = _env_int("LIMIT", 50)
+    _eff_limit = _clamp_default_count(_env_int("LIMIT", 50))
     parser.add_argument(
         "--limit",
         "-l",
         metavar="N",
-        type=int,
+        type=_bounded_count,
         default=_eff_limit,
-        help=f"Metadata: maximum number of results (default: {_eff_limit}, env: VAULT_SEARCH_LIMIT).",
+        help=f"Metadata: maximum number of results, 1-1000 (default: {_eff_limit}, env: VAULT_SEARCH_LIMIT).",
     )
 
     # Output format — VAULT_SEARCH_FORMAT=json|text|rich sets the default

@@ -848,6 +848,72 @@ class TestSec117CodexCommandGate:
         assert captured[0] == str(custom)
 
 
+class TestSec007ConfiguredBinaryTrustGate:
+    """SEC-007: path-like configured commands must pass is_trusted_executable.
+
+    A synced config.yaml must not be able to point a backend at a binary the
+    current user does not own or that group/world can write. On refusal the
+    backend falls back to its default command name resolved from PATH.
+    """
+
+    def _untrusted_binary(self, tmp_path: Path) -> Path:
+        evil = tmp_path / "evil-codex"
+        evil.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        evil.chmod(0o777)  # group+world writable -> untrusted
+        return evil
+
+    def test_untrusted_command_falls_back_to_default(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        evil = self._untrusted_binary(tmp_path)
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            f"ai:\n  backend: codex-cli\ncodex_cli:\n  command: {evil}\n",
+        )
+        captured: list[str] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            captured.extend(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+        ai_backend.run_ai_prompt("hi", vault=vault)
+        assert captured[0] == "/usr/local/bin/codex"
+        assert "SEC-007" in capsys.readouterr().err
+
+    def test_untrusted_command_without_fallback_does_not_launch(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        evil = self._untrusted_binary(tmp_path)
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            f"ai:\n  backend: codex-cli\ncodex_cli:\n  command: {evil}\n",
+        )
+        monkeypatch.setattr(ai_backend.shutil, "which", lambda name: None)
+        monkeypatch.setattr(
+            ai_backend,
+            "_run_prompt_subprocess",
+            lambda *a, **kw: pytest.fail("should not launch"),
+        )
+        assert ai_backend.run_ai_prompt("hi", vault=vault) is None
+
+    def test_owned_nonwritable_command_still_used(self, tmp_path: Path) -> None:
+        # The pre-existing SEC-117 semantics: an owned, non-writable custom
+        # path is trusted and stays the launch target.
+        custom = tmp_path / "my-codex"
+        custom.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        custom.chmod(0o755)
+        resolved = ai_backend._resolve_configured_binary(
+            str(custom), "codex_cli.command", "codex"
+        )
+        assert resolved == str(custom)
+
+
 class TestSec117CodexSandboxAllowlist:
     """SEC-117: ``danger-full-access`` requires explicit opt-in."""
 

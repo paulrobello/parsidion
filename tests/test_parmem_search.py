@@ -449,3 +449,48 @@ class TestParmemSearchMapping:
 
         monkeypatch.setattr(parmem_backend, "_run_parmem", boom)
         assert parmem_backend.parmem_search("q", vault=tmp_vault) is None
+
+    def test_sec020_hits_outside_vault_are_skipped(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
+        """SEC-020: par-mem file_path values are external input.
+
+        An absolute path outside the vault (or a ../-laden relative) must be
+        dropped before it reaches the result set or a file read.
+        """
+        _make_note_index(tmp_vault)
+        _insert_note(tmp_vault, stem="note-a", title="Note A")
+        outside = tmp_vault.parent / "outside-secret.md"
+        outside.write_text("# secret\n", encoding="utf-8")
+        ready.configure(
+            find_code={
+                "results": [
+                    {"file_path": "Patterns/note-a.md", "score": 0.9},
+                    {"file_path": str(outside), "score": 0.95},
+                    {"file_path": "../../../etc/passwd.md", "score": 0.99},
+                ]
+            }
+        )
+        results = parmem_backend.parmem_search("q", top_k=10, vault=tmp_vault)
+        assert results is not None
+        assert [r["stem"] for r in results] == ["note-a"]
+
+    def test_sec020_tampered_note_index_row_path_is_skipped(
+        self, tmp_vault: Path, ready: FakeParMem
+    ) -> None:
+        """SEC-020: note_index rows are DB-sourced; an injected outside
+        path must not flow into results via the enrichment row."""
+        _make_note_index(tmp_vault)
+        _insert_note(tmp_vault, stem="note-a", title="Note A")
+        conn = sqlite3.connect(str(tmp_vault / "embeddings.db"))
+        conn.execute(
+            "UPDATE note_index SET path = ? WHERE stem = ?",
+            (str(tmp_vault.parent / "evil.md"), "note-a"),
+        )
+        conn.commit()
+        conn.close()
+        ready.configure(
+            find_code={"results": [{"file_path": "Patterns/note-a.md", "score": 0.9}]}
+        )
+        results = parmem_backend.parmem_search("q", top_k=10, vault=tmp_vault)
+        assert results == []

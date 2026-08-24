@@ -198,3 +198,42 @@ class TestRunScan:
             [("solo", [1.0, 0.0], "Solo")],
         )
         assert vault_conflicts._run_scan(tmp_vault, threshold=0.75, top=50) == []
+
+
+class TestSec020EmbeddingsContainment:
+    """SEC-020: embeddings.db path strings are re-validated against the vault."""
+
+    def test_outside_paths_are_skipped(self, tmp_path: Path, capsys) -> None:
+        import sqlite3  # noqa: PLC0415
+
+        vault = tmp_path / "vault"
+        (vault / "Patterns").mkdir(parents=True)
+        inside = vault / "Patterns" / "note.md"
+        inside.write_text("# note\n", encoding="utf-8")
+        outside = tmp_path / "outside-secret.md"
+        outside.write_text("# secret\n", encoding="utf-8")
+
+        conn = sqlite3.connect(str(vault / "embeddings.db"))
+        conn.execute(
+            "CREATE TABLE note_embeddings ("
+            "stem TEXT, path TEXT, folder TEXT, title TEXT, tags TEXT,"
+            " embedding BLOB)"
+        )
+        blob = struct.pack("1f", 1.0)
+        conn.execute(
+            "INSERT INTO note_embeddings VALUES (?, ?, ?, ?, ?, ?)",
+            ("good", str(inside), "Patterns", "T", "", blob),
+        )
+        conn.execute(
+            "INSERT INTO note_embeddings VALUES (?, ?, ?, ?, ?, ?)",
+            ("evil", str(outside), "Patterns", "T", "", blob),
+        )
+        conn.commit()
+        conn.close()
+
+        vault_conflicts._skipped_outside_warned = False
+        records, vectors = vault_conflicts._load_embeddings(vault)
+
+        assert [r["stem"] for r in records] == ["good"]
+        assert len(vectors) == 1
+        assert "SEC-020" in capsys.readouterr().err

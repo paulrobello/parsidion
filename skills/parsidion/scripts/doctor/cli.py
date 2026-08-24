@@ -20,13 +20,11 @@ import sys
 from pathlib import Path
 
 import vault_common
+import vault_fs
 
 from doctor._state import (
     AI_TIMEOUT,
     _backed_up_this_run,
-    _release_pid,
-    _write_pid,
-    is_process_running,
     load_state,
 )
 from doctor.daily import run_migrate_daily_notes
@@ -289,27 +287,17 @@ def main() -> None:
         else {"last_run": None, "notes": {}}
     )
 
-    # Singleton guard — only one doctor may run at a time
-    existing_pid = state.get("pid")
-    if (
-        existing_pid
-        and existing_pid != os.getpid()
-        and is_process_running(existing_pid)
-    ):
-        print(
-            f"vault_doctor is already running (PID {existing_pid}). Exiting.",
-            file=sys.stderr,
-        )
+    # Singleton guard — only one doctor may run at a time.
+    # SEC-016: the old PID-JSON read-check-write was unlocked (two doctors
+    # could both pass the check before either wrote its pid), and
+    # is_process_running's True-on-PermissionError let a stale `pid: 1`
+    # block doctor runs forever. flock is released by the kernel when the
+    # holder dies, so there is no stale-PID state to recover from at all.
+    doctor_lock_fd = vault_fs.try_singleton_lock(_state._vault_path / ".doctor.lock")
+    if doctor_lock_fd is None:
+        print("vault_doctor is already running. Exiting.", file=sys.stderr)
         sys.exit(1)
-    state["pid"] = os.getpid()
-    _write_pid(state, _state._vault_path)  # claim the lock immediately
-
-    def _release_pid_wrapper() -> None:
-        """Release the singleton PID lock on process exit via atexit."""
-        if _state._vault_path is not None:
-            _release_pid(_state._vault_path)
-
-    atexit.register(_release_pid_wrapper)  # release on any exit path
+    atexit.register(vault_fs.release_singleton_lock, doctor_lock_fd)
 
     # --fix-all implies every fix-mode flag + execute.  Adding a new mode is
     # one line here + its argparse declaration + its entry in _build_fix_modes;
