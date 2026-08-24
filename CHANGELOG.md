@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **2026-08-23 audit remediation** — all 93 findings from the 2026-08-23 audit resolved (0 Critical / 19 High / 34 Medium / 40 Low; details in `AUDIT-REMEDIATION.md`). Highlights: DNS-rebinding-to-RCE chain in the visualizer closed (Host allowlist + note-only mutation paths on `/api/note`); pi/omp extension no longer resolves hook scripts from a cwd-relative sibling; `atomic_write_text` uses `O_EXCL|O_NOFOLLOW`; config-sourced binaries and API endpoints ownership-checked; `anthropic_env` network keys honored only from `config.local.yaml` or an untracked `config.yaml`; MCP `vault_read` restricted to notes; GitHub Actions pinned to SHAs; 17 further hardening items.
+
+### Changed
+
+- **Unified session-end pipeline** (ARC-002) — `session_stop_hook.py` is now a shim over `agent_adapter.run_session_end`; Codex/Gemini/omp gain config-gated AI classification and auto-summarize; every runtime uses one byte-bounded transcript reader.
+- **Wheel manifest complete** (ARC-003) — non-editable installs no longer ship three broken console scripts; CI imports every script target and package from the built wheel.
+- **Python floor raised to 3.13** (ARC-009); ruff target `py313`.
+- **Single frontmatter emitter** (ARC-005) with a Python+TypeScript parity fixture; **single index-rebuild launcher** (ARC-004); `ai_backend`/`parmem_backend` moved under `core/` (ARC-006); typed config defaults on the schema (ARC-007); `install.py` decomposed into `installer/plan.py` + `installer/cli.py` (ARC-008).
+- **Doctor pipeline refactored** (QA-005) — `DoctorOptions`/`ScanContext`/rule registry; `run_scan_and_repair` complexity 31→12 with byte-identical dry-run output.
+- **Deterministic test gate** (QA-001) — the doctor e2e suite no longer flakes under coverage; 1599 tests green.
+- **`docs/api` regenerated and made checkout-path-invariant** (DOC-003) — typedoc `gitRevision: main`, new `docs-api-checks` CI job, `docs/api` excluded from par-mem.
+- Documentation synced across README/CLAUDE.md/docs for grok-cli, config keys, 60 s hook timeouts, `--fix-all`, and the omp runtime (DOC-001..027).
+
 ## [0.20.0] - 2026-08-20
 
 Grok Build CLI backend release. The prompt-AI layer gains a third backend (`grok-cli`, grok-4.6), both CLI backends now run hermetically (no CLAUDE.md/AGENTS.md/skill-catalog ingestion), the AI selector's candidate pool is ranked and pruned Python-side, and every runtime gives the SessionStart hook the same 60 s budget.
