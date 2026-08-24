@@ -126,9 +126,9 @@ def _extract_vault_dirs() -> list[str]:
     scripts_dir = SKILL_SRC / "scripts"
     # Prefer importing vault_path directly so installer.VAULT_DIRS tracks
     # runtime mutations of vault_path.VAULT_DIRS (the mechanism test patches
-    # vault_path.VAULT_DIRS and expects installer to follow).
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
+    # vault_path.VAULT_DIRS and expects installer to follow). The scripts dir
+    # is already on sys.path — installer/__init__.py inserts it at package
+    # import (ARC-008 removed this duplicate insert).
     try:
         import vault_path as _vault_path  # type: ignore[import-not-found]
 

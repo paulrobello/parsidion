@@ -14,7 +14,7 @@ from datetime import date
 
 # ARC-001: imported directly from core.* instead of the vault_common facade.
 from core.vault_fs import ensure_vault_dirs
-from core.vault_index import slugify
+from core.vault_index import serialize_frontmatter, slugify
 from core.vault_path import resolve_vault
 
 # ENH-008 Step 2: the type→folder map and the valid type set live once in
@@ -58,6 +58,10 @@ def _build_frontmatter(
 ) -> str:
     """Generate YAML frontmatter for a new vault note.
 
+    ARC-005: delegates to the shared schema-aware emitter
+    (:func:`core.vault_index.serialize_frontmatter`); this adapter only
+    supplies the ``vault-new`` defaults.
+
     Args:
         note_type: The note type (pattern, debugging, research, etc.).
         tags: List of tag strings to include.
@@ -66,35 +70,18 @@ def _build_frontmatter(
     Returns:
         A multi-line string containing the YAML frontmatter block.
     """
-    today = date.today().strftime("%Y-%m-%d")
-
-    # Build tags inline list
-    if tags:
-        tags_str = "[" + ", ".join(tags) + "]"
-    else:
-        tags_str = "[]"
-
-    lines = [
-        "---",
-        f"date: {today}",
-        f"type: {note_type}",
-        f"tags: {tags_str}",
-    ]
-
+    fields: dict[str, object] = {
+        "date": date.today().strftime("%Y-%m-%d"),
+        "type": note_type,
+        "tags": tags,
+        "confidence": "medium",
+        "sources": [],
+        "related": ["[[vault-index]]"],
+        "provenance": "inferred",
+    }
     if project:
-        lines.append(f"project: {project}")
-
-    lines.extend(
-        [
-            "confidence: medium",
-            "sources: []",
-            'related: ["[[vault-index]]"]',
-            "provenance: inferred",
-            "---",
-        ]
-    )
-
-    return "\n".join(lines) + "\n"
+        fields["project"] = project
+    return serialize_frontmatter(fields)
 
 
 def _build_note_content(

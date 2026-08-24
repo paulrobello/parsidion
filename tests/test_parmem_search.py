@@ -17,7 +17,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parmem_backend  # noqa: E402
+from core import parmem_backend  # noqa: E402 — ARC-006: patch internals where they live
 import vault_common  # noqa: E402
 
 from tests.fake_parmem import FakeHealth, FakeParMem  # noqa: E402

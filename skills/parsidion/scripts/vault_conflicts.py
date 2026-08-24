@@ -376,40 +376,54 @@ def _run_scan(
 def _run_tui(conflicts: list[dict[str, Any]], vault: Path) -> None:  # pragma: no cover
     """Interactive curses walkthrough (mirrors vault_review._show_popup).
 
-    For each conflict: show a_says vs b_says, collect a choice
-    (a=keep_a, b=keep_b, m=merge, s=skip, q=quit). Decisions are collected
-    during the curses loop and printed AFTER the wrapper returns (curses owns
-    the screen while active, so stdout is not visible mid-loop).
+    ARC-013: the loop machinery lives in ``vault_tui.run_list_view``; the
+    selected "row" renders that conflict's A/B block (non-selected rows stay
+    blank, preserving the one-conflict-at-a-time view). For each conflict:
+    show a_says vs b_says, collect a choice (a=keep_a, b=keep_b, m=merge,
+    s=skip, q=quit). Decisions are collected during the curses loop and
+    printed AFTER the wrapper returns (curses owns the screen while active,
+    so stdout is not visible mid-loop).
     """
     import curses
 
+    from vault_tui import run_list_view
+
     decisions: list[str] = []
+    mapping = {
+        ord("a"): "keep_a",
+        ord("b"): "keep_b",
+        ord("m"): "merge",
+        ord("s"): "skip",
+    }
+
+    def _render_conflict(stdscr, c, y, is_selected, w) -> None:
+        if not is_selected:
+            return
+        stdscr.addstr(y, 2, f"[A] {c.get('a')}: {c.get('a_says', '')}"[: w - 1])
+        stdscr.addstr(y + 1, 2, f"[B] {c.get('b')}: {c.get('b_says', '')}"[: w - 1])
+        stdscr.addstr(y + 3, 2, "a=keep A  b=keep B  m=merge  s=skip  q=quit")
+
+    def _on_key(key: int, selected: int) -> str | int | None:
+        if key in (ord("q"), 27):  # q or ESC
+            return "quit"
+        choice = mapping.get(key)
+        if choice:
+            decisions.append(_apply_resolution(conflicts[selected], choice))
+            # Advance to the next conflict; deciding the last one exits
+            # (the original walkthrough ended when idx passed the end).
+            if selected + 1 >= len(conflicts):
+                return "quit"
+            return selected + 1
+        return None
 
     def _loop(stdscr: Any) -> None:
-        curses.curs_set(0)
-        stdscr.keypad(True)
-        mapping = {
-            ord("a"): "keep_a",
-            ord("b"): "keep_b",
-            ord("m"): "merge",
-            ord("s"): "skip",
-        }
-        idx = 0
-        while idx < len(conflicts):
-            c = conflicts[idx]
-            stdscr.clear()
-            stdscr.addstr(0, 2, f"Conflict {idx + 1}/{len(conflicts)}")
-            stdscr.addstr(2, 2, f"[A] {c.get('a')}: {c.get('a_says', '')}")
-            stdscr.addstr(3, 2, f"[B] {c.get('b')}: {c.get('b_says', '')}")
-            stdscr.addstr(5, 2, "a=keep A  b=keep B  m=merge  s=skip  q=quit")
-            stdscr.refresh()
-            key = stdscr.getch()
-            if key == ord("q"):
-                break
-            choice = mapping.get(key)
-            if choice:
-                decisions.append(_apply_resolution(c, choice))
-                idx += 1
+        run_list_view(
+            stdscr,
+            conflicts,
+            _render_conflict,
+            _on_key,
+            title=lambda sel: f"Conflict {sel + 1}/{len(conflicts)}",
+        )
 
     try:
         curses.wrapper(_loop)

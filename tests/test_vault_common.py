@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 import vault_common
+import installer.paths as installer_paths  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -749,53 +750,40 @@ def test_resolve_vault_prefers_parsidion_vault_when_both_defaults_exist(
 
 
 class TestValidateVaultPath:
-    """Tests for install.validate_vault_path."""
-
-    @staticmethod
-    def _import_install():
-        """Import install.py from the repo root."""
-        import install
-
-        return install
+    """Tests for installer_paths.validate_vault_path."""
 
     def test_valid_path(self) -> None:
-        install = self._import_install()
         # Use a home-relative path that is not under any forbidden system directory.
         # pytest's tmp_path lives in /private/var/... on macOS which correctly
         # matches the forbidden /var prefix — so we use ~/ClaudeVaultTestPath instead.
         test_vault = str(Path.home() / "ClaudeVaultTestPath" / "MyVault")
-        path, error = install.validate_vault_path(test_vault)
+        path, error = installer_paths.validate_vault_path(test_vault)
         assert error is None
         assert path.name == "MyVault"
 
     def test_empty_path(self) -> None:
-        install = self._import_install()
-        path, error = install.validate_vault_path("")
+        path, error = installer_paths.validate_vault_path("")
         assert error is not None
         assert "empty" in error.lower()
 
     def test_whitespace_only_path(self) -> None:
-        install = self._import_install()
-        path, error = install.validate_vault_path("   ")
+        path, error = installer_paths.validate_vault_path("   ")
         assert error is not None
         assert "empty" in error.lower()
 
     def test_forbidden_system_path(self) -> None:
-        install = self._import_install()
-        path, error = install.validate_vault_path("/usr/local/vault")
+        path, error = installer_paths.validate_vault_path("/usr/local/vault")
         assert error is not None
         assert "system" in error.lower() or "cannot" in error.lower()
 
     def test_home_tilde_expansion(self) -> None:
-        install = self._import_install()
-        path, error = install.validate_vault_path("~/MyVault")
+        path, error = installer_paths.validate_vault_path("~/MyVault")
         assert error is None
         assert str(Path.home()) in str(path)
 
     def test_claude_dir_forbidden(self) -> None:
-        install = self._import_install()
         claude_path = str(Path.home() / ".claude" / "vault")
-        path, error = install.validate_vault_path(claude_path)
+        path, error = installer_paths.validate_vault_path(claude_path)
         assert error is not None
 
 

@@ -37,6 +37,13 @@ def _resolve_vault_path(vault: str | None) -> Path | None:
 def rebuild_index(vault: str | None = None) -> str:
     """Rebuild the vault index (CLAUDE.md, MANIFEST.md files, note_index table).
 
+    ARC-004: the subprocess itself is owned by
+    ``core.vault_index.run_index_rebuild`` (shared with the installer and the
+    summarizer); this wrapper keeps the MCP-specific contract — SCRIPTS_DIR
+    resolves to the imported package's own directory (ARC-021, so the
+    subprocess runs the same code the server imported) and errors surface as
+    ``OpsToolError``.
+
     Args:
         vault: Optional vault reference (name from vaults.yaml, or absolute path).
             When None, the resolver's default precedence applies.
@@ -47,32 +54,18 @@ def rebuild_index(vault: str | None = None) -> str:
     Raises:
         OpsToolError: On command failure, timeout, or missing binary.
     """
-    script = SCRIPTS_DIR / "update_index.py"
-    argv: list[str] = ["uv", "run", "--no-project", str(script)]
-    # ARC-021: thread the explicit vault into the subprocess so multi-vault
-    # users reach the right index. Without this, the MCP layer always
-    # rebuilds the default vault regardless of which vault the caller asked
-    # about.
     resolved_vault = _resolve_vault_path(vault)
-    if resolved_vault is not None:
-        argv.extend(["--vault", str(resolved_vault)])
-    try:
-        result = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        output = (result.stdout + result.stderr).strip()
-        if result.returncode != 0:
+    reason, proc = vault_common.run_index_rebuild(
+        resolved_vault, scripts_dir=SCRIPTS_DIR, timeout=30.0
+    )
+    if reason == "ok" and proc is not None:
+        output = (proc.stdout + proc.stderr).strip()
+        if proc.returncode != 0:
             raise OpsToolError(output)
         return output or "Index rebuilt successfully."
-    except subprocess.TimeoutExpired:
+    if reason == "timeout":
         raise OpsToolError("command timed out after 30s")
-    except FileNotFoundError as exc:
-        raise OpsToolError(str(exc)) from exc
-    except OSError as exc:
-        raise OpsToolError(str(exc)) from exc
+    raise OpsToolError("uv or update_index.py not found")
 
 
 def vault_doctor(

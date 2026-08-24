@@ -66,6 +66,7 @@ import vault_config  # noqa: F401 — re-exported (vault_merge.vault_config) for
 import vault_fs  # noqa: F401 — re-exported (vault_merge.vault_fs) for tests
 import vault_links  # noqa: F401 — re-exported (vault_merge.vault_links) for tests
 from vault_path import is_path_inside_vault
+from core.vault_index import serialize_frontmatter
 from prompt_templates import render  # noqa: F401 — re-exported (vault_merge.render)
 
 # ---------------------------------------------------------------------------
@@ -299,42 +300,24 @@ def _merge_notes(
 def _build_frontmatter(fm: dict) -> str:
     """Serialise a frontmatter dict back to a YAML block string.
 
+    ARC-005: delegates to the shared schema-aware emitter
+    (:func:`core.vault_index.serialize_frontmatter`). This adapter keeps the
+    merge-specific rule that empty values (``None``/``""``/``[]``/``{}``) are
+    dropped rather than written; the canonical key order and quoting come
+    from the emitter.
+
     Args:
         fm: Dict with frontmatter fields.
 
     Returns:
         ``---\\n...\\n---\\n`` YAML frontmatter block.
     """
-    lines: list[str] = ["---"]
-    for key in (
-        "date",
-        "type",
-        "tags",
-        "project",
-        "confidence",
-        "sources",
-        "related",
-        "provenance",
-        "session_id",
-    ):
-        if key not in fm:
-            continue
-        value = fm[key]
-        if value is None or value == "" or value == [] or value == {}:
-            continue
-        if key in ("tags", "sources", "related") and isinstance(value, list):
-            # Inline quoted array format: ["[[a]]", "[[b]]"]
-            # SEC-033: escape embedded quotes/backslashes so a value like
-            # the 'who said "x"' note cannot break the YAML line.
-            items_str = ", ".join(
-                f'"{str(v).replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"'
-                for v in value
-            )
-            lines.append(f"{key}: [{items_str}]")
-        else:
-            lines.append(f"{key}: {value}")
-    lines.append("---")
-    return "\n".join(lines) + "\n"
+    populated = {
+        key: value
+        for key, value in fm.items()
+        if value is not None and value != "" and value != [] and value != {}
+    }
+    return serialize_frontmatter(populated)
 
 
 def _hash_content(content: str) -> str:

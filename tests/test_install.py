@@ -6,9 +6,13 @@ import json
 import sys
 from pathlib import Path
 
-import install
-import installer.paths
-import installer.ui
+import installer.cli as installer_cli
+import installer.plan as installer_plan
+import installer.vault as installer_vault
+import installer.hooks as installer_hooks
+import installer.ui as installer_ui
+import installer.paths as installer_paths
+import installer.ui  # noqa: F401 — setattr target
 
 
 LEGACY_PROJECT_NAME = "parsidion" + "-cc"
@@ -23,7 +27,7 @@ class TestParseArgs:
     def test_parse_args_supports_uninstall_hooks(self, monkeypatch) -> None:
         monkeypatch.setattr(sys, "argv", ["install.py", "--uninstall-hooks"])
 
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
         assert args.uninstall_hooks is True
         assert args.uninstall is False
@@ -32,7 +36,7 @@ class TestParseArgs:
         # ARC-003: --purge-config gates vaults.yaml deletion
         monkeypatch.setattr(sys, "argv", ["install.py", "--purge-config"])
 
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
         assert args.purge_config is True
 
@@ -40,7 +44,7 @@ class TestParseArgs:
         # ARC-003: vaults.yaml must not be deletable under --yes alone
         monkeypatch.setattr(sys, "argv", ["install.py", "--yes"])
 
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
         assert args.purge_config is False
 
@@ -51,7 +55,7 @@ class TestParseArgs:
             ["install.py", "--migrate-vault", "--no-legacy-vault-symlink"],
         )
 
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
         assert args.migrate_vault is True
         assert args.no_legacy_vault_symlink is True
@@ -63,33 +67,39 @@ class TestParseArgs:
             ["install.py", "--runtime", "both", "--codex-home", "~/CustomCodex"],
         )
 
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
         assert args.runtime == "both"
         assert args.codex_home == "~/CustomCodex"
 
     def test_parse_args_supports_gemini_and_all_runtime(self, monkeypatch) -> None:
         monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "gemini"])
-        args = install.parse_args()
+        args = installer_cli.parse_args()
         assert args.runtime == "gemini"
 
         monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "all"])
-        args = install.parse_args()
+        args = installer_cli.parse_args()
         assert args.runtime == "all"
 
     def test_resolve_runtime_defaults_to_claude_for_yes(self) -> None:
         assert (
-            install.resolve_runtime_choice(runtime=None, yes=True, interactive=False)
+            installer_ui.resolve_runtime_choice(
+                runtime=None, yes=True, interactive=False
+            )
             == "claude"
         )
 
     def test_resolve_runtime_keeps_yes_and_noninteractive_default_claude(self) -> None:
         assert (
-            install.resolve_runtime_choice(runtime=None, yes=True, interactive=True)
+            installer_ui.resolve_runtime_choice(
+                runtime=None, yes=True, interactive=True
+            )
             == "claude"
         )
         assert (
-            install.resolve_runtime_choice(runtime=None, yes=False, interactive=False)
+            installer_ui.resolve_runtime_choice(
+                runtime=None, yes=False, interactive=False
+            )
             == "claude"
         )
 
@@ -99,7 +109,9 @@ class TestParseArgs:
         monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "")
 
         assert (
-            install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
+            installer_ui.resolve_runtime_choice(
+                runtime=None, yes=False, interactive=True
+            )
             == "both"
         )
 
@@ -108,23 +120,27 @@ class TestParseArgs:
     ) -> None:
         monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "3")
         assert (
-            install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
+            installer_ui.resolve_runtime_choice(
+                runtime=None, yes=False, interactive=True
+            )
             == "gemini"
         )
 
         monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "5")
         assert (
-            install.resolve_runtime_choice(runtime=None, yes=False, interactive=True)
+            installer_ui.resolve_runtime_choice(
+                runtime=None, yes=False, interactive=True
+            )
             == "all"
         )
 
     def test_runtime_predicates_include_all_without_cross_wiring_gemini(self) -> None:
-        assert install._wants_claude_runtime("all") is True
-        assert install._wants_codex_runtime("all") is True
-        assert install._wants_gemini_runtime("all") is True
-        assert install._wants_gemini_runtime("gemini") is True
-        assert install._wants_claude_runtime("gemini") is False
-        assert install._wants_codex_runtime("gemini") is False
+        assert installer_paths._wants_claude_runtime("all") is True
+        assert installer_paths._wants_codex_runtime("all") is True
+        assert installer_paths._wants_gemini_runtime("all") is True
+        assert installer_paths._wants_gemini_runtime("gemini") is True
+        assert installer_paths._wants_claude_runtime("gemini") is False
+        assert installer_paths._wants_codex_runtime("gemini") is False
 
 
 class TestCodexHooks:
@@ -132,7 +148,9 @@ class TestCodexHooks:
         codex_home = tmp_path / ".codex"
         claude_dir = tmp_path / ".claude"
 
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
 
         hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
         assert "SessionStart" in hooks["hooks"]
@@ -172,8 +190,12 @@ class TestCodexHooks:
             encoding="utf-8",
         )
 
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
 
         hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
         handlers = hooks["hooks"]["SessionStart"]
@@ -195,7 +217,9 @@ class TestCodexHooks:
             encoding="utf-8",
         )
 
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
 
         hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
         handlers = hooks["hooks"]["SessionStart"]
@@ -250,7 +274,9 @@ class TestCodexHooks:
             encoding="utf-8",
         )
 
-        changed = install.remove_codex_hooks(codex_home, claude_dir, dry_run=False)
+        changed = installer_hooks.remove_codex_hooks(
+            codex_home, claude_dir, dry_run=False
+        )
 
         hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
         handlers = hooks["hooks"]["Stop"]
@@ -273,7 +299,9 @@ class TestCodexHooks:
     ) -> None:
         codex_home = tmp_path / ".codex"
         claude_dir = tmp_path / ".claude"
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
         hooks_file = codex_home / "hooks.json"
         hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
         hooks["hooks"].setdefault("Stop", []).append(
@@ -281,7 +309,9 @@ class TestCodexHooks:
         )
         hooks_file.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
 
-        changed = install.remove_codex_hooks(codex_home, claude_dir, dry_run=False)
+        changed = installer_hooks.remove_codex_hooks(
+            codex_home, claude_dir, dry_run=False
+        )
 
         updated = json.loads(hooks_file.read_text(encoding="utf-8"))
         assert changed is True
@@ -294,7 +324,7 @@ class TestCodexHooks:
     ) -> None:
         codex_home = tmp_path / ".codex"
 
-        install.enable_codex_hooks_config(codex_home, dry_run=False, yes=True)
+        installer_hooks.enable_codex_hooks_config(codex_home, dry_run=False, yes=True)
 
         assert (codex_home / "config.toml").read_text(encoding="utf-8") == (
             "[features]\nhooks = true\n"
@@ -306,7 +336,7 @@ class TestGeminiHooks:
         gemini_home = tmp_path / ".gemini"
         claude_dir = tmp_path / ".claude"
 
-        install.merge_gemini_hooks(
+        installer_hooks.merge_gemini_hooks(
             gemini_home, claude_dir, dry_run=False, verbose=False
         )
 
@@ -351,10 +381,10 @@ class TestGeminiHooks:
             encoding="utf-8",
         )
 
-        install.merge_gemini_hooks(
+        installer_hooks.merge_gemini_hooks(
             gemini_home, claude_dir, dry_run=False, verbose=False
         )
-        install.merge_gemini_hooks(
+        installer_hooks.merge_gemini_hooks(
             gemini_home, claude_dir, dry_run=False, verbose=False
         )
 
@@ -377,7 +407,7 @@ class TestGeminiHooks:
     ) -> None:
         gemini_home = tmp_path / ".gemini"
         claude_dir = tmp_path / ".claude"
-        install.merge_gemini_hooks(
+        installer_hooks.merge_gemini_hooks(
             gemini_home, claude_dir, dry_run=False, verbose=False
         )
         settings_file = gemini_home / "settings.json"
@@ -389,7 +419,9 @@ class TestGeminiHooks:
             json.dumps(settings, indent=2) + "\n", encoding="utf-8"
         )
 
-        changed = install.remove_gemini_hooks(gemini_home, claude_dir, dry_run=False)
+        changed = installer_hooks.remove_gemini_hooks(
+            gemini_home, claude_dir, dry_run=False
+        )
 
         updated = json.loads(settings_file.read_text(encoding="utf-8"))
         assert changed is True
@@ -414,7 +446,7 @@ class TestDefaultVaultPath:
         home = tmp_path / "home"
         home.mkdir()
 
-        assert install._default_vault_path(home) == home / "ParsidionVault"
+        assert installer_paths._default_vault_path(home) == home / "ParsidionVault"
 
     def test_default_vault_path_uses_legacy_claude_vault_when_present(
         self, tmp_path: Path
@@ -423,7 +455,7 @@ class TestDefaultVaultPath:
         legacy = home / "ClaudeVault"
         legacy.mkdir(parents=True)
 
-        assert install._default_vault_path(home) == legacy
+        assert installer_paths._default_vault_path(home) == legacy
 
     def test_default_vault_path_prefers_parsidion_vault_when_both_exist(
         self, tmp_path: Path
@@ -434,7 +466,7 @@ class TestDefaultVaultPath:
         current.mkdir(parents=True)
         legacy.mkdir()
 
-        assert install._default_vault_path(home) == current
+        assert installer_paths._default_vault_path(home) == current
 
 
 class TestDefaultVaultMigration:
@@ -448,7 +480,7 @@ class TestDefaultVaultMigration:
         legacy.mkdir(parents=True)
         (legacy / "config.yaml").write_text("ai:\n  backend: codex-cli\n")
 
-        result = install.migrate_default_vault(home=home)
+        result = installer_vault.migrate_default_vault(home=home)
 
         current = home / "ParsidionVault"
         assert result == 0
@@ -462,7 +494,7 @@ class TestDefaultVaultMigration:
         legacy = home / "ClaudeVault"
         legacy.mkdir(parents=True)
 
-        result = install.migrate_default_vault(home=home, dry_run=True)
+        result = installer_vault.migrate_default_vault(home=home, dry_run=True)
 
         assert result == 0
         assert legacy.is_dir()
@@ -478,7 +510,7 @@ class TestDefaultVaultMigration:
         legacy = home / "ClaudeVault"
         legacy.symlink_to(current, target_is_directory=True)
 
-        result = install.migrate_default_vault(home=home)
+        result = installer_vault.migrate_default_vault(home=home)
 
         assert result == 0
         assert legacy.resolve() == current.resolve()
@@ -490,7 +522,7 @@ class TestDefaultVaultMigration:
         (home / "ClaudeVault").mkdir(parents=True)
         (home / "ParsidionVault").mkdir()
 
-        result = install.migrate_default_vault(home=home)
+        result = installer_vault.migrate_default_vault(home=home)
 
         assert result == 2
         assert (home / "ClaudeVault").is_dir()
@@ -503,7 +535,9 @@ class TestDefaultVaultMigration:
         legacy = home / "ClaudeVault"
         legacy.mkdir(parents=True)
 
-        result = install.migrate_default_vault(home=home, create_legacy_symlink=False)
+        result = installer_vault.migrate_default_vault(
+            home=home, create_legacy_symlink=False
+        )
 
         assert result == 0
         assert not legacy.exists()
@@ -516,7 +550,7 @@ class TestRuntimeFlow:
     def test_runtime_none_dry_run_install_skips_hook_registration(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         calls: list[str] = []
 
         def record(name: str):
@@ -546,7 +580,7 @@ class TestRuntimeFlow:
             "schedule_summarizer",
             "create_vaults_config",
         ):
-            monkeypatch.setattr(install, name, record(name))
+            monkeypatch.setattr(installer_plan, name, record(name))
 
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
@@ -568,9 +602,9 @@ class TestRuntimeFlow:
                 str(codex_home),
             ],
         )
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
-        result = install.install(args)
+        result = installer_cli.install(args)
 
         output = capsys.readouterr().out
         assert result == 0
@@ -590,14 +624,16 @@ class TestRuntimeFlow:
         codex_home = tmp_path / ".codex"
         claude_dir = tmp_path / ".claude"
 
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=True, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=True, verbose=False
+        )
 
         assert not (codex_home / "hooks.json").exists()
 
     def test_runtime_both_dry_run_install_prints_codex_plan(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         codex_home = tmp_path / ".codex"
@@ -618,9 +654,9 @@ class TestRuntimeFlow:
                 str(codex_home),
             ],
         )
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
-        result = install.install(args)
+        result = installer_cli.install(args)
 
         output = capsys.readouterr().out
         assert result == 0
@@ -632,7 +668,7 @@ class TestRuntimeFlow:
     def test_runtime_all_dry_run_install_prints_all_runtime_plans(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         codex_home = tmp_path / ".codex"
@@ -656,9 +692,9 @@ class TestRuntimeFlow:
                 str(gemini_home),
             ],
         )
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
-        result = install.install(args)
+        result = installer_cli.install(args)
 
         output = capsys.readouterr().out
         assert result == 0
@@ -678,7 +714,7 @@ class TestRuntimeFlow:
     def test_runtime_gemini_dry_run_install_prints_gemini_plan(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         gemini_home = tmp_path / ".gemini"
@@ -699,9 +735,9 @@ class TestRuntimeFlow:
                 str(gemini_home),
             ],
         )
-        args = install.parse_args()
+        args = installer_cli.parse_args()
 
-        result = install.install(args)
+        result = installer_cli.install(args)
 
         output = capsys.readouterr().out
         assert result == 0
@@ -718,7 +754,9 @@ class TestRuntimeFlow:
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
         codex_home = tmp_path / ".codex"
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
         settings_file.parent.mkdir(parents=True)
         settings_file.write_text(
             json.dumps(
@@ -730,7 +768,7 @@ class TestRuntimeFlow:
                                 "hooks": [
                                     {
                                         "type": "command",
-                                        "command": install._hook_command(
+                                        "command": installer_hooks._hook_command(
                                             claude_dir, "SessionStart"
                                         ),
                                     }
@@ -743,7 +781,7 @@ class TestRuntimeFlow:
             encoding="utf-8",
         )
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -767,15 +805,17 @@ class TestRuntimeFlow:
         settings_file = claude_dir / "settings.json"
         codex_home = tmp_path / ".codex"
         gemini_home = tmp_path / ".gemini"
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
-        install.merge_gemini_hooks(
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
+        installer_hooks.merge_gemini_hooks(
             gemini_home, claude_dir, dry_run=False, verbose=False
         )
         settings_file.parent.mkdir(parents=True)
         settings_file.write_text(json.dumps({"hooks": {}}), encoding="utf-8")
         codex_before = (codex_home / "hooks.json").read_text(encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -796,10 +836,12 @@ class TestRuntimeFlow:
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
         codex_home = tmp_path / ".codex"
-        install.merge_codex_hooks(codex_home, claude_dir, dry_run=False, verbose=False)
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
         before = (codex_home / "hooks.json").read_text(encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -822,7 +864,7 @@ class TestUninstallHooksOnly:
         settings_file = claude_dir / "settings.json"
         skill_dir = claude_dir / "skills" / "parsidion"
         claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
-        agent_file = claude_dir / "agents" / install.AGENT_SRCS[0].name
+        agent_file = claude_dir / "agents" / installer_paths.AGENT_SRCS[0].name
 
         skill_dir.mkdir(parents=True)
         claude_vault_md.parent.mkdir(parents=True, exist_ok=True)
@@ -831,14 +873,14 @@ class TestUninstallHooksOnly:
         agent_file.write_text("agent\n", encoding="utf-8")
 
         managed_hooks = {}
-        for event in install._HOOK_SCRIPTS:
+        for event in installer_paths._HOOK_SCRIPTS:
             managed_hooks[event] = [
                 {
                     "matcher": "",
                     "hooks": [
                         {
                             "type": "command",
-                            "command": install._hook_command(claude_dir, event),
+                            "command": installer_hooks._hook_command(claude_dir, event),
                             "timeout": 10000,
                         }
                     ],
@@ -881,7 +923,7 @@ class TestUninstallHooksOnly:
             json.dumps(settings, indent=2) + "\n", encoding="utf-8"
         )
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir, settings_file, dry_run=False, yes=True, hooks_only=True
         )
 
@@ -928,8 +970,10 @@ class TestFullUninstall:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        from installer import uninstall as uninstall_mod
+
         monkeypatch.setattr(
-            install, "unschedule_summarizer", lambda dry_run=False: None
+            uninstall_mod, "unschedule_summarizer", lambda dry_run=False: None
         )
 
         claude_dir = tmp_path / ".claude"
@@ -941,7 +985,7 @@ class TestFullUninstall:
         skill_link.parent.mkdir(parents=True)
         skill_link.symlink_to(real_skill_dir, target_is_directory=True)
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir, settings_file, dry_run=False, yes=True, hooks_only=False
         )
 
@@ -1003,7 +1047,7 @@ class TestUninstallGuardsSharedInfrastructure:
         claude_dir.mkdir(parents=True)
         settings_file.write_text("{}", encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1040,7 +1084,7 @@ class TestUninstallGuardsSharedInfrastructure:
         claude_dir.mkdir(parents=True)
         settings_file.write_text("{}", encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1072,7 +1116,7 @@ class TestUninstallGuardsSharedInfrastructure:
         claude_dir.mkdir(parents=True)
         settings_file.write_text("{}", encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1101,7 +1145,7 @@ class TestUninstallGuardsSharedInfrastructure:
         claude_dir.mkdir(parents=True)
         settings_file.write_text("{}", encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1128,7 +1172,7 @@ class TestUninstallGuardsSharedInfrastructure:
         claude_dir.mkdir(parents=True)
         settings_file.write_text("{}", encoding="utf-8")
 
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1150,7 +1194,7 @@ class TestParsidionRenamePaths:
     def test_hook_command_uses_parsidion_skill_path(self, tmp_path: Path) -> None:
         claude_dir = tmp_path / ".claude"
 
-        command = install._hook_command(claude_dir, "SessionStart")
+        command = installer_hooks._hook_command(claude_dir, "SessionStart")
 
         assert "skills/parsidion/scripts/session_start_hook.py" in command
         assert "parsidion-cc" not in command
@@ -1159,7 +1203,7 @@ class TestParsidionRenamePaths:
         claude_dir = tmp_path / ".claude"
         vault_root = tmp_path / "ClaudeVault"
 
-        dest = install.install_skill(
+        dest = installer_plan.install_skill(
             claude_dir,
             vault_root,
             dry_run=True,
@@ -1174,7 +1218,7 @@ class TestParsidionRenamePaths:
         vault_root = tmp_path / "ClaudeVault"
         claude_dir.mkdir()
 
-        dest = install.install_skill(
+        dest = installer_plan.install_skill(
             claude_dir,
             vault_root,
             dry_run=False,
@@ -1198,7 +1242,7 @@ class TestLegacyCleanup:
         settings_file = claude_dir / "settings.json"
         legacy_command = f"uv run --no-project {LEGACY_SKILL_SCRIPT}"
         unrelated_wrapper_command = f"echo {LEGACY_SKILL_SCRIPT}"
-        new_command = install._hook_command(claude_dir, "SessionStart")
+        new_command = installer_hooks._hook_command(claude_dir, "SessionStart")
         settings = {
             "theme": "dark",
             "hooks": {
@@ -1253,7 +1297,7 @@ class TestLegacyCleanup:
             json.dumps(settings, indent=2) + "\n", encoding="utf-8"
         )
 
-        changed = install.cleanup_legacy_assets(
+        changed = installer_plan.cleanup_legacy_assets(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1329,7 +1373,7 @@ class TestLegacyCleanup:
             json.dumps(settings, indent=2) + "\n", encoding="utf-8"
         )
 
-        changed = install.cleanup_legacy_assets(
+        changed = installer_plan.cleanup_legacy_assets(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1360,7 +1404,7 @@ class TestLegacyCleanup:
         settings_file.parent.mkdir(parents=True, exist_ok=True)
         settings_file.write_text('{"hooks": {}}\n', encoding="utf-8")
 
-        changed = install.cleanup_legacy_assets(
+        changed = installer_plan.cleanup_legacy_assets(
             claude_dir,
             settings_file,
             dry_run=False,
@@ -1402,7 +1446,7 @@ class TestLegacyCleanup:
             encoding="utf-8",
         )
 
-        changed = install.cleanup_legacy_assets(
+        changed = installer_plan.cleanup_legacy_assets(
             claude_dir,
             settings_file,
             dry_run=True,
@@ -1424,20 +1468,20 @@ class TestReadEmbeddingsEnabled:
         (tmp_path / "config.yaml").write_text(
             "embeddings:\n  enabled: true\n", encoding="utf-8"
         )
-        assert install.read_embeddings_enabled(tmp_path) is True
+        assert installer_vault.read_embeddings_enabled(tmp_path) is True
 
     def test_reads_false(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text(
             "embeddings:\n  enabled: false\n", encoding="utf-8"
         )
-        assert install.read_embeddings_enabled(tmp_path) is False
+        assert installer_vault.read_embeddings_enabled(tmp_path) is False
 
     def test_defaults_true_when_section_absent(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text("other: value\n", encoding="utf-8")
-        assert install.read_embeddings_enabled(tmp_path) is True
+        assert installer_vault.read_embeddings_enabled(tmp_path) is True
 
     def test_defaults_true_when_no_config_file(self, tmp_path: Path) -> None:
-        assert install.read_embeddings_enabled(tmp_path) is True
+        assert installer_vault.read_embeddings_enabled(tmp_path) is True
 
 
 class TestEmbeddingsPreservedOnYesSync:
@@ -1468,11 +1512,11 @@ class TestEmbeddingsPreservedOnYesSync:
             "schedule_summarizer",
             "create_vaults_config",
         ):
-            monkeypatch.setattr(install, name, self._noop)
+            monkeypatch.setattr(installer_plan, name, self._noop)
 
     def test_yes_sync_preserves_enabled_true(self, tmp_path: Path, monkeypatch) -> None:
         # config has embeddings.enabled: true; a plain --yes sync must keep it.
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         vault.mkdir()
         (vault / "config.yaml").write_text(
@@ -1483,7 +1527,9 @@ class TestEmbeddingsPreservedOnYesSync:
         def fake_configure_embeddings(vault_root, *, enabled, dry_run=False):
             captured["enabled"] = enabled
 
-        monkeypatch.setattr(install, "configure_embeddings", fake_configure_embeddings)
+        monkeypatch.setattr(
+            installer_plan, "configure_embeddings", fake_configure_embeddings
+        )
         self._stub_heavy_steps(monkeypatch)
 
         monkeypatch.setattr(
@@ -1503,7 +1549,7 @@ class TestEmbeddingsPreservedOnYesSync:
                 str(tmp_path / ".codex"),
             ],
         )
-        install.install(install.parse_args())
+        installer_cli.install(installer_cli.parse_args())
 
         assert captured.get("enabled") is True, (
             "install.py --yes clobbered embeddings.enabled (must preserve existing true)"
@@ -1513,7 +1559,7 @@ class TestEmbeddingsPreservedOnYesSync:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         # Even when config says false, --enable-embeddings must force true.
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         vault.mkdir()
         (vault / "config.yaml").write_text(
@@ -1524,7 +1570,9 @@ class TestEmbeddingsPreservedOnYesSync:
         def fake_configure_embeddings(vault_root, *, enabled, dry_run=False):
             captured["enabled"] = enabled
 
-        monkeypatch.setattr(install, "configure_embeddings", fake_configure_embeddings)
+        monkeypatch.setattr(
+            installer_plan, "configure_embeddings", fake_configure_embeddings
+        )
         self._stub_heavy_steps(monkeypatch)
 
         monkeypatch.setattr(
@@ -1545,7 +1593,7 @@ class TestEmbeddingsPreservedOnYesSync:
                 str(tmp_path / ".codex"),
             ],
         )
-        install.install(install.parse_args())
+        installer_cli.install(installer_cli.parse_args())
 
         assert captured.get("enabled") is True
 
@@ -1555,23 +1603,20 @@ class TestAgentSrcsCoversAllAgentFiles:
     silently drift out of the installed-agents manifest again."""
 
     def test_every_agent_md_is_listed_in_agent_srcs(self) -> None:
-        from pathlib import Path
 
-        import install
+        import installer.paths
 
-        repo_root = Path(install.__file__).resolve().parent
+        repo_root = installer.paths.REPO_ROOT
         agents_dir = repo_root / "agents"
         on_disk = {p.name for p in agents_dir.glob("*.md")}
-        listed = {p.name for p in install.AGENT_SRCS if p.name.endswith(".md")}
+        listed = {p.name for p in installer_paths.AGENT_SRCS if p.name.endswith(".md")}
         missing = on_disk - listed
         assert not missing, (
             f"agents/*.md not in AGENT_SRCS (installer will not install them): {sorted(missing)}"
         )
 
     def test_every_listed_agent_src_exists_on_disk(self) -> None:
-        import install
-
-        missing = [str(p) for p in install.AGENT_SRCS if not p.exists()]
+        missing = [str(p) for p in installer_paths.AGENT_SRCS if not p.exists()]
         assert not missing, f"AGENT_SRCS points at non-existent files: {missing}"
 
 
@@ -1611,18 +1656,18 @@ class TestInstallFailureHandling:
             "schedule_summarizer",
             "create_vaults_config",
         ):
-            monkeypatch.setattr(install, name, lambda *a, **kw: None)
+            monkeypatch.setattr(installer_plan, name, lambda *a, **kw: None)
 
     def test_failing_merge_hooks_returns_nonzero(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         self._stub_light_steps(monkeypatch)
 
         def boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(install, "merge_hooks", boom)
+        monkeypatch.setattr(installer_plan, "merge_hooks", boom)
 
         vault = tmp_path / "Vault"
         vault.mkdir()
@@ -1643,7 +1688,7 @@ class TestInstallFailureHandling:
             ],
         )
 
-        rc = install.install(install.parse_args())
+        rc = installer_cli.install(installer_cli.parse_args())
 
         assert rc != 0, "failing merge_hooks must propagate a non-zero exit code"
         err = capsys.readouterr().err
@@ -1657,9 +1702,9 @@ class TestInstallFailureHandling:
         # Positive control: with every step stubbed to no-op, install()
         # returns 0 (so the non-zero path above is genuinely tied to the
         # failure, not a baseline return value change).
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         self._stub_light_steps(monkeypatch)
-        monkeypatch.setattr(install, "merge_hooks", lambda *a, **kw: None)
+        monkeypatch.setattr(installer_plan, "merge_hooks", lambda *a, **kw: None)
 
         vault = tmp_path / "Vault"
         vault.mkdir()
@@ -1680,7 +1725,7 @@ class TestInstallFailureHandling:
             ],
         )
 
-        rc = install.install(install.parse_args())
+        rc = installer_cli.install(installer_cli.parse_args())
         assert rc == 0
 
 
@@ -1705,7 +1750,7 @@ class TestCustomVaultPersistence:
         custom_vault = tmp_path / "WorkVault"
         custom_vault.mkdir()
 
-        install.record_installed_vault(custom_vault, dry_run=False)
+        installer_vault.record_installed_vault(custom_vault, dry_run=False)
 
         vaults_yaml = home / ".config" / "parsidion" / "vaults.yaml"
         assert vaults_yaml.exists(), "record_installed_vault did not create vaults.yaml"
@@ -1724,12 +1769,12 @@ class TestCustomVaultPersistence:
         custom_vault = tmp_path / "WorkVault"
         custom_vault.mkdir()
 
-        install.record_installed_vault(custom_vault, dry_run=False)
+        installer_vault.record_installed_vault(custom_vault, dry_run=False)
         first = (home / ".config" / "parsidion" / "vaults.yaml").read_text(
             encoding="utf-8"
         )
         # Second call must not duplicate the entry or rewrite a different default.
-        install.record_installed_vault(custom_vault, dry_run=False)
+        installer_vault.record_installed_vault(custom_vault, dry_run=False)
         second = (home / ".config" / "parsidion" / "vaults.yaml").read_text(
             encoding="utf-8"
         )
@@ -1754,7 +1799,7 @@ class TestCustomVaultPersistence:
         monkeypatch.setenv("HOME", str(home))
 
         default_vault = home / "ParsidionVault"
-        install.record_installed_vault(default_vault, dry_run=False)
+        installer_vault.record_installed_vault(default_vault, dry_run=False)
 
         vaults_yaml = home / ".config" / "parsidion" / "vaults.yaml"
         assert not vaults_yaml.exists(), (
@@ -1773,9 +1818,9 @@ class TestCustomVaultPersistence:
         custom_vault = tmp_path / "WorkVault"
         custom_vault.mkdir()
 
-        install.record_installed_vault(custom_vault, dry_run=False)
+        installer_vault.record_installed_vault(custom_vault, dry_run=False)
         # Resolve via the installer-side reader.
-        resolved = install._resolve_vault_root_for_uninstall()
+        resolved = installer_paths._resolve_vault_root_for_uninstall()
         assert resolved == custom_vault.resolve(), (
             f"uninstall resolver did not find custom vault; got {resolved}"
         )
@@ -1788,7 +1833,7 @@ class TestCustomVaultPersistence:
         (home / "ParsidionVault").mkdir(parents=True)
         monkeypatch.setenv("HOME", str(home))
 
-        resolved = install._resolve_vault_root_for_uninstall()
+        resolved = installer_paths._resolve_vault_root_for_uninstall()
         assert resolved == (home / "ParsidionVault").resolve()
 
 
@@ -1801,7 +1846,7 @@ class TestInstallPersistsSettings:
     def test_install_writes_settings_json_with_all_hooks(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "Vault"
         vault.mkdir()
         claude_dir = tmp_path / ".claude"
@@ -1835,7 +1880,7 @@ class TestInstallPersistsSettings:
             "create_vaults_config",
             "record_installed_vault",
         ):
-            monkeypatch.setattr(install, name, lambda *a, **kw: None)
+            monkeypatch.setattr(installer_plan, name, lambda *a, **kw: None)
 
         monkeypatch.setattr(
             sys,
@@ -1854,7 +1899,7 @@ class TestInstallPersistsSettings:
             ],
         )
 
-        rc = install.install(install.parse_args())
+        rc = installer_cli.install(installer_cli.parse_args())
         assert rc == 0
 
         settings_path = claude_dir / "settings.json"
@@ -1895,7 +1940,7 @@ class TestInstallUninstallRoundTrip:
     def test_round_trip_returns_tree_to_prior_state(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        monkeypatch.setattr(installer.paths, "_FORBIDDEN_PREFIXES", ())
+        monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "Vault"
         vault.mkdir()
         claude_dir = tmp_path / ".claude"
@@ -1938,7 +1983,7 @@ class TestInstallUninstallRoundTrip:
             "create_vaults_config",
             "record_installed_vault",
         ):
-            monkeypatch.setattr(install, name, lambda *a, **kw: None)
+            monkeypatch.setattr(installer_plan, name, lambda *a, **kw: None)
 
         monkeypatch.setattr(
             sys,
@@ -1956,7 +2001,7 @@ class TestInstallUninstallRoundTrip:
                 str(codex_home),
             ],
         )
-        rc = install.install(install.parse_args())
+        rc = installer_cli.install(installer_cli.parse_args())
         assert rc == 0
 
         # Sanity: install added settings.json.
@@ -1964,7 +2009,7 @@ class TestInstallUninstallRoundTrip:
 
         # Now uninstall using the public API (the same path the
         # `disconnect claude`/`--uninstall` verbs route through).
-        install.uninstall(
+        installer_cli.uninstall(
             claude_dir,
             claude_dir / "settings.json",
             dry_run=False,

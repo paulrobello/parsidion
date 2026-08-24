@@ -17,6 +17,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import parmem_backend  # noqa: E402
 import vault_common  # noqa: E402
+from cli.search import embeddings as cli_embeddings  # noqa: E402
 
 from tests.fake_parmem import FakeHealth, FakeParMem  # noqa: E402
 
@@ -65,7 +66,12 @@ def _repos_payload(vault: Path, *, stale: bool = False) -> dict[str, object]:
 
 @pytest.fixture()
 def embeddings_sentinel(monkeypatch: pytest.MonkeyPatch) -> list[list[object]]:
-    """Replace the embeddings leg with a sentinel; records call args."""
+    """Replace the embeddings leg with a sentinel; records call args.
+
+    ARC-006: patched on ``cli.search.embeddings`` (where the function lives)
+    — ``vault_search.search_with_meta`` calls it through that module, so the
+    patch resolves at call time.
+    """
     calls: list[list[object]] = []
 
     def fake(
@@ -78,7 +84,7 @@ def embeddings_sentinel(monkeypatch: pytest.MonkeyPatch) -> list[list[object]]:
         calls.append([query, top, min_score, model_name, vault])
         return SENTINEL
 
-    monkeypatch.setattr(vault_search, "_search_embeddings", fake)
+    monkeypatch.setattr(cli_embeddings, "_search_embeddings", fake)
     return calls
 
 
@@ -100,9 +106,10 @@ class TestBackendSelection:
     def test_none_backend_returns_empty_without_embeddings(
         self, tmp_vault: Path, embeddings_sentinel: list[list[object]]
     ) -> None:
-        assert vault_search.search("q", backend="none") == []
+        envelope = vault_search.search_with_meta("q", backend="none")
+        assert envelope.results == []
         assert embeddings_sentinel == []
-        assert vault_search.LAST_BACKEND == "none"
+        assert envelope.backend == "none"
 
     def test_embeddings_backend_ignores_parmem(
         self,
@@ -110,9 +117,10 @@ class TestBackendSelection:
         ready: FakeParMem,
         embeddings_sentinel: list[list[object]],
     ) -> None:
-        assert vault_search.search("q", backend="embeddings") == SENTINEL
+        envelope = vault_search.search_with_meta("q", backend="embeddings")
+        assert envelope.results == SENTINEL
         ready.assert_no_call("find-code", settle=0.1)
-        assert vault_search.LAST_BACKEND == "embeddings"
+        assert envelope.backend == "embeddings"
 
     def test_auto_serves_from_parmem_when_available(
         self,
@@ -120,10 +128,10 @@ class TestBackendSelection:
         ready: FakeParMem,
         embeddings_sentinel: list[list[object]],
     ) -> None:
-        results = vault_search.search("q", vault=tmp_vault)  # backend from config: auto
-        assert [r["stem"] for r in results] == ["hit-note"]
+        envelope = vault_search.search_with_meta("q", vault=tmp_vault)  # config: auto
+        assert [r["stem"] for r in envelope.results] == ["hit-note"]
         assert embeddings_sentinel == []
-        assert vault_search.LAST_BACKEND == "par-mem"
+        assert envelope.backend == "par-mem"
 
     def test_auto_falls_back_when_backend_unavailable(
         self,
@@ -135,10 +143,11 @@ class TestBackendSelection:
         empty = tmp_path / "empty-bin"
         empty.mkdir()
         monkeypatch.setenv("PATH", str(empty))
-        assert vault_search.search("q", top=7, min_score=0.3) == SENTINEL
+        envelope = vault_search.search_with_meta("q", top=7, min_score=0.3)
+        assert envelope.results == SENTINEL
         # Byte-identical delegation: embeddings leg got the exact args.
         assert embeddings_sentinel[0][:3] == ["q", 7, 0.3]
-        assert vault_search.LAST_BACKEND == "embeddings"
+        assert envelope.backend == "embeddings"
 
     def test_auto_unindexed_falls_back_to_embeddings(
         self,
@@ -147,9 +156,10 @@ class TestBackendSelection:
         embeddings_sentinel: list[list[object]],
     ) -> None:
         ready.configure(repos={"repositories": [], "_meta": {"count": 0}})
-        assert vault_search.search("q", vault=tmp_vault) == SENTINEL
+        envelope = vault_search.search_with_meta("q", vault=tmp_vault)
+        assert envelope.results == SENTINEL
         ready.wait_for_call("index")  # background index kicked
-        assert vault_search.LAST_BACKEND == "embeddings"
+        assert envelope.backend == "embeddings"
 
     def test_auto_stale_serves_parmem_and_kicks_reindex(
         self,
@@ -165,11 +175,11 @@ class TestBackendSelection:
                 "results": [{"file_path": "Patterns/hit-note.md", "score": 0.05}]
             },
         )
-        results = vault_search.search("q", vault=tmp_vault)
-        assert [r["stem"] for r in results] == ["hit-note"]
+        envelope = vault_search.search_with_meta("q", vault=tmp_vault)
+        assert [r["stem"] for r in envelope.results] == ["hit-note"]
         ready.wait_for_call("index")  # background reindex kicked
         assert embeddings_sentinel == []
-        assert vault_search.LAST_BACKEND == "par-mem"
+        assert envelope.backend == "par-mem"
 
     def test_auto_find_code_failure_falls_back(
         self,
@@ -178,8 +188,9 @@ class TestBackendSelection:
         embeddings_sentinel: list[list[object]],
     ) -> None:
         ready.configure(repos=_repos_payload(tmp_vault), exit_codes={"find-code": 1})
-        assert vault_search.search("q", vault=tmp_vault) == SENTINEL
-        assert vault_search.LAST_BACKEND == "embeddings"
+        envelope = vault_search.search_with_meta("q", vault=tmp_vault)
+        assert envelope.results == SENTINEL
+        assert envelope.backend == "embeddings"
 
     def test_explicit_parmem_has_no_embeddings_fallback(
         self,

@@ -29,9 +29,10 @@ def test_connect_choices_match_registry() -> None:
     disagrees with the registry.
     """
     import agent_adapter  # noqa: PLC0415
-    import install  # noqa: PLC0415
 
-    assert set(install._connectable_runtimes()) == set(agent_adapter.known_runtimes())
+    assert set(installer_cli._connectable_runtimes()) == set(
+        agent_adapter.known_runtimes()
+    )
 
 
 class TestCodexFeatureFlagName:
@@ -110,6 +111,7 @@ def _fake_instructions(tmp_path: Path) -> Path:
 
 
 import install as install_mod  # noqa: E402
+import installer.cli as installer_cli  # noqa: E402
 
 
 class TestConnectVerbs:
@@ -119,7 +121,7 @@ class TestConnectVerbs:
         def fake_install(args):
             called["runtime"] = args.runtime
 
-        monkeypatch.setattr(install_mod, "install", fake_install)
+        monkeypatch.setattr(installer_cli, "install", fake_install)
         monkeypatch.setattr(sys, "argv", ["install.py", "connect", "codex"])
         install_mod.main()
         assert called["runtime"] == "codex"
@@ -130,7 +132,7 @@ class TestConnectVerbs:
         def fake_install(args):
             called["runtime"] = args.runtime
 
-        monkeypatch.setattr(install_mod, "install", fake_install)
+        monkeypatch.setattr(installer_cli, "install", fake_install)
         monkeypatch.setattr(sys, "argv", ["install.py", "connect", "gemini"])
         install_mod.main()
         assert called["runtime"] == "gemini"
@@ -144,7 +146,7 @@ class TestConnectVerbs:
             # arrives as a keyword arg, not on a namespace.
             called["runtime"] = f_kwargs.get("runtime")
 
-        monkeypatch.setattr(install_mod, "uninstall", fake_uninstall)
+        monkeypatch.setattr(installer_cli, "uninstall", fake_uninstall)
         monkeypatch.setattr(sys, "argv", ["install.py", "disconnect", "codex"])
         install_mod.main()
         assert called["runtime"] == "codex"

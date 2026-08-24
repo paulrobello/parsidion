@@ -35,11 +35,116 @@ import curses
 import os
 import subprocess as _sp
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import parmem_backend
 import vault_common
+
+
+# ---------------------------------------------------------------------------
+# Shared curses list-view loop (ARC-013)
+# ---------------------------------------------------------------------------
+
+
+def run_list_view(
+    stdscr: Any,
+    rows: list[Any],
+    render_row: Callable[[Any, Any, int, bool, int], None],
+    on_key: Callable[[int, int], str | int | None],
+    *,
+    title: str | Callable[[int], str] = "",
+    footer_keys: str = "",
+    status: list[str] | None = None,
+) -> int:
+    """Run the shared curses list-view loop (ARC-013).
+
+    Owns everything the three historical TUI loops duplicated: curses setup
+    (``curs_set(0)``, keypad), the event loop, selected/scroll bookkeeping
+    against the window height (resize-safe), the header/status bars, and
+    ``j``/``k``/arrow navigation. Callers supply only the per-row renderer
+    and the key handler.
+
+    Args:
+        stdscr: Window provided by ``curses.wrapper``.
+        rows: Live list of items; the caller may mutate it (append/pop) from
+            ``on_key`` — the selection is re-clamped against ``len(rows)``
+            every frame and an emptied list exits the loop.
+        render_row: ``(stdscr, row, y, is_selected, width)`` — draw one row
+            at line *y*. Render nothing for rows that should stay blank.
+        on_key: ``(key, selected)`` handler for every non-navigation key.
+            Return ``"quit"`` to exit, an ``int`` to set the selection
+            (clamped by the base), or ``None``/``"redraw"`` to continue.
+        title: Header text, or a callable ``(selected) -> str`` re-evaluated
+            each frame.
+        footer_keys: Footer text shown when no status message is set.
+        status: Optional single-cell mutable holder (``["msg"]``) shown in
+            the footer for exactly one frame, then cleared — the vault-review
+            action-feedback behaviour.
+
+    Returns:
+        The final selection index.
+    """
+    curses.curs_set(0)
+    stdscr.keypad(True)
+
+    selected = 0
+    scroll = 0
+    while rows:
+        selected = max(0, min(selected, len(rows) - 1))
+        h, w = stdscr.getmaxyx()
+        list_height = h - 2  # header + footer
+
+        if selected < scroll:
+            scroll = selected
+        elif selected >= scroll + list_height:
+            scroll = selected - list_height + 1
+
+        stdscr.clear()
+        header_text = title(selected) if callable(title) else title
+        header = header_text[: w - 1].ljust(w - 1)
+        stdscr.attron(curses.A_REVERSE)
+        stdscr.addstr(0, 0, header)
+        stdscr.attroff(curses.A_REVERSE)
+
+        for row_i in range(list_height):
+            idx = scroll + row_i
+            y = row_i + 1  # offset for the header line
+            if idx >= len(rows):
+                stdscr.move(y, 0)
+                stdscr.clrtoeol()
+                continue
+            try:
+                render_row(stdscr, rows[idx], y, idx == selected, w)
+            except curses.error:
+                pass
+
+        msg = status[0] if status else ""
+        footer = (msg or footer_keys)[: w - 1].ljust(w - 1)
+        stdscr.attron(curses.A_REVERSE)
+        try:
+            stdscr.addstr(h - 1, 0, footer)
+        except curses.error:
+            pass
+        stdscr.attroff(curses.A_REVERSE)
+        if status:
+            status[0] = ""
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key in (curses.KEY_UP, ord("k")):
+            selected = max(0, selected - 1)
+            continue
+        if key in (curses.KEY_DOWN, ord("j")):
+            selected = min(len(rows) - 1, selected + 1)
+            continue
+        result = on_key(key, selected)
+        if result == "quit":
+            break
+        if isinstance(result, int):
+            selected = result
+    return selected
 
 
 def _search_notes(
@@ -115,6 +220,22 @@ def _open_note(path_str: str) -> None:
         pass
 
 
+def _render_result_row(
+    stdscr: Any, r: dict[str, object], y: int, is_selected: bool, w: int, zebra: bool
+) -> None:
+    """Draw one interactive-search result row (ARC-013 extraction)."""
+    stem = str(r.get("stem", ""))
+    title = str(r.get("title", ""))
+    folder = str(r.get("folder", ""))
+    score = r.get("score")
+    score_str = f"{float(score):.3f} " if isinstance(score, (int, float)) else "      "
+    line = f"{score_str}{folder}/{stem} — {title}"
+    attr = curses.A_REVERSE if is_selected else curses.A_NORMAL
+    if curses.has_colors() and not is_selected:
+        attr = curses.color_pair(1) if zebra else curses.A_NORMAL
+    stdscr.addstr(y, 0, line[: w - 1], attr)
+
+
 def interactive_search(vault: Path | None = None, backend: str | None = None) -> None:
     """Launch a curses-based interactive vault search TUI.
 
@@ -169,20 +290,7 @@ def interactive_search(vault: Path | None = None, backend: str | None = None) ->
                 y = i + 3
                 if y >= h - 1:
                     break
-                stem = str(r.get("stem", ""))
-                title = str(r.get("title", ""))
-                folder = str(r.get("folder", ""))
-                score = r.get("score")
-                score_str = (
-                    f"{float(score):.3f} "
-                    if isinstance(score, (int, float))
-                    else "      "
-                )
-                line = f"{score_str}{folder}/{stem} — {title}"
-                attr = curses.A_REVERSE if i == selected else curses.A_NORMAL
-                if curses.has_colors() and i != selected:
-                    attr = curses.color_pair(1) if i % 2 == 0 else curses.A_NORMAL
-                stdscr.addstr(y, 0, line[: w - 1], attr)
+                _render_result_row(stdscr, r, y, i == selected, w, zebra=(i % 2 == 0))
 
             if not results and q_str and 3 < h - 1 and w > 3:
                 stdscr.addstr(3, 2, "No results found."[: w - 3], curses.A_DIM)

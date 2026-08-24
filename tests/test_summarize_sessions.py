@@ -425,12 +425,11 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
             "# Test Note\n\nUseful note."
         ), None
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
-        if (section, key, default) == ("summarizer", "ai_timeout", None):
-            return 77
-        if (section, key) == ("summarizer", "dedup_threshold"):
-            return default
-        raise AssertionError((section, key, default))
+    import types as _types
+
+    _cfg_stub = _types.SimpleNamespace(
+        summarizer=_types.SimpleNamespace(ai_timeout=77, dedup_threshold=0.80)
+    )
 
     monkeypatch.setattr(
         _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
@@ -440,7 +439,9 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         "_run_summarizer_prompt_with_cause",
         fake_run_summarizer_prompt,
     )
-    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(
+        summarize_sessions.vault_common, "load_typed_config", lambda: _cfg_stub
+    )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
     )

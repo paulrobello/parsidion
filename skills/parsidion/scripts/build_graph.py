@@ -1,6 +1,7 @@
 # /// script
 # dependencies = ["numpy"]
 # ///
+# pyright: basic
 """Pre-compute similarity between vault notes and output a graph.json file.
 
 Usage:
@@ -9,6 +10,10 @@ Usage:
 This script reads note metadata and embeddings from the vault's embeddings.db,
 computes pairwise cosine similarity, extracts wiki edges from related fields,
 and writes a graph.json file for use by the vault visualizer.
+
+ARC-011: type-checked at the ``basic`` level (numpy is imported lazily and
+has no stubs in this repo's dev deps; ``basic`` accepts the dynamic numpy
+usage while still checking everything else).
 """
 
 import argparse
@@ -21,7 +26,10 @@ import datetime
 from pathlib import Path
 from typing import IO
 
-import numpy as np
+# numpy ships via the PEP-723 block above (uv run --script), not the repo dev
+# deps — pyright cannot resolve it statically, so the import is ignored here
+# and numpy usage type-checks as Unknown under the `basic` directive.
+import numpy as np  # type: ignore[import-not-found]
 
 
 # ENH-002: bump whenever the on-disk graph.json shape changes in a way that

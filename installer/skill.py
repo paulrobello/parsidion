@@ -458,8 +458,16 @@ def rebuild_index(
     claude_dir: Path,
     dry_run: bool = False,
 ) -> None:
-    """Run update_index.py to rebuild the resolved vault's CLAUDE.md."""
-    script = claude_dir / "skills" / SKILL_NAME / "scripts" / "update_index.py"
+    """Run update_index.py to rebuild the resolved vault's CLAUDE.md.
+
+    ARC-004: delegates to ``core.vault_index.run_index_rebuild`` — the shared
+    owner of the index-rebuild subprocess contract — which also adds the
+    ``--no-project`` flag the old inline launcher omitted (uv could otherwise
+    sync an unrelated project found in the inherited cwd) and kills the whole
+    process group on timeout.
+    """
+    scripts_dir = claude_dir / "skills" / SKILL_NAME / "scripts"
+    script = scripts_dir / "update_index.py"
     if not script.exists():
         _warn(f"update_index.py not found at {script} — skipping index rebuild")
         return
@@ -468,25 +476,21 @@ def rebuild_index(
     if dry_run:
         return
 
-    try:
-        result = subprocess.run(
-            ["uv", "run", str(script)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0:
-            _ok("Vault index rebuilt")
-        else:
-            _warn(
-                f"update_index.py exited {result.returncode}: {result.stderr.strip()[:200]}"
-            )
-    except FileNotFoundError:
+    from vault_common import run_index_rebuild
+
+    reason, proc = run_index_rebuild(scripts_dir=scripts_dir, timeout=30.0)
+    if reason == "ok" and proc is not None and proc.returncode == 0:
+        _ok("Vault index rebuilt")
+    elif reason == "timeout":
+        _warn("update_index.py timed out — skipping")
+    elif reason == "launch":
         _warn(
             "`uv` not found — skipping index rebuild (run manually: uv run update_index.py)"
         )
-    except subprocess.TimeoutExpired:
-        _warn("update_index.py timed out — skipping")
+    else:
+        stderr = proc.stderr.strip()[:200] if proc is not None else ""
+        code = proc.returncode if proc is not None else "?"
+        _warn(f"update_index.py exited {code}: {stderr}")
 
 
 # ---------------------------------------------------------------------------

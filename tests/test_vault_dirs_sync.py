@@ -10,9 +10,9 @@ class of bug where the two drift silently cannot recur.
 
 import pytest
 
-import install
 import vault_common
 import vault_path
+import installer.paths as installer_paths  # noqa: E402
 
 
 class TestVaultDirsSync:
@@ -20,28 +20,28 @@ class TestVaultDirsSync:
 
     def test_vault_dirs_identical(self) -> None:
         """VAULT_DIRS in vault_path and install must be the same set."""
-        assert set(vault_path.VAULT_DIRS) == set(install.VAULT_DIRS), (
+        assert set(vault_path.VAULT_DIRS) == set(installer_paths.VAULT_DIRS), (
             "VAULT_DIRS mismatch!\n"
             f"  vault_path:   {sorted(vault_path.VAULT_DIRS)}\n"
-            f"  install.py:   {sorted(install.VAULT_DIRS)}\n"
+            f"  install.py:   {sorted(installer_paths.VAULT_DIRS)}\n"
             "install.py should import VAULT_DIRS from vault_path (not parse "
             "vault_common.py source)."
         )
 
     def test_vault_dirs_same_length(self) -> None:
         """VAULT_DIRS in vault_path and install must have the same length."""
-        assert len(vault_path.VAULT_DIRS) == len(install.VAULT_DIRS), (
+        assert len(vault_path.VAULT_DIRS) == len(installer_paths.VAULT_DIRS), (
             f"VAULT_DIRS length mismatch: "
             f"vault_path has {len(vault_path.VAULT_DIRS)} entries, "
-            f"install.py has {len(install.VAULT_DIRS)} entries."
+            f"install.py has {len(installer_paths.VAULT_DIRS)} entries."
         )
 
     def test_vault_dirs_preserves_order(self) -> None:
         """VAULT_DIRS in install.py should preserve order from vault_path."""
-        assert vault_path.VAULT_DIRS == install.VAULT_DIRS, (
+        assert vault_path.VAULT_DIRS == installer_paths.VAULT_DIRS, (
             "VAULT_DIRS order mismatch!\n"
             f"  vault_path: {vault_path.VAULT_DIRS}\n"
-            f"  install.py: {install.VAULT_DIRS}"
+            f"  install.py: {installer_paths.VAULT_DIRS}"
         )
 
     def test_vault_dirs_common_reexport_matches_path(self) -> None:
@@ -54,7 +54,7 @@ class TestVaultDirsSync:
     def test_mechanism_installer_tracks_vault_path_monkeypatch(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Patching vault_path.VAULT_DIRS must surface via install.VAULT_DIRS.
+        """Patching vault_path.VAULT_DIRS must surface via installer_paths.VAULT_DIRS.
 
         This is the structural guard against the original bug: the regex
         parse silently returned the fallback, so the values happened to

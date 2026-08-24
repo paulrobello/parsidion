@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -238,13 +237,13 @@ def rebuild_index(
 ) -> None:
     """Run update_index.py to rebuild the vault index.
 
-    ARC-027(a): the ``uv run`` invocation now passes ``--no-project`` so
-    ``uv`` does not walk up from the inherited cwd (the user's project
-    directory, for the auto-launch path) looking for a ``pyproject.toml``
-    and syncing an unrelated project's dependencies. Without ``--no-project``
-    the index rebuild fails when launched from inside a project whose own
-    deps conflict; the failure was swallowed into a warning at the caller so
-    the index silently went stale while the run reported success.
+    ARC-004: the subprocess is owned by
+    ``core.vault_index.run_index_rebuild`` — shared with the installer and
+    the MCP ``rebuild_index`` tool — which keeps the ``--no-project`` argv
+    (ARC-027(a): uv must not sync an unrelated project found in the inherited
+    cwd), strips ``CLAUDECODE`` from the child env, resolves the script
+    (source checkout first, installed location second), and kills the whole
+    process group on timeout.
 
     Args:
         vault: Path to the vault directory.
@@ -255,44 +254,15 @@ def rebuild_index(
             (only meaningful when ``rebuild_graph`` is True). ``None`` means
             "no flag".
     """
-    # scripts/ is the parent of this submodule's directory (summarizer/).
-    index_script = Path(__file__).resolve().parent.parent / "update_index.py"
-    if not index_script.exists():
-        # Try installed location
-        index_script = (
-            Path.home()
-            / ".claude"
-            / "skills"
-            / "parsidion"
-            / "scripts"
-            / "update_index.py"
-        )
-    if not index_script.exists():
-        print(
-            "Warning: update_index.py not found, skipping index rebuild",
-            file=sys.stderr,
-        )
-        return
-    # ARC-027(a): --no-project prevents uv from discovering a pyproject.toml
-    # in the inherited cwd and syncing an unrelated project's dependencies.
-    cmd = ["uv", "run", "--no-project", str(index_script), "--vault", str(vault)]
-    if rebuild_graph:
-        cmd.append("--rebuild-graph")
-    if graph_include_daily:
-        cmd.append("--graph-include-daily")
-    try:
-        subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=300,
-            env=vault_common.env_without_claudecode(),
-        )
+    reason, proc = vault_common.run_index_rebuild(
+        vault,
+        rebuild_graph=rebuild_graph,
+        graph_include_daily=graph_include_daily,
+        timeout=300.0,
+    )
+    if reason == "ok" and proc is not None and proc.returncode == 0:
         print("Vault index rebuilt.")
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: index rebuild failed: {e.stderr}", file=sys.stderr)
-    except subprocess.TimeoutExpired:
+    elif reason == "timeout":
         # QA-005: a hung update_index/build_graph child would otherwise stall
         # the summarizer mid-run and leave the index stale with no error.
         # 300 s mirrors the bound the graph rebuild applies to its own child.
@@ -300,5 +270,11 @@ def rebuild_index(
             "Warning: index rebuild timed out after 300 s; index may be stale.",
             file=sys.stderr,
         )
-    except OSError as e:
-        print(f"Warning: could not run update_index.py: {e}", file=sys.stderr)
+    elif reason == "launch":
+        print(
+            "Warning: update_index.py not found, skipping index rebuild",
+            file=sys.stderr,
+        )
+    else:
+        stderr = proc.stderr if proc is not None else ""
+        print(f"Warning: index rebuild failed: {stderr}", file=sys.stderr)

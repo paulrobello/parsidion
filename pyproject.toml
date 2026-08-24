@@ -48,57 +48,67 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
+# ARC-003: every flat module under skills/parsidion/scripts/ ships. The list is
+# enforced against the directory by tests/test_packaging_manifest.py, so adding
+# a module without declaring it fails the gate instead of shipping a wheel whose
+# console scripts die on first import. (html-to-md.py is excluded: its hyphenated
+# filename is not importable as a module.)
 [tool.setuptools]
 py-modules = [
-    "vault_search",
+    "agent_adapter",
+    "ai_backend",
+    "build_embeddings",
+    "build_graph",
+    "check_graph_coverage",
+    "codex_session_start_hook",
+    "codex_stop_hook",
+    "codex_subagent_stop_hook",
+    "gemini_session_end_hook",
+    "gemini_session_start_hook",
+    "note_schema",
     "parmem_backend",
-    "vault_tui",
+    "post_compact_hook",
+    "pre_compact_hook",
+    "prompt_templates",
+    "run_trigger_eval",
+    "session_start_hook",
+    "session_stop_hook",
+    "subagent_stop_hook",
+    "subproc_util",
+    "summarize_sessions",
+    "update_index",
+    "vault_adaptive",
     "vault_common",
+    "vault_config",
+    "vault_conflicts",
+    "vault_constants",
+    "vault_doctor",
+    "vault_embed_serve",
+    "vault_export",
+    "vault_fs",
+    "vault_health",
+    "vault_hooks",
+    "vault_index",
+    "vault_links",
+    "vault_merge",
     "vault_metrics",
     "vault_new",
-    "vault_stats",
-    "vault_links",
-    "vault_review",
-    "vault_export",
-    "vault_merge",
-    "vault_conflicts",
-    # ARC-001: modules imported by vault_common / vault_merge / vault_conflicts.
-    # Without these, a non-editable wheel install fails on first import.
-    "vault_config",
     "vault_path",
-    "vault_fs",
-    "vault_index",
-    "vault_hooks",
-    "vault_adaptive",
-    "ai_backend",
-    # ENH-003: imported unconditionally by vault_search; must ship or a clean
-    # wheel install fails on `import vault_search`.
-    "vault_embed_serve",
-    # ARC-004: these are now stdlib-only re-export shims over core/; they must
-    # ship so a clean wheel install can import them (subproc_util is imported by
-    # ai_backend/parmem_backend; vault_constants by vault_fs/vault_hooks).
-    "subproc_util",
-    "vault_constants",
+    "vault_resolve",
+    "vault_review",
+    "vault_search",
+    "vault_stats",
+    "vault_tui",
 ]
 
-# Subpackages under skills/parsidion/scripts/ — declared explicitly so a wheel
-# build ships them (the flat top-level modules remain in py-modules above).
-# ARC-004: core/ is the stdlib-only library package; doctor/ and summarizer/
-# pre-date it (ARC-008/009).
-packages = [
-    "core",
-    "doctor",
-    "summarizer",
-    # ARC-005: the CLI God-files decomposed into cli/{stats,search,merge,index};
-    # vault_search / vault_stats / vault_merge / update_index import them, so a
-    # clean (non-editable) wheel install fails on `import vault_search`
-    # (ModuleNotFoundError: No module named 'cli') unless they ship.
-    "cli",
-    "cli.index",
-    "cli.merge",
-    "cli.search",
-    "cli.stats",
-]
+# Subpackages under skills/parsidion/scripts/ — discovered by find so a new
+# package (or subpackage) ships without a manifest edit; the include patterns
+# are enforced against the directory by tests/test_packaging_manifest.py.
+# core/ is the stdlib-only library package (ARC-004); cli/ is the decomposed
+# CLI layer (ARC-005); doctor/ and summarizer/ pre-date core/.
+[tool.setuptools.packages.find]
+where = ["skills/parsidion/scripts"]
+include = ["core*", "cli*", "doctor*", "summarizer*", "session_start*"]
 
 [tool.setuptools.package-dir]
 "" = "skills/parsidion/scripts"
@@ -144,7 +154,6 @@ exclude = [
     ".worktrees",
     ".claude",
     ".venv",
-    "skills/parsidion/scripts/build_graph.py",
 ]
 
 [tool.ty.environment]

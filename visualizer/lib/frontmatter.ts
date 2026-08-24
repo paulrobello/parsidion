@@ -25,6 +25,38 @@ const DEFAULTS: FrontmatterFields = {
 
 const KNOWN_KEYS = new Set(['date', 'type', 'tags', 'confidence', 'project', 'sources', 'related'])
 
+// ARC-005: quoting rules mirror core.vault_index's serialize_frontmatter so
+// the Python tools and this editor emit (and read) byte-identical frontmatter.
+// The shared contract is pinned by tests/fixtures/parity/frontmatter.json.
+const YAML_SPECIAL_PREFIXES = '-?:[]{}#&*!|>\'"%@`'
+const YAML_COERCED_WORDS = new Set(['true', 'yes', 'false', 'no', 'null', '~', ''])
+
+function scalarNeedsQuotes(text: string): boolean {
+  if (!text || text !== text.trim()) return true
+  if (YAML_SPECIAL_PREFIXES.includes(text[0])) return true
+  if (text.includes(': ') || text.endsWith(':')) return true
+  if (text.includes(' #')) return true
+  if (YAML_COERCED_WORDS.has(text.toLowerCase())) return true
+  if (text.trim() !== '' && !Number.isNaN(Number(text))) return true
+  return false
+}
+
+function quoteYaml(text: string): string {
+  if (text.includes('"') && !text.includes("'")) return `'${text}'`
+  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return `"${escaped}"`
+}
+
+function formatScalar(value: string): string {
+  return scalarNeedsQuotes(value) ? quoteYaml(value) : value
+}
+
+function formatListItem(item: string, alwaysQuote: boolean): string {
+  const structural = /[,[\]"']/.test(item) || item.includes(': ')
+  if (alwaysQuote || structural || item !== item.trim() || !item) return quoteYaml(item)
+  return item
+}
+
 /** Parse `---\n...\n---` frontmatter + body from a full markdown string. */
 export function parseFrontmatter(content: string): { fields: FrontmatterFields; body: string } {
   const match = content.match(/^---\n([\s\S]*?)\n---\n?/)
@@ -35,15 +67,34 @@ export function parseFrontmatter(content: string): { fields: FrontmatterFields; 
 
   const get = (key: string): string | null => {
     const m = raw.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))
-    return m ? m[1].trim() : null
+    return m ? m[1].trim().replace(/^["']|["']$/g, '') : null
   }
 
   const parseInlineArray = (val: string | null): string[] => {
     if (!val) return []
-    // Handle YAML inline array: [a, b, c]
+    // Handle YAML inline array: [a, b, c]. Split on commas OUTSIDE quotes so
+    // quoted items containing commas survive (mirrors Python _split_list_items).
     const inner = val.match(/^\[(.*)\]$/)
     if (inner) {
-      return inner[1].split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
+      const items: string[] = []
+      let current = ''
+      let inQuote: string | null = null
+      for (const ch of inner[1]) {
+        if (inQuote) {
+          current += ch
+          if (ch === inQuote) inQuote = null
+        } else if (ch === '"' || ch === "'") {
+          inQuote = ch
+          current += ch
+        } else if (ch === ',') {
+          items.push(current.trim())
+          current = ''
+        } else {
+          current += ch
+        }
+      }
+      if (current.trim()) items.push(current.trim())
+      return items.map(s => s.replace(/^["']|["']$/g, '')).filter(Boolean)
     }
     return val ? [val] : []
   }
@@ -96,16 +147,16 @@ export function parseFrontmatter(content: string): { fields: FrontmatterFields; 
 /** Serialize frontmatter fields + body back into a full markdown string. */
 export function serializeFrontmatter(fields: FrontmatterFields, body: string): string {
   const lines: string[] = ['---']
-  lines.push(`date: ${fields.date}`)
-  lines.push(`type: ${fields.type}`)
-  lines.push(`tags: [${fields.tags.join(', ')}]`)
+  lines.push(`date: ${formatScalar(fields.date)}`)
+  lines.push(`type: ${formatScalar(fields.type)}`)
+  lines.push(`tags: [${fields.tags.map(t => formatListItem(t, false)).join(', ')}]`)
 
   if (fields.project) {
-    lines.push(`project: ${fields.project}`)
+    lines.push(`project: ${formatScalar(fields.project)}`)
   }
 
-  lines.push(`confidence: ${fields.confidence}`)
-  lines.push(`sources: [${fields.sources.join(', ')}]`)
+  lines.push(`confidence: ${formatScalar(fields.confidence)}`)
+  lines.push(`sources: [${fields.sources.map(s => formatListItem(s, false)).join(', ')}]`)
 
   const relatedFormatted = fields.related.map(s => `"[[${s}]]"`).join(', ')
   lines.push(`related: [${relatedFormatted}]`)

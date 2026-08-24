@@ -8,10 +8,12 @@ Sub-modules:
   schedule — launchd/cron nightly-summarizer scheduler
   vault    — vault dir creation, git setup, config.yaml, vaults.yaml
   skill    — skill/agent/script install, AI mode, legacy cleanup, uninstall
+  plan     — InstallPlan matrix, option prompts, StepList builder (ARC-008)
+  cli      — argument parsing + the install()/uninstall() driver (ARC-008)
 
-install.py remains the public entry point and re-exports all public symbols
-so that ``import install; install.<name>`` continues to work for test suites
-and callers that rely on the flat public API.
+``install.py`` is a thin entry shim over ``installer.cli.main`` (ARC-008);
+it no longer re-exports the installer API — import from the owning
+sub-module instead.
 """
 
 import sys as _sys

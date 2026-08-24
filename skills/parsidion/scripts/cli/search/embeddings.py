@@ -5,10 +5,10 @@ the optional ENH-003 persistent embedding service, and the embeddings-DB
 search that serves as the always-on fallback when par-mem is not selected
 or not available.
 
-``_search_embeddings`` is imported by the ``vault_search.py`` entry shim
-(where ``search_with_meta`` lives) so the ``tests/test_vault_search_backend.py``
-monkeypatch of ``vault_search._search_embeddings`` resolves at call time —
-see the package docstring for the constraint rationale.
+ARC-006: the ``vault_search.py`` entry shim calls ``_search_embeddings``
+THROUGH this module (``embeddings._search_embeddings(...)``), so tests
+monkeypatch it here — ``cli.search.embeddings._search_embeddings`` — and
+the patch resolves at call time.
 """
 
 from __future__ import annotations

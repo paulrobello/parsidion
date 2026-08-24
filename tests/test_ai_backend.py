@@ -11,7 +11,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import ai_backend  # noqa: E402
+from core import ai_backend  # noqa: E402 — ARC-006: patch internals where they live
 import vault_config  # noqa: E402
 
 

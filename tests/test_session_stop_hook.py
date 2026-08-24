@@ -22,6 +22,9 @@ import agent_adapter
 import pytest
 import session_stop_hook
 import vault_common
+from core import (
+    ai_backend as core_ai_backend,
+)  # ARC-006: patch internals where they live
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +128,9 @@ def _run_session_stop_main_for_codex(
         )
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(agent_adapter.ai_backend, "_run_prompt_subprocess", fake_run)
+    monkeypatch.setattr(core_ai_backend, "_run_prompt_subprocess", fake_run)
     monkeypatch.setattr(
-        agent_adapter.ai_backend.shutil,
+        core_ai_backend.shutil,
         "which",
         lambda name: f"/usr/local/bin/{name}",
     )
@@ -179,12 +182,15 @@ def test_classify_session_with_ai_uses_small_tier_backend(
         return '{"should_queue": true, "categories": ["research"], "summary": "Found docs."}'
 
     monkeypatch.setattr(agent_adapter.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
+    import types as _types
+
+    _cfg_stub = _types.SimpleNamespace(
+        session_stop_hook=_types.SimpleNamespace(ai_timeout=9)
+    )
     monkeypatch.setattr(
         agent_adapter.vault_common,
-        "get_config",
-        lambda section, key, default=None: (
-            9 if (section, key) == ("session_stop_hook", "ai_timeout") else default
-        ),
+        "load_typed_config",
+        lambda: _cfg_stub,
     )
 
     result = agent_adapter._classify_session_with_ai(

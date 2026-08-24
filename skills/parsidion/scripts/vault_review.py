@@ -428,79 +428,6 @@ def _popup_dims(h: int, w: int, n_lines: int) -> tuple[int, int, int, int] | Non
     return pop_h, pop_w, top, left
 
 
-def _draw_header(stdscr, title: str) -> None:
-    """Draw a header bar at the top of the screen.
-
-    Args:
-        stdscr: The curses window.
-        title: Text to display in the header.
-    """
-    import curses
-
-    h, w = stdscr.getmaxyx()
-    header = title[: w - 1].ljust(w - 1)
-    stdscr.attron(curses.A_REVERSE)
-    stdscr.addstr(0, 0, header)
-    stdscr.attroff(curses.A_REVERSE)
-
-
-def _draw_footer(stdscr, msg: str = "") -> None:
-    """Draw a footer bar with key bindings at the bottom of the screen.
-
-    Args:
-        stdscr: The curses window.
-        msg: Optional status message to display.
-    """
-    import curses
-
-    h, w = stdscr.getmaxyx()
-    keys = "j/k:nav  Enter/d:dump(y/n inside)  y:approve  n:reject  s:skip  q:quit"
-    footer = (msg or keys)[: w - 1].ljust(w - 1)
-    stdscr.attron(curses.A_REVERSE)
-    try:
-        stdscr.addstr(h - 1, 0, footer)
-    except curses.error:
-        pass
-    stdscr.attroff(curses.A_REVERSE)
-
-
-def _draw_list(stdscr, entries: list[dict], selected: int, scroll: int) -> None:
-    """Render the entry list in the main area of the screen.
-
-    Args:
-        stdscr: The curses window.
-        entries: Current list of pending entries.
-        selected: Index of the currently selected entry.
-        scroll: Vertical scroll offset (first visible entry index).
-    """
-    import curses
-
-    h, w = stdscr.getmaxyx()
-    list_height = h - 2  # header + footer
-    for row in range(list_height):
-        idx = scroll + row
-        y = row + 1  # offset for header
-        if idx >= len(entries):
-            stdscr.move(y, 0)
-            stdscr.clrtoeol()
-            continue
-        entry = entries[idx]
-        status = entry.get("status", "")
-        prefix = {
-            "approved": "[A] ",
-            "rejected": "[R] ",
-        }.get(status, "    ")
-        line = (prefix + _entry_summary(entry))[: w - 1]
-        line = line.ljust(w - 1)
-        attr = curses.A_REVERSE if idx == selected else curses.A_NORMAL
-        if status == "approved":
-            attr |= curses.A_BOLD
-        try:
-            stdscr.addstr(y, 0, line, attr)
-        except curses.error:
-            pass
-
-
 def _show_popup(stdscr, lines: list[str], title: str = "") -> int:
     """Display a scrollable popup overlay with the given lines.
 
@@ -588,14 +515,17 @@ def _show_popup(stdscr, lines: list[str], title: str = "") -> int:
 def _run_tui(stdscr, vault_path: Path | None = None) -> None:
     """Main curses event loop for the review TUI.
 
+    ARC-013: the loop machinery (init, scroll sync, j/k navigation, header
+    and status bars) lives in ``vault_tui.run_list_view``; this function
+    supplies only the row renderer and the key handler.
+
     Args:
         stdscr: The curses window provided by ``curses.wrapper``.
         vault_path: Path to the vault root.
     """
     import curses
 
-    curses.curs_set(0)
-    stdscr.keypad(True)
+    from vault_tui import run_list_view
 
     entries = _read_entries()
     if not entries:
@@ -606,89 +536,91 @@ def _run_tui(stdscr, vault_path: Path | None = None) -> None:
         stdscr.getch()
         return
 
-    selected = 0
-    scroll = 0
-    status_msg = ""
+    status_cell = [""]
 
-    while True:
-        h, w = stdscr.getmaxyx()
-        list_height = h - 2
+    def _render_entry(stdscr_, entry, y, is_selected, w) -> None:
+        status = entry.get("status", "")
+        prefix = {
+            "approved": "[A] ",
+            "rejected": "[R] ",
+        }.get(status, "    ")
+        line = (prefix + _entry_summary(entry))[: w - 1]
+        line = line.ljust(w - 1)
+        attr = curses.A_REVERSE if is_selected else curses.A_NORMAL
+        if status == "approved":
+            attr |= curses.A_BOLD
+        stdscr_.addstr(y, 0, line, attr)
 
-        # Keep scroll in sync with selected
-        if selected < scroll:
-            scroll = selected
-        elif selected >= scroll + list_height:
-            scroll = selected - list_height + 1
-
-        stdscr.clear()
-        _draw_header(stdscr, f"Vault Review — {len(entries)} pending sessions")
-        _draw_list(stdscr, entries, selected, scroll)
-        _draw_footer(stdscr, status_msg)
-        status_msg = ""
-        stdscr.refresh()
-
-        key = stdscr.getch()
-
-        # Navigation
-        if key in (curses.KEY_DOWN, ord("j")):
-            selected = min(selected + 1, len(entries) - 1)
-
-        elif key in (curses.KEY_UP, ord("k")):
-            selected = max(selected - 1, 0)
-
+    def _on_key(key: int, selected: int) -> str | int | None:
         # Dump transcript excerpt
-        elif key in (ord("d"), ord("\n"), curses.KEY_ENTER, 10, 13):
+        if key in (ord("d"), ord("\n"), curses.KEY_ENTER, 10, 13):
+            sel = selected
             while entries:
-                entry = entries[selected]
+                entry = entries[sel]
                 excerpt = _read_transcript_excerpt(entry, vault_path=vault_path)
                 closing = _show_popup(stdscr, excerpt, title="Transcript Excerpt")
 
                 if closing == ord("y"):
-                    target = entries[selected]
-                    entries = _mutate_entries(
+                    target = entries[sel]
+                    # run_list_view's contract: mutate the rows list in
+                    # place — it re-clamps against len(rows) each frame.
+                    entries[:] = _mutate_entries(
                         _approve_entry_mutator(target), vault_path
                     )
-                    status_msg = f"Entry {selected + 1} approved."
-                    if selected + 1 >= len(entries):
+                    status_cell[0] = f"Entry {sel + 1} approved."
+                    if sel + 1 >= len(entries):
                         break  # approved the final entry — close the popup
-                    selected += 1
+                    sel += 1
                 elif closing == ord("n"):
-                    target = entries[selected]
-                    entries = _mutate_entries(_remove_entry_mutator(target), vault_path)
-                    status_msg = "Entry removed from queue."
-                    selected = _clamp_selected(selected, len(entries))
+                    target = entries[sel]
+                    entries[:] = _mutate_entries(
+                        _remove_entry_mutator(target), vault_path
+                    )
+                    status_cell[0] = "Entry removed from queue."
+                    sel = _clamp_selected(sel, len(entries))
                     # After y/n: show next entry's transcript automatically
                 else:
                     break  # any other key just closes the popup
 
             if not entries:
-                break  # queue drained inside the popup — exit like outer reject
-            selected = _clamp_selected(selected, len(entries))
+                return "quit"  # queue drained inside the popup
+            return _clamp_selected(sel, len(entries))
 
         # Approve
-        elif key == ord("y"):
+        if key == ord("y"):
             target = entries[selected]
-            entries = _mutate_entries(_approve_entry_mutator(target), vault_path)
-            status_msg = f"Entry {selected + 1} approved."
-            selected = min(selected + 1, len(entries) - 1)
+            entries[:] = _mutate_entries(_approve_entry_mutator(target), vault_path)
+            status_cell[0] = f"Entry {selected + 1} approved."
+            return min(selected + 1, len(entries) - 1)
 
         # Reject (remove from queue)
-        elif key == ord("n"):
+        if key == ord("n"):
             target = entries[selected]
-            entries = _mutate_entries(_remove_entry_mutator(target), vault_path)
+            entries[:] = _mutate_entries(_remove_entry_mutator(target), vault_path)
             if not entries:
-                break
-            selected = min(selected, len(entries) - 1)
-            status_msg = "Entry removed from queue."
+                return "quit"
+            status_cell[0] = "Entry removed from queue."
+            return None
 
         # Skip
-        elif key == ord("s"):
-            selected = min(selected + 1, len(entries) - 1)
-            status_msg = "Skipped."
+        if key == ord("s"):
+            status_cell[0] = "Skipped."
+            return min(selected + 1, len(entries) - 1)
 
         # Quit
-        elif key in (ord("q"), 27):  # q or ESC
-            break
+        if key in (ord("q"), 27):  # q or ESC
+            return "quit"
+        return None
+
+    run_list_view(
+        stdscr,
+        entries,
+        _render_entry,
+        _on_key,
+        title=lambda _sel: f"Vault Review — {len(entries)} pending sessions",
+        footer_keys="j/k:nav  Enter/d:dump(y/n inside)  y:approve  n:reject  s:skip  q:quit",
+        status=status_cell,
+    )
 
 
 # ---------------------------------------------------------------------------

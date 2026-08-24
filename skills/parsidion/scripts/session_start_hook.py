@@ -41,7 +41,7 @@ from vault_adaptive import (
     save_injected_notes,
     save_last_seen,
 )
-from vault_config import get_config, validate_config
+from vault_config import load_typed_config, validate_config
 from vault_fs import ensure_vault_dirs, today_daily_path
 from vault_hooks import env_without_claudecode, get_project_name, write_hook_event
 from vault_index import (
@@ -97,17 +97,14 @@ from session_start.seed_selection import (  # noqa: F401
     _rank_by_usefulness,
 )
 
-_DEFAULT_AI_MODEL: str = get_config(
-    "defaults", "haiku_model", "claude-haiku-4-5-20251001"
+_DEFAULT_AI_MODEL: str = (
+    load_typed_config().defaults.haiku_model or "claude-haiku-4-5-20251001"
 )
-_DEFAULT_AI_TIMEOUT = 25  # seconds; hook timeout in settings.json should be >= 30000ms
 _BACKEND_DEFAULT_AI_MODEL = "__parsidion_backend_default__"
 _DEFAULT_MAX_CHARS = 4000
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
-_DEFAULT_AI_SINGLE_FLIGHT = True
-_DEFAULT_AI_COOLDOWN_SECONDS = 30
 # Characters reserved for the vault-context header injected before the AI-selected
 # note content.  Ensures the final output never slightly exceeds max_chars.
 _AI_CONTEXT_HEADER_RESERVE: int = 500
@@ -128,11 +125,7 @@ def _is_ai_cooldown_active(vault_path: Path) -> bool:
     helper directly — bare-name ``get_config`` lookup must therefore resolve
     in this module's namespace.
     """
-    cooldown_seconds = get_config(
-        "session_start_hook",
-        "ai_cooldown_seconds",
-        _DEFAULT_AI_COOLDOWN_SECONDS,
-    )
+    cooldown_seconds = load_typed_config().session_start_hook.ai_cooldown_seconds
     if cooldown_seconds <= 0:
         return False
     stamp_path = _ai_stamp_path(vault_path)
@@ -172,7 +165,7 @@ def _run_semantic_search(
     # embeddings.db for the local-embeddings path: an explicit ``embeddings``
     # backend, or ``auto`` falling back when par-mem is unavailable. Matches
     # vault_search.py's own backend routing.
-    backend = (get_config("search", "backend", "auto") or "auto").strip().lower()
+    backend = (load_typed_config().search.backend or "auto").strip().lower()
     if backend == "embeddings" or (
         backend == "auto" and not parmem_backend.resolve_parmem_backend(vault_path)
     ):
@@ -261,11 +254,7 @@ def _select_context_with_ai(
         vault_path = resolve_vault(cwd=cwd)
 
     lock_handle: TextIOWrapper | None = None
-    if get_config(
-        "session_start_hook",
-        "ai_single_flight",
-        _DEFAULT_AI_SINGLE_FLIGHT,
-    ):
+    if load_typed_config().session_start_hook.ai_single_flight:
         lock_handle = _try_acquire_ai_lock(vault_path)
         if lock_handle is None:
             return ""
@@ -314,7 +303,7 @@ def _select_context_with_ai(
             prompt,
             model=model,
             model_tier="small",
-            timeout=get_config("session_start_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT),
+            timeout=load_typed_config().session_start_hook.ai_timeout,
             cwd=cwd,
             purpose="session-start-selection",
             vault=vault_path,
@@ -350,7 +339,7 @@ def _select_seed_notes(
     the same index.
     """
     project_notes: list[Path] = find_notes_by_project(project_name)
-    recent_days: int = get_config("session_start_hook", "recent_days", 3)
+    recent_days: int = load_typed_config().session_start_hook.recent_days
     recent_notes: list[Path] = find_recent_notes(days=recent_days)
 
     seen: set[Path] = set()
@@ -362,7 +351,7 @@ def _select_seed_notes(
             seen.add(resolved)
             all_notes.append(note)
 
-    use_embeddings: bool = get_config("session_start_hook", "use_embeddings", True)
+    use_embeddings: bool = load_typed_config().session_start_hook.use_embeddings
     if use_embeddings:
         # Backend-aware gating lives inside _run_semantic_search (par-mem needs
         # no local embeddings.db), so just delegate; it returns [] when there is
@@ -431,7 +420,7 @@ def build_session_context(
 
     # --- Cross-session delta (#10) ---
     delta_section = ""
-    if get_config("session_start_hook", "track_delta", True):
+    if load_typed_config().session_start_hook.track_delta:
         last_seen_map = load_last_seen(vault=vault_path)
         last_seen_ts = last_seen_map.get(project_name)
         delta_section = _build_delta_section(project_name, last_seen_ts, vault_path)
@@ -448,19 +437,15 @@ def build_session_context(
         # carries the best subset, not an arbitrary 8000-char prefix.
         ai_graph_meta = load_graph_metadata()
         ai_max_add = 0
-        if (
-            get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
-            and ai_graph_meta is not None
-        ):
-            ai_max_add = get_config(
-                "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
-            )
+        _cfg = load_typed_config()
+        if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
+            ai_max_add = _cfg.session_start_hook.graph_expand_max
         candidates = _build_candidates(
             project_name,
             vault_path,
             graph_meta=ai_graph_meta,
             graph_expand_max=ai_max_add,
-            max_candidates=get_config("session_start_hook", "ai_candidates_max", None),
+            max_candidates=load_typed_config().session_start_hook.ai_candidates_max,
         )
         ai_context = _select_context_with_ai(
             project_name, cwd, candidates, ai_model, max_chars, vault_path=vault_path
@@ -492,7 +477,7 @@ def build_session_context(
     # Graph retrieval (Tier 1 neighbour expansion + Tier 2 tag/hubness rerank)
     # plus the adaptive usefulness rerank. The seed snapshot is captured inside
     # the helper BEFORE expansion, so Tier 2 reflects the intentional selection.
-    adaptive_enabled: bool = get_config("adaptive_context", "enabled", False)
+    adaptive_enabled: bool = load_typed_config().adaptive_context.enabled
     graph_meta = load_graph_metadata()
     all_notes = _apply_graph_retrieval(
         all_notes, seen, graph_meta, vault_path, adaptive_enabled
@@ -629,22 +614,20 @@ def main() -> None:
             ai_model = args.ai
             ai_enabled = True
         else:
-            ai_model = get_config("session_start_hook", "ai_model")
+            ai_model = load_typed_config().session_start_hook.ai_model
             ai_enabled = ai_model is not None
         max_chars: int = (
             args.max_chars
             if args.max_chars is not None
-            else get_config("session_start_hook", "max_chars", _DEFAULT_MAX_CHARS)
+            else load_typed_config().session_start_hook.max_chars
         )
-        verbose_mode: bool = args.verbose or get_config(
-            "session_start_hook", "verbose_mode", False
+        verbose_mode: bool = (
+            args.verbose or load_typed_config().session_start_hook.verbose_mode
         )
         # args.debug is always a bool (BooleanOptionalAction); OR with config so
         # either --debug CLI flag or config.yaml debug:true enables it, while
         # --no-debug explicitly overrides config.
-        debug: bool = args.debug or bool(
-            get_config("session_start_hook", "debug", False)
-        )
+        debug: bool = args.debug or load_typed_config().session_start_hook.debug
 
         # Config validation (#5) — warn on startup for typos
         config_warnings = validate_config()

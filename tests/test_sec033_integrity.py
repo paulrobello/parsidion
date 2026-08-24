@@ -66,7 +66,10 @@ class TestMergeFrontmatterQuoteEscaping:
         fm = vault_merge._build_frontmatter(
             {"tags": ['tag with "quotes"'], "related": [], "sources": []}
         )
-        assert '\\"quotes\\"' in fm
+        # ARC-005 emitter contract: a value containing a double quote is
+        # single-quoted (the inline-list splitter toggles on double quotes),
+        # which closes the same SEC-033 hazard the old \" escaping did.
+        assert "'tag with \"quotes\"'" in fm
         # Round-trip through the vault's frontmatter parser.
         parsed = vault_common.parse_frontmatter(fm)
         assert parsed.get("tags") == ['tag with "quotes"']

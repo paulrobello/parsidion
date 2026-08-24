@@ -118,10 +118,33 @@ jobs:
         run: uv build
 
       - name: Install into clean venv and import
+        # ARC-003: import every [project.scripts] target and every shipped
+        # module/package (derived from pyproject.toml + the scripts directory,
+        # so new modules are covered automatically). anyio is installed for the
+        # summarizer submodules (a PEP-723 dep of the summarize_sessions entry
+        # script); build_embeddings/build_graph are skipped (search-extra
+        # fastembed/numpy imports at module scope).
         run: |
           uv venv --python 3.13 --seed /tmp/wheeltest
-          /tmp/wheeltest/bin/pip install --quiet --force-reinstall dist/*.whl
-          /tmp/wheeltest/bin/python -c "import vault_common, vault_config, vault_path, vault_search, vault_links, ai_backend, core.vault_config, core.vault_fs, core.subproc_util, doctor, summarizer; print('ok')"
+          /tmp/wheeltest/bin/pip install --quiet --force-reinstall dist/*.whl anyio
+          /tmp/wheeltest/bin/python - <<'PYEOF'
+          import importlib, pathlib, tomllib
+
+          cfg = tomllib.load(open("pyproject.toml", "rb"))
+          scripts_root = pathlib.Path("skills/parsidion/scripts")
+          skip = {"build_embeddings", "build_graph"}
+
+          mods = sorted({t.split(":")[0] for t in cfg["project"]["scripts"].values()})
+          mods += sorted(m for m in cfg["tool"]["setuptools"]["py-modules"] if m not in skip)
+          mods += sorted(
+              str(p.with_suffix("")).replace("/", ".")
+              for p in scripts_root.rglob("*.py")
+              if p.parent != scripts_root and "__pycache__" not in p.parts
+          )
+          for m in sorted(set(mods)):
+              importlib.import_module(m)
+          print(f"ok: imported {len(set(mods))} shipped modules/packages")
+          PYEOF
           rm -rf /tmp/wheeltest
 
   visualizer-checks:

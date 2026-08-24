@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import install
+import installer.hooks as installer_hooks
 from installer import hooks as hooks_mod
 
 
@@ -51,7 +51,9 @@ class TestMergeHooksBailsOnMalformed:
         )
         settings_file = _make_settings(tmp_path, original)
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         # File must be byte-identical — not reset, not rewritten.
         assert settings_file.read_text(encoding="utf-8") == original
@@ -67,7 +69,9 @@ class TestMergeHooksBailsOnMalformed:
         original = "[1, 2, 3]\n"
         settings_file = _make_settings(tmp_path, original)
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         assert settings_file.read_text(encoding="utf-8") == original
 
@@ -93,7 +97,9 @@ class TestMergeHooksPreservesUnrelatedKeys:
         }
         settings_file = _make_settings(tmp_path, json.dumps(original, indent=2) + "\n")
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         merged = json.loads(settings_file.read_text(encoding="utf-8"))
         # Security-critical keys retained exactly.
@@ -123,7 +129,9 @@ class TestMergeHooksBackupOnFirstMutation:
         original_text = json.dumps(original, indent=2) + "\n"
         settings_file = _make_settings(tmp_path, original_text)
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         backup = settings_file.with_suffix(settings_file.suffix + ".bak")
         assert backup.exists()
@@ -140,7 +148,9 @@ class TestMergeHooksBackupOnFirstMutation:
         settings_file = _make_settings(tmp_path, original_text)
         os.chmod(settings_file, 0o600)
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         backup = settings_file.with_suffix(settings_file.suffix + ".bak")
         assert backup.exists()
@@ -155,7 +165,9 @@ class TestMergeHooksBackupOnFirstMutation:
         # Confirm fixture sanity.
         assert not settings_file.exists()
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         backup = settings_file.with_suffix(settings_file.suffix + ".bak")
         assert not backup.exists()
@@ -209,7 +221,7 @@ class TestConcurrentMergeHooksSerialized:
 
         def _run() -> None:
             try:
-                install.merge_hooks(
+                installer_hooks.merge_hooks(
                     claude_dir, settings_file, dry_run=False, verbose=False
                 )
             except BaseException as exc:  # noqa: BLE001
@@ -239,13 +251,17 @@ class TestConcurrentMergeHooksSerialized:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text("{}\n", encoding="utf-8")
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         lock = settings_file.parent / (settings_file.name + ".lock")
         assert lock.exists(), "flock sidecar was not created"
 
         # A second call must reuse it, not error and not duplicate.
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
         locks = [p for p in settings_file.parent.iterdir() if p.name.endswith(".lock")]
         assert len(locks) == 1, f"expected exactly one lock sidecar, got {locks}"
 
@@ -270,7 +286,9 @@ class TestSessionStartTimeout:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text("{}\n", encoding="utf-8")
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         timeouts = self._session_start_timeouts(settings_file)
         assert 60000 in timeouts, f"SessionStart timeout not 60000ms: {timeouts}"
@@ -282,14 +300,18 @@ class TestSessionStartTimeout:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text("{}\n", encoding="utf-8")
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
         # Downgrade to the legacy value, then merge again.
         settings = json.loads(settings_file.read_text(encoding="utf-8"))
         handler = settings["hooks"]["SessionStart"][0]["hooks"][0]
         handler["timeout"] = 10000
         settings_file.write_text(json.dumps(settings), encoding="utf-8")
 
-        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
 
         timeouts = self._session_start_timeouts(settings_file)
         assert timeouts == [60000], (
@@ -302,7 +324,7 @@ class TestSessionStartTimeout:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text("{}\n", encoding="utf-8")
 
-        install.merge_hooks(
+        installer_hooks.merge_hooks(
             claude_dir,
             settings_file,
             dry_run=False,

@@ -340,15 +340,16 @@ class TestLoadTypedConfig:
         assert cfg.summarizer.model is None
         assert cfg.summarizer.dedup_threshold == 0.9
 
-    def test_from_dict_absent_keys_are_none(self) -> None:
+    def test_from_dict_absent_keys_follow_schema_defaults(self) -> None:
         cfg = VaultAppConfig.from_dict({"ai": {"backend": "claude-cli"}})
         assert cfg.ai.backend == "claude-cli"
-        # An absent section yields an empty instance (all fields None), not None.
+        # An absent section yields an empty instance at schema defaults.
         assert cfg.session_start_hook == SessionStartHookConfig()
-        # A section that's present but missing most keys -> None for each.
+        # ARC-007: a present section missing keys -> schema default where one
+        # is declared, None for the deliberately default-less fields.
         cfg2 = VaultAppConfig.from_dict({"session_start_hook": {"max_chars": 4000}})
         assert cfg2.session_start_hook.max_chars == 4000
-        assert cfg2.session_start_hook.debug is None
+        assert cfg2.session_start_hook.debug is False
         assert cfg2.session_start_hook.ai_model is None
 
     def test_from_dict_nested_section_maps_through(self) -> None:

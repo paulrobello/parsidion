@@ -13,15 +13,19 @@ import hashlib
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .subproc_util import run_with_pgkill
 from .vault_config import _parse_list_item, _parse_scalar, _split_list_items, get_config
+from .vault_hooks import env_without_claudecode
 from .vault_path import (
     EXCLUDE_DIRS,
+    SCRIPTS_DIR,
     VAULT_DIRS,
     get_embeddings_db_path,
     is_path_inside_vault,
@@ -29,12 +33,17 @@ from .vault_path import (
     resolve_vault,
 )
 
+# ARC-005: the canonical frontmatter key order lives in the note contract
+# module (a leaf with no imports, so this cannot cycle).
+from note_schema import FRONTMATTER_FIELD_ORDER
+
 __all__: list[str] = [
     # Constants (re-exported from vault_path for convenience)
     "VAULT_DIRS",
     "EXCLUDE_DIRS",
     # Frontmatter and content parsing
     "parse_frontmatter",
+    "serialize_frontmatter",
     "get_body",
     "extract_title",
     # Parse warning collector
@@ -58,6 +67,8 @@ __all__: list[str] = [
     "ensure_note_index_schema",
     "query_note_index",
     "load_graph_metadata",
+    # Index-rebuild subprocess owner (ARC-004)
+    "run_index_rebuild",
     "note_index_age",
     # Graph parsing
     "parse_related_stems",
@@ -265,6 +276,162 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
     _flush_block()
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter serialization (ARC-005)
+# ---------------------------------------------------------------------------
+
+# Characters that make a bare YAML scalar ambiguous for the subset parser
+# above (or for the TS parser in visualizer/lib/frontmatter.ts).
+_YAML_SPECIAL_PREFIXES: tuple[str, ...] = (
+    "-",
+    "?",
+    ":",
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+    "#",
+    "&",
+    "*",
+    "!",
+    "|",
+    ">",
+    "'",
+    '"',
+    "%",
+    "@",
+    "`",
+)
+_YAML_COERCED_WORDS: frozenset[str] = frozenset(
+    {"true", "yes", "false", "no", "null", "~", ""}
+)
+# List fields whose items are always double-quoted: ``related`` holds
+# ``[[wikilinks]]`` and the canonical form (CLAUDE.md conventions,
+# visualizer/lib/frontmatter.ts) is ``related: ["[[a]]", "[[b]]"]``.
+_ALWAYS_QUOTED_LIST_KEYS: frozenset[str] = frozenset({"related"})
+
+
+def _scalar_needs_quotes(text: str) -> bool:
+    """Return True when a bare YAML scalar would not round-trip exactly."""
+    if not text or text != text.strip():
+        return True
+    if text[0] in _YAML_SPECIAL_PREFIXES:
+        return True
+    if ": " in text or text.endswith(":"):
+        # Either a mapping indicator for the parser or an inline-comment /
+        # key-value split hazard.
+        return True
+    if " #" in text:
+        return True  # _strip_inline_comment would drop the tail
+    if text.lower() in _YAML_COERCED_WORDS:
+        return True  # would parse as bool/null instead of the string
+    try:
+        int(text)
+        return True
+    except ValueError:
+        pass
+    try:
+        float(text)
+        return True
+    except ValueError:
+        pass
+    return False
+
+
+def _quote_yaml(text: str) -> str:
+    """Wrap *text* in YAML quotes the subset parser strips on read.
+
+    Single quotes are preferred when the value contains a double quote (the
+    inline-list splitter toggles on double quotes), double quotes otherwise.
+    Values containing both quote characters are double-quoted with ``\\"``
+    escapes — the documented best-effort limit of the parser subset.
+    """
+    if '"' in text and "'" not in text:
+        return f"'{text}'"
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _format_scalar(value: Any) -> str:
+    """Render one frontmatter scalar value (non-list) as a YAML string.
+
+    Only ``str`` values are ever quoted: a bare ``3`` (int) parses back to
+    int 3, but a string ``"3"`` must be quoted or the parser would coerce it
+    to an int and break the round-trip.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str) and _scalar_needs_quotes(value):
+        return _quote_yaml(value)
+    return str(value)
+
+
+def _format_list_item(item: Any, *, always_quote: bool) -> str:
+    """Render one inline-array item.
+
+    List items are never type-coerced by the parser, so bare items only need
+    quoting for structural characters (``[],`` and quote characters that would
+    confuse the splitter or the item parser) and for ``: `` (a plain YAML
+    scalar may not contain a colon+space — Obsidian's parser rejects it even
+    though the subset parser here round-trips).
+    """
+    text = str(item)
+    structural = any(ch in text for ch in ",[]\"'") or ": " in text
+    if always_quote or (structural or text != text.strip() or not text):
+        return _quote_yaml(text)
+    return text
+
+
+def serialize_frontmatter(fields: dict[str, Any]) -> str:
+    """Serialize a frontmatter dict to the canonical YAML block.
+
+    ARC-005: the single schema-aware emitter shared by ``vault_new``,
+    ``vault_merge``, the ``tools/migrate_*`` importers, and (via the parity
+    fixture ``tests/fixtures/parity/frontmatter.json``) the visualizer's
+    ``frontmatter.ts``. Replaces four hand-built ``_build_frontmatter``
+    copies whose quoting and key order had drifted.
+
+    Canonical form:
+
+    - keys in :data:`note_schema.FRONTMATTER_FIELD_ORDER` first (when
+      present), remaining keys after them in insertion order;
+    - ``None`` and empty-string values are dropped (the writer that has an
+      opinion about empties filters before calling);
+    - ``tags``/``sources`` as inline arrays with bare items unless an item
+      needs quoting; ``related`` items always double-quoted (the
+      ``["[[wikilink]]"]`` convention);
+    - scalars bare unless quoting is required for an exact round-trip
+      through :func:`parse_frontmatter`.
+
+    Returns the ``---\\n...\\n---\\n`` block (no trailing blank line —
+    callers append the body).
+    """
+    ordered = [k for k in FRONTMATTER_FIELD_ORDER if k in fields]
+    ordered += [k for k in fields if k not in FRONTMATTER_FIELD_ORDER]
+
+    lines: list[str] = ["---"]
+    for key in ordered:
+        value = fields[key]
+        if value is None or value == "":
+            continue
+        if isinstance(value, list):
+            if value:
+                items = ", ".join(
+                    _format_list_item(
+                        item, always_quote=key in _ALWAYS_QUOTED_LIST_KEYS
+                    )
+                    for item in value
+                )
+                lines.append(f"{key}: [{items}]")
+            else:
+                lines.append(f"{key}: []")
+        else:
+            lines.append(f"{key}: {_format_scalar(value)}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
 
 
 def get_body(content: str) -> str:
@@ -1058,3 +1225,94 @@ def build_compact_index(
         "use `parsidion` skill to load full content):\n"
     )
     return header + "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Index-rebuild subprocess owner (ARC-004)
+# ---------------------------------------------------------------------------
+
+
+def run_index_rebuild(
+    vault: Path | None = None,
+    *,
+    rebuild_graph: bool | None = None,
+    graph_include_daily: bool | None = None,
+    timeout: float = 300.0,
+    scripts_dir: Path | None = None,
+) -> tuple[str, subprocess.CompletedProcess[str] | None]:
+    """Run ``update_index.py`` via ``uv run --no-project``.
+
+    ARC-004: single owner of the index-rebuild subprocess contract shared by
+    the installer, the MCP ``rebuild_index`` tool, and the summarizer queue.
+    Previously three independent launchers disagreed on argv (the installer
+    omitted ``--no-project``), environment (only the summarizer stripped
+    ``CLAUDECODE``), script discovery, and timeout handling.
+
+    Contract:
+
+    - argv always starts ``["uv", "run", "--no-project", <update_index.py>]``
+      so uv never discovers a ``pyproject.toml`` in the inherited cwd and
+      syncs an unrelated project's dependencies;
+    - the child environment is :func:`core.vault_hooks.env_without_claudecode`
+      so a ``claude``-backed update does not refuse to nest;
+    - timeout kills the whole process group
+      (:func:`core.subproc_util.run_with_pgkill`), not just the parent.
+
+    Script discovery: when *scripts_dir* is given it is used exclusively
+    (missing script ⇒ ``("launch", None)`` — the installer relies on this to
+    warn about a broken install target instead of rebuilding through some
+    other copy). Otherwise the directory of this ``core`` package wins (keeps
+    the subprocess consistent with the running code, ARC-021) with the
+    installed ``~/.claude/skills/parsidion/scripts`` as fallback.
+
+    Args:
+        vault: Vault to rebuild; ``None`` omits ``--vault`` so
+            ``resolve_vault()`` default precedence applies.
+        rebuild_graph: Pass ``--rebuild-graph`` when True; ``None`` sends no
+            flag.
+        graph_include_daily: Pass ``--graph-include-daily`` when True (only
+            meaningful with *rebuild_graph*); ``None`` sends no flag.
+        timeout: Seconds before the process group is killed.
+        scripts_dir: Directory containing ``update_index.py``; see discovery
+            rules above.
+
+    Returns:
+        ``(reason, proc)`` as documented for
+        :func:`core.subproc_util.run_with_pgkill` — ``("ok", CompletedProcess)``
+        with any returncode, ``("launch", None)`` when uv or the script is
+        unavailable, ``("timeout", None)``. Never raises.
+    """
+    if scripts_dir is not None:
+        script = scripts_dir / "update_index.py"
+        if not script.exists():
+            return "launch", None
+    else:
+        source_dir = Path(__file__).resolve().parent.parent
+        script = next(
+            (
+                candidate
+                for candidate in (
+                    source_dir / "update_index.py",
+                    SCRIPTS_DIR / "update_index.py",
+                )
+                if candidate.exists()
+            ),
+            None,
+        )
+        if script is None:
+            return "launch", None
+
+    argv = ["uv", "run", "--no-project", str(script)]
+    if vault is not None:
+        argv += ["--vault", str(vault)]
+    if rebuild_graph:
+        argv.append("--rebuild-graph")
+    if graph_include_daily:
+        argv.append("--graph-include-daily")
+
+    return run_with_pgkill(
+        argv,
+        cwd=vault,
+        timeout=timeout,
+        env=env_without_claudecode(),
+    )

@@ -24,6 +24,7 @@ from pathlib import Path
 from vault_common import (
     VAULT_ROOT,
     ensure_vault_dirs,
+    serialize_frontmatter,
     slugify,
 )
 
@@ -217,23 +218,24 @@ def _build_frontmatter(
     tags: list[str],
     project: str,
 ) -> str:
-    """Build a YAML frontmatter block string."""
-    lines: list[str] = ["---"]
-    lines.append(f"date: {date.today().isoformat()}")
-    lines.append(f"type: {note_type}")
+    """Build a YAML frontmatter block string.
 
-    tags_str: str = ", ".join(tags)
-    lines.append(f"tags: [{tags_str}]")
-
+    ARC-005: delegates to the shared schema-aware emitter
+    (``core.vault_index.serialize_frontmatter``); this adapter supplies the
+    importer's fixed defaults.
+    """
+    fields: dict[str, object] = {
+        "date": date.today().isoformat(),
+        "type": note_type,
+        "tags": tags,
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "inferred",
+    }
     if project:
-        lines.append(f"project: {project}")
-
-    lines.append("confidence: medium")
-    lines.append("sources: []")
-    lines.append("related: []")
-    lines.append("provenance: inferred")
-    lines.append("---")
-    return "\n".join(lines) + "\n"
+        fields["project"] = project
+    return serialize_frontmatter(fields)
 
 
 def _build_note_content(

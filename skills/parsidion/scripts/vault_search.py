@@ -18,14 +18,13 @@ parsidion-mcp, the summarizer's dedup pass, and the test suite) keeps
 working byte-for-byte.
 
 What stays here and why:
-    ``search_with_meta``, ``search``, ``LAST_BACKEND``, and ``main`` remain
-    in this entry shim because ``tests/test_vault_search_backend.py``
-    monkeypatches ``vault_search._search_embeddings`` and Python resolves
-    bare names in the *caller's* module globals at call time. Keeping
-    ``search_with_meta`` (which calls ``_search_embeddings``) in the same
-    module the test patches is the only way the patch takes effect without
-    rewriting every test to patch ``cli.search.embeddings`` instead — the
-    same exception the ``summarizer/`` split took for its anyio core.
+    ``search_with_meta``, ``search``, and ``main`` remain in this entry
+    shim as the CLI's routing layer. ARC-006 removed the test-driven
+    exceptions that used to pin them: the deprecated ``LAST_BACKEND``
+    module global is gone (callers read ``SearchResultEnvelope.backend``
+    from ``search_with_meta``), and the embeddings leg is invoked through
+    the ``cli.search.embeddings`` module (``_embeddings._search_embeddings``)
+    so tests patch it where it lives instead of through this shim.
 
 Semantic mode — provide a natural language query:
     vault_search.py "sqlite vector search" --top 5
@@ -57,9 +56,9 @@ import vault_common
 # Re-exports from cli.search.* — every symbol the original vault_search.py
 # exposed remains importable from ``vault_search`` (function objects are
 # immutable, so ``from cli.search.X import f`` + ``vault_search.f(...)`` is a
-# stable binding for external callers; only module-global *assignments* need
-# the ``__getattr__`` live-attribute pattern, and the only mutable global is
-# ``LAST_BACKEND`` which stays defined below).
+# stable binding for external callers). ARC-006: ``_search_embeddings`` is
+# deliberately NOT re-exported — tests patch it on ``cli.search.embeddings``
+# and this module calls it through that module so the patch resolves.
 # ---------------------------------------------------------------------------
 from cli.search._common import (  # noqa: F401 — re-exports
     _DEFAULT_MODEL,
@@ -69,6 +68,7 @@ from cli.search._common import (  # noqa: F401 — re-exports
     SearchResultEnvelope,
     _configured_search_backend,
 )
+from cli.search import embeddings as _embeddings
 from cli.search.embeddings import (  # noqa: F401 — re-exports
     _SERVICE_SPAWN_DEBOUNCE_S,
     _apply_decay,
@@ -78,7 +78,6 @@ from cli.search.embeddings import (  # noqa: F401 — re-exports
     _last_service_spawn_attempt,
     _open_db_semantic,
     _pack_vector,
-    _search_embeddings,
     _service_embed,
     _spawn_service,
 )
@@ -111,10 +110,9 @@ def _interactive_search(vault: Path | None = None, backend: str | None = None) -
 
 # ---------------------------------------------------------------------------
 # Backend routing + public search API.
-# These three (search_with_meta / search / LAST_BACKEND) stay in this entry
-# shim so the ``tests/test_vault_search_backend.py`` monkeypatch of
-# ``vault_search._search_embeddings`` resolves at call time — see the module
-# docstring. ``main`` stays with them because it reads ``LAST_BACKEND``.
+# These stay in this entry shim as the CLI's routing layer; the embeddings
+# leg is called through the ``cli.search.embeddings`` module so test
+# monkeypatches of ``cli.search.embeddings._search_embeddings`` resolve.
 # ---------------------------------------------------------------------------
 
 
@@ -167,18 +165,10 @@ def search_with_meta(
             # Explicit par-mem: no embeddings fallback (testing/debug affordance).
             return SearchResultEnvelope([], "par-mem", "rrf")
 
-    embeddings_results = _search_embeddings(
+    embeddings_results = _embeddings._search_embeddings(
         query=query, top=top, min_score=min_score, model_name=model_name, vault=vault
     )
     return SearchResultEnvelope(embeddings_results, "embeddings", "cosine")
-
-
-# ARC-031 back-compat shim: tests and a couple of callers still read this name
-# to render the --rich backend label. It is set as a side-effect of search()
-# for that narrow purpose; new code should call search_with_meta() instead and
-# read .backend off the envelope. The shim will go away once the remaining
-# readers migrate.
-LAST_BACKEND: str | None = None
 
 
 def search(
@@ -197,10 +187,10 @@ def search(
     the embeddings backend — par-mem RRF scores are rank-fusion values, not
     cosines, and gate by rank/``top`` instead.
 
-    ARC-031: this thin wrapper preserves the list-returning public API by
-    delegating to :func:`search_with_meta` and stamping the deprecated
-    ``LAST_BACKEND`` module attribute. Callers that need the backend or
-    score-kind should call ``search_with_meta()`` directly.
+    ARC-031/ARC-006: this thin wrapper preserves the list-returning public
+    API by delegating to :func:`search_with_meta`. Callers that need the
+    backend or score-kind should call ``search_with_meta()`` directly and
+    read the envelope (the deprecated ``LAST_BACKEND`` global is gone).
 
     Args:
         query: Natural language query string.
@@ -216,17 +206,14 @@ def search(
         path, summary, note_type, project, confidence, mtime, related,
         is_stale, incoming_links. Sorted by score descending.
     """
-    global LAST_BACKEND
-    envelope = search_with_meta(
+    return search_with_meta(
         query=query,
         top=top,
         min_score=min_score,
         model_name=model_name,
         vault=vault,
         backend=backend,
-    )
-    LAST_BACKEND = envelope.backend
-    return envelope.results
+    ).results
 
 
 def _bounded_count(text: str) -> int:
@@ -472,6 +459,7 @@ def main() -> None:
             "Use one mode at a time."
         )
 
+    envelope: SearchResultEnvelope | None = None
     if has_query:
         selected_backend = args.backend or _configured_search_backend()
         parmem_may_serve = selected_backend in (
@@ -485,7 +473,7 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(0)
-        results = search(
+        envelope = search_with_meta(
             query=args.query,
             top=args.top,
             min_score=args.min_score,
@@ -493,6 +481,7 @@ def main() -> None:
             vault=vault_path,
             backend=args.backend,
         )
+        results = envelope.results
     else:
         results = query(
             tag=args.tag,
@@ -521,10 +510,10 @@ def main() -> None:
     if args.output_format == "text":
         print(_format_text(results))
     elif args.output_format == "rich":
-        if has_query and LAST_BACKEND is not None:
+        if has_query and envelope is not None:
             from rich.console import Console
 
-            Console(stderr=True).print(f"[dim]backend: {LAST_BACKEND}[/dim]")
+            Console(stderr=True).print(f"[dim]backend: {envelope.backend}[/dim]")
         _format_rich(results)
     else:
         print(json.dumps(results, indent=2))

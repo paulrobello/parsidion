@@ -25,6 +25,7 @@ from vault_common import (
     ensure_vault_dirs,
     get_body,
     parse_frontmatter,
+    serialize_frontmatter,
     slugify,
 )
 
@@ -273,42 +274,15 @@ def _build_frontmatter(
 
 
 def _serialize_frontmatter(fm: dict[str, Any]) -> str:
-    """Serialize a frontmatter dict to a YAML frontmatter block string."""
-    lines: list[str] = ["---"]
+    """Serialize a frontmatter dict to a YAML frontmatter block string.
 
-    # Ordered keys for readability
-    ordered_keys: list[str] = [
-        "date",
-        "type",
-        "tags",
-        "project",
-        "confidence",
-        "sources",
-        "related",
-        "provenance",
-    ]
-    remaining_keys: list[str] = [k for k in fm if k not in ordered_keys]
-
-    for key in ordered_keys + remaining_keys:
-        if key not in fm:
-            continue
-        value: Any = fm[key]
-
-        if isinstance(value, list):
-            if not value:
-                lines.append(f"{key}: []")
-            else:
-                items_str: str = ", ".join(str(v) for v in value)
-                lines.append(f"{key}: [{items_str}]")
-        elif isinstance(value, bool):
-            lines.append(f"{key}: {'true' if value else 'false'}")
-        elif value is None:
-            lines.append(f"{key}: ")
-        else:
-            lines.append(f"{key}: {value}")
-
-    lines.append("---")
-    return "\n".join(lines) + "\n"
+    ARC-005: delegates to the shared schema-aware emitter
+    (``core.vault_index.serialize_frontmatter``). The emitter drops ``None``
+    and empty-string values and applies the canonical key order/quoting; the
+    fixture at ``tests/fixtures/parity/frontmatter.json`` pins the format
+    shared with the visualizer's TS emitter.
+    """
+    return serialize_frontmatter(fm)
 
 
 def _dest_filename(stem: str) -> str:

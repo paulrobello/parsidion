@@ -60,6 +60,14 @@ __all__ = [
 
 # ---------------------------------------------------------------------------
 # Per-section dataclasses
+#
+# ARC-007: fields carry the REAL code defaults (moved from the inline
+# defaults callers passed to get_config), so ``load_typed_config()`` readers
+# get absent-key defaults for free and vault_config.get_config can use the
+# schema as its default source. Fields still declared ``= None`` have no
+# single code default (absent key, model names, or context-dependent values
+# such as subagent_stop_hook.min_messages) — get_config falls back to the
+# caller's default for those.
 # ---------------------------------------------------------------------------
 
 
@@ -135,19 +143,19 @@ class SessionStartHookConfig:
     """``session_start_hook`` section."""
 
     ai_model: str | None = None
-    ai_cooldown_seconds: int | float = None
-    ai_single_flight: bool = None
+    ai_cooldown_seconds: int | float = 30
+    ai_single_flight: bool = True
     ai_candidates_max: int = None
-    max_chars: int = None
-    ai_timeout: int | float = None
-    recent_days: int = None
-    debug: bool = None
-    verbose_mode: bool = None
-    use_embeddings: bool = None
-    track_delta: bool = None
-    graph_expand: bool = None
-    graph_expand_max: int = None
-    graph_rerank: bool = None
+    max_chars: int = 4000
+    ai_timeout: int | float = 25
+    recent_days: int = 3
+    debug: bool = False
+    verbose_mode: bool = False
+    use_embeddings: bool = True
+    track_delta: bool = True
+    graph_expand: bool = True
+    graph_expand_max: int = 8
+    graph_rerank: bool = True
 
 
 @dataclass
@@ -155,30 +163,30 @@ class SessionStopHookConfig:
     """``session_stop_hook`` section."""
 
     ai_model: str | None = None
-    ai_timeout: int | float = None
-    auto_summarize: bool = None
-    auto_summarize_after: int | None = None
-    transcript_tail_lines: int = None
-    pi_transcript_tail_lines: int = None
-    transcript_tail_bytes: int = None
+    ai_timeout: int | float = 25
+    auto_summarize: bool = True
+    auto_summarize_after: int | None = 1
+    transcript_tail_lines: int = 200
+    pi_transcript_tail_lines: int = 1000
+    transcript_tail_bytes: int = 1_500_000
 
 
 @dataclass
 class SubagentStopHookConfig:
     """``subagent_stop_hook`` section."""
 
-    enabled: bool = None
-    min_messages: int = None
+    enabled: bool = True
+    min_messages: int = None  # context-dependent (pi: 1, others: 3)
     excluded_agents: str = None
-    transcript_tail_bytes: int = None
+    transcript_tail_bytes: int = 1_500_000
 
 
 @dataclass
 class PreCompactHookConfig:
     """``pre_compact_hook`` section."""
 
-    lines: int = None
-    transcript_tail_bytes: int = None
+    lines: int = 200
+    transcript_tail_bytes: int = 1_500_000
 
 
 @dataclass
@@ -186,17 +194,17 @@ class SummarizerConfig:
     """``summarizer`` section."""
 
     model: str | None = None
-    max_parallel: int = None
-    transcript_tail_lines: int = None
-    transcript_tail_bytes: int = None
-    max_cleaned_chars: int = None
-    persist: bool = None
+    max_parallel: int = 5
+    transcript_tail_lines: int = 400
+    transcript_tail_bytes: int = 262_144
+    max_cleaned_chars: int = 12_000
+    persist: bool = None  # legacy no-op
     cluster_model: str | None = None
-    dedup_threshold: float | int = None
-    dead_letter_retention_days: int = None
-    rebuild_graph: bool = None
-    graph_include_daily: bool = None
-    graph_incremental: bool = None
+    dedup_threshold: float | int = 0.80
+    dead_letter_retention_days: int = 7
+    rebuild_graph: bool = False
+    graph_include_daily: bool = False
+    graph_incremental: bool = True
     ai_timeout: int | float | None = None
 
 
@@ -204,15 +212,15 @@ class SummarizerConfig:
 class EmbeddingsConfig:
     """``embeddings`` section."""
 
-    enabled: bool = None
-    model: str = None
-    min_score: float | int = None
-    top_k: int = None
-    decay_enabled: bool = None
-    decay_half_life_days: float | int = None
-    decay_min_factor: float | int = None
-    service_enabled: bool = None
-    service_idle_exit: int = None
+    enabled: bool = True
+    model: str = "BAAI/bge-small-en-v1.5"
+    min_score: float | int = 0.45
+    top_k: int = 10
+    decay_enabled: bool = True
+    decay_half_life_days: float | int = 90.0
+    decay_min_factor: float | int = 0.5
+    service_enabled: bool = False
+    service_idle_exit: int = 600
 
 
 @dataclass
@@ -228,8 +236,8 @@ class ParMemConfig:
 class SearchConfig:
     """``search`` section."""
 
-    backend: str = None
-    use_note_index: bool = None
+    backend: str = "auto"
+    use_note_index: bool = True
 
 
 @dataclass
@@ -252,22 +260,22 @@ class AnthropicEnvConfig:
 class GitConfig:
     """``git`` section."""
 
-    auto_commit: bool = None
+    auto_commit: bool = True
 
 
 @dataclass
 class DefaultsConfig:
     """``defaults`` section: legacy model defaults."""
 
-    haiku_model: str = None
+    haiku_model: str = "claude-haiku-4-5-20251001"
 
 
 @dataclass
 class EventLogConfig:
     """``event_log`` section."""
 
-    enabled: bool = None
-    max_lines: int = None
+    enabled: bool = True
+    max_lines: int = 10_000
     path: str | None = None
 
 
@@ -275,22 +283,22 @@ class EventLogConfig:
 class AdaptiveContextConfig:
     """``adaptive_context`` section."""
 
-    enabled: bool = None
-    decay_days: int | float = None
+    enabled: bool = False
+    decay_days: int | float = None  # reserved (ENH-016), not yet read by code
 
 
 @dataclass
 class VaultSectionConfig:
     """``vault`` section (named to avoid clashing with the ``vault`` parameter)."""
 
-    username: str = None
+    username: str = ""
 
 
 @dataclass
 class AdaptersConfig:
     """``adapters`` section."""
 
-    load_external: bool = None
+    load_external: bool = False
 
 
 # ---------------------------------------------------------------------------

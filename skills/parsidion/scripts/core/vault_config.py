@@ -9,7 +9,7 @@ are re-exported from ``vault_common`` for backward compatibility.
 
 from __future__ import annotations
 
-import copy
+import dataclasses
 import functools
 import math
 import re
@@ -492,39 +492,55 @@ def clamp_timeout(
 def get_config(section: str, key: str, default: Any = None) -> Any:
     """Look up a config value with fallback to *default*.
 
-    Distinguishes between a key that is absent (returns *default*) and a key
-    that is explicitly set to ``null`` in config.yaml (returns ``None``).  This
-    allows users to disable optional features by setting e.g. ``ai_model: null``.
+    ARC-007 adapter over the typed schema. Resolution order:
+
+    1. Key present in the parsed config dict (config.yaml layered with
+       config.local.yaml) → that value, unchanged. An explicit ``null`` thus
+       returns ``None``, so users can disable optional features with e.g.
+       ``ai_model: null``.
+    2. Key absent but the schema declares a real default for it
+       (:data:`vault_schema` field default) → the schema default.
+    3. Otherwise → *default*.
 
     Args:
         section: Top-level section name (e.g. ``"session_start_hook"``).
         key: Key within the section (e.g. ``"max_chars"``).
-        default: Value returned when the key is absent from the config file.
+        default: Value returned when the key is absent and the schema
+            declares no default for it.
 
     Returns:
-        The configured value (which may be ``None`` if explicitly set), or
-        *default* when the key is absent.
+        The configured value (which may be ``None`` if explicitly set), the
+        schema default, or *default*.
     """
     config = load_config()
     section_dict = config.get(section)
-    if isinstance(section_dict, dict):
-        if key in section_dict:
-            return section_dict[key]
+    if isinstance(section_dict, dict) and key in section_dict:
+        return section_dict[key]
+
+    cfg = load_typed_config()
+    section_obj = getattr(cfg, section, None)
+    if section_obj is not None:
+        for field in dataclasses.fields(section_obj):
+            if field.name != key:
+                continue
+            if field.default is not dataclasses.MISSING and field.default is not None:
+                return field.default
+            if field.default_factory is not dataclasses.MISSING:  # pragma: no cover
+                return field.default_factory()
+            break
     return default
 
 
-@functools.lru_cache(maxsize=8)
 def _load_typed_config_cached(vault: Path | None = None) -> VaultAppConfig:
-    """Build (and cache) the typed config from the parsed dict.
+    """Build the typed config from the parsed dict (compat name).
 
-    Cached separately from the public :func:`load_typed_config` so the public
-    wrapper can deep-copy on every return without defeating the cache. The
-    expensive work (file read + YAML parse) is already cached inside
-    :func:`load_config`; this cache only avoids re-running the cheap
-    dict-to-dataclass mapping.
+    ARC-007: the separate lru cache was removed. It could serve stale values
+    after a caller cleared only ``load_config.cache_clear()`` (the common
+    test/invalidation idiom), and it only saved the cheap dict-to-dataclass
+    mapping -- the expensive work (file read + YAML parse) is cached inside
+    :func:`load_config`. Kept as an alias because the name is re-exported.
     """
-    parsed = load_config(vault=vault)
-    return VaultAppConfig.from_dict(parsed)
+    return VaultAppConfig.from_dict(load_config(vault=vault))
 
 
 def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
@@ -539,18 +555,18 @@ def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
 
     Additive to the dict-returning :func:`load_config`; callers that prefer
     typed attribute access (``cfg.summarizer.model``) can use this instead.
-    The underlying parse is cached (via :func:`load_config` and
-    :func:`_load_typed_config_cached`); each call returns a fresh deep copy so
-    callers can mutate their instance without corrupting the cache.
+    ARC-007: no separate cache -- the parse is cached inside
+    :func:`load_config` and ``from_dict`` builds a fresh tree per call, so
+    invalidation is exactly ``load_config.cache_clear()``.
 
     Args:
         vault: Optional vault path. Defaults to :func:`resolve_vault`.
 
     Returns:
         A :class:`VaultAppConfig`. Absent or unreadable config files yield an
-        instance whose sections are all empty (every field ``None``).
+        instance whose sections hold only the schema field defaults.
     """
-    return copy.deepcopy(_load_typed_config_cached(vault))
+    return _load_typed_config_cached(vault)
 
 
 # Expose cache management so tests/callers can invalidate the typed-config
@@ -559,8 +575,13 @@ def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
 # ``.cache_clear`` attribute bolted onto the public wrapper -- keeps the API
 # statically visible to type checkers.
 def _clear_typed_config_cache() -> None:
-    """Clear the :func:`load_typed_config` build cache (test helper)."""
-    _load_typed_config_cached.cache_clear()
+    """Clear the typed-config cache (test helper; compat no-op since ARC-007).
+
+    ``load_typed_config`` no longer keeps a separate cache — invalidation is
+    ``load_config.cache_clear()``. Kept because tests call it beside
+    ``load_config.cache_clear()``.
+    """
+    return None
 
 
 # ---------------------------------------------------------------------------

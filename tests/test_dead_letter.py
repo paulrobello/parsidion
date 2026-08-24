@@ -567,17 +567,20 @@ def test_rebuild_index_timeout_is_swallowed(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """QA-005: a hung update_index/build_graph child must not propagate
-    ``subprocess.TimeoutExpired`` into the caller (the summarizer and the
-    hooks that drive it). ``rebuild_index`` logs a warning and returns,
-    leaving the run to continue with a stale index rather than dying mid-run.
+    """QA-005: a hung update_index/build_graph child must not propagate a
+    timeout into the caller (the summarizer and the hooks that drive it).
+    ARC-004: ``rebuild_index`` delegates the subprocess to
+    ``vault_common.run_index_rebuild``; a ``("timeout", None)`` result is
+    logged as a warning and the run continues with a stale index rather
+    than dying mid-run.
     """
     mod = _fresh_summarize_sessions(monkeypatch)
 
-    def _timeout(*args: object, **kwargs: object) -> object:
-        raise mod.subprocess.TimeoutExpired(cmd=["uv"], timeout=300)
-
-    monkeypatch.setattr(mod.subprocess, "run", _timeout)
+    monkeypatch.setattr(
+        sys.modules["summarizer.queue"].vault_common,
+        "run_index_rebuild",
+        lambda *args, **kwargs: ("timeout", None),
+    )
 
     # Must not raise.
     mod.rebuild_index(tmp_path, rebuild_graph=True)

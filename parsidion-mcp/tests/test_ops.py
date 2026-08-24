@@ -27,40 +27,52 @@ def _make_proc(returncode: int = 0, stdout: str = "ok", stderr: str = "") -> Mag
 
 # ---------------------------------------------------------------------------
 # rebuild_index
+# ARC-004: the subprocess now lives in core.vault_index.run_index_rebuild;
+# these tests patch it at the vault_common facade ops calls, so they pin the
+# wrapper's mapping of (reason, proc) -> result / OpsToolError. The argv
+# contract itself is pinned by tests/test_run_index_rebuild.py at the repo
+# root.
 # ---------------------------------------------------------------------------
 
 
 def test_rebuild_index_success() -> None:
-    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
-        mock_run.return_value = _make_proc(stdout="Index rebuilt.")
+    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+        mock_run.return_value = ("ok", _make_proc(stdout="Index rebuilt."))
         result = rebuild_index()
 
     assert result == "Index rebuilt."
-    cmd = mock_run.call_args[0][0]
-    assert "update_index.py" in cmd[-1]
-    assert cmd[:3] == ["uv", "run", "--no-project"]
 
 
 def test_rebuild_index_nonzero_exit_raises() -> None:
-    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
-        mock_run.return_value = _make_proc(returncode=1, stderr="something failed")
+    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+        mock_run.return_value = (
+            "ok",
+            _make_proc(returncode=1, stderr="something failed"),
+        )
         with pytest.raises(OpsToolError, match="something failed"):
             rebuild_index()
 
 
 def test_rebuild_index_timeout_raises() -> None:
-    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="uv", timeout=30)
+    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+        mock_run.return_value = ("timeout", None)
         with pytest.raises(OpsToolError, match="timed out"):
             rebuild_index()
 
 
+def test_rebuild_index_launch_failure_raises() -> None:
+    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+        mock_run.return_value = ("launch", None)
+        with pytest.raises(OpsToolError, match="not found"):
+            rebuild_index()
+
+
 def test_rebuild_index_timeout_is_30s() -> None:
-    with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
-        mock_run.return_value = _make_proc()
+    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+        mock_run.return_value = ("ok", _make_proc())
         rebuild_index()
 
-    assert mock_run.call_args[1]["timeout"] == 30
+    assert mock_run.call_args[1]["timeout"] == 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -266,25 +278,22 @@ class TestVaultParameterReachesArgv:
     """ARC-021: the optional *vault* parameter must reach the subprocess argv."""
 
     def test_rebuild_index_without_vault_omits_vault_flag(self) -> None:
-        with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
-            mock_run.return_value = _make_proc(stdout="Index rebuilt.")
+        with patch("parsidion_mcp.tools.ops.vault_common") as mock_vc:
+            mock_vc.run_index_rebuild.return_value = ("ok", _make_proc(stdout="x"))
             rebuild_index()
 
-        cmd = mock_run.call_args[0][0]
-        assert "--vault" not in cmd
+        # vault=None positionally: run_index_rebuild omits --vault for None,
+        # letting the resolver's default precedence apply (pinned at the
+        # subprocess owner in tests/test_run_index_rebuild.py).
+        assert mock_vc.run_index_rebuild.call_args[0][0] is None
 
     def test_rebuild_index_with_vault_appends_vault_flag(self) -> None:
-        with (
-            patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run,
-            patch("parsidion_mcp.tools.ops.vault_common") as mock_vc,
-        ):
-            mock_run.return_value = _make_proc(stdout="Index rebuilt.")
+        with patch("parsidion_mcp.tools.ops.vault_common") as mock_vc:
+            mock_vc.run_index_rebuild.return_value = ("ok", _make_proc(stdout="x"))
             mock_vc.resolve_vault.return_value = Path("/tmp/my-vault")
             rebuild_index(vault="my-vault")
 
-        cmd = mock_run.call_args[0][0]
-        assert "--vault" in cmd
-        assert "/tmp/my-vault" in cmd
+        assert mock_vc.run_index_rebuild.call_args[0][0] == Path("/tmp/my-vault")
         # resolve_vault was called with the explicit reference.
         mock_vc.resolve_vault.assert_called_once_with(explicit="my-vault")
 

@@ -1,0 +1,192 @@
+{
+  "$comment": "ARC-005: frontmatter serialization vectors shared by Python (tests/test_frontmatter_parity.py, via core.vault_index.serialize_frontmatter/parse_frontmatter) and TypeScript (visualizer/lib/frontmatter.parity.test.ts, via lib/frontmatter.ts). fields is the shared model: related holds BARE stems (the Python emitter wraps them as [[wikilinks]]; the TS editor stores stems and quotes them on serialize); project/provenance/session_id are '' when absent (project is omitted, provenance/session_id ride the TS extra round-trip and the Python canonical key order — both emit them after related). expected is the full --- block including the trailing newline. Both suites assert serialize(model) == expected and parse(expected) == model. Vector values stay within the shared YAML subset (no item containing both quote characters, no trailing empty items).",
+  "version": 1,
+  "vectors": [
+    {
+      "name": "canonical-note",
+      "description": "All fields populated; the canonical key order and related-wikilink quoting.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "pattern",
+        "tags": [
+          "python",
+          "vault"
+        ],
+        "project": "parsidion",
+        "confidence": "high",
+        "sources": [
+          "https://example.com/a"
+        ],
+        "related": [
+          "note-one",
+          "note-two"
+        ],
+        "provenance": "explicit",
+        "session_id": "3f9c1a20-8f2b-4c8a-9d1e-5b6c7d8e9f0a"
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: [python, vault]\nproject: parsidion\nconfidence: high\nsources: [https://example.com/a]\nrelated: [\"[[note-one]]\", \"[[note-two]]\"]\nprovenance: explicit\nsession_id: 3f9c1a20-8f2b-4c8a-9d1e-5b6c7d8e9f0a\n---\n"
+    },
+    {
+      "name": "minimal-required",
+      "description": "Only date/type/tags plus the knowledge-note fields, empty lists emitted.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "research",
+        "tags": [
+          "research"
+        ],
+        "project": "",
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: research\ntags: [research]\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+    },
+    {
+      "name": "empty-arrays",
+      "description": "tags/sources/related all empty; project omitted.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "pattern",
+        "tags": [],
+        "project": "",
+        "confidence": "low",
+        "sources": [],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: []\nconfidence: low\nsources: []\nrelated: []\n---\n"
+    },
+    {
+      "name": "colon-in-tag",
+      "description": "A tag containing ': ' is double-quoted (plain YAML scalars may not contain colon+space).",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "pattern",
+        "tags": [
+          "fix: hook"
+        ],
+        "project": "",
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: [\"fix: hook\"]\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+    },
+    {
+      "name": "apostrophe-item",
+      "description": "An item containing a single quote is double-quoted.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "pattern",
+        "tags": [],
+        "project": "",
+        "confidence": "medium",
+        "sources": [
+          "Paul's notes"
+        ],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: []\nconfidence: medium\nsources: [\"Paul's notes\"]\nrelated: []\n---\n"
+    },
+    {
+      "name": "comma-in-source",
+      "description": "An item containing a comma is double-quoted so the inline array does not split on it.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "pattern",
+        "tags": [],
+        "project": "",
+        "confidence": "medium",
+        "sources": [
+          "https://a.example/x?y=1,2"
+        ],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: []\nconfidence: medium\nsources: [\"https://a.example/x?y=1,2\"]\nrelated: []\n---\n"
+    },
+    {
+      "name": "numeric-string-tags",
+      "description": "Numeric-looking tags stay bare strings in lists (no coercion in either parser).",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "knowledge",
+        "tags": [
+          "2026",
+          "v2"
+        ],
+        "project": "",
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: knowledge\ntags: [2026, v2]\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+    },
+    {
+      "name": "unicode",
+      "description": "Unicode tags and project emit bare.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "pattern",
+        "tags": [
+          "héllo",
+          "wörld-✓"
+        ],
+        "project": "naïve-proj",
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: [héllo, wörld-✓]\nproject: naïve-proj\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+    },
+    {
+      "name": "provenance-session-extras",
+      "description": "provenance/session_id only (no project); TS carries them as extra lines.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "debugging",
+        "tags": [
+          "hook"
+        ],
+        "project": "",
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "observed",
+        "session_id": "abc-123-def"
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: debugging\ntags: [hook]\nconfidence: medium\nsources: []\nrelated: []\nprovenance: observed\nsession_id: abc-123-def\n---\n"
+    },
+    {
+      "name": "daily-note",
+      "description": "Daily-note shape: related/sources empty, confidence still present.",
+      "fields": {
+        "date": "2026-08-23",
+        "type": "daily",
+        "tags": [
+          "daily"
+        ],
+        "project": "",
+        "confidence": "medium",
+        "sources": [],
+        "related": [],
+        "provenance": "",
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-08-23\ntype: daily\ntags: [daily]\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+    }
+  ]
+}

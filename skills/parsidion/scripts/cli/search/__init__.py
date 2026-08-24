@@ -6,15 +6,13 @@ SQL query path, the grep full-text filter, output formatting, env-var
 helpers, and the curses interactive TUI. ARC-005 decomposes the movable
 concerns into focused submodules behind the proven ``doctor/`` layout.
 
-**What stays in ``vault_search.py``** (same exception as the
-``summarizer/`` split): ``search_with_meta``, ``search``, ``LAST_BACKEND``,
-and ``main`` remain in the entry shim because ``tests/test_vault_search_backend.py``
-monkeypatches ``vault_search._search_embeddings`` and Python resolves bare
-names in the *caller's* module globals at call time — keeping
-``search_with_meta`` in the shim is the only way the patch takes effect
-without rewriting every test to patch ``cli.search.embeddings`` instead.
-``main`` stays with it because it reads the ``LAST_BACKEND`` module global
-that ``search`` mutates.
+**What stays in ``vault_search.py``**: ``search_with_meta``, ``search``, and
+``main`` remain in the entry shim as the CLI's routing layer. ARC-006
+removed the test-driven exceptions that used to pin them there: the
+deprecated ``LAST_BACKEND`` module global is gone (read
+``SearchResultEnvelope.backend`` from ``search_with_meta`` instead), and the
+embeddings leg is invoked through this package's ``embeddings`` module so
+tests patch ``cli.search.embeddings._search_embeddings`` where it lives.
 
 Submodule layout:
     _common      — shared constants + config helpers + SearchResultEnvelope.

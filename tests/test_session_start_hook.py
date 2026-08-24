@@ -19,7 +19,30 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 session_start_hook = importlib.import_module("session_start_hook")
+
+
+def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> None:
+    """ARC-007: patch session_start_hook.load_typed_config for config-driven tests.
+
+    The module reads typed config now; these tests used to patch
+    ``session_start_hook.get_config`` with (section, key) lambdas. The stub is
+    a VaultAppConfig at pure schema defaults (the old lambdas returned
+    ``default`` for every unpatched key) with the given session_start_hook
+    fields overridden.
+    """
+    import dataclasses
+    import types as _types
+
+    from core.vault_schema import VaultAppConfig
+
+    base = VaultAppConfig()
+    base.session_start_hook = dataclasses.replace(base.session_start_hook, **ssh_fields)
+    stub = _types.SimpleNamespace(session_start_hook=base.session_start_hook)
+    monkeypatch.setattr(session_start_hook, "load_typed_config", lambda: stub)
+
+
 import vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
+from core import ai_backend as core_ai_backend  # noqa: E402 -- ARC-006: patch internals where they live
 
 
 def _write_codex_config(vault: Path) -> None:
@@ -77,11 +100,9 @@ def _run_session_start_main_for_codex(
         )
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    monkeypatch.setattr(core_ai_backend, "_run_prompt_subprocess", fake_run)
     monkeypatch.setattr(
-        session_start_hook.ai_backend, "_run_prompt_subprocess", fake_run
-    )
-    monkeypatch.setattr(
-        session_start_hook.ai_backend.shutil,
+        core_ai_backend.shutil,
         "which",
         lambda name: f"/usr/local/bin/{name}",
     )
@@ -102,15 +123,7 @@ class TestAiSelectionSafety:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                True
-                if (section, key) == ("session_start_hook", "ai_single_flight")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_single_flight=True)
         monkeypatch.setattr(
             session_start_hook,
             "_try_acquire_ai_lock",
@@ -144,17 +157,7 @@ class TestAiSelectionSafety:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                True
-                if (section, key) == ("session_start_hook", "ai_single_flight")
-                else 1
-                if (section, key) == ("session_start_hook", "ai_timeout")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_single_flight=True, ai_timeout=1)
         monkeypatch.setattr(
             session_start_hook,
             "_try_acquire_ai_lock",
@@ -203,17 +206,7 @@ class TestAiSelectionSafety:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                False
-                if (section, key) == ("session_start_hook", "ai_single_flight")
-                else 30
-                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_single_flight=False, ai_cooldown_seconds=30)
         monkeypatch.setattr(
             session_start_hook,
             "_is_ai_cooldown_active",
@@ -247,17 +240,7 @@ class TestAiSelectionSafety:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                False
-                if (section, key) == ("session_start_hook", "ai_single_flight")
-                else 7
-                if (section, key) == ("session_start_hook", "ai_timeout")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_single_flight=False, ai_timeout=7)
         note = tmp_path / "Patterns" / "codex-exec.md"
         note.parent.mkdir(parents=True)
         note.write_text(
@@ -321,18 +304,8 @@ class TestAiSelectionSafety:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                False
-                if (section, key) == ("session_start_hook", "ai_single_flight")
-                else 30
-                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
-                else 1
-                if (section, key) == ("session_start_hook", "ai_timeout")
-                else default
-            ),
+        _patch_hook_cfg(
+            monkeypatch, ai_single_flight=False, ai_cooldown_seconds=30, ai_timeout=1
         )
         monkeypatch.setattr(
             session_start_hook,
@@ -384,18 +357,8 @@ class TestAiSelectionSafety:
         session start (observed: `claude -p` hanging >60s while
         session_start_hook.ai_model is configured).
         """
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                False
-                if (section, key) == ("session_start_hook", "ai_single_flight")
-                else 30
-                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
-                else 1
-                if (section, key) == ("session_start_hook", "ai_timeout")
-                else default
-            ),
+        _patch_hook_cfg(
+            monkeypatch, ai_single_flight=False, ai_cooldown_seconds=30, ai_timeout=1
         )
         monkeypatch.setattr(
             session_start_hook,
@@ -448,30 +411,14 @@ class TestAiCooldownHelpers:
     def test_cooldown_inactive_when_stamp_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                30
-                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_cooldown_seconds=30)
         # No stamp file — cooldown should not be active
         assert session_start_hook._is_ai_cooldown_active(tmp_path) is False
 
     def test_cooldown_active_when_stamp_fresh(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                30
-                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_cooldown_seconds=30)
         # Write a fresh stamp
         session_start_hook._write_ai_cooldown_stamp(tmp_path)
         assert session_start_hook._is_ai_cooldown_active(tmp_path) is True
@@ -479,15 +426,7 @@ class TestAiCooldownHelpers:
     def test_cooldown_inactive_when_disabled(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            session_start_hook,
-            "get_config",
-            lambda section, key, default=None: (
-                0
-                if (section, key) == ("session_start_hook", "ai_cooldown_seconds")
-                else default
-            ),
-        )
+        _patch_hook_cfg(monkeypatch, ai_cooldown_seconds=0)
         # Even with a stamp file, cooldown=0 means always inactive
         session_start_hook._write_ai_cooldown_stamp(tmp_path)
         assert session_start_hook._is_ai_cooldown_active(tmp_path) is False

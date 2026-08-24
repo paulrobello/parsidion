@@ -411,8 +411,8 @@ async def summarize_one(
             return entry, None
 
         # Semantic dedup: find near-duplicate notes before calling the backend
-        dedup_threshold: float = vault_common.get_config(
-            "summarizer", "dedup_threshold", 0.80
+        dedup_threshold: float = (
+            vault_common.load_typed_config().summarizer.dedup_threshold
         )
         # Content-rich query: include a slice of the cleaned transcript so
         # semantic dedup can match the SPECIFIC existing note. The coarse
@@ -434,7 +434,7 @@ async def summarize_one(
                 model=model,
                 model_tier="large",
                 purpose="summarizer-note",
-                timeout=vault_common.get_config("summarizer", "ai_timeout", None),
+                timeout=vault_common.load_typed_config().summarizer.ai_timeout,
                 vault=vault,
             )
         except Exception as e:  # noqa: BLE001

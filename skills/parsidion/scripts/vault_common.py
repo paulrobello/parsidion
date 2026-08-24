@@ -66,6 +66,7 @@ from vault_config import (  # noqa: F401
     _strip_inline_comment,
     get_config,
     load_config,
+    load_typed_config,
     validate_config,
 )
 
@@ -134,6 +135,8 @@ from vault_index import (  # noqa: F401
     parse_related_stems,
     query_note_index,
     read_note_summary,
+    run_index_rebuild,
+    serialize_frontmatter,
     slugify,
 )
 

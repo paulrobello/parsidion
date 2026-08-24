@@ -77,6 +77,10 @@ _ENFORCEMENT_SCOPE = [
     "core.vault_metrics",
     "core.vault_health",
     "core.subproc_util",
+    # ARC-006: the AI/par-mem backends moved into core/ (the root names below
+    # remain as re-export shims and are held to the same contract).
+    "core.ai_backend",
+    "core.parmem_backend",
     # root stdlib libraries / facade
     "vault_common",
     "vault_tui",

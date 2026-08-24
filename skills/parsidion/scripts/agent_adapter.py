@@ -242,7 +242,7 @@ def _load_external_adapters() -> None:
         return
     _external_loaded = True
     try:
-        if vault_common.get_config("adapters", "load_external", False) is not True:
+        if vault_common.load_typed_config().adapters.load_external is not True:
             return
         import importlib.util
 
@@ -474,9 +474,7 @@ def _read_transcript_tail(path: Path, tail_lines: int) -> list[str]:
     now applied to every runtime's session-end read.
     """
     tail_bytes = int(
-        vault_common.get_config(
-            "session_stop_hook", "transcript_tail_bytes", _DEFAULT_TRANSCRIPT_TAIL_BYTES
-        )
+        vault_common.load_typed_config().session_stop_hook.transcript_tail_bytes
     )
     return vault_common.read_last_n_lines(path, tail_lines, max_bytes=tail_bytes)
 
@@ -549,9 +547,7 @@ def _classify_session_with_ai(
             prompt,
             model=model,
             model_tier="small",
-            timeout=vault_common.get_config(
-                "session_stop_hook", "ai_timeout", _DEFAULT_AI_TIMEOUT
-            ),
+            timeout=vault_common.load_typed_config().session_stop_hook.ai_timeout,
             purpose="session-stop-classification",
         )
         if not output:
@@ -596,7 +592,7 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
     Args:
         vault_path: The vault root path.
     """
-    if not vault_common.get_config("session_stop_hook", "auto_summarize", True):
+    if not vault_common.load_typed_config().session_stop_hook.auto_summarize:
         return
 
     pending_path = vault_path / "pending_summaries.jsonl"
@@ -614,7 +610,7 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
 
     # Check threshold — default 1 means "launch whenever there's anything pending"
     threshold: int = int(
-        vault_common.get_config("session_stop_hook", "auto_summarize_after", 1)
+        vault_common.load_typed_config().session_stop_hook.auto_summarize_after or 1
     )
     if pending_count < threshold:
         print(
@@ -656,7 +652,7 @@ def _update_adaptive_scores(
         log_prefix: Stderr log prefix for the best-effort status line.
     """
     try:
-        if not vault_common.get_config("adaptive_context", "enabled", False):
+        if not vault_common.load_typed_config().adaptive_context.enabled:
             return
         injected = vault_common.get_injected_stems(project)
         if not injected:
@@ -704,7 +700,7 @@ def _classify_session(
     elif ai_cli_arg is not None:
         ai_model = ai_cli_arg
     else:
-        ai_model = vault_common.get_config("session_stop_hook", "ai_model")
+        ai_model = vault_common.load_typed_config().session_stop_hook.ai_model
         if ai_model is None:
             return None
 
@@ -865,7 +861,7 @@ def run_session_start(adapter: AgentAdapter) -> None:
     """
     # Lazy import: session_start_hook pulls in vault_search/vault_links and
     # is heavy. Codex/Gemini session-start is the only path that needs it.
-    from session_start_hook import _DEFAULT_MAX_CHARS, build_session_context
+    from session_start_hook import build_session_context
 
     try:
         payload: dict[str, object] = _read_stdin_payload()
@@ -877,11 +873,7 @@ def run_session_start(adapter: AgentAdapter) -> None:
         cwd_value = payload.get("cwd")
         cwd = str(cwd_value) if cwd_value else str(Path.cwd())
 
-        max_chars = int(
-            vault_common.get_config(
-                "session_start_hook", "max_chars", _DEFAULT_MAX_CHARS
-            )
-        )
+        max_chars = int(vault_common.load_typed_config().session_start_hook.max_chars)
         old_runtime = os.environ.get("PARSIDION_RUNTIME")
         os.environ["PARSIDION_RUNTIME"] = adapter.name
         try:
@@ -950,11 +942,7 @@ def _deeper_pi_tail(transcript_path: Path, tail_lines: int) -> list[str] | None:
     exceed the default tail already read.
     """
     pi_tail_lines = int(
-        vault_common.get_config(
-            "session_stop_hook",
-            "pi_transcript_tail_lines",
-            _DEFAULT_PI_TRANSCRIPT_TAIL_LINES,
-        )
+        vault_common.load_typed_config().session_stop_hook.pi_transcript_tail_lines
     )
     if pi_tail_lines <= tail_lines:
         return None
@@ -1055,11 +1043,7 @@ def run_session_end(
             _DEFAULT_SUBAGENT_TAIL_LINES
             if subagent
             else int(
-                vault_common.get_config(
-                    "session_stop_hook",
-                    "transcript_tail_lines",
-                    _DEFAULT_TRANSCRIPT_TAIL_LINES,
-                )
+                vault_common.load_typed_config().session_stop_hook.transcript_tail_lines
             )
         )
         raw_lines = (

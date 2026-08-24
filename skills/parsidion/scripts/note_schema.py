@@ -67,6 +67,24 @@ DEFAULT_FOLDER: str = "Research"
 #: Fields required on every note, of any type.
 REQUIRED_FRONTMATTER_FIELDS: frozenset[str] = frozenset({"date", "type", "tags"})
 
+#: Canonical serialization order for the known frontmatter fields (ARC-005).
+#: ``core.vault_index.serialize_frontmatter`` emits these keys first (when
+#: present), then any extra fields in insertion order. Mirrors the field order
+#: in the note-template frontmatter and ``visualizer/lib/frontmatter.ts``;
+#: the parity fixture ``tests/fixtures/parity/frontmatter.json`` pins the
+#: Python and TS emitters to this order.
+FRONTMATTER_FIELD_ORDER: tuple[str, ...] = (
+    "date",
+    "type",
+    "tags",
+    "project",
+    "confidence",
+    "sources",
+    "related",
+    "provenance",
+    "session_id",
+)
+
 #: Fields required on knowledge notes (i.e. non-daily). Daily notes are exempt
 #: from ``confidence`` and ``related``.
 REQUIRED_KNOWLEDGE_FIELDS: tuple[str, ...] = ("confidence", "related")
