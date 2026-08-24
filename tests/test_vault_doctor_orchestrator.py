@@ -91,6 +91,7 @@ def _write_note(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(60)
 class TestScanDryRunIsReadOnly:
     """ARC-008 acceptance: dry-run must not touch the filesystem."""
 
@@ -156,6 +157,12 @@ class TestScanDryRunIsReadOnly:
 # ---------------------------------------------------------------------------
 
 
+# QA-001: tests below drive the real run_scan_and_repair end to end —
+# multi-second work whose wall-clock time balloons under coverage
+# instrumentation and machine load.  The default 10 s per-test timeout
+# (pyproject.toml) trips them nondeterministically in full-suite runs, so
+# each run_scan_and_repair-driving class raises its ceiling to 60 s.
+@pytest.mark.timeout(60)
 class TestScanExecuteAppliesPythonOnlyFixes:
     """The doctor's Python-only fixers (heading promotion, self-ref removal)
     must fire on execute even when the AI backend is unavailable — they don't
@@ -400,6 +407,7 @@ class TestScanExecuteAppliesPythonOnlyFixes:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(60)
 class TestScanManualOnlySkipsState:
     """A note whose only issue is non-repairable (FLAT_DAILY) must be marked
     ``skipped`` in state and not retried on every run."""
@@ -447,6 +455,7 @@ class TestScanManualOnlySkipsState:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(60)
 class TestScanFixSessionsExits:
     """``fix_sessions=True`` must print the session-duplicate report and then
     ``sys.exit(0)`` so the rest of the scan pipeline doesn't run."""
@@ -624,6 +633,7 @@ class TestFixModeRegistry:
         assert called == [tmp_vault.name, tmp_vault.name]
 
 
+@pytest.mark.timeout(60)
 class TestDeterministicFrontmatterPrePass:
     """The two detection-only codes with a safe mechanical fix
     (NESTED_FM_KEY ``metadata:`` wrapper, SCALAR_LIST_FIELD) are repaired by a
