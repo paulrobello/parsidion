@@ -361,7 +361,20 @@ def fix_prefix_cluster(
 
     # Move files first (skip missing files gracefully)
     failed_moves: list[tuple[Path, Path]] = []
+    claimed_targets: set[Path] = set()
     for old_path, new_path in moves:
+        # SEC-019: POSIX rename silently replaces an existing destination.
+        # A variant whose stripped stem collides with the base note's
+        # filename (foo-foo.md → foo.md beside base foo.md) or with another
+        # planned move's target must be kept in place, not overwritten.
+        if new_path.exists() or new_path in claimed_targets:
+            print(
+                f"  ⚠ conflict: {new_path.name} already targeted in "
+                f"{subfolder.name}/; keeping {old_path.name} in place"
+            )
+            failed_moves.append((old_path, new_path))
+            continue
+        claimed_targets.add(new_path)
         try:
             _backup_note(vault_path, old_path)
             old_path.rename(new_path)

@@ -505,6 +505,62 @@ class TestFindPrefixClusters:
         assert any(p == "my-project" for p, _ in exact)
 
 
+class TestPrefixClusterTargetCollisions:
+    """SEC-019: a variant whose stripped stem collides must not overwrite."""
+
+    def test_variant_not_renamed_over_base(self, vault: Path) -> None:
+        from doctor.subfolder import fix_prefix_cluster
+
+        _write_note(vault, "Patterns/foo.md", "# BASE\n")
+        _write_note(vault, "Patterns/foo-foo.md", "# VARIANT\n")
+        base = vault / "Patterns" / "foo.md"
+        variant = vault / "Patterns" / "foo-foo.md"
+
+        moves = fix_prefix_cluster(
+            vault / "Patterns",
+            "foo",
+            [base, variant],
+            [base, variant],
+            base_note=base,
+        )
+
+        # The base note moved into the subfolder under its original name...
+        assert (vault / "Patterns" / "foo" / "foo.md").read_text(
+            encoding="utf-8"
+        ) == "# BASE\n"
+        # ...and the variant (which would strip to foo.md — the base's new
+        # filename) was kept in place rather than renamed over it.
+        assert variant.exists()
+        assert variant.read_text(encoding="utf-8") == "# VARIANT\n"
+        assert all(old != variant for old, _ in moves)
+
+    def test_existing_target_on_disk_is_not_replaced(self, vault: Path) -> None:
+        from doctor.subfolder import fix_prefix_cluster
+
+        # A pre-existing subfolder file at the variant's target filename.
+        _write_note(vault, "Patterns/foo.md", "# BASE\n")
+        _write_note(vault, "Patterns/foo-foo.md", "# VARIANT\n")
+        _write_note(vault, "Patterns/foo/foo.md", "# ALREADY THERE\n")
+        base = vault / "Patterns" / "foo.md"
+        variant = vault / "Patterns" / "foo-foo.md"
+
+        fix_prefix_cluster(
+            vault / "Patterns",
+            "foo",
+            [base, variant],
+            [base, variant],
+            base_note=base,
+        )
+
+        # POSIX rename would have silently replaced the existing file; both
+        # the base (target taken) and the variant must be left in place.
+        assert (vault / "Patterns" / "foo" / "foo.md").read_text(
+            encoding="utf-8"
+        ) == "# ALREADY THERE\n"
+        assert base.exists()
+        assert variant.exists()
+
+
 class TestCommonWordPrefix:
     """Cluster subfolders are named after the longest common word prefix, not
     the bare first word — otherwise compound slugs split mid-concept

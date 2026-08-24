@@ -207,8 +207,43 @@ export class HealthReportFailedError extends Error {
  *
  *  The metadata-quality scan is the expensive dimension on a large vault;
  *  pass ``fast=true`` to skip it (the dimension is reported with a neutral
- *  score and ``detail='skipped (--fast)'``). */
-export async function getVaultHealth(
+ *  score and ``detail='skipped (--fast)'``).
+ *
+ *  SEC-030: the report spawns a subprocess with a 60 s budget, so
+ *  concurrent callers share one in-flight run and completed results are
+ *  reused for ``HEALTH_CACHE_TTL_MS`` — a page refresh storm cannot fork a
+ *  subprocess per request. Failures are never cached. */
+export function getVaultHealth(
+  vaultPath: string,
+  opts?: { fast?: boolean; timeoutMs?: number },
+): Promise<VaultHealthReport> {
+  const key = `${vaultPath}|${opts?.fast ? 'fast' : 'full'}`
+  const now = Date.now()
+  const hit = healthCache.get(key)
+  if (hit && now - hit.at < HEALTH_CACHE_TTL_MS) {
+    return hit.promise
+  }
+  const entry = {
+    at: now,
+    promise: runVaultHealth(vaultPath, opts),
+  }
+  healthCache.set(key, entry)
+  entry.promise.catch(() => {
+    // Evict on failure so the next call retries instead of replaying the
+    // cached rejection for the rest of the TTL.
+    if (healthCache.get(key) === entry) healthCache.delete(key)
+  })
+  return entry.promise
+}
+
+const HEALTH_CACHE_TTL_MS = 60_000
+
+const healthCache = new Map<
+  string,
+  { at: number; promise: Promise<VaultHealthReport> }
+>()
+
+async function runVaultHealth(
   vaultPath: string,
   opts?: { fast?: boolean; timeoutMs?: number },
 ): Promise<VaultHealthReport> {

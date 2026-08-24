@@ -280,6 +280,66 @@ class TestFindNote:
         result = vault_merge._find_note("my-note", vault)
         assert result == note
 
+    # SEC-011: note paths must resolve inside the vault.
+    def test_absolute_path_outside_vault_raises(
+        self, vault: Path, tmp_path: Path
+    ) -> None:
+        outside = tmp_path.parent / "sec011-outside-note.md"
+        outside.write_text("# outside\n", encoding="utf-8")
+        try:
+            with pytest.raises(LookupError, match="outside the vault"):
+                vault_merge._find_note(str(outside), vault)
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_dotdot_relative_path_outside_vault_raises(
+        self, vault: Path, tmp_path: Path
+    ) -> None:
+        # The LookupError only fires for an existing file — create one beside
+        # the vault so `vault/../<name>` resolves to it.
+        outside = tmp_path.parent / "sec011-dotdot.md"
+        outside.write_text("# outside\n", encoding="utf-8")
+        try:
+            with pytest.raises(LookupError, match="outside the vault"):
+                vault_merge._find_note("../sec011-dotdot.md", vault)
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_output_outside_vault_rejected_by_main(
+        self,
+        vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        # SEC-011: --output must land inside the vault.
+        import sys as _sys
+
+        _note(vault, "Patterns/keep.md", "# Keep\n")
+        _note(vault, "Patterns/dup.md", "# Dup\n")
+        outside = tmp_path.parent / "sec011-output.md"
+        monkeypatch.setattr(
+            _sys,
+            "argv",
+            [
+                "vault-merge",
+                "keep",
+                "dup",
+                "--output",
+                str(outside),
+                "--no-ai",
+                "--execute",
+            ],
+        )
+        try:
+            with pytest.raises(SystemExit) as excinfo:
+                vault_merge.main()
+            assert excinfo.value.code == 1
+            assert "outside the vault" in capsys.readouterr().err
+            assert not outside.exists()
+        finally:
+            outside.unlink(missing_ok=True)
+
 
 # ---------------------------------------------------------------------------
 # Backlink bug fixes (self-references + mangled related on merge)

@@ -99,6 +99,10 @@ _RE_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _RE_ITALIC = re.compile(r"\*(.+?)\*")
 _RE_CODE_INLINE = re.compile(r"`([^`]+)`")
 _RE_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+# SEC-009: URI scheme prefix (colon excluded from the capture) and the only
+# schemes that may appear in an exported anchor's href.
+_RE_URL_SCHEME = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):")
+_ALLOWED_HREF_SCHEMES = frozenset({"http", "https", "mailto"})
 _RE_WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")
 _RE_HR = re.compile(r"^---+$", re.MULTILINE)
 _RE_UL = re.compile(r"^[-*] (.+)$", re.MULTILINE)
@@ -144,7 +148,26 @@ def _md_to_html(md: str) -> str:
         text = _RE_CODE_INLINE.sub(r"<code>\1</code>", text)
         text = _RE_BOLD.sub(r"<strong>\1</strong>", text)
         text = _RE_ITALIC.sub(r"<em>\1</em>", text)
-        text = _RE_LINK.sub(r'<a href="\2">\1</a>', text)
+
+        # SEC-009: only http/https/mailto and scheme-less relative hrefs
+        # become anchors. The link target was html.escape()d above, so the
+        # URL text itself cannot break out of the attribute; a javascript:
+        # or data: URL would still be an executable href, so those (and any
+        # other scheme, plus protocol-relative //host URLs) render as the
+        # escaped label with no anchor.
+        def _link_repl(m: re.Match[str]) -> str:
+            label, target = m.group(1), m.group(2)
+            stripped = target.strip()
+            scheme_match = _RE_URL_SCHEME.match(stripped)
+            if scheme_match:
+                if scheme_match.group(1).lower() in _ALLOWED_HREF_SCHEMES:
+                    return f'<a href="{target}">{label}</a>'
+                return label
+            if stripped.startswith("//"):
+                return label
+            return f'<a href="{target}">{label}</a>'
+
+        text = _RE_LINK.sub(_link_repl, text)
         text = _RE_WIKILINK.sub(r'<span class="wikilink">\1</span>', text)
         return text
 

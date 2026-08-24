@@ -156,6 +156,8 @@ def configure_vault_gitignore(vault_root: Path, dry_run: bool = False) -> None:
         ".merge_previews/",
         # Doctor singleton lock (SEC-016 flock); machine-local.
         ".doctor.lock",
+        # Daily-note sibling locks (SEC-015 flock); machine-local.
+        "*.lock",
     ]
 
     if gitignore.exists():

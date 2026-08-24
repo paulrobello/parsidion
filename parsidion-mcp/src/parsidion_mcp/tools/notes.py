@@ -38,6 +38,28 @@ def _resolve_vault_path(path: str, vault: str | None = None) -> Path:
     return candidate
 
 
+def _validate_readable_note(resolved: Path, vault_root: Path) -> None:
+    """SEC-008: restrict vault_read to markdown notes in the note tree.
+
+    Mirrors the vault_write rules: ``.md`` suffix only, no dotfile/dot-dir
+    segments, no ``EXCLUDE_DIRS`` top-level folder. Without this, a caller
+    could read ``config.local.yaml`` (the documented home for
+    ``ANTHROPIC_API_KEY``), ``.git/config``, ``hook_events.log``, or
+    ``pending_summaries.jsonl`` through the MCP read tool.
+
+    Raises:
+        VaultToolError: When the path is not a readable note location.
+    """
+    if resolved.suffix.lower() != ".md":
+        raise VaultToolError("Only .md files are readable")
+    rel = resolved.relative_to(vault_root)
+    segments = rel.parts
+    if any(segment.startswith(".") for segment in segments):
+        raise VaultToolError("Hidden paths are not readable")
+    if segments and segments[0] in vault_common.EXCLUDE_DIRS:
+        raise VaultToolError(f"Excluded directory: {segments[0]}")
+
+
 def vault_read(path: str, vault: str | None = None) -> str:
     """Read a vault note by path.
 
@@ -51,16 +73,24 @@ def vault_read(path: str, vault: str | None = None) -> str:
 
     Raises:
         VaultToolError: On any read failure (missing vault, path escape,
-            file not found, OS error).
+            non-note path, oversized file, binary content, file not found,
+            OS error).
     """
     vault_root = vault_common.resolve_vault(explicit=vault)
     if not vault_root.exists():
         raise VaultToolError(f"vault root not found at {vault_root}")
     try:
         resolved = _resolve_vault_path(path, vault=vault)
+        # SEC-008: same note-only rule the write side enforces.
+        _validate_readable_note(resolved, vault_root.resolve())
+        # SEC-008: size cap before reading (self-DoS guard).
+        if resolved.stat().st_size > _MAX_CONTENT_BYTES:
+            raise VaultToolError("Note exceeds 10 MB limit")
         return resolved.read_text(encoding="utf-8")
     except VaultToolError:
         raise
+    except UnicodeDecodeError as exc:
+        raise VaultToolError("not a text note") from exc
     except FileNotFoundError:
         raise VaultToolError(f"note not found at {path}")
     except OSError as exc:

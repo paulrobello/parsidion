@@ -138,6 +138,39 @@ _FM_KEY_RE = re.compile(r"^[A-Za-z][\w-]*\s*:")
 _FM_RELATED_RE = re.compile(r"^related:\s*(.*)$")
 
 
+def _split_frontmatter_block(text: str) -> tuple[str, str] | None:
+    """Split *text* into (frontmatter block incl. delimiters, body).
+
+    Returns None when the text does not open with a ``---`` delimited block.
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines or _FM_DELIM_RE.match(lines[0].rstrip("\n")) is None:
+        return None
+    for i in range(1, len(lines)):
+        if _FM_DELIM_RE.match(lines[i].rstrip("\n")):
+            return "".join(lines[: i + 1]), "".join(lines[i + 1 :])
+    return None
+
+
+def splice_frontmatter_onto_original(repaired: str, original: str) -> str:
+    """SEC-033(d): take only the frontmatter block from the AI repair.
+
+    The AI repair previously wrote its whole output — frontmatter AND body —
+    over the note, so any body drift the model introduced (paraphrasing,
+    truncation, dropped code blocks) landed in the vault even though the
+    repair only ever needed to touch frontmatter. This splices the repaired
+    frontmatter onto the note's original body, byte-for-byte. When either
+    side lacks a parseable frontmatter block, the validated *repaired* text
+    is returned unchanged (normalization already vetted it).
+    """
+    repaired_split = _split_frontmatter_block(repaired)
+    if repaired_split is None:
+        return repaired
+    original_split = _split_frontmatter_block(original)
+    original_body = original_split[1] if original_split is not None else original
+    return repaired_split[0] + original_body
+
+
 def _note_is_daily(rel: Path, content: str) -> bool:
     """A note is daily if it lives under ``Daily/`` or its frontmatter type is daily."""
     if rel.parts and rel.parts[0] == "Daily":

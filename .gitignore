@@ -34,3 +34,8 @@ graphify-out/
 
 # session memory files (live in ~/.claude/projects/, never in the repo)
 memory/
+
+# Environment files may carry real keys (SEC-027)
+.env
+.env.*
+!.env.example

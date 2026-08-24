@@ -10,6 +10,12 @@ import { runScript, ScriptFailedError } from '@/lib/runScript'
 
 // ARC-015 step 5: broadcast includes the resolved vault path so SSE clients
 // scoped to a different vault can ignore the rebuild instead of refetching.
+
+// SEC-030: one build_graph run per vault at a time. Concurrent POSTs raced
+// on graph.json (both builds writing the same output path); a second caller
+// now awaits the in-flight run's promise instead of forking its own.
+const rebuildInFlight = new Map<string, Promise<void>>()
+
 export const POST = withApi(async (req: NextRequest) => {
   const vault = req.nextUrl.searchParams.get('vault')
 
@@ -51,11 +57,21 @@ export const POST = withApi(async (req: NextRequest) => {
   // capped stderr. Replaces a hand-rolled spawn here. The build can take long
   // on a large vault, so allow up to 5 minutes; aborts when the client closes
   // the POST connection (req.signal).
-  try {
-    await runScript('uv', args, {
+  // SEC-030: join (or start) the single in-flight run for this vault.
+  let build = rebuildInFlight.get(vaultPath)
+  if (!build) {
+    build = runScript('uv', args, {
       signal: req.signal,
       timeoutMs: 5 * 60_000,
+    }).then(() => undefined)
+    rebuildInFlight.set(vaultPath, build)
+    const owned = build
+    owned.catch(() => {}).finally(() => {
+      if (rebuildInFlight.get(vaultPath) === owned) rebuildInFlight.delete(vaultPath)
     })
+  }
+  try {
+    await build
   } catch (err) {
     if (err instanceof ScriptFailedError) {
       console.error('[graph/rebuild] build_graph.py', err.message, ':', err.stderr)

@@ -51,6 +51,7 @@ __all__: list[str] = [
     "_parse_config_yaml",
     "_merge_config_dicts",
     "load_config",
+    "clamp_timeout",
     "config_key_sources",
     "load_typed_config",
     "_clear_typed_config_cache",
@@ -96,16 +97,29 @@ _YAML_LIST_INLINE_RE = re.compile(r"^\[(.*)]\s*$")
 
 
 def _split_list_items(text: str) -> list[str]:
-    """Split a comma-separated list, respecting quoted strings."""
+    """Split a comma-separated list, respecting quoted strings.
+
+    SEC-033(c): an escaped double quote (``\\"``) does not close the string —
+    writers (vault_merge's frontmatter emitter) escape embedded quotes, and
+    the split must not let one toggle the quote state and split mid-item.
+    """
     items: list[str] = []
     current: list[str] = []
     in_quote: str | None = None
 
-    for ch in text:
+    for i, ch in enumerate(text):
         if in_quote:
             current.append(ch)
             if ch == in_quote:
-                in_quote = None
+                # The quote is escaped (does not close the string) only when
+                # preceded by an odd run of backslashes.
+                j = i - 1
+                run = 0
+                while j >= 0 and text[j] == "\\":
+                    run += 1
+                    j -= 1
+                if run % 2 == 0:
+                    in_quote = None
         elif ch in ('"', "'"):
             in_quote = ch
             current.append(ch)
@@ -162,9 +176,28 @@ def _parse_list_item(value: str) -> str:
     frontmatter list fields (``tags``, ``sources``, ``related``) are always
     string-valued, and coercing e.g. ``tags: [2026, python]`` to an int makes
     the tag silently unfindable downstream. Surrounding quotes are stripped.
+
+    SEC-033(c): double-quoted items unescape ``\\"`` → ``"`` and ``\\\\`` →
+    ``\\``, matching what the frontmatter emitters write.
     """
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-        return value[1:-1]
+        inner = value[1:-1]
+        if value[0] == '"':
+            out: list[str] = []
+            i = 0
+            while i < len(inner):
+                if (
+                    inner[i] == "\\"
+                    and i + 1 < len(inner)
+                    and inner[i + 1] in ('"', "\\")
+                ):
+                    out.append(inner[i + 1])
+                    i += 2
+                else:
+                    out.append(inner[i])
+                    i += 1
+            return "".join(out)
+        return inner
     return value
 
 
@@ -424,6 +457,36 @@ def _deep_copy_config(obj: Any) -> Any:
 # QA-015: Keep backward-compatible aliases for callers that used the old names.
 _load_config_cached = load_config
 _clear_config_cache = load_config.cache_clear
+
+
+def clamp_timeout(
+    value: int | float | None,
+    default: int | float,
+    lo: int | float = 1,
+    hi: int | float = 3600,
+) -> int | float:
+    """Coerce a configured timeout into ``[lo, hi]`` (SEC-024).
+
+    Config-sourced timeouts previously reached ``subprocess.run(timeout=...)``
+    unvalidated: ``float('nan')`` and negatives raise at call time, and
+    ``inf`` silently means "no timeout at all". Non-finite, non-positive, or
+    non-numeric input (including ``True``/``False``, which ``isinstance``
+    would otherwise treat as ``int``) falls back to *default*.
+
+    Args:
+        value: Raw configured value.
+        default: Fallback for invalid input.
+        lo: Lower bound (inclusive) for valid values.
+        hi: Upper bound (inclusive) for valid values.
+
+    Returns:
+        The clamped timeout as int or float.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    if not math.isfinite(float(value)) or value <= 0:
+        return default
+    return min(max(value, lo), hi)
 
 
 def get_config(section: str, key: str, default: Any = None) -> Any:

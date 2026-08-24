@@ -90,6 +90,15 @@ def run_migrate_daily_notes(
             print(f"  Skipped (target exists): {old.relative_to(vault_root)}")
             skipped += 1
             continue
+        # SEC-010: the rename target must stay inside the same month
+        # directory — a crafted username (or a future construction change)
+        # must never move the note outside Daily/YYYY-MM/.
+        if new.parent != old.parent:
+            print(
+                f"  Skipped (target escapes month dir): {old.relative_to(vault_root)}"
+            )
+            skipped += 1
+            continue
         _backup_note(vault_root, old)
         old.rename(new)
         print(

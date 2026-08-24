@@ -24,6 +24,7 @@ import {
 	formatAnthropicStatusLines,
 	readVaultConfigText,
 } from "./lib/parsidion-status";
+import { buildHookEnv, resolveScriptDir, type HookScriptName } from "./lib/scriptRunner";
 
 type HookResult = {
 	stdout: string;
@@ -38,13 +39,6 @@ type HookResponse = {
 		additionalContext?: string;
 	};
 };
-
-type HookScriptName =
-	| "session_start_hook.py"
-	| "session_stop_hook.py"
-	| "pre_compact_hook.py"
-	| "post_compact_hook.py"
-	| "subagent_stop_hook.py";
 
 type PendingContextChunk = {
 	source: "startup" | "post_compact";
@@ -67,13 +61,6 @@ type ProcessedSubagentEntry = {
 
 const EXTENSION_NAME = "parsidion";
 const TRANSCRIPT_DIR = path.join(os.homedir(), ".claude", "pi-vault-hooks");
-const SCRIPT_REQUIRED_FILES: HookScriptName[] = [
-	"session_start_hook.py",
-	"session_stop_hook.py",
-	"pre_compact_hook.py",
-	"post_compact_hook.py",
-	"subagent_stop_hook.py",
-];
 const VAULT_CONTEXT_MESSAGE_TYPE = "parsidion:context";
 const SUBAGENT_PROCESSED_ENTRY_TYPE = "parsidion:subagent-processed";
 const SUBAGENT_RESULT_MESSAGE_TYPE = "subagent:result";
@@ -264,28 +251,6 @@ function resolveTranscriptPathForHook(ctx: ExtensionContext, suffix?: string): s
 	return writeSyntheticTranscript(ctx, suffix);
 }
 
-function candidateScriptDirs(cwd: string): string[] {
-	const envScriptDir = process.env.PARSIDION_SCRIPTS_DIR;
-	const envRepoDir = process.env.PARSIDION_DIR;
-	const dirs = [
-		envScriptDir,
-		envRepoDir ? path.join(envRepoDir, "skills", "parsidion", "scripts") : undefined,
-		path.resolve(cwd, "../parsidion/skills/parsidion/scripts"),
-		path.resolve(cwd, "../parsidion/scripts"),
-		path.join(os.homedir(), ".claude", "skills", "parsidion", "scripts"),
-	];
-	return dirs.filter((dir): dir is string => Boolean(dir));
-}
-
-function resolveScriptDir(cwd: string): string | undefined {
-	for (const dir of candidateScriptDirs(cwd)) {
-		if (!existsSync(dir)) continue;
-		const hasAllFiles = SCRIPT_REQUIRED_FILES.every((file) => existsSync(path.join(dir, file)));
-		if (hasAllFiles) return dir;
-	}
-	return undefined;
-}
-
 function spawnHookProcess(
 	command: string,
 	args: string[],
@@ -296,7 +261,10 @@ function spawnHookProcess(
 		const child = spawn(command, args, {
 			cwd: options?.cwd,
 			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...process.env },
+			// SEC-003: allowlisted env — the full process env previously leaked
+			// into every hook invocation (including CLAUDECODE and any secret
+			// the parent session carried).
+			env: buildHookEnv(),
 		});
 
 		let stdout = "";
@@ -410,7 +378,8 @@ function invokeHookDetached(scriptDir: string, scriptName: HookScriptName, paylo
 				cwd: scriptDir,
 				detached: true,
 				stdio: ["pipe", "ignore", "ignore"],
-				env: { ...process.env },
+				// SEC-003: same allowlisted env as the attached spawn path.
+				env: buildHookEnv(),
 			});
 			child.on("error", () => {});
 			child.stdin.write(stdinJson);

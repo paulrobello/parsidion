@@ -14,7 +14,7 @@
 
 import { describe, it, expect, afterEach } from 'bun:test'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireToken, requireSameOrigin, requireAuth, withApi, runGuards } from './apiAuth'
+import { requireToken, requireSameOrigin, requireAuth, requireLocalHost, withApi, runGuards } from './apiAuth'
 
 function makeRequest(headers: Record<string, string> = {}, method = 'GET'): NextRequest {
   const url = 'http://localhost:3999/api/stats'
@@ -152,6 +152,79 @@ describe('requireAuth (mutations)', () => {
   })
 })
 
+describe('requireLocalHost (SEC-001)', () => {
+  const originalPort = process.env.PORT
+
+  afterEach(() => {
+    if (originalPort === undefined) {
+      delete process.env.PORT
+    } else {
+      process.env.PORT = originalPort
+    }
+  })
+
+  it('returns 403 when Host is an attacker hostname (DNS rebinding)', () => {
+    // A rebound DNS name still sends its own hostname in Host — that is the
+    // one header the attacking page cannot rewrite.
+    const req = makeRequest({ host: 'attacker.example:3999' })
+    const res = requireLocalHost(req)
+    expect(res).not.toBeNull()
+    expect(res!.status).toBe(403)
+  })
+
+  it('returns null for Host: localhost:3999', () => {
+    const req = makeRequest({ host: 'localhost:3999' })
+    expect(requireLocalHost(req)).toBeNull()
+  })
+
+  it('returns null for Host: 127.0.0.1 (no port, default port in effect)', () => {
+    delete process.env.PORT
+    const req = makeRequest({ host: '127.0.0.1' })
+    expect(requireLocalHost(req)).toBeNull()
+  })
+
+  it('returns null for Host: [::1]:3999 (bracketed IPv6 loopback)', () => {
+    const req = makeRequest({ host: '[::1]:3999' })
+    expect(requireLocalHost(req)).toBeNull()
+  })
+
+  it('returns 403 for a non-loopback IP', () => {
+    const req = makeRequest({ host: '192.168.1.5:3999' })
+    const res = requireLocalHost(req)
+    expect(res).not.toBeNull()
+    expect(res!.status).toBe(403)
+  })
+
+  it('returns 403 when the port does not match the server port', () => {
+    const req = makeRequest({ host: 'localhost:8080' })
+    const res = requireLocalHost(req)
+    expect(res).not.toBeNull()
+    expect(res!.status).toBe(403)
+  })
+
+  it('returns null when Host is absent (non-browser client; token covers it)', () => {
+    // Browsers always send Host, and a rebinding page cannot forge the value
+    // — so an absent header is a non-browser client, the same class
+    // requireSameOrigin passes through to requireToken.
+    const req = new NextRequest('http://localhost:3999/api/stats')
+    req.headers.delete('host')
+    expect(requireLocalHost(req)).toBeNull()
+  })
+
+  it('runGuards rejects a rebound Host before any other guard', async () => {
+    delete process.env.VISUALIZER_TOKEN
+    const req = makeRequest({ host: 'attacker.example:3999', 'sec-fetch-site': 'same-origin' }, 'POST')
+    let called = false
+    const handler = withApi(() => {
+      called = true
+      return NextResponse.json({ ok: true })
+    }, { mutation: true })
+    const res = await handler(req)
+    expect(res.status).toBe(403)
+    expect(called).toBe(false)
+  })
+})
+
 describe('withApi / runGuards (ARC-014)', () => {
   const originalToken = process.env.VISUALIZER_TOKEN
 
@@ -228,5 +301,21 @@ describe('withApi / runGuards (ARC-014)', () => {
       'POST',
     )
     expect(runGuards(req, { mutation: true })).toBeNull()
+  })
+
+  it('withApi rejects mutation bodies over 10 MiB with 413 (SEC-030)', async () => {
+    delete process.env.VISUALIZER_TOKEN
+    const req = makeRequest(
+      { 'content-type': 'application/json', 'content-length': String(11 * 1024 * 1024) },
+      'POST',
+    )
+    let called = false
+    const handler = withApi(() => {
+      called = true
+      return NextResponse.json({ ok: true })
+    }, { mutation: true })
+    const res = await handler(req)
+    expect(res.status).toBe(413)
+    expect(called).toBe(false)
   })
 })

@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -78,6 +79,9 @@ def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
     itself is atomic on POSIX; the lock protects the read-modify-write
     window against a concurrent appender that would otherwise be lost.
 
+    SEC-014: the tmp file is created 0600 so a world-readable tmp never
+    sits beside the 0600 queue.
+
     Args:
         entries: List of JSON-serialisable dicts to persist.
         vault_path: Path to the vault root.
@@ -90,7 +94,8 @@ def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
     # intact and lets us create the file if it is absent.
     with open(pp, "a", encoding="utf-8") as real_fh:
         vault_common.flock_exclusive(real_fh)
-        with open(tmp, "w", encoding="utf-8") as fh:
+        tmp_fd = os.open(str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
             for entry in entries:
                 fh.write(json.dumps(entry) + "\n")
         # Replace while still holding the lock. After ``replace`` the
@@ -99,6 +104,89 @@ def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
         # blocking any concurrent appender that opened the same path
         # before we replaced it.
         tmp.replace(pp)
+
+
+def _approve_entry_mutator(
+    target: dict,
+) -> Callable[[list[dict]], list[dict]]:
+    """Build a _mutate_entries mutator marking *target* approved.
+
+    A factory (rather than an inline lambda) so the loop variable is bound
+    at call time — the TUI loop reassigns it after each keypress.
+    """
+
+    def mutator(cur: list[dict]) -> list[dict]:
+        return [dict(e, status="approved") if e == target else e for e in cur]
+
+    return mutator
+
+
+def _remove_entry_mutator(
+    target: dict,
+) -> Callable[[list[dict]], list[dict]]:
+    """Build a _mutate_entries mutator dropping *target* from the queue."""
+
+    def mutator(cur: list[dict]) -> list[dict]:
+        return [e for e in cur if e != target]
+
+    return mutator
+
+
+def _mutate_entries(
+    mutator: Callable[[list[dict]], list[dict]], vault_path: Path | None = None
+) -> list[dict]:
+    """SEC-014: locked read-modify-write of the pending queue.
+
+    The review TUI loads its entry list once and rewrote the whole queue
+    from that stale snapshot, so a session hook appending while the TUI
+    was open was silently dropped by the full-list replace. This applies
+    *mutator* to the CURRENT queue content under LOCK_EX, using the same
+    inode-recheck loop as ``append_to_pending`` (the queue is replaced by
+    tmp+rename under the lock, so a blocked writer must re-open until its
+    handle matches the path on disk). Returns the resulting queue.
+
+    Args:
+        mutator: Callable[[list[dict]], list[dict]] applied to the fresh
+            queue content under the lock.
+        vault_path: Path to the vault root.
+
+    Returns:
+        The queue as written (fresh parse), or a best-effort re-read if
+        the inode never stabilised.
+    """
+    pp = _pending_path()
+    pp.parent.mkdir(parents=True, exist_ok=True)
+    tmp = pp.with_suffix(".jsonl.tmp")
+    for _attempt in range(5):
+        fd = os.open(str(pp), os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(fd, "r+", encoding="utf-8") as fh:
+            vault_common.flock_exclusive(fh)
+            try:
+                try:
+                    if os.fstat(fh.fileno()).st_ino != os.stat(pp).st_ino:
+                        continue  # replaced while we waited — retry on new inode
+                except OSError:
+                    continue
+                current: list[dict] = []
+                fh.seek(0)
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        current.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+                updated = mutator(current)
+                tmp_fd = os.open(str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as out:
+                    for entry in updated:
+                        out.write(json.dumps(entry) + "\n")
+                tmp.replace(pp)
+                return updated
+            finally:
+                vault_common.funlock(fh)
+    return _read_entries()
 
 
 def _fmt_timestamp(ts: str) -> str:
@@ -556,15 +644,17 @@ def _run_tui(stdscr, vault_path: Path | None = None) -> None:
                 closing = _show_popup(stdscr, excerpt, title="Transcript Excerpt")
 
                 if closing == ord("y"):
-                    entries[selected]["status"] = "approved"
-                    _write_entries(entries, vault_path=vault_path)
+                    target = entries[selected]
+                    entries = _mutate_entries(
+                        _approve_entry_mutator(target), vault_path
+                    )
                     status_msg = f"Entry {selected + 1} approved."
                     if selected + 1 >= len(entries):
                         break  # approved the final entry — close the popup
                     selected += 1
                 elif closing == ord("n"):
-                    entries.pop(selected)
-                    _write_entries(entries, vault_path=vault_path)
+                    target = entries[selected]
+                    entries = _mutate_entries(_remove_entry_mutator(target), vault_path)
                     status_msg = "Entry removed from queue."
                     selected = _clamp_selected(selected, len(entries))
                     # After y/n: show next entry's transcript automatically
@@ -577,15 +667,15 @@ def _run_tui(stdscr, vault_path: Path | None = None) -> None:
 
         # Approve
         elif key == ord("y"):
-            entries[selected]["status"] = "approved"
-            _write_entries(entries, vault_path=vault_path)
+            target = entries[selected]
+            entries = _mutate_entries(_approve_entry_mutator(target), vault_path)
             status_msg = f"Entry {selected + 1} approved."
             selected = min(selected + 1, len(entries) - 1)
 
         # Reject (remove from queue)
         elif key == ord("n"):
-            entries.pop(selected)
-            _write_entries(entries, vault_path=vault_path)
+            target = entries[selected]
+            entries = _mutate_entries(_remove_entry_mutator(target), vault_path)
             if not entries:
                 break
             selected = min(selected, len(entries) - 1)

@@ -21,6 +21,10 @@ FOLDER="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# SEC-033(f): JSON-encode the folder so quotes/backslashes in the path
+# cannot break out of the JSON string (or the heredoc).
+FOLDER_JSON="$(python -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$FOLDER")"
+
 python "$REPO_ROOT/skills/parsidion/scripts/session_start_hook.py" <<EOF | jq -r '.hookSpecificOutput.additionalContext'
-{"cwd": "$FOLDER"}
+{"cwd": $FOLDER_JSON}
 EOF

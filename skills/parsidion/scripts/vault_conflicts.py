@@ -312,14 +312,21 @@ def _report_path(vault: Path) -> Path:
 
 
 def write_conflict_report(conflicts: list[dict[str, Any]], vault: Path) -> None:
-    """Atomically write the conflict report (flock-protected)."""
+    """Atomically write the conflict report (flock-protected).
+
+    SEC-033: the lock is on the DESTINATION path. Locking the tmp file (the
+    previous behavior) excluded nobody — each run creates a fresh tmp, so two
+    concurrent writers interleaved and the last replace won arbitrarily.
+    Holding the destination's flock across tmp-write + replace serializes
+    writers on the real path.
+    """
     dest = _report_path(vault)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".json.tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        vault_common.flock_exclusive(fh)
-        fh.write(json.dumps(conflicts, indent=2) + "\n")
-    tmp.replace(dest)
+    with open(dest, "a", encoding="utf-8") as lock_fh:
+        vault_common.flock_exclusive(lock_fh)
+        tmp.write_text(json.dumps(conflicts, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(dest)
 
 
 def read_conflict_report(vault: Path) -> list[dict[str, Any]]:

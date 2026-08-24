@@ -30,7 +30,12 @@ from doctor._state import (
     _backup_note,
     _rel,
 )
-from doctor.frontmatter import _normalize_repaired_note, _note_is_daily, repair_note
+from doctor.frontmatter import (
+    _normalize_repaired_note,
+    _note_is_daily,
+    repair_note,
+    splice_frontmatter_onto_original,
+)
 from doctor.headings import _auto_fix_headings, _auto_fix_self_refs
 from doctor.links import _auto_repair_broken_wikilinks
 
@@ -148,6 +153,10 @@ def _repair_one(
     fixed_content = None
     repair_status = "failed"
     if other:
+        # SEC-033(d): the note as it stands right before the AI call — the
+        # deterministic passes above may already have rewritten it, and this
+        # is the body the AI repair must preserve.
+        original_content = note_path.read_text(encoding="utf-8")
         fixed_content, repair_status = repair_note(note_path, other, model, timeout)
         if fixed_content:
             # Normalize the AI output before writing: defend against malformed
@@ -161,8 +170,13 @@ def _repair_one(
                 fixed_content = None
                 repair_status = "failed"
             else:
+                # SEC-033(d): only the frontmatter block comes from the AI;
+                # the body is the original's, byte-for-byte.
+                normalized = splice_frontmatter_onto_original(
+                    normalized, original_content
+                )
                 _backup_note(vault_path, note_path)
-                vault_fs.atomic_write_text(note_path, normalized + "\n")
+                vault_fs.atomic_write_text(note_path, normalized.rstrip("\n") + "\n")
     elif broken or heading_issues or self_ref_issues:
         # Only broken wikilinks / heading / self-ref fixes — no Claude call needed
         repair_status = (

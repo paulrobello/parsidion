@@ -130,6 +130,22 @@ class TestMergeHooksBackupOnFirstMutation:
         # Backup is the pre-mutation bytes.
         assert backup.read_text(encoding="utf-8") == original_text
 
+    def test_backup_inherits_source_mode(self, tmp_path: Path) -> None:
+        """SEC-025: the .bak mirrors settings.json's mode, not the umask."""
+        import os
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        original_text = json.dumps({"hooks": {}}, indent=2) + "\n"
+        settings_file = _make_settings(tmp_path, original_text)
+        os.chmod(settings_file, 0o600)
+
+        install.merge_hooks(claude_dir, settings_file, dry_run=False, verbose=False)
+
+        backup = settings_file.with_suffix(settings_file.suffix + ".bak")
+        assert backup.exists()
+        assert backup.stat().st_mode & 0o777 == 0o600, oct(backup.stat().st_mode)
+
     def test_no_backup_for_fresh_create(self, tmp_path: Path) -> None:
         # A brand-new settings.json (installer-created) has no prior content
         # to back up; the helper must not invent a backup in that case.

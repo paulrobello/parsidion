@@ -65,6 +65,7 @@ import vault_common  # noqa: F401 — re-exported (vault_merge.vault_common) for
 import vault_config  # noqa: F401 — re-exported (vault_merge.vault_config) for tests
 import vault_fs  # noqa: F401 — re-exported (vault_merge.vault_fs) for tests
 import vault_links  # noqa: F401 — re-exported (vault_merge.vault_links) for tests
+from vault_path import is_path_inside_vault
 from prompt_templates import render  # noqa: F401 — re-exported (vault_merge.render)
 
 # ---------------------------------------------------------------------------
@@ -323,7 +324,12 @@ def _build_frontmatter(fm: dict) -> str:
             continue
         if key in ("tags", "sources", "related") and isinstance(value, list):
             # Inline quoted array format: ["[[a]]", "[[b]]"]
-            items_str = ", ".join(f'"{v}"' for v in value)
+            # SEC-033: escape embedded quotes/backslashes so a value like
+            # the 'who said "x"' note cannot break the YAML line.
+            items_str = ", ".join(
+                f'"{str(v).replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"'
+                for v in value
+            )
             lines.append(f"{key}: [{items_str}]")
         else:
             lines.append(f"{key}: {value}")
@@ -381,7 +387,15 @@ def _load_fresh_preview(
     ) != _hash_content(content_b):
         return None
     body = payload.get("body")
-    return body if isinstance(body, str) else None
+    if not isinstance(body, str):
+        return None
+    # SEC-013: the preview cache is a file on disk (.merge_previews/); a
+    # tampered or corrupt cache must not bypass the validation the fresh AI
+    # path enforces. An invalid cached body is discarded (None) so the merge
+    # falls back to a fresh AI call or naive concatenation.
+    if not _is_valid_merge_body(body):
+        return None
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -567,13 +581,22 @@ def main() -> None:
         if not args.note_a or not args.note_b:
             parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
 
-        # Resolve notes
-        path_a = _find_note(args.note_a, vault_path)
+        # Resolve notes. SEC-011: LookupError means the query resolved to an
+        # existing path outside the vault — refuse rather than merge it.
+        try:
+            path_a = _find_note(args.note_a, vault_path)
+        except LookupError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
         if path_a is None:
             print(f"Error: note not found: {args.note_a}", file=sys.stderr)
             sys.exit(1)
 
-        path_b = _find_note(args.note_b, vault_path)
+        try:
+            path_b = _find_note(args.note_b, vault_path)
+        except LookupError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
         if path_b is None:
             print(f"Error: note not found: {args.note_b}", file=sys.stderr)
             sys.exit(1)
@@ -662,7 +685,14 @@ def main() -> None:
             # --execute: write merged note via sibling tmp + atomic replace so a
             # kill mid-write can never leave the keeper truncated. NOTE_B is only
             # trashed after the replace succeeds.
-            output_path = Path(args.output) if args.output else path_a
+            # SEC-011: --output must land inside the vault.
+            output_path = Path(args.output).expanduser() if args.output else path_a
+            if not is_path_inside_vault(output_path, vault_path):
+                print(
+                    f"Error: --output path is outside the vault: {args.output}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             tmp_path = output_path.with_name(output_path.name + ".tmp")
             try:
                 tmp_path.write_text(merged, encoding="utf-8")

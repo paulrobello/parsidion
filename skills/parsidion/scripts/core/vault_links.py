@@ -524,6 +524,10 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     tmp_path = note_path.parent / f".{note_path.name}.{os.getpid()}.tmp"
     try:
         tmp_path.write_text(updated, encoding="utf-8")
+        # SEC-033: write_text creates the tmp at umask, so the replace would
+        # reset a deliberately tightened note mode back to 0644 — carry the
+        # source note's permission bits across.
+        tmp_path.chmod(note_path.stat().st_mode & 0o777)
         tmp_path.replace(note_path)
     except OSError:
         try:

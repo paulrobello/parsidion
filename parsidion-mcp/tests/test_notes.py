@@ -64,6 +64,89 @@ def test_vault_read_missing_vault_raises(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# SEC-008: vault_read restricted to markdown notes
+# ---------------------------------------------------------------------------
+
+_EXCLUDE_DIRS = {".obsidian", "Templates", ".git", ".trash", "TagsRoutes"}
+
+
+class TestVaultReadNoteOnly:
+    """SEC-008: vault_read mirrors the write rules — .md notes only."""
+
+    def test_read_config_local_yaml_rejected(self, tmp_path: Path) -> None:
+        # config.local.yaml is the documented home for ANTHROPIC_API_KEY.
+        (tmp_path / "config.local.yaml").write_text(
+            "ai:\n  key: secret\n", encoding="utf-8"
+        )
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match=r"\.md files are readable"):
+                vault_read("config.local.yaml")
+
+    def test_read_git_config_rejected(self, tmp_path: Path) -> None:
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("[core]\n", encoding="utf-8")
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            # The .md-suffix guard fires first; the dot segment would also
+            # be refused by the hidden-path guard.
+            with pytest.raises(VaultToolError, match="readable"):
+                vault_read(".git/config")
+
+    def test_read_hidden_md_rejected(self, tmp_path: Path) -> None:
+        # A .md file under a dot directory hits the hidden-path guard even
+        # though the suffix is valid.
+        hidden = tmp_path / ".obsidian"
+        hidden.mkdir()
+        (hidden / "workspace.md").write_text("# x\n", encoding="utf-8")
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="not readable"):
+                vault_read(".obsidian/workspace.md")
+
+    def test_read_excluded_dir_rejected(self, tmp_path: Path) -> None:
+        tpl = tmp_path / "Templates"
+        tpl.mkdir()
+        (tpl / "x.md").write_text("# t\n", encoding="utf-8")
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="Excluded directory"):
+                vault_read("Templates/x.md")
+
+    def test_read_binary_file_raises_not_a_text_note(self, tmp_path: Path) -> None:
+        note = tmp_path / "bin.md"
+        note.write_bytes(b"\x80\x81\x00\xffnot-utf8")
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="not a text note"):
+                vault_read("bin.md")
+
+    def test_read_oversized_note_rejected(self, tmp_path: Path) -> None:
+        note = tmp_path / "big.md"
+        note.write_bytes(b"x" * (10 * 1024 * 1024 + 1))
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="10 MB limit"):
+                vault_read("big.md")
+
+    def test_read_normal_note_still_works(self, tmp_path: Path) -> None:
+        note = tmp_path / "Patterns" / "ok.md"
+        note.parent.mkdir()
+        note.write_text("# fine\n", encoding="utf-8")
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            assert "# fine" in vault_read("Patterns/ok.md")
+
+
+# ---------------------------------------------------------------------------
 # vault_write
 # ---------------------------------------------------------------------------
 

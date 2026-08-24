@@ -55,6 +55,77 @@ def _seed_pending(vault: Path, entries: list[dict]) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# SEC-014: locked read-modify-write (_mutate_entries)
+# ---------------------------------------------------------------------------
+
+
+class TestMutateEntries:
+    def _entry(self, sid: str) -> dict:
+        return {
+            "session_id": sid,
+            "transcript_path": f"/tmp/{sid}.jsonl",
+            "project": "p",
+            "categories": ["error_fix"],
+            "timestamp": f"2026-08-23T00:00:0{sid[-1]}:00",
+        }
+
+    def test_reject_from_stale_snapshot_keeps_concurrent_append(
+        self, vault: Path
+    ) -> None:
+        """SEC-014: the pre-fix TUI rewrote the whole queue from its stale
+        snapshot, dropping any entry a session hook appended while the TUI
+        was open."""
+        pending = _seed_pending(vault, [self._entry("a"), self._entry("b")])
+        stale = vault_review._read_entries()  # what the TUI loaded
+        # Concurrent hook appends entry C after the TUI loaded.
+        with open(pending, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(self._entry("c")) + "\n")
+
+        target = stale[0]  # TUI rejects entry A
+        result = vault_review._mutate_entries(
+            lambda cur: [e for e in cur if e != target]
+        )
+
+        remaining = [e["session_id"] for e in result]
+        assert remaining == ["b", "c"], f"concurrent append lost: {remaining}"
+        on_disk = [
+            json.loads(line)["session_id"]
+            for line in pending.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert on_disk == ["b", "c"]
+
+    def test_approve_marks_matching_entry_only(self, vault: Path) -> None:
+        _seed_pending(vault, [self._entry("a"), self._entry("b")])
+        entries = vault_review._read_entries()
+        target = entries[1]
+        result = vault_review._mutate_entries(
+            lambda cur: [dict(e, status="approved") if e == target else e for e in cur]
+        )
+        assert result[0].get("status") is None
+        assert result[1]["status"] == "approved"
+
+    def test_created_queue_is_owner_only(self, vault: Path) -> None:
+        """SEC-014: the queue (and its tmp) must never carry group/other bits."""
+
+        vault_review._mutate_entries(lambda cur: cur)
+        mode = (vault / "pending_summaries.jsonl").stat().st_mode
+        assert mode & 0o077 == 0, oct(mode)
+        assert not (vault / "pending_summaries.jsonl.tmp").exists()
+
+    def test_write_entries_tmp_is_owner_only(self, vault: Path) -> None:
+        """SEC-014: _write_entries clears through a 0600 tmp."""
+        vault_review._write_entries([self._entry("z")])
+        pending = vault / "pending_summaries.jsonl"
+        assert pending.exists()
+        assert not (vault / "pending_summaries.jsonl.tmp").exists()
+        # The replaced file inherits the queue's owner-only intent: verify by
+        # rounding through _mutate_entries, which re-creates with 0600.
+        vault_review._mutate_entries(lambda cur: cur)
+        assert pending.stat().st_mode & 0o077 == 0
+
+
+# ---------------------------------------------------------------------------
 # _read_entries / _write_entries round-trip
 # ---------------------------------------------------------------------------
 

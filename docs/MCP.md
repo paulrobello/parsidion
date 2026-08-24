@@ -251,6 +251,8 @@ Reads a vault note by path and returns its full content including YAML frontmatt
 
 Full note content as a string. Raises `VaultToolError` if the path escapes the vault root, the note does not exist, or an OS error occurs.
 
+Reads are restricted to markdown notes (SEC-008), mirroring the write rules: the path must end in `.md`, must not contain any dot-segment (`.git/config`, `.trash/...`), and must not live under an excluded top-level directory (`Templates`, `TagsRoutes`). Files over 10 MB are refused, and non-UTF-8 (binary) content raises `VaultToolError("not a text note")` — so configuration files such as `config.yaml`, `config.local.yaml`, and `pending_summaries.jsonl` are not readable through this tool.
+
 #### Example
 
 ```python

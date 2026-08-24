@@ -234,6 +234,20 @@ class TestGitCommitVault:
         assert ".gitignore" in tracked
         assert "config.yaml" not in tracked  # gitignored -> not staged
 
+    def test_auto_commit_excludes_config_local_yaml(self, git_repo: Path) -> None:
+        """SEC-023: the secrets overlay must not ride an auto-commit to a remote."""
+        (git_repo / "config.local.yaml").write_text(
+            "anthropic_env:\n  ANTHROPIC_API_KEY: sk-secret\n", encoding="utf-8"
+        )
+        (git_repo / "Patterns").mkdir()
+        (git_repo / "Patterns" / "note.md").write_text("# Note\n", encoding="utf-8")
+
+        assert vault_fs.git_commit_vault("test commit", vault=git_repo) is True
+
+        tracked = _git_ls_files(git_repo)
+        assert "Patterns/note.md" in tracked
+        assert "config.local.yaml" not in tracked
+
     def test_stale_index_lock_is_cleared_and_commit_succeeds(
         self, git_repo: Path
     ) -> None:
@@ -348,6 +362,151 @@ class TestWriteHookEventRotation:
         monkeypatch.setattr(Path, "replace", _boom_replace)
         vault_hooks.write_hook_event("Test", "proj", 1.0, seq=99)  # must not raise
         assert log.read_text() == original
+
+
+class TestWriteHookEventPathContainment:
+    """SEC-006: event_log.path must resolve inside the vault or ~/.claude/logs."""
+
+    def _configure_path(self, tmp_vault: Path, path: str) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            f"event_log:\n  enabled: true\n  path: {path}\n",
+            encoding="utf-8",
+        )
+        vault_common.load_config.cache_clear()
+
+    def test_outside_path_is_refused_and_default_used(
+        self, tmp_vault: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # HOME is redirected so secure_log_dir() is deterministic; the target
+        # sits beside (not inside) tmp_path, which the tmp_vault fixture wires
+        # to be the vault root.
+        fake_home = tmp_path.parent / "sec006-home"
+        (fake_home / ".claude").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        target = tmp_path.parent / "outside.log"
+        self._configure_path(tmp_vault, str(target))
+
+        from core import vault_fs as core_vault_fs
+
+        core_vault_fs._event_log_path_warned = False
+        vault_hooks.write_hook_event("Test", "proj", 1.0, seq=1)
+
+        assert not target.exists()
+        log = tmp_vault / "hook_events.log"
+        assert log.exists()
+        entries = [json.loads(line) for line in log.read_text().splitlines() if line]
+        assert entries[-1]["seq"] == 1
+
+    def test_path_inside_vault_is_honored(self, tmp_vault: Path) -> None:
+        target = tmp_vault / "events" / "custom.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._configure_path(tmp_vault, str(target))
+        vault_hooks.write_hook_event("Test", "proj", 1.0, seq=2)
+        assert target.exists()
+        entries = [json.loads(line) for line in target.read_text().splitlines() if line]
+        assert entries[-1]["seq"] == 2
+
+    def test_path_inside_secure_log_dir_is_honored(
+        self, tmp_vault: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # HOME outside the vault (the realistic layout): ~/.claude/logs is the
+        # second allowed root and secure_log_dir() creates it on demand.
+        fake_home = tmp_path.parent / "sec006-secure-home"
+        monkeypatch.setenv("HOME", str(fake_home))
+        target = fake_home / ".claude" / "logs" / "hook_events.log"
+        self._configure_path(tmp_vault, str(target))
+        vault_hooks.write_hook_event("Test", "proj", 1.0, seq=3)
+        assert target.exists()
+        entries = [json.loads(line) for line in target.read_text().splitlines() if line]
+        assert entries[-1]["seq"] == 3
+
+
+# ---------------------------------------------------------------------------
+# vault_fs.append_session_to_daily — SEC-015 sibling lock
+# ---------------------------------------------------------------------------
+
+
+class TestAppendSessionToDailySiblingLock:
+    def _daily_path(self, vault: Path) -> Path:
+        from datetime import date
+
+        month = date.today().strftime("%Y-%m")
+        day = date.today().strftime("%d")
+        return vault / "Daily" / month / f"{day}-{vault_fs.get_vault_username()}.md"
+
+    def test_second_writer_blocks_until_sibling_lock_released(
+        self, tmp_vault: Path
+    ) -> None:
+        """SEC-015: the lock must serialize writers across atomic replaces.
+
+        The old code flocked the note itself, but atomic_write_text replaces
+        the inode — a writer arriving after a replace locked the fresh inode
+        and appended concurrently. The sibling lock file is stable across
+        replaces, so a writer holding it blocks the next one outright.
+        """
+        import fcntl
+        import threading
+
+        vault_fs.append_session_to_daily("proj", {"error_fix": ["x"]}, "s1", tmp_vault)
+        daily = self._daily_path(tmp_vault)
+        before = daily.read_text(encoding="utf-8")
+        lock_path = daily.with_name(daily.name + ".lock")
+        assert lock_path.exists(), "sibling lock was not created"
+
+        blocker = open(lock_path, "a+", encoding="utf-8")
+        fcntl.flock(blocker.fileno(), fcntl.LOCK_EX)
+        try:
+            done = threading.Event()
+
+            def _writer() -> None:
+                vault_fs.append_session_to_daily(
+                    "proj2", {"research": ["y"]}, "s2", tmp_vault
+                )
+                done.set()
+
+            t = threading.Thread(target=_writer)
+            t.start()
+            # While the sibling lock is held, the second writer must not
+            # modify the note.
+            done.wait(0.4)
+            assert not done.is_set(), "append proceeded while lock was held"
+            assert daily.read_text(encoding="utf-8") == before
+        finally:
+            fcntl.flock(blocker.fileno(), fcntl.LOCK_UN)
+            blocker.close()
+        t.join(timeout=10)
+        assert done.is_set(), "blocked writer did not finish after release"
+        after = daily.read_text(encoding="utf-8")
+        assert "proj2" in after
+
+    def test_lock_sibling_owner_only(self, tmp_vault: Path) -> None:
+        vault_fs.append_session_to_daily("proj", {}, "s", tmp_vault)
+        lock_path = self._daily_path(tmp_vault).with_suffix(".md.lock")
+        assert lock_path.exists()
+        assert lock_path.stat().st_mode & 0o077 == 0, oct(lock_path.stat().st_mode)
+
+
+class TestGitLockHolderWarnsWithoutLsof:
+    """SEC-017: without lsof the mtime-age test alone decides — say so."""
+
+    def test_warns_once_when_lsof_absent(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+    ) -> None:
+        from core import vault_fs as core_vault_fs
+
+        monkeypatch.setattr(core_vault_fs.shutil, "which", lambda name: None)
+        monkeypatch.setattr(core_vault_fs, "_warned_no_lsof", False)
+
+        assert core_vault_fs._git_lock_holder(tmp_path / "index.lock") is False
+        err = capsys.readouterr().err
+        assert "lsof unavailable" in err
+
+        # Second call in the same process does not repeat the warning.
+        assert core_vault_fs._git_lock_holder(tmp_path / "index.lock") is False
+        assert "lsof unavailable" not in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

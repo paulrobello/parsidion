@@ -49,11 +49,14 @@ interface VaultCache {
 const cache = new Map<string, VaultCache>()
 
 /** Rebuild the cache entry for the current on-disk graph.json. Returns null
- *  if the file is missing or unparseable. */
-function loadSnapshot(graphPath: string): CachedSnapshot | null {
+ *  if the file is missing or unparseable.
+ *
+ *  SEC-030: reads via fs.promises — graph.json is ~47 MB and the previous
+ *  synchronous read blocked the event loop for the whole parse window. */
+async function loadSnapshot(graphPath: string): Promise<CachedSnapshot | null> {
   let raw: string
   try {
-    raw = fs.readFileSync(graphPath, 'utf-8')
+    raw = await fs.promises.readFile(graphPath, 'utf-8')
   } catch {
     return null
   }
@@ -115,8 +118,11 @@ export const GET = withApi(async (req: NextRequest) => {
   }
   const graphPath = path.join(vaultPath, 'graph.json')
   if (!fs.existsSync(graphPath)) {
+    // SEC-029: never echo the absolute vault path into the response body —
+    // log it server-side only and return a generic message.
+    console.error(`[graph/delta] graph.json not found in vault: ${vaultPath}`)
     return NextResponse.json(
-      { error: `graph.json not found in vault: ${vaultPath}` },
+      { error: 'graph not built for this vault yet — run make graph' },
       { status: 404 },
     )
   }
@@ -125,7 +131,7 @@ export const GET = withApi(async (req: NextRequest) => {
     return NextResponse.json({ full: true, reason: 'missing since' })
   }
 
-  const current = loadSnapshot(graphPath)
+  const current = await loadSnapshot(graphPath)
   if (!current) {
     return NextResponse.json({ error: 'Failed to read graph.json' }, { status: 500 })
   }

@@ -15,6 +15,7 @@ from typing import Any, Literal, cast
 import subproc_util
 import vault_config
 import vault_fs
+import vault_path
 from vault_hooks import env_without_claudecode
 
 AiBackend = Literal["claude-cli", "codex-cli", "grok-cli", "none"]
@@ -208,7 +209,10 @@ def _run_prompt_subprocess(
     reason, proc = subproc_util.run_with_pgkill(
         cmd,
         cwd=cwd,
-        timeout=float(timeout) if timeout and timeout > 0 else 0,
+        # SEC-024: clamp caller-sourced timeouts too — inf previously meant
+        # "wait forever" and nan raised at subprocess call time. Invalid
+        # values fall back to 0, this helper's no-timeout sentinel.
+        timeout=float(vault_config.clamp_timeout(timeout, 0, lo=1, hi=86400)),
         env=env,
         stdin=stdin,
     )
@@ -384,11 +388,10 @@ def _config_timeout(
     section: str, key: str, default: int | float, vault: Path | None = None
 ) -> int | float:
     value = _config_value(section, key, default, vault=vault)
-    if isinstance(value, bool):
-        return default
-    if isinstance(value, (int, float)):
-        return value
-    return default
+    # SEC-024: nan / negative / inf config values must not reach
+    # subprocess.run(timeout=...); clamp into [1, 3600] with the default
+    # for anything non-finite or non-positive.
+    return vault_config.clamp_timeout(value, default)
 
 
 def _resolve_configured_binary(
@@ -616,10 +619,31 @@ def _minimal_context_cwd() -> Path:
     its skill catalog from the project), appending everything to the system
     prompt. Running from an empty scratch dir outside any git repo keeps
     those prompts hermetic.
+
+    SEC-004: the scratch dir used to be a predictable shared-tmp path
+    (``/tmp/parsidion-grok-clean``, ``mkdir(exist_ok=True)``, no ownership or
+    mode check). ``claude -p`` loads ``<cwd>/.claude/settings.json``, so a
+    co-tenant on a multi-user host could pre-create the directory (or plant
+    settings inside it). The dir now lives under ``secure_log_dir()`` (0700),
+    is verified to be a non-symlink owned by the current uid with no
+    group/other bits, and falls back to a private ``mkdtemp`` when any check
+    fails. It stays empty: no ``.claude/``, no ``CLAUDE.md``.
     """
-    clean = Path(tempfile.gettempdir()) / "parsidion-grok-clean"
-    clean.mkdir(parents=True, exist_ok=True)
-    return clean
+    clean = vault_path.secure_log_dir() / "clean-cwd"
+    try:
+        clean.mkdir(parents=True, exist_ok=True, mode=0o700)
+        st = clean.lstat()
+        if (
+            clean.is_symlink()
+            or st.st_uid != os.getuid()
+            or st.st_mode & 0o077  # group/other permission bits
+        ):
+            raise PermissionError(f"untrusted scratch dir: {clean}")
+        os.chmod(clean, 0o700)
+        return clean
+    except OSError:
+        pass
+    return Path(tempfile.mkdtemp(prefix="parsidion-clean-"))
 
 
 def _run_grok_prompt(

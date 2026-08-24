@@ -23,7 +23,13 @@ from typing import IO, Any
 
 from .vault_config import get_config
 from .vault_constants import TRANSCRIPT_CATEGORY_LABELS
-from .vault_path import resolve_vault, resolve_templates_dir, VAULT_DIRS
+from .vault_path import (
+    is_path_inside_vault,
+    resolve_vault,
+    resolve_templates_dir,
+    secure_log_dir,
+    VAULT_DIRS,
+)
 
 __all__: list[str] = [
     # File locking
@@ -44,6 +50,7 @@ __all__: list[str] = [
     "git_commit_vault",
     # Daily notes
     "get_vault_username",
+    "is_valid_vault_username",
     "today_daily_path",
     "create_daily_note_if_missing",
     "append_session_to_daily",
@@ -395,6 +402,8 @@ def backup_note(note_path: Path, vault: Path) -> None:
 
 _HOOK_EVENTS_FILENAME = "hook_events.log"
 _HOOK_EVENTS_MAX_LINES_DEFAULT = 10000
+# SEC-006: one-time-warning latch for a refused event_log.path override.
+_event_log_path_warned = False
 
 
 def write_hook_event(
@@ -433,15 +442,34 @@ def write_hook_event(
     # ARC-011: honour ``event_log.path`` from config (absolute path override).
     # When set to a non-empty string, use it instead of the vault-relative
     # default. None / empty falls through to ``<vault>/hook_events.log``.
+    # SEC-006: the override must resolve inside the vault or inside
+    # ``~/.claude/logs`` — anything else (e.g. ``~/.bashrc``) is refused with
+    # a one-time warning and the vault-relative default is used, so a synced
+    # config.yaml cannot redirect hook-log appends and rotation at an
+    # arbitrary file.
     configured_path = get_config("event_log", "path", None)
     if isinstance(configured_path, str) and configured_path.strip():
-        log_path = Path(configured_path).expanduser()
+        global _event_log_path_warned
+        candidate = Path(configured_path).expanduser().resolve()
+        allowed = is_path_inside_vault(candidate, vault) or is_path_inside_vault(
+            candidate, secure_log_dir()
+        )
+        if allowed:
+            log_path = candidate
+        elif not _event_log_path_warned:
+            _event_log_path_warned = True
+            print(
+                "[parsidion] event_log.path is outside the vault and ~/.claude/logs; "
+                f"ignoring '{configured_path}'",
+                file=sys.stderr,
+            )
     max_lines: int = int(
         get_config("event_log", "max_lines", _HOOK_EVENTS_MAX_LINES_DEFAULT)
     )
 
     try:
         vault.mkdir(parents=True, exist_ok=True)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(event) + "\n"
 
         # SEC-008: Create the log file with mode 0o600 (owner read/write only)
@@ -449,7 +477,13 @@ def write_hook_event(
         # sets the mode atomically on first creation; subsequent opens inherit
         # the existing file mode unchanged (chmod is not called on existing files
         # to avoid a TOCTOU race and to respect deliberate admin changes).
-        fd = os.open(str(log_path), os.O_CREAT | os.O_RDWR, 0o600)
+        # SEC-006: O_NOFOLLOW refuses to open through a symlink planted at the
+        # log path (the rotation replace below then targets the real file).
+        fd = os.open(
+            str(log_path),
+            os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
         # Atomic append with optional rotation
         with open(fd, "r+", encoding="utf-8") as f:
             flock_exclusive(f)
@@ -751,10 +785,29 @@ def is_trusted_executable(path: Path | str) -> bool:
 # which git_commit_vault swallows silently (the 2026-07-29 stall). Vault git
 # ops finish in seconds, so a lock older than this is stale.
 _STALE_INDEX_LOCK_AGE_SECS = 300
+# SEC-017: one-time-warning latch for "lsof unavailable" during index.lock
+# staleness checks.
+_warned_no_lsof = False
 
 
 def _git_lock_holder(lock: Path) -> bool:
-    """Return True if a live process holds *lock* open (best-effort ``lsof``)."""
+    """Return True if a live process holds *lock* open (best-effort ``lsof``).
+
+    SEC-017: when ``lsof`` is absent or errors, the mtime-age test alone
+    decides whether ``.git/index.lock`` is removed — say so on stderr so a
+    live-but-slow git process being disturbed is diagnosable after the fact.
+    The warning is emitted once per process.
+    """
+    global _warned_no_lsof
+    if shutil.which("lsof") is None:
+        if not _warned_no_lsof:
+            _warned_no_lsof = True
+            print(
+                "[parsidion] lsof unavailable; relying on mtime age alone for "
+                ".git/index.lock staleness",
+                file=sys.stderr,
+            )
+        return False
     try:
         result = subprocess.run(
             ["lsof", "-t", str(lock)],
@@ -762,7 +815,7 @@ def _git_lock_holder(lock: Path) -> bool:
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
-        # lsof unavailable / errored -> assume no holder (fall back to age test).
+        # lsof errored -> assume no holder (fall back to age test).
         return False
     return bool(result.stdout.strip())
 
@@ -827,7 +880,10 @@ def git_commit_vault(
     try:
         # Stage files
         if paths:
-            add_args = ["git", "add"] + [str(p) for p in paths]
+            # SEC-033(e): '--' ends option parsing — a path that happens to
+            # look like a flag (e.g. a note literally named '-x.md') must be
+            # treated as a path, not an option.
+            add_args = ["git", "add", "--"] + [str(p) for p in paths]
         else:
             # The vault-root config.yaml may contain secrets (e.g.
             # ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN under anthropic_env),
@@ -840,11 +896,18 @@ def git_commit_vault(
             # ignored") — silently breaking every auto-commit (the root cause of
             # the 2026-07-29 commit stall). Only emit the exclude when
             # config.yaml is NOT already gitignored.
+            #
+            # SEC-023: config.local.yaml (the documented overlay for secrets
+            # and machine-specific overrides) gets the same treatment — the
+            # installer's .gitignore is the usual guard, but a vault synced
+            # before that entry existed (or a hand-rolled repo) must not leak
+            # it through an auto-commit.
             add_args = ["git", "add", "-A", "--", "."]
-            if (vault / "config.yaml").exists() and not _git_path_ignored(
-                "config.yaml", vault
-            ):
-                add_args.append(":(exclude)config.yaml")
+            for _config_name in ("config.yaml", "config.local.yaml"):
+                if (vault / _config_name).exists() and not _git_path_ignored(
+                    _config_name, vault
+                ):
+                    add_args.append(f":(exclude){_config_name}")
 
         result = subprocess.run(
             add_args,
@@ -898,13 +961,38 @@ def get_vault_username() -> str:
     ``USER`` / ``USERNAME`` environment variable.  Returns ``"unknown"`` if
     neither source yields a non-empty value.
 
+    SEC-010: the username becomes part of a daily-note filename
+    (``Daily/YYYY-MM/DD-{username}.md``), so it is validated against
+    ``^[A-Za-z0-9._-]{1,64}$``; a value containing a separator (or any other
+    unexpected character) would move the note outside ``Daily/YYYY-MM/``.
+    An invalid value falls back to ``"user"`` with a one-time warning.
+
     Used to produce per-user daily note filenames (``DD-{username}.md``) so
     multiple team members can share a vault via git without daily-note conflicts.
     """
     username = get_config("vault", "username", "")
     if not username:
         username = os.environ.get("USER", os.environ.get("USERNAME", ""))
-    return username.strip() or "unknown"
+    username = username.strip()
+    if not username:
+        return "unknown"
+    if not _VALID_USERNAME_RE.match(username):
+        print(
+            f"[parsidion] invalid vault username {username!r}; using 'user' "
+            "(allowed: letters, digits, '.', '_', '-', max 64 chars)",
+            file=sys.stderr,
+        )
+        return "user"
+    return username
+
+
+# SEC-010: daily-note username charset — filename-safe, no separators.
+_VALID_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def is_valid_vault_username(name: str) -> bool:
+    """SEC-010: True when *name* is safe to embed in ``DD-{name}.md``."""
+    return bool(_VALID_USERNAME_RE.match(name))
 
 
 def today_daily_path(vault: Path | None = None) -> Path:
@@ -960,6 +1048,25 @@ def create_daily_note_if_missing(vault: Path | None = None) -> Path:
     return daily_path
 
 
+def _insert_session_section(existing: str, section: str) -> str:
+    """Return *existing* with *section* spliced under ``## Sessions``.
+
+    Shared by the locked and fallback paths in :func:`append_session_to_daily`
+    so the splice rule cannot drift between them.
+    """
+    if "## Sessions" in existing:
+        sessions_idx = existing.index("## Sessions")
+        rest = existing[sessions_idx + len("## Sessions") :]
+
+        # Find the next ## heading after Sessions
+        next_heading_match = re.search(r"\n## ", rest)
+        if next_heading_match:
+            insert_pos = sessions_idx + len("## Sessions") + next_heading_match.start()
+            return existing[:insert_pos] + section + existing[insert_pos:]
+        return existing + section
+    return existing + "\n## Sessions\n" + section
+
+
 def append_session_to_daily(
     project: str,
     categories: dict[str, list[str]],
@@ -1000,66 +1107,34 @@ def append_session_to_daily(
 
     # SEC-126b: the wrapper's detached ``nohup`` makes concurrent writers
     # routine (parallel Claude sessions ending at the same time both call
-    # session_stop_hook, which both call this). The previous read-modify-
-    # write was unlocked — two writers could read the same ``existing``,
-    # both append, and the second write would clobber the first. Hold an
-    # exclusive lock on the daily note across read + write so concurrent
-    # appends are serialized.
+    # session_stop_hook, which both call this); the read-modify-write must
+    # be serialized.
+    #
+    # SEC-015: the lock is a SIBLING ``<daily>.lock`` file, not the note.
+    # atomic_write_text (SEC-127) publishes via os.replace, giving the note
+    # a new inode — a flock held on the note itself only excludes writers
+    # that opened the same pre-replace inode, so a writer arriving after
+    # any replace locks the fresh inode immediately and both appends land.
+    # The sibling lock path is stable across replaces, so every writer
+    # serializes on the same lock for the full read + write window.
+    lock_path = daily_path.with_name(daily_path.name + ".lock")
     try:
-        with open(daily_path, "a", encoding="utf-8") as lock_fh:
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        with os.fdopen(lock_fd, "a", encoding="utf-8") as lock_fh:
             flock_exclusive(lock_fh)
             try:
                 existing = daily_path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 existing = ""
-
-            # Append under the ## Sessions heading if it exists, else append at end
-            if "## Sessions" in existing:
-                sessions_idx = existing.index("## Sessions")
-                rest = existing[sessions_idx + len("## Sessions") :]
-
-                # Find the next ## heading after Sessions
-                next_heading_match = re.search(r"\n## ", rest)
-                if next_heading_match:
-                    insert_pos = (
-                        sessions_idx + len("## Sessions") + next_heading_match.start()
-                    )
-                    updated = existing[:insert_pos] + section + existing[insert_pos:]
-                else:
-                    updated = existing + section
-            else:
-                updated = existing + "\n## Sessions\n" + section
-
-            # SEC-127: atomic write so a concurrent session_start_hook read
-            # never sees a half-appended Sessions section. The atomic
-            # replace creates a new inode; the lock on the original inode
-            # stays live until ``lock_fh`` goes out of scope, so any other
-            # writer that opened the same path before our replace is still
-            # blocked.
-            atomic_write_text(daily_path, updated)
+            atomic_write_text(daily_path, _insert_session_section(existing, section))
     except OSError:
-        # If we cannot even open the daily note for locking, fall back to
-        # the prior best-effort path — the atomic_write_text call inside
-        # the lock is still safer than nothing, and creating a missing
-        # daily note should not be fatal.
+        # If we cannot even open the lock file, fall back to the prior
+        # best-effort path — creating a missing daily note must not be fatal.
         try:
             existing = daily_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             existing = ""
-        if "## Sessions" in existing:
-            sessions_idx = existing.index("## Sessions")
-            rest = existing[sessions_idx + len("## Sessions") :]
-            next_heading_match = re.search(r"\n## ", rest)
-            if next_heading_match:
-                insert_pos = (
-                    sessions_idx + len("## Sessions") + next_heading_match.start()
-                )
-                updated = existing[:insert_pos] + section + existing[insert_pos:]
-            else:
-                updated = existing + section
-        else:
-            updated = existing + "\n## Sessions\n" + section
-        atomic_write_text(daily_path, updated)
+        atomic_write_text(daily_path, _insert_session_section(existing, section))
 
 
 # ---------------------------------------------------------------------------

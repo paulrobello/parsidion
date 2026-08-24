@@ -55,6 +55,73 @@ import crypto from 'crypto'
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH'])
 
+// SEC-001: the visualizer binds to loopback only, so every legitimate request
+// — browser same-origin or curl from the same machine — carries a loopback
+// Host header. A DNS-rebinding page defeats Sec-Fetch-Site (the browser sees
+// its rebound origin as same-origin), but it cannot rewrite the Host header
+// the browser sends for the rebound name, so Host is the one signal that
+// survives the attack.
+const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1'])
+const DEFAULT_VISUALIZER_PORT = '3999'
+
+function expectedServerPort(): string {
+  return process.env.PORT ?? DEFAULT_VISUALIZER_PORT
+}
+
+/**
+ * Rejects requests whose `Host` header is not a loopback address on the port
+ * the server is bound to (SEC-001, DNS-rebinding defence).
+ *
+ * Allowed hosts: `127.0.0.1`, `localhost`, `::1` (bracketed or bare). The
+ * port must match `process.env.PORT` (default `3999`, matching the pinned
+ * `--port 3999` in the dev/start scripts); a portless Host header is accepted
+ * only when the default port is in effect. An absent Host header is allowed
+ * through this layer: browsers always send Host (the rebinding page cannot
+ * forge it, which is the whole point of this guard), so an absent header
+ * means a non-browser client — the same class requireSameOrigin passes to
+ * requireToken, and the token is that class's defence.
+ *
+ * @returns A 403 NextResponse when the Host is present and not
+ *   loopback-on-this-port, or null when the request is permitted.
+ */
+export function requireLocalHost(req: NextRequest): NextResponse | null {
+  const hostHeader = req.headers.get('host')
+  if (!hostHeader) {
+    return null
+  }
+  let host = hostHeader.trim().toLowerCase()
+  let port: string | null = null
+  if (host.startsWith('[')) {
+    // IPv6 form: "[::1]:3999" (or "[::1]").
+    const close = host.indexOf(']')
+    if (close === -1) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const suffix = host.slice(close + 1)
+    port = suffix.startsWith(':') ? suffix.slice(1) : null
+    host = host.slice(1, close)
+  } else {
+    const colon = host.lastIndexOf(':')
+    if (colon !== -1) {
+      port = host.slice(colon + 1)
+      host = host.slice(0, colon)
+    }
+  }
+  if (!LOCAL_HOSTNAMES.has(host)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  const expected = expectedServerPort()
+  if (port === null) {
+    // A portless Host header only matches the default-port deployment.
+    if (expected !== DEFAULT_VISUALIZER_PORT) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  } else if (port !== expected) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  return null
+}
+
 /**
  * Rejects cross-site GET requests using the `Sec-Fetch-Site` header.
  *
@@ -154,24 +221,37 @@ export type GuardResult = NextResponse | null
 
 /**
  * Runs every guard a handler needs, in the same order SEC-102 established:
- *   1. {@link requireToken} — bearer-token check (covers non-browser clients
+ *   1. {@link requireLocalHost} — Host-header allowlist (SEC-001; defeats
+ *      DNS rebinding, which presents as same-origin to the other guards).
+ *   2. {@link requireToken} — bearer-token check (covers non-browser clients
  *      on every method when VISUALIZER_TOKEN is set).
- *   2. {@link requireSameOrigin} — Sec-Fetch-Site check (covers browser
+ *   3. {@link requireSameOrigin} — Sec-Fetch-Site check (covers browser
  *      drive-by on every method).
- *   3. For mutations (POST/PUT/DELETE/PATCH), additionally the Content-Type
+ *   4. For mutations (POST/PUT/DELETE/PATCH), additionally the Content-Type
  *      check from {@link requireAuth}. The token check inside requireAuth
- *      is a duplicate of step 1, so for read methods we skip requireAuth
+ *      is a duplicate of step 2, so for read methods we skip requireAuth
  *      entirely (the Content-Type check is meaningless on a GET anyway).
  *
  * @returns A NextResponse when the request must be rejected, or null when
  *   the handler should run.
  */
+// SEC-030: mutation bodies are capped at 10 MiB. Note writes hit this before
+// req.json() buffers the payload; the check uses Content-Length when the
+// client sends it (fetch always does for string/JSON bodies).
+const MAX_MUTATION_BODY_BYTES = 10 * 1024 * 1024
+
 export function runGuards(req: NextRequest, opts?: { mutation?: boolean }): GuardResult {
+  const hostError = requireLocalHost(req)
+  if (hostError) return hostError
   const tokenError = requireToken(req)
   if (tokenError) return tokenError
   const originError = requireSameOrigin(req)
   if (originError) return originError
   if (opts?.mutation) {
+    const contentLength = Number(req.headers.get('content-length') ?? '0')
+    if (Number.isFinite(contentLength) && contentLength > MAX_MUTATION_BODY_BYTES) {
+      return NextResponse.json({ error: 'Request body too large' }, { status: 413 })
+    }
     const authError = requireAuth(req)
     // requireAuth re-runs requireToken; the second call is a cheap no-op
     // (constant-time compare against the same env var) and keeps the guard

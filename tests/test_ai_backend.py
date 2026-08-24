@@ -397,6 +397,28 @@ class TestRunAiPrompt:
         assert ai_backend.run_ai_prompt("hello", vault=vault) == "answer"
         assert calls[0][1]["timeout"] == 44
 
+    def test_timeout_config_inf_falls_back_to_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SEC-024: .inf in config must not become a wait-forever subprocess."""
+        import vault_config
+
+        vault = _reset_config(monkeypatch, tmp_path, "claude_cli:\n  timeout: .inf\n")
+        assert (
+            ai_backend._config_timeout("claude_cli", "timeout", 30, vault=vault) == 30
+        )
+        # Unit-level clamp coverage.
+        ct = vault_config.clamp_timeout
+        assert ct(float("nan"), 30) == 30
+        assert ct(float("-inf"), 30) == 30
+        assert ct(-5, 30) == 30
+        assert ct(0, 30) == 30
+        assert ct(True, 30) == 30
+        assert ct("60", 30) == 30  # type: ignore[arg-type] # non-numeric -> default
+        assert ct(60, 30) == 60
+        assert ct(99_999, 30) == 3600  # clamped to hi
+        assert ct(1, 30) == 1
+
     def test_grok_command_construction_minimal_context(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

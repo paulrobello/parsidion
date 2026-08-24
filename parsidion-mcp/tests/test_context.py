@@ -23,8 +23,9 @@ def test_vault_context_with_project(tmp_path: Path) -> None:
 
         vault_context(project="myproject", recent_days=3)
 
-    mock_vc.find_notes_by_project.assert_called_once_with("myproject")
-    mock_vc.find_recent_notes.assert_called_once_with(3)
+    # SEC-032: the (default None) vault is passed explicitly; no global swap.
+    mock_vc.find_notes_by_project.assert_called_once_with("myproject", vault=None)
+    mock_vc.find_recent_notes.assert_called_once_with(3, vault=None)
     mock_vc.build_compact_index.assert_called_once()
 
 
@@ -70,35 +71,33 @@ def test_vault_context_no_notes_returns_message() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ARC-021: vault parameter swaps VAULT_ROOT for the call duration
+# ARC-021 + SEC-032: vault parameter is threaded explicitly, never a global swap
 # ---------------------------------------------------------------------------
 
 
-def test_vault_context_with_explicit_vault_restores_root(tmp_path: Path) -> None:
-    """ARC-021: when *vault* is provided, vault_common.VAULT_ROOT is swapped
-    for the duration of the call and restored on exit so a long-lived MCP
-    server's globals stay stable across requests."""
+def test_vault_context_with_explicit_vault_threads_root(tmp_path: Path) -> None:
+    """SEC-032: when *vault* is provided, the resolved root is passed
+    explicitly to the helpers; the module-global VAULT_ROOT is never
+    touched (concurrent multi-vault calls cannot read the wrong vault)."""
     note = tmp_path / "note.md"
     note.write_text("---\ntags: []\n---\n# Note\n", encoding="utf-8")
 
     sentinel_root = Path("/tmp/sentinel-default-root")
     with patch("parsidion_mcp.tools.context.vault_common") as mock_vc:
-        # Initial VAULT_ROOT (what the server "had" before the call).
         mock_vc.VAULT_ROOT = sentinel_root
-        # resolve_vault returns the explicit vault path.
         mock_vc.resolve_vault.return_value = tmp_path
         mock_vc.find_notes_by_project.return_value = []
         mock_vc.find_recent_notes.return_value = [note]
         mock_vc.build_compact_index.return_value = "INDEX"
 
-        vault_context(vault="my-vault")
+        vault_context(project="proj", vault="my-vault")
 
-        # resolve_vault was called with the explicit vault reference.
-        mock_vc.resolve_vault.assert_any_call(explicit="my-vault")
-        # VAULT_ROOT was restored to the sentinel after the call.
-        assert mock_vc.VAULT_ROOT == sentinel_root, (
-            "vault_context did not restore VAULT_ROOT after the call"
-        )
+        mock_vc.resolve_vault.assert_called_once_with(explicit="my-vault")
+        mock_vc.find_notes_by_project.assert_called_once_with("proj", vault=tmp_path)
+        mock_vc.find_recent_notes.assert_called_once_with(3, vault=tmp_path)
+        mock_vc.build_compact_index.assert_called_once()
+        # The global was never read for resolution and never mutated.
+        assert mock_vc.VAULT_ROOT == sentinel_root
 
 
 def test_vault_context_without_vault_does_not_swap_root(tmp_path: Path) -> None:
@@ -115,6 +114,5 @@ def test_vault_context_without_vault_does_not_swap_root(tmp_path: Path) -> None:
 
         vault_context()
 
-        # resolve_vault was not called (the early branch in the impl).
         mock_vc.resolve_vault.assert_not_called()
         assert mock_vc.VAULT_ROOT == sentinel_root

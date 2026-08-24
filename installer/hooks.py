@@ -833,6 +833,13 @@ def merge_hooks(
                 backup = settings_file.with_suffix(settings_file.suffix + ".bak")
                 try:
                     backup.write_bytes(original_bytes)
+                    # SEC-025: write_bytes creates at umask (often 0644);
+                    # the backup mirrors settings.json, which can carry
+                    # hooks/env config, so inherit the source file's mode.
+                    try:
+                        backup.chmod(settings_file.stat().st_mode & 0o777)
+                    except OSError:
+                        pass
                     _print(
                         dim(f"  Backup of prior settings → {backup}"),
                         verbose_only=True,

@@ -6,6 +6,7 @@ Stdlib-only — no third-party dependencies.
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -207,9 +208,13 @@ def _schedule_summarizer_cron(
     # SEC-124: quote paths in the cron line so spaces/special characters
     # in the user's HOME or install dir cannot split them into separate
     # arguments or break the redirection target.
+    # SEC-026: shlex.quote rather than double quotes — a path containing
+    # `$` or `"` would otherwise be word-split or command-substituted by
+    # the cron shell.
     cron_line = (
-        f'0 {hour} * * * "{uv_path}" run --no-project "{script_path}" --run-doctor{extra}'
-        f' >> "{_cron_log}" 2>&1  {_CRON_MARKER}'
+        f"0 {hour} * * * {shlex.quote(str(uv_path))} run --no-project "
+        f"{shlex.quote(str(script_path))} --run-doctor{extra} "
+        f">> {shlex.quote(str(_cron_log))} 2>&1  {_CRON_MARKER}"
     )
     _step(f"Schedule nightly summarizer via cron (hour={hour})", dry_run=dry_run)
     if dry_run:

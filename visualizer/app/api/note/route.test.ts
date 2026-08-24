@@ -347,6 +347,76 @@ describe('ARC-002 / note route — vault from body', () => {
     })
   })
 
+  // SEC-002: mutating methods accept only .md note paths. The vault holds
+  // executable configuration (config.yaml, .git/config, pending_summaries.jsonl)
+  // that guardPath alone would let a client overwrite or delete.
+  describe('SEC-002 — note-only mutation paths', () => {
+    it('POST with path .git/config returns 400 and leaves the file untouched', async () => {
+      fs.mkdirSync(path.join(defaultVault, '.git'), { recursive: true })
+      const target = path.join(defaultVault, '.git', 'config')
+      fs.writeFileSync(target, '[core]\n\trepositoryformatversion = 0\n')
+      const req = makePostRequest({ path: '.git/config', content: '[core]\n\tfsmonitor = evil\n' })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+      expect(fs.readFileSync(target, 'utf-8')).not.toContain('evil')
+    })
+
+    it('POST with path config.yaml returns 400', async () => {
+      fs.writeFileSync(path.join(defaultVault, 'config.yaml'), 'ai:\n  backend: claude-cli\n')
+      const req = makePostRequest({ path: 'config.yaml', content: 'ai:\n  backend: pwned\n' })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+      expect(fs.readFileSync(path.join(defaultVault, 'config.yaml'), 'utf-8')).not.toContain('pwned')
+    })
+
+    it('POST with path pending_summaries.jsonl returns 400', async () => {
+      fs.writeFileSync(path.join(defaultVault, 'pending_summaries.jsonl'), '{}\n')
+      const req = makePostRequest({ path: 'pending_summaries.jsonl', content: '{"evil": true}\n' })
+      const res = await POST(req)
+      expect(res.status).toBe(400)
+    })
+
+    it('DELETE with path Templates/x.md returns 400', async () => {
+      fs.mkdirSync(path.join(defaultVault, 'Templates'), { recursive: true })
+      fs.writeFileSync(path.join(defaultVault, 'Templates', 'x.md'), '# template\n')
+      const req = new NextRequest(
+        `http://localhost:3999/api/note?path=${encodeURIComponent('Templates/x.md')}`,
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' } },
+      )
+      const res = await DELETE(req)
+      expect(res.status).toBe(400)
+      expect(fs.existsSync(path.join(defaultVault, 'Templates', 'x.md'))).toBe(true)
+    })
+
+    it('DELETE with path .trash/old.md returns 400', async () => {
+      fs.mkdirSync(path.join(defaultVault, '.trash'), { recursive: true })
+      fs.writeFileSync(path.join(defaultVault, '.trash', 'old.md'), '# old\n')
+      const req = new NextRequest(
+        `http://localhost:3999/api/note?path=${encodeURIComponent('.trash/old.md')}`,
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' } },
+      )
+      const res = await DELETE(req)
+      expect(res.status).toBe(400)
+      expect(fs.existsSync(path.join(defaultVault, '.trash', 'old.md'))).toBe(true)
+    })
+
+    it('PUT into a dot directory returns 400', async () => {
+      const req = makePutRequest({ path: '.hidden/new.md', content: '# x\n' })
+      const res = await PUT(req)
+      expect(res.status).toBe(400)
+      expect(fs.existsSync(path.join(defaultVault, '.hidden', 'new.md'))).toBe(false)
+    })
+
+    it('POST of a normal Patterns/*.md note still succeeds (no over-blocking)', async () => {
+      const relPath = 'Patterns/sec002-ok.md'
+      fs.writeFileSync(path.join(defaultVault, relPath), '# v1\n')
+      const req = makePostRequest({ path: relPath, content: '# v2\n' })
+      const res = await POST(req)
+      expect(res.status).toBe(200)
+      expect(fs.readFileSync(path.join(defaultVault, relPath), 'utf-8')).toBe('# v2\n')
+    })
+  })
+
   // QA-006: pin the missing-stem guard. Previously the routes asserted
   // `stem!` after a `if (!stem && !relPath) return 400` check, which TS
   // could not narrow across the if/else — so a refactor that accidentally

@@ -112,6 +112,17 @@ export PARSIDION_SCRIPTS_DIR="$HOME/Repos/parsidion/skills/parsidion/scripts"
 export PARSIDION_DIR="$HOME/Repos/parsidion"
 ```
 
+Script resolution order is `PARSIDION_SCRIPTS_DIR`, then
+`PARSIDION_DIR/skills/parsidion/scripts`, then the installed
+`~/.claude/skills/parsidion/scripts` — nothing else. For repo-local
+development (running hooks from a parsidion checkout), export
+`PARSIDION_SCRIPTS_DIR`; the extension deliberately does not search
+cwd-relative sibling directories, so cloning an untrusted repository named
+`parsidion` beside a workspace cannot inject hook scripts into pi/omp
+sessions (SEC-003). Hook subprocesses also receive only an allowlisted
+environment (`PATH`, `HOME`, `CLAUDE_VAULT`, `PARSIDION_*`, `LC_*`/`XDG_*`,
+and the Anthropic/proxy variables) rather than the full `process.env`.
+
 Then in pi:
 
 ```text

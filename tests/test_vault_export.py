@@ -111,6 +111,35 @@ class TestMdToHtml:
         assert "<h1>" in out
         assert "My Title" in out
 
+    # SEC-009: href scheme filter — only http/https/mailto and relative
+    # targets become anchors.
+    def test_javascript_href_not_rendered_as_anchor(self) -> None:
+        out = vault_export._md_to_html("[x](javascript:alert(1))")
+        assert "javascript:" not in out
+        assert "<a " not in out
+        assert "alert(1)" not in out or "<a " not in out
+
+    def test_data_href_not_rendered_as_anchor(self) -> None:
+        out = vault_export._md_to_html("[x](data:text/html;base64,PHNjcmlwdD4=)")
+        assert "data:" not in out
+        assert "<a " not in out
+
+    def test_protocol_relative_href_not_rendered_as_anchor(self) -> None:
+        out = vault_export._md_to_html("[x](//evil.example/payload)")
+        assert "<a " not in out
+
+    def test_http_href_rendered(self) -> None:
+        out = vault_export._md_to_html("[docs](https://example.com/a)")
+        assert '<a href="https://example.com/a">docs</a>' in out
+
+    def test_mailto_href_rendered(self) -> None:
+        out = vault_export._md_to_html("[mail](mailto:a@b.example)")
+        assert '<a href="mailto:a@b.example">mail</a>' in out
+
+    def test_relative_href_rendered(self) -> None:
+        out = vault_export._md_to_html("[other](Patterns/other-note.md)")
+        assert '<a href="Patterns/other-note.md">other</a>' in out
+
     def test_renders_h2(self) -> None:
         out = vault_export._md_to_html("## Section")
         assert "<h2>" in out

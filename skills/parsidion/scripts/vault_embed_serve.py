@@ -131,8 +131,19 @@ def _get_model(model_name: str) -> Any:
     return m
 
 
+# SEC-018: request-line cap. A client that never sends a newline would
+# otherwise grow the buffer without bound (the AF_UNIX socket is local-only,
+# but the service is user-started and shareable across processes).
+_MAX_REQUEST_BYTES = 64 * 1024
+
+
 def _read_line(conn: socket.socket) -> str:
-    """Read one newline-terminated request line from *conn*."""
+    """Read one newline-terminated request line from *conn*.
+
+    SEC-018: stops at 64 KiB and closes the connection — a request that
+    large is malformed, and an unbounded read is a trivial memory-exhaustion
+    lever for any local client.
+    """
     buf = bytearray()
     while True:
         chunk = conn.recv(4096)
@@ -141,6 +152,8 @@ def _read_line(conn: socket.socket) -> str:
         buf.extend(chunk)
         if b"\n" in chunk:
             break
+        if len(buf) > _MAX_REQUEST_BYTES:
+            raise ValueError("request line exceeds 64 KiB limit")
     return buf.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
 
 
@@ -153,7 +166,10 @@ def _handle(conn: socket.socket, default_model: str) -> None:
             return
         req = json.loads(line)
         text = str(req.get("text", ""))
-        model_name = str(req.get("model") or default_model)
+        # SEC-018: the model comes from server config only. A client-chosen
+        # model name would let any local process load an arbitrary
+        # (potentially huge or hostile-source) ONNX bundle into the daemon.
+        model_name = default_model
         model = _get_model(model_name)
         vec = list(model.embed([text]))[0]
         payload = json.dumps({"vector": [float(x) for x in vec]}) + "\n"

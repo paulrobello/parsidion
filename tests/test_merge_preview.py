@@ -269,6 +269,43 @@ class TestPreviewHelpers:
         )
         assert result is None
 
+    def test_tampered_preview_body_fails_validation(self, vault: Path) -> None:
+        """SEC-013: --from-preview must not bypass _is_valid_merge_body.
+
+        The cache is a file on disk; swap its body for a refusal-shaped
+        string while keeping both source hashes valid. The loader must
+        discard it (None) so the merge re-runs the AI (or falls back to
+        naive concatenation) instead of writing the tampered text.
+        """
+        import json as _json
+
+        path_a, path_b = _make_pair(vault)
+        vault_merge._write_preview(vault, path_a, _NOTE_A, path_b, _NOTE_B, _AI_BODY_V1)
+        cache = vault_merge._preview_cache_path(vault, path_a, path_b)
+        payload = _json.loads(cache.read_text(encoding="utf-8"))
+        payload["body"] = "I'm sorry, but I can't merge those notes for you."
+        cache.write_text(_json.dumps(payload), encoding="utf-8")
+
+        result = vault_merge._load_fresh_preview(
+            vault, path_a, _NOTE_A, path_b, _NOTE_B
+        )
+        assert result is None
+
+    def test_short_preview_body_fails_validation(self, vault: Path) -> None:
+        import json as _json
+
+        path_a, path_b = _make_pair(vault)
+        vault_merge._write_preview(vault, path_a, _NOTE_A, path_b, _NOTE_B, _AI_BODY_V1)
+        cache = vault_merge._preview_cache_path(vault, path_a, path_b)
+        payload = _json.loads(cache.read_text(encoding="utf-8"))
+        payload["body"] = "# short"
+        cache.write_text(_json.dumps(payload), encoding="utf-8")
+
+        assert (
+            vault_merge._load_fresh_preview(vault, path_a, _NOTE_A, path_b, _NOTE_B)
+            is None
+        )
+
 
 # ---------------------------------------------------------------------------
 # Execute-path locking

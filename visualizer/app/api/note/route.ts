@@ -10,6 +10,30 @@ import { findNote } from '@/lib/findNote'
 // had already diverged once (the first async conversion only updated this
 // file); centralising prevents the next drift.
 
+// SEC-002: mutating methods may only target markdown notes in the vault's
+// note tree. guardPath keeps the path inside the vault, but the vault also
+// holds executable configuration — config.yaml (codex_cli.command,
+// grok_cli.command, anthropic_env), .git/config (core.fsmonitor),
+// .git/hooks/*, pending_summaries.jsonl — so containment alone turns a
+// write into code execution as the user. Mirrors the Python EXCLUDE_DIRS
+// set (dot entries are covered by the dot-segment rule; Templates is a
+// symlink to the skill's templates, TagsRoutes is generated).
+const EXCLUDED_NOTE_TOP_DIRS = new Set(['Templates', 'TagsRoutes'])
+
+function rejectNonNotePath(relPath: string): NextResponse | null {
+  if (!relPath.endsWith('.md')) {
+    return NextResponse.json({ error: 'Only .md files may be modified' }, { status: 400 })
+  }
+  const segments = relPath.split(/[\\/]/)
+  if (segments.some((segment) => segment.startsWith('.'))) {
+    return NextResponse.json({ error: 'Hidden paths are not notes' }, { status: 400 })
+  }
+  if (EXCLUDED_NOTE_TOP_DIRS.has(segments[0])) {
+    return NextResponse.json({ error: 'Excluded directory' }, { status: 400 })
+  }
+  return null
+}
+
 export const GET = withApi(async (req: NextRequest) => {
   const stem = req.nextUrl.searchParams.get('stem')
   const relPath = req.nextUrl.searchParams.get('path')
@@ -98,6 +122,10 @@ export const POST = withApi(async (req: NextRequest) => {
     if (!guardPath(candidate, vaultRoot)) {
       return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
     }
+    // SEC-002: containment is not enough — refuse non-note targets
+    // (config.yaml, .git/config, pending_summaries.jsonl, ...).
+    const noteError = rejectNonNotePath(relPath)
+    if (noteError) return noteError
     try {
       await fs.access(candidate)
       notePath = candidate
@@ -110,6 +138,12 @@ export const POST = withApi(async (req: NextRequest) => {
     notePath = await findNote(vaultRoot, stem)
     if (notePath && !guardPath(notePath, vaultRoot)) {
       return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
+    // SEC-002: a stem lookup can resolve inside an excluded directory
+    // (Templates/TagsRoutes); hold it to the same note-only rule.
+    if (notePath) {
+      const noteError = rejectNonNotePath(path.relative(vaultRoot, notePath))
+      if (noteError) return noteError
     }
   }
   if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })
@@ -166,10 +200,10 @@ export const PUT = withApi(async (req: NextRequest) => {
     return NextResponse.json({ error: 'path and string content required' }, { status: 400 })
   }
 
-  // SEC-002: Only .md files may be created through this endpoint.
-  if (!relPath.endsWith('.md')) {
-    return NextResponse.json({ error: 'Only .md files may be created' }, { status: 400 })
-  }
+  // SEC-002: only .md note paths may be created (and never inside a hidden
+  // or excluded directory).
+  const putNoteError = rejectNonNotePath(relPath)
+  if (putNoteError) return putNoteError
 
   let vaultRoot: string
   try {
@@ -220,6 +254,10 @@ export const DELETE = withApi(async (req: NextRequest) => {
     if (!guardPath(candidate, vaultRoot)) {
       return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
     }
+    // SEC-002: deletion is a mutation of vault state — same note-only rule
+    // as POST/PUT (.git/config and friends must not be deletable).
+    const noteError = rejectNonNotePath(relPath)
+    if (noteError) return noteError
     try {
       await fs.access(candidate)
       notePath = candidate
@@ -232,6 +270,12 @@ export const DELETE = withApi(async (req: NextRequest) => {
     notePath = await findNote(vaultRoot, stem)
     if (notePath && !guardPath(notePath, vaultRoot)) {
       return NextResponse.json({ error: 'Path traversal rejected' }, { status: 403 })
+    }
+    // SEC-002: stem lookups resolve under note folders only, but Templates
+    // and TagsRoutes are still inside the vault — hold the same rule.
+    if (notePath) {
+      const noteError = rejectNonNotePath(path.relative(vaultRoot, notePath))
+      if (noteError) return noteError
     }
   }
   if (!notePath) return NextResponse.json({ error: `Note not found: ${relPath ?? stem}` }, { status: 404 })

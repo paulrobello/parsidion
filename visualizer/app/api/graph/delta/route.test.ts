@@ -19,6 +19,9 @@ describe('ARC-016 / graph/delta route — auth + baseline contract', () => {
   it('returns 404 when graph.json is absent', async () => {
     const res = await GET(makeRequest('/api/graph/delta?since=anything'))
     expect(res.status).toBe(404)
+    // SEC-029: the absolute vault path must not leak in the 404 body.
+    const body = await res.json()
+    expect(JSON.stringify(body)).not.toContain(setup.defaultVault)
   })
 
   it('returns 401 when VISUALIZER_TOKEN is set and Authorization is missing', async () => {

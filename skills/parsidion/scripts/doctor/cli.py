@@ -36,6 +36,16 @@ from doctor.subfolder import run_migrate_subfolders
 from doctor.tags import run_fix_tags
 
 
+def _valid_daily_username(value: str) -> str:
+    """SEC-010: reject usernames that could escape the Daily/YYYY-MM dir."""
+    if value and not vault_fs.is_valid_vault_username(value):
+        raise argparse.ArgumentTypeError(
+            f"invalid --daily-username {value!r}: allowed characters are "
+            "letters, digits, '.', '_', '-' (max 64 chars)"
+        )
+    return value
+
+
 def _build_fix_modes(args: argparse.Namespace) -> tuple[FixMode, ...]:
     """Build the per-invocation fix-mode registry.
 
@@ -193,9 +203,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--daily-username",
         default="",
         metavar="NAME",
+        type=_valid_daily_username,
         help=(
             "Username suffix for --migrate-daily-notes "
-            "(default: vault config vault.username, then $USER)."
+            "(default: vault config vault.username, then $USER). "
+            "Must be letters, digits, '.', '_', '-' (max 64 chars)."
         ),
     )
     parser.add_argument(

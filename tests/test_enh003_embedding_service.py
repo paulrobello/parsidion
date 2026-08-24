@@ -214,6 +214,52 @@ def test_handle_reports_error(monkeypatch: pytest.MonkeyPatch) -> None:
         peer.close()
 
 
+def test_handle_ignores_client_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SEC-018: the model comes from server config, never the request."""
+    seen: list[str] = []
+
+    def fake_get_model(name: str) -> _FakeModel:
+        seen.append(name)
+        return _FakeModel([0.5])
+
+    monkeypatch.setattr(vault_embed_serve, "_get_model", fake_get_model)
+    client, peer = socket.socketpair()
+    try:
+        t = threading.Thread(
+            target=vault_embed_serve._handle, args=(peer, "server-model")
+        )
+        t.start()
+        client.sendall(
+            (json.dumps({"text": "hi", "model": "attacker-model"}) + "\n").encode()
+        )
+        data = client.recv(4096).decode().strip()
+        t.join(timeout=5)
+        assert json.loads(data) == {"vector": [0.5]}
+        assert seen == ["server-model"]
+    finally:
+        client.close()
+        peer.close()
+
+
+def test_handle_rejects_oversized_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SEC-018: an unterminated request over 64 KiB is refused, not buffered."""
+    monkeypatch.setattr(vault_embed_serve, "_get_model", lambda name: _FakeModel([0.1]))
+    client, peer = socket.socketpair()
+    try:
+        t = threading.Thread(
+            target=vault_embed_serve._handle, args=(peer, "default-model")
+        )
+        t.start()
+        client.sendall(b'{"text": "' + b"x" * (70 * 1024) + b'"}')
+        data = client.recv(4096).decode().strip()
+        t.join(timeout=5)
+        payload = json.loads(data)
+        assert "error" in payload and "64 KiB" in payload["error"]
+    finally:
+        client.close()
+        peer.close()
+
+
 def test_socket_and_pid_paths_live_outside_vault(tmp_path: Path) -> None:
     vault = tmp_path / "avault"
     sp = vault_embed_serve.socket_path(vault)
