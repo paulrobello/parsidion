@@ -115,6 +115,23 @@ docs-api-check:
 # git remote through a worktree's .git file indirection -- so run make
 # docs-api from the main checkout, not an agent worktree.
 #
+# Two more cross-platform details:
+#
+# - typedoc's entryPointStrategy "expand" walks lib/ in READDIR order, and
+#   readdir order differs between filesystems (APFS vs ext4), which shifts
+#   typedoc's sequential reflection ids (data-refl attributes, and ids baked
+#   into the compressed assets/search.js blob). The recipe therefore passes
+#   lib/*.ts explicitly, LC_ALL=C sorted, with entryPointStrategy resolve --
+#   same module-per-file structure as expand, but a conversion order that is
+#   identical on every filesystem.
+#
+# - the scrub's resolved-path needles are passed through %ENV: an
+#   "VAR=x cmd1 | cmd2" assignment prefix does NOT propagate to cmd2 under
+#   every /bin/sh (macOS's does not), and a needle that never reaches perl
+#   silently degrades to the literal-path rule -- which on macOS leaves the
+#   /private prefix behind ('/private<repo-root>'). Exporting the variables
+#   before the pipeline reaches perl everywhere.
+#
 # Two further normalizations:
 #
 # - pdoc must run on the SAME python minor as CI: its condensed-vs-multiline
@@ -151,10 +168,12 @@ docs-api-gen:
 		PYTHONPATH=$(PDOC_GEN_ROOT)/skills/parsidion/scripts:$(PDOC_GEN_ROOT) \
 		uv run --isolated --python 3.13 --extra docs python -P -m pdoc \
 		-o $(abspath $(DOCS_API_OUT))/python $(PDOC_MODULES)
-	cd visualizer && bunx typedoc --out $(abspath $(DOCS_API_OUT))/visualizer \
-		--options typedoc.json
-	GEN_RESOLVED=$$(realpath $(PDOC_GEN_ROOT) 2>/dev/null || echo $(PDOC_GEN_ROOT)) \
-		HOME_RESOLVED=$$(realpath $(PDOC_GEN_HOME) 2>/dev/null || echo $(PDOC_GEN_HOME)) \
+	cd visualizer && LC_ALL=C ls lib/*.ts | grep -v '\.test\.ts$$' | \
+		xargs bunx typedoc --entryPointStrategy resolve \
+		--out $(abspath $(DOCS_API_OUT))/visualizer --options typedoc.json
+	gen_resolved=$$(realpath $(PDOC_GEN_ROOT) 2>/dev/null || echo $(PDOC_GEN_ROOT)); \
+		home_resolved=$$(realpath $(PDOC_GEN_HOME) 2>/dev/null || echo $(PDOC_GEN_HOME)); \
+		export GEN_RESOLVED="$$gen_resolved" HOME_RESOLVED="$$home_resolved"; \
 		find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
 		xargs -0 perl -pi -e '$$ENV{GEN_RESOLVED} ne "" && s|\Q$$ENV{GEN_RESOLVED}\E|<repo-root>|g; s|\Q$(PDOC_GEN_ROOT)\E|<repo-root>|g; s|\Q$(CURDIR)\E|<repo-root>|g; $$ENV{HOME_RESOLVED} ne "" && s|\Q$$ENV{HOME_RESOLVED}\E|<home>|g; s|\Q$(PDOC_GEN_HOME)\E|<home>|g; s|\Q$(HOME)\E|<home>|g; s/<input id="[^"]*view-value" class="view-value-toggle-state"[^>]*>\s*//g; s/<label class="view-value-button pdoc-button" for="[^"]*"><\/label>//g; s/"default_value": \d+/"default_value": 1/g; s!\bfrozenset\(\{([^{}]+)\}\)!do { my $$i=$$1; "frozenset({".join(", ", sort(split(/,\s+/, $$i)))."})" }!ge; s!\{((?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;)(?:,\s*(?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;))*)\}!do { my $$g=$$1; $$g =~ /:/ ? "{".$$g."}" : "{".join(", ", sort(split(/,\s+/, $$g)))."}" }!ge'
 
