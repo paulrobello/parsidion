@@ -132,6 +132,16 @@ docs-api-check:
 #   /private prefix behind ('/private<repo-root>'). Exporting the variables
 #   before the pipeline reaches perl everywhere.
 #
+# - two artifacts are content-identical but byte-unstable across platforms:
+#   pdoc's prebuilt search index (lunr posting maps serialize in document
+#   processing order, which varies) and typedoc's compressed asset blobs
+#   (navigation/hierarchy/search .js embed base64 zlib streams whose deflate
+#   bytes depend on the producing zlib build). scripts/normalize_docs_api.py
+#   canonicalizes both after the scrub: sorted-key compact JSON for the
+#   search index, and zlib level-0 (stored, no entropy coding) re-storage
+#   for the asset blobs -- byte-identical on every zlib implementation at
+#   the cost of some file size.
+#
 # Two further normalizations:
 #
 # - pdoc must run on the SAME python minor as CI: its condensed-vs-multiline
@@ -176,6 +186,7 @@ docs-api-gen:
 		export GEN_RESOLVED="$$gen_resolved" HOME_RESOLVED="$$home_resolved"; \
 		find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
 		xargs -0 perl -pi -e '$$ENV{GEN_RESOLVED} ne "" && s|\Q$$ENV{GEN_RESOLVED}\E|<repo-root>|g; s|\Q$(PDOC_GEN_ROOT)\E|<repo-root>|g; s|\Q$(CURDIR)\E|<repo-root>|g; $$ENV{HOME_RESOLVED} ne "" && s|\Q$$ENV{HOME_RESOLVED}\E|<home>|g; s|\Q$(PDOC_GEN_HOME)\E|<home>|g; s|\Q$(HOME)\E|<home>|g; s/<input id="[^"]*view-value" class="view-value-toggle-state"[^>]*>\s*//g; s/<label class="view-value-button pdoc-button" for="[^"]*"><\/label>//g; s/"default_value": \d+/"default_value": 1/g; s!\bfrozenset\(\{([^{}]+)\}\)!do { my $$i=$$1; "frozenset({".join(", ", sort(split(/,\s+/, $$i)))."})" }!ge; s!\{((?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;)(?:,\s*(?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;))*)\}!do { my $$g=$$1; $$g =~ /:/ ? "{".$$g."}" : "{".join(", ", sort(split(/,\s+/, $$g)))."}" }!ge'
+	python3 scripts/normalize_docs_api.py $(abspath $(DOCS_API_OUT))
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses
