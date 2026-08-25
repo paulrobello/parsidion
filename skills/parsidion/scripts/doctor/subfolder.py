@@ -90,6 +90,51 @@ _GENERIC_PREFIX_DENYLIST = frozenset(
 )
 
 
+# Boundary guards for plain-path rewriting: a body reference only matches
+# when the whole path (including the ``.md`` extension) equals an old path in
+# the rename map. The character before the match must not be a path/word
+# character, so the vault-relative form is never rewritten inside a longer
+# path under a different root (``/other/vault/Debugging/foo.md``) or inside a
+# URL (``file:///…``). The character after the match must not be a word or
+# path-segment character, so ``foo.md2``-style longer names are left alone
+# while sentence punctuation (``)``, ``].``, EOL) still matches.
+_PATH_BOUNDARY_BEFORE = r"(?<![\w/.-])"
+_PATH_BOUNDARY_AFTER = r"(?![\w/])"
+
+
+def _replace_plain_paths_outside_code(content: str, path_map: dict[str, str]) -> str:
+    """Rewrite plain filesystem-path references to renamed notes.
+
+    Companion to :func:`vault_links.replace_wikilinks_outside_code`: notes
+    that cite a renamed note by absolute (``<vault>/Debugging/foo.md``) or
+    vault-relative (``Debugging/foo.md``) path rather than a ``[[wikilink]]``
+    would otherwise keep pointing at the pre-rename location. Only whole-path
+    references ending in ``.md`` that exactly equal an old path in *path_map*
+    are rewritten, so paths outside the rename set and ordinary prose are
+    never touched. Text inside code fences and inline code spans is left
+    untouched, matching the wikilink pass.
+    """
+    if not path_map:
+        return content
+    # Longest-first so a path that is a prefix of another matches its own
+    # full form first (the boundary guards reject the shorter inside the
+    # longer, but explicit ordering removes any alternation ambiguity).
+    ordered = sorted(path_map, key=len, reverse=True)
+    # The non-capturing group is required: without it the lookbehind would
+    # guard only the first alternative and the lookahead only the last.
+    pattern = re.compile(
+        _PATH_BOUNDARY_BEFORE
+        + "(?:"
+        + "|".join(re.escape(old) for old in ordered)
+        + ")"
+        + _PATH_BOUNDARY_AFTER
+    )
+    new_content, _ = vault_links.sub_wikilinks_outside_code(
+        content, pattern, lambda m: path_map[m.group(0)]
+    )
+    return new_content
+
+
 def _is_generic_prefix(prefix: str) -> bool:
     """True if *prefix* is a generic modifier word, not a specific subject.
 
@@ -386,14 +431,30 @@ def fix_prefix_cluster(
         failed_set = set(failed_moves)
         moves = [m for m in moves if m not in failed_set]
 
+    # Plain-path reference map for body prose that cites a moved note by
+    # filesystem path rather than [[wikilink]]. Both the absolute and the
+    # vault-relative form of each move are mapped so either citation style
+    # stays valid after the rename.
+    path_map: dict[str, str] = {}
+    for old_path, new_path in moves:
+        path_map[str(old_path)] = str(new_path)
+        try:
+            path_map[str(old_path.relative_to(vault_path))] = str(
+                new_path.relative_to(vault_path)
+            )
+        except ValueError:
+            # Note outside the active vault — only the absolute form applies.
+            pass
+
     def _patch(path: Path) -> None:
-        """Rewrite wikilinks in *path* according to *stem_map* renames."""
+        """Rewrite wikilinks and plain path references in *path* after the move."""
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:
             return
         original = content
         content = vault_links.replace_wikilinks_outside_code(content, stem_map)
+        content = _replace_plain_paths_outside_code(content, path_map)
         if content != original:
             _backup_note(vault_path, path)
             vault_fs.atomic_write_text(path, content)

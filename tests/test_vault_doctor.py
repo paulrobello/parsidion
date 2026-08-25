@@ -561,6 +561,94 @@ class TestPrefixClusterTargetCollisions:
         assert variant.exists()
 
 
+class TestMigrateSubfoldersPlainPathRewrite:
+    """Migrate-subfolders must also rewrite plain filesystem-path body
+    references to a renamed note's old location, not just ``[[wikilinks]]``.
+
+    Regression: a 2026-08 migration moved
+    ``Debugging/herdr-808-comment-draft.md`` into ``Debugging/herdr/`` but a
+    citing note's body still pointed at the pre-rename absolute path.
+    """
+
+    def _make_herdr_cluster(self, vault: Path) -> list[Path]:
+        return [
+            _write_note(vault, f"Debugging/herdr-{s}.md", f"# Herdr {s}\n")
+            for s in ("808-comment-draft", "pane-titles", "workspace-ops")
+        ]
+
+    def test_plain_path_references_rewritten_with_move(self, vault: Path) -> None:
+        from doctor.subfolder import fix_prefix_cluster
+
+        cluster = self._make_herdr_cluster(vault)
+        old_abs = str(vault / "Debugging" / "herdr-808-comment-draft.md")
+        citing = _write_note(
+            vault,
+            "Patterns/ops-notes.md",
+            "# Ops Notes\n\n"
+            f"Draft lives at {old_abs} (absolute) and at "
+            "Debugging/herdr-808-comment-draft.md (relative).\n"
+            "See also [[herdr-808-comment-draft]].\n",
+        )
+
+        moves = fix_prefix_cluster(
+            vault / "Debugging",
+            "herdr",
+            cluster,
+            [*cluster, citing],
+            base_note=None,
+        )
+        assert moves
+
+        new_abs = str(vault / "Debugging" / "herdr" / "808-comment-draft.md")
+        updated = citing.read_text(encoding="utf-8")
+        # Absolute and vault-relative citations now point at the new location
+        assert new_abs in updated
+        assert "Debugging/herdr/808-comment-draft.md" in updated
+        assert old_abs not in updated
+        assert "Debugging/herdr-808-comment-draft.md" not in updated
+        # The wikilink pass keeps working alongside the plain-path pass
+        assert "[[808-comment-draft]]" in updated
+
+    def test_plain_path_rewrite_guards(self, vault: Path) -> None:
+        from doctor.subfolder import fix_prefix_cluster
+
+        cluster = self._make_herdr_cluster(vault)
+        old_abs = str(vault / "Debugging" / "herdr-808-comment-draft.md")
+        foreign = "/other/vault/Debugging/herdr-808-comment-draft.md"
+        unrelated = "/opt/tools/reference.md"
+        citing = _write_note(
+            vault,
+            "Patterns/ops-guards.md",
+            "# Guards\n\n"
+            f"Foreign vault copy: {foreign} stays as-is.\n"
+            f"Unrelated file: {unrelated} stays as-is.\n"
+            "Prose mention of herdr-808-comment-draft without .md stays.\n"
+            "Fenced example:\n"
+            "```bash\n"
+            f"cat {old_abs}\n"
+            "```\n",
+        )
+
+        fix_prefix_cluster(
+            vault / "Debugging",
+            "herdr",
+            cluster,
+            [*cluster, citing],
+            base_note=None,
+        )
+
+        updated = citing.read_text(encoding="utf-8")
+        # A different root ending in the same relative path is NOT our note
+        assert foreign in updated
+        # Paths outside the rename set are untouched
+        assert unrelated in updated
+        # Extension-less prose mentions are never rewritten
+        assert "herdr-808-comment-draft without .md" in updated
+        # References inside fenced code blocks are protected (matches the
+        # wikilink rewrite behavior)
+        assert f"cat {old_abs}" in updated
+
+
 class TestCommonWordPrefix:
     """Cluster subfolders are named after the longest common word prefix, not
     the bare first word — otherwise compound slugs split mid-concept
