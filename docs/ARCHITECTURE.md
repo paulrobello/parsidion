@@ -1034,145 +1034,215 @@ All hooks and the summarizer support a centralized configuration file at `~/Pars
 
 **Precedence:** script defaults → `config.yaml` → `config.local.yaml` → CLI arguments.
 
-**Sections:**
+**Sections:** (generated from `core/vault_schema.py` by `scripts/gen_config_docs.py` — `make config-docs`; do not hand-edit the block below)
 
+<!-- config-reference:start -->
 ```yaml
-session_start_hook:  # session_start_hook.py
-  ai_model: null     # Model for AI note selection (null = disabled)
-  ai_cooldown_seconds: 30  # Skip nested claude -p if AI SessionStart ran recently for this vault
-  ai_single_flight: true   # Allow only one nested claude -p SessionStart selector per vault at a time
-  ai_candidates_max: 48    # Cap on the AI selector's ranked candidate pool (0 = unlimited)
-  max_chars: 4000    # Max context injection characters
-  ai_timeout: 25     # AI call timeout in seconds
-  recent_days: 3     # Days to look back for recent notes
-  debug: false       # Append injected context + metadata to debug log in $TMPDIR
-  verbose_mode: false  # If true, inject full note summaries instead of compact one-line index
-  use_embeddings: true  # Blend semantic matches into context; graceful fallback if db absent
-  track_delta: true  # Prepend "Since last session" delta of new/updated notes per project
-  graph_expand: true       # Tier 1: splice in 1-hop wikilink neighbours of selected notes
-  graph_expand_max: 8      # Max neighbour notes added per session (best-connected first)
-  graph_rerank: true       # Tier 2: re-rank by seed-cluster tag overlap + hubness
+# Prompt backend selection. Chooses which prompt backend the hooks and the
+# summarizer use for AI calls. Default ``auto`` picks the first available
+# backend: claude-cli on a Claude Code machine, codex-cli where ``codex`` is
+# on PATH; ``PARSIDION_RUNTIME=grok`` hints grok-cli. ``none`` disables AI
+# features entirely.
+ai:
+  backend: auto  # auto | claude-cli | codex-cli | grok-cli | none
 
-session_stop_hook:   # session_stop_hook.py
-  ai_model: null     # Model for AI classification (null = disabled)
-  ai_timeout: 25     # AI call timeout in seconds
-  auto_summarize: true  # Auto-launch summarizer when pending entries exist
-  auto_summarize_after: 1  # Queue threshold to trigger auto-summarizer (0 = always)
-  transcript_tail_lines: 200      # Default tail lines to parse
-  transcript_tail_bytes: 1500000  # Byte ceiling on the raw tail; bounds huge-line transcripts
-  pi_transcript_tail_lines: 1000  # Fallback pi tail when default tail has no assistant text
-
-subagent_stop_hook:  # subagent_stop_hook.py
-  enabled: true      # Set false to disable subagent transcript capture
-  min_messages: 3    # Minimum assistant turns before queuing (pi default is 1 when unset)
-  excluded_agents: "vault-explorer,research-agent"  # comma-separated skip list
-  transcript_tail_bytes: 1500000  # Byte ceiling on the subagent transcript tail
-
-pre_compact_hook:    # pre_compact_hook.py
-  lines: 200         # Transcript lines to analyse
-  transcript_tail_bytes: 1500000  # Byte ceiling on the transcript tail read
-
-summarizer:          # summarize_sessions.py
-  model: null        # Large model for final note generation (null = ai_models.<backend>.large)
-  max_parallel: 5
-  transcript_tail_lines: 400
-  transcript_tail_bytes: 262144  # Byte ceiling on raw tail; bounds huge-line transcripts
-  max_cleaned_chars: 12000
-  ai_timeout: 120    # Per-summarizer-prompt timeout in seconds (null = backend default)
-  cluster_model: null  # Small model for hierarchical chunk summarization (null = ai_models.<backend>.small)
-  dedup_threshold: 0.80  # Cosine similarity above which a near-duplicate note is detected and skipped
-  dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days; <=0 disables
-  rebuild_graph: false                     # Rebuild visualizer graph.json after indexing
-  graph_include_daily: false               # Include Daily notes in graph rebuild
-  graph_incremental: true                  # ENH-010: incremental graph rebuild (full rebuild fallback is automatic)
-
-defaults:            # Legacy centralized model IDs
-  haiku_model: claude-haiku-4-5-20251001  # sonnet_model is no longer read — use ai_models.<backend>.large
-
-ai:                  # Prompt backend selection (ai_backend.py)
-  backend: auto      # auto | claude-cli | codex-cli | grok-cli | none; auto uses runtime hints (PARSIDION_RUNTIME, CODEX_SANDBOX/CODEX_SESSION_ID, CLAUDECODE) and falls back to claude-cli; none disables AI features
-
-ai_models:           # Per-backend model tiers; hooks use small, the summarizer uses large
+# Per-backend model configuration. Each backend has a ``small`` and ``large``
+# tier: hooks use ``small`` (haiku-equivalent) for fast classification; the
+# summarizer uses ``large`` (sonnet-equivalent) for note generation. Values
+# are passed verbatim to the backend CLI.
+ai_models:
+  # {small, large} model ids for the claude-cli backend
   claude:
     small: claude-haiku-4-5-20251001
     large: claude-sonnet-4-6
+  # {small, large} model ids for the codex-cli backend
   codex:
     small: gpt-5.5
     large: gpt-5.5
+  # {small, large} model ids for the grok-cli backend
   grok:
-    small: grok-4.6  # Both tiers map to grok-4.6 today (mirrors the codex default)
+    small: grok-4.6
     large: grok-4.6
 
-claude_cli:          # claude -p invocation (ai_backend.py); used when ai.backend resolves to claude-cli
-  minimal_context: true    # Replace the system prompt and run from a clean scratch cwd so the project CLAUDE.md chain is not ingested
-  # system_prompt: ...     # Override the minimal system prompt text
-  # timeout: 30            # Per-prompt timeout in seconds
+# ``claude -p`` invocation (ai_backend.py). Only used when ``ai.backend`` is
+# ``claude-cli`` (or ``auto`` resolves to it). ``minimal_context`` (default
+# true) passes ``--system-prompt`` and runs from a clean scratch cwd so
+# ``claude -p`` does not ingest the project's CLAUDE.md chain — parsidion
+# prompts are self-contained text transforms.
+claude_cli:
+  minimal_context: true  # Replace the system prompt and run from a clean scratch cwd
+  system_prompt: null  # Override the minimal system prompt text
+  timeout: null  # Per-prompt timeout in seconds
 
-grok_cli:            # grok CLI invocation (ai_backend.py); used when ai.backend is grok-cli; auth via the CLI's own OAuth login (~/.grok)
-  command: grok      # PATH lookup or absolute path to the grok CLI
-  timeout: 120       # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40 s per prompt)
-  minimal_context: true    # Override the system prompt and disable tools/subagents/web search so CLAUDE.md/AGENTS.md rules and skill catalogs are not ingested
-  # system_prompt: ...     # Override the minimal system prompt text
+# ``codex exec`` invocation (ai_backend.py). Only used when ``ai.backend``
+# resolves to ``codex-cli``. ``sandbox`` mirrors codex's own ``--sandbox``
+# flag and is passed verbatim; ``danger-full-access`` requires an explicit
+# opt-in (SEC-117). The three boolean defaults below are shown at their code
+# defaults — copying the template with them set to false would silently flip
+# parsidion's internal codex invocations to persistent, repo-checking,
+# notifying runs.
+codex_cli:
+  command: codex  # PATH lookup or absolute path to the codex CLI
+  timeout: 60  # Per-prompt timeout in seconds
+  sandbox: read-only  # read-only | workspace-write | danger-full-access (latter needs allow_danger_full_access)
+  ephemeral: true  # Start each prompt with no session state
+  skip_git_repo_check: true  # Skip the git-repo check for internal calls
+  suppress_notify: true  # Suppress user turn-complete notifications for internal calls
+  allow_danger_full_access: null  # SEC-117 opt-in required for sandbox: danger-full-access
 
-codex_cli:           # codex exec invocation (ai_backend.py); used when ai.backend resolves to codex-cli
-  command: codex     # PATH lookup or absolute path to the codex CLI
-  timeout: 60        # Per-prompt timeout in seconds
-  sandbox: read-only         # read-only | workspace-write | danger-full-access (the latter also needs allow_danger_full_access)
-  ephemeral: true             # Start each prompt with no session state (code default)
-  skip_git_repo_check: true   # code default
-  suppress_notify: true       # Suppress user-configured turn-complete notifications for internal calls (code default)
-  # allow_danger_full_access: false  # SEC-117 opt-in required to actually use sandbox: danger-full-access
+# ``grok`` CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
+# ``grok-cli``. Auth uses the CLI's own OAuth login. ``minimal_context``
+# (default true) overrides the system prompt and runs single-turn from a clean
+# scratch cwd with tools, subagents, and web search disabled — grok otherwise
+# appends every CLAUDE.md/AGENTS.md it finds plus its full skill catalog to
+# the system prompt.
+grok_cli:
+  command: grok  # PATH lookup or absolute path to the grok CLI
+  timeout: 120  # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40 s)
+  minimal_context: true  # Override the system prompt; disable tools/subagents/web search
+  system_prompt: null  # Override the minimal system prompt text
 
-adapters:            # agent_adapter.py — external adapter loading
-  load_external: false  # Opt-in: execute Python adapters from ~/.config/parsidion/adapters/ (permission-checked, load-time logged)
+# Session start hook (session_start_hook.py).
+session_start_hook:
+  ai_model: null  # Model for AI note selection (null = disabled)
+  ai_cooldown_seconds: 30  # Skip nested claude -p if AI SessionStart ran recently for this vault
+  ai_single_flight: true  # Allow only one nested AI SessionStart selector per vault at a time
+  ai_candidates_max: 48  # Cap on the AI selector's ranked candidate pool (0 = unlimited)
+  max_chars: 4000  # Max context injection characters
+  ai_timeout: 25  # AI call timeout in seconds
+  recent_days: 3  # Days to look back for recent notes
+  debug: false  # Append injected context + metadata to a debug log in $TMPDIR
+  verbose_mode: false  # Inject full note summaries instead of the compact one-line-per-note index
+  use_embeddings: true  # Blend semantic matches into context; graceful fallback if db absent
+  track_delta: true  # Prepend a 'Since last session' delta of new/updated notes per project
+  graph_expand: true  # Tier 1: splice in 1-hop wikilink neighbours of selected notes
+  graph_expand_max: 8  # Max neighbour notes added per session (best-connected first)
+  graph_rerank: true  # Tier 2: re-rank by seed-cluster tag overlap + hubness
 
-embeddings:          # build_embeddings.py, vault_search.py
-  enabled: true                    # Set false to disable embedding builds and note_index writes
-  model: BAAI/bge-small-en-v1.5   # ~67 MB ONNX model, cached after first run
-  min_score: 0.45                  # Minimum cosine similarity for search results
-  top_k: 10                        # Default result count for vault_search.py
-  decay_enabled: true             # Apply temporal decay so newer notes score higher
-  decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
-  decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
-  service_enabled: false          # ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while parsight serves retrieval
-  service_idle_exit: 600          # Seconds the embedding service stays alive idle before exiting
+# Session stop hook (session_stop_hook.py; the same pipeline runs for every
+# runtime via agent_adapter.run_session_end).
+session_stop_hook:
+  ai_model: null  # Model for AI classification (null = disabled)
+  ai_timeout: 25  # AI call timeout in seconds
+  auto_summarize: true  # Auto-launch summarizer when pending entries exist
+  auto_summarize_after: 1  # Queue threshold to trigger the auto-summarizer (0 = always)
+  transcript_tail_lines: 200  # Default transcript tail lines to parse
+  pi_transcript_tail_lines: 1000  # Deeper fallback tail for pi transcripts when no assistant text is found
+  transcript_tail_bytes: 1500000  # Byte ceiling on the raw tail; bounds huge-line transcripts
 
-parsight:             # Optional parsight code-memory backend (external CLI + daemon)
-  enabled: true            # Probe for parsight when available; false = never probe
-  binary: parsight          # PATH lookup or absolute path to the parsight CLI
-  timeout_s: 10            # Per-query subprocess timeout in seconds
+# Subagent stop hook (subagent_stop_hook.py).
+subagent_stop_hook:
+  enabled: true  # Set false to disable subagent transcript capture entirely
+  min_messages: null  # Minimum assistant turns before queuing (pi defaults to 1 when unset)
+  excluded_agents: vault-explorer,research-agent  # Comma-separated agent-type skip list (config parser limitation: a string, not a list)
+  transcript_tail_bytes: 1500000  # Byte ceiling on the subagent transcript tail; bounds huge-line rollouts
 
-search:              # vault_search.py backend selection
-  backend: auto            # auto | parsight | embeddings | none
-  use_note_index: true     # Read note metadata from note_index; false walks the filesystem instead
+# Pre-compact hook (pre_compact_hook.py).
+pre_compact_hook:
+  lines: 200  # Transcript lines to analyse
+  transcript_tail_bytes: 1500000  # Byte ceiling on the transcript tail read
 
+# Session summarizer (summarize_sessions.py).
+summarizer:
+  model: null  # Large model for final note generation (null = ai_models.<backend>.large)
+  max_parallel: 5  # Concurrent summarization tasks
+  transcript_tail_lines: 400  # Transcript tail lines to parse
+  transcript_tail_bytes: 262144  # Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts)
+  max_cleaned_chars: 12000  # Cleaned-transcript char budget; longer transcripts are chunk-summarized first
+  ai_timeout: null  # Per-summarizer-prompt timeout in seconds (null = backend default)
+  cluster_model: null  # Small model for hierarchical chunk summarization (null = ai_models.<backend>.small)
+  dedup_threshold: 0.8  # Cosine similarity above which a near-duplicate note is detected and skipped (1.0 disables)
+  dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days each run (<=0 disables)
+  rebuild_graph: false  # Rebuild visualizer graph.json after indexing (same as --rebuild-graph)
+  graph_include_daily: false  # Include Daily notes in graph rebuild (same as --graph-include-daily)
+  graph_incremental: true  # ENH-010: reuse the previous graph and recompute only changed notes; automatic full-rebuild fallback
+  persist: null  # Legacy no-op
+
+# Embeddings / semantic search (build_embeddings.py, vault_search.py). When
+# parsight is installed and healthy, vault semantic search is served by
+# parsight's hybrid retrieval; the local embeddings pipeline remains the
+# always-on silent fallback.
+embeddings:
+  enabled: true  # Set false to disable embedding builds, note_index writes, and auto-rebuild after update_index.py
+  model: BAAI/bge-small-en-v1.5  # ~67 MB ONNX model, cached after first run
+  min_score: 0.45  # Minimum cosine similarity for search results (embeddings backend; parsight gates by rank/top_k)
+  top_k: 10  # Default result count for vault_search.py
+  decay_enabled: true  # Apply temporal decay so newer notes score higher
+  decay_half_life_days: 90.0  # Days for score to decay halfway to decay_min_factor
+  decay_min_factor: 0.5  # Floor multiplier for very old notes (0.0-1.0); prevents scores from vanishing
+  service_enabled: false  # ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while parsight serves retrieval
+  service_idle_exit: 600  # Seconds the embedding service stays alive idle before exiting
+
+# parsight code-memory backend (optional external CLI + always-on daemon;
+# parsight_backend.py, vault_search.py — see docs/PARSIGHT.md). A legacy
+# ``par_mem:`` section is honored as an alias; this canonical section wins per
+# key when both are present.
+parsight:
+  enabled: true  # Probe for parsight when available; false = never probe
+  binary: parsight  # PATH lookup or absolute path to the parsight CLI (falls back to the legacy par-mem name)
+  timeout_s: 10  # Per-query subprocess timeout in seconds
+
+# Vault search backend selection (vault_search.py).
+search:
+  backend: auto  # auto | parsight | embeddings | none (legacy 'par-mem' accepted as an alias for parsight)
+  use_note_index: true  # ENH-004: read note metadata from the note_index DB; false forces filesystem walks (index builders always walk)
+
+# Anthropic-compatible transport/env settings. Keys mirror real env var names
+# so values can be copied directly from env-based configs. Precedence: real
+# environment variable > this section. SECURITY: a real API key or auth token
+# here means this file must NOT be committed to the vault git repo — prefer
+# config.local.yaml (always gitignored) for secret keys. null means the API's
+# own default for that tier; set ANTHROPIC_BASE_URL to route through a trusted
+# gateway.
+anthropic_env:
+  ANTHROPIC_API_KEY: null  # API key forwarded to claude -p (prefer config.local.yaml for secrets)
+  ANTHROPIC_AUTH_TOKEN: null  # Auth token forwarded to claude -p (prefer config.local.yaml for secrets)
+  ANTHROPIC_BASE_URL: null  # null = the real Anthropic endpoint; set to route through a gateway
+  ANTHROPIC_CUSTOM_HEADERS: null  # Extra headers forwarded to claude -p
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001  # null = the API's own haiku-tier default
+  ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-6  # null = the API's own sonnet-tier default
+  ANTHROPIC_DEFAULT_OPUS_MODEL: null  # null = the API's own opus-tier default
+  API_TIMEOUT_MS: 3000000  # Request timeout in milliseconds forwarded to claude -p
+  HTTPS_PROXY: null  # HTTPS proxy forwarded to claude -p
+  HTTP_PROXY: null  # HTTP proxy forwarded to claude -p
+
+# Git integration. When ``auto_commit`` is false, ``git_commit_vault()``
+# returns immediately without staging or committing — disabling all automatic
+# vault git commits across hooks and the summarizer.
 git:
   auto_commit: true  # Auto-commit vault changes after writes
 
-anthropic_env:       # Optional: Anthropic-compatible transport settings
-  ANTHROPIC_API_KEY: null
-  ANTHROPIC_AUTH_TOKEN: null
-  ANTHROPIC_BASE_URL: null   # null = the real Anthropic endpoint; set to route through a gateway
-  ANTHROPIC_CUSTOM_HEADERS: null
-  ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001   # null = the API's own haiku-tier default
-  ANTHROPIC_DEFAULT_SONNET_MODEL: claude-sonnet-4-6          # null = the API's own sonnet-tier default
-  ANTHROPIC_DEFAULT_OPUS_MODEL: null                         # null = the API's own opus-tier default
-  API_TIMEOUT_MS: 3000000
-  HTTPS_PROXY: null
-  HTTP_PROXY: null
+# Legacy centralized model IDs. Only ``haiku_model`` is read — a fallback for
+# scripts that have not migrated to tiers; per-tier overrides for any backend
+# live in ``ai_models.<backend>`` (``sonnet_model`` is no longer read).
+defaults:
+  haiku_model: claude-haiku-4-5-20251001  # Legacy haiku-tier fallback used by session hooks and vault_doctor repair
 
-event_log:           # all hooks — structured JSON event log
-  enabled: true      # Write hook events to hook_events.log
-  max_lines: 10000   # Rotate (keep the second half) when the log exceeds this many lines
-  path: null         # Override log path (null = ~/ParsidionVault/hook_events.log)
+# Hook event log (all hooks — structured JSON events via
+# ``vault_hooks.write_hook_event``).
+event_log:
+  enabled: true  # Write structured JSON events to hook_events.log
+  max_lines: 10000  # Rotate (keep the second half) when the log exceeds this many lines
+  path: null  # Absolute path override (null = <vault>/hook_events.log)
 
-adaptive_context:    # session_start_hook.py — derank notes never referenced by Claude
-  enabled: false     # Track per-note usefulness; derank unreferenced notes over time
-  decay_days: 30     # Days without reference before score decays
+# Adaptive context tracking — derank notes never referenced by the agent
+# (session_start_hook.py, vault_adaptive.py).
+adaptive_context:
+  enabled: false  # Track per-note usefulness; derank unreferenced notes over time
+  decay_days: 30  # ENH-016: half-life (days) of usefulness scores — unused notes derank over time; 0 disables decay
 
-vault:               # Vault identity — used for per-user daily note filenames (team vault sharing)
-  username: ""       # Username suffix for daily notes (DD-{username}.md). Defaults to $USER if blank.
+# Vault identity — used for per-user daily note filenames (team vault
+# sharing).
+vault:
+  username: ""  # Username suffix for daily notes (DD-{username}.md); defaults to $USER if blank
+
+# Agent adapters (agent_adapter.py, ENH-006). External adapter loading is opt-
+# in because loading arbitrary Python is code execution: each file is refused
+# if group/world-writable and every load is logged.
+adapters:
+  load_external: false  # Opt-in: load ~/.config/parsidion/adapters/*.py drop-in AgentAdapter descriptors (permission-checked, logged)
 ```
+<!-- config-reference:end -->
 
 **Model defaults:** Model selection is tier-based: hooks use `ai_models.<backend>.small` and the summarizer uses `ai_models.<backend>.large` for `summarizer.model: null` / `cluster_model: null`. The `defaults` section keeps only the legacy `haiku_model` (a fallback for scripts that have not migrated to tiers; `sonnet_model` is no longer read). Hook scripts (`session_start_hook.py`, `session_stop_hook.py`) use the backend small tier when AI mode is enabled unless `ai_model` is explicitly set. Anthropic-compatible transport settings (API key, base URL, proxy, timeouts) can be defined in `anthropic_env` using their real env var names, with precedence **environment > `anthropic_env` > default behavior**.
 

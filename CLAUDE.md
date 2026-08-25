@@ -243,30 +243,32 @@ Copy it to the vault root to get started:
 cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 ```
 
-Config sections:
+Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_docs.py`; the per-key annotated reference lives in `docs/generated/config-reference.md`):
 
+<!-- config-table:start -->
 | Section | Keys | Used by |
 |---|---|---|
-| `session_start_hook` | `ai_model`, `ai_cooldown_seconds`, `ai_single_flight`, `ai_candidates_max`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings`, `track_delta`, `graph_expand`, `graph_expand_max`, `graph_rerank` | `session_start_hook.py` |
-| `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `transcript_tail_bytes`, `pi_transcript_tail_lines` | `session_stop_hook.py` |
-| `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents`, `transcript_tail_bytes` | `subagent_stop_hook.py` |
-| `pre_compact_hook` | `lines`, `transcript_tail_bytes` | `pre_compact_hook.py` |
-| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental` | `summarize_sessions.py` |
-| `ai` | `backend` (`auto` \| `claude-cli` \| `codex-cli` \| `grok-cli` \| `none`) | `ai_backend.py` — selects which prompt backend the hooks and summarizer use for AI calls |
-| `ai_models` | `claude.{small,large}`, `codex.{small,large}`, `grok.{small,large}` | `ai_backend.py` — per-backend model tiers; `summarizer.model=null` falls back to `<backend>.large` |
-| `claude_cli` | `minimal_context`, `system_prompt`, `timeout` | `ai_backend.py` — `claude -p` invocation; `minimal_context` (default true) replaces the system prompt and runs from a clean cwd so the project CLAUDE.md chain is not ingested |
-| `grok_cli` | `command`, `timeout`, `minimal_context`, `system_prompt` | `ai_backend.py` — `grok` CLI (OAuth login) invocation for `ai.backend: grok-cli`; `minimal_context` (default true) overrides the system prompt and disables tools/skills/web-search ingestion |
-| `codex_cli` | `command`, `timeout`, `sandbox`, `ephemeral`, `skip_git_repo_check`, `suppress_notify` (all three booleans default `true`), `allow_danger_full_access` (default `false`; SEC-117 opt-in required for `sandbox: danger-full-access`) | `ai_backend.py` — only used when `ai.backend` resolves to `codex-cli` |
-| `adapters` | `load_external` (default `false`) | `agent_adapter.py` — opt-in external adapter loading from `~/.config/parsidion/adapters/` (permission-checked, logged; see `docs/AGENT-ADAPTERS.md`) |
-| `defaults` | `haiku_model` | All scripts that call Claude; superseded by `ai_models.<backend>` for tier-specific overrides. (`sonnet_model` is no longer read — use `ai_models.<backend>.large`.) |
-| `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled` (ENH-003 opt-in persistent embedding service; default false, never used under parsight), `service_idle_exit` (daemon idle-exit seconds, default 600) | `build_embeddings.py`, `vault_search.py`, `vault_embed_serve.py` |
-| `parsight` | `enabled`, `binary`, `timeout_s` | `parsight_backend.py`, `vault_search.py` (see `docs/PARSIGHT.md`) |
-| `search` | `backend` (`auto` \| `parsight` \| `embeddings` \| `none`), `use_note_index` (default `true`; `false` makes `find_notes_by_*` walk the filesystem instead of reading `note_index`) | `vault_search.py`, `vault_index.find_notes_by_*` |
-| `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` (real env vars win over this section) | `vault_hooks.env_without_claudecode()` / `vault_hooks._configured_env_defaults()` |
-| `git` | `auto_commit` | `vault_common.git_commit_vault()` |
-| `event_log` | `enabled`, `max_lines`, `path` | `vault_hooks.write_hook_event()` (all hooks). `path` is an absolute-path override (null = `<vault>/hook_events.log`). |
-| `adaptive_context` | `enabled`, `decay_days` (half-life in days of the usefulness-score decay in the session-start rerank; `0` disables decay) | `session_start_hook.py`, `vault_adaptive.py` |
-| `vault` | `username` | daily note filename suffix (`DD-{username}.md`); auto-set by installer to `$USER` |
+| `ai` | `backend` | ai_backend.py |
+| `ai_models` | `claude`, `codex`, `grok` | ai_backend.py |
+| `claude_cli` | `minimal_context`, `system_prompt`, `timeout` | ai_backend.py |
+| `codex_cli` | `command`, `timeout`, `sandbox`, `ephemeral`, `skip_git_repo_check`, `suppress_notify`, `allow_danger_full_access` | ai_backend.py |
+| `grok_cli` | `command`, `timeout`, `minimal_context`, `system_prompt` | ai_backend.py |
+| `session_start_hook` | `ai_model`, `ai_cooldown_seconds`, `ai_single_flight`, `ai_candidates_max`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings`, `track_delta`, `graph_expand`, `graph_expand_max`, `graph_rerank` | session_start_hook.py |
+| `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `pi_transcript_tail_lines`, `transcript_tail_bytes` | session_stop_hook.py, agent_adapter.py |
+| `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents`, `transcript_tail_bytes` | subagent_stop_hook.py |
+| `pre_compact_hook` | `lines`, `transcript_tail_bytes` | pre_compact_hook.py |
+| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental`, `persist` (reserved) | summarize_sessions.py, summarizer/transcript.py |
+| `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled`, `service_idle_exit` | build_embeddings.py, vault_search.py, vault_embed_serve.py |
+| `parsight` | `enabled`, `binary`, `timeout_s` | parsight_backend.py, vault_search.py |
+| `search` | `backend`, `use_note_index` | vault_search.py, vault_index.py |
+| `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` | vault_hooks.py |
+| `git` | `auto_commit` | vault_common.py (vault_fs.git_commit_vault) |
+| `defaults` | `haiku_model` | ai_backend.py |
+| `event_log` | `enabled`, `max_lines`, `path` | vault_hooks.py |
+| `adaptive_context` | `enabled`, `decay_days` | session_start_hook.py, vault_adaptive.py, session_start/seed_selection.py |
+| `vault` | `username` | vault_fs.py, installer |
+| `adapters` | `load_external` | agent_adapter.py |
+<!-- config-table:end -->
 
 The config is parsed by `vault_common.load_config()` (simple stdlib YAML parser — supports
 one level of nesting, inline comments, scalars). Results are cached per process.

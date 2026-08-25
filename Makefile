@@ -38,6 +38,17 @@ parity-fixtures:
 parity-fixtures-check:
 	uv run python scripts/gen_parity_fixtures.py --check
 
+# === ENH-017: Generated config reference ==========================================
+# `make config-docs` regenerates the CLAUDE.md config table, the
+# docs/ARCHITECTURE.md reference block, templates/config.yaml, and the
+# standalone copies under docs/generated/ from core/vault_schema.py field
+# metadata. `make config-docs-check` fails on drift (CI gate).
+config-docs:
+	uv run python scripts/gen_config_docs.py
+
+config-docs-check:
+	uv run python scripts/gen_config_docs.py --check
+
 # === ENH-011: Generated API reference =============================================
 # `make docs-api` regenerates the committed snapshot under docs/api/ from
 # docstrings (pdoc) and JSDoc (typedoc). `make docs-api-check` regenerates to a
@@ -113,7 +124,7 @@ visualizer-check:
 	cd visualizer && bunx tsc --noEmit && bun run lint && bun test && bun run build
 
 # Run all checks in sequence: format check, lint, typecheck, test
-checkall: fmt-check lint typecheck test test-graph visualizer-check checkall-mcp
+checkall: fmt-check lint typecheck test test-graph visualizer-check checkall-mcp config-docs-check
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:

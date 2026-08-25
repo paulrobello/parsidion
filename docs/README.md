@@ -66,3 +66,4 @@ below with its intended audience and purpose.
 - [SECURITY.md](../SECURITY.md) — vulnerability disclosure policy and scope statement
 - [CHANGELOG.md](../CHANGELOG.md) — version history
 - [api/](api/) — generated API reference (Python via pdoc, visualizer TypeScript via typedoc); regenerate with `make docs-api` and check for drift with `make docs-api-check`
+- [generated/](generated/) — generated config reference (config-table.md, config-reference.md) derived from `core/vault_schema.py`; regenerate with `make config-docs` and check for drift with `make config-docs-check`

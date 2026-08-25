@@ -42,6 +42,12 @@ jobs:
         # from build_graph.py / the shared vector contract.
         run: make parity-fixtures-check
 
+      - name: Config docs check
+        # ENH-017: fail if the CLAUDE.md config table, the ARCHITECTURE.md
+        # reference block, or templates/config.yaml drifted from
+        # core/vault_schema.py.
+        run: make config-docs-check
+
       - name: Test
         run: uv run pytest tests/
 

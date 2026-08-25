@@ -1,6 +1,6 @@
 # ENH-017 — Generate the config reference from `vault_schema.py` and gate it in CI
 
-> Status: not started (filed 2026-08-23, Fable audit cycle)
+> Status: done (2026-08-24; kanban 01a0319f53667b309e361ca46733a4e0)
 > Impact: high · Effort: M · Related: DOC-004, DOC-008 (the one-off manual sync this makes permanent), ARC-007 (schema defaults)
 
 ## Goal
