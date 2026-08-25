@@ -427,6 +427,13 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class _RequeueResult(NamedTuple):
+    """Outcome of a --retry-dead-letters pass, split for operator reporting."""
+
+    requeued: int
+    unrecoverable: int
+
+
 def _requeue_dead_letters(
     vault: Path,
     *,
@@ -434,7 +441,7 @@ def _requeue_dead_letters(
     min_age_days: float,
     max_count: int,
     dry_run: bool = False,
-) -> int:
+) -> _RequeueResult:
     """Pull retryable dead-lettered sessions back into the pending queue.
 
     Filters ``dead_letters.jsonl`` by ``last_failure`` prefix (e.g.
@@ -442,8 +449,17 @@ def _requeue_dead_letters(
     ``no_result_*`` cause) and an optional minimum age, REMOVES the matches
     from ``dead_letters.jsonl`` (so ``_dead_lettered_ids`` no longer feeds
     them to ``_early_gate`` and the re-queued session is actually processed),
-    then appends fresh copies to ``pending_summaries.jsonl``. Returns the
-    number re-queued (or the count that WOULD be re-queued when ``dry_run``).
+    then appends fresh copies to ``pending_summaries.jsonl``.
+
+    Matches whose ``transcript_path`` no longer exists (typically a subagent
+    transcript removed with its git worktree) can never succeed — the
+    transcript is the pipeline's only input — so they are never re-queued;
+    they are dropped from ``dead_letters.jsonl`` instead of sitting until
+    ``dead_letter_retention_days`` expires them.
+
+    Returns a ``_RequeueResult``: ``requeued`` is the number re-queued (or
+    the count that WOULD be re-queued when ``dry_run``), ``unrecoverable``
+    the number skipped for a missing transcript.
 
     Most ``no_result`` dead-letters are transient (rate-limit, momentary empty
     response, load) and succeed on a later retry; the permanent 3-strike
@@ -464,16 +480,28 @@ def _requeue_dead_letters(
             if age < timedelta(days=min_age_days):
                 continue
         matches.append(record)
+    recoverable: list[dict[str, object]] = []
+    unrecoverable: list[dict[str, object]] = []
+    for record in matches:
+        transcript = str(record.get("transcript_path") or "")
+        if transcript and Path(transcript).expanduser().is_file():
+            recoverable.append(record)
+        else:
+            unrecoverable.append(record)
     if max_count > 0:
-        matches = matches[:max_count]
+        recoverable = recoverable[:max_count]
     if dry_run:
-        return len(matches)
-    if not matches:
-        return 0
-    session_ids = {str(m.get("session_id", "")) for m in matches}
+        return _RequeueResult(len(recoverable), len(unrecoverable))
+    if unrecoverable:
+        _remove_dead_letters_by_session_ids(
+            vault, {str(r.get("session_id", "")) for r in unrecoverable}
+        )
+    if not recoverable:
+        return _RequeueResult(0, len(unrecoverable))
+    session_ids = {str(m.get("session_id", "")) for m in recoverable}
     _remove_dead_letters_by_session_ids(vault, session_ids)
     requeued = 0
-    for record in matches:
+    for record in recoverable:
         raw_cats = record.get("categories") or []
         categories = (
             {str(c): [] for c in raw_cats} if isinstance(raw_cats, list) else {}
@@ -491,7 +519,7 @@ def _requeue_dead_letters(
             vault=vault,
         )
         requeued += 1
-    return requeued
+    return _RequeueResult(requeued, len(unrecoverable))
 
 
 class _SummarizerOptions(NamedTuple):
@@ -768,7 +796,7 @@ def main() -> None:
     # entries are picked up; removing them from dead_letters.jsonl is what lets
     # _early_gate process them instead of skipping as already-dead-lettered.
     if args.retry_dead_letters:
-        requeued = _requeue_dead_letters(
+        result = _requeue_dead_letters(
             vault_path,
             reason=args.reason,
             min_age_days=args.min_age_days,
@@ -777,11 +805,22 @@ def main() -> None:
         )
         if args.dry_run:
             print(
-                f"[dry-run] would re-queue {requeued} dead-lettered session(s) "
-                f"matching --reason '{args.reason}'."
+                f"[dry-run] would re-queue {result.requeued} dead-lettered "
+                f"session(s) matching --reason '{args.reason}'."
             )
+            if result.unrecoverable:
+                print(
+                    f"[dry-run] would drop {result.unrecoverable} unrecoverable "
+                    "record(s) whose transcript no longer exists."
+                )
             return
-        if requeued == 0:
+        if result.unrecoverable:
+            print(
+                f"Skipped {result.unrecoverable} unrecoverable dead-letter "
+                "record(s): transcript no longer exists (typically removed "
+                "with its worktree); dropped them from dead_letters.jsonl."
+            )
+        if result.requeued == 0:
             print(
                 f"No dead-lettered sessions matching --reason '{args.reason}'"
                 + (
@@ -792,7 +831,10 @@ def main() -> None:
                 + " to retry."
             )
             return
-        print(f"Re-queued {requeued} dead-lettered session(s) into the pending queue.")
+        print(
+            f"Re-queued {result.requeued} dead-lettered session(s) into the "
+            "pending queue."
+        )
 
     # Determine source file
     if args.sessions:

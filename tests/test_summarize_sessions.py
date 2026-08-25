@@ -1677,32 +1677,40 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     vault = tmp_path / "vault"
     vault.mkdir()
+    # Transcripts must exist on disk: records whose transcript is gone are
+    # unrecoverable and never re-queued (see test_summarizer_queue_fixes.py).
+    tx1 = tmp_path / "x.jsonl"
+    tx1.write_text("", encoding="utf-8")
+    tx2 = tmp_path / "y.jsonl"
+    tx2.write_text("", encoding="utf-8")
+    tx3 = tmp_path / "z.jsonl"
+    tx3.write_text("", encoding="utf-8")
     records = [
         {
             "session_id": "s1",
-            "transcript_path": "/tmp/x.jsonl",
+            "transcript_path": str(tx1),
             "project": "p",
             "categories": ["x"],
             "timestamp": "2026-08-01T00:00:00",
             "source": "session",
             "attempts": 3,
-            "last_failure": "no_result: /tmp/x.jsonl",
+            "last_failure": f"no_result: {tx1}",
             "dead_lettered_at": "2026-08-01T00:00:00",
         },
         {
             "session_id": "s2",
-            "transcript_path": "/tmp/y.jsonl",
+            "transcript_path": str(tx2),
             "project": "p",
             "categories": ["x"],
             "timestamp": "2026-08-01T00:00:00",
             "source": "session",
             "attempts": 3,
-            "last_failure": "no_result_timeout: /tmp/y.jsonl",
+            "last_failure": f"no_result_timeout: {tx2}",
             "dead_lettered_at": "2026-08-01T00:00:00",
         },
         {
             "session_id": "s3",
-            "transcript_path": "/tmp/z.jsonl",
+            "transcript_path": str(tx3),
             "project": "p",
             "categories": ["x"],
             "timestamp": "2026-08-01T00:00:00",
@@ -1720,14 +1728,17 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     requeue = summarize_sessions._requeue_dead_letters
 
     # dry-run counts without mutating: 'no_result' prefix matches legacy + timeout
-    assert (
-        requeue(vault, reason="no_result", min_age_days=0, max_count=0, dry_run=True)
-        == 2
+    result = requeue(
+        vault, reason="no_result", min_age_days=0, max_count=0, dry_run=True
     )
+    assert result.requeued == 2
+    assert result.unrecoverable == 0
     assert len(dl.read_text(encoding="utf-8").splitlines()) == 3
 
     # real run moves the 2 no_result entries out of dead_letters, into pending
-    assert requeue(vault, reason="no_result", min_age_days=0, max_count=0) == 2
+    result = requeue(vault, reason="no_result", min_age_days=0, max_count=0)
+    assert result.requeued == 2
+    assert result.unrecoverable == 0
     remaining = [
         json.loads(line)
         for line in dl.read_text(encoding="utf-8").splitlines()
@@ -1745,9 +1756,8 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     assert "attempts" not in moved[0]
 
     # reason filter is a prefix: 'note_validation' now matches the lone survivor
-    assert (
-        requeue(
-            vault, reason="note_validation", min_age_days=0, max_count=0, dry_run=True
-        )
-        == 1
+    result = requeue(
+        vault, reason="note_validation", min_age_days=0, max_count=0, dry_run=True
     )
+    assert result.requeued == 1
+    assert result.unrecoverable == 0

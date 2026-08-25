@@ -6,6 +6,8 @@ Covers:
 - run_all(): progress counter classification (written/skipped/errors)
 - summarize_one(): merge decision with unresolvable/missing target fails with
   the real reason instead of falling through to the generic write path
+- _requeue_dead_letters(): records whose transcript no longer exists are
+  skipped (never re-queued), reported separately, and pruned
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import importlib
 import json
 import sys
 import types
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -525,3 +528,124 @@ def test_summarize_one_purges_dead_lettered_requeue(
     )
 
     assert written == mod._DEAD
+
+
+# ---------------------------------------------------------------------------
+# _requeue_dead_letters: unrecoverable records (transcript gone)
+# ---------------------------------------------------------------------------
+
+
+def _dl_record(
+    sid: str, transcript: str, *, last_failure: str | None = None
+) -> dict[str, object]:
+    """Build a dead_letters.jsonl record for *sid* with *transcript*."""
+    failure = (
+        last_failure if last_failure is not None else f"no_result_timeout: {transcript}"
+    )
+    return {
+        "session_id": sid,
+        "transcript_path": transcript,
+        "project": "p",
+        "categories": ["x"],
+        "timestamp": "2026-08-01T00:00:00",
+        "source": "session",
+        "attempts": 3,
+        "last_failure": failure,
+        "dead_lettered_at": "2026-08-01T00:00:00",
+    }
+
+
+def test_requeue_dead_letters_skips_and_prunes_missing_transcripts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A dead letter whose transcript no longer exists (typically removed
+    with its git worktree) can never succeed: re-queuing it burns a pipeline
+    slot only to fail and re-dead-letter. Such records must be skipped and
+    pruned from dead_letters.jsonl, not re-queued."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    live_a = tmp_path / "live-a.jsonl"
+    live_a.write_text("{}\n", encoding="utf-8")
+    live_b = tmp_path / "live-b.jsonl"
+    live_b.write_text("{}\n", encoding="utf-8")
+    records = [
+        _dl_record("live-a", str(live_a)),
+        _dl_record("gone-a", str(tmp_path / "gone-a.jsonl")),  # never created
+        _dl_record("gone-b", str(tmp_path / "gone-b.jsonl")),  # never created
+        _dl_record("live-b", str(live_b)),
+        _dl_record(
+            "other",
+            str(tmp_path / "other.jsonl"),
+            last_failure="note_validation: write_note returned None",
+        ),
+    ]
+    dl = vault / "dead_letters.jsonl"
+    _write_pending(dl, records)
+    pending = vault / "pending_summaries.jsonl"
+    pending.write_text("", encoding="utf-8")
+
+    requeue = mod._requeue_dead_letters
+
+    # Dry-run counts without mutating: 2 recoverable, 2 unrecoverable.
+    result = requeue(
+        vault, reason="no_result", min_age_days=0, max_count=0, dry_run=True
+    )
+    assert (result.requeued, result.unrecoverable) == (2, 2)
+    assert len(_read_pending_lines(dl)) == 5
+
+    # Real run re-queues only the two live transcripts...
+    result = requeue(vault, reason="no_result", min_age_days=0, max_count=0)
+    assert (result.requeued, result.unrecoverable) == (2, 2)
+    moved = [json.loads(line) for line in _read_pending_lines(pending)]
+    assert {e["session_id"] for e in moved} == {"live-a", "live-b"}
+    # ...and drops the unrecoverable matches from dead_letters.jsonl; only the
+    # record that never matched the reason filter survives.
+    remaining = [json.loads(line) for line in _read_pending_lines(dl)]
+    assert [r["session_id"] for r in remaining] == ["other"]
+
+
+def test_main_retry_dead_letters_dry_run_reports_unrecoverable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The --retry-dead-letters report states the unrecoverable count
+    separately from the re-queue count, so the operator sees why the retry
+    batch is smaller than the file."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    live = tmp_path / "live.jsonl"
+    live.write_text("{}\n", encoding="utf-8")
+    records = [
+        _dl_record("live-1", str(live)),
+        _dl_record("gone-1", str(tmp_path / "gone-1.jsonl")),
+    ]
+    # Fresh timestamps: main() prunes dead letters older than the retention
+    # window (default 7 days) BEFORE the retry pass, and these must survive it.
+    now = datetime.now().isoformat()
+    for record in records:
+        record["dead_lettered_at"] = now
+    _write_pending(vault / "dead_letters.jsonl", records)
+    (vault / "pending_summaries.jsonl").write_text("", encoding="utf-8")
+
+    # A tmp vault is not an allowlisted vault; resolve it like main() would.
+    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "summarize_sessions.py",
+            "--vault",
+            str(vault),
+            "--retry-dead-letters",
+            "--dry-run",
+        ],
+    )
+
+    mod.main()
+
+    out = capsys.readouterr().out
+    assert "would re-queue 1 dead-lettered session(s)" in out
+    assert "1 unrecoverable" in out
