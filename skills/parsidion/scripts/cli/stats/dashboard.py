@@ -132,4 +132,23 @@ def run_dashboard(conn: sqlite3.Connection) -> None:
     else:
         console.print("[dim]No tags found.[/dim]")
 
+    # ENH-019: hook latency table (count / p50 / p95 / max / timeouts over
+    # the last 7 days) with the SessionStart budget warning.
+    try:
+        from cli.stats.operations import (  # noqa: PLC0415
+            _render_latency_table,
+            session_start_budget_warning,
+            summarize_hook_latency,
+        )
+
+        hooks_data = vault_metrics.collect_hooks(500, None)
+        aggregate = summarize_hook_latency(hooks_data.get("events", []), window_days=7)
+        if aggregate:
+            console.print(_render_latency_table(aggregate))
+            warning = session_start_budget_warning(aggregate)
+            if warning:
+                console.print(f"[bold red]{warning}[/bold red]")
+    except Exception:  # noqa: BLE001 — dashboard section is best-effort
+        pass
+
     console.print()

@@ -127,6 +127,7 @@ vault-stats --tags                 # tag frequency cloud
 vault-stats --pending              # pending queue status (count, sources, oldest entry)
 vault-stats --graph                # knowledge graph metrics (avg degree, hubs, orphans)
 vault-stats --hooks 50             # last 50 hook events from hook_events.log
+vault-stats --hooks 20 --hooks-window 7  # per-hook latency table (count/p50/p95/max/timeouts) over N days + SessionStart budget warning; feeds the hook_latency health component
 vault-stats --weekly               # generate weekly rollup note from daily notes
 vault-stats --monthly              # generate monthly rollup note from daily notes
 vault-stats --timeline 90          # activity bar chart for last 90 days

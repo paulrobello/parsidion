@@ -80,12 +80,167 @@ def run_pending(vault: Path | None = None) -> None:
     console.print()
 
 
-def run_hooks(last_n: int = 20, vault: Path | None = None) -> None:
-    """Print the last N events from hook_events.log.
+def summarize_hook_latency(
+    events: list[dict],
+    *,
+    window_days: int | None = 7,
+    timeout_map: dict[str, int] | None = None,
+) -> dict[str, dict[str, float | int]]:
+    """Aggregate per-hook ``duration_ms`` percentiles and timeout counts.
+
+    ENH-019: pure function over the collected events (no vault IO) so
+    ``vault-stats --hooks``, ``--dashboard``, and the health component all
+    share one aggregation. Hooks with no registered timeout never count
+    timeouts (they are async registrations with nothing to exceed).
+
+    Args:
+        events: Hook events ( dicts with ``hook`` and ``duration_ms``).
+        window_days: Drop events whose ``ts`` is older than this many days
+            before aggregating; None keeps everything (bad/missing ``ts``
+            counts as recent).
+        timeout_map: Hook name -> registered timeout in ms. Defaults to
+            :data:`vault_constants.HOOK_TIMEOUTS_MS`.
+
+    Returns:
+        ``{hook: {count, p50_ms, p95_ms, max_ms, timeouts}}`` keyed by hook
+        name, insertion-ordered by first appearance.
+    """
+    from datetime import datetime, timedelta
+
+    if timeout_map is None:
+        from vault_constants import HOOK_TIMEOUTS_MS
+
+        timeout_map = HOOK_TIMEOUTS_MS
+
+    cutoff: datetime | None = None
+    if window_days is not None and window_days > 0:
+        cutoff = datetime.now() - timedelta(days=window_days)
+
+    by_hook: dict[str, list[float]] = {}
+    for event in events:
+        hook = str(event.get("hook") or "")
+        raw = event.get("duration_ms")
+        if not hook or not isinstance(raw, (int, float)):
+            continue
+        if cutoff is not None:
+            ts = event.get("ts")
+            try:
+                when = datetime.fromisoformat(str(ts))
+            except (TypeError, ValueError):
+                when = None
+            if when is not None and when < cutoff:
+                continue
+        by_hook.setdefault(hook, []).append(float(raw))
+
+    out: dict[str, dict[str, float | int]] = {}
+    for hook, durations in by_hook.items():
+        durations.sort()
+        count = len(durations)
+        if count >= 2:
+            # inclusive so the extremes are reachable percentiles
+            qs = _percentiles(durations, (0.50, 0.95))
+            p50, p95 = qs[0], qs[1]
+        else:
+            p50 = p95 = durations[0]
+        timeout_ms = timeout_map.get(hook)
+        timeouts = (
+            sum(1 for d in durations if timeout_ms is not None and d > timeout_ms)
+            if timeout_ms is not None
+            else 0
+        )
+        out[hook] = {
+            "count": count,
+            "p50_ms": int(round(p50)),
+            "p95_ms": int(round(p95)),
+            "max_ms": int(round(durations[-1])),
+            "timeouts": timeouts,
+        }
+    return out
+
+
+def _percentiles(sorted_values: list[float], qs: tuple[float, ...]) -> list[float]:
+    """Inclusive-method percentiles (statistics.quantiles, small-sample safe)."""
+    import statistics
+
+    n = len(sorted_values)
+    out: list[float] = []
+    for q in qs:
+        # statistics.quantiles with n=100 inclusive: index k = q*(n-1)+1
+        try:
+            data = statistics.quantiles(sorted_values, n=100, method="inclusive")
+            out.append(data[min(99, int(round(q * 100)))])
+        except statistics.StatisticsError:
+            out.append(sorted_values[min(n - 1, int(round(q * (n - 1))))])
+    return out
+
+
+def _render_latency_table(aggregate: dict[str, dict[str, float | int]]) -> object:
+    """Build the Rich latency table (or a plain tuple list fallback)."""
+    from rich import box
+    from rich.table import Table
+
+    t = Table(box=box.SIMPLE_HEAD, show_lines=False, title=None)
+    t.add_column("Hook", style="cyan")
+    t.add_column("count", justify="right")
+    t.add_column("p50 ms", justify="right", style="green")
+    t.add_column("p95 ms", justify="right", style="yellow")
+    t.add_column("max ms", justify="right")
+    t.add_column("timeouts", justify="right", style="red")
+    for hook, a in aggregate.items():
+        t.add_row(
+            hook,
+            str(a["count"]),
+            str(a["p50_ms"]),
+            str(a["p95_ms"]),
+            str(a["max_ms"]),
+            str(a["timeouts"]),
+        )
+    return t
+
+
+def session_start_budget_warning(
+    aggregate: dict[str, dict[str, float | int]],
+    *,
+    budget_ratio: float = 0.70,
+    timeout_map: dict[str, int] | None = None,
+) -> str | None:
+    """One-line warning when SessionStart p95 exceeds *budget_ratio* of its timeout."""
+    if timeout_map is None:
+        from vault_constants import HOOK_TIMEOUTS_MS
+
+        timeout_map = HOOK_TIMEOUTS_MS
+    timeout_ms = timeout_map.get("SessionStart")
+    agg = aggregate.get("SessionStart")
+    if not timeout_ms or not agg:
+        return None
+    p95 = float(agg["p95_ms"])  # type: ignore[arg-type]
+    if p95 <= budget_ratio * timeout_ms:
+        return None
+    pct = int(round(100 * p95 / timeout_ms))
+    return (
+        f"⚠ SessionStart p95 {int(p95):,} ms is {pct}% of its "
+        f"{timeout_ms // 1000}s registered timeout — the hook is at risk of "
+        f"being cancelled by the runtime. Slow AI selector or cold code-memory "
+        f"daemon are the usual causes."
+    )
+
+
+def run_hooks(
+    last_n: int = 20,
+    vault: Path | None = None,
+    window_days: int = 7,
+) -> None:
+    """Print the per-hook latency aggregate, then the last N raw events.
+
+    ENH-019: the aggregate table (count / p50 / p95 / max / timeouts over
+    the window, timeouts counted against the registered per-hook timeout)
+    prints above the raw tail, with a budget warning when SessionStart p95
+    exceeds 70% of its 60s timeout.
 
     Args:
         last_n: Number of most-recent events to show.
         vault: Optional vault path. Defaults to resolve_vault().
+        window_days: Aggregation window in days for the latency table.
     """
     from rich.table import Table  # noqa: PLC0415
     from rich import box  # noqa: PLC0415
@@ -105,6 +260,17 @@ def run_hooks(last_n: int = 20, vault: Path | None = None) -> None:
     if not events:
         console.print("[dim]hook_events.log is empty.[/dim]")
         return
+
+    aggregate = summarize_hook_latency(events, window_days=window_days)
+    if aggregate:
+        console.print(
+            f"\n[bold cyan]Hook Latency[/bold cyan] — last "
+            f"{window_days} day(s), over the {len(events)} events shown\n"
+        )
+        console.print(_render_latency_table(aggregate))
+        warning = session_start_budget_warning(aggregate)
+        if warning:
+            console.print(f"\n[bold red]{warning}[/bold red]")
 
     console.print(
         f"\n[bold cyan]Hook Events[/bold cyan] — last {len(events)} of {data['total']} total\n"

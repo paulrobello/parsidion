@@ -251,6 +251,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit JSON (currently applies to --health; other modes keep their native output)",
     )
     parser.add_argument(
+        "--hooks-window",
+        metavar="DAYS",
+        type=int,
+        default=7,
+        help=("Aggregation window (days) for the --hooks latency table (default: 7)"),
+    )
+    parser.add_argument(
         "--fast",
         action="store_true",
         default=False,
@@ -335,7 +342,9 @@ _MODES: dict[str, _ModeEntry] = {
         None,
     ),
     "hooks": (
-        lambda conn, args, vault: run_hooks(args.hooks, vault),
+        lambda conn, args, vault: run_hooks(
+            args.hooks, vault, window_days=args.hooks_window
+        ),
         False,
         None,
     ),

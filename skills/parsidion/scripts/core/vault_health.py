@@ -75,6 +75,9 @@ DIMENSION_WEIGHTS: dict[str, int] = {
     "embedding_coverage": 10,
     "tag_hygiene": 10,
     "file_hygiene": 10,
+    # ENH-019: small weight — latency is an operational risk signal, not a
+    # vault-content quality dimension.
+    "hook_latency": 5,
 }
 
 # Grade bands (Step 2). Applied to the weighted overall score.
@@ -713,6 +716,79 @@ def _build_warnings(note_types: dict[str, int]) -> list[str]:
     return warnings
 
 
+def score_hook_latency(vault: Path) -> DimensionScore:
+    """Score the SessionStart p95 latency against its registered timeout.
+
+    ENH-019: reads hook_events.log through vault_metrics, reuses the stats
+    aggregation, and scores ``100 * (1 - p95/timeout)`` clamped to [0, 100]
+    — a hook at 10% of budget scores 90, at or over budget scores 0. No
+    log / no SessionStart events is neutral (100, no action) so a fresh
+    vault is not penalized. Never raises.
+    """
+    weight = DIMENSION_WEIGHTS["hook_latency"]
+    try:
+        from core import vault_metrics
+
+        data = vault_metrics.collect_hooks(500, vault)
+        if not data.get("exists") or data.get("error"):
+            return DimensionScore(
+                name="hook_latency",
+                score=100,
+                weight=weight,
+                detail="no hook_events.log",
+                action=None,
+            )
+        aggregate = _hook_latency_aggregate(data["events"])
+        agg = aggregate.get("SessionStart")
+        if not agg or not agg["count"]:
+            return DimensionScore(
+                name="hook_latency",
+                score=100,
+                weight=weight,
+                detail="no SessionStart events yet",
+                action=None,
+            )
+        from .vault_constants import HOOK_TIMEOUTS_MS
+
+        timeout_ms = HOOK_TIMEOUTS_MS.get("SessionStart", 60_000)
+        ratio = float(agg["p95_ms"]) / float(timeout_ms)
+        score = max(0, min(100, int(round(100 * (1 - ratio)))))
+        detail = (
+            f"SessionStart p95 {int(agg['p95_ms']):,} ms of "
+            f"{timeout_ms // 1000}s timeout ({int(round(ratio * 100))}% used), "
+            f"{agg['timeouts']} timeout(s)"
+        )
+        action = None
+        if ratio > 0.70:
+            action = (
+                "SessionStart p95 is approaching its timeout — the runtime "
+                "will cancel the hook. Check the AI selector latency or a "
+                "cold code-memory daemon."
+            )
+        return DimensionScore(
+            name="hook_latency",
+            score=score,
+            weight=weight,
+            detail=detail,
+            action=action,
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade, never raise
+        return DimensionScore(
+            name="hook_latency",
+            score=50,
+            weight=weight,
+            detail=f"scan failed: {exc}",
+            action=None,
+        )
+
+
+def _hook_latency_aggregate(events: list[dict]) -> dict[str, dict]:
+    """summarize_hook_latency over a raw event list (lazy import, no cycle)."""
+    from cli.stats.operations import summarize_hook_latency
+
+    return summarize_hook_latency(events, window_days=7)
+
+
 def compute_health_report(
     vault: Path | str | None = None, *, skip_metadata: bool = False
 ) -> HealthReport:
@@ -767,6 +843,7 @@ def compute_health_report(
         score_embedding_coverage(resolved),
         score_tag_hygiene(resolved),
         score_file_hygiene(resolved),
+        score_hook_latency(resolved),
     ]
 
     total_weight = sum(d.weight for d in dimensions)

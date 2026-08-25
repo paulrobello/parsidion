@@ -1,6 +1,6 @@
 # ENH-019 — Hook latency percentiles and a SessionStart budget alert in `vault-stats --hooks`
 
-> Status: not started (filed 2026-08-23, Fable audit cycle)
+> Status: done (2026-08-25; kanban 01a0319f57bd7a31b99fb8d8cf09fb0c)
 > Impact: medium · Effort: S
 
 ## Goal

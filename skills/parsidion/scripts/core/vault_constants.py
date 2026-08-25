@@ -18,6 +18,7 @@ from __future__ import annotations
 
 __all__: list[str] = [
     "TRANSCRIPT_CATEGORY_LABELS",
+    "HOOK_TIMEOUTS_MS",
 ]
 
 TRANSCRIPT_CATEGORY_LABELS: dict[str, str] = {
@@ -25,4 +26,13 @@ TRANSCRIPT_CATEGORY_LABELS: dict[str, str] = {
     "research": "Research Findings",
     "pattern": "Pattern Discovery",
     "config_setup": "Config/Setup",
+}
+
+# ENH-019: per-hook registered timeouts in milliseconds, mirroring
+# installer/paths.py:_HOOK_OPTIONS so the skill can compute hook-latency
+# budget ratios without importing the installer. Hooks absent from this map
+# (SessionEnd, SubagentStop) are registered async — no timeout to exceed.
+# Keep the two definitions in sync when a hook's registration changes.
+HOOK_TIMEOUTS_MS: dict[str, int] = {
+    "SessionStart": 60_000,
 }
