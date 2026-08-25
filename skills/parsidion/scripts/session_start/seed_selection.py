@@ -18,7 +18,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from vault_adaptive import load_usefulness_scores
+from vault_adaptive import decay_factor, effective_score, load_usefulness_scores
+from vault_config import get_config
 from vault_index import all_vault_notes, parse_frontmatter, query_note_index
 
 from .graph_retrieval import _graph_neighbors
@@ -152,6 +153,7 @@ def _rank_candidates(
     """
     usefulness = load_usefulness_scores()
     now = time.time()
+    decay_days = get_config("adaptive_context", "decay_days", 30)
 
     def score_and_mtime(note: Path) -> tuple[float, float]:
         key = str(note)
@@ -161,7 +163,10 @@ def _rank_candidates(
         stats = usefulness.get(note.stem)
         if isinstance(stats, dict):
             net = int(stats.get("hits", 0) or 0) - int(stats.get("misses", 0) or 0)
-            score += float(max(0, min(net, _USEFULNESS_MAX_SCORE)))
+            net = float(max(0, min(net, _USEFULNESS_MAX_SCORE)))
+            # ENH-016: decay the net-usefulness term by time since the
+            # note's last positive use.
+            score += net * decay_factor(stats, now, decay_days)
         try:
             mtime = note.stat().st_mtime
         except OSError:
@@ -191,11 +196,15 @@ def _rank_candidates(
 
 
 def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
-    """Re-rank *notes* by usefulness score (adaptive context #17).
+    """Re-rank *notes* by decayed usefulness score (adaptive context #17).
 
     Notes with a positive hit/miss ratio float to the top; notes that were
-    repeatedly injected but never referenced sink toward the bottom.  Notes
-    with no recorded stats keep their original relative order (stable sort).
+    repeatedly injected but never referenced sink toward the bottom — and,
+    since ENH-016, keep sinking the longer they go unused: the Laplace
+    ratio is multiplied by a half-life decay over ``adaptive_context.decay_days``
+    (default 30; ``0`` disables it and reproduces the pre-decay order).
+    A hit resets the clock, so usefulness recovers on use. Notes with no
+    recorded stats keep their original relative order (stable sort).
 
     Args:
         notes: Candidate note paths in their current order.
@@ -204,23 +213,14 @@ def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
         Re-ranked list of the same paths.
     """
     scores = load_usefulness_scores()
+    now = time.time()
+    decay_days = get_config("adaptive_context", "decay_days", 30)
 
     def _score(path: Path) -> float:
-        """Return a Laplace-smoothed usefulness score in [0, 1] for *path*.
-
-        Looks up the note stem in the loaded usefulness scores and computes
-        ``(hits + 1) / (total + 2)``.  Returns 0.5 (neutral) for notes with
-        no recorded history.
-        """
+        """Decayed Laplace-smoothed usefulness score in [0, 1] for *path*."""
         entry = scores.get(path.stem)
         if not entry:
             return 0.5  # Neutral score for new notes
-        hits: int = entry.get("hits", 0)
-        misses: int = entry.get("misses", 0)
-        total = hits + misses
-        if total == 0:
-            return 0.5
-        # Simple Laplace-smoothed ratio: (hits+1) / (total+2)
-        return (hits + 1) / (total + 2)
+        return effective_score(entry, now, decay_days)
 
     return sorted(notes, key=_score, reverse=True)

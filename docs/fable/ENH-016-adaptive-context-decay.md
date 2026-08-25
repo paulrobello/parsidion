@@ -1,6 +1,6 @@
 # ENH-016 — Implement `adaptive_context.decay_days` (time decay of usefulness scores)
 
-> Status: not started (filed 2026-08-23, Fable audit cycle)
+> Status: done (2026-08-24; kanban 01a0319f518172b0835aec3506deb199)
 > Impact: medium · Effort: S · Related: DOC-004 (marks the key "reserved" until this lands)
 
 ## Goal

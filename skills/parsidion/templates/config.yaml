@@ -219,7 +219,7 @@ event_log:
 # Adaptive context tracking (#17) — derank notes never referenced by Claude
 adaptive_context:
   enabled: false           # Track per-note usefulness; derank unreferenced notes over time
-  decay_days: 30           # RESERVED — not yet read by code (implementation tracked as ENH-016)
+  decay_days: 30           # Half-life (days) of usefulness scores — unused notes derank over time; 0 disables decay
 
 # Vault identity — used for per-user daily note filenames (team vault sharing)
 vault:

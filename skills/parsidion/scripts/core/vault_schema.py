@@ -284,7 +284,9 @@ class AdaptiveContextConfig:
     """``adaptive_context`` section."""
 
     enabled: bool = False
-    decay_days: int | float = None  # reserved (ENH-016), not yet read by code
+    # ENH-016: half-life in days for the usefulness-score decay applied by
+    # session_start's adaptive rerank; <= 0 disables decay.
+    decay_days: int | float = 30
 
 
 @dataclass

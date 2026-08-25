@@ -265,7 +265,7 @@ Config sections:
 | `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` (real env vars win over this section) | `vault_hooks.env_without_claudecode()` / `vault_hooks._configured_env_defaults()` |
 | `git` | `auto_commit` | `vault_common.git_commit_vault()` |
 | `event_log` | `enabled`, `max_lines`, `path` | `vault_hooks.write_hook_event()` (all hooks). `path` is an absolute-path override (null = `<vault>/hook_events.log`). |
-| `adaptive_context` | `enabled`, `decay_days` (reserved — not yet read by code; tracked as ENH-016) | `session_start_hook.py`, `vault_adaptive.py` |
+| `adaptive_context` | `enabled`, `decay_days` (half-life in days of the usefulness-score decay in the session-start rerank; `0` disables decay) | `session_start_hook.py`, `vault_adaptive.py` |
 | `vault` | `username` | daily note filename suffix (`DD-{username}.md`); auto-set by installer to `$USER` |
 
 The config is parsed by `vault_common.load_config()` (simple stdlib YAML parser — supports

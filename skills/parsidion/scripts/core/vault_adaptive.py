@@ -31,6 +31,9 @@ __all__: list[str] = [
     "save_injected_notes",
     "update_usefulness_scores",
     "get_injected_stems",
+    # Time decay (ENH-016)
+    "decay_factor",
+    "effective_score",
 ]
 
 # ---------------------------------------------------------------------------
@@ -205,8 +208,10 @@ def update_usefulness_scores(
     """Update hit/miss counts for notes based on session references.
 
     Notes in *injected_stems* that appear in *referenced_stems* get a hit
-    increment; those not referenced get a miss increment.  Best-effort --
-    never raises.
+    increment; those not referenced get a miss increment.  A hit also
+    refreshes ``last_hit`` — the decay clock of :func:`effective_score` —
+    so a note's usefulness recovers the moment it is used again.
+    Best-effort -- never raises.
 
     Args:
         referenced_stems: Set of note stems mentioned during the session.
@@ -231,3 +236,57 @@ def update_usefulness_scores(
             _atomic_write_json(path, scores)
     except OSError as exc:
         print(f"[parsidion] usefulness-score update skipped: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Time decay (ENH-016) -- adaptive_context.decay_days
+# ---------------------------------------------------------------------------
+
+
+def decay_factor(record: dict, now: float, decay_days: float) -> float:
+    """Half-life decay multiplier for one usefulness record.
+
+    Returns ``0.5 ** (days_since_last_hit / decay_days)`` — a note whose
+    last positive use is one *decay_days* old keeps half its score, two
+    *decay_days* old a quarter. ``decay_days <= 0`` disables decay
+    (returns 1.0), and so does a record with no parseable ``last_hit``
+    (legacy records keep their raw score until their next hit stamps one).
+
+    Args:
+        record: One entry from :func:`load_usefulness_scores`.
+        now: Epoch seconds the decay is computed against.
+        decay_days: Half-life in days (``adaptive_context.decay_days``).
+    """
+    if decay_days is None or decay_days <= 0:
+        return 1.0
+    last_hit = record.get("last_hit")
+    if not last_hit:
+        return 1.0
+    try:
+        ts = datetime.fromisoformat(str(last_hit)).timestamp()
+    except (TypeError, ValueError):
+        return 1.0
+    days = max(0.0, (now - ts) / 86400.0)
+    return 0.5 ** (days / decay_days)
+
+
+def effective_score(record: dict, now: float, decay_days: float) -> float:
+    """Laplace-smoothed usefulness ratio for *record*, decayed by disuse.
+
+    Raw score is ``(hits + 1) / (hits + misses + 2)`` (0.5 for a note with
+    no history); the decay multiplier from :func:`decay_factor` then deranks
+    notes that keep being injected but go unused. A hit resets the clock via
+    ``last_hit``, so usefulness recovers on use.
+
+    Args:
+        record: One entry from :func:`load_usefulness_scores` (empty dict
+            for a note with no history).
+        now: Epoch seconds the decay is computed against.
+        decay_days: Half-life in days; ``<= 0`` disables decay.
+    """
+    hits = int(record.get("hits", 0) or 0)
+    misses = int(record.get("misses", 0) or 0)
+    total = hits + misses
+    if total == 0:
+        return 0.5
+    return ((hits + 1) / (total + 2)) * decay_factor(record, now, decay_days)
