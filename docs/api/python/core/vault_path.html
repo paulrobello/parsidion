@@ -891,7 +891,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
             </section>
                 <section id="VAULT_ROOT">
                     <div class="attr variable">
-            <span class="name">VAULT_ROOT</span><span class="annotation">: pathlib.Path</span>        =
+            <span class="name">VAULT_ROOT</span><span class="annotation">: pathlib._local.Path</span>        =
 <span class="default_value">PosixPath(&#39;<home>/ParsidionVault&#39;)</span>
 
         
@@ -927,7 +927,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
                 </section>
                 <section id="TEMPLATES_DIR">
                     <div class="attr variable">
-            <span class="name">TEMPLATES_DIR</span><span class="annotation">: pathlib.Path</span>        =
+            <span class="name">TEMPLATES_DIR</span><span class="annotation">: pathlib._local.Path</span>        =
 <span class="default_value">PosixPath(&#39;<home>/.claude/skills/parsidion/templates&#39;)</span>
 
         
@@ -939,7 +939,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
                 </section>
                 <section id="SCRIPTS_DIR">
                     <div class="attr variable">
-            <span class="name">SCRIPTS_DIR</span><span class="annotation">: pathlib.Path</span>        =
+            <span class="name">SCRIPTS_DIR</span><span class="annotation">: pathlib._local.Path</span>        =
 <span class="default_value">PosixPath(&#39;<home>/.claude/skills/parsidion/scripts&#39;)</span>
 
         
@@ -952,8 +952,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
                 <section id="VAULT_DIRS">
                     <div class="attr variable">
             <span class="name">VAULT_DIRS</span><span class="annotation">: list[str]</span>        =
-<input id="VAULT_DIRS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="VAULT_DIRS-view-value"></label><span class="default_value">[&#39;Daily&#39;, &#39;Projects&#39;, &#39;Languages&#39;, &#39;Frameworks&#39;, &#39;Patterns&#39;, &#39;Debugging&#39;, &#39;Tools&#39;, &#39;Research&#39;, &#39;Knowledge&#39;, &#39;Templates&#39;, &#39;History&#39;]</span>
+            <span class="default_value">[&#39;Daily&#39;, &#39;Projects&#39;, &#39;Languages&#39;, &#39;Frameworks&#39;, &#39;Patterns&#39;, &#39;Debugging&#39;, &#39;Tools&#39;, &#39;Research&#39;, &#39;Knowledge&#39;, &#39;Templates&#39;, &#39;History&#39;]</span>
 
         
     </div>
@@ -965,7 +964,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
                 <section id="EXCLUDE_DIRS">
                     <div class="attr variable">
             <span class="name">EXCLUDE_DIRS</span><span class="annotation">: set[str]</span>        =
-<span class="default_value">{&#39;.git&#39;, &#39;.trash&#39;, &#39;Templates&#39;, &#39;.obsidian&#39;, &#39;TagsRoutes&#39;}</span>
+<span class="default_value">{&#39;.git&#39;, &#39;.obsidian&#39;, &#39;.trash&#39;, &#39;TagsRoutes&#39;, &#39;Templates&#39;}</span>
 
         
     </div>
@@ -991,7 +990,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">secure_log_dir</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">secure_log_dir</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="secure_log_dir-view-source"><span>View Source</span></label>
 
@@ -1036,7 +1035,7 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">rotate_log_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">log_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">max_lines</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2000</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">rotate_log_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">log_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">max_lines</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2000</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="rotate_log_file-view-source"><span>View Source</span></label>
 
@@ -1103,7 +1102,7 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">get_vaults_config_path</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">get_vaults_config_path</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="get_vaults_config_path-view-source"><span>View Source</span></label>
 
@@ -1149,7 +1148,7 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">list_named_vaults</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span>:</span></span>
+        <span class="name">list_named_vaults</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="list_named_vaults-view-source"><span>View Source</span></label>
 
@@ -1189,7 +1188,7 @@ name-to-path mappings.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">read_vaults_yaml</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>:</span></span>
+        <span class="name">read_vaults_yaml</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="read_vaults_yaml-view-source"><span>View Source</span></label>
 
@@ -1402,7 +1401,7 @@ a fresh template when the file is empty or has no recognised
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">resolve_vault</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">resolve_vault</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="resolve_vault-view-source"><span>View Source</span></label>
 
@@ -1504,7 +1503,7 @@ observable contract both the full and server resolvers must satisfy.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">resolve_vault_server</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">reference</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">resolve_vault_server</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">reference</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="resolve_vault_server-view-source"><span>View Source</span></label>
 
@@ -1613,7 +1612,7 @@ no current project and no inherited runtime environment (ARC-007).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">default_vault_root</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">default_vault_root</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="default_vault_root-view-source"><span>View Source</span></label>
 
@@ -1649,7 +1648,7 @@ using the legacy path so upgrades do not silently create a second vault.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">resolve_templates_dir</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">resolve_templates_dir</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="resolve_templates_dir-view-source"><span>View Source</span></label>
 
@@ -1707,7 +1706,7 @@ the repo source layout and the installed skill location)</li>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">get_embeddings_db_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">get_embeddings_db_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="get_embeddings_db_path-view-source"><span>View Source</span></label>
 
@@ -1745,7 +1744,7 @@ the repo source layout and the installed skill location)</li>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_symlink_inside_vault</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_symlink_inside_vault</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_symlink_inside_vault-view-source"><span>View Source</span></label>
 
@@ -1790,7 +1789,7 @@ value here, so the comparison is not defeated by a symlinked vault root.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_path_inside_vault</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_path_inside_vault</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_path_inside_vault-view-source"><span>View Source</span></label>
 
@@ -1842,7 +1841,7 @@ question used by vault walks, prefer <code><a href="#is_symlink_inside_vault">is
                 <section id="_VAULT_FORBIDDEN_PREFIXES">
                     <div class="attr variable">
             <span class="name">_VAULT_FORBIDDEN_PREFIXES</span><span class="annotation">: tuple[str, ...]</span>        =
-<span class="default_value">(&#39;<home>/.claude&#39;, &#39;/System&#39;, &#39;/usr&#39;, &#39;/bin&#39;, &#39;/sbin&#39;, &#39;/etc&#39;, &#39;<home>/Library&#39;)</span>
+            <span class="default_value">(&#39;<home>/.claude&#39;, &#39;/System&#39;, &#39;/usr&#39;, &#39;/bin&#39;, &#39;/sbin&#39;, &#39;/etc&#39;, &#39;<home>/Library&#39;)</span>
 
         
     </div>
@@ -1856,7 +1855,7 @@ question used by vault walks, prefer <code><a href="#is_symlink_inside_vault">is
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">_validate_vault_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">resolved</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">_validate_vault_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">resolved</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="_validate_vault_path-view-source"><span>View Source</span></label>
 
@@ -1896,7 +1895,7 @@ question used by vault walks, prefer <code><a href="#is_symlink_inside_vault">is
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">_named_vault_paths</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="nb">set</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span>:</span></span>
+        <span class="name">_named_vault_paths</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="nb">set</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="_named_vault_paths-view-source"><span>View Source</span></label>
 
@@ -1931,7 +1930,7 @@ of truth for "which paths may a vault reference resolve to?"</p>
                     <div class="decorator decorator-functools.lru_cache">@functools.lru_cache(maxsize=8)</div>
 
         <span class="def">def</span>
-        <span class="name">_resolve_vault_cached</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">_resolve_vault_cached</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="_resolve_vault_cached-view-source"><span>View Source</span></label>
 

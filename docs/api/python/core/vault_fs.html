@@ -1378,7 +1378,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">try_singleton_lock</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">lock_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>:</span></span>
+        <span class="name">try_singleton_lock</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">lock_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="try_singleton_lock-view-source"><span>View Source</span></label>
 
@@ -1448,7 +1448,7 @@ build that loads a multi-hundred-MB ONNX runtime).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">read_last_n_lines</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">filepath</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">n</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">max_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
+        <span class="name">read_last_n_lines</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">filepath</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">n</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">max_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="read_last_n_lines-view-source"><span>View Source</span></label>
 
@@ -1582,7 +1582,7 @@ most-recent line.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">atomic_write_text</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">content</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">encoding</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;utf-8&#39;</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">atomic_write_text</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">content</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">encoding</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;utf-8&#39;</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="atomic_write_text-view-source"><span>View Source</span></label>
 
@@ -1666,7 +1666,7 @@ so a planted <code>.tmp</code> symlink is never written through (SEC-005).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">write_hook_event</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">hook</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">duration_ms</span><span class="p">:</span> <span class="nb">float</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="o">**</span><span class="n">extra</span><span class="p">:</span> <span class="nb">object</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">write_hook_event</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">hook</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">duration_ms</span><span class="p">:</span> <span class="nb">float</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="o">**</span><span class="n">extra</span><span class="p">:</span> <span class="nb">object</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="write_hook_event-view-source"><span>View Source</span></label>
 
@@ -1801,7 +1801,7 @@ exceeds <code>event_log.max_lines</code> (default: 10 000).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">backup_note</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">note_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">backup_note</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">note_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="backup_note-view-source"><span>View Source</span></label>
 
@@ -1900,7 +1900,7 @@ a single note per merge and has no use for it.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">append_to_pending</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">categories</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span>,</span><span class="param">	<span class="n">force</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;session&#39;</span>,</span><span class="param">	<span class="n">agent_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">append_to_pending</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">categories</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span>,</span><span class="param">	<span class="n">force</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;session&#39;</span>,</span><span class="param">	<span class="n">agent_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="append_to_pending-view-source"><span>View Source</span></label>
 
@@ -2062,7 +2062,7 @@ Guards against duplicates by session ID (transcript filename stem).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">migrate_pending_paths</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>, </span><span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">int</span>:</span></span>
+        <span class="name">migrate_pending_paths</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>, </span><span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">int</span>:</span></span>
 
                 <label class="view-source-button" for="migrate_pending_paths-view-source"><span>View Source</span></label>
 
@@ -2186,7 +2186,7 @@ and rewrites the file with corrected paths.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">git_commit_vault</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">message</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">git_commit_vault</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">message</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="git_commit_vault-view-source"><span>View Source</span></label>
 
@@ -2402,7 +2402,7 @@ multiple team members can share a vault via git without daily-note conflicts.</p
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">today_daily_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">today_daily_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="today_daily_path-view-source"><span>View Source</span></label>
 
@@ -2443,7 +2443,7 @@ resolved by <code><a href="#get_vault_username">get_vault_username()</a></code>.
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">create_daily_note_if_missing</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">create_daily_note_if_missing</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="create_daily_note_if_missing-view-source"><span>View Source</span></label>
 
@@ -2502,7 +2502,7 @@ path to the daily note (whether newly created or already existing).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">append_session_to_daily</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">categories</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span>,</span><span class="param">	<span class="n">first_summary</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">vault_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">append_session_to_daily</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">categories</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span>,</span><span class="param">	<span class="n">first_summary</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">vault_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="append_session_to_daily-view-source"><span>View Source</span></label>
 
@@ -2598,7 +2598,7 @@ other scripts that need to write daily entries can access it.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">ensure_vault_dirs</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">ensure_vault_dirs</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="ensure_vault_dirs-view-source"><span>View Source</span></label>
 
@@ -2666,8 +2666,7 @@ confidentiality class as SEC-007/SEC-110 by restricting the whole root.</p>
                 <section id="TRANSCRIPT_CATEGORY_LABELS">
                     <div class="attr variable">
             <span class="name">TRANSCRIPT_CATEGORY_LABELS</span>        =
-<input id="TRANSCRIPT_CATEGORY_LABELS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="TRANSCRIPT_CATEGORY_LABELS-view-value"></label><span class="default_value">{&#39;error_fix&#39;: &#39;Error Resolution&#39;, &#39;research&#39;: &#39;Research Findings&#39;, &#39;pattern&#39;: &#39;Pattern Discovery&#39;, &#39;config_setup&#39;: &#39;Config/Setup&#39;}</span>
+            <span class="default_value">{&#39;error_fix&#39;: &#39;Error Resolution&#39;, &#39;research&#39;: &#39;Research Findings&#39;, &#39;pattern&#39;: &#39;Pattern Discovery&#39;, &#39;config_setup&#39;: &#39;Config/Setup&#39;}</span>
 
         
     </div>
@@ -2681,7 +2680,7 @@ confidentiality class as SEC-007/SEC-110 by restricting the whole root.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_trusted_executable</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_trusted_executable</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_trusted_executable-view-source"><span>View Source</span></label>
 

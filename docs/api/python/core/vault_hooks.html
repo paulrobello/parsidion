@@ -900,7 +900,7 @@ are re-exported from <code><a href="../vault_common.html">vault_common</a></code
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">apply_configured_env_defaults</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">apply_configured_env_defaults</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="apply_configured_env_defaults-view-source"><span>View Source</span></label>
 
@@ -932,7 +932,7 @@ directly instead of an explicit <code>env=</code> subprocess mapping.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">env_without_claudecode</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>:</span></span>
+        <span class="name">env_without_claudecode</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="env_without_claudecode-view-source"><span>View Source</span></label>
 
@@ -979,8 +979,7 @@ resulting <code>claude -p</code> session can detect and skip internal sessions.<
                 <section id="SAFE_ENV_KEYS">
                     <div class="attr variable">
             <span class="name">SAFE_ENV_KEYS</span><span class="annotation">: frozenset[str]</span>        =
-<input id="SAFE_ENV_KEYS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="SAFE_ENV_KEYS-view-value"></label><span class="default_value">frozenset({&#39;LANG&#39;, &#39;HOME&#39;, &#39;HTTPS_PROXY&#39;, &#39;ANTHROPIC_DEFAULT_OPUS_MODEL&#39;, &#39;TERM&#39;, &#39;PATH&#39;, &#39;LC_ALL&#39;, &#39;ANTHROPIC_AUTH_TOKEN&#39;, &#39;ANTHROPIC_API_KEY&#39;, &#39;HTTP_PROXY&#39;, &#39;API_TIMEOUT_MS&#39;, &#39;ANTHROPIC_DEFAULT_SONNET_MODEL&#39;, &#39;ANTHROPIC_DEFAULT_HAIKU_MODEL&#39;, &#39;USER&#39;, &#39;ANTHROPIC_BASE_URL&#39;, &#39;ANTHROPIC_CUSTOM_HEADERS&#39;, &#39;PARSIGHT_MCP_URL&#39;, &#39;TMPDIR&#39;, &#39;SHELL&#39;})</span>
+            <span class="default_value">frozenset({&#39;ANTHROPIC_API_KEY&#39;, &#39;ANTHROPIC_AUTH_TOKEN&#39;, &#39;ANTHROPIC_BASE_URL&#39;, &#39;ANTHROPIC_CUSTOM_HEADERS&#39;, &#39;ANTHROPIC_DEFAULT_HAIKU_MODEL&#39;, &#39;ANTHROPIC_DEFAULT_OPUS_MODEL&#39;, &#39;ANTHROPIC_DEFAULT_SONNET_MODEL&#39;, &#39;API_TIMEOUT_MS&#39;, &#39;HOME&#39;, &#39;HTTPS_PROXY&#39;, &#39;HTTP_PROXY&#39;, &#39;LANG&#39;, &#39;LC_ALL&#39;, &#39;PARSIGHT_MCP_URL&#39;, &#39;PATH&#39;, &#39;SHELL&#39;, &#39;TERM&#39;, &#39;TMPDIR&#39;, &#39;USER&#39;})</span>
 
         
     </div>
@@ -992,8 +991,7 @@ resulting <code>claude -p</code> session can detect and skip internal sessions.<
                 <section id="_SAFE_ENV_KEYS">
                     <div class="attr variable">
             <span class="name">_SAFE_ENV_KEYS</span><span class="annotation">: frozenset[str]</span>        =
-<input id="_SAFE_ENV_KEYS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="_SAFE_ENV_KEYS-view-value"></label><span class="default_value">frozenset({&#39;LANG&#39;, &#39;HOME&#39;, &#39;HTTPS_PROXY&#39;, &#39;ANTHROPIC_DEFAULT_OPUS_MODEL&#39;, &#39;TERM&#39;, &#39;PATH&#39;, &#39;LC_ALL&#39;, &#39;ANTHROPIC_AUTH_TOKEN&#39;, &#39;ANTHROPIC_API_KEY&#39;, &#39;HTTP_PROXY&#39;, &#39;API_TIMEOUT_MS&#39;, &#39;ANTHROPIC_DEFAULT_SONNET_MODEL&#39;, &#39;ANTHROPIC_DEFAULT_HAIKU_MODEL&#39;, &#39;USER&#39;, &#39;ANTHROPIC_BASE_URL&#39;, &#39;ANTHROPIC_CUSTOM_HEADERS&#39;, &#39;PARSIGHT_MCP_URL&#39;, &#39;TMPDIR&#39;, &#39;SHELL&#39;})</span>
+            <span class="default_value">frozenset({&#39;ANTHROPIC_API_KEY&#39;, &#39;ANTHROPIC_AUTH_TOKEN&#39;, &#39;ANTHROPIC_BASE_URL&#39;, &#39;ANTHROPIC_CUSTOM_HEADERS&#39;, &#39;ANTHROPIC_DEFAULT_HAIKU_MODEL&#39;, &#39;ANTHROPIC_DEFAULT_OPUS_MODEL&#39;, &#39;ANTHROPIC_DEFAULT_SONNET_MODEL&#39;, &#39;API_TIMEOUT_MS&#39;, &#39;HOME&#39;, &#39;HTTPS_PROXY&#39;, &#39;HTTP_PROXY&#39;, &#39;LANG&#39;, &#39;LC_ALL&#39;, &#39;PARSIGHT_MCP_URL&#39;, &#39;PATH&#39;, &#39;SHELL&#39;, &#39;TERM&#39;, &#39;TMPDIR&#39;, &#39;USER&#39;})</span>
 
         
     </div>
@@ -1007,7 +1005,7 @@ resulting <code>claude -p</code> session can detect and skip internal sessions.<
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">write_hook_event</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">hook</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">duration_ms</span><span class="p">:</span> <span class="nb">float</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="o">**</span><span class="n">extra</span><span class="p">:</span> <span class="nb">object</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">write_hook_event</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">hook</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">project</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">duration_ms</span><span class="p">:</span> <span class="nb">float</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="o">**</span><span class="n">extra</span><span class="p">:</span> <span class="nb">object</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="write_hook_event-view-source"><span>View Source</span></label>
 
@@ -1245,7 +1243,7 @@ a <code>type</code> and <code>text</code> field for text blocks).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">allowed_transcript_roots</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span>:</span></span>
+        <span class="name">allowed_transcript_roots</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="allowed_transcript_roots-view-source"><span>View Source</span></label>
 
@@ -1327,7 +1325,7 @@ a <code>type</code> and <code>text</code> field for text blocks).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">codex_home</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">codex_home</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="codex_home-view-source"><span>View Source</span></label>
 
@@ -1349,7 +1347,7 @@ a <code>type</code> and <code>text</code> field for text blocks).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">gemini_home</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">gemini_home</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="gemini_home-view-source"><span>View Source</span></label>
 
@@ -1371,7 +1369,7 @@ a <code>type</code> and <code>text</code> field for text blocks).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_allowed_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_allowed_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_allowed_transcript_path-view-source"><span>View Source</span></label>
 
@@ -1419,7 +1417,7 @@ under an allowed root such as <code>~/.claude/</code>.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_codex_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_codex_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_codex_transcript_path-view-source"><span>View Source</span></label>
 
@@ -1446,7 +1444,7 @@ under an allowed root such as <code>~/.claude/</code>.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_gemini_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_gemini_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_gemini_transcript_path-view-source"><span>View Source</span></label>
 
@@ -1488,7 +1486,7 @@ under an allowed root such as <code>~/.claude/</code>.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">is_pi_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">is_pi_transcript_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">transcript_path</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="is_pi_transcript_path-view-source"><span>View Source</span></label>
 
@@ -1635,8 +1633,7 @@ that need real mutual exclusion use <code>vault_fs.try_singleton_lock</code>
                 <section id="TRANSCRIPT_CATEGORIES">
                     <div class="attr variable">
             <span class="name">TRANSCRIPT_CATEGORIES</span><span class="annotation">: dict[str, list[str]]</span>        =
-<input id="TRANSCRIPT_CATEGORIES-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="TRANSCRIPT_CATEGORIES-view-value"></label><span class="default_value">{&#39;error_fix&#39;: [&#39;fixed&#39;, &#39;the issue was&#39;, &#39;root cause&#39;, &#39;the error&#39;, &#39;resolved by&#39;, &#39;the fix&#39;, &#39;bug was&#39;, &#39;problem was&#39;, &#39;workaround&#39;], &#39;research&#39;: [&#39;found that&#39;, &#39;documentation says&#39;, &#39;according to&#39;, &#39;turns out&#39;, &#39;discovered that&#39;, &#39;learned that&#39;, &#39;it appears&#39;, &#39;the docs say&#39;, &#39;the spec says&#39;], &#39;pattern&#39;: [&#39;pattern&#39;, &#39;approach&#39;, &#39;technique&#39;, &#39;best practice&#39;, &#39;convention&#39;, &#39;idiom&#39;, &#39;architecture&#39;, &#39;design decision&#39;], &#39;config_setup&#39;: [&#39;configured&#39;, &#39;installed&#39;, &#39;set up&#39;, &#39;added to&#39;, &#39;created&#39;, &#39;initialized&#39;, &#39;migrated&#39;, &#39;deployed&#39;]}</span>
+            <span class="default_value">{&#39;error_fix&#39;: [&#39;fixed&#39;, &#39;the issue was&#39;, &#39;root cause&#39;, &#39;the error&#39;, &#39;resolved by&#39;, &#39;the fix&#39;, &#39;bug was&#39;, &#39;problem was&#39;, &#39;workaround&#39;], &#39;research&#39;: [&#39;found that&#39;, &#39;documentation says&#39;, &#39;according to&#39;, &#39;turns out&#39;, &#39;discovered that&#39;, &#39;learned that&#39;, &#39;it appears&#39;, &#39;the docs say&#39;, &#39;the spec says&#39;], &#39;pattern&#39;: [&#39;pattern&#39;, &#39;approach&#39;, &#39;technique&#39;, &#39;best practice&#39;, &#39;convention&#39;, &#39;idiom&#39;, &#39;architecture&#39;, &#39;design decision&#39;], &#39;config_setup&#39;: [&#39;configured&#39;, &#39;installed&#39;, &#39;set up&#39;, &#39;added to&#39;, &#39;created&#39;, &#39;initialized&#39;, &#39;migrated&#39;, &#39;deployed&#39;]}</span>
 
         
     </div>
@@ -1648,8 +1645,7 @@ that need real mutual exclusion use <code>vault_fs.try_singleton_lock</code>
                 <section id="TRANSCRIPT_CATEGORY_LABELS">
                     <div class="attr variable">
             <span class="name">TRANSCRIPT_CATEGORY_LABELS</span>        =
-<input id="TRANSCRIPT_CATEGORY_LABELS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="TRANSCRIPT_CATEGORY_LABELS-view-value"></label><span class="default_value">{&#39;error_fix&#39;: &#39;Error Resolution&#39;, &#39;research&#39;: &#39;Research Findings&#39;, &#39;pattern&#39;: &#39;Pattern Discovery&#39;, &#39;config_setup&#39;: &#39;Config/Setup&#39;}</span>
+            <span class="default_value">{&#39;error_fix&#39;: &#39;Error Resolution&#39;, &#39;research&#39;: &#39;Research Findings&#39;, &#39;pattern&#39;: &#39;Pattern Discovery&#39;, &#39;config_setup&#39;: &#39;Config/Setup&#39;}</span>
 
         
     </div>

@@ -701,7 +701,7 @@ module load. Stdlib-only — no third-party dependencies.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_skill</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">force</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">yes</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">install_skill</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">force</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">yes</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="install_skill-view-source"><span>View Source</span></label>
 
@@ -849,7 +849,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_agents</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_agents</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_agents-view-source"><span>View Source</span></label>
 
@@ -884,7 +884,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_scripts</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_scripts</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_scripts-view-source"><span>View Source</span></label>
 
@@ -921,7 +921,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_cli_tools</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">repo_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_cli_tools</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">repo_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_cli_tools-view-source"><span>View Source</span></label>
 
@@ -978,7 +978,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_claude_vault_md</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_claude_vault_md</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_claude_vault_md-view-source"><span>View Source</span></label>
 
@@ -1034,7 +1034,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_codex_agents_md</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">codex_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_codex_agents_md</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">codex_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_codex_agents_md-view-source"><span>View Source</span></label>
 
@@ -1058,7 +1058,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_gemini_md</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">gemini_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_gemini_md</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">gemini_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_gemini_md-view-source"><span>View Source</span></label>
 
@@ -1082,7 +1082,7 @@ existing install is left untouched. DOC-039.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">remove_codex_agents_md</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">codex_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">remove_codex_agents_md</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">codex_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="remove_codex_agents_md-view-source"><span>View Source</span></label>
 
@@ -1111,7 +1111,7 @@ integration stops loading parsidion instructions every session.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">remove_gemini_md</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">gemini_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">remove_gemini_md</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">gemini_home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="remove_gemini_md-view-source"><span>View Source</span></label>
 
@@ -1140,7 +1140,7 @@ integration stops loading parsidion instructions every session.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">rebuild_index</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">rebuild_index</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="rebuild_index-view-source"><span>View Source</span></label>
 
@@ -1202,7 +1202,7 @@ process group on timeout.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">enable_ai_mode</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">enable_ai_mode</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="enable_ai_mode-view-source"><span>View Source</span></label>
 
@@ -1281,7 +1281,7 @@ YAML section shape.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">cleanup_legacy_assets</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">settings_file</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">cleanup_legacy_assets</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">settings_file</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="cleanup_legacy_assets-view-source"><span>View Source</span></label>
 

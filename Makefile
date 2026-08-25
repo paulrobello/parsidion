@@ -92,31 +92,71 @@ docs-api-check:
 # module-level constants (e.g. installer.paths.REPO_ROOT, vault_path.VAULT_ROOT)
 # which embed the checkout path and $HOME -- machine-specific values that would
 # make the committed snapshot fail docs-api-check on any other machine or CI.
-# pdoc has no flag to suppress default-value rendering and the offending
-# constants derive from __file__/Path.home(), so we scrub the two machine-
-# specific prefixes (repo root first, then home) to stable tokens.
+# pdoc has no flag to suppress default-value rendering, and the machine paths
+# leak into MORE than the visible value text: pdoc's lunr search index stores
+# default_value TOKEN COUNTS (field lengths) and a per-character inverted-index
+# TRIE, both built from the pre-scrubbed strings -- neither reachable by a
+# post-hoc text scrub. pdoc also decides whether to emit its "view-value
+# toggle" widget and its condensed-vs-multiline signature layout from
+# PRE-rendered lengths, so the same source can render differently on machines
+# whose checkout path (or python minor) differs.
 #
-# DOC-003: scrubbing alone is not enough -- pdoc decides whether to emit its
-# "view-value toggle" widget from the PRE-scrubbed length of the rendered
-# default, so a checkout whose absolute path crosses pdoc's threshold (e.g. a
-# deep agent worktree, or /home/runner/work/... in CI) renders different HTML
-# than a shallow one. Importing through a fixed-length symlink fixes the
-# length of every __file__-derived repr; the scrub below still rewrites the
-# token. PYTHONPATH must carry the absolute symlink because os.getcwd()
-# resolves symlinks and would otherwise re-embed the real path.
+# The only airtight fix is to make the generator's INPUT machine-independent:
+# docs-api-gen rsyncs the documented packages to a fixed physical path
+# (PDOC_GEN_ROOT -- a real directory, not a symlink, so constants that call
+# .resolve() themselves, like installer.paths.REPO_ROOT, still land on the
+# fixed path) and runs pdoc with HOME pointed at a fixed empty directory (for
+# Path.home()-derived constants like VAULT_ROOT/TEMPLATES_DIR). Every
+# __file__- and home-derived repr, trie token, and field length is then
+# identical on every machine and in CI; the scrub below merely rewrites the
+# fixed paths to readable <repo-root>/<home> tokens. rsync copies only .py
+# files, so no build artifacts travel. Note that typedoc's GitHub source links
+# still require a normal (non-worktree) checkout -- typedoc cannot resolve the
+# git remote through a worktree's .git file indirection -- so run make
+# docs-api from the main checkout, not an agent worktree.
+#
+# Two further normalizations:
+#
+# - pdoc must run on the SAME python minor as CI: its condensed-vs-multiline
+#   signature layout is a length comparison against the stringified
+#   parameter/annotation reprs, which differ between python minors (e.g. 3.13
+#   vs 3.14 type display), flipping borderline signatures. The docs job in
+#   .github/workflows/ci.yml runs python 3.13, so the pin below keeps every
+#   environment rendering CI's layout; --isolated keeps the pinned interpreter
+#   in an ephemeral cache instead of re-creating the project .venv on machines
+#   whose local default is a newer minor.
+#
+# - set/frozenset default-value reprs iterate in hash order: under
+#   PYTHONHASHSEED=0 the order is stable for a given interpreter build, but
+#   the first pdoc run in some freshly-built uv environments has been
+#   observed with a different (non-seed-0) order, and a plain PYTHONHASHSEED
+#   cannot guarantee cross-build stability. The scrub therefore sorts the
+#   elements of every frozenset({...}) display and of every colon-free brace
+#   group made purely of quoted elements (dict displays contain colons and
+#   keep their insertion order), making the emitted order canonical. It also
+#   strips the cosmetic view-value toggle markup and pins every numeric
+#   default_value lunr field length to 1, so those cannot vary either.
 .PHONY: docs-api-gen
 PDOC_GEN_ROOT := /tmp/parsidion-docs-gen
+PDOC_GEN_HOME := /tmp/parsidion-docs-home
 docs-api-gen:
-	@ln -sfn "$(CURDIR)" $(PDOC_GEN_ROOT)
+	rm -rf $(PDOC_GEN_ROOT) $(PDOC_GEN_HOME)
+	mkdir -p $(PDOC_GEN_ROOT)/skills/parsidion $(PDOC_GEN_HOME)
+	rsync -a --include='*/' --include='*.py' --exclude='*' \
+		"$(CURDIR)/installer" $(PDOC_GEN_ROOT)/
+	rsync -a --include='*/' --include='*.py' --exclude='*' \
+		"$(CURDIR)/skills/parsidion/scripts" $(PDOC_GEN_ROOT)/skills/parsidion/
 	rm -rf $(abspath $(DOCS_API_OUT))
-	PYTHONHASHSEED=0 \
+	PYTHONHASHSEED=0 HOME=$(PDOC_GEN_HOME) \
 		PYTHONPATH=$(PDOC_GEN_ROOT)/skills/parsidion/scripts:$(PDOC_GEN_ROOT) \
-		uv run --extra docs python -m pdoc \
+		uv run --isolated --python 3.13 --extra docs python -P -m pdoc \
 		-o $(abspath $(DOCS_API_OUT))/python $(PDOC_MODULES)
 	cd visualizer && bunx typedoc --out $(abspath $(DOCS_API_OUT))/visualizer \
 		--options typedoc.json
-	find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
-		xargs -0 perl -pi -e 's|\Q$(PDOC_GEN_ROOT)\E|<repo-root>|g; s|\Q$(CURDIR)\E|<repo-root>|g; s|\Q$(HOME)\E|<home>|g'
+	GEN_RESOLVED=$$(realpath $(PDOC_GEN_ROOT) 2>/dev/null || echo $(PDOC_GEN_ROOT)) \
+		HOME_RESOLVED=$$(realpath $(PDOC_GEN_HOME) 2>/dev/null || echo $(PDOC_GEN_HOME)) \
+		find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
+		xargs -0 perl -pi -e '$$ENV{GEN_RESOLVED} ne "" && s|\Q$$ENV{GEN_RESOLVED}\E|<repo-root>|g; s|\Q$(PDOC_GEN_ROOT)\E|<repo-root>|g; s|\Q$(CURDIR)\E|<repo-root>|g; $$ENV{HOME_RESOLVED} ne "" && s|\Q$$ENV{HOME_RESOLVED}\E|<home>|g; s|\Q$(PDOC_GEN_HOME)\E|<home>|g; s|\Q$(HOME)\E|<home>|g; s/<input id="[^"]*view-value" class="view-value-toggle-state"[^>]*>\s*//g; s/<label class="view-value-button pdoc-button" for="[^"]*"><\/label>//g; s/"default_value": \d+/"default_value": 1/g; s!\bfrozenset\(\{([^{}]+)\}\)!do { my $$i=$$1; "frozenset({".join(", ", sort(split(/,\s+/, $$i)))."})" }!ge; s!\{((?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;)(?:,\s*(?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;))*)\}!do { my $$g=$$1; $$g =~ /:/ ? "{".$$g."}" : "{".join(", ", sort(split(/,\s+/, $$g)))."}" }!ge'
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses

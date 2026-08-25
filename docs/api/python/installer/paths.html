@@ -461,8 +461,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="REPO_ROOT">
                     <div class="attr variable">
-            <span class="name">REPO_ROOT</span><span class="annotation">: pathlib.Path</span>        =
-<span class="default_value">PosixPath(&#39;<repo-root>&#39;)</span>
+            <span class="name">REPO_ROOT</span><span class="annotation">: pathlib._local.Path</span>        =
+<span class="default_value">PosixPath(&#39;/private<repo-root>&#39;)</span>
 
         
     </div>
@@ -473,8 +473,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="SKILL_SRC">
                     <div class="attr variable">
-            <span class="name">SKILL_SRC</span><span class="annotation">: pathlib.Path</span>        =
-<span class="default_value">PosixPath(&#39;<repo-root>/skills/parsidion&#39;)</span>
+            <span class="name">SKILL_SRC</span><span class="annotation">: pathlib._local.Path</span>        =
+<span class="default_value">PosixPath(&#39;/private<repo-root>/skills/parsidion&#39;)</span>
 
         
     </div>
@@ -485,8 +485,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="LEGACY_SKILL_SRC">
                     <div class="attr variable">
-            <span class="name">LEGACY_SKILL_SRC</span><span class="annotation">: pathlib.Path</span>        =
-<span class="default_value">PosixPath(&#39;<repo-root>/skills/parsidion-cc&#39;)</span>
+            <span class="name">LEGACY_SKILL_SRC</span><span class="annotation">: pathlib._local.Path</span>        =
+<span class="default_value">PosixPath(&#39;/private<repo-root>/skills/parsidion-cc&#39;)</span>
 
         
     </div>
@@ -497,9 +497,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="AGENT_SRCS">
                     <div class="attr variable">
-            <span class="name">AGENT_SRCS</span><span class="annotation">: list[pathlib.Path]</span>        =
-<input id="AGENT_SRCS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="AGENT_SRCS-view-value"></label><span class="default_value">[PosixPath(&#39;<repo-root>/agents/research-agent.md&#39;), PosixPath(&#39;<repo-root>/agents/vault-explorer.md&#39;), PosixPath(&#39;<repo-root>/agents/project-explorer.md&#39;), PosixPath(&#39;<repo-root>/agents/vault-deduplicator.md&#39;)]</span>
+            <span class="name">AGENT_SRCS</span><span class="annotation">: list[pathlib._local.Path]</span>        =
+            <span class="default_value">[PosixPath(&#39;/private<repo-root>/agents/research-agent.md&#39;), PosixPath(&#39;/private<repo-root>/agents/vault-explorer.md&#39;), PosixPath(&#39;/private<repo-root>/agents/project-explorer.md&#39;), PosixPath(&#39;/private<repo-root>/agents/vault-deduplicator.md&#39;)]</span>
 
         
     </div>
@@ -510,8 +509,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="SCRIPTS_SRC">
                     <div class="attr variable">
-            <span class="name">SCRIPTS_SRC</span><span class="annotation">: pathlib.Path</span>        =
-<span class="default_value">PosixPath(&#39;<repo-root>/scripts&#39;)</span>
+            <span class="name">SCRIPTS_SRC</span><span class="annotation">: pathlib._local.Path</span>        =
+<span class="default_value">PosixPath(&#39;/private<repo-root>/scripts&#39;)</span>
 
         
     </div>
@@ -522,8 +521,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="CLAUDE_VAULT_MD_SRC">
                     <div class="attr variable">
-            <span class="name">CLAUDE_VAULT_MD_SRC</span><span class="annotation">: pathlib.Path</span>        =
-<span class="default_value">PosixPath(&#39;<repo-root>/CLAUDE-VAULT.md&#39;)</span>
+            <span class="name">CLAUDE_VAULT_MD_SRC</span><span class="annotation">: pathlib._local.Path</span>        =
+<span class="default_value">PosixPath(&#39;/private<repo-root>/CLAUDE-VAULT.md&#39;)</span>
 
         
     </div>
@@ -534,8 +533,8 @@ Stdlib-only — no third-party dependencies.</p>
                 </section>
                 <section id="AGENT_INSTRUCTIONS_SRC">
                     <div class="attr variable">
-            <span class="name">AGENT_INSTRUCTIONS_SRC</span><span class="annotation">: pathlib.Path</span>        =
-<span class="default_value">PosixPath(&#39;<repo-root>/skills/parsidion/AGENT_INSTRUCTIONS.md&#39;)</span>
+            <span class="name">AGENT_INSTRUCTIONS_SRC</span><span class="annotation">: pathlib._local.Path</span>        =
+<span class="default_value">PosixPath(&#39;/private<repo-root>/skills/parsidion/AGENT_INSTRUCTIONS.md&#39;)</span>
 
         
     </div>
@@ -547,8 +546,7 @@ Stdlib-only — no third-party dependencies.</p>
                 <section id="VAULT_DIRS">
                     <div class="attr variable">
             <span class="name">VAULT_DIRS</span><span class="annotation">: list[str]</span>        =
-<input id="VAULT_DIRS-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="VAULT_DIRS-view-value"></label><span class="default_value">[&#39;Daily&#39;, &#39;Projects&#39;, &#39;Languages&#39;, &#39;Frameworks&#39;, &#39;Patterns&#39;, &#39;Debugging&#39;, &#39;Tools&#39;, &#39;Research&#39;, &#39;Knowledge&#39;, &#39;Templates&#39;, &#39;History&#39;]</span>
+            <span class="default_value">[&#39;Daily&#39;, &#39;Projects&#39;, &#39;Languages&#39;, &#39;Frameworks&#39;, &#39;Patterns&#39;, &#39;Debugging&#39;, &#39;Tools&#39;, &#39;Research&#39;, &#39;Knowledge&#39;, &#39;Templates&#39;, &#39;History&#39;]</span>
 
         
     </div>
@@ -562,7 +560,7 @@ Stdlib-only — no third-party dependencies.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">validate_vault_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">raw</span><span class="p">:</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">tuple</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>:</span></span>
+        <span class="name">validate_vault_path</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">raw</span><span class="p">:</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">tuple</span><span class="p">[</span><span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>:</span></span>
 
                 <label class="view-source-button" for="validate_vault_path-view-source"><span>View Source</span></label>
 

@@ -847,7 +847,7 @@ Stdlib-only — no third-party dependencies.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">create_vault_dirs</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">create_vault_dirs</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="create_vault_dirs-view-source"><span>View Source</span></label>
 
@@ -877,7 +877,7 @@ Stdlib-only — no third-party dependencies.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">create_templates_symlink</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">templates_src</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">create_templates_symlink</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">templates_src</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="create_templates_symlink-view-source"><span>View Source</span></label>
 
@@ -966,7 +966,7 @@ rather than killing the process mid-install with a traceback.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">configure_vault_gitignore</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">configure_vault_gitignore</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="configure_vault_gitignore-view-source"><span>View Source</span></label>
 
@@ -1053,7 +1053,7 @@ rather than killing the process mid-install with a traceback.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">init_vault_git</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">init_vault_git</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="init_vault_git-view-source"><span>View Source</span></label>
 
@@ -1115,7 +1115,7 @@ rather than killing the process mid-install with a traceback.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">install_vault_post_merge_hook</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">install_vault_post_merge_hook</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">claude_dir</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="install_vault_post_merge_hook-view-source"><span>View Source</span></label>
 
@@ -1204,7 +1204,7 @@ rather than killing the process mid-install with a traceback.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">remove_vault_post_merge_hook</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">remove_vault_post_merge_hook</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="remove_vault_post_merge_hook-view-source"><span>View Source</span></label>
 
@@ -1252,7 +1252,7 @@ rather than killing the process mid-install with a traceback.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">configure_vault_username</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">username</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">configure_vault_username</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">username</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="configure_vault_username-view-source"><span>View Source</span></label>
 
@@ -1336,7 +1336,7 @@ rather than killing the process mid-install with a traceback.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">read_embeddings_enabled</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="o">*</span>, </span><span class="param"><span class="n">default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">read_embeddings_enabled</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="o">*</span>, </span><span class="param"><span class="n">default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
 
                 <label class="view-source-button" for="read_embeddings_enabled-view-source"><span>View Source</span></label>
 
@@ -1383,7 +1383,7 @@ defaults to enabled.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">configure_embeddings</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">configure_embeddings</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="configure_embeddings-view-source"><span>View Source</span></label>
 
@@ -1548,7 +1548,7 @@ named vault configuration.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">record_installed_vault</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">record_installed_vault</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault_root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>, </span><span class="param"><span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="record_installed_vault-view-source"><span>View Source</span></label>
 
@@ -1648,7 +1648,7 @@ common case — there's nothing to persist).</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">migrate_default_vault</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">create_legacy_symlink</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>,</span><span class="param">	<span class="n">home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">int</span>:</span></span>
+        <span class="name">migrate_default_vault</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">create_legacy_symlink</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>,</span><span class="param">	<span class="n">home</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">int</span>:</span></span>
 
                 <label class="view-source-button" for="migrate_default_vault-view-source"><span>View Source</span></label>
 

@@ -592,7 +592,7 @@ interactively (curses TUI) or emitted as JSON.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">find_candidate_clusters</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.75</span>,</span><span class="param">	<span class="n">top</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]</span>:</span></span>
+        <span class="name">find_candidate_clusters</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>,</span><span class="param">	<span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.75</span>,</span><span class="param">	<span class="n">top</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]</span>:</span></span>
 
                 <label class="view-source-button" for="find_candidate_clusters-view-source"><span>View Source</span></label>
 
@@ -636,7 +636,7 @@ to a pure-Python O(n^2) scan otherwise.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">write_conflict_report</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">conflicts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]]</span>, </span><span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">write_conflict_report</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">conflicts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]]</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="write_conflict_report-view-source"><span>View Source</span></label>
 
@@ -677,7 +677,7 @@ writers on the real path.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">read_conflict_report</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]]</span>:</span></span>
+        <span class="name">read_conflict_report</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]]</span>:</span></span>
 
                 <label class="view-source-button" for="read_conflict_report-view-source"><span>View Source</span></label>
 

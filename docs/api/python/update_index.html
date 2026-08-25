@@ -506,27 +506,34 @@ Uses only Python stdlib.</p>
 </span><span id="L-410"><a href="#L-410"><span class="linenos">410</span></a>    <span class="c1"># parsight freshness trigger: when the optional parsight backend resolves,</span>
 </span><span id="L-411"><a href="#L-411"><span class="linenos">411</span></a>    <span class="c1"># kick a detached incremental `parsight index` so the code-memory graph</span>
 </span><span id="L-412"><a href="#L-412"><span class="linenos">412</span></a>    <span class="c1"># tracks the vault without blocking this run (see docs/PARSIGHT.md).</span>
-</span><span id="L-413"><a href="#L-413"><span class="linenos">413</span></a>    <span class="c1"># Independent of embeddings.enabled — parsight is its own index.</span>
-</span><span id="L-414"><a href="#L-414"><span class="linenos">414</span></a>    <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">resolve_parsight_backend</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
-</span><span id="L-415"><a href="#L-415"><span class="linenos">415</span></a>        <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">spawn_background_index</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
-</span><span id="L-416"><a href="#L-416"><span class="linenos">416</span></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;parsight: background index launched&quot;</span><span class="p">)</span>
-</span><span id="L-417"><a href="#L-417"><span class="linenos">417</span></a>
-</span><span id="L-418"><a href="#L-418"><span class="linenos">418</span></a>    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">rebuild_graph</span><span class="p">:</span>
-</span><span id="L-419"><a href="#L-419"><span class="linenos">419</span></a>        <span class="c1"># ENH-010: graph rebuild is incremental by default. The CLI flag is a</span>
-</span><span id="L-420"><a href="#L-420"><span class="linenos">420</span></a>        <span class="c1"># tri-state (None = defer); an explicit --graph-incremental /</span>
-</span><span id="L-421"><a href="#L-421"><span class="linenos">421</span></a>        <span class="c1"># --no-graph-incremental wins, otherwise summarizer.graph_incremental</span>
-</span><span id="L-422"><a href="#L-422"><span class="linenos">422</span></a>        <span class="c1"># decides (default True). build_graph.py falls back to a full rebuild</span>
-</span><span id="L-423"><a href="#L-423"><span class="linenos">423</span></a>        <span class="c1"># if the previous graph is missing/unreadable or was built under</span>
-</span><span id="L-424"><a href="#L-424"><span class="linenos">424</span></a>        <span class="c1"># different parameters, so defaulting to incremental is always safe.</span>
-</span><span id="L-425"><a href="#L-425"><span class="linenos">425</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-426"><a href="#L-426"><span class="linenos">426</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span>
-</span><span id="L-427"><a href="#L-427"><span class="linenos">427</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="L-428"><a href="#L-428"><span class="linenos">428</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config</span><span class="p">(</span><span class="s2">&quot;summarizer&quot;</span><span class="p">,</span> <span class="s2">&quot;graph_incremental&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">))</span>
-</span><span id="L-429"><a href="#L-429"><span class="linenos">429</span></a>        <span class="n">_rebuild_graph</span><span class="p">(</span><span class="n">include_daily</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">graph_include_daily</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="n">incremental</span><span class="p">)</span>
-</span><span id="L-430"><a href="#L-430"><span class="linenos">430</span></a>
-</span><span id="L-431"><a href="#L-431"><span class="linenos">431</span></a>
-</span><span id="L-432"><a href="#L-432"><span class="linenos">432</span></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>  <span class="c1"># pragma: no cover — entry shim</span>
-</span><span id="L-433"><a href="#L-433"><span class="linenos">433</span></a>    <span class="n">main</span><span class="p">()</span>
+</span><span id="L-413"><a href="#L-413"><span class="linenos">413</span></a>    <span class="c1"># Independent of embeddings.enabled — parsight is its own index. Skipped</span>
+</span><span id="L-414"><a href="#L-414"><span class="linenos">414</span></a>    <span class="c1"># when the daemon&#39;s watcher already covers the vault: the watcher</span>
+</span><span id="L-415"><a href="#L-415"><span class="linenos">415</span></a>    <span class="c1"># re-indexes on the very note writes this run produced, so a manual job</span>
+</span><span id="L-416"><a href="#L-416"><span class="linenos">416</span></a>    <span class="c1"># would only queue behind it and contend for the index writer.</span>
+</span><span id="L-417"><a href="#L-417"><span class="linenos">417</span></a>    <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">resolve_parsight_backend</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
+</span><span id="L-418"><a href="#L-418"><span class="linenos">418</span></a>        <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">daemon_watches_vault</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
+</span><span id="L-419"><a href="#L-419"><span class="linenos">419</span></a>            <span class="nb">print</span><span class="p">(</span>
+</span><span id="L-420"><a href="#L-420"><span class="linenos">420</span></a>                <span class="s2">&quot;parsight: daemon watcher covers the vault — skipping background index&quot;</span>
+</span><span id="L-421"><a href="#L-421"><span class="linenos">421</span></a>            <span class="p">)</span>
+</span><span id="L-422"><a href="#L-422"><span class="linenos">422</span></a>        <span class="k">elif</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">spawn_background_index</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
+</span><span id="L-423"><a href="#L-423"><span class="linenos">423</span></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;parsight: background index launched&quot;</span><span class="p">)</span>
+</span><span id="L-424"><a href="#L-424"><span class="linenos">424</span></a>
+</span><span id="L-425"><a href="#L-425"><span class="linenos">425</span></a>    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">rebuild_graph</span><span class="p">:</span>
+</span><span id="L-426"><a href="#L-426"><span class="linenos">426</span></a>        <span class="c1"># ENH-010: graph rebuild is incremental by default. The CLI flag is a</span>
+</span><span id="L-427"><a href="#L-427"><span class="linenos">427</span></a>        <span class="c1"># tri-state (None = defer); an explicit --graph-incremental /</span>
+</span><span id="L-428"><a href="#L-428"><span class="linenos">428</span></a>        <span class="c1"># --no-graph-incremental wins, otherwise summarizer.graph_incremental</span>
+</span><span id="L-429"><a href="#L-429"><span class="linenos">429</span></a>        <span class="c1"># decides (default True). build_graph.py falls back to a full rebuild</span>
+</span><span id="L-430"><a href="#L-430"><span class="linenos">430</span></a>        <span class="c1"># if the previous graph is missing/unreadable or was built under</span>
+</span><span id="L-431"><a href="#L-431"><span class="linenos">431</span></a>        <span class="c1"># different parameters, so defaulting to incremental is always safe.</span>
+</span><span id="L-432"><a href="#L-432"><span class="linenos">432</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-433"><a href="#L-433"><span class="linenos">433</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span>
+</span><span id="L-434"><a href="#L-434"><span class="linenos">434</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="L-435"><a href="#L-435"><span class="linenos">435</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config</span><span class="p">(</span><span class="s2">&quot;summarizer&quot;</span><span class="p">,</span> <span class="s2">&quot;graph_incremental&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">))</span>
+</span><span id="L-436"><a href="#L-436"><span class="linenos">436</span></a>        <span class="n">_rebuild_graph</span><span class="p">(</span><span class="n">include_daily</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">graph_include_daily</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="n">incremental</span><span class="p">)</span>
+</span><span id="L-437"><a href="#L-437"><span class="linenos">437</span></a>
+</span><span id="L-438"><a href="#L-438"><span class="linenos">438</span></a>
+</span><span id="L-439"><a href="#L-439"><span class="linenos">439</span></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>  <span class="c1"># pragma: no cover — entry shim</span>
+</span><span id="L-440"><a href="#L-440"><span class="linenos">440</span></a>    <span class="n">main</span><span class="p">()</span>
 </span></pre></div>
 
 
@@ -536,7 +543,7 @@ Uses only Python stdlib.</p>
 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">pid_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>:</span></span>
+        <span class="name">pid_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">vault</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span>:</span></span>
 
                 <label class="view-source-button" for="pid_file-view-source"><span>View Source</span></label>
 
@@ -709,23 +716,30 @@ usable path.</p>
 </span><span id="main-411"><a href="#main-411"><span class="linenos">411</span></a>    <span class="c1"># parsight freshness trigger: when the optional parsight backend resolves,</span>
 </span><span id="main-412"><a href="#main-412"><span class="linenos">412</span></a>    <span class="c1"># kick a detached incremental `parsight index` so the code-memory graph</span>
 </span><span id="main-413"><a href="#main-413"><span class="linenos">413</span></a>    <span class="c1"># tracks the vault without blocking this run (see docs/PARSIGHT.md).</span>
-</span><span id="main-414"><a href="#main-414"><span class="linenos">414</span></a>    <span class="c1"># Independent of embeddings.enabled — parsight is its own index.</span>
-</span><span id="main-415"><a href="#main-415"><span class="linenos">415</span></a>    <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">resolve_parsight_backend</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
-</span><span id="main-416"><a href="#main-416"><span class="linenos">416</span></a>        <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">spawn_background_index</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
-</span><span id="main-417"><a href="#main-417"><span class="linenos">417</span></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;parsight: background index launched&quot;</span><span class="p">)</span>
-</span><span id="main-418"><a href="#main-418"><span class="linenos">418</span></a>
-</span><span id="main-419"><a href="#main-419"><span class="linenos">419</span></a>    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">rebuild_graph</span><span class="p">:</span>
-</span><span id="main-420"><a href="#main-420"><span class="linenos">420</span></a>        <span class="c1"># ENH-010: graph rebuild is incremental by default. The CLI flag is a</span>
-</span><span id="main-421"><a href="#main-421"><span class="linenos">421</span></a>        <span class="c1"># tri-state (None = defer); an explicit --graph-incremental /</span>
-</span><span id="main-422"><a href="#main-422"><span class="linenos">422</span></a>        <span class="c1"># --no-graph-incremental wins, otherwise summarizer.graph_incremental</span>
-</span><span id="main-423"><a href="#main-423"><span class="linenos">423</span></a>        <span class="c1"># decides (default True). build_graph.py falls back to a full rebuild</span>
-</span><span id="main-424"><a href="#main-424"><span class="linenos">424</span></a>        <span class="c1"># if the previous graph is missing/unreadable or was built under</span>
-</span><span id="main-425"><a href="#main-425"><span class="linenos">425</span></a>        <span class="c1"># different parameters, so defaulting to incremental is always safe.</span>
-</span><span id="main-426"><a href="#main-426"><span class="linenos">426</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="main-427"><a href="#main-427"><span class="linenos">427</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span>
-</span><span id="main-428"><a href="#main-428"><span class="linenos">428</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="main-429"><a href="#main-429"><span class="linenos">429</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config</span><span class="p">(</span><span class="s2">&quot;summarizer&quot;</span><span class="p">,</span> <span class="s2">&quot;graph_incremental&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">))</span>
-</span><span id="main-430"><a href="#main-430"><span class="linenos">430</span></a>        <span class="n">_rebuild_graph</span><span class="p">(</span><span class="n">include_daily</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">graph_include_daily</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="n">incremental</span><span class="p">)</span>
+</span><span id="main-414"><a href="#main-414"><span class="linenos">414</span></a>    <span class="c1"># Independent of embeddings.enabled — parsight is its own index. Skipped</span>
+</span><span id="main-415"><a href="#main-415"><span class="linenos">415</span></a>    <span class="c1"># when the daemon&#39;s watcher already covers the vault: the watcher</span>
+</span><span id="main-416"><a href="#main-416"><span class="linenos">416</span></a>    <span class="c1"># re-indexes on the very note writes this run produced, so a manual job</span>
+</span><span id="main-417"><a href="#main-417"><span class="linenos">417</span></a>    <span class="c1"># would only queue behind it and contend for the index writer.</span>
+</span><span id="main-418"><a href="#main-418"><span class="linenos">418</span></a>    <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">resolve_parsight_backend</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
+</span><span id="main-419"><a href="#main-419"><span class="linenos">419</span></a>        <span class="k">if</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">daemon_watches_vault</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
+</span><span id="main-420"><a href="#main-420"><span class="linenos">420</span></a>            <span class="nb">print</span><span class="p">(</span>
+</span><span id="main-421"><a href="#main-421"><span class="linenos">421</span></a>                <span class="s2">&quot;parsight: daemon watcher covers the vault — skipping background index&quot;</span>
+</span><span id="main-422"><a href="#main-422"><span class="linenos">422</span></a>            <span class="p">)</span>
+</span><span id="main-423"><a href="#main-423"><span class="linenos">423</span></a>        <span class="k">elif</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">spawn_background_index</span><span class="p">(</span><span class="n">vault_path</span><span class="p">):</span>
+</span><span id="main-424"><a href="#main-424"><span class="linenos">424</span></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;parsight: background index launched&quot;</span><span class="p">)</span>
+</span><span id="main-425"><a href="#main-425"><span class="linenos">425</span></a>
+</span><span id="main-426"><a href="#main-426"><span class="linenos">426</span></a>    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">rebuild_graph</span><span class="p">:</span>
+</span><span id="main-427"><a href="#main-427"><span class="linenos">427</span></a>        <span class="c1"># ENH-010: graph rebuild is incremental by default. The CLI flag is a</span>
+</span><span id="main-428"><a href="#main-428"><span class="linenos">428</span></a>        <span class="c1"># tri-state (None = defer); an explicit --graph-incremental /</span>
+</span><span id="main-429"><a href="#main-429"><span class="linenos">429</span></a>        <span class="c1"># --no-graph-incremental wins, otherwise summarizer.graph_incremental</span>
+</span><span id="main-430"><a href="#main-430"><span class="linenos">430</span></a>        <span class="c1"># decides (default True). build_graph.py falls back to a full rebuild</span>
+</span><span id="main-431"><a href="#main-431"><span class="linenos">431</span></a>        <span class="c1"># if the previous graph is missing/unreadable or was built under</span>
+</span><span id="main-432"><a href="#main-432"><span class="linenos">432</span></a>        <span class="c1"># different parameters, so defaulting to incremental is always safe.</span>
+</span><span id="main-433"><a href="#main-433"><span class="linenos">433</span></a>        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="main-434"><a href="#main-434"><span class="linenos">434</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">graph_incremental</span>
+</span><span id="main-435"><a href="#main-435"><span class="linenos">435</span></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="main-436"><a href="#main-436"><span class="linenos">436</span></a>            <span class="n">incremental</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">get_config</span><span class="p">(</span><span class="s2">&quot;summarizer&quot;</span><span class="p">,</span> <span class="s2">&quot;graph_incremental&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">))</span>
+</span><span id="main-437"><a href="#main-437"><span class="linenos">437</span></a>        <span class="n">_rebuild_graph</span><span class="p">(</span><span class="n">include_daily</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">graph_include_daily</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="n">incremental</span><span class="p">)</span>
 </span></pre></div>
 
 
