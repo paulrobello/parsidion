@@ -725,4 +725,32 @@ def validate_config() -> list[str]:
                     f"got {type(value).__name__}"
                 )
 
+    # ENH-018: per-hook transcript tail keys are deprecated for one
+    # release in favour of the unified `transcripts` section. They still
+    # override it; the warning nudges migration. A key sitting at its code
+    # default (as the shipped template shows them) is inert, so only
+    # non-default values warn.
+    _DEPRECATED_TRANSCRIPT_KEYS = (
+        ("session_stop_hook", "transcript_tail_bytes", "transcripts.tail_bytes"),
+        ("session_stop_hook", "transcript_tail_lines", "transcripts.tail_lines"),
+        ("subagent_stop_hook", "transcript_tail_bytes", "transcripts.tail_bytes"),
+        ("pre_compact_hook", "transcript_tail_bytes", "transcripts.tail_bytes"),
+        ("summarizer", "transcript_tail_bytes", "transcripts.tail_bytes"),
+        ("summarizer", "transcript_tail_lines", "transcripts.tail_lines"),
+    )
+
+    _typed_defaults = VaultAppConfig()
+    for section, key, replacement in _DEPRECATED_TRANSCRIPT_KEYS:
+        value = config.get(section, {}).get(key)
+        if value is None:
+            continue
+        default = getattr(getattr(_typed_defaults, section, None), key, None)
+        if default is not None and value == default:
+            continue
+        warnings.append(
+            f"config.yaml: '{section}.{key}' is deprecated; "
+            f"set {replacement} instead (the per-hook key still overrides "
+            f"it for one release)"
+        )
+
     return warnings

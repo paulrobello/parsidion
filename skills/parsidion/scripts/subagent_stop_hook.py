@@ -9,11 +9,11 @@ AI-powered summarisation by ``summarize_sessions.py``.
 
 Differences from session_stop_hook.py:
 - Uses ``agent_transcript_path`` (the subagent's transcript) not ``transcript_path``
-- Reads the transcript tail via the shared byte-bounded reader
-  (``vault_common.read_last_n_lines``); subagent transcripts are no longer
-  read in full after SEC-111 — the project's own vault note records that
-  the "subagents are short" premise is false, and an unbounded read on a
-  newline-free multi-MB file is a memory hazard.
+- Reads the transcript tail via the unified byte-bounded reader
+  (``core/transcript_reader.read_tail``, ENH-018); subagent transcripts
+  are no longer read in full after SEC-111 — the project's own vault note
+  records that the "subagents are short" premise is false, and an unbounded
+  read on a newline-free multi-MB file is a memory hazard.
 - Uses ``agent_id`` as the deduplication key when available
 - Skips daily-note update (too noisy for frequent subagent calls)
 - Does NOT launch the summarizer (deferred to the next SessionEnd)
@@ -44,7 +44,6 @@ _DEFAULT_MIN_MESSAGES_PI = 1
 # alone does not bound memory when a transcript contains a single
 # newline-free multi-MB line. Mirrors the ``summarizer.transcript_tail_bytes``
 # default used by the main summarizer.
-_DEFAULT_TAIL_BYTES = 1_500_000
 read_last_n_lines = vault_common.read_last_n_lines
 
 
@@ -168,12 +167,24 @@ def main() -> None:
         # above.
         tail_bytes: int = int(
             vault_common.get_config(
-                "subagent_stop_hook", "transcript_tail_bytes", _DEFAULT_TAIL_BYTES
+                "subagent_stop_hook",
+                "transcript_tail_bytes",
+                vault_common.load_typed_config().transcripts.tail_bytes,
             )
         )
-        all_lines: list[str] = read_last_n_lines(
-            agent_transcript, n=10_000_000, max_bytes=tail_bytes
-        )
+        # ENH-018: read through the unified byte-bounded reader so a
+        # huge-line rollout keeps its records instead of collapsing to an
+        # empty tail.
+        from core.transcript_reader import read_tail
+
+        all_lines: list[str] = read_tail(
+            agent_transcript,
+            tail_lines=10_000_000,
+            max_bytes=tail_bytes,
+            max_line_bytes=int(
+                vault_common.load_typed_config().transcripts.max_line_bytes
+            ),
+        ).lines
         if not all_lines:
             # ``read_last_n_lines`` swallows OSError and returns []; detect
             # the missing-file case explicitly here so the log line matches

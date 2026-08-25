@@ -1,6 +1,6 @@
 # ENH-018 — One byte-bounded transcript reader for every runtime, with huge-line chunking
 
-> Status: not started (filed 2026-08-23, Fable audit cycle)
+> Status: done (2026-08-25; kanban 01a0319f55ad7873b53c7be4bad35de3)
 > Impact: medium · Effort: M · Depends on: ARC-002 (unified session-end pipeline). Related: SEC-022
 
 ## Goal

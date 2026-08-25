@@ -267,6 +267,7 @@ Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_do
 | `event_log` | `enabled`, `max_lines`, `path` | vault_hooks.py |
 | `adaptive_context` | `enabled`, `decay_days` | session_start_hook.py, vault_adaptive.py, session_start/seed_selection.py |
 | `vault` | `username` | vault_fs.py, installer |
+| `transcripts` | `tail_lines`, `tail_bytes`, `max_line_bytes` | agent_adapter.py, subagent_stop_hook.py, pre_compact_hook.py, summarizer/transcript.py, core/transcript_reader.py |
 | `adapters` | `load_external` | agent_adapter.py |
 <!-- config-table:end -->
 

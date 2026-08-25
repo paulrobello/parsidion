@@ -107,6 +107,9 @@ _ENFORCEMENT_SCOPE = [
     # summarizer/doctor, so they share the stdlib-only contract.
     "prompt_templates",
     "note_schema",
+    # ENH-018: the unified transcript reader is imported (lazily) by every
+    # hook and adapter, so it shares the stdlib-only contract.
+    "transcript_reader",
 ]
 
 

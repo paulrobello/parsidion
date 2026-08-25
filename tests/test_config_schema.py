@@ -150,6 +150,11 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     },
     "adaptive_context": {"enabled": (bool,), "decay_days": (int, float)},
     "vault": {"username": (str,)},
+    "transcripts": {
+        "tail_lines": (int,),
+        "tail_bytes": (int,),
+        "max_line_bytes": (int,),
+    },
     "adapters": {"load_external": (bool,)},
 }
 
@@ -212,7 +217,7 @@ class TestSchemaEquivalence:
         assert vault_config._CONFIG_SCHEMA == vault_config.schema_dict()
 
     def test_section_count_matches(self) -> None:
-        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 20
+        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 21
 
     def test_no_schema_key_dropped_or_added(self) -> None:
         derived = vault_config.schema_dict()

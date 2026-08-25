@@ -1236,6 +1236,16 @@ adaptive_context:
 vault:
   username: ""  # Username suffix for daily notes (DD-{username}.md); defaults to $USER if blank
 
+# Unified transcript tail settings (ENH-018). One byte-bounded reader
+# (``core/transcript_reader.read_tail``) serves every runtime; the per-hook
+# ``transcript_tail_*`` keys still override these for one release but are
+# deprecated — ``validate_config`` warns when they are set. Set per-hook keys
+# to ``null`` to fall back to these values.
+transcripts:
+  tail_lines: 200  # Default transcript tail lines across hooks
+  tail_bytes: 1500000  # Byte ceiling on every transcript tail read; bounds huge-line transcripts
+  max_line_bytes: 262144  # A JSONL line longer than this is kept with its long string fields truncated (256 KiB default)
+
 # Agent adapters (agent_adapter.py, ENH-006). External adapter loading is opt-
 # in because loading arbitrary Python is code execution: each file is refused
 # if group/world-writable and every load is logged.

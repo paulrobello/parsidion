@@ -64,6 +64,7 @@ __all__ = [
     "EventLogConfig",
     "AdaptiveContextConfig",
     "VaultSectionConfig",
+    "TranscriptsConfig",
     "AdaptersConfig",
     "VaultAppConfig",
     "schema_dict",
@@ -897,6 +898,37 @@ class AdaptiveContextConfig:
 
 
 @dataclass
+class TranscriptsConfig:
+    """Unified transcript tail settings (ENH-018). One byte-bounded reader
+    (``core/transcript_reader.read_tail``) serves every runtime; the
+    per-hook ``transcript_tail_*`` keys still override these for one
+    release but are deprecated — ``validate_config`` warns when they are
+    set. Set per-hook keys to ``null`` to fall back to these values."""
+
+    tail_lines: int = field(
+        default=200,
+        metadata={
+            "doc": "Default transcript tail lines across hooks",
+            "read_by": "agent_adapter.py",
+        },
+    )
+    tail_bytes: int = field(
+        default=1_500_000,
+        metadata={
+            "doc": "Byte ceiling on every transcript tail read; bounds huge-line transcripts",
+            "read_by": "agent_adapter.py, subagent_stop_hook.py, pre_compact_hook.py, summarizer/transcript.py",
+        },
+    )
+    max_line_bytes: int = field(
+        default=262_144,
+        metadata={
+            "doc": "A JSONL line longer than this is kept with its long string fields truncated (256 KiB default)",
+            "read_by": "core/transcript_reader.py",
+        },
+    )
+
+
+@dataclass
 class VaultSectionConfig:
     """Vault identity — used for per-user daily note filenames (team vault
     sharing)."""
@@ -981,6 +1013,7 @@ class VaultAppConfig:
         default_factory=lambda: AdaptiveContextConfig()
     )
     vault: VaultSectionConfig = field(default_factory=lambda: VaultSectionConfig())
+    transcripts: TranscriptsConfig = field(default_factory=lambda: TranscriptsConfig())
     adapters: AdaptersConfig = field(default_factory=lambda: AdaptersConfig())
 
     @classmethod

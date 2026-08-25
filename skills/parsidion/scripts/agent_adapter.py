@@ -467,16 +467,34 @@ _SIGNIFICANT_CATEGORIES = {"error_fix", "research", "pattern"}
 
 
 def _read_transcript_tail(path: Path, tail_lines: int) -> list[str]:
-    """Read the last *tail_lines* of a transcript, bounded by ``transcript_tail_bytes``.
+    """Read the last *tail_lines* of a transcript through the unified reader.
 
     Shared default ``AgentAdapter.read_transcript_tail`` implementation
-    (ARC-002 step 3): the byte-bounded reader the Claude path has always used,
-    now applied to every runtime's session-end read.
+    (ARC-002 step 3, ENH-018): every runtime's session-end read goes through
+    ``core.transcript_reader.read_tail``, so the byte bound and huge-line
+    chunking behave identically for Claude, Codex, Gemini, pi, and omp.
+    Byte budget: the per-hook ``session_stop_hook.transcript_tail_bytes``
+    override when explicitly set, else the ``transcripts.tail_bytes`` key,
+    else the built-in default.
     """
-    tail_bytes = int(
-        vault_common.load_typed_config().session_stop_hook.transcript_tail_bytes
-    )
-    return vault_common.read_last_n_lines(path, tail_lines, max_bytes=tail_bytes)
+    from core.transcript_reader import read_tail
+
+    cfg = vault_common.load_typed_config()
+    raw_section = vault_common.load_config().get("session_stop_hook") or {}
+    override = raw_section.get("transcript_tail_bytes")
+    if override is None:
+        # No explicit per-hook override: the unified transcripts key drives
+        # the byte budget. When the per-hook key IS set it wins (deprecated
+        # override, ENH-018).
+        tail_bytes = int(cfg.transcripts.tail_bytes)
+    else:
+        tail_bytes = int(cfg.session_stop_hook.transcript_tail_bytes)
+    return read_tail(
+        path,
+        tail_lines=tail_lines,
+        max_bytes=tail_bytes,
+        max_line_bytes=int(cfg.transcripts.max_line_bytes),
+    ).lines
 
 
 def _classify_session_with_ai(
@@ -1039,13 +1057,17 @@ def run_session_end(
         # transcripts are short, so they get a large line ceiling (the byte
         # cap below is the real bound); session transcripts read the
         # configured tail via the adapter's reader (SEC-022/SEC-111).
-        tail_lines = (
-            _DEFAULT_SUBAGENT_TAIL_LINES
-            if subagent
-            else int(
-                vault_common.load_typed_config().session_stop_hook.transcript_tail_lines
-            )
-        )
+        # Line budget: the per-hook override when explicitly set, else the
+        # unified transcripts.tail_lines (ENH-018).
+        _cfg = vault_common.load_typed_config()
+        _raw_ssh = vault_common.load_config().get("session_stop_hook") or {}
+        _lines_override = _raw_ssh.get("transcript_tail_lines")
+        if subagent:
+            tail_lines = _DEFAULT_SUBAGENT_TAIL_LINES
+        elif _lines_override is None:
+            tail_lines = int(_cfg.transcripts.tail_lines)
+        else:
+            tail_lines = int(_cfg.session_stop_hook.transcript_tail_lines)
         raw_lines = (
             _read_transcript_tail(transcript_path, tail_lines)
             if subagent

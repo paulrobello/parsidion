@@ -99,6 +99,7 @@ py-modules = [
     "vault_search",
     "vault_stats",
     "vault_tui",
+  "transcript_reader",
 ]
 
 # Subpackages under skills/parsidion/scripts/ — discovered by find so a new

@@ -301,7 +301,6 @@ def append_snapshot_to_daily(
 
 _DEFAULT_LINES = 200
 # SEC-111: byte ceiling mirroring session_stop_hook / subagent_stop_hook.
-_DEFAULT_TAIL_BYTES = 1_500_000
 
 
 def main() -> None:
@@ -364,12 +363,20 @@ def main() -> None:
                     vault_common.get_config(
                         "pre_compact_hook",
                         "transcript_tail_bytes",
-                        _DEFAULT_TAIL_BYTES,
+                        vault_common.load_typed_config().transcripts.tail_bytes,
                     )
                 )
-                raw_lines: list[str] = read_last_n_lines(
-                    transcript_path, lines, max_bytes=tail_bytes
-                )
+                # ENH-018: unified byte-bounded reader (huge-line safe).
+                from core.transcript_reader import read_tail
+
+                raw_lines: list[str] = read_tail(
+                    transcript_path,
+                    tail_lines=lines,
+                    max_bytes=tail_bytes,
+                    max_line_bytes=int(
+                        vault_common.load_typed_config().transcripts.max_line_bytes
+                    ),
+                ).lines
                 task_summary = extract_user_task(raw_lines)
                 recent_files = extract_file_paths(raw_lines, cwd=cwd)
 

@@ -148,10 +148,31 @@ def preprocess_transcript(
     if not transcript_path.is_file():
         return ""
 
+    # ENH-018: the unified byte-bounded reader. A transcript whose single
+    # JSONL line exceeds the byte budget keeps its records (long string
+    # fields truncated) instead of collapsing to an empty tail — the
+    # "No result" dead-letter class.
+    from core.transcript_reader import read_tail
+
     try:
-        tail = vault_common.read_last_n_lines(transcript_path, tail_lines, tail_bytes)
+        tail_result = read_tail(
+            transcript_path,
+            tail_lines=tail_lines,
+            max_bytes=tail_bytes or 0,
+            max_line_bytes=int(
+                vault_common.load_typed_config().transcripts.max_line_bytes
+            ),
+        )
     except OSError:
         return ""
+    if tail_result.oversized_lines:
+        print(
+            f"[summarizer] {transcript_path.name}: "
+            f"{tail_result.oversized_lines} oversized line(s) field-truncated "
+            f"(window {tail_result.bytes_read} bytes)",
+            file=sys.stderr,
+        )
+    tail = tail_result.lines
 
     pairs: list[str] = []
 
