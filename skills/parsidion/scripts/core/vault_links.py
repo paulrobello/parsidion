@@ -27,6 +27,7 @@ __all__ = [
     "add_backlinks_to_existing",
     "sub_wikilinks_outside_code",
     "replace_wikilinks_outside_code",
+    "replace_plain_paths_outside_code",
     "strip_unresolved_wikilinks",
     # QA-005 / ARC-012: stdlib modules (re, os, subprocess) are deliberately
     # NOT re-exported -- callers ``import re`` etc. directly. The single
@@ -176,6 +177,51 @@ def replace_wikilinks_outside_code(content: str, replacements: dict[str, str]) -
         return f"[[{new_stem}{suffix}]]"
 
     new_content, _ = sub_wikilinks_outside_code(content, pattern, _repl)
+    return new_content
+
+
+# Boundary guards for plain-path rewriting: a body reference only matches
+# when the whole path (including the ``.md`` extension) equals an old path in
+# the rename map. The character before the match must not be a path/word
+# character, so the vault-relative form is never rewritten inside a longer
+# path under a different root (``/other/vault/Debugging/foo.md``) or inside a
+# URL (``file:///…``). The character after the match must not be a word or
+# path-segment character, so ``foo.md2``-style longer names are left alone
+# while sentence punctuation (``)``, ``].``, EOL) still matches.
+_PATH_BOUNDARY_BEFORE = r"(?<![\w/.-])"
+_PATH_BOUNDARY_AFTER = r"(?![\w/])"
+
+
+def replace_plain_paths_outside_code(content: str, path_map: dict[str, str]) -> str:
+    """Rewrite plain filesystem-path references to renamed notes.
+
+    Companion to :func:`replace_wikilinks_outside_code`: notes that cite a
+    renamed note by absolute (``<vault>/Debugging/foo.md``) or
+    vault-relative (``Debugging/foo.md``) path rather than a ``[[wikilink]]``
+    would otherwise keep pointing at the pre-rename location. Only
+    whole-path references ending in ``.md`` that exactly equal an old path
+    in *path_map* are rewritten, so paths outside the rename set and
+    ordinary prose are never touched. Text inside code fences and inline
+    code spans is left untouched, matching the wikilink pass.
+    """
+    if not path_map:
+        return content
+    # Longest-first so a path that is a prefix of another matches its own
+    # full form first (the boundary guards reject the shorter inside the
+    # longer, but explicit ordering removes any alternation ambiguity).
+    ordered = sorted(path_map, key=len, reverse=True)
+    # The non-capturing group is required: without it the lookbehind would
+    # guard only the first alternative and the lookahead only the last.
+    pattern = re.compile(
+        _PATH_BOUNDARY_BEFORE
+        + "(?:"
+        + "|".join(re.escape(old) for old in ordered)
+        + ")"
+        + _PATH_BOUNDARY_AFTER
+    )
+    new_content, _ = sub_wikilinks_outside_code(
+        content, pattern, lambda m: path_map[m.group(0)]
+    )
     return new_content
 
 

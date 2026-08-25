@@ -400,3 +400,38 @@ class TestVaultSearchSeparator:
         assert "--" in argv
         separator_idx = argv.index("--")
         assert argv[separator_idx + 1 :] == ["[[--help]]"]
+
+
+class TestStripPrefixesPlainPathRewrite:
+    """run_strip_prefixes must rewrite plain-path body references, not just
+    wikilinks — the same gap migrate-subfolders had (kanban 01a0373655)."""
+
+    def test_plain_path_references_rewritten_with_strip(self, vault: Path) -> None:
+        target = _write_note(vault, "Projects/myapp/myapp-overview.md", "# Overview\n")
+        old_abs = str(target)
+        foreign = "/other/vault/Projects/myapp/myapp-overview.md"
+        citing = _write_note(
+            vault,
+            "Patterns/ops-notes.md",
+            "# Ops\n\n"
+            f"Draft at {old_abs} (absolute) and at "
+            "Projects/myapp/myapp-overview.md (relative).\n"
+            f"Foreign copy: {foreign} stays as-is.\n"
+            "See also [[myapp-overview]].\n",
+        )
+
+        vault_doctor.run_strip_prefixes(
+            dry_run=False, vault_path=vault, auto_reindex=False
+        )
+
+        new_abs = str(vault / "Projects" / "myapp" / "overview.md")
+        updated = citing.read_text(encoding="utf-8")
+        # Absolute and vault-relative citations now point at the new location
+        assert new_abs in updated
+        assert "at Projects/myapp/overview.md (relative)" in updated
+        assert old_abs not in updated
+        assert "myapp-overview.md (relative)" not in updated
+        # A different root ending in the same relative path is NOT our note
+        assert foreign in updated
+        # The wikilink pass keeps working alongside the plain-path pass
+        assert "[[overview]]" in updated

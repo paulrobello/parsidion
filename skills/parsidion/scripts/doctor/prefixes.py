@@ -4,7 +4,7 @@ Extracted from the original ``vault_doctor.py`` (ARC-008 / QA-003).
 
 Renames notes like ``Projects/cctmux/cctmux-overview.md`` to
 ``Projects/cctmux/overview.md`` (the subfolder already namespaces the note),
-then patches wikilinks vault-wide.
+then patches wikilinks and plain filesystem-path references vault-wide.
 
 Stdlib-only.
 """
@@ -57,7 +57,8 @@ def run_strip_prefixes(
 ) -> None:
     """Strip redundant subfolder prefixes from note filenames.
 
-    Renames files and updates all wikilinks vault-wide.
+    Renames files and updates all wikilinks and plain-path references
+    vault-wide.
 
     Args:
         dry_run: When True, only report — do not modify any files.
@@ -111,7 +112,23 @@ def run_strip_prefixes(
     # Build stem remapping for wikilink patching — only stems that actually renamed
     stem_map: dict[str, str] = {old.stem: new.stem for old, new in renamed}
 
-    # Patch wikilinks vault-wide (including in the renamed files)
+    # Plain-path reference map for body prose that cites a renamed note by
+    # filesystem path rather than [[wikilink]]. Both the absolute and the
+    # vault-relative form of each rename are mapped so either citation style
+    # stays valid after the strip.
+    path_map: dict[str, str] = {}
+    for old_path, new_path in renamed:
+        path_map[str(old_path)] = str(new_path)
+        try:
+            path_map[str(old_path.relative_to(vault_path))] = str(
+                new_path.relative_to(vault_path)
+            )
+        except ValueError:
+            # Note outside the active vault — only the absolute form applies.
+            pass
+
+    # Patch wikilinks and plain path references vault-wide (including in the
+    # renamed files)
     patched_notes = 0
     current_notes = list(vault_common.all_vault_notes_walk(vault_path))
     for note in current_notes:
@@ -121,6 +138,7 @@ def run_strip_prefixes(
             continue
         original = content
         content = vault_links.replace_wikilinks_outside_code(content, stem_map)
+        content = vault_links.replace_plain_paths_outside_code(content, path_map)
         if content != original:
             _backup_note(vault_path, note)
             vault_fs.atomic_write_text(note, content)
@@ -131,7 +149,7 @@ def run_strip_prefixes(
         vault=vault_path,
     )
     print(
-        f"Renamed {len(renamed)} file(s), patched wikilinks in {patched_notes} note(s)."
+        f"Renamed {len(renamed)} file(s), patched references in {patched_notes} note(s)."
     )
     if auto_reindex:
         _run_reindex(vault_path)
