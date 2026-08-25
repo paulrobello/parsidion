@@ -32,6 +32,7 @@ from .vault_hooks import env_without_claudecode, write_hook_event
 from .vault_path import get_embeddings_db_path, is_path_inside_vault, resolve_vault
 
 __all__: list[str] = [
+    "daemon_watches_vault",
     "doc_links_raw",
     "ensure_vault_indexed",
     "find_code_raw",
@@ -250,6 +251,20 @@ def _daemon_watches_vault(vault: Path) -> bool:
         )
     except Exception:  # noqa: BLE001 — contract: never raises
         return False
+
+
+def daemon_watches_vault(vault: Path | None = None) -> bool:
+    """Public gate for callers deciding whether to spawn a manual index.
+
+    Same probe and fail-open contract as :func:`_daemon_watches_vault`
+    (False on any failure — unknown coverage never suppresses a manual
+    index); exported so update_index.py's end-of-run trigger can skip its
+    spawn when the daemon's watcher already re-indexes the vault on every
+    note write.
+    """
+    if vault is None:
+        vault = resolve_vault()
+    return _daemon_watches_vault(vault)
 
 
 def _resolve_binary(vault: Path | None = None) -> str | None:

@@ -42,7 +42,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import vault_common  # noqa: E402
 
-from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
+from tests.fake_parsight import FakeHealth, FakeMcpDaemon, FakeParsight  # noqa: E402
 
 
 @pytest.fixture()
@@ -121,6 +121,20 @@ def fake_parsight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeParsig
     fake.install()
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     return fake
+
+
+@pytest.fixture()
+def mcp_daemon(monkeypatch: pytest.MonkeyPatch) -> Generator[FakeMcpDaemon]:
+    """Serve /health plus a minimal MCP endpoint; point PARSIGHT_MCP_URL at it.
+
+    Unlike ``fake_parsight_health`` (health only — every POST fails, so the
+    watch-coverage probe degrades to "unknown"), this daemon answers the
+    probe, letting tests pin both the skip path and the spawn-anyway path.
+    """
+    daemon = FakeMcpDaemon().start()
+    monkeypatch.setenv("PARSIGHT_MCP_URL", daemon.url)
+    yield daemon
+    daemon.stop()
 
 
 @pytest.fixture()

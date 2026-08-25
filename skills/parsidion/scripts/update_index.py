@@ -410,9 +410,16 @@ def main() -> None:
     # parsight freshness trigger: when the optional parsight backend resolves,
     # kick a detached incremental `parsight index` so the code-memory graph
     # tracks the vault without blocking this run (see docs/PARSIGHT.md).
-    # Independent of embeddings.enabled — parsight is its own index.
+    # Independent of embeddings.enabled — parsight is its own index. Skipped
+    # when the daemon's watcher already covers the vault: the watcher
+    # re-indexes on the very note writes this run produced, so a manual job
+    # would only queue behind it and contend for the index writer.
     if parsight_backend.resolve_parsight_backend(vault_path):
-        if parsight_backend.spawn_background_index(vault_path):
+        if parsight_backend.daemon_watches_vault(vault_path):
+            print(
+                "parsight: daemon watcher covers the vault — skipping background index"
+            )
+        elif parsight_backend.spawn_background_index(vault_path):
             print("parsight: background index launched")
 
     if args.rebuild_graph:

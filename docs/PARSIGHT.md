@@ -136,10 +136,13 @@ final ordering therefore matches parsight's returned rank.
   changes/commits that made the index stale, and a manual job would only
   queue behind it and contend for the index writer).
 - **Rebuild trigger:** `update_index.py` ends its run by launching a
-  background `parsight index --no-wait` when the backend resolves
-  (summarizer note writes call `rebuild_index()` and inherit this);
-  `--no-wait` submits the job and exits immediately, so the detached CLI
-  never sits polling a daemon job. NDJSON progress goes to
+  background `parsight index --no-wait` when the backend resolves AND the
+  daemon's watcher does not already cover the vault (same
+  `list_watched_paths` probe as above — the watcher re-indexes on the note
+  writes the rebuild just produced); the spawn is skipped with a log line
+  when it does (summarizer note writes call `rebuild_index()` and inherit
+  this). `--no-wait` submits the job and exits immediately, so the detached
+  CLI never sits polling a daemon job. NDJSON progress goes to
   `~/.claude/logs/parsidion-parsight.log`.
 - **Live watch:** the SessionStart hook fire-and-forgets
   `parsight watch <vault> --hold-token parsidion-<session_id>`; SessionEnd

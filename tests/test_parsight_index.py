@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -34,21 +33,6 @@ def ready(
     tmp_vault: Path, fake_parsight: FakeParsight, fake_parsight_health: FakeHealth
 ) -> FakeParsight:
     return fake_parsight
-
-
-@pytest.fixture()
-def mcp_daemon(monkeypatch: pytest.MonkeyPatch) -> Generator[FakeMcpDaemon]:
-    """Serve /health plus a minimal MCP endpoint; point PARSIGHT_MCP_URL at it.
-
-    Unlike the plain ``fake_parsight_health`` fixture (health only — every
-    POST fails, so the watch-coverage probe degrades to "unknown"), this
-    daemon answers the probe, letting tests pin both the skip path and the
-    spawn-anyway path.
-    """
-    daemon = FakeMcpDaemon().start()
-    monkeypatch.setenv("PARSIGHT_MCP_URL", daemon.url)
-    yield daemon
-    daemon.stop()
 
 
 def _repos_payload(vault: Path, *, stale: bool = False) -> dict[str, object]:

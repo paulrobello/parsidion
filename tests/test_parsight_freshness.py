@@ -19,7 +19,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
 from core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
 import vault_common  # noqa: E402
 
-from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
+from tests.fake_parsight import (  # noqa: E402
+    FakeHealth,
+    FakeMcpDaemon,
+    FakeParsight,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -91,6 +95,45 @@ class TestUpdateIndexTrigger:
         monkeypatch.setattr(sys, "argv", ["update_index.py", "--vault", str(tmp_vault)])
         update_index.main()
         call = ready.wait_for_call("index")
+        assert call["argv"] == ["index", str(tmp_vault), "--json", "--no-wait"]
+        assert "parsight: background index launched" in capsys.readouterr().out
+
+    def test_end_of_run_skips_spawn_when_daemon_watches_vault(
+        self,
+        tmp_vault: Path,
+        fake_parsight: FakeParsight,
+        mcp_daemon: FakeMcpDaemon,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import update_index
+
+        # The daemon answers the watch-coverage probe with this vault listed:
+        # the watcher will index the very note writes this run produced, so
+        # the manual end-of-run spawn must be skipped.
+        mcp_daemon.watched_paths = [str(tmp_vault)]
+        _write_config(tmp_vault, "embeddings:\n  enabled: false\n")
+        monkeypatch.setattr(sys, "argv", ["update_index.py", "--vault", str(tmp_vault)])
+        update_index.main()
+        fake_parsight.assert_no_call("index", settle=0.1)
+        assert "skipping background index" in capsys.readouterr().out
+
+    def test_end_of_run_spawns_when_watch_list_excludes_vault(
+        self,
+        tmp_vault: Path,
+        tmp_path: Path,
+        fake_parsight: FakeParsight,
+        mcp_daemon: FakeMcpDaemon,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import update_index
+
+        mcp_daemon.watched_paths = [str(tmp_path / "other-vault")]
+        _write_config(tmp_vault, "embeddings:\n  enabled: false\n")
+        monkeypatch.setattr(sys, "argv", ["update_index.py", "--vault", str(tmp_vault)])
+        update_index.main()
+        call = fake_parsight.wait_for_call("index")
         assert call["argv"] == ["index", str(tmp_vault), "--json", "--no-wait"]
         assert "parsight: background index launched" in capsys.readouterr().out
 
