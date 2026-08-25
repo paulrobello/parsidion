@@ -61,7 +61,11 @@ def open_db(vault: Path | None = None) -> sqlite3.Connection | None:
         vault: Optional vault path. Defaults to resolve_vault().
 
     Returns:
-        An open connection, or None if the DB is absent or unreadable.
+        An open connection, or None if the DB is absent, unreadable, or
+        lacks the note_index table. A present-but-empty file (the 0-byte
+        embeddings.db the parsight search backend keeps on disk) opens as a
+        valid empty database, so the table is probed explicitly to route
+        that case to the same no-DB fallback as a missing file.
     """
     db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
@@ -69,9 +73,19 @@ def open_db(vault: Path | None = None) -> sqlite3.Connection | None:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
-        return conn
     except sqlite3.Error:
         return None
+    try:
+        has_note_index = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note_index'"
+        ).fetchone()
+    except sqlite3.Error:
+        conn.close()
+        return None
+    if has_note_index is None:
+        conn.close()
+        return None
+    return conn
 
 
 class VecExtensionMissing(ImportError):

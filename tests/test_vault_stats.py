@@ -22,6 +22,8 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import vault_common  # noqa: E402
 
+from cli.stats import cli as stats_cli  # noqa: E402
+
 vault_stats = importlib.import_module("vault_stats")
 
 
@@ -77,6 +79,162 @@ class TestOpenDb:
         conn = vault_stats._open_db(vault)
         assert conn is not None
         conn.close()
+
+    def test_returns_none_for_zero_byte_db(self, vault: Path) -> None:
+        # The parsight search backend keeps embeddings.db as an intentional
+        # 0-byte file (no note_index is ever built). sqlite3.connect on it
+        # succeeds with an empty schema, so open_db must probe for the table
+        # and route this to the no-DB fallback like a missing file.
+        (vault / "embeddings.db").touch()
+        assert vault_stats._open_db(vault) is None
+
+    def test_returns_none_when_note_index_table_missing(self, vault: Path) -> None:
+        # A real SQLite file whose schema lacks note_index (present-but-empty
+        # DB) must take the same no-DB path as an absent file.
+        db_path = vault / "embeddings.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE other (x TEXT)")
+        conn.commit()
+        conn.close()
+        assert vault_stats._open_db(vault) is None
+
+
+# ---------------------------------------------------------------------------
+# _selected_mode + main() dispatch (unset store_true must not select)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectedMode:
+    def test_store_true_mode_flag_selects_that_mode(self) -> None:
+        parser = stats_cli._build_parser()
+        for flag, expected in [("--pending", "pending"), ("--tags", "tags")]:
+            args = parser.parse_args([flag])
+            assert stats_cli._selected_mode(args) == expected, flag
+
+    def test_int_mode_flags_still_select(self) -> None:
+        parser = stats_cli._build_parser()
+        args = parser.parse_args(["--top-linked", "5"])
+        assert stats_cli._selected_mode(args) == "top_linked"
+        args = parser.parse_args(["--timeline"])
+        assert stats_cli._selected_mode(args) == "timeline"
+
+    def test_all_defaults_select_none(self) -> None:
+        # Every store_true attribute defaults to False and every nargs="?"
+        # attribute to None; none of that counts as a selection.
+        parser = stats_cli._build_parser()
+        args = parser.parse_args([])
+        assert stats_cli._selected_mode(args) is None
+
+
+class TestMainDispatch:
+    """main() must dispatch to the mode named on the command line.
+
+    Regression (2026-08-22): the _selected_mode predicate matched unset
+    store_true flags (False is not None), so every invocation selected the
+    first _MODE_FLAGS entry ("summary") and the bare-invocation health
+    default never fired.
+
+    Uses the ``tmp_vault`` fixture (CLAUDE_VAULT + vaults.yaml allowlist)
+    rather than the module's ``VAULT_ROOT`` patch so the real resolver runs
+    without the deprecated branch-4 warning.
+    """
+
+    def _run_main(self, monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
+        monkeypatch.setattr(sys, "argv", ["vault-stats", *argv])
+        stats_cli.main()
+
+    def test_pending_flag_runs_pending_not_summary(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called: list[str] = []
+        monkeypatch.setattr(
+            stats_cli, "run_pending", lambda v: called.append("pending")
+        )
+        monkeypatch.setattr(
+            stats_cli, "run_summary", lambda conn: called.append("summary")
+        )
+        self._run_main(monkeypatch, ["--pending"])
+        assert called == ["pending"]
+
+    def test_tags_flag_runs_tags_not_summary(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_db(tmp_vault)  # tags is strict-DB; give it a note_index to read
+        called: list[tuple[str, int]] = []
+        monkeypatch.setattr(
+            stats_cli, "run_tags", lambda conn, n: called.append(("tags", n))
+        )
+        monkeypatch.setattr(
+            stats_cli, "run_summary", lambda conn: called.append(("summary", 0))
+        )
+        self._run_main(monkeypatch, ["--tags"])
+        assert called == [("tags", 30)]
+
+    def test_bare_invocation_runs_health(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called: list[str] = []
+        monkeypatch.setattr(
+            stats_cli,
+            "run_health",
+            lambda v, as_json=False, fast=False: called.append("health"),
+        )
+        monkeypatch.setattr(
+            stats_cli, "run_summary", lambda conn: called.append("summary")
+        )
+        self._run_main(monkeypatch, [])
+        assert called == ["health"]
+
+    def test_summary_with_zero_byte_db_takes_no_db_fallback(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # parsight-backend vault: embeddings.db exists but is 0 bytes, so the
+        # note_index table is absent and summary must fall back to the
+        # file-walk report instead of raising IndexError in collect_summary.
+        (tmp_vault / "embeddings.db").touch()
+        (tmp_vault / "Patterns").mkdir(exist_ok=True)
+        (tmp_vault / "Patterns" / "note-one.md").write_text(
+            "---\ntype: pattern\n---\nbody", encoding="utf-8"
+        )
+        called: list[str] = []
+        monkeypatch.setattr(
+            stats_cli, "run_summary", lambda conn: called.append("summary")
+        )
+        self._run_main(monkeypatch, ["--summary"])
+        assert called == []
+        out = capsys.readouterr().out
+        assert "file walk" in out
+
+    def test_dashboard_with_zero_byte_db_takes_no_db_fallback(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        (tmp_vault / "embeddings.db").touch()
+        called: list[str] = []
+        monkeypatch.setattr(
+            stats_cli, "run_dashboard", lambda conn: called.append("dashboard")
+        )
+        self._run_main(monkeypatch, ["--dashboard"])
+        assert called == []
+        assert "file walk" in capsys.readouterr().out
+
+    def test_bare_with_zero_byte_db_runs_health(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_vault / "embeddings.db").touch()
+        called: list[str] = []
+        monkeypatch.setattr(
+            stats_cli,
+            "run_health",
+            lambda v, as_json=False, fast=False: called.append("health"),
+        )
+        self._run_main(monkeypatch, [])
+        assert called == ["health"]
 
 
 # ---------------------------------------------------------------------------

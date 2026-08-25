@@ -87,7 +87,9 @@ Falls back to a plain-text walk when the DB is absent.
 
 # Maps mode name -> the argparse attribute that selects it. ``True`` flags
 # are booleans (``store_true``); the rest are ``nargs="?"`` integers, so a
-# mode is "selected" when the attribute is either True or not-None.
+# mode is "selected" when the attribute is either True (a set store_true
+# flag — an unset one is False and does NOT count) or a non-None non-bool
+# value (an explicitly passed or const-defaulted integer).
 _MODE_FLAGS: dict[str, str] = {
     "summary": "summary",
     "stale": "stale",
@@ -348,14 +350,16 @@ _MODES: dict[str, _ModeEntry] = {
 def _selected_mode(args: argparse.Namespace) -> str | None:
     """Return the name of the mode requested on *args*, or ``None``.
 
-    A mode is "selected" when its argparse attribute is either a truthy
-    boolean (``store_true`` flags) or a non-None integer (the ``nargs="?"``
-    modes). ``--health`` is intentionally NOT in this table: it is the
+    A mode is "selected" when its argparse attribute is either True (a set
+    ``store_true`` flag — an unset flag is False and must NOT count as a
+    selection) or a non-None non-bool value (the ``nargs="?"`` integer
+    modes, whether passed explicitly or defaulted via ``const``).
+    ``--health`` is intentionally NOT in this table: it is the
     bare-invocation default and is handled separately in :func:`main`.
     """
     for mode_name, attr in _MODE_FLAGS.items():
         value = getattr(args, attr)
-        if value is True or value is not None:
+        if value is True or (value is not None and not isinstance(value, bool)):
             return mode_name
     return None
 
