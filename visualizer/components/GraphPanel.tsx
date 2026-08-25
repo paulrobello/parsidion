@@ -163,7 +163,7 @@ export function GraphPanel({ state, graphData, graphCanvasRef, onNodeClick }: Gr
         onNodeColorModeChange={state.setNodeColorMode}
         nodeSizeComputing={state.nodeSizeComputing}
         graphStats={state.graphStats}
-        parmemBodyLinks={graphData.meta.parmem_body_links ?? null}
+        parsightBodyLinks={graphData.meta.parsight_body_links ?? null}
       />
     </div>
   )

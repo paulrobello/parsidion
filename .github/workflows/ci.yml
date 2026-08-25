@@ -46,7 +46,7 @@ jobs:
         run: uv run pytest tests/
 
   graph-tests:
-    name: Root — build_graph par-mem tests (numpy-gated)
+    name: Root — build_graph parsight tests (numpy-gated)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -63,8 +63,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
-      - name: Test graph (par-mem body-link enrichment)
-        run: uv run --with numpy pytest tests/test_build_graph_parmem.py
+      - name: Test graph (parsight body-link enrichment)
+        run: uv run --with numpy pytest tests/test_build_graph_parsight.py
 
   mcp-checks:
     name: parsidion-mcp — format, lint, typecheck, test

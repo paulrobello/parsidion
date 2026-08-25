@@ -30,6 +30,6 @@ the patches take effect without pervasive ``session_start_hook.X()`` dispatch
 rewrites.  This mirrors the ``summarizer/`` decomposition (ARC-009).
 
 Stdlib-only — same constraint as the entry shim and the rest of the hook
-scripts.  ``ai_backend`` / ``parmem_backend`` / ``vault_*`` imports are
+scripts.  ``ai_backend`` / ``parsight_backend`` / ``vault_*`` imports are
 permitted because they are themselves stdlib-only.
 """

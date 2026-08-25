@@ -1,4 +1,4 @@
-# Paths par-mem must not index (gitignore syntax).
+# Paths parsight must not index (gitignore syntax).
 # docs/api/ is a committed generated reference (pdoc + typedoc output): hundreds
 # of HTML files plus bundled JS that bury real source symbols in the graph
 # (DOC-003). Regenerate with `make docs-api`.

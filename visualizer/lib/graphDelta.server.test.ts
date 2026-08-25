@@ -82,10 +82,10 @@ describe('applyGraphDelta', () => {
     expect(out.meta.generated).toBe('newer')
   })
 
-  it('meta.parmem_body_links is preserved when present on base', () => {
+  it('meta.parsight_body_links is preserved when present on base', () => {
     const b = base(node('a'))
-    b.meta.parmem_body_links = 42
+    b.meta.parsight_body_links = 42
     const out = applyGraphDelta(b, { full: false, generated: 'new' })!
-    expect(out.meta.parmem_body_links).toBe(42)
+    expect(out.meta.parsight_body_links).toBe(42)
   })
 })

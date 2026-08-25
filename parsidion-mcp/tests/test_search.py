@@ -65,20 +65,20 @@ def test_semantic_search_missing_db_raises(tmp_path: Path) -> None:
             vault_search(query="anything")
 
 
-def test_semantic_search_missing_db_but_parmem_available_delegates(
+def test_semantic_search_missing_db_but_parsight_available_delegates(
     tmp_path: Path,
 ) -> None:
-    """Stale pre-check fix: a missing embeddings.db must not block a par-mem-
+    """Stale pre-check fix: a missing embeddings.db must not block a parsight-
     backed search -- vault_search.search() routes per config on its own."""
     absent_db = tmp_path / "missing.db"
 
     with (
         patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
-        patch("parsidion_mcp.tools.search.parmem_backend") as mock_pb,
+        patch("parsidion_mcp.tools.search.parsight_backend") as mock_pb,
         patch("parsidion_mcp.tools.search._vault_search_module") as mock_vs,
     ):
         mock_vc.get_embeddings_db_path.return_value = absent_db
-        mock_pb.resolve_parmem_backend.return_value = True
+        mock_pb.resolve_parsight_backend.return_value = True
         mock_vs.search.return_value = [_FAKE_NOTE]
 
         result = vault_search(query="python patterns")
@@ -90,15 +90,15 @@ def test_semantic_search_missing_db_but_parmem_available_delegates(
     )
 
 
-def test_semantic_search_missing_db_and_no_parmem_raises(tmp_path: Path) -> None:
+def test_semantic_search_missing_db_and_no_parsight_raises(tmp_path: Path) -> None:
     absent_db = tmp_path / "missing.db"
 
     with (
         patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
-        patch("parsidion_mcp.tools.search.parmem_backend") as mock_pb,
+        patch("parsidion_mcp.tools.search.parsight_backend") as mock_pb,
     ):
         mock_vc.get_embeddings_db_path.return_value = absent_db
-        mock_pb.resolve_parmem_backend.return_value = False
+        mock_pb.resolve_parsight_backend.return_value = False
         with pytest.raises(ValueError, match="embeddings DB not found"):
             vault_search(query="anything")
 

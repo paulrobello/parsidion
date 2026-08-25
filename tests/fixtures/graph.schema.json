@@ -73,13 +73,13 @@
           "minimum": 0,
           "type": "integer"
         },
-        "parmem_body_links": {
-          "description": "Wiki edges contributed by par-mem body-link enrichment. Absent when enrichment was skipped or added nothing.",
+        "parsight_body_links": {
+          "description": "Wiki edges contributed by parsight body-link enrichment. Absent when enrichment was skipped or added nothing.",
           "minimum": 0,
           "type": "integer"
         },
-        "parmem_body_status": {
-          "description": "Outcome of par-mem body-link enrichment when it was attempted (present whenever --no-parmem was not passed). 'fresh' = index current, enrichment ran (count in parmem_body_links when >=1); 'skipped:index-stale' / 'skipped:index-absent' / 'skipped:index-invalid' = a non-fresh index made enrichment non-deterministic so it was skipped; 'unavailable' / 'error' = backend failure.",
+        "parsight_body_status": {
+          "description": "Outcome of parsight body-link enrichment when it was attempted (present whenever --no-parsight was not passed). 'fresh' = index current, enrichment ran (count in parsight_body_links when >=1); 'skipped:index-stale' / 'skipped:index-absent' / 'skipped:index-invalid' = a non-fresh index made enrichment non-deterministic so it was skipped; 'unavailable' / 'error' = backend failure.",
           "type": "string"
         },
         "schema_version": {

@@ -26,7 +26,7 @@ _CORE_DIR = _SCRIPTS_DIR / "core"
 # Root shim modules (see CLAUDE.md "stdlib-only rule"). ``subproc_util`` and
 # ``vault_metrics`` etc. exist BOTH as core/* modules (the implementation) and
 # as flat scripts-root re-export shims — only the flat names are forbidden
-# inside core/. ARC-006 added ``ai_backend``/``parmem_backend`` when their
+# inside core/. ARC-006 added ``ai_backend``/``parsight_backend`` when their
 # implementations moved into core/.
 ROOT_SHIMS: frozenset[str] = frozenset(
     {
@@ -44,7 +44,7 @@ ROOT_SHIMS: frozenset[str] = frozenset(
         "vault_constants",
         "subproc_util",
         "ai_backend",
-        "parmem_backend",
+        "parsight_backend",
     }
 )
 

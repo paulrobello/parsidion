@@ -84,8 +84,8 @@ interface Props {
   onNodeColorModeChange: (mode: NodeColorMode) => void
   nodeSizeComputing: boolean
   graphStats: GraphStats | null
-  /** meta.parmem_body_links from graph.json; null when absent. */
-  parmemBodyLinks: number | null
+  /** meta.parsight_body_links from graph.json; null when absent. */
+  parsightBodyLinks: number | null
 }
 
 export function HUDPanel({
@@ -111,7 +111,7 @@ export function HUDPanel({
   nodeSizeMode, onNodeSizeModeChange, nodeSizeComputing,
   nodeColorMode, onNodeColorModeChange,
   graphStats,
-  parmemBodyLinks,
+  parsightBodyLinks,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [statsExpanded, setStatsExpanded] = useState(false)
@@ -288,7 +288,7 @@ export function HUDPanel({
                         { label: 'max deg', value: graphStats.maxDegree },
                         { label: 'density', value: (graphStats.density * 100).toFixed(2) + '%' },
                         { label: 'components', value: graphStats.componentCount },
-                        ...(parmemBodyLinks != null ? [{ label: 'body links', value: parmemBodyLinks }] : []),
+                        ...(parsightBodyLinks != null ? [{ label: 'body links', value: parsightBodyLinks }] : []),
                       ].map(s => (
                         <div key={s.label} style={{ background: 'rgba(123,97,255,0.06)', border: '1px solid rgba(123,97,255,0.15)', borderRadius: 4, padding: '3px 7px', flex: '1 0 auto', textAlign: 'center' }}>
                           <div style={{ color: '#7B61FF', fontWeight: 600, fontSize: 12 }}>{s.value}</div>

@@ -1,11 +1,11 @@
-"""Fake `par-mem` executable + fake daemon-health server for tests.
+"""Fake `parsight` executable + fake daemon-health server for tests.
 
-No parsidion test may require a real par-mem install. The fake binary is a
+No parsidion test may require a real parsight install. The fake binary is a
 generated Python script placed at the front of PATH; it reads its behavior
 from a sibling ``config.json``, records every invocation (argv + cwd) to a
 sibling ``calls.jsonl``, and emits canned JSON / exit codes / delays. The
 fake health server answers 200 on ``/health`` so
-``parmem_backend.resolve_parmem_backend()`` can be exercised end-to-end.
+``parsight_backend.resolve_parsight_backend()`` can be exercised end-to-end.
 """
 
 from __future__ import annotations
@@ -18,14 +18,14 @@ from pathlib import Path
 
 
 def fresh_repos_payload(vault: Path, *, stale: bool = False) -> dict:
-    """Build a ``par-mem repos --json`` payload classifying *vault*.
+    """Build a ``parsight repos --json`` payload classifying *vault*.
 
-    ``parmem_backend._vault_repo_state`` matches by ``os.path.realpath`` on
+    ``parsight_backend._vault_repo_state`` matches by ``os.path.realpath`` on
     ``root_path`` or a worktree ``path`` and reads the worktree's ``stale``
     flag. By default the fake's ``repos`` payload is empty → ``"absent"``; this
     builds a payload the classifier reads as ``"fresh"`` (or ``"stale"`` with
     ``stale=True``) for the given vault, so enrichment-attempting tests clear
-    the freshness gate in ``build_parmem_body_edges``.
+    the freshness gate in ``build_parsight_body_edges``.
     """
     rv = os.path.realpath(str(vault))
     return {
@@ -42,7 +42,7 @@ def fresh_repos_payload(vault: Path, *, stale: bool = False) -> dict:
 # Script body for the fake binary. The shebang is prepended at install time
 # with the CURRENT interpreter (sys.executable) so the script never depends
 # on PATH containing python3 (tests routinely truncate PATH).
-FAKE_PARMEM_BODY = """
+FAKE_PARSIGHT_BODY = """
 import json, os, sys, time
 from pathlib import Path
 
@@ -75,8 +75,8 @@ sys.exit(int(exit_codes.get(sub, cfg.get("exit_code", 0))))
 """.lstrip()
 
 
-class FakeParMem:
-    """Controller for a fake `par-mem` executable installed on PATH.
+class FakeParsight:
+    """Controller for a fake `parsight` executable installed on PATH.
 
     Reconfigure behavior between calls with :meth:`configure`; read recorded
     invocations with :meth:`calls` / :meth:`wait_for_call`.
@@ -84,14 +84,14 @@ class FakeParMem:
 
     def __init__(self, bin_dir: Path) -> None:
         self.bin_dir = bin_dir
-        self.binary_path = bin_dir / "par-mem"
+        self.binary_path = bin_dir / "parsight"
         self.config_path = bin_dir / "config.json"
         self.calls_path = bin_dir / "calls.jsonl"
 
     def install(self) -> None:
         """Write the executable script (shebang = current interpreter)."""
         self.binary_path.write_text(
-            f"#!{sys.executable}\n{FAKE_PARMEM_BODY}", encoding="utf-8"
+            f"#!{sys.executable}\n{FAKE_PARSIGHT_BODY}", encoding="utf-8"
         )
         self.binary_path.chmod(0o755)
         self.configure()
@@ -167,7 +167,7 @@ class FakeParMem:
                     return call
             time.sleep(0.05)
         raise AssertionError(
-            f"no fake par-mem call with subcommand {subcommand!r}; got {self.calls()!r}"
+            f"no fake parsight call with subcommand {subcommand!r}; got {self.calls()!r}"
         )
 
     def assert_no_call(self, subcommand: str, settle: float = 0.3) -> None:
@@ -176,12 +176,12 @@ class FakeParMem:
         for call in self.calls():
             argv = call.get("argv")
             if isinstance(argv, list) and argv and argv[0] == subcommand:
-                raise AssertionError(f"unexpected fake par-mem call: {call!r}")
+                raise AssertionError(f"unexpected fake parsight call: {call!r}")
 
 
 class FakeHealth:
     """Handle for the fake daemon health server (see conftest fixture)."""
 
     def __init__(self, url: str) -> None:
-        self.url = url  # a .../mcp URL, mirroring PARMEM_MCP_URL's shape
+        self.url = url  # a .../mcp URL, mirroring PARSIGHT_MCP_URL's shape
         self.requests: list[str] = []

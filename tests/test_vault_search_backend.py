@@ -1,4 +1,4 @@
-"""Tests for vault_search's par-mem backend selector (Task 5)."""
+"""Tests for vault_search's parsight backend selector (Task 5)."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parmem_backend  # noqa: E402
+import parsight_backend  # noqa: E402
 import vault_common  # noqa: E402
 from cli.search import embeddings as cli_embeddings  # noqa: E402
 
-from tests.fake_parmem import FakeHealth, FakeParMem  # noqa: E402
+from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
 vault_search = importlib.import_module("vault_search")
 
@@ -29,7 +29,7 @@ SENTINEL: list[dict[str, object]] = [{"stem": "from-embeddings"}]
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
     vault_common.load_config.cache_clear()
-    parmem_backend.reset_parmem_cache()
+    parsight_backend.reset_parsight_cache()
 
 
 def _repos_payload(vault: Path, *, stale: bool = False) -> dict[str, object]:
@@ -90,16 +90,16 @@ def embeddings_sentinel(monkeypatch: pytest.MonkeyPatch) -> list[list[object]]:
 
 @pytest.fixture()
 def ready(
-    tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
-) -> FakeParMem:
-    fake_parmem.configure(
+    tmp_vault: Path, fake_parsight: FakeParsight, fake_parsight_health: FakeHealth
+) -> FakeParsight:
+    fake_parsight.configure(
         repos=_repos_payload(tmp_vault),
         find_code={"results": [{"file_path": "Patterns/hit-note.md", "score": 0.05}]},
     )
     note = tmp_vault / "Patterns" / "hit-note.md"
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("# Hit Note\nBody.\n", encoding="utf-8")
-    return fake_parmem
+    return fake_parsight
 
 
 class TestBackendSelection:
@@ -111,10 +111,10 @@ class TestBackendSelection:
         assert embeddings_sentinel == []
         assert envelope.backend == "none"
 
-    def test_embeddings_backend_ignores_parmem(
+    def test_embeddings_backend_ignores_parsight(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         embeddings_sentinel: list[list[object]],
     ) -> None:
         envelope = vault_search.search_with_meta("q", backend="embeddings")
@@ -122,16 +122,16 @@ class TestBackendSelection:
         ready.assert_no_call("find-code", settle=0.1)
         assert envelope.backend == "embeddings"
 
-    def test_auto_serves_from_parmem_when_available(
+    def test_auto_serves_from_parsight_when_available(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         embeddings_sentinel: list[list[object]],
     ) -> None:
         envelope = vault_search.search_with_meta("q", vault=tmp_vault)  # config: auto
         assert [r["stem"] for r in envelope.results] == ["hit-note"]
         assert embeddings_sentinel == []
-        assert envelope.backend == "par-mem"
+        assert envelope.backend == "parsight"
 
     def test_auto_falls_back_when_backend_unavailable(
         self,
@@ -152,7 +152,7 @@ class TestBackendSelection:
     def test_auto_unindexed_falls_back_to_embeddings(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         embeddings_sentinel: list[list[object]],
     ) -> None:
         ready.configure(repos={"repositories": [], "_meta": {"count": 0}})
@@ -161,13 +161,13 @@ class TestBackendSelection:
         ready.wait_for_call("index")  # background index kicked
         assert envelope.backend == "embeddings"
 
-    def test_auto_stale_serves_parmem_and_kicks_reindex(
+    def test_auto_stale_serves_parsight_and_kicks_reindex(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         embeddings_sentinel: list[list[object]],
     ) -> None:
-        # Stale-but-usable: this query is served from par-mem's existing
+        # Stale-but-usable: this query is served from parsight's existing
         # index while a background reindex catches it up.
         ready.configure(
             repos=_repos_payload(tmp_vault, stale=True),
@@ -179,12 +179,12 @@ class TestBackendSelection:
         assert [r["stem"] for r in envelope.results] == ["hit-note"]
         ready.wait_for_call("index")  # background reindex kicked
         assert embeddings_sentinel == []
-        assert envelope.backend == "par-mem"
+        assert envelope.backend == "parsight"
 
     def test_auto_find_code_failure_falls_back(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         embeddings_sentinel: list[list[object]],
     ) -> None:
         ready.configure(repos=_repos_payload(tmp_vault), exit_codes={"find-code": 1})
@@ -192,7 +192,7 @@ class TestBackendSelection:
         assert envelope.results == SENTINEL
         assert envelope.backend == "embeddings"
 
-    def test_explicit_parmem_has_no_embeddings_fallback(
+    def test_explicit_parsight_has_no_embeddings_fallback(
         self,
         tmp_vault: Path,
         tmp_path: Path,
@@ -202,7 +202,7 @@ class TestBackendSelection:
         empty = tmp_path / "empty-bin"
         empty.mkdir()
         monkeypatch.setenv("PATH", str(empty))
-        assert vault_search.search("q", backend="par-mem") == []
+        assert vault_search.search("q", backend="parsight") == []
         assert embeddings_sentinel == []
 
     def test_config_backend_read_when_arg_absent(
@@ -210,6 +210,27 @@ class TestBackendSelection:
     ) -> None:
         _write_config(tmp_vault, "search:\n  backend: none\n")
         assert vault_search.search("q") == []
+        assert embeddings_sentinel == []
+
+    def test_legacy_backend_spellings_alias_parsight(
+        self,
+        tmp_vault: Path,
+        ready: FakeParsight,
+        embeddings_sentinel: list[list[object]],
+    ) -> None:
+        """Compat: the pre-rename "par-mem" backend spelling selects parsight.
+
+        Covers both the override argument (the ``-B par-mem`` CLI path) and
+        the ``search.backend`` config value (normalized at config load).
+        """
+        envelope = vault_search.search_with_meta(
+            "q", backend="par-mem", vault=tmp_vault
+        )
+        assert [r["stem"] for r in envelope.results] == ["hit-note"]
+        assert envelope.backend == "parsight"
+        _write_config(tmp_vault, "search:\n  backend: par-mem\n")
+        envelope = vault_search.search_with_meta("q", vault=tmp_vault)
+        assert envelope.backend == "parsight"
         assert embeddings_sentinel == []
 
     def test_invalid_config_backend_treated_as_auto(
@@ -231,7 +252,7 @@ class TestBackendSelection:
         empty = tmp_path / "empty-bin"
         empty.mkdir()
         monkeypatch.setenv("PATH", str(empty))
-        # No embeddings.db, no par-mem: today's behavior — [] semantic.
+        # No embeddings.db, no parsight: today's behavior — [] semantic.
         assert vault_search.search("q", vault=tmp_vault) == []
         # Metadata mode is untouched by backend selection.
         assert vault_search.query(tag="python", vault=tmp_vault) == []
@@ -241,7 +262,7 @@ class TestCli:
     def test_backend_flag_bypasses_embeddings_db_check(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -252,7 +273,7 @@ class TestCli:
                 "vault-search",
                 "q",
                 "--backend",
-                "par-mem",
+                "parsight",
                 "--json",
                 "-V",
                 str(tmp_vault),
@@ -263,7 +284,7 @@ class TestCli:
         parsed = json.loads(out)
         assert [r["stem"] for r in parsed] == ["hit-note"]
 
-    def test_missing_db_message_preserved_when_parmem_absent(
+    def test_missing_db_message_preserved_when_parsight_absent(
         self,
         tmp_vault: Path,
         tmp_path: Path,
@@ -284,7 +305,7 @@ class TestCli:
     def test_rich_output_names_serving_backend(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -295,14 +316,14 @@ class TestCli:
                 "vault-search",
                 "q",
                 "--backend",
-                "par-mem",
+                "parsight",
                 "--rich",
                 "-V",
                 str(tmp_vault),
             ],
         )
         vault_search.main()
-        assert "backend: par-mem" in capsys.readouterr().err
+        assert "backend: parsight" in capsys.readouterr().err
 
 
 class TestInteractiveBackend:
@@ -338,11 +359,11 @@ class TestInteractiveBackend:
         assert len(calls) == 1
         assert calls[0]["backend"] == "embeddings"
 
-    def test_search_notes_gate_serves_parmem_when_db_missing(
-        self, tmp_vault: Path, ready: FakeParMem
+    def test_search_notes_gate_serves_parsight_when_db_missing(
+        self, tmp_vault: Path, ready: FakeParsight
     ) -> None:
         """Stale pre-check fix: _search_notes must attempt semantic search
-        even when embeddings.db is absent, as long as par-mem can serve."""
+        even when embeddings.db is absent, as long as parsight can serve."""
         import vault_tui
 
         assert not vault_common.get_embeddings_db_path(tmp_vault).exists()
@@ -355,7 +376,7 @@ class TestInteractiveBackend:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """No embeddings.db and no par-mem -- title-substring fallback still
+        """No embeddings.db and no parsight -- title-substring fallback still
         runs (the gate must not suppress the pre-existing fallback path)."""
         import vault_tui
 

@@ -44,44 +44,39 @@
                     <h1 class="modulename">
 subproc_util    </h1>
 
-                        <div class="docstring"><p>subproc_util -- compatibility shim (ARC-004).</p>
+                        <div class="docstring"><p>subproc_util -- compatibility shim (ARC-004 / QA-008).</p>
 
 <p>Implementation moved to <code><a href="core/subproc_util.html">core.subproc_util</a></code>. This shim re-exports the
-module's complete non-dunder surface so every existing caller --
-<code>import subproc_util</code>, <code>from subproc_util import X</code>, <code>subproc_util.X</code> (hooks, CLIs,
-tests, parsidion-mcp, the installer) -- keeps working unchanged,
-including imported constants and test monkeypatch targets. The
-stdlib-only constraint is enforced on <code><a href="core/subproc_util.html">core.subproc_util</a></code> by
-<code>tests/test_stdlib_only.py</code>.</p>
+module's controlled public surface (defined by <code>core.subproc_util.__all__</code>)
+so every existing caller -- <code>import subproc_util</code>,
+<code>from subproc_util import run_with_pgkill</code>, <code>subproc_util.PGKILL_GRACE_SECS</code>
+(hooks, CLIs, tests, parsidion-mcp, the installer) -- keeps working
+unchanged. QA-008: <code>__all__</code> deliberately excludes stdlib modules
+(<code>os</code>, <code>signal</code>, <code>subprocess</code>) and the private <code>_kill_process_group</code>
+helper -- callers import the former directly and the latter is not part of
+the public surface. The stdlib-only constraint is enforced on
+<code><a href="core/subproc_util.html">core.subproc_util</a></code> by <code>tests/test_stdlib_only.py</code>.</p>
 </div>
 
                         <input id="mod-subproc_util-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 
                         <label class="view-source-button" for="mod-subproc_util-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;subproc_util -- compatibility shim (ARC-004).</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;subproc_util -- compatibility shim (ARC-004 / QA-008).</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Implementation moved to ``core.subproc_util``. This shim re-exports the</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">module&#39;s complete non-dunder surface so every existing caller --</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">``import subproc_util``, ``from subproc_util import X``, ``subproc_util.X`` (hooks, CLIs,</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">tests, parsidion-mcp, the installer) -- keeps working unchanged,</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="sd">including imported constants and test monkeypatch targets. The</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">stdlib-only constraint is enforced on ``core.subproc_util`` by</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">``tests/test_stdlib_only.py``.</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">core.subproc_util</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>  <span class="c1"># noqa: F401 -- full-surface re-export</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="n">Any</span><span class="p">,</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="n">Mapping</span><span class="p">,</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="n">PGKILL_GRACE_SECS</span><span class="p">,</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="n">Path</span><span class="p">,</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="n">_kill_process_group</span><span class="p">,</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>    <span class="n">annotations</span><span class="p">,</span>
-</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>    <span class="n">os</span><span class="p">,</span>
-</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a>    <span class="n">run_with_pgkill</span><span class="p">,</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>    <span class="n">signal</span><span class="p">,</span>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a>    <span class="n">subprocess</span><span class="p">,</span>
-</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a><span class="p">)</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">module&#39;s controlled public surface (defined by ``core.subproc_util.__all__``)</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">so every existing caller -- ``import subproc_util``,</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">``from subproc_util import run_with_pgkill``, ``subproc_util.PGKILL_GRACE_SECS``</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="sd">(hooks, CLIs, tests, parsidion-mcp, the installer) -- keeps working</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">unchanged. QA-008: ``__all__`` deliberately excludes stdlib modules</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">(``os``, ``signal``, ``subprocess``) and the private ``_kill_process_group``</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">helper -- callers import the former directly and the latter is not part of</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="sd">the public surface. The stdlib-only constraint is enforced on</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">``core.subproc_util`` by ``tests/test_stdlib_only.py``.</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">core.subproc_util</span><span class="w"> </span><span class="kn">import</span> <span class="o">*</span>  <span class="c1"># noqa: F403 -- controlled by core.subproc_util.__all__</span>
 </span></pre></div>
 
 

@@ -4,7 +4,7 @@ Optional Model Context Protocol (MCP) server that exposes a Parsidion vault to *
 
 ## Overview
 
-`parsidion-mcp` is a FastMCP-based server that bridges Parsidion vault operations — semantic search, note read/write, context-block generation, index rebuilds, vault-doctor scans, and par-mem code-memory search — to MCP clients. It imports `vault_common` / `vault_search` from the parent repo via the editable `.[tools]` install, so it always reflects the same vault code path the hooks use.
+`parsidion-mcp` is a FastMCP-based server that bridges Parsidion vault operations — semantic search, note read/write, context-block generation, index rebuilds, vault-doctor scans, and parsight code-memory search — to MCP clients. It imports `vault_common` / `vault_search` from the parent repo via the editable `.[tools]` install, so it always reflects the same vault code path the hooks use.
 
 For the full tool reference, configuration, and Claude Desktop setup, see [../docs/MCP.md](../docs/MCP.md).
 
@@ -48,7 +48,7 @@ Eight tools are exposed. Full request/response shapes live in [../docs/MCP.md](.
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
 | `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
 | `vault_health` | Composite 0–100 vault-health score across seven dimensions (index freshness, queue, graph, metadata, embeddings, tags, files) with concrete next-action commands; subprocess wrapper around `vault-stats --health --json` (ENH-007) |
-| `code_search` | Search a par-mem-indexed repository's code graph by natural language; requires the [par-mem](../docs/PAR-MEM.md) backend (returns a clear error if par-mem is unavailable) |
+| `code_search` | Search a parsight-indexed repository's code graph by natural language; requires the [parsight](../docs/PARSIGHT.md) backend (returns a clear error if parsight is unavailable) |
 
 ## Development
 
@@ -62,5 +62,5 @@ The subproject has its own `Makefile`, `pyproject.toml`, `src/`, and `tests/`. I
 ## Related Documentation
 
 - [../docs/MCP.md](../docs/MCP.md) — full tools reference and configuration
-- [../docs/PAR-MEM.md](../docs/PAR-MEM.md) — par-mem code-memory backend
+- [../docs/PARSIGHT.md](../docs/PARSIGHT.md) — parsight code-memory backend
 - [../README.md](../README.md) — main project README

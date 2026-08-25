@@ -1,7 +1,7 @@
 """Shared subprocess helper: start_new_session + process-group kill on timeout.
 
 SEC-122 / ARC-048f: ``ai_backend._run_prompt_subprocess`` and
-``parmem_backend._run_parmem`` each implemented this pattern separately and
+``parsight_backend._run_parsight`` each implemented this pattern separately and
 the two had already drifted (different escalation orderings, different
 fallback handling). This module is the single canonical implementation.
 
@@ -67,10 +67,10 @@ def run_with_pgkill(
         cmd: Argv list, starting with the binary. The caller is responsible
             for resolving and validating the binary path — this helper does
             not run ``shutil.which`` because each caller has its own
-            allowlist/gate (par-mem: ``par_mem.enabled`` + ``/health``;
+            allowlist/gate (parsight: ``parsight.enabled`` + ``/health``;
             ai_backend: a model-tier-aware lookup).
         cwd: Working directory. Mandatory because both call sites pass one
-            (par-mem runs against the vault root; ai_backend runs against
+            (parsight runs against the vault root; ai_backend runs against
             the configured working dir) and an unqualified default of
             ``None`` (inherit) is the wrong shape for an explicit-launch API.
         timeout: Maximum seconds to wait for completion. ``<= 0`` is treated

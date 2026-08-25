@@ -2,7 +2,7 @@
 
 Extracted from ``vault_search.py``. Houses the in-process ONNX model cache,
 the optional ENH-003 persistent embedding service, and the embeddings-DB
-search that serves as the always-on fallback when par-mem is not selected
+search that serves as the always-on fallback when parsight is not selected
 or not available.
 
 ARC-006: the ``vault_search.py`` entry shim calls ``_search_embeddings``
@@ -69,8 +69,8 @@ def _apply_decay(score: float, mtime: float, now: float) -> float:
 
     ARC-023: thin wrapper around ``vault_config.apply_decay_score`` (the
     canonical implementation moved there to break the vault_search ↔
-    parmem_backend top-level cycle). Kept as a private alias so existing
-    internal call sites and parmem_backend's lazy import (if any older copy of
+    parsight_backend top-level cycle). Kept as a private alias so existing
+    internal call sites and parsight_backend's lazy import (if any older copy of
     the module still references it) keep resolving during the transition.
     New code should call ``vault_config.apply_decay_score`` directly.
     """
@@ -98,8 +98,8 @@ def _get_embedding_model(model_name: str):  # type: ignore[no-untyped-def]
 # ENH-003: optional persistent embedding service (vault_embed_serve.py)
 # ---------------------------------------------------------------------------
 # AF_UNIX, lives outside the synced vault tree. Contacted only from
-# _search_embeddings — i.e. only when par-mem did not serve — and only when
-# embeddings.service_enabled is true and the backend is not par-mem-only
+# _search_embeddings — i.e. only when parsight did not serve — and only when
+# embeddings.service_enabled is true and the backend is not parsight-only
 # (the user's constraint). A daemon miss is normal: it falls back to the
 # in-process cached model, so the service is an optimization, never a
 # dependency. Nothing here raises.
@@ -115,15 +115,15 @@ def _embeddings_service_active() -> bool:
     """True only when the persistent embedding service should be used.
 
     Two hard guards: explicit opt-in via ``embeddings.service_enabled``
-    (default false), AND the backend must not be par-mem-only — par-mem serves
+    (default false), AND the backend must not be parsight-only — parsight serves
     retrieval without local query embeddings, so the service would never be
     consulted and must not run. ``_search_embeddings`` is itself only reached
-    when par-mem didn't serve under ``auto``, so the second guard mainly covers
-    an explicit ``search.backend: par-mem`` setting.
+    when parsight didn't serve under ``auto``, so the second guard mainly covers
+    an explicit ``search.backend: parsight`` setting.
     """
     if vault_common.get_config("embeddings", "service_enabled", False) is not True:
         return False
-    if _configured_search_backend() == "par-mem":
+    if _configured_search_backend() == "parsight":
         return False
     return True
 

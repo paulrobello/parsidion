@@ -7,7 +7,7 @@
     "schema_version": 2,
     "include_daily": true,
     "max_neighbors": 15,
-    "parmem_body_links": 1
+    "parsight_body_links": 1
   },
   "nodes": [
     {

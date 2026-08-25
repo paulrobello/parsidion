@@ -2,7 +2,7 @@
 
 Holds the shared library implementations previously flat in ``scripts/``:
 config, path, filesystem, index, hooks, adaptive-context, links, constants,
-metrics, and the AI / par-mem / subprocess backends.
+metrics, and the AI / parsight / subprocess backends.
 
 Hard constraint — every module here is **Python stdlib only**.  The constraint
 is enforced structurally by ``tests/test_stdlib_only.py``, which imports each

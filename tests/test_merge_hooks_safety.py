@@ -91,7 +91,7 @@ class TestMergeHooksPreservesUnrelatedKeys:
             },
             "statusLine": {"type": "command", "command": "echo hi"},
             "mcpServers": {
-                "par-mem": {"command": "/usr/local/bin/par-mem"},
+                "parsight": {"command": "/usr/local/bin/parsight"},
             },
             "hooks": {},
         }
@@ -107,7 +107,7 @@ class TestMergeHooksPreservesUnrelatedKeys:
         assert merged["permissions"]["allow"] == ["Bash(git:*)"]
         # Unrelated user configuration retained.
         assert merged["statusLine"] == {"type": "command", "command": "echo hi"}
-        assert merged["mcpServers"]["par-mem"]["command"] == "/usr/local/bin/par-mem"
+        assert merged["mcpServers"]["parsight"]["command"] == "/usr/local/bin/parsight"
         # And the hooks we came to install are present.
         assert "hooks" in merged
         assert len(merged["hooks"]) > 0

@@ -49,7 +49,7 @@ import os
 import sys
 from pathlib import Path
 
-import parmem_backend
+import parsight_backend
 import vault_common
 
 # ---------------------------------------------------------------------------
@@ -67,6 +67,7 @@ from cli.search._common import (  # noqa: F401 — re-exports
     _VALID_BACKENDS,
     SearchResultEnvelope,
     _configured_search_backend,
+    _normalize_backend,
 )
 from cli.search import embeddings as _embeddings
 from cli.search.embeddings import (  # noqa: F401 — re-exports
@@ -126,7 +127,7 @@ def search_with_meta(
 ) -> SearchResultEnvelope:
     """Search the vault and return ``(results, backend, score_kind)``.
 
-    Same routing as :func:`search` (par-mem when available + selected, falling
+    Same routing as :func:`search` (parsight when available + selected, falling
     back to embeddings); additionally reports which backend served the call
     and what its ``score`` field means. Use this when you need to render a
     backend label, gate on score scale (``min_score`` is meaningful only for
@@ -138,7 +139,7 @@ def search_with_meta(
         min_score: Minimum cosine similarity (embeddings backend only).
         model_name: fastembed model ID used when the index was built.
         vault: Optional vault path. Defaults to resolve_vault().
-        backend: ``auto | par-mem | embeddings | none`` override; None reads
+        backend: ``auto | parsight | embeddings | none`` override; None reads
             the ``search.backend`` config key (default ``auto``).
 
     Returns:
@@ -149,21 +150,24 @@ def search_with_meta(
         ``score_kind`` discriminates cosine vs RRF.
     """
     selected = (backend or "").strip().lower() or _configured_search_backend()
+    selected = _normalize_backend(selected)
     if selected not in _VALID_BACKENDS:
         selected = "auto"
 
     if selected == "none":
         return SearchResultEnvelope([], "none", None)
 
-    if selected in ("auto", "par-mem"):
-        available = parmem_backend.resolve_parmem_backend(vault)
-        if available and parmem_backend.ensure_vault_indexed(vault):
-            parmem_results = parmem_backend.parmem_search(query, top_k=top, vault=vault)
-            if parmem_results is not None:
-                return SearchResultEnvelope(parmem_results, "par-mem", "rrf")
-        if selected == "par-mem":
-            # Explicit par-mem: no embeddings fallback (testing/debug affordance).
-            return SearchResultEnvelope([], "par-mem", "rrf")
+    if selected in ("auto", "parsight"):
+        available = parsight_backend.resolve_parsight_backend(vault)
+        if available and parsight_backend.ensure_vault_indexed(vault):
+            parsight_results = parsight_backend.parsight_search(
+                query, top_k=top, vault=vault
+            )
+            if parsight_results is not None:
+                return SearchResultEnvelope(parsight_results, "parsight", "rrf")
+        if selected == "parsight":
+            # Explicit parsight: no embeddings fallback (testing/debug affordance).
+            return SearchResultEnvelope([], "parsight", "rrf")
 
     embeddings_results = _embeddings._search_embeddings(
         query=query, top=top, min_score=min_score, model_name=model_name, vault=vault
@@ -181,10 +185,10 @@ def search(
 ) -> list[dict[str, object]]:
     """Search the vault for notes semantically similar to *query*.
 
-    Routes to the optional par-mem backend when selected and available,
+    Routes to the optional parsight backend when selected and available,
     silently falling back to the local embeddings pipeline. Both backends
     return identically shaped result dicts. ``min_score`` applies only to
-    the embeddings backend — par-mem RRF scores are rank-fusion values, not
+    the embeddings backend — parsight RRF scores are rank-fusion values, not
     cosines, and gate by rank/``top`` instead.
 
     ARC-031/ARC-006: this thin wrapper preserves the list-returning public
@@ -198,7 +202,7 @@ def search(
         min_score: Minimum cosine similarity (embeddings backend only).
         model_name: fastembed model ID used when the index was built.
         vault: Optional vault path. Defaults to resolve_vault().
-        backend: ``auto | par-mem | embeddings | none`` override; None reads
+        backend: ``auto | parsight | embeddings | none`` override; None reads
             the ``search.backend`` config key (default ``auto``).
 
     Returns:
@@ -310,7 +314,8 @@ def main() -> None:
     parser.add_argument(
         "--backend",
         "-B",
-        choices=["auto", "par-mem", "embeddings", "none"],
+        # "parsight" plus the legacy "par-mem" spelling (normalized before use).
+        choices=["auto", "parsight", "embeddings", "none", "par-mem"],
         default=None,
         help="Semantic: backend override (default: search.backend config, auto).",
     )
@@ -461,13 +466,19 @@ def main() -> None:
 
     envelope: SearchResultEnvelope | None = None
     if has_query:
-        selected_backend = args.backend or _configured_search_backend()
-        parmem_may_serve = selected_backend in (
+        selected_backend = _normalize_backend(
+            args.backend or _configured_search_backend()
+        )
+        parsight_may_serve = selected_backend in (
             "auto",
-            "par-mem",
-        ) and parmem_backend.resolve_parmem_backend(vault_path)
+            "parsight",
+        ) and parsight_backend.resolve_parsight_backend(vault_path)
         db_path = vault_common.get_embeddings_db_path(vault_path)
-        if not db_path.exists() and not parmem_may_serve and selected_backend != "none":
+        if (
+            not db_path.exists()
+            and not parsight_may_serve
+            and selected_backend != "none"
+        ):
             print(
                 "embeddings.db not found — run build_embeddings.py first",
                 file=sys.stderr,

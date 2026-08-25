@@ -25,7 +25,7 @@ What stays here and why:
     with the ``os`` re-export the ``getpid`` patch rides on. ``main``
     stays too: it weaves the singleton guard, the inline
     ``__file__``-relative ``build_embeddings.py`` discovery, and the
-    par-mem/embeddings spawn into one entry point that is simpler to
+    parsight/embeddings spawn into one entry point that is simpler to
     keep at the scripts root than to relocate with adjusted path math.
 
 Walks the vault tree, parses frontmatter from all notes, and generates a
@@ -68,7 +68,7 @@ from vault_common import (
 from vault_index import drain_parse_warnings, record_parse_warning  # re-exports
 from vault_fs import atomic_write_text  # re-exported (update_index.atomic_write_text)
 
-import parmem_backend  # re-exported (update_index.parmem_backend) for backwards compat
+import parsight_backend  # re-exported (update_index.parsight_backend) for backwards compat
 
 # ---------------------------------------------------------------------------
 # Re-exports from cli.index.* — every symbol the original update_index.py
@@ -407,13 +407,13 @@ def main() -> None:
             except OSError:
                 pass
 
-    # par-mem freshness trigger: when the optional par-mem backend resolves,
-    # kick a detached incremental `par-mem index` so the code-memory graph
-    # tracks the vault without blocking this run (see docs/PAR-MEM.md).
-    # Independent of embeddings.enabled — par-mem is its own index.
-    if parmem_backend.resolve_parmem_backend(vault_path):
-        if parmem_backend.spawn_background_index(vault_path):
-            print("par-mem: background index launched")
+    # parsight freshness trigger: when the optional parsight backend resolves,
+    # kick a detached incremental `parsight index` so the code-memory graph
+    # tracks the vault without blocking this run (see docs/PARSIGHT.md).
+    # Independent of embeddings.enabled — parsight is its own index.
+    if parsight_backend.resolve_parsight_backend(vault_path):
+        if parsight_backend.spawn_background_index(vault_path):
+            print("parsight: background index launched")
 
     if args.rebuild_graph:
         # ENH-010: graph rebuild is incremental by default. The CLI flag is a

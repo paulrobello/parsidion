@@ -14,7 +14,7 @@ Why a stdlib mini-validator instead of ``jsonschema``:
     JSON Schema we actually use (type / required / properties / items /
     additionalProperties / enum / minimum / maximum / minLength) is small
     enough to interpret with ~50 lines of stdlib, and the validator is
-    reused by ``tests/test_build_graph_parmem.py`` to check a generated
+    reused by ``tests/test_build_graph_parsight.py`` to check a generated
     graph.json.  The committed schema file is still a genuine JSON Schema
     (draft 2020-12) document, so any external tooling that speaks JSON
     Schema can validate against it too.
@@ -184,7 +184,7 @@ class TestSchemaSelfConsistency:
         """Edge kind must be the closed set {semantic, wiki}.
 
         Matches the TypeScript ``kind: 'semantic' | 'wiki'`` union and the
-        three writers in build_graph.py (semantic, wiki, par-mem body wiki).
+        three writers in build_graph.py (semantic, wiki, parsight body wiki).
         """
         kind = schema["properties"]["edges"]["items"]["properties"]["kind"]
         assert kind["enum"] == ["semantic", "wiki"]
@@ -202,11 +202,11 @@ class TestSchemaSelfConsistency:
             "mtime",
         ]
 
-    def test_schema_parmem_body_links_optional(self, schema: dict[str, Any]) -> None:
-        """parmem_body_links is optional (absent when enrichment added nothing)."""
+    def test_schema_parsight_body_links_optional(self, schema: dict[str, Any]) -> None:
+        """parsight_body_links is optional (absent when enrichment added nothing)."""
         meta_required = schema["properties"]["meta"]["required"]
-        assert "parmem_body_links" not in meta_required
-        assert "parmem_body_links" in schema["properties"]["meta"]["properties"]
+        assert "parsight_body_links" not in meta_required
+        assert "parsight_body_links" in schema["properties"]["meta"]["properties"]
 
 
 # ---------------------------------------------------------------------------

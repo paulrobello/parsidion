@@ -44,7 +44,7 @@ __all__ = [
     "PreCompactHookConfig",
     "SummarizerConfig",
     "EmbeddingsConfig",
-    "ParMemConfig",
+    "ParsightConfig",
     "SearchConfig",
     "AnthropicEnvConfig",
     "GitConfig",
@@ -224,8 +224,8 @@ class EmbeddingsConfig:
 
 
 @dataclass
-class ParMemConfig:
-    """``par_mem`` section."""
+class ParsightConfig:
+    """``parsight`` section."""
 
     enabled: bool = None
     binary: str = None
@@ -345,7 +345,7 @@ class VaultAppConfig:
     )
     summarizer: SummarizerConfig = field(default_factory=lambda: SummarizerConfig())
     embeddings: EmbeddingsConfig = field(default_factory=lambda: EmbeddingsConfig())
-    par_mem: ParMemConfig = field(default_factory=lambda: ParMemConfig())
+    parsight: ParsightConfig = field(default_factory=lambda: ParsightConfig())
     search: SearchConfig = field(default_factory=lambda: SearchConfig())
     anthropic_env: AnthropicEnvConfig = field(
         default_factory=lambda: AnthropicEnvConfig()

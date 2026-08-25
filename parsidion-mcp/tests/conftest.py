@@ -1,4 +1,4 @@
-"""parsidion-mcp test isolation: never touch a real par-mem daemon."""
+"""parsidion-mcp test isolation: never touch a real parsight daemon."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _parmem_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PARMEM_MCP_URL", "http://127.0.0.1:1/mcp")
+def _parsight_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:1/mcp")
     try:
-        import parmem_backend
+        import parsight_backend
 
-        parmem_backend.reset_parmem_cache()
+        parsight_backend.reset_parsight_cache()
     except ImportError:
         pass

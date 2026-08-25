@@ -1,7 +1,7 @@
 """search — focused submodules extracted from vault_search.py (ARC-005).
 
 The original 1,228-line ``vault_search.py`` God module mixed the embeddings
-backend (sqlite-vec + fastembed), the par-mem routing layer, the metadata
+backend (sqlite-vec + fastembed), the parsight routing layer, the metadata
 SQL query path, the grep full-text filter, output formatting, env-var
 helpers, and the curses interactive TUI. ARC-005 decomposes the movable
 concerns into focused submodules behind the proven ``doctor/`` layout.

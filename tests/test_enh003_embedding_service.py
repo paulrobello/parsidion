@@ -8,7 +8,7 @@ These tests pin the three behaviours ENH-003 added:
 * ``find_related_by_semantic`` calls ``vault_search.search`` in-process and
   forwards ``vault=`` (Phase 2; ARC-027(b) regression guard).
 * ``_embeddings_service_active`` gates the persistent service behind an
-  explicit opt-in AND a non-par-mem backend, and the daemon's request handler
+  explicit opt-in AND a non-parsight backend, and the daemon's request handler
   speaks the newline-JSON protocol (Phase 4).
 
 fastembed is mocked throughout so the suite runs without the search extra.
@@ -129,7 +129,7 @@ def test_find_related_by_semantic_forwards_vault(
 
 
 # ---------------------------------------------------------------------------
-# Phase 4: the opt-in + par-mem gate
+# Phase 4: the opt-in + parsight gate
 # ---------------------------------------------------------------------------
 
 
@@ -139,8 +139,8 @@ def test_find_related_by_semantic_forwards_vault(
         (False, "auto", False),
         (True, "auto", True),
         (True, "embeddings", True),
-        (True, "par-mem", False),  # the user's constraint
-        (False, "par-mem", False),
+        (True, "parsight", False),  # the user's constraint
+        (False, "parsight", False),
     ],
 )
 def test_service_active_gate(

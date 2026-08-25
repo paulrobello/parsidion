@@ -1,4 +1,4 @@
-"""Tests for par-mem freshness triggers: update_index spawn + watch holds (Task 6)."""
+"""Tests for parsight freshness triggers: update_index spawn + watch holds (Task 6)."""
 
 from __future__ import annotations
 
@@ -16,33 +16,33 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from core import parmem_backend  # noqa: E402 — ARC-006: patch internals where they live
+from core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
 import vault_common  # noqa: E402
 
-from tests.fake_parmem import FakeHealth, FakeParMem  # noqa: E402
+from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _log_to_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(parmem_backend, "_LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(parsight_backend, "_LOG_DIR", tmp_path / "logs")
 
 
 @pytest.fixture()
 def ready(
-    tmp_vault: Path, fake_parmem: FakeParMem, fake_parmem_health: FakeHealth
-) -> FakeParMem:
-    return fake_parmem
+    tmp_vault: Path, fake_parsight: FakeParsight, fake_parsight_health: FakeHealth
+) -> FakeParsight:
+    return fake_parsight
 
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
     vault_common.load_config.cache_clear()
-    parmem_backend.reset_parmem_cache()
+    parsight_backend.reset_parsight_cache()
 
 
 class TestSpawnWatchHelpers:
-    def test_spawn_watch_args(self, tmp_vault: Path, ready: FakeParMem) -> None:
-        assert parmem_backend.spawn_watch(tmp_vault, "sess-123") is True
+    def test_spawn_watch_args(self, tmp_vault: Path, ready: FakeParsight) -> None:
+        assert parsight_backend.spawn_watch(tmp_vault, "sess-123") is True
         call = ready.wait_for_call("watch")
         assert call["argv"] == [
             "watch",
@@ -51,8 +51,8 @@ class TestSpawnWatchHelpers:
             "parsidion-sess-123",
         ]
 
-    def test_spawn_unwatch_args(self, tmp_vault: Path, ready: FakeParMem) -> None:
-        assert parmem_backend.spawn_unwatch(tmp_vault, "sess-123") is True
+    def test_spawn_unwatch_args(self, tmp_vault: Path, ready: FakeParsight) -> None:
+        assert parsight_backend.spawn_unwatch(tmp_vault, "sess-123") is True
         call = ready.wait_for_call("unwatch")
         assert call["argv"] == [
             "unwatch",
@@ -61,45 +61,47 @@ class TestSpawnWatchHelpers:
             "parsidion-sess-123",
         ]
 
-    def test_empty_session_id_is_noop(self, tmp_vault: Path, ready: FakeParMem) -> None:
-        assert parmem_backend.spawn_watch(tmp_vault, "  ") is False
+    def test_empty_session_id_is_noop(
+        self, tmp_vault: Path, ready: FakeParsight
+    ) -> None:
+        assert parsight_backend.spawn_watch(tmp_vault, "  ") is False
         ready.assert_no_call("watch", settle=0.1)
 
     def test_unavailable_backend_is_noop(
-        self, tmp_vault: Path, fake_parmem: FakeParMem
+        self, tmp_vault: Path, fake_parsight: FakeParsight
     ) -> None:
-        assert parmem_backend.spawn_watch(tmp_vault, "sess-123") is False
-        fake_parmem.assert_no_call("watch", settle=0.1)
+        assert parsight_backend.spawn_watch(tmp_vault, "sess-123") is False
+        fake_parsight.assert_no_call("watch", settle=0.1)
 
 
 class TestUpdateIndexTrigger:
     def test_end_of_run_spawns_background_index(
         self,
         tmp_vault: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         import update_index
 
         # Disable embeddings so the run neither writes note_index nor spawns
-        # the (heavy, uv-based) build_embeddings.py; the par-mem trigger must
+        # the (heavy, uv-based) build_embeddings.py; the parsight trigger must
         # be independent of embeddings.enabled.
         _write_config(tmp_vault, "embeddings:\n  enabled: false\n")
         monkeypatch.setattr(sys, "argv", ["update_index.py", "--vault", str(tmp_vault)])
         update_index.main()
         call = ready.wait_for_call("index")
         assert call["argv"] == ["index", str(tmp_vault), "--json"]
-        assert "par-mem: background index launched" in capsys.readouterr().out
+        assert "parsight: background index launched" in capsys.readouterr().out
 
     def test_no_spawn_when_backend_unavailable(
         self,
         tmp_vault: Path,
         monkeypatch: pytest.MonkeyPatch,
-        fake_parmem: FakeParMem,
+        fake_parsight: FakeParsight,
     ) -> None:
-        # No fake_parmem_health fixture: the autouse isolation pins
-        # PARMEM_MCP_URL at an unreachable port, so the health probe fails
+        # No fake_parsight_health fixture: the autouse isolation pins
+        # PARSIGHT_MCP_URL at an unreachable port, so the health probe fails
         # and the backend is unavailable. PATH is left intact — update_index
         # shells out to git and must keep working exactly as today.
         import update_index
@@ -107,7 +109,7 @@ class TestUpdateIndexTrigger:
         _write_config(tmp_vault, "embeddings:\n  enabled: false\n")
         monkeypatch.setattr(sys, "argv", ["update_index.py", "--vault", str(tmp_vault)])
         update_index.main()  # must complete exactly as today
-        fake_parmem.assert_no_call("index", settle=0.1)
+        fake_parsight.assert_no_call("index", settle=0.1)
 
 
 class TestSessionStartWatch:
@@ -124,7 +126,7 @@ class TestSessionStartWatch:
         self,
         tmp_vault: Path,
         tmp_path: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -145,7 +147,7 @@ class TestSessionStartWatch:
         self,
         tmp_vault: Path,
         tmp_path: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
@@ -161,7 +163,7 @@ class TestSessionEndUnwatch:
         self,
         tmp_vault: Path,
         tmp_path: Path,
-        ready: FakeParMem,
+        ready: FakeParsight,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:

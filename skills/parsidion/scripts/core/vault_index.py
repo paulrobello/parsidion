@@ -615,7 +615,7 @@ def _build_note_index_where(
 
     The single home for the condition assembly previously duplicated
     between ``query_note_index`` here and ``cli.search.metadata.query``
-    (par-mem similarity 0.908). Callers keep their own SELECT lists,
+    (parsight similarity 0.908). Callers keep their own SELECT lists,
     result mapping, and schema/containment guards.
 
     SECURITY: The SQL WHERE clause is assembled from literal condition

@@ -218,7 +218,7 @@ The default mode when opening a note. Provides a distraction-free reading experi
   - Click → open in current tab
   - Cmd+click → open in new tab
 - Related notes section extracted from YAML frontmatter
-- Linked Notes section: notes connected by wiki edges in `graph.json` (frontmatter `related:` plus par-mem in-body links when the [par-mem integration](PAR-MEM.md) is enabled — par-mem itself is coming soon / not yet public) — undirected, deduplicated against the Related row
+- Linked Notes section: notes connected by wiki edges in `graph.json` (frontmatter `related:` plus parsight in-body links when the [parsight integration](PARSIGHT.md) is enabled — parsight itself is coming soon / not yet public) — undirected, deduplicated against the Related row
 - **Inline editing**: toggle edit mode to modify note body and frontmatter
   - FrontmatterEditor provides structured editing of type, date, confidence, tags, project, sources, and related links with tag autocomplete from the graph
   - Save and delete operations via the note CRUD API
@@ -355,7 +355,7 @@ Floating overlay in the bottom-left of the graph canvas. Draggable via its title
 - Visible node count
 - Visible edge count
 - Average semantic similarity score
-- Expandable detail panel: average degree, max degree, graph density, connected component count, top 5 hub nodes by degree, and a `body links` chip when `graph.json` carries `meta.parmem_body_links`
+- Expandable detail panel: average degree, max degree, graph density, connected component count, top 5 hub nodes by degree, and a `body links` chip when `graph.json` carries `meta.parsight_body_links`
 
 **Temperature Bar**
 - Visual indicator of simulation energy (0 to 1.0)
@@ -394,7 +394,7 @@ Activated with **⌘K** — four modes selectable by prefix:
 | *(none)* | Title | Fuzzy match on note titles and stem IDs |
 | `#tag` | Tag | Exact tag match |
 | `/path` | Folder | Prefix match on vault-relative path |
-| `?query` | Semantic | Meaning-based search via `vault_search.py` (par-mem backend when available, embeddings fallback) — debounced, shows note summaries |
+| `?query` | Semantic | Meaning-based search via `vault_search.py` (parsight backend when available, embeddings fallback) — debounced, shows note summaries |
 
 - Up to 8 results shown per query
 - Each result: colored type dot, title with match highlighting, folder path, tags
@@ -567,7 +567,7 @@ If you expose the visualizer beyond loopback (LAN, tunnel), set `VISUALIZER_TOKE
 
 The `graph.json` file is a pre-computed snapshot of vault relationships stored in the vault root (e.g. `~/ParsidionVault/graph.json`). Each vault has its own `graph.json`; the file is gitignored and rebuilt locally. Rebuild it whenever notes are added, removed, or embeddings are updated.
 
-Frontmatter `related:` fields are the always-on source of wiki edges; when the optional [par-mem integration](PAR-MEM.md) is enabled, wiki edges also include par-mem's in-body `[[wikilinks]]`/markdown-link extraction (`--no-parmem` opts out) — edge kinds are unchanged either way (`kind: 'wiki'`).
+Frontmatter `related:` fields are the always-on source of wiki edges; when the optional [parsight integration](PARSIGHT.md) is enabled, wiki edges also include parsight's in-body `[[wikilinks]]`/markdown-link extraction (`--no-parsight` opts out) — edge kinds are unchanged either way (`kind: 'wiki'`).
 
 ### Prerequisites
 
@@ -590,7 +590,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py [OPTIONS]
 Options:
   --include-daily        Include Daily folder notes (default; flag kept for backward compatibility)
   --no-daily             Exclude Daily folder notes
-  --no-parmem            Skip par-mem in-body wiki-edge enrichment
+  --no-parsight            Skip parsight in-body wiki-edge enrichment
   --no-schema            Skip writing graph.schema.json alongside graph.json (ARC-038)
   --min-threshold FLOAT  Minimum cosine similarity floor for semantic edges (default: 0.70)
   --max-neighbors INT    Maximum semantic edges kept per note, strongest first (default: 15; 0 disables the cap and emits every pair above --min-threshold)
@@ -670,8 +670,8 @@ graph LR
     include_daily?: boolean    // whether Daily-folder notes are included in the node set (ENH-002); participates in the incremental-compatibility check
     max_neighbors?: number     // max semantic edges kept per note (top-K nearest neighbours); 0 disables the cap. Absent on graphs built before ENH-001
     incremental?: boolean      // true when this graph was produced by an incremental rebuild (ENH-002); absent on full-rebuild graphs
-    parmem_body_links?: number  // wiki edges contributed by par-mem body-link enrichment (absent when skipped or added nothing)
-    parmem_body_status?: string // outcome of par-mem body-link enrichment when attempted (absent under --no-parmem): 'fresh' = ran; 'skipped:index-stale' / '-absent' / '-invalid' = non-fresh index; 'unavailable' / 'error' = backend failure
+    parsight_body_links?: number  // wiki edges contributed by parsight body-link enrichment (absent when skipped or added nothing)
+    parsight_body_status?: string // outcome of parsight body-link enrichment when attempted (absent under --no-parsight): 'fresh' = ran; 'skipped:index-stale' / '-absent' / '-invalid' = non-fresh index; 'unavailable' / 'error' = backend failure
   }
   nodes: NoteNode[]
   edges: GraphEdge[]
@@ -792,7 +792,7 @@ The server retains up to 8 historical snapshots per vault in module scope (keyed
 
 **Response (200):** `{ running: boolean, error?: string, progress: Progress | null, pendingSummaries: number }` where `Progress` is `{ total, processed, written, skipped, errors, current, pct }`.
 
-**`GET /api/search?q=<query>`** — Semantic vault search. Spawns `vault_search.py --json` (par-mem daemon backend when available, embeddings fallback — see [PAR-MEM.md](PAR-MEM.md)).
+**`GET /api/search?q=<query>`** — Semantic vault search. Spawns `vault_search.py --json` (parsight daemon backend when available, embeddings fallback — see [PARSIGHT.md](PARSIGHT.md)).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

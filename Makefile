@@ -20,10 +20,10 @@ typecheck:
 test:
 	uv run pytest tests/
 
-# Run build_graph.py's par-mem body-link enrichment tests (numpy-gated,
+# Run build_graph.py's parsight body-link enrichment tests (numpy-gated,
 # skipped under `test`/`checkall`'s numpy-free default suite)
 test-graph:
-	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parmem.py
+	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parsight.py
 
 # ENH-005: regenerate the cross-language parity fixtures:
 #   - tests/fixtures/graph.schema.json (derived from build_graph.py:GRAPH_JSON_SCHEMA)
@@ -56,7 +56,7 @@ parity-fixtures-check:
 PDOC_MODULES := core installer vault_common vault_config vault_path vault_fs \
 	vault_index vault_hooks vault_adaptive vault_metrics vault_tui vault_links \
 	vault_new vault_constants vault_resolve vault_health subproc_util ai_backend \
-	vault_embed_serve parmem_backend note_schema agent_adapter prompt_templates \
+	vault_embed_serve parsight_backend note_schema agent_adapter prompt_templates \
 	session_start_hook session_stop_hook pre_compact_hook post_compact_hook \
 	subagent_stop_hook codex_session_start_hook codex_stop_hook codex_subagent_stop_hook \
 	gemini_session_start_hook gemini_session_end_hook vault_search \

@@ -31,7 +31,7 @@ A FastMCP-based MCP server that exposes the Parsidion vault knowledge management
 
 `parsidion-mcp` solves the problem of Claude Desktop agents being unable to directly access the Parsidion vault. The Parsidion vault accumulates project knowledge, debugging solutions, architectural decisions, and reusable patterns across sessions — but Claude Desktop has no native mechanism to read or write those notes.
 
-`parsidion-mcp` bridges this gap by running as a local stdio MCP server. It wraps `vault_common` (the vault's shared library), `vault_search` (the semantic and metadata search engine), and the optional `parmem_backend` (the par-mem code-memory bridge) behind eight MCP tools, giving Claude Desktop the same vault access that Claude Code hook scripts enjoy.
+`parsidion-mcp` bridges this gap by running as a local stdio MCP server. It wraps `vault_common` (the vault's shared library), `vault_search` (the semantic and metadata search engine), and the optional `parsight_backend` (the parsight code-memory bridge) behind eight MCP tools, giving Claude Desktop the same vault access that Claude Code hook scripts enjoy.
 
 Key capabilities:
 
@@ -41,9 +41,9 @@ Key capabilities:
 - Index rebuild triggering from within a conversation
 - Vault health scanning and automated repair via `vault_doctor`
 - Composite vault health scoring across seven dimensions via `vault_health`
-- Natural-language code search over any par-mem-indexed repository via `code_search`
+- Natural-language code search over any parsight-indexed repository via `code_search`
 
-The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires par-mem to be installed and its local daemon running (see [docs/PAR-MEM.md](PAR-MEM.md)); without par-mem the other seven tools continue to work and `code_search` raises a clear `ValueError`. **Note:** par-mem itself is not yet publicly available (coming soon) — the other seven tools work fully today; `code_search` activates automatically once par-mem ships.
+The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires parsight to be installed and its local daemon running (see [docs/PARSIGHT.md](PARSIGHT.md)); without parsight the other seven tools continue to work and `code_search` raises a clear `ValueError`. **Note:** parsight itself is not yet publicly available (coming soon) — the other seven tools work fully today; `code_search` activates automatically once parsight ships.
 
 ## Architecture
 
@@ -55,8 +55,8 @@ graph TD
     MCP["parsidion-mcp<br/>(FastMCP / stdio)"]
     VaultSearch["vault_search<br/>(semantic + metadata)"]
     VaultCommon["vault_common<br/>(shared library)"]
-    ParmemBackend["parmem_backend<br/>(par-mem bridge, optional)"]
-    ParmemDaemon["par-mem daemon<br/>(local HTTP)"]
+    ParsightBackend["parsight_backend<br/>(parsight bridge, optional)"]
+    ParsightDaemon["parsight daemon<br/>(local HTTP)"]
     ScriptsDir["~/.claude/skills/parsidion/scripts/"]
     UpdateIndex["update_index.py<br/>(subprocess)"]
     VaultDoctor["vault_doctor.py<br/>(subprocess)"]
@@ -68,15 +68,15 @@ graph TD
 
     MCP -->|"vault_search tool"| VaultSearch
     MCP -->|"vault_read / vault_write / vault_context"| VaultCommon
-    MCP -->|"code_search tool"| ParmemBackend
+    MCP -->|"code_search tool"| ParsightBackend
     MCP -->|"rebuild_index (uv run)"| UpdateIndex
     MCP -->|"vault_doctor (uv run)"| VaultDoctor
     MCP -->|"vault_health (uv run)"| VaultStats
 
     VaultSearch --> EmbeddingsDB
     VaultSearch --> VaultCommon
-    VaultSearch --> ParmemBackend
-    ParmemBackend --> ParmemDaemon
+    VaultSearch --> ParsightBackend
+    ParsightBackend --> ParsightDaemon
     VaultCommon --> VaultRoot
     UpdateIndex --> ScriptsDir
     VaultDoctor --> ScriptsDir
@@ -107,10 +107,10 @@ graph TD
 
     class Desktop external
     class MCP primary
-    class VaultSearch,VaultCommon,ParmemBackend data
+    class VaultSearch,VaultCommon,ParsightBackend data
     class ScriptsDir,T1,T2,T3,T4,T5,T6,T7,T8 neutral
     class UpdateIndex,VaultDoctor,VaultStats active
-    class ParmemDaemon,EmbeddingsDB,VaultRoot database
+    class ParsightDaemon,EmbeddingsDB,VaultRoot database
 
     classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
     classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
@@ -132,7 +132,7 @@ Every vault-touching tool also accepts an optional `vault` parameter (ARC-021) �
 
 - Python 3.13 or later
 - `uv` (the package manager — install from [docs.astral.sh/uv](https://docs.astral.sh/uv))
-- `parsidion` installed as an editable package with the `[search]` extra. The editable install exposes the `vault_common`, `vault_search`, and `parmem_backend` py-modules; the `[search]` extra pulls in `fastembed`, `sqlite-vec`, and `pillow`
+- `parsidion` installed as an editable package with the `[search]` extra. The editable install exposes the `vault_common`, `vault_search`, and `parsight_backend` py-modules; the `[search]` extra pulls in `fastembed`, `sqlite-vec`, and `pillow`
 
 > **📝 Note:** Both `parsidion` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion`.
 
@@ -190,10 +190,10 @@ All tools return plain strings on success. On failure, tools raise typed excepti
 | Note not found | `VaultToolError` | `note not found at <path>` |
 | Content exceeds 10 MB | `VaultToolError` | `Content exceeds 10 MB limit` |
 | Non-.md file extension | `VaultToolError` | `Only .md files are allowed` |
-| Embeddings DB missing and par-mem unavailable (semantic search) | `ValueError` | `embeddings DB not found and par-mem unavailable -- run rebuild_index first, or install/start par-mem` |
-| par-mem unavailable (`code_search`) | `ValueError` | `par-mem unavailable -- install par-mem and start its daemon (see docs/PAR-MEM.md)` |
+| Embeddings DB missing and parsight unavailable (semantic search) | `ValueError` | `embeddings DB not found and parsight unavailable -- run rebuild_index first, or install/start parsight` |
+| parsight unavailable (`code_search`) | `ValueError` | `parsight unavailable -- install parsight and start its daemon (see docs/PARSIGHT.md)` |
 | `code_search` repo_path missing | `ValueError` | `repo_path does not exist: <path>` |
-| `code_search` query failure | `ValueError` | `par-mem query failed -- check \`par-mem repos --json\` and the daemon log` |
+| `code_search` query failure | `ValueError` | `parsight query failed -- check \`parsight repos --json\` and the daemon log` |
 | Subprocess timeout | `OpsToolError` | `command timed out after <N>s` |
 | Subprocess non-zero exit | `OpsToolError` | `<combined stdout+stderr from subprocess>` |
 
@@ -201,7 +201,7 @@ All tools return plain strings on success. On failure, tools raise typed excepti
 
 Searches vault notes using semantic vector similarity or structured metadata filtering.
 
-**Semantic mode** activates when `query` is provided. It calls the fastembed cosine similarity search against `embeddings.db`, transparently falling back to the par-mem backend when it is available and has indexed the vault (configurable via the `search.backend` config key; default `auto`). **Metadata mode** activates when `query` is omitted; it runs a SQL query against the `note_index` table filtered by whichever metadata parameters are supplied.
+**Semantic mode** activates when `query` is provided. It calls the fastembed cosine similarity search against `embeddings.db`, transparently falling back to the parsight backend when it is available and has indexed the vault (configurable via the `search.backend` config key; default `auto`). **Metadata mode** activates when `query` is omitted; it runs a SQL query against the `note_index` table filtered by whichever metadata parameters are supplied.
 
 #### Parameters
 
@@ -454,22 +454,22 @@ vault_health(vault="work-vault")
 
 ### code_search
 
-Natural-language search over a par-mem-indexed repository's code graph (symbols, calls, imports, types). This is the MCP analogue of par-mem's `find_code` tool, exposed so Claude Desktop can answer "where is this defined?" or "find me the implementation of X" without leaving the conversation.
+Natural-language search over a parsight-indexed repository's code graph (symbols, calls, imports, types). This is the MCP analogue of parsight's `find_code` tool, exposed so Claude Desktop can answer "where is this defined?" or "find me the implementation of X" without leaving the conversation.
 
-Unlike the hook and CLI surfaces, this tool **raises** instead of degrading silently — MCP callers can choose another tool when par-mem is unavailable.
+Unlike the hook and CLI surfaces, this tool **raises** instead of degrading silently — MCP callers can choose another tool when parsight is unavailable.
 
 #### Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `query` | `str` | _(required)_ | Natural-language query (error strings work well) |
-| `repo_path` | `str \| None` | `None` | Absolute path to a repository par-mem has indexed. When omitted, the resolved vault is searched and results are parsidion note objects (identical to `vault_search`'s semantic results) |
+| `repo_path` | `str \| None` | `None` | Absolute path to a repository parsight has indexed. When omitted, the resolved vault is searched and results are parsidion note objects (identical to `vault_search`'s semantic results) |
 | `top_k` | `int` | `10` | Maximum number of results |
 
 #### Behaviour
 
-- With `repo_path`: returns raw par-mem code hits verbatim — repo-relative `file_path` plus RRF `score` (rank-fusion value, **not** a cosine, so `min_score` does not apply).
-- Without `repo_path`: searches the resolved vault via `parmem_backend.parmem_search()` and returns parsidion note objects in the same shape as `vault_search`.
+- With `repo_path`: returns raw parsight code hits verbatim — repo-relative `file_path` plus RRF `score` (rank-fusion value, **not** a cosine, so `min_score` does not apply).
+- Without `repo_path`: searches the resolved vault via `parsight_backend.parsight_search()` and returns parsidion note objects in the same shape as `vault_search`.
 
 #### Return Value
 
@@ -479,7 +479,7 @@ JSON array of result objects (shape depends on `repo_path` as described above).
 
 ```python
 # Search an indexed repo for a symbol
-code_search(query="resolve_worktree", repo_path="/Users/me/Repos/par-mem")
+code_search(query="resolve_worktree", repo_path="/Users/me/Repos/parsight")
 
 # Search the vault's indexed notes (no repo_path)
 code_search(query="hook patterns", top_k=5)
@@ -487,7 +487,7 @@ code_search(query="hook patterns", top_k=5)
 
 #### Availability Check
 
-The tool first calls `parmem_backend.resolve_parmem_backend()`. If par-mem is not installed, its daemon is not running, or it is disabled via config, the tool raises `ValueError("par-mem unavailable -- install par-mem and start its daemon (see docs/PAR-MEM.md)")` immediately. Nonexistent `repo_path` values and failed queries also raise `ValueError`.
+The tool first calls `parsight_backend.resolve_parsight_backend()`. If parsight is not installed, its daemon is not running, or it is disabled via config, the tool raises `ValueError("parsight unavailable -- install parsight and start its daemon (see docs/PARSIGHT.md)")` immediately. Nonexistent `repo_path` values and failed queries also raise `ValueError`.
 
 ## Security
 
@@ -495,7 +495,7 @@ The tool first calls `parmem_backend.resolve_parmem_backend()`. If par-mem is no
 
 **Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against the vault root (obtained via `vault_common.resolve_vault()`) using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — raises `VaultToolError("path escapes vault root")` immediately. No file system access occurs for rejected paths.
 
-**No external network calls.** The server and all eight tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local par-mem daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
+**No external network calls.** The server and all eight tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local parsight daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
 
 The server has no authentication layer of its own because it is transport-bound to stdio. Only Claude Desktop (or another local process with stdio access) can communicate with it.
 
@@ -541,10 +541,10 @@ parsidion-mcp/
             ├── notes.py      # vault_read, vault_write
             ├── context.py    # vault_context
             ├── ops.py        # rebuild_index, vault_doctor, vault_health
-            └── code_search.py # code_search tool (par-mem bridge)
+            └── code_search.py # code_search tool (parsight bridge)
 ```
 
-The `parsidion[search]` editable path dependency (declared in `pyproject.toml` under `[tool.uv.sources]`) makes `vault_common`, `vault_search`, and `parmem_backend` directly importable — no `sys.path` manipulation is required in the server code.
+The `parsidion[search]` editable path dependency (declared in `pyproject.toml` under `[tool.uv.sources]`) makes `vault_common`, `vault_search`, and `parsight_backend` directly importable — no `sys.path` manipulation is required in the server code.
 
 ## Related Documentation
 

@@ -48,11 +48,11 @@ search script encodes the query with the same model and ranks notes by cosine si
 internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/ClaudeVault/` for legacy installs). All commands accept `--vault` to target a specific vault.
 
 > **Backend routing:** semantic search in `vault_search.py` routes through an optional
-> **par-mem** code-memory backend when it is installed and healthy (`search.backend: auto`,
-> the default), falling back to this local embeddings pipeline silently when par-mem is
+> **parsight** code-memory backend when it is installed and healthy (`search.backend: auto`,
+> the default), falling back to this local embeddings pipeline silently when parsight is
 > absent. The embeddings pipeline is always on regardless. Metadata and grep modes always
-> use the local `note_index` table. See [PAR-MEM.md](PAR-MEM.md) for the par-mem integration.
-> _(par-mem itself is not yet publicly available — coming soon; this embeddings pipeline is
+> use the local `note_index` table. See [PARSIGHT.md](PARSIGHT.md) for the parsight integration.
+> _(parsight itself is not yet publicly available — coming soon; this embeddings pipeline is
 > the always-on default until it ships.)_
 
 **Key capabilities:**
@@ -151,7 +151,7 @@ graph TB
 
 1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
-3. `vault_search.py`'s `search()` function routes a semantic query according to the `search.backend` config key (default `auto`): when par-mem is installed and its daemon is healthy, the query is served by par-mem's hybrid BM25+vector+graph retrieval; otherwise it loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. Both backends return identically shaped result dicts. When `decay_enabled` is `true` (the default), raw cosine scores from the embeddings backend are multiplied by an exponential decay factor based on note age, so newer notes rank higher. (`min_score` gates only the embeddings backend; par-mem RRF scores are rank-fusion values and gate by rank/`top` instead.) `vault_search.py` also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model, and a `--grep` body-search mode — neither involves a backend choice.
+3. `vault_search.py`'s `search()` function routes a semantic query according to the `search.backend` config key (default `auto`): when parsight is installed and its daemon is healthy, the query is served by parsight's hybrid BM25+vector+graph retrieval; otherwise it loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. Both backends return identically shaped result dicts. When `decay_enabled` is `true` (the default), raw cosine scores from the embeddings backend are multiplied by an exponential decay factor based on note age, so newer notes rank higher. (`min_score` gates only the embeddings backend; parsight RRF scores are rank-fusion values and gate by rank/`top` instead.) `vault_search.py` also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model, and a `--grep` body-search mode — neither involves a backend choice.
 4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking. The facade also re-exports `load_graph_metadata()` and `parse_related_stems()`, which read the `related`/`incoming_links`/`tags` columns to drive the session start hook's graph retrieval passes.
 5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
@@ -379,22 +379,22 @@ Each result line shows the similarity score, note stem, title, folder, tags, and
 #### Backend selection
 
 By default a semantic query is served by whichever backend `search.backend` resolves
-(`auto` prefers par-mem when available, else the local embeddings pipeline). Override it
+(`auto` prefers parsight when available, else the local embeddings pipeline). Override it
 per-invocation with `--backend` / `-B`:
 
 ```bash
-# Force the local embeddings pipeline even when par-mem is installed
+# Force the local embeddings pipeline even when parsight is installed
 vault-search "sqlite vector search" --backend embeddings
 vault-search "sqlite vector search" -B embeddings     # short form
 
-# Force par-mem (returns [] if par-mem is unavailable — no embeddings fallback)
-vault-search "sqlite vector search" -B par-mem
+# Force parsight (returns [] if parsight is unavailable — no embeddings fallback)
+vault-search "sqlite vector search" -B parsight
 
 # Disable semantic search entirely (returns [])
 vault-search "sqlite vector search" -B none
 ```
 
-Valid values: `auto` (default), `par-mem`, `embeddings`, `none`. In `--rich` output the
+Valid values: `auto` (default), `parsight`, `embeddings`, `none`. In `--rich` output the
 chosen backend is printed on stderr (`backend: embeddings`) so you can confirm which path
 served a query. Metadata and grep modes do not consult `--backend` — they always read the
 local `note_index` table.
@@ -420,7 +420,7 @@ keep that cost down (ENH-003):
   is started lazily by the first enabled caller, idle-exits after `embeddings.service_idle_exit`
   seconds (default 600), and cleans up its socket/PID on exit.
 
-The service is **off by default** and is **never used while par-mem serves retrieval** — par-mem
+The service is **off by default** and is **never used while parsight serves retrieval** — parsight
 answers semantic queries with its own hybrid retrieval, so local query embeddings are not computed
 at all and the service would be pointless. A daemon miss (not yet started, errored, or absent) is
 normal: `vault_search` falls back to the in-process cached model, so the service is an
@@ -656,9 +656,9 @@ so the first rebuild bootstraps the file rather than skipping silently. If you n
 rebuild from scratch, delete `embeddings.db` and re-run `update_index.py`, or invoke
 `build_embeddings.py` directly (see [Quick Start](#quick-start)).
 
-In the same pass, `update_index.py` also kicks a detached `par-mem index` so the code-memory
-graph stays current. That kick is independent of `embeddings.enabled` because par-mem maintains
-its own index; disable it via the `par_mem.enabled` config key.
+In the same pass, `update_index.py` also kicks a detached `parsight index` so the code-memory
+graph stays current. That kick is independent of `embeddings.enabled` because parsight maintains
+its own index; disable it via the `parsight.enabled` config key.
 
 Background rebuild output is redirected to `~/.claude/logs/parsidion-embed.log`. Check this file
 when embeddings appear stale after an expected rebuild.
@@ -677,7 +677,7 @@ when embeddings appear stale after an expected rebuild.
 
 All embeddings settings live under the `embeddings:` section in `<vault>/config.yaml`.
 The `use_embeddings` flag for the session start hook lives under `session_start_hook:`.
-Backend routing for semantic search lives under `search:` and `par_mem:`.
+Backend routing for semantic search lives under `search:` and `parsight:`.
 
 ```yaml
 embeddings:
@@ -698,11 +698,11 @@ session_start_hook:
   graph_rerank: true        # Tier 2 re-rank by tag overlap + hubness
 
 search:
-  backend: auto             # auto | par-mem | embeddings | none
+  backend: auto             # auto | parsight | embeddings | none
 
-par_mem:
-  enabled: true             # Probe for par-mem when available; false = never probe
-  binary: par-mem           # PATH lookup or absolute path to the par-mem CLI
+parsight:
+  enabled: true             # Probe for parsight when available; false = never probe
+  binary: parsight           # PATH lookup or absolute path to the parsight CLI
   timeout_s: 10             # Per-query subprocess timeout in seconds
 ```
 
@@ -710,21 +710,21 @@ par_mem:
 |---|---|---|---|---|
 | `enabled` | `embeddings` | boolean | `true` | Master switch — set `false` to disable all embedding builds and `note_index` writes |
 | `model` | `embeddings` | string | `BAAI/bge-small-en-v1.5` | fastembed model ID for the embedding model |
-| `min_score` | `embeddings` | float | `0.45` | Global minimum cosine similarity threshold; results below this are excluded (embeddings backend only; par-mem gates by rank/`top`) |
+| `min_score` | `embeddings` | float | `0.45` | Global minimum cosine similarity threshold; results below this are excluded (embeddings backend only; parsight gates by rank/`top`) |
 | `top_k` | `embeddings` | integer | `10` | Default number of results returned per search |
 | `decay_enabled` | `embeddings` | boolean | `true` | Apply temporal decay to semantic search scores so newer notes rank higher |
 | `decay_half_life_days` | `embeddings` | float | `90` | Days for a score to decay halfway to `decay_min_factor`; higher values mean slower decay |
 | `decay_min_factor` | `embeddings` | float | `0.5` | Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing entirely |
-| `service_enabled` | `embeddings` | boolean | `false` | ENH-003: opt-in persistent embedding service (`vault_embed_serve.py`). When `true` and `search.backend` is not `par-mem`, `vault_search` shares one warm model across processes via a local Unix socket instead of each caller loading its own ~67 MB ONNX. Never used while par-mem serves retrieval |
+| `service_enabled` | `embeddings` | boolean | `false` | ENH-003: opt-in persistent embedding service (`vault_embed_serve.py`). When `true` and `search.backend` is not `parsight`, `vault_search` shares one warm model across processes via a local Unix socket instead of each caller loading its own ~67 MB ONNX. Never used while parsight serves retrieval |
 | `service_idle_exit` | `embeddings` | integer | `600` | Seconds the persistent service stays alive with no requests before idle-exiting |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
 | `graph_expand` | `session_start_hook` | boolean | `true` | Enable Tier 1 graph retrieval — splice 1-hop wikilink neighbours of selected notes into the candidate pool |
 | `graph_expand_max` | `session_start_hook` | integer | `8` | Max neighbour notes added per session (best-connected first); only applies when `graph_expand` is `true` |
 | `graph_rerank` | `session_start_hook` | boolean | `true` | Enable Tier 2 graph retrieval — re-rank candidates by seed-cluster tag overlap + hubness (incoming-link count) |
-| `backend` | `search` | string | `auto` | Semantic search backend: `auto` (prefer par-mem, fall back to embeddings), `par-mem`, `embeddings`, or `none` |
-| `enabled` | `par_mem` | boolean | `true` | Probe for the par-mem CLI when available; `false` disables probing entirely |
-| `binary` | `par_mem` | string | `par-mem` | PATH lookup name or absolute path to the par-mem CLI |
-| `timeout_s` | `par_mem` | float | `10` | Per-query subprocess timeout for par-mem calls |
+| `backend` | `search` | string | `auto` | Semantic search backend: `auto` (prefer parsight, fall back to embeddings), `parsight`, `embeddings`, or `none` |
+| `enabled` | `parsight` | boolean | `true` | Probe for the parsight CLI when available; `false` disables probing entirely |
+| `binary` | `parsight` | string | `parsight` | PATH lookup name or absolute path to the parsight CLI |
+| `timeout_s` | `parsight` | float | `10` | Per-query subprocess timeout for parsight calls |
 
 > **Note:** CLI flags override `config.yaml` values for a single invocation without modifying
 > the stored configuration. Environment variables (`VAULT_SEARCH_*`) sit between config.yaml
@@ -872,7 +872,7 @@ uv run ~/.claude/skills/parsidion/scripts/vault_search.py "query"
 ## Related Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — full system architecture including hook lifecycle and vault structure
-- [PAR-MEM.md](PAR-MEM.md) — the optional par-mem code-memory backend that can serve semantic search ahead of this embeddings pipeline
+- [PARSIGHT.md](PARSIGHT.md) — the optional parsight code-memory backend that can serve semantic search ahead of this embeddings pipeline
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) — evaluation harness for benchmarking embedding models and chunking strategies against your vault
 - [CLAUDE.md](../CLAUDE.md) — vault note conventions, frontmatter schema, and subfolder rules
 - `<vault>/config.yaml` — live configuration file (copy from `templates/config.yaml` to get started)

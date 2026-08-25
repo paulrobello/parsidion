@@ -134,9 +134,9 @@ _SAFE_ENV_KEYS: frozenset[str] = frozenset(
         # Network proxy
         "HTTPS_PROXY",
         "HTTP_PROXY",
-        # par-mem code-memory daemon endpoint (read by the par-mem CLI and by
-        # parmem_backend's health probe; safe: a URL, never a secret)
-        "PARMEM_MCP_URL",
+        # parsight code-memory daemon endpoint (read by the parsight CLI and by
+        # parsight_backend's health probe; safe: a URL, never a secret)
+        "PARSIGHT_MCP_URL",
     }
 )
 

@@ -83,40 +83,40 @@ exists and `~/ParsidionVault/` does not, use `~/ClaudeVault/` instead.
 
 7. **Synthesize and return** in the exact format below.
 
-## Code-Memory Bridge (par-mem)
+## Code-Memory Bridge (parsight)
 
 When the query is **code-shaped** — it names a symbol, function, or error
 string tied to a specific repository, asks "where/how is X implemented", or
 asks for cross-project prior art that should resolve to real code — also
-consult the par-mem code-memory graph. Run this in addition to the vault
+consult the parsight code-memory graph. Run this in addition to the vault
 search above, not instead of it.
 
 0. **Config gate:** first check `<vault>/config.yaml` (and `config.local.yaml`
-   if present, which overrides it): if `par_mem.enabled` is `false`, skip
-   this entire section — do not probe or run any par-mem command. If
-   `par_mem.binary` is set to a custom name/path, use that in place of
-   `par-mem` in every command below.
+   if present, which overrides it): if `parsight.enabled` is `false`, skip
+   this entire section — do not probe or run any parsight command. If
+   `parsight.binary` is set to a custom name/path, use that in place of
+   `parsight` in every command below.
 
 1. **Availability probe** (one Bash call; on failure skip this whole section
    silently):
    ```bash
-   HEALTH_URL="${PARMEM_MCP_URL:+${PARMEM_MCP_URL%/mcp}/health}"
-   command -v par-mem >/dev/null && curl -sf --max-time 1 "${HEALTH_URL:-http://127.0.0.1:4848/health}" >/dev/null && echo OK
+   HEALTH_URL="${PARSIGHT_MCP_URL:+${PARSIGHT_MCP_URL%/mcp}/health}"
+   command -v parsight >/dev/null && curl -sf --max-time 1 "${HEALTH_URL:-http://127.0.0.1:4848/health}" >/dev/null && echo OK
    ```
 2. **Query the relevant indexed repo(s)**, scoped via `cwd` (the CLI resolves
    the repo from the working directory — run from the repo root):
    ```bash
-   cd /path/to/repo && par-mem find-code "QUERY" --json --limit 5
-   cd /path/to/repo && par-mem find-symbol SYMBOL_NAME --json   # exact names
+   cd /path/to/repo && parsight find-code "QUERY" --json --limit 5
+   cd /path/to/repo && parsight find-symbol SYMBOL_NAME --json   # exact names
    ```
-   Only query repos par-mem already knows (`par-mem repos --json` lists
+   Only query repos parsight already knows (`parsight repos --json` lists
    them). Do not index new repos from this agent — you are read-only.
 3. **Merge code hits into your response:** cite them in `## Answer` alongside
    the vault notes, and add each hit's absolute file path (repo root +
    the hit's repo-relative `file_path`) to `## Sources` with a one-line
    relevance note, exactly like note sources.
 
-Never treat par-mem absence or a failed command as an error — vault notes
+Never treat parsight absence or a failed command as an error — vault notes
 alone remain a complete answer.
 
 ## Conflicting Guidance

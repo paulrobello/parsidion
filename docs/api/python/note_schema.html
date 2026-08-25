@@ -62,9 +62,6 @@
             <li>
                     <a class="variable" href="#NOTE_TYPES_DISPLAY">NOTE_TYPES_DISPLAY</a>
             </li>
-            <li>
-                    <a class="function" href="#folder_for">folder_for</a>
-            </li>
     </ul>
 
 
@@ -223,13 +220,6 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a><span class="c1">#: as ``{note_types}``. Pre-computed so prompt rendering does not have to import</span>
 </span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="c1">#: the frozenset at render time (the loader stays free of domain knowledge).</span>
 </span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
-</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a>
-</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a>
-</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a><span class="k">def</span><span class="w"> </span><span class="nf">folder_for</span><span class="p">(</span><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the vault folder for *note_type*, falling back to the default.&quot;&quot;&quot;</span>
-</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>    <span class="k">if</span> <span class="n">note_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a>        <span class="k">return</span> <span class="n">DEFAULT_FOLDER</span>
-</span><span id="L-123"><a href="#L-123"><span class="linenos">123</span></a>    <span class="k">return</span> <span class="n">TYPE_FOLDERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">note_type</span><span class="p">,</span> <span class="n">DEFAULT_FOLDER</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -355,30 +345,6 @@ stdlib-only contract as the <code>core/</code> package and is covered by
     <a class="headerlink" href="#NOTE_TYPES_DISPLAY"></a>
     
     
-
-                </section>
-                <section id="folder_for">
-                            <input id="folder_for-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">folder_for</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">str</span>:</span></span>
-
-                <label class="view-source-button" for="folder_for-view-source"><span>View Source</span></label>
-
-    </div>
-    <a class="headerlink" href="#folder_for"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="folder_for-120"><a href="#folder_for-120"><span class="linenos">120</span></a><span class="k">def</span><span class="w"> </span><span class="nf">folder_for</span><span class="p">(</span><span class="n">note_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="folder_for-121"><a href="#folder_for-121"><span class="linenos">121</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the vault folder for *note_type*, falling back to the default.&quot;&quot;&quot;</span>
-</span><span id="folder_for-122"><a href="#folder_for-122"><span class="linenos">122</span></a>    <span class="k">if</span> <span class="n">note_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="folder_for-123"><a href="#folder_for-123"><span class="linenos">123</span></a>        <span class="k">return</span> <span class="n">DEFAULT_FOLDER</span>
-</span><span id="folder_for-124"><a href="#folder_for-124"><span class="linenos">124</span></a>    <span class="k">return</span> <span class="n">TYPE_FOLDERS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">note_type</span><span class="p">,</span> <span class="n">DEFAULT_FOLDER</span><span class="p">)</span>
-</span></pre></div>
-
-
-            <div class="docstring"><p>Return the vault folder for <em>note_type</em>, falling back to the default.</p>
-</div>
-
 
                 </section>
     </main>

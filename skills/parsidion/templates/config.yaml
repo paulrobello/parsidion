@@ -131,29 +131,31 @@ codex_cli:
 embeddings:
   enabled: true                   # Set false to disable all embedding builds, note_index writes, and auto-rebuild after update_index.py runs
   model: BAAI/bge-small-en-v1.5  # ~67 MB ONNX model, cached after first run
-  min_score: 0.45                 # Minimum cosine similarity for search results (embeddings backend only; par-mem results gate by rank/top_k)
+  min_score: 0.45                 # Minimum cosine similarity for search results (embeddings backend only; parsight results gate by rank/top_k)
   top_k: 10                       # Default result count for vault_search.py
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing
   service_enabled: false          # ENH-003: opt-in persistent embedding service (vault_embed_serve.py). When true
-                                  # AND search.backend is not par-mem, vault_search shares one warm model across
+                                  # AND search.backend is not parsight, vault_search shares one warm model across
                                   # processes via a local Unix socket instead of each caller loading its own ~67 MB
-                                  # ONNX. Off by default; never used while par-mem serves retrieval.
+                                  # ONNX. Off by default; never used while parsight serves retrieval.
   service_idle_exit: 600          # Seconds the service stays alive with no requests before idle-exiting (default 600)
 
-# par-mem code-memory backend (optional external CLI + always-on daemon).
-# When installed and healthy, vault semantic search is served by par-mem's
+# parsight code-memory backend (optional external CLI + always-on daemon).
+# When installed and healthy, vault semantic search is served by parsight's
 # hybrid BM25+vector+graph retrieval; the local embeddings pipeline remains
-# the always-on silent fallback. See docs/PAR-MEM.md.
-par_mem:
-  enabled: true            # Probe for par-mem when available; false = never probe
-  binary: par-mem          # PATH lookup or absolute path to the par-mem CLI
+# the always-on silent fallback. See docs/PARSIGHT.md.
+# Compat: a legacy `par_mem:` section here is honored as an alias (this
+# canonical section wins per key when both are present).
+parsight:
+  enabled: true            # Probe for parsight when available; false = never probe
+  binary: parsight          # PATH lookup or absolute path to the parsight CLI (falls back to the legacy par-mem name)
   timeout_s: 10            # Per-query subprocess timeout in seconds
 
 # Vault search backend selection (vault_search.py)
 search:
-  backend: auto            # auto | par-mem | embeddings | none
+  backend: auto            # auto | parsight | embeddings | none (legacy "par-mem" accepted as an alias for parsight)
   use_note_index: true     # ENH-004: read note metadata from note_index DB instead of walking the vault.
                            # Set false to force filesystem walks everywhere (escape hatch if you suspect
                            # index staleness). Index builders (update_index.py, build_embeddings.py) always walk.

@@ -18,7 +18,13 @@ _DEFAULT_MODEL: str = vault_common.get_config(
     "embeddings", "model", "BAAI/bge-small-en-v1.5"
 )
 
-_VALID_BACKENDS: frozenset[str] = frozenset({"auto", "par-mem", "embeddings", "none"})
+_VALID_BACKENDS: frozenset[str] = frozenset({"auto", "parsight", "embeddings", "none"})
+
+# Legacy enum spelling (pre-rename configs and CLI args): accepted anywhere a
+# backend is selected and normalized to "parsight" before any comparison.
+# Config-file values are also normalized at load time (vault_config), so this
+# mainly covers the ``-B par-mem`` CLI override.
+_LEGACY_BACKEND_ALIASES: dict[str, str] = {"par-mem": "parsight"}
 
 _ENV_PREFIX = "VAULT_SEARCH_"
 
@@ -28,10 +34,16 @@ _ENV_PREFIX = "VAULT_SEARCH_"
 _EMBED_MODEL_LOCK = threading.Lock()
 
 
+def _normalize_backend(value: str) -> str:
+    """Map legacy backend spellings onto their canonical names."""
+    return _LEGACY_BACKEND_ALIASES.get(value, value)
+
+
 def _configured_search_backend() -> str:
     """Return the validated ``search.backend`` config value (default: auto)."""
     value = vault_common.get_config("search", "backend", "auto")
     normalized = str(value).strip().lower() if value is not None else "auto"
+    normalized = _normalize_backend(normalized)
     return normalized if normalized in _VALID_BACKENDS else "auto"
 
 
@@ -46,9 +58,9 @@ def _configured_search_backend() -> str:
 class SearchResultEnvelope(tuple):
     """Named-tuple-style envelope: ``(results, backend, score_kind)``.
 
-    ``backend`` is one of ``"par-mem" | "embeddings" | "none"``.
+    ``backend`` is one of ``"parsight" | "embeddings" | "none"``.
     ``score_kind`` is ``"cosine"`` for the embeddings backend, ``"rrf"`` for
-    par-mem, and ``None`` when no results were produced (``backend == "none"``).
+    parsight, and ``None`` when no results were produced (``backend == "none"``).
     """
 
     __slots__ = ()

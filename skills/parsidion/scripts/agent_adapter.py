@@ -15,7 +15,7 @@ adapter and call the entrypoint.
 
 ARC-002: ``run_session_end`` is now the single session-end pipeline for every
 runtime, Claude included — ``session_stop_hook.py`` is a thin shim that adds
-Claude's invocation guards (recursion flag, par-mem unwatch, verbose
+Claude's invocation guards (recursion flag, parsight unwatch, verbose
 ``_should_skip`` checks) and delegates here. The pipeline stages are
 adapter-neutral and config-gated: optional AI classification (``--ai`` /
 ``session_stop_hook.ai_model``), daily-note update, pending-queue append,
@@ -315,7 +315,7 @@ def _register_builtin_adapters() -> None:
     the installer reads their hook-registration data from the same descriptors
     (ENH-006). Since ARC-002, claude's SessionEnd runs the same shared
     pipeline: ``session_stop_hook.py`` is a shim that adds Claude's invocation
-    guards (recursion flag, par-mem unwatch, verbose skip checks) and calls
+    guards (recursion flag, parsight unwatch, verbose skip checks) and calls
     ``run_session_end`` with this adapter; its installer flow still keeps its
     own ``merge_hooks`` for the AI-mode timeout raise. pi and omp ship a
     TypeScript extension that shells out to claude's hook scripts, so they

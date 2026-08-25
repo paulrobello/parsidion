@@ -1,6 +1,6 @@
-"""Tests for build_graph.py's par-mem body-link enrichment (Task 2).
+"""Tests for build_graph.py's parsight body-link enrichment (Task 2).
 
-Independence is byte-level: par-mem disabled/absent/failing must leave
+Independence is byte-level: parsight disabled/absent/failing must leave
 graph.json identical to today's frontmatter-only output (no new meta keys,
 no edge changes). ``pytest.importorskip("numpy")`` keeps the core suite
 numpy-free — build_graph.py is a `uv run --no-project` script with its own
@@ -30,7 +30,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import build_graph  # noqa: E402
 import vault_common  # noqa: E402
 
-from tests.fake_parmem import FakeHealth, FakeParMem, fresh_repos_payload  # noqa: E402
+from tests.fake_parsight import FakeHealth, FakeParsight, fresh_repos_payload  # noqa: E402
 
 
 def make_embeddings_db(vault: Path, stems_with_folders: list[tuple[str, str]]) -> None:
@@ -84,9 +84,9 @@ def run_build_graph(
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
     vault_common.load_config.cache_clear()
-    import parmem_backend
+    import parsight_backend
 
-    parmem_backend.reset_parmem_cache()
+    parsight_backend.reset_parsight_cache()
 
 
 NOTES = [("a", "Debugging"), ("b", "Patterns"), ("c", "Patterns")]
@@ -96,12 +96,12 @@ class TestBodyLinksAppended:
     def test_body_links_appended_and_meta_set(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             repos=fresh_repos_payload(tmp_vault),
             doc_links={
                 "links": [
@@ -119,21 +119,21 @@ class TestBodyLinksAppended:
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
         assert graph["edges"] == [{"s": "a", "t": "b", "w": 1.0, "kind": "wiki"}]
-        assert graph["meta"]["parmem_body_links"] == 1
-        assert graph["meta"]["parmem_body_status"] == "fresh"
+        assert graph["meta"]["parsight_body_links"] == 1
+        assert graph["meta"]["parsight_body_status"] == "fresh"
 
 
 class TestDedupeAgainstFrontmatter:
     def test_dedupes_against_frontmatter_related(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
         set_related(tmp_vault, "a", "[[b]]")
-        fake_parmem.configure(
+        fake_parsight.configure(
             repos=fresh_repos_payload(tmp_vault),
             doc_links={
                 "links": [
@@ -150,24 +150,24 @@ class TestDedupeAgainstFrontmatter:
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
-        # Exact equality (not just an a-b count) proves the par-mem duplicate
+        # Exact equality (not just an a-b count) proves the parsight duplicate
         # was fully absorbed into the existing frontmatter edge, not merely
         # outnumbered by it.
         assert graph["edges"] == [{"s": "a", "t": "b", "w": 1.0, "kind": "wiki"}]
-        assert "parmem_body_links" not in graph["meta"]
-        assert graph["meta"]["parmem_body_status"] == "fresh"
+        assert "parsight_body_links" not in graph["meta"]
+        assert graph["meta"]["parsight_body_status"] == "fresh"
 
 
 class TestUnmappedAndSelfLinksDropped:
     def test_unmapped_and_self_links_dropped(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             repos=fresh_repos_payload(tmp_vault),
             doc_links={
                 "links": [
@@ -191,20 +191,20 @@ class TestUnmappedAndSelfLinksDropped:
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
         assert graph["edges"] == []
-        assert "parmem_body_links" not in graph["meta"]
-        assert graph["meta"]["parmem_body_status"] == "fresh"
+        assert "parsight_body_links" not in graph["meta"]
+        assert graph["meta"]["parsight_body_status"] == "fresh"
 
 
-class TestNoParmemFlag:
-    def test_no_parmem_flag_skips_call(
+class TestNoParsightFlag:
+    def test_no_parsight_flag_skips_call(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             doc_links={
                 "links": [
                     {
@@ -219,23 +219,23 @@ class TestNoParmemFlag:
             }
         )
         out = tmp_path / "graph.json"
-        graph = run_build_graph(tmp_vault, out, extra_args=["--no-parmem"])
-        fake_parmem.assert_no_call("doc-links", settle=0.1)
+        graph = run_build_graph(tmp_vault, out, extra_args=["--no-parsight"])
+        fake_parsight.assert_no_call("doc-links", settle=0.1)
         assert graph["edges"] == []
-        assert "parmem_body_links" not in graph["meta"]
+        assert "parsight_body_links" not in graph["meta"]
 
 
-class TestParmemDisabledOutputIdentical:
-    def test_parmem_disabled_output_identical(
+class TestParsightDisabledOutputIdentical:
+    def test_parsight_disabled_output_identical(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             doc_links={
                 "links": [
                     {
@@ -249,23 +249,23 @@ class TestParmemDisabledOutputIdentical:
                 "truncated": False,
             }
         )
-        # Run 1: par-mem is fully available (binary + health) but disabled
-        # via config — build_parmem_body_edges must never even probe it.
-        _write_config(tmp_vault, "par_mem:\n  enabled: false\n")
+        # Run 1: parsight is fully available (binary + health) but disabled
+        # via config — build_parsight_body_edges must never even probe it.
+        _write_config(tmp_vault, "parsight:\n  enabled: false\n")
         out_disabled = tmp_path / "graph-disabled.json"
         graph_disabled = run_build_graph(tmp_vault, out_disabled)
-        fake_parmem.assert_no_call("doc-links", settle=0.1)
+        fake_parsight.assert_no_call("doc-links", settle=0.1)
         # Freshness gate never even runs: config availability fails first, so
         # the `repos` probe is never issued either.
-        fake_parmem.assert_no_call("repos", settle=0.1)
+        fake_parsight.assert_no_call("repos", settle=0.1)
 
         # Run 2 (control): binary entirely absent from PATH, config default
         # (enabled) — the pre-integration behavior.
         (tmp_vault / "config.yaml").unlink()
         vault_common.load_config.cache_clear()
-        import parmem_backend
+        import parsight_backend
 
-        parmem_backend.reset_parmem_cache()
+        parsight_backend.reset_parsight_cache()
         empty_bin = tmp_path / "empty-bin"
         empty_bin.mkdir()
         monkeypatch.setenv("PATH", str(empty_bin))
@@ -279,35 +279,35 @@ class TestParmemDisabledOutputIdentical:
         )
 
 
-class TestParmemFailureGraphStillWritten:
-    def test_parmem_failure_graph_still_written(
+class TestParsightFailureGraphStillWritten:
+    def test_parsight_failure_graph_still_written(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             repos=fresh_repos_payload(tmp_vault), exit_codes={"doc-links": 1}
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
         assert out.exists()
         assert graph["edges"] == []
-        assert "parmem_body_links" not in graph["meta"]
+        assert "parsight_body_links" not in graph["meta"]
         # Fresh index, but the doc-links fetch failed — recorded as an error,
         # distinct from "ran cleanly, found nothing".
-        assert graph["meta"]["parmem_body_status"] == "error"
+        assert graph["meta"]["parsight_body_status"] == "error"
 
 
 class TestFreshnessGate:
-    """build_parmem_body_edges must skip enrichment when the index is not fresh.
+    """build_parsight_body_edges must skip enrichment when the index is not fresh.
 
     A stale / mid-catch-up index returns a partial, run-to-run-variable link
     set; trusting it made two builds over identical input diverge. The gate
     skips the nondeterministic ``doc-links`` fetch entirely and records the
-    reason in ``meta.parmem_body_status``.
+    reason in ``meta.parsight_body_status``.
     """
 
     _A_TO_B = {
@@ -326,49 +326,49 @@ class TestFreshnessGate:
     def test_stale_index_skips_enrichment_and_fetch(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             repos=fresh_repos_payload(tmp_vault, stale=True), doc_links=self._A_TO_B
         )
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
-        assert graph["meta"]["parmem_body_status"] == "skipped:index-stale"
-        assert "parmem_body_links" not in graph["meta"]
+        assert graph["meta"]["parsight_body_status"] == "skipped:index-stale"
+        assert "parsight_body_links" not in graph["meta"]
         assert graph["edges"] == []
         # The nondeterministic fetch is gated off — doc-links never runs...
-        fake_parmem.assert_no_call("doc-links", settle=0.1)
+        fake_parsight.assert_no_call("doc-links", settle=0.1)
         # ...but the freshness probe itself did.
-        fake_parmem.wait_for_call("repos")
+        fake_parsight.wait_for_call("repos")
 
     def test_absent_index_skips_enrichment(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
         # Default repos payload is empty -> vault classified "absent".
-        fake_parmem.configure(doc_links=self._A_TO_B)
+        fake_parsight.configure(doc_links=self._A_TO_B)
         out = tmp_path / "graph.json"
         graph = run_build_graph(tmp_vault, out)
-        assert graph["meta"]["parmem_body_status"] == "skipped:index-absent"
-        assert "parmem_body_links" not in graph["meta"]
-        fake_parmem.assert_no_call("doc-links", settle=0.1)
+        assert graph["meta"]["parsight_body_status"] == "skipped:index-absent"
+        assert "parsight_body_links" not in graph["meta"]
+        fake_parsight.assert_no_call("doc-links", settle=0.1)
 
     def test_stale_index_is_deterministic(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         make_embeddings_db(tmp_vault, NOTES)
-        fake_parmem.configure(
+        fake_parsight.configure(
             repos=fresh_repos_payload(tmp_vault, stale=True), doc_links=self._A_TO_B
         )
         g1 = run_build_graph(tmp_vault, tmp_path / "g1.json")
@@ -376,7 +376,7 @@ class TestFreshnessGate:
         del g1["meta"]["generated"]
         del g2["meta"]["generated"]
         assert g1 == g2
-        assert g1["meta"]["parmem_body_status"] == "skipped:index-stale"
+        assert g1["meta"]["parsight_body_status"] == "skipped:index-stale"
 
 
 class TestArc038GraphSchemaValidation:
@@ -413,7 +413,7 @@ class TestArc038GraphSchemaValidation:
 
         out = tmp_path / "graph-schema-check.json"
         graph = run_build_graph(
-            tmp_vault, out, extra_args=["--min-threshold", "1.0", "--no-parmem"]
+            tmp_vault, out, extra_args=["--min-threshold", "1.0", "--no-parsight"]
         )
 
         # Should have produced 3 nodes and at least the a-b wiki edge.
@@ -443,7 +443,7 @@ class TestArc038GraphSchemaValidation:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         make_embeddings_db(tmp_vault, NOTES)
         out = tmp_path / "graph-dangling.json"
-        graph = run_build_graph(tmp_vault, out, extra_args=["--no-parmem"])
+        graph = run_build_graph(tmp_vault, out, extra_args=["--no-parsight"])
         # Inject a dangling edge that references a non-existent node id.
         graph["edges"].append({"s": "a", "t": "ghost-node", "w": 1.0, "kind": "wiki"})
         with pytest.raises(AssertionError, match="does not reference a node id"):
@@ -526,8 +526,8 @@ class TestSemanticEdgeCap:
     def test_wiki_edges_identical_with_cap_on_and_off(
         self,
         tmp_vault: Path,
-        fake_parmem: FakeParMem,
-        fake_parmem_health: FakeHealth,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
         tmp_path: Path,
     ) -> None:
         # The cap affects only semantic edges; the wiki edge set must be
@@ -538,7 +538,7 @@ class TestSemanticEdgeCap:
         out_on = tmp_path / "on.json"
         out_off = tmp_path / "off.json"
         # Low threshold so semantic edges would flood without the cap; cap vs
-        # no-cap must still produce the same wiki edges. --no-parmem isolates
+        # no-cap must still produce the same wiki edges. --no-parsight isolates
         # this from body-link enrichment.
         graph_on = run_build_graph(
             tmp_vault,
@@ -548,7 +548,7 @@ class TestSemanticEdgeCap:
                 "0.0",
                 "--max-neighbors",
                 "1",
-                "--no-parmem",
+                "--no-parsight",
             ],
         )
         graph_off = run_build_graph(
@@ -559,7 +559,7 @@ class TestSemanticEdgeCap:
                 "0.0",
                 "--max-neighbors",
                 "0",
-                "--no-parmem",
+                "--no-parsight",
             ],
         )
         wiki_on = {
@@ -704,7 +704,7 @@ def _run_build(vault: Path, out: Path, *extra: str) -> dict:
         str(vault),
         "--output",
         str(out),
-        "--no-parmem",  # ENH-002 tests isolate from par-mem nondeterminism
+        "--no-parsight",  # ENH-002 tests isolate from parsight nondeterminism
         *extra,
     ]
     with mock.patch.object(sys, "argv", argv):

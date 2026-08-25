@@ -331,19 +331,19 @@
 
             </li>
             <li>
-                    <a class="class" href="#ParMemConfig">ParMemConfig</a>
+                    <a class="class" href="#ParsightConfig">ParsightConfig</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="function" href="#ParMemConfig.__init__">ParMemConfig</a>
+                                <a class="function" href="#ParsightConfig.__init__">ParsightConfig</a>
                         </li>
                         <li>
-                                <a class="variable" href="#ParMemConfig.enabled">enabled</a>
+                                <a class="variable" href="#ParsightConfig.enabled">enabled</a>
                         </li>
                         <li>
-                                <a class="variable" href="#ParMemConfig.binary">binary</a>
+                                <a class="variable" href="#ParsightConfig.binary">binary</a>
                         </li>
                         <li>
-                                <a class="variable" href="#ParMemConfig.timeout_s">timeout_s</a>
+                                <a class="variable" href="#ParsightConfig.timeout_s">timeout_s</a>
                         </li>
                 </ul>
 
@@ -523,7 +523,7 @@
                                 <a class="variable" href="#VaultAppConfig.embeddings">embeddings</a>
                         </li>
                         <li>
-                                <a class="variable" href="#VaultAppConfig.par_mem">par_mem</a>
+                                <a class="variable" href="#VaultAppConfig.parsight">parsight</a>
                         </li>
                         <li>
                                 <a class="variable" href="#VaultAppConfig.search">search</a>
@@ -647,7 +647,7 @@ are consistent.</p>
 </span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a>    <span class="s2">&quot;PreCompactHookConfig&quot;</span><span class="p">,</span>
 </span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a>    <span class="s2">&quot;SummarizerConfig&quot;</span><span class="p">,</span>
 </span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a>    <span class="s2">&quot;EmbeddingsConfig&quot;</span><span class="p">,</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a>    <span class="s2">&quot;ParMemConfig&quot;</span><span class="p">,</span>
+</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a>    <span class="s2">&quot;ParsightConfig&quot;</span><span class="p">,</span>
 </span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a>    <span class="s2">&quot;SearchConfig&quot;</span><span class="p">,</span>
 </span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>    <span class="s2">&quot;AnthropicEnvConfig&quot;</span><span class="p">,</span>
 </span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a>    <span class="s2">&quot;GitConfig&quot;</span><span class="p">,</span>
@@ -827,8 +827,8 @@ are consistent.</p>
 </span><span id="L-224"><a href="#L-224"><span class="linenos">224</span></a>
 </span><span id="L-225"><a href="#L-225"><span class="linenos">225</span></a>
 </span><span id="L-226"><a href="#L-226"><span class="linenos">226</span></a><span class="nd">@dataclass</span>
-</span><span id="L-227"><a href="#L-227"><span class="linenos">227</span></a><span class="k">class</span><span class="w"> </span><span class="nc">ParMemConfig</span><span class="p">:</span>
-</span><span id="L-228"><a href="#L-228"><span class="linenos">228</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;``par_mem`` section.&quot;&quot;&quot;</span>
+</span><span id="L-227"><a href="#L-227"><span class="linenos">227</span></a><span class="k">class</span><span class="w"> </span><span class="nc">ParsightConfig</span><span class="p">:</span>
+</span><span id="L-228"><a href="#L-228"><span class="linenos">228</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;``parsight`` section.&quot;&quot;&quot;</span>
 </span><span id="L-229"><a href="#L-229"><span class="linenos">229</span></a>
 </span><span id="L-230"><a href="#L-230"><span class="linenos">230</span></a>    <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">None</span>
 </span><span id="L-231"><a href="#L-231"><span class="linenos">231</span></a>    <span class="n">binary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
@@ -948,7 +948,7 @@ are consistent.</p>
 </span><span id="L-345"><a href="#L-345"><span class="linenos">345</span></a>    <span class="p">)</span>
 </span><span id="L-346"><a href="#L-346"><span class="linenos">346</span></a>    <span class="n">summarizer</span><span class="p">:</span> <span class="n">SummarizerConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">SummarizerConfig</span><span class="p">())</span>
 </span><span id="L-347"><a href="#L-347"><span class="linenos">347</span></a>    <span class="n">embeddings</span><span class="p">:</span> <span class="n">EmbeddingsConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">EmbeddingsConfig</span><span class="p">())</span>
-</span><span id="L-348"><a href="#L-348"><span class="linenos">348</span></a>    <span class="n">par_mem</span><span class="p">:</span> <span class="n">ParMemConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ParMemConfig</span><span class="p">())</span>
+</span><span id="L-348"><a href="#L-348"><span class="linenos">348</span></a>    <span class="n">parsight</span><span class="p">:</span> <span class="n">ParsightConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ParsightConfig</span><span class="p">())</span>
 </span><span id="L-349"><a href="#L-349"><span class="linenos">349</span></a>    <span class="n">search</span><span class="p">:</span> <span class="n">SearchConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">SearchConfig</span><span class="p">())</span>
 </span><span id="L-350"><a href="#L-350"><span class="linenos">350</span></a>    <span class="n">anthropic_env</span><span class="p">:</span> <span class="n">AnthropicEnvConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
 </span><span id="L-351"><a href="#L-351"><span class="linenos">351</span></a>        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">AnthropicEnvConfig</span><span class="p">()</span>
@@ -2369,76 +2369,76 @@ schema tuple.</p>
 
                             </div>
                 </section>
-                <section id="ParMemConfig">
-                            <input id="ParMemConfig-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+                <section id="ParsightConfig">
+                            <input id="ParsightConfig-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr class">
                     <div class="decorator decorator-dataclass">@dataclass</div>
 
     <span class="def">class</span>
-    <span class="name">ParMemConfig</span>:
+    <span class="name">ParsightConfig</span>:
 
-                <label class="view-source-button" for="ParMemConfig-view-source"><span>View Source</span></label>
+                <label class="view-source-button" for="ParsightConfig-view-source"><span>View Source</span></label>
 
     </div>
-    <a class="headerlink" href="#ParMemConfig"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="ParMemConfig-227"><a href="#ParMemConfig-227"><span class="linenos">227</span></a><span class="nd">@dataclass</span>
-</span><span id="ParMemConfig-228"><a href="#ParMemConfig-228"><span class="linenos">228</span></a><span class="k">class</span><span class="w"> </span><span class="nc">ParMemConfig</span><span class="p">:</span>
-</span><span id="ParMemConfig-229"><a href="#ParMemConfig-229"><span class="linenos">229</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;``par_mem`` section.&quot;&quot;&quot;</span>
-</span><span id="ParMemConfig-230"><a href="#ParMemConfig-230"><span class="linenos">230</span></a>
-</span><span id="ParMemConfig-231"><a href="#ParMemConfig-231"><span class="linenos">231</span></a>    <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="ParMemConfig-232"><a href="#ParMemConfig-232"><span class="linenos">232</span></a>    <span class="n">binary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="ParMemConfig-233"><a href="#ParMemConfig-233"><span class="linenos">233</span></a>    <span class="n">timeout_s</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="kc">None</span>
+    <a class="headerlink" href="#ParsightConfig"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="ParsightConfig-227"><a href="#ParsightConfig-227"><span class="linenos">227</span></a><span class="nd">@dataclass</span>
+</span><span id="ParsightConfig-228"><a href="#ParsightConfig-228"><span class="linenos">228</span></a><span class="k">class</span><span class="w"> </span><span class="nc">ParsightConfig</span><span class="p">:</span>
+</span><span id="ParsightConfig-229"><a href="#ParsightConfig-229"><span class="linenos">229</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;``parsight`` section.&quot;&quot;&quot;</span>
+</span><span id="ParsightConfig-230"><a href="#ParsightConfig-230"><span class="linenos">230</span></a>
+</span><span id="ParsightConfig-231"><a href="#ParsightConfig-231"><span class="linenos">231</span></a>    <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="ParsightConfig-232"><a href="#ParsightConfig-232"><span class="linenos">232</span></a>    <span class="n">binary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="ParsightConfig-233"><a href="#ParsightConfig-233"><span class="linenos">233</span></a>    <span class="n">timeout_s</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="kc">None</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p><code>par_mem</code> section.</p>
+            <div class="docstring"><p><code>parsight</code> section.</p>
 </div>
 
 
-                            <div id="ParMemConfig.__init__" class="classattr">
+                            <div id="ParsightConfig.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">ParMemConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">binary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">timeout_s</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="kc">None</span></span>)</span>
+        <span class="name">ParsightConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">binary</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">timeout_s</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="kc">None</span></span>)</span>
 
         
     </div>
-    <a class="headerlink" href="#ParMemConfig.__init__"></a>
+    <a class="headerlink" href="#ParsightConfig.__init__"></a>
     
     
 
                             </div>
-                            <div id="ParMemConfig.enabled" class="classattr">
+                            <div id="ParsightConfig.enabled" class="classattr">
                                 <div class="attr variable">
             <span class="name">enabled</span><span class="annotation">: bool</span>        =
 <span class="default_value">None</span>
 
         
     </div>
-    <a class="headerlink" href="#ParMemConfig.enabled"></a>
+    <a class="headerlink" href="#ParsightConfig.enabled"></a>
     
     
 
                             </div>
-                            <div id="ParMemConfig.binary" class="classattr">
+                            <div id="ParsightConfig.binary" class="classattr">
                                 <div class="attr variable">
             <span class="name">binary</span><span class="annotation">: str</span>        =
 <span class="default_value">None</span>
 
         
     </div>
-    <a class="headerlink" href="#ParMemConfig.binary"></a>
+    <a class="headerlink" href="#ParsightConfig.binary"></a>
     
     
 
                             </div>
-                            <div id="ParMemConfig.timeout_s" class="classattr">
+                            <div id="ParsightConfig.timeout_s" class="classattr">
                                 <div class="attr variable">
             <span class="name">timeout_s</span><span class="annotation">: int | float</span>        =
 <span class="default_value">None</span>
 
         
     </div>
-    <a class="headerlink" href="#ParMemConfig.timeout_s"></a>
+    <a class="headerlink" href="#ParsightConfig.timeout_s"></a>
     
     
 
@@ -3056,7 +3056,7 @@ schema tuple.</p>
 </span><span id="VaultAppConfig-346"><a href="#VaultAppConfig-346"><span class="linenos">346</span></a>    <span class="p">)</span>
 </span><span id="VaultAppConfig-347"><a href="#VaultAppConfig-347"><span class="linenos">347</span></a>    <span class="n">summarizer</span><span class="p">:</span> <span class="n">SummarizerConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">SummarizerConfig</span><span class="p">())</span>
 </span><span id="VaultAppConfig-348"><a href="#VaultAppConfig-348"><span class="linenos">348</span></a>    <span class="n">embeddings</span><span class="p">:</span> <span class="n">EmbeddingsConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">EmbeddingsConfig</span><span class="p">())</span>
-</span><span id="VaultAppConfig-349"><a href="#VaultAppConfig-349"><span class="linenos">349</span></a>    <span class="n">par_mem</span><span class="p">:</span> <span class="n">ParMemConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ParMemConfig</span><span class="p">())</span>
+</span><span id="VaultAppConfig-349"><a href="#VaultAppConfig-349"><span class="linenos">349</span></a>    <span class="n">parsight</span><span class="p">:</span> <span class="n">ParsightConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ParsightConfig</span><span class="p">())</span>
 </span><span id="VaultAppConfig-350"><a href="#VaultAppConfig-350"><span class="linenos">350</span></a>    <span class="n">search</span><span class="p">:</span> <span class="n">SearchConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">SearchConfig</span><span class="p">())</span>
 </span><span id="VaultAppConfig-351"><a href="#VaultAppConfig-351"><span class="linenos">351</span></a>    <span class="n">anthropic_env</span><span class="p">:</span> <span class="n">AnthropicEnvConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
 </span><span id="VaultAppConfig-352"><a href="#VaultAppConfig-352"><span class="linenos">352</span></a>        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">AnthropicEnvConfig</span><span class="p">()</span>
@@ -3128,7 +3128,7 @@ validation -- that remains <code>vault_config.validate_config()</code>'s job.</p
                             <div id="VaultAppConfig.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">VaultAppConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">ai</span><span class="p">:</span> <span class="n"><a href="#AIConfig">AIConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">ai_models</span><span class="p">:</span> <span class="n"><a href="#AIModelsConfig">AIModelsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">claude_cli</span><span class="p">:</span> <span class="n"><a href="#ClaudeCliConfig">ClaudeCliConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">codex_cli</span><span class="p">:</span> <span class="n"><a href="#CodexCliConfig">CodexCliConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">grok_cli</span><span class="p">:</span> <span class="n"><a href="#GrokCliConfig">GrokCliConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">session_start_hook</span><span class="p">:</span> <span class="n"><a href="#SessionStartHookConfig">SessionStartHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">session_stop_hook</span><span class="p">:</span> <span class="n"><a href="#SessionStopHookConfig">SessionStopHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">subagent_stop_hook</span><span class="p">:</span> <span class="n"><a href="#SubagentStopHookConfig">SubagentStopHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">pre_compact_hook</span><span class="p">:</span> <span class="n"><a href="#PreCompactHookConfig">PreCompactHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">summarizer</span><span class="p">:</span> <span class="n"><a href="#SummarizerConfig">SummarizerConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">embeddings</span><span class="p">:</span> <span class="n"><a href="#EmbeddingsConfig">EmbeddingsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">par_mem</span><span class="p">:</span> <span class="n"><a href="#ParMemConfig">ParMemConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">search</span><span class="p">:</span> <span class="n"><a href="#SearchConfig">SearchConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">anthropic_env</span><span class="p">:</span> <span class="n"><a href="#AnthropicEnvConfig">AnthropicEnvConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">git</span><span class="p">:</span> <span class="n"><a href="#GitConfig">GitConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">defaults</span><span class="p">:</span> <span class="n"><a href="#DefaultsConfig">DefaultsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">event_log</span><span class="p">:</span> <span class="n"><a href="#EventLogConfig">EventLogConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">adaptive_context</span><span class="p">:</span> <span class="n"><a href="#AdaptiveContextConfig">AdaptiveContextConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n"><a href="#VaultSectionConfig">VaultSectionConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">adapters</span><span class="p">:</span> <span class="n"><a href="#AdaptersConfig">AdaptersConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span></span>)</span>
+        <span class="name">VaultAppConfig</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">ai</span><span class="p">:</span> <span class="n"><a href="#AIConfig">AIConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">ai_models</span><span class="p">:</span> <span class="n"><a href="#AIModelsConfig">AIModelsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">claude_cli</span><span class="p">:</span> <span class="n"><a href="#ClaudeCliConfig">ClaudeCliConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">codex_cli</span><span class="p">:</span> <span class="n"><a href="#CodexCliConfig">CodexCliConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">grok_cli</span><span class="p">:</span> <span class="n"><a href="#GrokCliConfig">GrokCliConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">session_start_hook</span><span class="p">:</span> <span class="n"><a href="#SessionStartHookConfig">SessionStartHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">session_stop_hook</span><span class="p">:</span> <span class="n"><a href="#SessionStopHookConfig">SessionStopHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">subagent_stop_hook</span><span class="p">:</span> <span class="n"><a href="#SubagentStopHookConfig">SubagentStopHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">pre_compact_hook</span><span class="p">:</span> <span class="n"><a href="#PreCompactHookConfig">PreCompactHookConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">summarizer</span><span class="p">:</span> <span class="n"><a href="#SummarizerConfig">SummarizerConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">embeddings</span><span class="p">:</span> <span class="n"><a href="#EmbeddingsConfig">EmbeddingsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">parsight</span><span class="p">:</span> <span class="n"><a href="#ParsightConfig">ParsightConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">search</span><span class="p">:</span> <span class="n"><a href="#SearchConfig">SearchConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">anthropic_env</span><span class="p">:</span> <span class="n"><a href="#AnthropicEnvConfig">AnthropicEnvConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">git</span><span class="p">:</span> <span class="n"><a href="#GitConfig">GitConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">defaults</span><span class="p">:</span> <span class="n"><a href="#DefaultsConfig">DefaultsConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">event_log</span><span class="p">:</span> <span class="n"><a href="#EventLogConfig">EventLogConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">adaptive_context</span><span class="p">:</span> <span class="n"><a href="#AdaptiveContextConfig">AdaptiveContextConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">vault</span><span class="p">:</span> <span class="n"><a href="#VaultSectionConfig">VaultSectionConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span>,</span><span class="param">	<span class="n">adapters</span><span class="p">:</span> <span class="n"><a href="#AdaptersConfig">AdaptersConfig</a></span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">factory</span><span class="o">&gt;</span></span>)</span>
 
         
     </div>
@@ -3258,13 +3258,13 @@ validation -- that remains <code>vault_config.validate_config()</code>'s job.</p
     
 
                             </div>
-                            <div id="VaultAppConfig.par_mem" class="classattr">
+                            <div id="VaultAppConfig.parsight" class="classattr">
                                 <div class="attr variable">
-            <span class="name">par_mem</span><span class="annotation">: <a href="#ParMemConfig">ParMemConfig</a></span>
+            <span class="name">parsight</span><span class="annotation">: <a href="#ParsightConfig">ParsightConfig</a></span>
 
         
     </div>
-    <a class="headerlink" href="#VaultAppConfig.par_mem"></a>
+    <a class="headerlink" href="#VaultAppConfig.parsight"></a>
     
     
 

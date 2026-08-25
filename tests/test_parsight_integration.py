@@ -1,6 +1,6 @@
-"""Env-gated end-to-end test against a REAL par-mem daemon (spec §10).
+"""Env-gated end-to-end test against a REAL parsight daemon (spec §10).
 
-Skipped unless PARSIDION_TEST_PARMEM=1. Requires the real `par-mem` binary
+Skipped unless PARSIDION_TEST_PARSIGHT=1. Requires the real `parsight` binary
 on PATH and its daemon running on the default port.
 """
 
@@ -19,7 +19,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parmem_backend  # noqa: E402
+import parsight_backend  # noqa: E402
 
 EXPECTED_KEYS = {
     "score",
@@ -40,11 +40,11 @@ EXPECTED_KEYS = {
 
 
 @pytest.mark.skipif(
-    os.environ.get("PARSIDION_TEST_PARMEM") != "1",
-    reason="requires a real par-mem daemon (set PARSIDION_TEST_PARMEM=1)",
+    os.environ.get("PARSIDION_TEST_PARSIGHT") != "1",
+    reason="requires a real parsight daemon (set PARSIDION_TEST_PARSIGHT=1)",
 )
 @pytest.mark.timeout(120)
-def test_real_parmem_end_to_end(
+def test_real_parsight_end_to_end(
     tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import importlib
@@ -52,26 +52,29 @@ def test_real_parmem_end_to_end(
     vault_search = importlib.import_module("vault_search")
 
     # Undo the suite-wide isolation: talk to the real daemon.
-    monkeypatch.setenv("PARMEM_MCP_URL", "http://127.0.0.1:4848/mcp")
-    parmem_backend.reset_parmem_cache()
+    monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:4848/mcp")
+    parsight_backend.reset_parsight_cache()
 
     note = tmp_vault / "Patterns" / "integration-probe-note.md"
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text(
-        "---\ntags: [integration, parmem]\ntype: pattern\n---\n"
+        "---\ntags: [integration, parsight]\ntype: pattern\n---\n"
         "# Integration Probe Note\nA uniquely phrased zanzibar-quokka sentence.\n",
         encoding="utf-8",
     )
     subprocess.run(["git", "init", "-q", str(tmp_vault)], check=True, timeout=30)
 
     index = subprocess.run(
-        ["par-mem", "index", str(tmp_vault)], capture_output=True, text=True, timeout=90
+        ["parsight", "index", str(tmp_vault)],
+        capture_output=True,
+        text=True,
+        timeout=90,
     )
     assert index.returncode == 0, index.stderr
 
     results = vault_search.search(
-        "zanzibar quokka sentence", vault=tmp_vault, backend="par-mem"
+        "zanzibar quokka sentence", vault=tmp_vault, backend="parsight"
     )
-    assert results, "par-mem returned no hits for the probe note"
+    assert results, "parsight returned no hits for the probe note"
     assert set(results[0].keys()) == EXPECTED_KEYS
     assert results[0]["stem"] == "integration-probe-note"

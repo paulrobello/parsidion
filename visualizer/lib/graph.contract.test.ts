@@ -12,7 +12,7 @@
 //
 // The fixture is hand-built rather than generated so the test does not
 // depend on a working Python environment in the visualizer test runner. A
-// parallel Python-side parity test (tests/test_build_graph_parmem.py)
+// parallel Python-side parity test (tests/test_build_graph_parsight.py)
 // emits a real graph.json from the production emitter; both tests must
 // agree on the shape.
 import { describe, it, expect } from 'bun:test'
@@ -65,16 +65,16 @@ describe('ARC-038 — graph.json contract fixture', () => {
     }
   })
 
-  it('meta fields match the lib/graph.ts interface (includes optional parmem_body_links)', () => {
+  it('meta fields match the lib/graph.ts interface (includes optional parsight_body_links)', () => {
     const data = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8')) as GraphData
     expect(data.meta.generated).toBeTypeOf('string')
     expect(data.meta.note_count).toBeTypeOf('number')
     expect(data.meta.edge_count).toBeTypeOf('number')
     expect(data.meta.min_semantic_threshold).toBeTypeOf('number')
-    // parmem_body_links is optional but the fixture sets it so we can assert
+    // parsight_body_links is optional but the fixture sets it so we can assert
     // its presence here. Tests against real graph.json should treat absence
     // as valid too — see lib/graph.ts GraphData.meta for the optionality.
-    expect(data.meta.parmem_body_links).toBeTypeOf('number')
+    expect(data.meta.parsight_body_links).toBeTypeOf('number')
     // max_neighbors is optional (added by ENH-001 top-K edge cap); the fixture
     // sets it so we can assert its presence. Graphs built before ENH-001 lack it.
     expect(data.meta.max_neighbors).toBeTypeOf('number')

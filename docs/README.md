@@ -29,7 +29,7 @@ below with its intended audience and purpose.
 | [MCP.md](MCP.md) | parsidion-mcp server: FastMCP-based MCP server that exposes vault read, write, search, and maintenance operations to Claude Desktop and MCP-capable clients. |
 | [AGENTCHROME.md](AGENTCHROME.md) | AgentChrome browser control CLI: installation, capabilities, and integration with the research agent for fetching fully-rendered pages. |
 | [archive/MCPL.md](archive/MCPL.md) | **Legacy, not installed** — MCP Launchpad CLI reference, retained for history. The research agent only considers `mcpl` when it is already on `PATH` (`which mcpl`). |
-| [PAR-MEM.md](PAR-MEM.md) | Optional par-mem code-memory backend (**par-mem itself is coming soon — not yet publicly available**): when its daemon is running, vault semantic search is served by par-mem's hybrid BM25+vector+graph retrieval instead of the local embeddings pipeline, and a code-memory bridge is exposed to the vault-explorer agent and parsidion-mcp. |
+| [PARSIGHT.md](PARSIGHT.md) | Optional parsight code-memory backend (**parsight itself is coming soon — not yet publicly available**): when its daemon is running, vault semantic search is served by parsight's hybrid BM25+vector+graph retrieval instead of the local embeddings pipeline, and a code-memory bridge is exposed to the vault-explorer agent and parsidion-mcp. |
 | [VISUALIZER.md](VISUALIZER.md) | Vault Visualizer: interactive web app for reading and graph-exploring vault notes — architecture, graph engine, data model, and configuration. |
 | [VAULT_SYNC.md](VAULT_SYNC.md) | Multi-machine vault sync: strategies, recommended git-based setup, post-merge hook, conflict handling, and troubleshooting. |
 | [CLAUDE.md](CLAUDE.md) | AI-assistant guidance specific to working in the `docs/` directory: points at the style guide and this index. |
@@ -54,7 +54,7 @@ below with its intended audience and purpose.
 - **Editing a vault-note prompt or running a prompt eval?** See [PROMPTS.md](PROMPTS.md).
 - **Using the MCP server with Claude Desktop?** See [MCP.md](MCP.md).
 - **Sharing the vault across machines?** See [VAULT_SYNC.md](VAULT_SYNC.md).
-- **Using par-mem as the vault search backend?** See [PAR-MEM.md](PAR-MEM.md).
+- **Using parsight as the vault search backend?** See [PARSIGHT.md](PARSIGHT.md).
 - **Exploring the vault visually?** See [VISUALIZER.md](VISUALIZER.md).
 - **Hunting for an older release note (0.11.x or earlier)?** See [archive/CHANGELOG-0.11-and-older.md](archive/CHANGELOG-0.11-and-older.md).
 - **Writing or updating documentation?** Follow [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md).

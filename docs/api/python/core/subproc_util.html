@@ -55,7 +55,7 @@
                         <div class="docstring"><p>Shared subprocess helper: start_new_session + process-group kill on timeout.</p>
 
 <p>SEC-122 / ARC-048f: <code>ai_backend._run_prompt_subprocess</code> and
-<code>parmem_backend._run_parmem</code> each implemented this pattern separately and
+<code>parsight_backend._run_parsight</code> each implemented this pattern separately and
 the two had already drifted (different escalation orderings, different
 fallback handling). This module is the single canonical implementation.</p>
 
@@ -84,7 +84,7 @@ any third-party helpers.</p>
                         <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">&quot;&quot;&quot;Shared subprocess helper: start_new_session + process-group kill on timeout.</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos">  2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos">  3</span></a><span class="sd">SEC-122 / ARC-048f: ``ai_backend._run_prompt_subprocess`` and</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos">  4</span></a><span class="sd">``parmem_backend._run_parmem`` each implemented this pattern separately and</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos">  4</span></a><span class="sd">``parsight_backend._run_parsight`` each implemented this pattern separately and</span>
 </span><span id="L-5"><a href="#L-5"><span class="linenos">  5</span></a><span class="sd">the two had already drifted (different escalation orderings, different</span>
 </span><span id="L-6"><a href="#L-6"><span class="linenos">  6</span></a><span class="sd">fallback handling). This module is the single canonical implementation.</span>
 </span><span id="L-7"><a href="#L-7"><span class="linenos">  7</span></a>
@@ -150,10 +150,10 @@ any third-party helpers.</p>
 </span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="sd">        cmd: Argv list, starting with the binary. The caller is responsible</span>
 </span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="sd">            for resolving and validating the binary path — this helper does</span>
 </span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">            not run ``shutil.which`` because each caller has its own</span>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">            allowlist/gate (par-mem: ``par_mem.enabled`` + ``/health``;</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">            allowlist/gate (parsight: ``parsight.enabled`` + ``/health``;</span>
 </span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">            ai_backend: a model-tier-aware lookup).</span>
 </span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="sd">        cwd: Working directory. Mandatory because both call sites pass one</span>
-</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">            (par-mem runs against the vault root; ai_backend runs against</span>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">            (parsight runs against the vault root; ai_backend runs against</span>
 </span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="sd">            the configured working dir) and an unqualified default of</span>
 </span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="sd">            ``None`` (inherit) is the wrong shape for an explicit-launch API.</span>
 </span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="sd">        timeout: Maximum seconds to wait for completion. ``&lt;= 0`` is treated</span>
@@ -268,10 +268,10 @@ any third-party helpers.</p>
 </span><span id="run_with_pgkill-68"><a href="#run_with_pgkill-68"><span class="linenos"> 68</span></a><span class="sd">        cmd: Argv list, starting with the binary. The caller is responsible</span>
 </span><span id="run_with_pgkill-69"><a href="#run_with_pgkill-69"><span class="linenos"> 69</span></a><span class="sd">            for resolving and validating the binary path — this helper does</span>
 </span><span id="run_with_pgkill-70"><a href="#run_with_pgkill-70"><span class="linenos"> 70</span></a><span class="sd">            not run ``shutil.which`` because each caller has its own</span>
-</span><span id="run_with_pgkill-71"><a href="#run_with_pgkill-71"><span class="linenos"> 71</span></a><span class="sd">            allowlist/gate (par-mem: ``par_mem.enabled`` + ``/health``;</span>
+</span><span id="run_with_pgkill-71"><a href="#run_with_pgkill-71"><span class="linenos"> 71</span></a><span class="sd">            allowlist/gate (parsight: ``parsight.enabled`` + ``/health``;</span>
 </span><span id="run_with_pgkill-72"><a href="#run_with_pgkill-72"><span class="linenos"> 72</span></a><span class="sd">            ai_backend: a model-tier-aware lookup).</span>
 </span><span id="run_with_pgkill-73"><a href="#run_with_pgkill-73"><span class="linenos"> 73</span></a><span class="sd">        cwd: Working directory. Mandatory because both call sites pass one</span>
-</span><span id="run_with_pgkill-74"><a href="#run_with_pgkill-74"><span class="linenos"> 74</span></a><span class="sd">            (par-mem runs against the vault root; ai_backend runs against</span>
+</span><span id="run_with_pgkill-74"><a href="#run_with_pgkill-74"><span class="linenos"> 74</span></a><span class="sd">            (parsight runs against the vault root; ai_backend runs against</span>
 </span><span id="run_with_pgkill-75"><a href="#run_with_pgkill-75"><span class="linenos"> 75</span></a><span class="sd">            the configured working dir) and an unqualified default of</span>
 </span><span id="run_with_pgkill-76"><a href="#run_with_pgkill-76"><span class="linenos"> 76</span></a><span class="sd">            ``None`` (inherit) is the wrong shape for an explicit-launch API.</span>
 </span><span id="run_with_pgkill-77"><a href="#run_with_pgkill-77"><span class="linenos"> 77</span></a><span class="sd">        timeout: Maximum seconds to wait for completion. ``&lt;= 0`` is treated</span>
@@ -344,10 +344,10 @@ No captured output is returned because the process never finished.</li>
     cmd: Argv list, starting with the binary. The caller is responsible
         for resolving and validating the binary path — this helper does
         not run <code>shutil.which</code> because each caller has its own
-        allowlist/gate (par-mem: <code>par_mem.enabled</code> + <code>/health</code>;
+        allowlist/gate (parsight: <code>parsight.enabled</code> + <code>/health</code>;
         ai_backend: a model-tier-aware lookup).
     cwd: Working directory. Mandatory because both call sites pass one
-        (par-mem runs against the vault root; ai_backend runs against
+        (parsight runs against the vault root; ai_backend runs against
         the configured working dir) and an unqualified default of
         <code>None</code> (inherit) is the wrong shape for an explicit-launch API.
     timeout: Maximum seconds to wait for completion. <code>&lt;= 0</code> is treated

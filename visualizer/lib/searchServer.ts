@@ -1,6 +1,6 @@
 // lib/searchServer.ts — spawn vault_search.py for semantic search.
 // Mirrors the graph-rebuild/vaultStatsServer subprocess pattern: parsidion's
-// Python layer owns backend selection (par-mem daemon → embeddings fallback);
+// Python layer owns backend selection (parsight daemon → embeddings fallback);
 // this module never implements search or backend logic itself.
 //
 // ARC-041: structural server-only guard — this module spawns subprocesses.

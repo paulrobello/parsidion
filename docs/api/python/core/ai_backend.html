@@ -311,7 +311,7 @@ scripts root remains as a re-export shim for existing importers.</p>
 </span><span id="L-213"><a href="#L-213"><span class="linenos">213</span></a>
 </span><span id="L-214"><a href="#L-214"><span class="linenos">214</span></a><span class="sd">    SEC-122 / ARC-048f: thin wrapper over ``subproc_util.run_with_pgkill``,</span>
 </span><span id="L-215"><a href="#L-215"><span class="linenos">215</span></a><span class="sd">    the single canonical implementation. Previously this module and</span>
-</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a><span class="sd">    ``parmem_backend._run_parmem`` each rolled their own SIGTERM → SIGKILL</span>
+</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a><span class="sd">    ``parsight_backend._run_parsight`` each rolled their own SIGTERM → SIGKILL</span>
 </span><span id="L-217"><a href="#L-217"><span class="linenos">217</span></a><span class="sd">    escalation and the two had already drifted. Returns ``None`` on launch</span>
 </span><span id="L-218"><a href="#L-218"><span class="linenos">218</span></a><span class="sd">    failure (matches the prior ``OSError`` swallowing contract) and re-raises</span>
 </span><span id="L-219"><a href="#L-219"><span class="linenos">219</span></a><span class="sd">    ``subprocess.TimeoutExpired`` semantics via the shared helper&#39;s</span>
@@ -515,7 +515,7 @@ scripts root remains as a re-export shim for existing importers.</p>
 </span><span id="L-417"><a href="#L-417"><span class="linenos">417</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve a configured CLI ``command`` value to an executable path.</span>
 </span><span id="L-418"><a href="#L-418"><span class="linenos">418</span></a>
 </span><span id="L-419"><a href="#L-419"><span class="linenos">419</span></a><span class="sd">    SEC-117: config-file values that become ``subprocess.argv[0]`` get the</span>
-</span><span id="L-420"><a href="#L-420"><span class="linenos">420</span></a><span class="sd">    same gate ``par_mem.binary`` already has. Bare names resolve via</span>
+</span><span id="L-420"><a href="#L-420"><span class="linenos">420</span></a><span class="sd">    same gate ``parsight.binary`` already has. Bare names resolve via</span>
 </span><span id="L-421"><a href="#L-421"><span class="linenos">421</span></a><span class="sd">    ``shutil.which``; values with a path separator must point at an existing</span>
 </span><span id="L-422"><a href="#L-422"><span class="linenos">422</span></a><span class="sd">    executable file. Raises ``FileNotFoundError`` when the binary cannot be</span>
 </span><span id="L-423"><a href="#L-423"><span class="linenos">423</span></a><span class="sd">    resolved so the caller can fall back rather than silently launching a</span>

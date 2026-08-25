@@ -29,7 +29,7 @@ from .vault_schema import (
     EmbeddingsConfig,
     EventLogConfig,
     GitConfig,
-    ParMemConfig,
+    ParsightConfig,
     PreCompactHookConfig,
     SearchConfig,
     SessionStartHookConfig,
@@ -50,6 +50,7 @@ __all__: list[str] = [
     # Config loading
     "_parse_config_yaml",
     "_merge_config_dicts",
+    "_apply_legacy_aliases",
     "load_config",
     "clamp_timeout",
     "config_key_sources",
@@ -59,7 +60,7 @@ __all__: list[str] = [
     "_clear_config_cache",
     "get_config",
     # Embedding-score temporal decay (ARC-023: leaf location so vault_search
-    # and parmem_backend can both import it top-level without forming a cycle)
+    # and parsight_backend can both import it top-level without forming a cycle)
     "apply_decay_score",
     # Config validation
     "validate_config",
@@ -78,7 +79,7 @@ __all__: list[str] = [
     "PreCompactHookConfig",
     "SummarizerConfig",
     "EmbeddingsConfig",
-    "ParMemConfig",
+    "ParsightConfig",
     "SearchConfig",
     "AnthropicEnvConfig",
     "GitConfig",
@@ -354,6 +355,48 @@ def _merge_config_dicts(
     return merged
 
 
+# Legacy config aliases for deployments that predate the parsight rename
+# (the backend product was formerly "par-mem"). ``_apply_legacy_aliases``
+# folds these into their canonical spellings at load time so every consumer
+# (get_config, load_typed_config, validate_config) sees canonical names.
+_LEGACY_SECTION_ALIASES: dict[str, str] = {"par_mem": "parsight"}
+_LEGACY_ENUM_ALIASES: dict[tuple[str, str], dict[str, str]] = {
+    ("search", "backend"): {"par-mem": "parsight"},
+}
+
+
+def _apply_legacy_aliases(config: dict[str, Any]) -> dict[str, Any]:
+    """Fold legacy section/enum spellings into their canonical names.
+
+    Compat for configs that predate the parsight rename (the backend product
+    was formerly "par-mem"): the legacy ``par_mem`` section is merged under
+    ``parsight`` (the canonical section wins per key when both are present),
+    and the legacy ``par-mem`` value of ``search.backend`` is rewritten to
+    ``parsight``. Applied to each file's parse *before* the
+    ``config.local.yaml`` merge so overlay precedence (local wins) is
+    preserved across the alias. Mutates and returns *config*.
+    """
+    for old_name, new_name in _LEGACY_SECTION_ALIASES.items():
+        old_section = config.get(old_name)
+        if not isinstance(old_section, dict):
+            continue
+        new_section = config.get(new_name)
+        if isinstance(new_section, dict):
+            merged = dict(old_section)
+            merged.update(new_section)  # canonical section wins per key
+            config[new_name] = merged
+        else:
+            config[new_name] = dict(old_section)
+        del config[old_name]
+    for (section, key), aliases in _LEGACY_ENUM_ALIASES.items():
+        section_dict = config.get(section)
+        if isinstance(section_dict, dict):
+            value = section_dict.get(key)
+            if isinstance(value, str) and value in aliases:
+                section_dict[key] = aliases[value]
+    return config
+
+
 @functools.lru_cache(maxsize=8)
 def load_config(vault: Path | None = None) -> dict[str, Any]:
     """Load ``config.yaml`` from the vault, layered with ``config.local.yaml``.
@@ -362,7 +405,8 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
     same vault directory. When present, it is deep-merged over ``config.yaml``
     (section-by-section, with local values winning on conflict) so users can
     keep secrets in the local-only file while git-syncing a secret-free
-    ``config.yaml``, or vice versa.
+    ``config.yaml``, or vice versa. Legacy section/enum spellings are
+    normalized per file before the merge (see :func:`_apply_legacy_aliases`).
 
     Results are cached per-process via ``functools.lru_cache``. Both files
     are read within the same cached call, so the cache covers them jointly --
@@ -388,7 +432,7 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
     if config_path.is_file():
         try:
             content = config_path.read_text(encoding="utf-8")
-            config = _parse_config_yaml(content)
+            config = _apply_legacy_aliases(_parse_config_yaml(content))
         except (OSError, UnicodeDecodeError):
             config = {}
 
@@ -396,7 +440,7 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
     if local_path.is_file():
         try:
             local_content = local_path.read_text(encoding="utf-8")
-            local_config = _parse_config_yaml(local_content)
+            local_config = _apply_legacy_aliases(_parse_config_yaml(local_content))
             config = _merge_config_dicts(config, local_config)
         except (OSError, UnicodeDecodeError):
             pass
@@ -589,9 +633,9 @@ def _clear_typed_config_cache() -> None:
 # ---------------------------------------------------------------------------
 #
 # ARC-023: this helper previously lived on vault_search.py as ``_apply_decay``
-# and was lazy-imported by parmem_backend._decayed_score to avoid the
-# vault_search ↔ parmem_backend top-level import cycle (vault_search imports
-# parmem_backend at module top; parmem_backend needed vault_search._apply_decay).
+# and was lazy-imported by parsight_backend._decayed_score to avoid the
+# vault_search ↔ parsight_backend top-level import cycle (vault_search imports
+# parsight_backend at module top; parsight_backend needed vault_search._apply_decay).
 # Moving it here — a true leaf module both files already depend on — lets both
 # callers import it at module top level and drops the lazy import.
 

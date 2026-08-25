@@ -42,7 +42,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import vault_common  # noqa: E402
 
-from tests.fake_parmem import FakeHealth, FakeParMem  # noqa: E402
+from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
 
 @pytest.fixture()
@@ -87,45 +87,45 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
 
 
 @pytest.fixture(autouse=True)
-def _parmem_isolation(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    """Keep every test away from a real par-mem daemon.
+def _parsight_isolation(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Keep every test away from a real parsight daemon.
 
-    Pins PARMEM_MCP_URL at an unreachable loopback port (connection refused
-    instantly) so `resolve_parmem_backend()` can only succeed when a test
-    opts into the `fake_parmem_health` fixture, and clears the per-process
+    Pins PARSIGHT_MCP_URL at an unreachable loopback port (connection refused
+    instantly) so `resolve_parsight_backend()` can only succeed when a test
+    opts into the `fake_parsight_health` fixture, and clears the per-process
     availability cache around each test. The try/except guards against a
-    future state where parmem_backend is removed or renamed.
+    future state where parsight_backend is removed or renamed.
     """
-    monkeypatch.setenv("PARMEM_MCP_URL", "http://127.0.0.1:1/mcp")
+    monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:1/mcp")
     try:
-        import parmem_backend
+        import parsight_backend
 
-        parmem_backend.reset_parmem_cache()
+        parsight_backend.reset_parsight_cache()
     except ImportError:
         pass
     yield
     try:
-        import parmem_backend
+        import parsight_backend
 
-        parmem_backend.reset_parmem_cache()
+        parsight_backend.reset_parsight_cache()
     except ImportError:
         pass
 
 
 @pytest.fixture()
-def fake_parmem(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeParMem:
-    """Install a fake `par-mem` executable at the front of PATH."""
-    bin_dir = tmp_path / "fake-parmem-bin"
+def fake_parsight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeParsight:
+    """Install a fake `parsight` executable at the front of PATH."""
+    bin_dir = tmp_path / "fake-parsight-bin"
     bin_dir.mkdir()
-    fake = FakeParMem(bin_dir)
+    fake = FakeParsight(bin_dir)
     fake.install()
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     return fake
 
 
 @pytest.fixture()
-def fake_parmem_health(monkeypatch: pytest.MonkeyPatch) -> Generator[FakeHealth]:
-    """Serve 200 on /health from an ephemeral port; point PARMEM_MCP_URL at it."""
+def fake_parsight_health(monkeypatch: pytest.MonkeyPatch) -> Generator[FakeHealth]:
+    """Serve 200 on /health from an ephemeral port; point PARSIGHT_MCP_URL at it."""
     handle = FakeHealth(url="")
 
     class _Handler(http.server.BaseHTTPRequestHandler):
@@ -149,7 +149,7 @@ def fake_parmem_health(monkeypatch: pytest.MonkeyPatch) -> Generator[FakeHealth]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     handle.url = f"http://127.0.0.1:{server.server_port}/mcp"
-    monkeypatch.setenv("PARMEM_MCP_URL", handle.url)
+    monkeypatch.setenv("PARSIGHT_MCP_URL", handle.url)
     yield handle
     server.shutdown()
     thread.join(timeout=2)

@@ -35,7 +35,7 @@ What stays in ``update_index.py`` and why:
     module the test patches — so the singleton cluster stays put.
     ``main`` stays too: it weaves the singleton guard, the inline
     ``__file__``-relative ``build_embeddings.py`` discovery, and the
-    par-mem/embeddings spawn into one entry point that is simpler to keep
+    parsight/embeddings spawn into one entry point that is simpler to keep
     at the scripts root than to relocate with adjusted path math.
 
 Behaviour is identical to the original — this is a pure structural move.

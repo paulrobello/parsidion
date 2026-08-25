@@ -28,7 +28,7 @@ def _make_daily(vault: Path, day: date, username: str = "tester") -> Path:
         "---\n"
         "# Daily\n\n"
         "## Sessions\n"
-        f"- worked on par-mem (project: par-mem)\n"
+        f"- worked on parsight (project: parsight)\n"
         "- fixed a bug; categories: error_fix, python\n"
         "## Notes\n"
         "free text\n",
@@ -59,7 +59,7 @@ def test_run_weekly_writes_rollup_with_aggregates(week_vault: Path) -> None:
     assert out.exists(), "weekly rollup note was not written"
     text = out.read_text(encoding="utf-8")
     assert "tags: [weekly-rollup]" in text
-    assert "- par-mem" in text
+    assert "- parsight" in text
     assert "error_fix" in text
     # Both daily notes are wikilinked.
     assert "[[01-tester]]" in text or "[[" in text
@@ -87,7 +87,7 @@ def test_run_monthly_writes_rollup_with_days_covered(week_vault: Path) -> None:
     assert "tags: [monthly-rollup]" in text
     assert "Monthly Rollup" in text
     assert "of 2 days covered" not in text or True  # count depends on week position
-    assert "- par-mem" in text
+    assert "- parsight" in text
 
 
 def test_run_monthly_empty_vault_prints_notice(tmp_path: Path, capsys) -> None:
@@ -122,4 +122,4 @@ def test_daily_note_read_errors_are_skipped(week_vault: Path) -> None:
     assert out.exists()
     text = out.read_text(encoding="utf-8")
     # The readable note's project still appears.
-    assert "- par-mem" in text
+    assert "- parsight" in text

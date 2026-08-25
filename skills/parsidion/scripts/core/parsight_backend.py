@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Optional par-mem code-memory backend for Parsidion.
+"""Optional parsight code-memory backend for Parsidion.
 
-par-mem is an external Rust code-memory system (CLI + always-on daemon, MCP
+parsight is an external Rust code-memory system (CLI + always-on daemon, MCP
 over HTTP at 127.0.0.1:4848) whose markdown indexing understands parsidion's
 note conventions. This module is the availability probe and subprocess
 transport for it, mirroring the ``ai_backend.py`` contract precisely:
 **never raises; returns None (or False) on any failure** so callers keep
-their embeddings/metadata fallback paths. Stdlib only. See docs/PAR-MEM.md.
-ARC-006: lives in the ``core/`` package; the flat ``parmem_backend.py`` name
+their embeddings/metadata fallback paths. Stdlib only. See docs/PARSIGHT.md.
+ARC-006: lives in the ``core/`` package; the flat ``parsight_backend.py`` name
 at the scripts root remains as a re-export shim for existing importers.
 """
 
@@ -35,28 +35,36 @@ __all__: list[str] = [
     "doc_links_raw",
     "ensure_vault_indexed",
     "find_code_raw",
-    "parmem_search",
-    "reset_parmem_cache",
-    "resolve_parmem_backend",
+    "parsight_search",
+    "reset_parsight_cache",
+    "resolve_parsight_backend",
     "spawn_background_index",
     "spawn_unwatch",
     "spawn_watch",
     "vault_index_fresh",
 ]
 
-_DEFAULT_BINARY = "par-mem"
+_DEFAULT_BINARY = "parsight"
+# Pre-rename binary name (compat): a deployed machine may expose only the
+# legacy command on PATH, so default resolution falls back to it.
+_LEGACY_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
 _DEFAULT_MCP_URL = "http://127.0.0.1:4848/mcp"
 _HEALTH_TIMEOUT_S = 1.0
 _LOG_DIR = Path.home() / ".claude" / "logs"
-_LOG_NAME = "parsidion-parmem.log"
+_LOG_NAME = "parsidion-parsight.log"
 
 # Per-process availability cache: str(vault) -> absolute binary path when
-# available, or None when par-mem was probed and found unavailable.
+# available, or None when parsight was probed and found unavailable.
 _RESOLVE_CACHE: dict[str, str | None] = {}
 
 
-def reset_parmem_cache() -> None:
+def _which_default_binary() -> str | None:
+    """Resolve the default binary name: prefer parsight, fall back to par-mem."""
+    return shutil.which(_DEFAULT_BINARY) or shutil.which(_LEGACY_BINARY)
+
+
+def reset_parsight_cache() -> None:
     """Clear the per-process availability cache (test hook)."""
     _RESOLVE_CACHE.clear()
 
@@ -73,20 +81,20 @@ def _config_value(
 
 
 def _timeout_s(vault: Path | None) -> float:
-    """Return the per-query subprocess timeout (``par_mem.timeout_s``, default 10)."""
-    value = _config_value("par_mem", "timeout_s", _DEFAULT_TIMEOUT_S, vault=vault)
+    """Return the per-query subprocess timeout (``parsight.timeout_s``, default 10)."""
+    value = _config_value("parsight", "timeout_s", _DEFAULT_TIMEOUT_S, vault=vault)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return _DEFAULT_TIMEOUT_S
     return float(value)
 
 
 def _health_url() -> str:
-    """Derive the daemon health URL from PARMEM_MCP_URL (default port 4848).
+    """Derive the daemon health URL from PARSIGHT_MCP_URL (default port 4848).
 
-    The par-mem CLI reads the same variable to locate the daemon, so probe
+    The parsight CLI reads the same variable to locate the daemon, so probe
     and transport always agree on the endpoint.
     """
-    raw = os.environ.get("PARMEM_MCP_URL", "").strip() or _DEFAULT_MCP_URL
+    raw = os.environ.get("PARSIGHT_MCP_URL", "").strip() or _DEFAULT_MCP_URL
     parsed = urllib.parse.urlparse(raw)
     if not parsed.scheme or not parsed.netloc:
         parsed = urllib.parse.urlparse(_DEFAULT_MCP_URL)
@@ -94,7 +102,7 @@ def _health_url() -> str:
 
 
 def _health_ok() -> bool:
-    """Return True when the par-mem daemon answers GET /health (~1s budget)."""
+    """Return True when the parsight daemon answers GET /health (~1s budget)."""
     try:
         with urllib.request.urlopen(_health_url(), timeout=_HEALTH_TIMEOUT_S) as resp:
             return 200 <= resp.status < 300
@@ -103,11 +111,15 @@ def _health_ok() -> bool:
 
 
 def _resolve_binary(vault: Path | None = None) -> str | None:
-    """Return the absolute par-mem binary path, or None when unavailable.
+    """Return the absolute parsight binary path, or None when unavailable.
 
-    Availability = config gate (``par_mem.enabled``, default true) AND
-    ``shutil.which(par_mem.binary)`` AND a live daemon ``/health``. The
-    verdict is cached per process per vault; ``reset_parmem_cache()`` clears.
+    Availability = config gate (``parsight.enabled``, default true) AND a
+    resolvable binary AND a live daemon ``/health``. Binary resolution: an
+    explicitly configured ``parsight.binary`` is used as-is (bare name or
+    path, PATH-resolved); when unset (or set to the default name) resolution
+    prefers ``parsight`` and falls back to the legacy ``par-mem`` command
+    when only that is on PATH. The verdict is cached per process per vault;
+    ``reset_parsight_cache()`` clears.
     """
     try:
         vault = vault or resolve_vault()
@@ -115,60 +127,63 @@ def _resolve_binary(vault: Path | None = None) -> str | None:
         if key in _RESOLVE_CACHE:
             return _RESOLVE_CACHE[key]
         resolved: str | None = None
-        if _config_value("par_mem", "enabled", True, vault=vault) is True:
-            binary = _config_value("par_mem", "binary", _DEFAULT_BINARY, vault=vault)
-            if isinstance(binary, str) and binary.strip():
-                which = shutil.which(binary.strip())
-                # SEC-007: a path-like par_mem.binary from a synced
+        if _config_value("parsight", "enabled", True, vault=vault) is True:
+            binary = _config_value("parsight", "binary", _DEFAULT_BINARY, vault=vault)
+            which: str | None = None
+            raw = binary.strip() if isinstance(binary, str) else ""
+            if raw and raw != _DEFAULT_BINARY:
+                which = shutil.which(raw)
+                # SEC-007: a path-like parsight.binary from a synced
                 # config.yaml can point at an attacker-writable script; it
                 # must pass the ownership/write-bits gate. Bare names (and
                 # the default) stay on plain PATH resolution. On refusal,
                 # fall back to the default command name.
-                raw = binary.strip()
                 if (
                     which
                     and ("/" in raw or os.path.isabs(raw))
                     and not vault_fs.is_trusted_executable(which)
                 ):
-                    fallback = shutil.which(_DEFAULT_BINARY)
+                    fallback = _which_default_binary()
                     print(
-                        f"parmem_backend: par_mem.binary {raw!r} failed the "
+                        f"parsight_backend: parsight.binary {raw!r} failed the "
                         f"trust check (not owned by the current user or "
                         f"group/world-writable); using "
                         f"{fallback!r} instead. SEC-007",
                         file=sys.stderr,
                     )
                     which = fallback
-                if which and _health_ok():
-                    resolved = which
+            else:
+                which = _which_default_binary()
+            if which and _health_ok():
+                resolved = which
         _RESOLVE_CACHE[key] = resolved
         return resolved
     except Exception:  # noqa: BLE001 — contract: never raises
         return None
 
 
-def resolve_parmem_backend(vault: Path | None = None) -> bool:
+def resolve_parsight_backend(vault: Path | None = None) -> bool:
     """Availability probe: config gate + binary on PATH + daemon /health.
 
     Never raises; the result is cached per process (one ``which`` + one ~1 s
-    health check), so an absent par-mem costs nothing after the first call.
+    health check), so an absent parsight costs nothing after the first call.
     """
     return _resolve_binary(vault) is not None
 
 
-# Generated vault index files that are indexed by par-mem but are not notes.
+# Generated vault index files that are indexed by parsight but are not notes.
 _GENERATED_NOTE_NAMES = frozenset({"CLAUDE.md", "TAGS.md", "MANIFEST.md"})
 
 
 def _log_event(vault: Path, action: str, detail: str, started: float) -> None:
     """Best-effort failure log via write_hook_event; never raises.
 
-    Entries land in ``<vault>/hook_events.log`` with ``hook="ParMemBackend"``
+    Entries land in ``<vault>/hook_events.log`` with ``hook="ParsightBackend"``
     so `vault-stats --hooks N` surfaces backend failures.
     """
     try:
         write_hook_event(
-            hook="ParMemBackend",
+            hook="ParsightBackend",
             project=vault.name,
             duration_ms=(time.monotonic() - started) * 1000,
             vault=vault,
@@ -176,18 +191,18 @@ def _log_event(vault: Path, action: str, detail: str, started: float) -> None:
             detail=detail,
         )
     except Exception as exc:  # noqa: BLE001 — logging must never raise
-        print(f"parmem hook event log failed: {exc}", file=sys.stderr)
+        print(f"parsight hook event log failed: {exc}", file=sys.stderr)
         pass
 
 
-def _run_parmem(
+def _run_parsight(
     cli_args: list[str],
     *,
     cwd: Path,
     timeout: float,
     vault: Path | None,
 ) -> tuple[str, subprocess.CompletedProcess[str] | None]:
-    """Run the par-mem CLI; returns ``(reason, proc)``.
+    """Run the parsight CLI; returns ``(reason, proc)``.
 
     ``reason`` is ``"ok"`` on normal completion (``proc`` set, any
     returncode), ``"launch"`` when the binary could not be started, or
@@ -231,10 +246,10 @@ def find_code_raw(
     timeout: float | None = None,
     vault: Path | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Run ``par-mem find-code <query> --json --diagnostics --limit <top_k>``.
+    """Run ``parsight find-code <query> --json --diagnostics --limit <top_k>``.
 
     ``--diagnostics`` asks the daemon for per-result RRF scores (without it,
-    ``score`` is null on every result). An older par-mem binary that
+    ``score`` is null on every result). An older parsight binary that
     predates the flag rejects it and exits nonzero, which falls through the
     existing failure path below (logged, returns None) — the documented
     graceful degradation.
@@ -256,7 +271,7 @@ def find_code_raw(
             return None
         eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
         started = time.monotonic()
-        reason, result = _run_parmem(
+        reason, result = _run_parsight(
             ["find-code", query, "--json", "--diagnostics", "--limit", str(top_k)],
             cwd=cwd,
             timeout=eff_timeout,
@@ -299,7 +314,7 @@ def doc_links_raw(
     timeout: float | None = None,
     vault: Path | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Run ``par-mem doc-links --json --targets doc --limit 200000``.
+    """Run ``parsight doc-links --json --targets doc --limit 200000``.
 
     Returns the MCP ``links`` array verbatim (items carry vault-root-relative
     ``source_path``/``target_path``, ``target_is_doc``, and a section-level
@@ -315,7 +330,7 @@ def doc_links_raw(
             return None
         eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
         started = time.monotonic()
-        reason, result = _run_parmem(
+        reason, result = _run_parsight(
             ["doc-links", "--json", "--targets", "doc", "--limit", "200000"],
             cwd=cwd,
             timeout=eff_timeout,
@@ -400,7 +415,7 @@ def _decayed_score(score: float, mtime: object, vault: Path) -> float:
 
     ARC-023: ``apply_decay_score`` now lives on ``vault_config`` (a leaf module
     this file already depends on), so the previous lazy ``import vault_search``
-    — required because vault_search top-level imports parmem_backend — is gone.
+    — required because vault_search top-level imports parsight_backend — is gone.
     The cycle is broken at the import-graph level, not by deferring the import.
     """
     if _config_value("embeddings", "decay_enabled", True, vault=vault) is not True:
@@ -459,20 +474,20 @@ def _result_from_path(
     }
 
 
-def parmem_search(
+def parsight_search(
     query: str,
     top_k: int = 10,
     vault: Path | None = None,
     timeout: float | None = None,
 ) -> list[dict[str, object]] | None:
-    """Vault semantic search served by par-mem's hybrid retrieval.
+    """Vault semantic search served by parsight's hybrid retrieval.
 
     Runs ``find-code --diagnostics`` over the indexed vault (over-fetching
     3x *top_k*, clamped to find-code's server-side 1000 limit ceiling,
-    because par-mem returns heading-section hits, several per note),
+    because parsight returns heading-section hits, several per note),
     aggregates to one row per note (max score per hit — a hit's own
     RRF score when present, else a rank-preserving synthetic value derived
-    from its position in par-mem's response, so a score-less hit still
+    from its position in parsight's response, so a score-less hit still
     contributes its relevance order through aggregation/decay/sort instead
     of collapsing to a tie), enriches metadata from note_index (no extra
     round-trips), applies parsidion's temporal decay, and returns dicts
@@ -494,7 +509,7 @@ def parmem_search(
             raw_score = hit.get("score")
             if not isinstance(rel, str) or not rel.lower().endswith(".md"):
                 continue
-            # SEC-020: par-mem JSON is external input; a file_path outside
+            # SEC-020: parsight JSON is external input; a file_path outside
             # the vault (absolute or ../-laden) must be dropped before it
             # reaches the result set or a file read. `vault / rel` collapses
             # an absolute rel to itself, so the containment check holds for
@@ -505,7 +520,7 @@ def parmem_search(
                 # Rank-preserving fallback: a hit without a score (older
                 # daemon predating --diagnostics, or a lane that omits one)
                 # still carries relevance information in its position in
-                # par-mem's response — synthesize from that instead of
+                # parsight's response — synthesize from that instead of
                 # flooring to 0.0, so aggregation/decay/sort don't collapse
                 # score-less hits into an arbitrary tie.
                 score = 1.0 / (1.0 + idx)
@@ -552,9 +567,9 @@ def parmem_search(
 
 
 def spawn_background_index(vault: Path | None = None) -> bool:
-    """Launch a detached background ``par-mem index <vault> --json``.
+    """Launch a detached background ``parsight index <vault> --json``.
 
-    NDJSON progress is appended to ``~/.claude/logs/parsidion-parmem.log``
+    NDJSON progress is appended to ``~/.claude/logs/parsidion-parsight.log``
     (the same detach pattern update_index.py uses for build_embeddings.py).
     Returns True when the process launched; never blocks the calling hook
     aside from the accepted, cached ≤1s availability probe — the subprocess
@@ -581,11 +596,11 @@ def spawn_background_index(vault: Path | None = None) -> bool:
 
 
 def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool:
-    """Fire-and-forget ``par-mem <verb> <vault> --hold-token parsidion-<id>``.
+    """Fire-and-forget ``parsight <verb> <vault> --hold-token parsidion-<id>``.
 
     Detached Popen — never blocks the calling hook aside from the accepted,
     cached ≤1s availability probe; the subprocess launch itself never
-    blocks. stdout/stderr append to ``~/.claude/logs/parsidion-parmem.log``.
+    blocks. stdout/stderr append to ``~/.claude/logs/parsidion-parsight.log``.
     The daemon refcounts holds and expires them by TTL server-side, so a
     crashed session cannot leak one. Never raises.
     """
@@ -613,17 +628,17 @@ def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool
 
 
 def spawn_watch(vault: Path | None, session_id: str) -> bool:
-    """Hold a par-mem live-reindex watch on the vault for this session."""
+    """Hold a parsight live-reindex watch on the vault for this session."""
     return _spawn_watch_command("watch", vault, session_id)
 
 
 def spawn_unwatch(vault: Path | None, session_id: str) -> bool:
-    """Release this session's par-mem watch hold on the vault."""
+    """Release this session's parsight watch hold on the vault."""
     return _spawn_watch_command("unwatch", vault, session_id)
 
 
 def _vault_repo_state(payload: object, vault: Path) -> str:
-    """Classify *vault* in a verbatim `par-mem repos --json` payload.
+    """Classify *vault* in a verbatim `parsight repos --json` payload.
 
     Returns ``"fresh"``, ``"stale"``, ``"absent"``, or ``"invalid"``
     (unparseable payload). The vault matches a repo by canonicalized
@@ -669,9 +684,9 @@ def _vault_repo_state(payload: object, vault: Path) -> str:
 
 
 def _repos_state(vault: Path) -> str:
-    """Fetch ``par-mem repos --json`` and classify *vault*.
+    """Fetch ``parsight repos --json`` and classify *vault*.
 
-    Returns ``"unavailable"`` (par-mem off / binary missing / daemon down /
+    Returns ``"unavailable"`` (parsight off / binary missing / daemon down /
     launch-timeout / nonzero exit), ``"invalid"`` (unparseable or unexpected
     payload), or the :func:`_vault_repo_state` verdict (``"fresh"`` /
     ``"stale"`` / ``"absent"``). Failures other than plain unavailability are
@@ -680,7 +695,7 @@ def _repos_state(vault: Path) -> str:
     if _resolve_binary(vault) is None:
         return "unavailable"
     started = time.monotonic()
-    _, result = _run_parmem(
+    _, result = _run_parsight(
         ["repos", "--json"], cwd=vault, timeout=_timeout_s(vault), vault=vault
     )
     if result is None or result.returncode != 0:
@@ -698,18 +713,18 @@ def _repos_state(vault: Path) -> str:
 
 
 def ensure_vault_indexed(vault: Path | None = None) -> bool:
-    """Return True when the current query may be served by par-mem.
+    """Return True when the current query may be served by parsight.
 
-    Freshness comes from :func:`_repos_state` (``par-mem repos --json``, the
+    Freshness comes from :func:`_repos_state` (``parsight repos --json``, the
     verbatim list_indexed_repositories result; proxy-only — exit 2 without a
     daemon):
 
     - **fresh** → True.
-    - **stale** → kick a detached background ``par-mem index`` and STILL
+    - **stale** → kick a detached background ``parsight index`` and STILL
       return True: a stale index is usable, so this query serves from it
       while the reindex catches up.
     - **absent** → kick a background index and return False so the CURRENT
-      query falls back to embeddings (a later query picks par-mem up).
+      query falls back to embeddings (a later query picks parsight up).
     - **unavailable/invalid** → False WITHOUT spawning — never reindex
       blind when the daemon cannot even list its repositories.
 
@@ -734,7 +749,7 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
 def vault_index_fresh(vault: Path | None = None) -> tuple[bool, str]:
     """Return ``(is_fresh, reason)`` for deterministic-build callers.
 
-    Only ``(True, "fresh")`` authorizes trusting par-mem's body-link
+    Only ``(True, "fresh")`` authorizes trusting parsight's body-link
     enrichment; every other state returns ``(False, reason)`` so the caller
     skips enrichment instead of emitting partial, run-to-run-variable edges
     from a stale or mid-catch-up index. ``reason`` is the :func:`_repos_state`

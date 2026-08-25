@@ -32,7 +32,7 @@
             <h2>Submodules</h2>
             <ul>
                     <li><a href="core/ai_backend.html">ai_backend</a></li>
-                    <li><a href="core/parmem_backend.html">parmem_backend</a></li>
+                    <li><a href="core/parsight_backend.html">parsight_backend</a></li>
                     <li><a href="core/subproc_util.html">subproc_util</a></li>
                     <li><a href="core/vault_adaptive.html">vault_adaptive</a></li>
                     <li><a href="core/vault_config.html">vault_config</a></li>
@@ -65,7 +65,7 @@ core    </h1>
 
 <p>Holds the shared library implementations previously flat in <code>scripts/</code>:
 config, path, filesystem, index, hooks, adaptive-context, links, constants,
-metrics, and the AI / par-mem / subprocess backends.</p>
+metrics, and the AI / parsight / subprocess backends.</p>
 
 <p>Hard constraint — every module here is <strong>Python stdlib only</strong>.  The constraint
 is enforced structurally by <code>tests/test_stdlib_only.py</code>, which imports each
@@ -84,7 +84,7 @@ remain importable as thin re-export shims in the parent <code>scripts/</code> di
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Holds the shared library implementations previously flat in ``scripts/``:</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">config, path, filesystem, index, hooks, adaptive-context, links, constants,</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">metrics, and the AI / par-mem / subprocess backends.</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">metrics, and the AI / parsight / subprocess backends.</span>
 </span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>
 </span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="sd">Hard constraint — every module here is **Python stdlib only**.  The constraint</span>
 </span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">is enforced structurally by ``tests/test_stdlib_only.py``, which imports each</span>

@@ -213,7 +213,7 @@ def _run_prompt_subprocess(
 
     SEC-122 / ARC-048f: thin wrapper over ``subproc_util.run_with_pgkill``,
     the single canonical implementation. Previously this module and
-    ``parmem_backend._run_parmem`` each rolled their own SIGTERM → SIGKILL
+    ``parsight_backend._run_parsight`` each rolled their own SIGTERM → SIGKILL
     escalation and the two had already drifted. Returns ``None`` on launch
     failure (matches the prior ``OSError`` swallowing contract) and re-raises
     ``subprocess.TimeoutExpired`` semantics via the shared helper's
@@ -417,7 +417,7 @@ def _resolve_configured_binary(
     """Resolve a configured CLI ``command`` value to an executable path.
 
     SEC-117: config-file values that become ``subprocess.argv[0]`` get the
-    same gate ``par_mem.binary`` already has. Bare names resolve via
+    same gate ``parsight.binary`` already has. Bare names resolve via
     ``shutil.which``; values with a path separator must point at an existing
     executable file. Raises ``FileNotFoundError`` when the binary cannot be
     resolved so the caller can fall back rather than silently launching a

@@ -76,7 +76,7 @@ const SAFE_ENV_KEYS: readonly string[] = [
 	"API_TIMEOUT_MS",
 	"HTTPS_PROXY",
 	"HTTP_PROXY",
-	"PARMEM_MCP_URL",
+	"PARSIGHT_MCP_URL",
 	"CLAUDE_VAULT",
 ];
 

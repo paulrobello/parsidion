@@ -127,7 +127,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "service_enabled": (bool,),
         "service_idle_exit": (int,),
     },
-    "par_mem": {"enabled": (bool,), "binary": (str,), "timeout_s": (int, float)},
+    "parsight": {"enabled": (bool,), "binary": (str,), "timeout_s": (int, float)},
     "search": {"backend": (str,), "use_note_index": (bool,)},
     "anthropic_env": {
         "ANTHROPIC_API_KEY": (str, type(None)),
@@ -439,7 +439,7 @@ class TestLoadTypedConfig:
             DefaultsConfig,
             EventLogConfig,
             GitConfig,
-            ParMemConfig,
+            ParsightConfig,
             PreCompactHookConfig,
             SearchConfig,
             SessionStartHookConfig,

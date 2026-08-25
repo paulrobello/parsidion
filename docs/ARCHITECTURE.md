@@ -634,7 +634,7 @@ A Claude Code agent definition (runs on Haiku) that scans `~/ParsidionVault/` fo
 
 ### Vault Common Library
 
-**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`vault_config.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`). The flat `vault_*.py` / `subproc_util.py` names at the scripts root are thin re-export shims over `core/`; `ai_backend.py` and `parmem_backend.py` stay at the scripts root (their internals are monkeypatched by tests, so they cannot be shimmed).
+**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`vault_config.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`). The flat `vault_*.py` / `subproc_util.py` names at the scripts root are thin re-export shims over `core/`; `ai_backend.py` and `parsight_backend.py` stay at the scripts root (their internals are monkeypatched by tests, so they cannot be shimmed).
 
 The shared utility library used by all hook scripts and the index generator. Uses only Python stdlib (no third-party dependencies). As of ARC-005, the implementation has been split into focused sub-modules; `vault_common.py` remains a thin re-export facade so existing `import vault_common` callers continue to work unchanged. ARC-004 moved these implementations into the `scripts/core/` subpackage (behind the flat re-export shims) and added `tests/test_stdlib_only.py`, which enforces the stdlib-only constraint by importing every `core/*` module and hook in a fresh interpreter with `rich`/`fastembed`/`sqlite_vec`/`anyio`/`yaml`/`numpy`/`PIL` poisoned in `sys.modules` — a forbidden import, even a transitive one, fails the gate.
 
@@ -759,7 +759,7 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 | `--top N` | `-n` | Max results (default: `embeddings.top_k` in config) |
 | `--min-score F` | `-s` | Minimum cosine similarity threshold |
 | `--model ID` | `-m` | fastembed model ID |
-| `--backend` | `-B` | Backend override: `auto` (default), `par-mem`, `embeddings`, or `none` |
+| `--backend` | `-B` | Backend override: `auto` (default), `parsight`, `embeddings`, or `none` |
 
 **Environment variables** (`VAULT_SEARCH_*` prefix; precedence: CLI flag > env var > config.yaml > default):
 
@@ -773,7 +773,7 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 
 **Graceful degradation:** returns `[]` when `embeddings.db` is absent or `note_index` table does not exist.
 
-**Optional par-mem backend:** when the external par-mem code-memory daemon is installed and the vault is indexed, `search.backend: auto` (default) routes semantic-mode queries to par-mem's hybrid BM25+vector+graph retrieval instead of this local cosine-similarity path, with silent fallback to embeddings on any failure. See [docs/PAR-MEM.md](PAR-MEM.md) for configuration, score semantics, and the degradation matrix. _(par-mem itself is not yet publicly available — coming soon; the local embeddings path is the always-on default until it ships.)_
+**Optional parsight backend:** when the external parsight code-memory daemon is installed and the vault is indexed, `search.backend: auto` (default) routes semantic-mode queries to parsight's hybrid BM25+vector+graph retrieval instead of this local cosine-similarity path, with silent fallback to embeddings on any failure. See [docs/PARSIGHT.md](PARSIGHT.md) for configuration, score semantics, and the degradation matrix. _(parsight itself is not yet publicly available — coming soon; the local embeddings path is the always-on default until it ships.)_
 
 **Global CLI:** installed via `uv tool install --editable ".[tools]"` from the repo root, or `uv run install.py --install-tools`. Places `vault-search` in `~/.local/bin/` (Linux/macOS) or `%APPDATA%\Python\Scripts` (Windows).
 
@@ -999,7 +999,7 @@ A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vau
 | `rebuild_index` | Trigger `update_index.py` from within a conversation |
 | `vault_doctor` | Run vault health scan and automated repair |
 | `vault_health` | Composite 0–100 vault-health score across seven dimensions (ENH-007); subprocess wrapper around `vault-stats --health --json` |
-| `code_search` | Hybrid BM25+vector+graph code search via the par-mem backend |
+| `code_search` | Hybrid BM25+vector+graph code search via the parsight backend |
 
 **Installation:**
 
@@ -1134,16 +1134,16 @@ embeddings:          # build_embeddings.py, vault_search.py
   decay_enabled: true             # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90        # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5           # Floor multiplier for very old notes (0.0–1.0)
-  service_enabled: false          # ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while par-mem serves retrieval
+  service_enabled: false          # ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while parsight serves retrieval
   service_idle_exit: 600          # Seconds the embedding service stays alive idle before exiting
 
-par_mem:             # Optional par-mem code-memory backend (external CLI + daemon)
-  enabled: true            # Probe for par-mem when available; false = never probe
-  binary: par-mem          # PATH lookup or absolute path to the par-mem CLI
+parsight:             # Optional parsight code-memory backend (external CLI + daemon)
+  enabled: true            # Probe for parsight when available; false = never probe
+  binary: parsight          # PATH lookup or absolute path to the parsight CLI
   timeout_s: 10            # Per-query subprocess timeout in seconds
 
 search:              # vault_search.py backend selection
-  backend: auto            # auto | par-mem | embeddings | none
+  backend: auto            # auto | parsight | embeddings | none
   use_note_index: true     # Read note metadata from note_index; false walks the filesystem instead
 
 git:
@@ -1334,21 +1334,21 @@ parsidion/
 │   └── vault-deduplicator.md            # Near-duplicate note scanner and merger (Haiku)
 ├── tests/
 │   ├── conftest.py
-│   ├── fake_parmem.py
+│   ├── fake_parsight.py
 │   ├── fixtures/
 │   ├── test_agent_adapter.py
 │   ├── test_ai_backend.py
 │   ├── test_ai_script_migration.py
 │   ├── test_atomic_write_fixes.py
 │   ├── test_build_embeddings_imports.py
-│   ├── test_build_graph_parmem.py
+│   ├── test_build_graph_parsight.py
 │   ├── test_config_local_overlay.py
 │   ├── test_connect.py
 │   ├── test_dead_letter.py
 │   ├── test_doctor_backup.py
 │   ├── test_embed_eval.py
 │   ├── test_embed_singleton_lock.py
-│   ├── test_fake_parmem_fixture.py
+│   ├── test_fake_parsight_fixture.py
 │   ├── test_fence_aware_wikilinks.py
 │   ├── test_graph_schema.py
 │   ├── test_hook_integration.py
@@ -1358,12 +1358,12 @@ parsidion/
 │   ├── test_merge_metrics_fixes.py
 │   ├── test_merge_preview.py
 │   ├── test_note_index_date.py
-│   ├── test_parmem_backend.py
-│   ├── test_parmem_docs.py
-│   ├── test_parmem_freshness.py
-│   ├── test_parmem_index.py
-│   ├── test_parmem_integration.py
-│   ├── test_parmem_search.py
+│   ├── test_parsight_backend.py
+│   ├── test_parsight_docs.py
+│   ├── test_parsight_freshness.py
+│   ├── test_parsight_index.py
+│   ├── test_parsight_integration.py
+│   ├── test_parsight_search.py
 │   ├── test_parser_index_fixes.py
 │   ├── test_post_compact_hook.py
 │   ├── test_pre_compact_hook.py
@@ -1461,7 +1461,7 @@ parsidion/
     │   ├── vault_conflicts.py       # CLI to detect contradictory notes (vault-conflicts)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── ai_backend.py            # Backend-neutral prompt AI helpers (claude-cli, codex-cli, grok-cli)
-    │   ├── parmem_backend.py        # Optional par-mem code-memory backend (availability probe + subprocess transport)
+    │   ├── parsight_backend.py        # Optional parsight code-memory backend (availability probe + subprocess transport)
     │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/gemini/pi/omp + opt-in external drop-ins (ARC-020, ENH-006)
     │   ├── note_schema.py           # Single source of truth for note types, folders, required fields (ENH-008)
     │   ├── prompt_templates.py      # Strict-variable loader for versioned prompt templates under templates/prompts/
@@ -1615,7 +1615,7 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [EMBEDDINGS.md](EMBEDDINGS.md) - Embedding system: build pipeline, search, and evaluation
 - [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) - Embedding search quality evaluation results
 - [archive/MCPL.md](archive/MCPL.md) - Legacy MCP Launchpad reference (not installed; kept for history)
-- [PAR-MEM.md](PAR-MEM.md) - par-mem code-memory backend: configuration, score semantics, and degradation matrix
+- [PARSIGHT.md](PARSIGHT.md) - parsight code-memory backend: configuration, score semantics, and degradation matrix
 - [VAULT_SYNC.md](VAULT_SYNC.md) - Multi-machine vault sync: git-based setup and conflict handling
 - [DOCUMENTATION_STYLE_GUIDE.md](DOCUMENTATION_STYLE_GUIDE.md) - Documentation formatting standards
 - [SKILL.md](../skills/parsidion/SKILL.md) - Vault philosophy, conventions, and anti-patterns

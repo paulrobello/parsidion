@@ -113,21 +113,21 @@ GRAPH_JSON_SCHEMA: dict = {
                         "rebuild (ENH-002). Absent on full-rebuild graphs."
                     ),
                 },
-                "parmem_body_links": {
+                "parsight_body_links": {
                     "type": "integer",
                     "minimum": 0,
                     "description": (
-                        "Wiki edges contributed by par-mem body-link enrichment. "
+                        "Wiki edges contributed by parsight body-link enrichment. "
                         "Absent when enrichment was skipped or added nothing."
                     ),
                 },
-                "parmem_body_status": {
+                "parsight_body_status": {
                     "type": "string",
                     "description": (
-                        "Outcome of par-mem body-link enrichment when it was "
-                        "attempted (present whenever --no-parmem was not passed). "
+                        "Outcome of parsight body-link enrichment when it was "
+                        "attempted (present whenever --no-parsight was not passed). "
                         "'fresh' = index current, enrichment ran (count in "
-                        "parmem_body_links when >=1); 'skipped:index-stale' / "
+                        "parsight_body_links when >=1); 'skipped:index-stale' / "
                         "'skipped:index-absent' / 'skipped:index-invalid' = a "
                         "non-fresh index made enrichment non-deterministic so it "
                         "was skipped; 'unavailable' / 'error' = backend failure."
@@ -260,12 +260,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--no-parmem",
-        dest="use_parmem",
+        "--no-parsight",
+        dest="use_parsight",
         action="store_false",
-        help="Skip par-mem body-link enrichment of wiki edges",
+        help="Skip parsight body-link enrichment of wiki edges",
     )
-    parser.set_defaults(use_parmem=True)
+    parser.set_defaults(use_parsight=True)
     parser.add_argument(
         "--no-schema",
         dest="emit_schema",
@@ -708,12 +708,12 @@ def build_wiki_edges(notes: list[dict], valid_stems: set[str]) -> list[dict]:
     return deduped
 
 
-def build_parmem_body_edges(
+def build_parsight_body_edges(
     vault_root: Path,
     rel_path_to_stem: dict[str, str],
     existing_keys: set[tuple[str, str]],
 ) -> tuple[list[dict], str]:
-    """Wiki edges from par-mem's in-body doc links + an outcome status.
+    """Wiki edges from parsight's in-body doc links + an outcome status.
 
     The index must be FRESH before its body links are trusted: a stale or
     mid-catch-up index returns a partial, run-to-run-variable link set, which
@@ -721,7 +721,7 @@ def build_parmem_body_edges(
     fresh the nondeterministic ``doc_links_raw`` fetch is skipped entirely.
 
     Returns ``(edges, status)``. ``status`` is ``"fresh"`` when enrichment ran
-    cleanly (edges may still be empty if par-mem found no new in-body links);
+    cleanly (edges may still be empty if parsight found no new in-body links);
     otherwise a reason: ``skipped:index-stale`` / ``skipped:index-absent`` /
     ``skipped:index-invalid`` (non-fresh index), ``unavailable`` (backend off /
     unreachable), or ``error`` (doc-links fetch failed). Never raises and never
@@ -729,18 +729,18 @@ def build_parmem_body_edges(
     pre-integration output apart from the recorded ``status``.
     """
     try:
-        import parmem_backend
+        import parsight_backend
     except ImportError:
         return [], "unavailable"
     try:
-        if not parmem_backend.resolve_parmem_backend(vault_root):
+        if not parsight_backend.resolve_parsight_backend(vault_root):
             return [], "unavailable"
-        is_fresh, state = parmem_backend.vault_index_fresh(vault_root)
+        is_fresh, state = parsight_backend.vault_index_fresh(vault_root)
         if not is_fresh:
             if state in ("stale", "absent", "invalid"):
                 return [], f"skipped:index-{state}"
             return [], state  # "unavailable" / "error"
-        links = parmem_backend.doc_links_raw(cwd=vault_root, vault=vault_root)
+        links = parsight_backend.doc_links_raw(cwd=vault_root, vault=vault_root)
         if links is None:
             # Fresh index, but the fetch itself failed — already logged inside
             # doc_links_raw. Distinct from "ran cleanly, found nothing".
@@ -954,10 +954,10 @@ def main() -> None:
     vault_root_str = str(vault_root) + "/"
 
     body_edges: list[dict] = []
-    parmem_status = ""
-    if args.use_parmem:
+    parsight_status = ""
+    if args.use_parsight:
         print(
-            "Enriching with par-mem body links...", end="", file=sys.stderr, flush=True
+            "Enriching with parsight body links...", end="", file=sys.stderr, flush=True
         )
         rel_path_to_stem = {}
         for note in filtered_notes:
@@ -966,13 +966,13 @@ def main() -> None:
                 rel = rel[len(vault_root_str) :]
             rel_path_to_stem[rel] = note["stem"]
         existing_keys = {(e["s"], e["t"]) for e in wiki_edges}
-        body_edges, parmem_status = build_parmem_body_edges(
+        body_edges, parsight_status = build_parsight_body_edges(
             vault_root, rel_path_to_stem, existing_keys
         )
         detail = (
             f"{len(body_edges)} pairs"
-            if parmem_status == "fresh"
-            else f"skipped ({parmem_status})"
+            if parsight_status == "fresh"
+            else f"skipped ({parsight_status})"
         )
         print(f"  → {detail}", file=sys.stderr)
 
@@ -1014,8 +1014,8 @@ def main() -> None:
             "include_daily": args.include_daily,
             "max_neighbors": args.max_neighbors,
             **incremental_meta,
-            **({"parmem_body_links": len(body_edges)} if body_edges else {}),
-            **({"parmem_body_status": parmem_status} if parmem_status else {}),
+            **({"parsight_body_links": len(body_edges)} if body_edges else {}),
+            **({"parsight_body_status": parsight_status} if parsight_status else {}),
         },
         "nodes": nodes,
         "edges": all_edges,

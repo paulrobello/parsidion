@@ -39,7 +39,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import parmem_backend
+import parsight_backend
 import vault_common
 
 
@@ -158,7 +158,7 @@ def _search_notes(
     Args:
         q: The user's query string.
         vault: Vault root path.
-        backend: ``auto | par-mem | embeddings | none`` override; None reads
+        backend: ``auto | parsight | embeddings | none`` override; None reads
             the ``search.backend`` config key (default ``auto``).
 
     Returns:
@@ -167,7 +167,7 @@ def _search_notes(
     if not q.strip():
         return []
     db_path = vault_common.get_embeddings_db_path(vault)
-    if db_path.exists() or parmem_backend.resolve_parmem_backend(vault):
+    if db_path.exists() or parsight_backend.resolve_parsight_backend(vault):
         try:
             # Lazy import to avoid pulling fastembed at module level
             import vault_search  # noqa: PLC0415
@@ -245,7 +245,7 @@ def interactive_search(vault: Path | None = None, backend: str | None = None) ->
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
-        backend: ``auto | par-mem | embeddings | none`` override; None reads
+        backend: ``auto | parsight | embeddings | none`` override; None reads
             the ``search.backend`` config key (default ``auto``).
     """
     vault = vault or vault_common.resolve_vault()

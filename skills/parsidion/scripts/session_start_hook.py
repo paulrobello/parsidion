@@ -34,7 +34,7 @@ from io import TextIOWrapper
 from pathlib import Path
 
 import ai_backend
-import parmem_backend
+import parsight_backend
 from prompt_templates import render
 from vault_adaptive import (
     load_last_seen,
@@ -162,13 +162,13 @@ def _run_semantic_search(
     if not vault_search_script.exists():
         return []
 
-    # par-mem serves retrieval without a local embeddings DB. Only require
+    # parsight serves retrieval without a local embeddings DB. Only require
     # embeddings.db for the local-embeddings path: an explicit ``embeddings``
-    # backend, or ``auto`` falling back when par-mem is unavailable. Matches
+    # backend, or ``auto`` falling back when parsight is unavailable. Matches
     # vault_search.py's own backend routing.
     backend = (load_typed_config().search.backend or "auto").strip().lower()
     if backend == "embeddings" or (
-        backend == "auto" and not parmem_backend.resolve_parmem_backend(vault_path)
+        backend == "auto" and not parsight_backend.resolve_parsight_backend(vault_path)
     ):
         db_path = get_embeddings_db_path(vault=vault_path)
         if not db_path.exists():
@@ -333,7 +333,7 @@ def _select_seed_notes(
     """Collect and de-duplicate the seed note set for the standard context path.
 
     Merges project notes, recent notes, and semantic-search blends (served by
-    the configured backend — par-mem, or local ``embeddings.db`` as fallback),
+    the configured backend — parsight, or local ``embeddings.db`` as fallback),
     then ensures today's daily note is included.
     Order is preserved. The returned ``seen`` set carries resolved paths so
     graph-neighbour expansion (:func:`_apply_graph_retrieval`) dedups against
@@ -354,7 +354,7 @@ def _select_seed_notes(
 
     use_embeddings: bool = load_typed_config().session_start_hook.use_embeddings
     if use_embeddings:
-        # Backend-aware gating lives inside _run_semantic_search (par-mem needs
+        # Backend-aware gating lives inside _run_semantic_search (parsight needs
         # no local embeddings.db), so just delegate; it returns [] when there is
         # nothing to search rather than spawning vault_search pointlessly.
         vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
@@ -625,13 +625,13 @@ def main() -> None:
             vault=vault_path,
         )
 
-        # par-mem watch hold: fire-and-forget so live vault edits reindex in
-        # par-mem while this session is active. Released in session_stop_hook;
+        # parsight watch hold: fire-and-forget so live vault edits reindex in
+        # parsight while this session is active. Released in session_stop_hook;
         # server-side TTL covers crashed sessions. No-op when the backend is
         # unavailable — must never block or fail the hook.
         session_id = str(input_data.get("session_id", "") or "")
         if session_id:
-            parmem_backend.spawn_watch(vault_path, session_id)
+            parsight_backend.spawn_watch(vault_path, session_id)
 
         if debug:
             _write_debug_log(

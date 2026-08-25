@@ -48,7 +48,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
 - **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional, legacy) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server. Not installed by Parsidion; the research agent only considers it when already on `PATH` (see [docs/archive/MCPL.md](docs/archive/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
-- **par-mem** (optional; **coming soon — not yet publicly available**) -- Rust code-memory daemon; when released and installed, vault semantic search upgrades to hybrid BM25+vector+graph retrieval with silent fallback to local embeddings, and agents gain a cross-repo code-memory bridge (see [docs/PAR-MEM.md](docs/PAR-MEM.md)). parsidion works fully without it today.
+- **parsight** (optional; **coming soon — not yet publicly available**) -- Rust code-memory daemon; when released and installed, vault semantic search upgrades to hybrid BM25+vector+graph retrieval with silent fallback to local embeddings, and agents gain a cross-repo code-memory bridge (see [docs/PARSIGHT.md](docs/PARSIGHT.md)). parsidion works fully without it today.
 
 > **Platform support:** Works on macOS, Linux, and Windows. On macOS and Linux the installer **symlinks** `~/.claude/skills/parsidion` back to this repo, so edits under `skills/` are live in the installed location without a reinstall. On Windows the installer **copies** the skill files (symlinks require elevated privileges or Developer Mode), so edits under `skills/` are *not* picked up live — re-run `uv run install.py --force --yes` after every source change. This symlink-vs-copy split is the source of the "two copies of the same codebase" concern (ARC-021); it is real only on Windows.
 
@@ -385,7 +385,7 @@ An optional MCP server that exposes Parsidion vault operations to **Claude Deskt
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
 | `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
 | `vault_health` | Composite 0–100 vault-health score across seven dimensions (index freshness, queue, graph, metadata, embeddings, tags, files) with concrete next-action commands; subprocess wrapper around `vault-stats --health --json` (ENH-007) |
-| `code_search` | Search a par-mem-indexed repository's code graph by natural language; requires the [par-mem](docs/PAR-MEM.md) backend (returns a clear error if par-mem is unavailable) |
+| `code_search` | Search a parsight-indexed repository's code graph by natural language; requires the [parsight](docs/PARSIGHT.md) backend (returns a clear error if parsight is unavailable) |
 
 **Install:**
 
@@ -456,8 +456,8 @@ anthropic_env:         # ANTHROPIC_API_KEY/AUTH_TOKEN/BASE_URL/CUSTOM_HEADERS,
 defaults:              # haiku_model (centralized)
 embeddings:            # model, min_score, top_k, decay_*, service_enabled (ENH-003 opt-in),
                        # service_idle_exit
-par_mem:               # enabled, binary, timeout_s (see docs/PAR-MEM.md)
-search:                # backend: auto | par-mem | embeddings | none
+parsight:               # enabled, binary, timeout_s (see docs/PARSIGHT.md)
+search:                # backend: auto | parsight | embeddings | none
 git:                   # auto_commit
 event_log:             # enabled, max_lines, path
 adaptive_context:      # enabled, decay_days
@@ -681,7 +681,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding constraints
 - [docs/EMBEDDINGS.md](docs/EMBEDDINGS.md) -- Semantic search setup, embeddings database, and evaluation
 - [docs/EMBEDDINGS_EVAL.md](docs/EMBEDDINGS_EVAL.md) -- Evaluation harness for benchmarking embedding models and chunking strategies
 - [docs/archive/MCPL.md](docs/archive/MCPL.md) -- Legacy MCP Launchpad CLI reference (not installed; retained for history)
-- [docs/PAR-MEM.md](docs/PAR-MEM.md) -- par-mem code-memory backend: optional hybrid vault search, code-memory bridge, and 3D vault visualization
+- [docs/PARSIGHT.md](docs/PARSIGHT.md) -- parsight code-memory backend: optional hybrid vault search, code-memory bridge, and 3D vault visualization
 - [docs/AGENTCHROME.md](docs/AGENTCHROME.md) -- AgentChrome browser control CLI: installation, capabilities, and integration with the research agent
 - [docs/VISUALIZER.md](docs/VISUALIZER.md) -- Vault Visualizer: architecture, graph engine, data model, and configuration
 - [docs/DOCUMENTATION_STYLE_GUIDE.md](docs/DOCUMENTATION_STYLE_GUIDE.md) -- Documentation standards for this project

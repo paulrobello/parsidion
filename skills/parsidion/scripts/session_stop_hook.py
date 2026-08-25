@@ -8,7 +8,7 @@ Codex, Gemini); this shim keeps only Claude's invocation concerns:
 
 - stdin JSON parsing and the ``--ai [MODEL]`` flag,
 - the ``CLAUDE_VAULT_STOP_ACTIVE`` recursion guard,
-- releasing the par-mem watch hold taken at SessionStart (before the
+- releasing the parsight watch hold taken at SessionStart (before the
   transcript early-returns so the hold is released even for sessions with
   nothing to summarize),
 - the verbose ``_should_skip`` guard chain (input validation + SEC-004
@@ -32,7 +32,7 @@ import traceback
 from pathlib import Path
 
 import agent_adapter
-import parmem_backend
+import parsight_backend
 import vault_common
 from vault_hooks import log_hook_error
 
@@ -119,14 +119,14 @@ def main() -> None:
 
         cwd = str(input_data.get("cwd", ""))
 
-        # Release the par-mem watch hold taken at SessionStart. Runs before
+        # Release the parsight watch hold taken at SessionStart. Runs before
         # the transcript early-returns so the hold is released even for
         # sessions with nothing to summarize; server-side TTL covers crashed
         # sessions. Fire-and-forget — failures land in
-        # ~/.claude/logs/parsidion-parmem.log, never in the hook.
+        # ~/.claude/logs/parsidion-parsight.log, never in the hook.
         session_id = str(input_data.get("session_id", "") or "")
         if session_id:
-            parmem_backend.spawn_unwatch(
+            parsight_backend.spawn_unwatch(
                 vault_common.resolve_vault(cwd=cwd), session_id
             )
 

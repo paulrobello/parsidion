@@ -39,8 +39,8 @@ const SAFE_ENV_KEYS: readonly string[] = [
   // Network proxy
   'HTTPS_PROXY',
   'HTTP_PROXY',
-  // par-mem code-memory daemon endpoint (URL, never a secret)
-  'PARMEM_MCP_URL',
+  // parsight code-memory daemon endpoint (URL, never a secret)
+  'PARSIGHT_MCP_URL',
 ] as const
 
 const SAFE_ENV_SET: ReadonlySet<string> = new Set(SAFE_ENV_KEYS)

@@ -3,7 +3,7 @@
 Extracted from ``update_index.py``. The ``main()`` entry point stays in
 the shim (it weaves together the singleton guard, the inline
 ``__file__``-relative ``build_embeddings.py`` discovery, and the
-par-mem/embeddings spawn); only the parser extraction moves here.
+parsight/embeddings spawn); only the parser extraction moves here.
 Re-exported by the entry shim so ``update_index._parse_args`` keeps
 resolving for tests and other callers.
 

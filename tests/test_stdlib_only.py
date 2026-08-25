@@ -60,7 +60,7 @@ _POISON_SETUP = "import sys\n" + "\n".join(
 
 # Modules whose stdlib-only status is enforced. ``core.*`` are the library
 # implementations; the root names are the facade (vault_common), the TUI
-# surface (vault_tui), the AI/par-mem backends hooks depend on, and every hook
+# surface (vault_tui), the AI/parsight backends hooks depend on, and every hook
 # entry point plus the shared adapter registry. CLIs and eval/build tools are
 # excluded -- they legitimately use guarded optional extras.
 _ENFORCEMENT_SCOPE = [
@@ -77,15 +77,15 @@ _ENFORCEMENT_SCOPE = [
     "core.vault_metrics",
     "core.vault_health",
     "core.subproc_util",
-    # ARC-006: the AI/par-mem backends moved into core/ (the root names below
+    # ARC-006: the AI/parsight backends moved into core/ (the root names below
     # remain as re-export shims and are held to the same contract).
     "core.ai_backend",
-    "core.parmem_backend",
+    "core.parsight_backend",
     # root stdlib libraries / facade
     "vault_common",
     "vault_tui",
     "ai_backend",
-    "parmem_backend",
+    "parsight_backend",
     # hooks + shared adapter registry
     "session_start_hook",
     "session_stop_hook",

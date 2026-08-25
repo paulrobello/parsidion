@@ -138,13 +138,13 @@ describe("buildHookEnv (SEC-003)", () => {
 			ANTHROPIC_BASE_URL: "https://proxy.example",
 			API_TIMEOUT_MS: "30000",
 			HTTPS_PROXY: "http://127.0.0.1:7890",
-			PARMEM_MCP_URL: "http://127.0.0.1:4848/mcp",
+			PARSIGHT_MCP_URL: "http://127.0.0.1:4848/mcp",
 		});
 		expect(env.ANTHROPIC_API_KEY).toBe("sk-ant");
 		expect(env.ANTHROPIC_BASE_URL).toBe("https://proxy.example");
 		expect(env.API_TIMEOUT_MS).toBe("30000");
 		expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
-		expect(env.PARMEM_MCP_URL).toBe("http://127.0.0.1:4848/mcp");
+		expect(env.PARSIGHT_MCP_URL).toBe("http://127.0.0.1:4848/mcp");
 	});
 
 	it("forwards LC_*/XDG_*/PARSIDION_* prefixed vars and CLAUDE_VAULT", () => {

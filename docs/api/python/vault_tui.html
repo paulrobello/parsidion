@@ -131,7 +131,7 @@ here exactly as it does to <code>core/*</code> — verified by
 </span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 </span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 </span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a>
-</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">parmem_backend</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">parsight_backend</span>
 </span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">vault_common</span>
 </span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a>
 </span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a>
@@ -250,7 +250,7 @@ here exactly as it does to <code>core/*</code> — verified by
 </span><span id="L-158"><a href="#L-158"><span class="linenos">158</span></a><span class="sd">    Args:</span>
 </span><span id="L-159"><a href="#L-159"><span class="linenos">159</span></a><span class="sd">        q: The user&#39;s query string.</span>
 </span><span id="L-160"><a href="#L-160"><span class="linenos">160</span></a><span class="sd">        vault: Vault root path.</span>
-</span><span id="L-161"><a href="#L-161"><span class="linenos">161</span></a><span class="sd">        backend: ``auto | par-mem | embeddings | none`` override; None reads</span>
+</span><span id="L-161"><a href="#L-161"><span class="linenos">161</span></a><span class="sd">        backend: ``auto | parsight | embeddings | none`` override; None reads</span>
 </span><span id="L-162"><a href="#L-162"><span class="linenos">162</span></a><span class="sd">            the ``search.backend`` config key (default ``auto``).</span>
 </span><span id="L-163"><a href="#L-163"><span class="linenos">163</span></a>
 </span><span id="L-164"><a href="#L-164"><span class="linenos">164</span></a><span class="sd">    Returns:</span>
@@ -259,7 +259,7 @@ here exactly as it does to <code>core/*</code> — verified by
 </span><span id="L-167"><a href="#L-167"><span class="linenos">167</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">q</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
 </span><span id="L-168"><a href="#L-168"><span class="linenos">168</span></a>        <span class="k">return</span> <span class="p">[]</span>
 </span><span id="L-169"><a href="#L-169"><span class="linenos">169</span></a>    <span class="n">db_path</span> <span class="o">=</span> <span class="n">vault_common</span><span class="o">.</span><span class="n">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
-</span><span id="L-170"><a href="#L-170"><span class="linenos">170</span></a>    <span class="k">if</span> <span class="n">db_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">or</span> <span class="n">parmem_backend</span><span class="o">.</span><span class="n">resolve_parmem_backend</span><span class="p">(</span><span class="n">vault</span><span class="p">):</span>
+</span><span id="L-170"><a href="#L-170"><span class="linenos">170</span></a>    <span class="k">if</span> <span class="n">db_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">or</span> <span class="n">parsight_backend</span><span class="o">.</span><span class="n">resolve_parsight_backend</span><span class="p">(</span><span class="n">vault</span><span class="p">):</span>
 </span><span id="L-171"><a href="#L-171"><span class="linenos">171</span></a>        <span class="k">try</span><span class="p">:</span>
 </span><span id="L-172"><a href="#L-172"><span class="linenos">172</span></a>            <span class="c1"># Lazy import to avoid pulling fastembed at module level</span>
 </span><span id="L-173"><a href="#L-173"><span class="linenos">173</span></a>            <span class="kn">import</span><span class="w"> </span><span class="nn">vault_search</span>  <span class="c1"># noqa: PLC0415</span>
@@ -337,7 +337,7 @@ here exactly as it does to <code>core/*</code> — verified by
 </span><span id="L-245"><a href="#L-245"><span class="linenos">245</span></a>
 </span><span id="L-246"><a href="#L-246"><span class="linenos">246</span></a><span class="sd">    Args:</span>
 </span><span id="L-247"><a href="#L-247"><span class="linenos">247</span></a><span class="sd">        vault: Optional vault path. Defaults to resolve_vault().</span>
-</span><span id="L-248"><a href="#L-248"><span class="linenos">248</span></a><span class="sd">        backend: ``auto | par-mem | embeddings | none`` override; None reads</span>
+</span><span id="L-248"><a href="#L-248"><span class="linenos">248</span></a><span class="sd">        backend: ``auto | parsight | embeddings | none`` override; None reads</span>
 </span><span id="L-249"><a href="#L-249"><span class="linenos">249</span></a><span class="sd">            the ``search.backend`` config key (default ``auto``).</span>
 </span><span id="L-250"><a href="#L-250"><span class="linenos">250</span></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="L-251"><a href="#L-251"><span class="linenos">251</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">vault_common</span><span class="o">.</span><span class="n">resolve_vault</span><span class="p">()</span>
@@ -649,7 +649,7 @@ and the key handler.</p>
 </span><span id="interactive_search-246"><a href="#interactive_search-246"><span class="linenos">246</span></a>
 </span><span id="interactive_search-247"><a href="#interactive_search-247"><span class="linenos">247</span></a><span class="sd">    Args:</span>
 </span><span id="interactive_search-248"><a href="#interactive_search-248"><span class="linenos">248</span></a><span class="sd">        vault: Optional vault path. Defaults to resolve_vault().</span>
-</span><span id="interactive_search-249"><a href="#interactive_search-249"><span class="linenos">249</span></a><span class="sd">        backend: ``auto | par-mem | embeddings | none`` override; None reads</span>
+</span><span id="interactive_search-249"><a href="#interactive_search-249"><span class="linenos">249</span></a><span class="sd">        backend: ``auto | parsight | embeddings | none`` override; None reads</span>
 </span><span id="interactive_search-250"><a href="#interactive_search-250"><span class="linenos">250</span></a><span class="sd">            the ``search.backend`` config key (default ``auto``).</span>
 </span><span id="interactive_search-251"><a href="#interactive_search-251"><span class="linenos">251</span></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="interactive_search-252"><a href="#interactive_search-252"><span class="linenos">252</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">vault_common</span><span class="o">.</span><span class="n">resolve_vault</span><span class="p">()</span>
@@ -784,7 +784,7 @@ Falls back to a simple line-input loop when curses is unavailable.</p>
 
 <p>Args:
     vault: Optional vault path. Defaults to resolve_vault().
-    backend: <code>auto | par-mem | embeddings | none</code> override; None reads
+    backend: <code>auto | parsight | embeddings | none</code> override; None reads
         the <code>search.backend</code> config key (default <code>auto</code>).</p>
 </div>
 

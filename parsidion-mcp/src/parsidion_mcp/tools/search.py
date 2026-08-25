@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import parmem_backend
+import parsight_backend
 import vault_common
 
 # vault_search.py mutates sys.path at import time (adds its own directory).
@@ -47,7 +47,7 @@ def vault_search(
         JSON array of note objects.
 
     Raises:
-        ValueError: If the embeddings DB is missing and par-mem cannot serve
+        ValueError: If the embeddings DB is missing and parsight cannot serve
             the query either (semantic mode).
     """
     # ARC-021: resolve the optional vault reference once and pass it through
@@ -58,11 +58,11 @@ def vault_search(
 
     if query is not None:
         db_path = vault_common.get_embeddings_db_path(resolved_vault)
-        if not db_path.exists() and not parmem_backend.resolve_parmem_backend():
+        if not db_path.exists() and not parsight_backend.resolve_parsight_backend():
             # ARC-008: Raise instead of returning a sentinel error string
             raise ValueError(
-                "embeddings DB not found and par-mem unavailable -- "
-                "run rebuild_index first, or install/start par-mem"
+                "embeddings DB not found and parsight unavailable -- "
+                "run rebuild_index first, or install/start parsight"
             )
         results = _vault_search_module.search(
             query, top=top_k, min_score=min_score, vault=resolved_vault

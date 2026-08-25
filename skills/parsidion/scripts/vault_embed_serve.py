@@ -14,9 +14,9 @@ its own short-lived process) share one warm model instead of each paying a
 
 OPT-IN. ``vault_search`` only contacts/starts this service when
 ``embeddings.service_enabled`` is true AND the active search backend is not
-par-mem — par-mem serves retrieval without local query embeddings, so the
+parsight — parsight serves retrieval without local query embeddings, so the
 service is pointless (and never reached) under it. When disabled (the default)
-or under par-mem, ``vault_search`` uses its in-process cached model instead.
+or under parsight, ``vault_search`` uses its in-process cached model instead.
 
 Protocol: newline-delimited JSON over AF_UNIX, one request/response per line::
 
