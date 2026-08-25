@@ -91,7 +91,7 @@ class TestUpdateIndexTrigger:
         monkeypatch.setattr(sys, "argv", ["update_index.py", "--vault", str(tmp_vault)])
         update_index.main()
         call = ready.wait_for_call("index")
-        assert call["argv"] == ["index", str(tmp_vault), "--json"]
+        assert call["argv"] == ["index", str(tmp_vault), "--json", "--no-wait"]
         assert "parsight: background index launched" in capsys.readouterr().out
 
     def test_no_spawn_when_backend_unavailable(

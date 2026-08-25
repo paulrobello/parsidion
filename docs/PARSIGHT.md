@@ -129,11 +129,17 @@ final ordering therefore matches parsight's returned rank.
 - **Query-time:** each parsight-routed search checks `parsight repos --json`.
   A vault missing from it kicks a detached background `parsight index` and
   the current query falls back to embeddings (a later query picks parsight
-  up); a *stale* vault also kicks a background reindex but the current
-  query is still served from the stale-but-usable parsight index.
+  up). A *stale* vault is still usable, so the current query is served from
+  parsight; a background reindex is kicked only when the daemon's watcher
+  does not already cover the vault (asked via the daemon's MCP
+  `list_watched_paths` — the watcher re-indexes on the very file
+  changes/commits that made the index stale, and a manual job would only
+  queue behind it and contend for the index writer).
 - **Rebuild trigger:** `update_index.py` ends its run by launching a
-  background `parsight index` when the backend resolves (summarizer note
-  writes call `rebuild_index()` and inherit this). NDJSON progress goes to
+  background `parsight index --no-wait` when the backend resolves
+  (summarizer note writes call `rebuild_index()` and inherit this);
+  `--no-wait` submits the job and exits immediately, so the detached CLI
+  never sits polling a daemon job. NDJSON progress goes to
   `~/.claude/logs/parsidion-parsight.log`.
 - **Live watch:** the SessionStart hook fire-and-forgets
   `parsight watch <vault> --hold-token parsidion-<session_id>`; SessionEnd

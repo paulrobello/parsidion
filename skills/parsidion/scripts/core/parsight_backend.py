@@ -51,6 +51,11 @@ _LEGACY_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
 _DEFAULT_MCP_URL = "http://127.0.0.1:4848/mcp"
 _HEALTH_TIMEOUT_S = 1.0
+# Per-request budget for the one-shot MCP watch-coverage probe (two POSTs on
+# loopback; generous ceiling so a busy daemon is not mistaken for an absent one).
+_MCP_PROBE_TIMEOUT_S = 2.0
+# Streamable-HTTP MCP protocol version the probe speaks (echoed by the daemon).
+_MCP_PROTOCOL_VERSION = "2025-06-18"
 _LOG_DIR = Path.home() / ".claude" / "logs"
 _LOG_NAME = "parsidion-parsight.log"
 
@@ -88,16 +93,22 @@ def _timeout_s(vault: Path | None) -> float:
     return float(value)
 
 
-def _health_url() -> str:
-    """Derive the daemon health URL from PARSIGHT_MCP_URL (default port 4848).
+def _mcp_url() -> str:
+    """Normalize the daemon MCP endpoint from PARSIGHT_MCP_URL (default 4848).
 
-    The parsight CLI reads the same variable to locate the daemon, so probe
-    and transport always agree on the endpoint.
+    The parsight CLI reads the same variable to locate the daemon, so every
+    probe and transport in this module agrees on the endpoint.
     """
     raw = os.environ.get("PARSIGHT_MCP_URL", "").strip() or _DEFAULT_MCP_URL
     parsed = urllib.parse.urlparse(raw)
     if not parsed.scheme or not parsed.netloc:
         parsed = urllib.parse.urlparse(_DEFAULT_MCP_URL)
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/mcp'}"
+
+
+def _health_url() -> str:
+    """Derive the daemon health URL from the normalized MCP endpoint."""
+    parsed = urllib.parse.urlparse(_mcp_url())
     return f"{parsed.scheme}://{parsed.netloc}/health"
 
 
@@ -106,6 +117,137 @@ def _health_ok() -> bool:
     try:
         with urllib.request.urlopen(_health_url(), timeout=_HEALTH_TIMEOUT_S) as resp:
             return 200 <= resp.status < 300
+    except Exception:  # noqa: BLE001 — contract: never raises
+        return False
+
+
+def _mcp_post(
+    url: str, request: dict[str, Any], session_id: str | None
+) -> tuple[str, str | None]:
+    """POST one JSON-RPC message to the daemon's MCP endpoint.
+
+    Returns ``(body, session_id)`` where *session_id* is the
+    ``Mcp-Session-Id`` the response carried (the daemon issues one on
+    ``initialize`` and rejects session-less subsequent calls). Raises on any
+    transport/HTTP error — callers wanting the never-raise contract wrap in
+    try/except.
+    """
+    data = json.dumps(request).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=_MCP_PROBE_TIMEOUT_S) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+        return body, resp.headers.get("Mcp-Session-Id")
+
+
+def _mcp_response_payload(body: str, request_id: int) -> dict[str, Any] | None:
+    """Extract the JSON-RPC payload for *request_id* from an MCP response body.
+
+    Handles both response shapes a streamable-HTTP MCP server may emit: a
+    plain JSON document, or an SSE stream whose ``data:`` lines carry the
+    payload (the parsight daemon emits SSE, with keep-alive/noise lines
+    around it). Returns None when no matching payload is found.
+    """
+    candidates: list[str] = []
+    stripped = body.strip()
+    if stripped.startswith("{"):
+        candidates.append(stripped)
+    else:
+        candidates.extend(
+            line[len("data:") :].strip()
+            for line in body.splitlines()
+            if line.startswith("data:")
+        )
+    for chunk in candidates:
+        try:
+            payload = json.loads(chunk)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and payload.get("id") == request_id
+            and ("result" in payload or "error" in payload)
+        ):
+            return payload
+    return None
+
+
+def _daemon_watches_vault(vault: Path) -> bool:
+    """Return True when the daemon's watcher already covers *vault*.
+
+    The parsight CLI has no watch-list subcommand, so this asks the daemon's
+    MCP endpoint directly (the same endpoint the health probe uses): one
+    ``initialize`` handshake POST capturing the session id, then one
+    ``tools/call list_watched_paths`` POST. Watched paths compare by
+    ``os.path.realpath`` on both sides, mirroring ``_vault_repo_state``.
+
+    False on ANY failure (endpoint absent, protocol mismatch, garbage
+    payload): unknown coverage must not suppress the manual index. Never
+    raises.
+    """
+    try:
+        url = _mcp_url()
+        init_body, session_id = _mcp_post(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": _MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "parsidion-parsight-backend",
+                        "version": "1",
+                    },
+                },
+            },
+            None,
+        )
+        if _mcp_response_payload(init_body, 1) is None:
+            return False
+        call_body, _ = _mcp_post(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "list_watched_paths", "arguments": {}},
+            },
+            session_id,
+        )
+        payload = _mcp_response_payload(call_body, 2)
+        if not isinstance(payload, dict) or "error" in payload:
+            return False
+        result = payload.get("result")
+        if not isinstance(result, dict) or result.get("isError"):
+            return False
+        text: str | None = None
+        content = result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "text"
+                    and isinstance(item.get("text"), str)
+                ):
+                    text = item["text"]
+                    break
+        if text is None:
+            return False
+        watched = json.loads(text)
+        paths = watched.get("watched_paths") if isinstance(watched, dict) else None
+        if not isinstance(paths, list):
+            return False
+        vault_real = os.path.realpath(str(vault))
+        return any(
+            isinstance(p, str) and os.path.realpath(p) == vault_real for p in paths
+        )
     except Exception:  # noqa: BLE001 — contract: never raises
         return False
 
@@ -567,10 +709,15 @@ def parsight_search(
 
 
 def spawn_background_index(vault: Path | None = None) -> bool:
-    """Launch a detached background ``parsight index <vault> --json``.
+    """Launch a detached background ``parsight index <vault> --json --no-wait``.
 
     NDJSON progress is appended to ``~/.claude/logs/parsidion-parsight.log``
     (the same detach pattern update_index.py uses for build_embeddings.py).
+    ``--no-wait`` makes the CLI submit the job and exit immediately — nobody
+    reads the result event or the Popen handle, so a wait could only leave
+    the detached CLI polling a daemon job that queues behind the daemon's
+    own watcher on the same vault (the orphaned-stuck-process class fixed
+    here; cross-repo parsight card 019fe747 bounded the hang on its side).
     Returns True when the process launched; never blocks the calling hook
     aside from the accepted, cached ≤1s availability probe — the subprocess
     launch itself never blocks. Never raises.
@@ -583,7 +730,7 @@ def spawn_background_index(vault: Path | None = None) -> bool:
         _LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         log = open(_LOG_DIR / _LOG_NAME, "a", encoding="utf-8")  # noqa: SIM115
         subprocess.Popen(
-            [binary, "index", str(vault), "--json"],
+            [binary, "index", str(vault), "--json", "--no-wait"],
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
@@ -720,11 +867,18 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
     daemon):
 
     - **fresh** → True.
-    - **stale** → kick a detached background ``parsight index`` and STILL
-      return True: a stale index is usable, so this query serves from it
-      while the reindex catches up.
+    - **stale** → STILL return True (a stale index is usable, so this query
+      serves from it while it catches up). A background ``parsight index``
+      is kicked only when the daemon's watcher does NOT already cover the
+      vault (:func:`_daemon_watches_vault`): the watcher re-indexes on the
+      very file changes/commits that made the index stale, so a manual job
+      would only queue behind it and contend for the index writer. An
+      unwatched stale vault keeps the manual kick — nothing else would
+      catch it up.
     - **absent** → kick a background index and return False so the CURRENT
       query falls back to embeddings (a later query picks parsight up).
+      This fires even when the vault is watched: a watch only reacts to
+      file changes, it never performs a never-indexed repo's initial index.
     - **unavailable/invalid** → False WITHOUT spawning — never reindex
       blind when the daemon cannot even list its repositories.
 
@@ -736,6 +890,8 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
         if state == "fresh":
             return True
         if state == "stale":
+            if _daemon_watches_vault(vault):
+                return True
             spawn_background_index(vault)
             return True
         if state == "absent":

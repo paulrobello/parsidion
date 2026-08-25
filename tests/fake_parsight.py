@@ -10,9 +10,11 @@ fake health server answers 200 on ``/health`` so
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -185,3 +187,174 @@ class FakeHealth:
     def __init__(self, url: str) -> None:
         self.url = url  # a .../mcp URL, mirroring PARSIGHT_MCP_URL's shape
         self.requests: list[str] = []
+
+
+class FakeMcpDaemon:
+    """Health + minimal MCP-over-HTTP daemon impersonator for tests.
+
+    Serves ``GET /health`` (200) plus just enough of the streamable-HTTP MCP
+    endpoint (``POST /mcp``) to exercise ``parsight_backend``'s one-shot
+    watch-coverage probe: ``initialize`` answers with an ``mcp-session-id``
+    header, and a session-less ``tools/call`` is rejected with 422 — both
+    mirroring the real daemon, so a client that skips the handshake fails
+    here like it would in production. ``tools/call list_watched_paths``
+    returns ``self.watched_paths`` as an SSE ``data:`` body (the real
+    daemon's response shape). ``raw_tools_response`` overrides the verbatim
+    SSE body for error/garbage-shape tests (its JSON-RPC ``id`` must be 2,
+    the id the backend's probe uses for ``tools/call``).
+
+    The parsight CLI has no watch-list subcommand, so this HTTP surface is
+    the only way to fake "is the vault watched by the daemon".
+    """
+
+    def __init__(self) -> None:
+        self.watched_paths: list[str] = []
+        self.serve_mcp: bool = True
+        self.raw_tools_response: str | None = None
+        self.mcp_calls: list[dict[str, object]] = []
+        self.url = ""
+        self._server: http.server.HTTPServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> FakeMcpDaemon:
+        """Bind an ephemeral loopback port and serve until :meth:`stop`."""
+        ctl = self
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 — http.server API name
+                if self.path == "/health":
+                    body = b'{"status":"ok"}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def do_POST(self) -> None:  # noqa: N802 — http.server API name
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                if self.path.rstrip("/") != "/mcp" or not ctl.serve_mcp:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                try:
+                    message = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                ctl.mcp_calls.append(
+                    {
+                        "method": message.get("method")
+                        if isinstance(message, dict)
+                        else None,
+                        "session": self.headers.get("Mcp-Session-Id"),
+                    }
+                )
+                if not isinstance(message, dict):
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                if message.get("method") == "initialize":
+                    self._send_sse(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": message.get("id"),
+                            "result": {
+                                "protocolVersion": "2025-06-18",
+                                "capabilities": {"tools": {}},
+                                "serverInfo": {
+                                    "name": "fake-parsight",
+                                    "version": "0",
+                                },
+                            },
+                        },
+                        extra_headers=[
+                            ("mcp-session-id", f"fake-{len(ctl.mcp_calls)}")
+                        ],
+                    )
+                    return
+                if message.get("method") == "tools/call":
+                    if not self.headers.get("Mcp-Session-Id"):
+                        # Real daemon: "Unexpected message, expect initialize
+                        # request" — a session-less call must not succeed.
+                        self.send_response(422)
+                        self.end_headers()
+                        return
+                    if ctl.raw_tools_response is not None:
+                        self._send_raw_sse(ctl.raw_tools_response)
+                        return
+                    name = (message.get("params") or {}).get("name")
+                    if name == "list_watched_paths":
+                        text = json.dumps(
+                            {"watched_paths": ctl.watched_paths, "watches": []}
+                        )
+                        self._send_sse(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": message.get("id"),
+                                "result": {
+                                    "content": [{"type": "text", "text": text}],
+                                    "isError": False,
+                                },
+                            }
+                        )
+                    else:
+                        self._send_sse(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": message.get("id"),
+                                "error": {
+                                    "code": -32601,
+                                    "message": f"unknown tool {name!r}",
+                                },
+                            }
+                        )
+                    return
+                # JSON-RPC notifications (no id) are accepted with 202.
+                self.send_response(202)
+                self.end_headers()
+
+            def _send_sse(
+                self,
+                payload: dict[str, object],
+                extra_headers: list[tuple[str, str]] | None = None,
+            ) -> None:
+                self._send_raw_sse(
+                    f"data: {json.dumps(payload)}\n\n", extra_headers or []
+                )
+
+            def _send_raw_sse(
+                self,
+                body: str,
+                extra_headers: list[tuple[str, str]] | None = None,
+            ) -> None:
+                data = body.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(data)))
+                for key, value in extra_headers or []:
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, format: str, *args: object) -> None:
+                """Silence per-request stderr logging."""
+
+        self._server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        self.url = f"http://127.0.0.1:{self._server.server_port}/mcp"
+        return self
+
+    def stop(self) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            if self._thread is not None:
+                self._thread.join(timeout=2)
+            self._server.server_close()
+            self._server = None
+            self._thread = None
