@@ -168,6 +168,8 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders --execute # apply moves
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-frontmatter    # repair frontmatter via the configured prompt AI backend
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --no-fix-headings --fix-frontmatter  # repair frontmatter without heading promotion
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --list-rules         # print the selectable rule catalog (name, kind, risk, description)
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all --skip strip-prefixes --skip subfolder-prefix  # safe bulk: fix-all without the risky bulk rules
 
 # Vault doctor — migrate legacy un-namespaced daily notes to DD-{username}.md (team use)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-daily-notes                            # dry-run
@@ -184,6 +186,10 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
 #               --jobs/-j N (parallel workers, default 3), --timeout SECS (default 120),
 #               --limit N, --model MODEL, --strip-prefixes (off unless --fix-all),
 #               --fix-permissions (repair note file permissions; implied by --fix-all),
+#               --only RULE / --skip RULE (repeatable, mutually exclusive; select rules by
+#               name from --list-rules — gates fix modes, scan checks, and the AI repair
+#               stage; every scan ends with a per-rule found/fixed/skipped report),
+#               --list-rules (print the rule catalog with its risk column and exit),
 #               --vault/-V PATH|NAME, plus a `notes` positional (specific notes to check).
 
 # Run the skill trigger accuracy eval (MUST be from a separate terminal, not inside Claude Code)

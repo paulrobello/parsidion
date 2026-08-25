@@ -32,7 +32,13 @@ from doctor._state import (
     should_skip,
 )
 from doctor.check import check_note
-from doctor.protocol import DoctorOptions, ScanContext
+from doctor.protocol import (
+    DoctorOptions,
+    RuleReport,
+    ScanContext,
+    deselected_rules,
+    rule_enabled,
+)
 from doctor.frontmatter import (  # noqa: F401 — _note_is_daily re-export parity
     _auto_fix_metadata_wrapper,
     _auto_fix_scalar_list_field,
@@ -129,13 +135,19 @@ def _apply_prefix_clusters(
 def _scan_notes_for_issues(ctx: ScanContext) -> dict[Path, list[Issue]]:
     """Run check_note over every target, recording clean notes in state.
 
-    Returns the dict of notes with at least one issue.
+    Returns the dict of notes with at least one issue. ENH-015: the run's
+    rule selection filters the checks, and every detected issue is credited
+    to its rule in ``ctx.report``.
     """
     issues_by_note: dict[Path, list[Issue]] = {}
     for note in ctx.target_notes:
-        note_issues = check_note(note, ctx.note_map, ctx.vault)
+        note_issues = check_note(
+            note, ctx.note_map, ctx.vault, ctx.options.enabled_rules
+        )
         if ctx.options.errors_only:
             note_issues = [i for i in note_issues if i.severity == "error"]
+        for issue in note_issues:
+            ctx.report.record_found(issue.rule)
         key = _rel(note, ctx.vault)
         if note_issues:
             issues_by_note[note] = note_issues
@@ -210,6 +222,7 @@ def _run_deterministic_frontmatter_fixes(
     state: dict,
     note_map: dict[str, list[Path]],
     today_str: str,
+    report: RuleReport | None = None,
 ) -> None:
     """Deterministic (Python-only) repair for the two detection-only codes that
     have a safe mechanical fix: ``NESTED_FM_KEY`` (a ``metadata:`` wrapper) and
@@ -234,6 +247,16 @@ def _run_deterministic_frontmatter_fixes(
             changed |= _auto_fix_scalar_list_field(note_path)
         if not changed:
             continue
+        # ENH-015: both codes belong to the frontmatter-syntax rule.
+        if report is not None:
+            report.record_fixed(
+                "frontmatter-syntax",
+                sum(
+                    1
+                    for i in issues_by_note[note_path]
+                    if i.code in {"NESTED_FM_KEY", "SCALAR_LIST_FIELD"}
+                ),
+            )
         rel = note_path.relative_to(vault)
         new_issues = check_note(note_path, note_map, vault)
         if new_issues:
@@ -272,6 +295,7 @@ def _apply_repairs_parallel(
         f"({effective_jobs} parallel job(s), {options.timeout}s timeout)…\n"
     )
     batch = repair_candidates[:effective_limit]
+    issues_for = dict(repair_candidates)
     with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as executor:
         futures = {
             executor.submit(
@@ -301,6 +325,10 @@ def _apply_repairs_parallel(
                 success = False
             if success:
                 repaired += 1
+                # ENH-015: repair is staged per note, so every issue the
+                # repaired note carried is credited to its rule.
+                for issue in issues_for.get(futures[future], []):
+                    ctx.report.record_fixed(issue.rule)
             else:
                 failed += 1
 
@@ -400,8 +428,31 @@ def _build_scan_context(
     )
 
 
+def _print_rule_report(ctx: ScanContext) -> None:
+    """Print the per-rule found/fixed/skipped table (ENH-015).
+
+    Silent when no registered rule produced a finding (clean vault) — the
+    table exists to attribute issues, not to enumerate zero rows. Rules
+    deselected via ``--only``/``--skip`` are named once, after the table,
+    so a thin run explains itself.
+    """
+    table = ctx.report.render()
+    if table:
+        print(f"\nRule report:\n{table}")
+    deselected = deselected_rules(ctx.options.enabled_rules)
+    if deselected:
+        print(f"\nDeselected by --only/--skip: {', '.join(deselected)}")
+
+
 def _detect_and_apply_prefix_clusters(ctx: ScanContext) -> None:
-    """Detect prefix clusters, display the plan, apply on request (QA-005)."""
+    """Detect prefix clusters, display the plan, apply on request (QA-005).
+
+    ENH-015: gated on the ``subfolder-prefix`` rule so ``--skip
+    subfolder-prefix`` suppresses cluster reorganization from this in-scan
+    stage too, not just from the ``--migrate-subfolders`` fix mode.
+    """
+    if not rule_enabled(ctx.options.enabled_rules, "subfolder-prefix"):
+        return
     clusters = find_prefix_clusters(ctx.all_notes, ctx.vault)
     if clusters and not ctx.options.dry_run:
         # Filter out generic-word false positives using the configured prompt AI backend
@@ -473,6 +524,7 @@ def run_scan_and_repair(
     _summarise_issues(issues_by_note, vault)
 
     if options.dry_run:
+        _print_rule_report(ctx)
         return
 
     # Deterministic (Python-only) frontmatter repairs for the two detection-only
@@ -481,11 +533,17 @@ def run_scan_and_repair(
     # candidate set; remaining codes flow through the normal repair path.
     if options.fix_frontmatter:
         _run_deterministic_frontmatter_fixes(
-            issues_by_note, vault, state, ctx.note_map, ctx.today_str
+            issues_by_note,
+            vault,
+            state,
+            ctx.note_map,
+            ctx.today_str,
+            report=ctx.report,
         )
         if not issues_by_note:
             print("✓ No issues remaining after deterministic frontmatter repairs.")
             save_state(state, vault)
+            _print_rule_report(ctx)
             return
 
     # Classify repair candidates
@@ -496,6 +554,7 @@ def run_scan_and_repair(
     if not repair_candidates:
         print("No repairable issues (flat daily notes require manual fixes).")
         save_state(state, vault)
+        _print_rule_report(ctx)
         return
 
     if not options.fix_frontmatter:
@@ -505,6 +564,7 @@ def run_scan_and_repair(
             "prompt AI backend."
         )
         save_state(state, vault)
+        _print_rule_report(ctx)
         return
 
     # Apply repairs in parallel
@@ -514,6 +574,7 @@ def run_scan_and_repair(
     print(
         f"\nDone: {repaired} repaired, {failed} failed, {leftover} not yet processed."
     )
+    _print_rule_report(ctx)
 
     # Commit the repaired notes here, under a message that names them. The
     # reindex below stages only CLAUDE.md/TAGS.md/MANIFEST.md, so without this

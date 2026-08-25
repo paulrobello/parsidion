@@ -103,6 +103,10 @@ class Issue:
     severity: str  # "error" | "warning"
     code: str
     message: str
+    # ENH-015: kebab-case slug of the rule that produced this issue (set by
+    # check_note); drives the per-rule found/fixed/skipped report. Empty for
+    # infrastructure errors with no owning rule (READ_ERROR).
+    rule: str = ""
 
 
 # ---------------------------------------------------------------------------

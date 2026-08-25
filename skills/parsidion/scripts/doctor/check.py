@@ -412,22 +412,30 @@ def _check_broken_wikilinks(
 # still be reported); RULES run after it, in the order the original
 # check_note body used -- frontmatter syntax first so the root cause is
 # reported alongside whatever symptom it produces.
-PRE_FM_RULES: tuple[Rule, ...] = (Rule("FLAT_DAILY", _check_flat_daily),)
+# ENH-015: every registry entry carries the kebab-case slug of its
+# RULE_SPECS catalog row, so --only/--skip and the per-rule report key on
+# a stable CLI-facing name instead of the issue-code family.
+PRE_FM_RULES: tuple[Rule, ...] = (
+    Rule("FLAT_DAILY", _check_flat_daily, slug="flat-daily"),
+)
 
 RULES: tuple[Rule, ...] = (
-    Rule("FRONTMATTER_SYNTAX", _check_frontmatter_syntax),
-    Rule("REQUIRED_FIELDS", _check_required_fields),
-    Rule("VALID_TYPE", _check_valid_type),
-    Rule("DATE_FORMAT", _check_date_format),
-    Rule("ORPHAN", _check_orphan),
-    Rule("SELF_REF", _check_self_ref),
-    Rule("HEADING_MISMATCH", _check_heading_mismatch),
-    Rule("BROKEN_WIKILINKS", _check_broken_wikilinks),
+    Rule("FRONTMATTER_SYNTAX", _check_frontmatter_syntax, slug="frontmatter-syntax"),
+    Rule("REQUIRED_FIELDS", _check_required_fields, slug="required-fields"),
+    Rule("VALID_TYPE", _check_valid_type, slug="valid-type"),
+    Rule("DATE_FORMAT", _check_date_format, slug="date-format"),
+    Rule("ORPHAN", _check_orphan, slug="related-links"),
+    Rule("SELF_REF", _check_self_ref, slug="self-ref"),
+    Rule("HEADING_MISMATCH", _check_heading_mismatch, slug="headings"),
+    Rule("BROKEN_WIKILINKS", _check_broken_wikilinks, slug="broken-wikilinks"),
 )
 
 
 def check_note(
-    path: Path, note_map: dict[str, list[Path]], vault_path: Path
+    path: Path,
+    note_map: dict[str, list[Path]],
+    vault_path: Path,
+    enabled_rules: frozenset[str] | None = None,
 ) -> list[Issue]:
     """Return a list of Issues found in *path*.
 
@@ -435,6 +443,10 @@ def check_note(
     above; this function owns only the shared control flow -- read the
     note, run the path-based rules, gate on parseable frontmatter, then
     iterate the registered rules with a per-note context.
+
+    ENH-015: *enabled_rules* (from ``--only``/``--skip``) filters the
+    registries by slug (``None`` = every rule), and every issue a registry
+    rule produced is stamped with that slug for the per-rule report.
     """
     try:
         content = path.read_text(encoding="utf-8")
@@ -449,16 +461,24 @@ def check_note(
         note_map=note_map, vault=vault_path, parts=parts, is_daily=False
     )
     for rule in PRE_FM_RULES:
-        issues.extend(rule.check(path, content, {}, pre_ctx))
+        if enabled_rules is None or rule.slug in enabled_rules:
+            for issue in rule.check(path, content, {}, pre_ctx):
+                issue.rule = rule.slug
+                issues.append(issue)
 
     # Parse frontmatter
     fm = vault_common.parse_frontmatter(content)
     if not fm:
-        issues.append(
-            Issue(
-                path, "error", "MISSING_FRONTMATTER", "No YAML frontmatter block found"
+        if enabled_rules is None or "frontmatter-syntax" in enabled_rules:
+            issues.append(
+                Issue(
+                    path,
+                    "error",
+                    "MISSING_FRONTMATTER",
+                    "No YAML frontmatter block found",
+                    rule="frontmatter-syntax",
+                )
             )
-        )
         # Can't check field-level issues without frontmatter
         return issues
 
@@ -468,6 +488,9 @@ def check_note(
         note_map=note_map, vault=vault_path, parts=parts, is_daily=is_daily
     )
     for rule in RULES:
-        issues.extend(rule.check(path, content, fm, ctx))
+        if enabled_rules is None or rule.slug in enabled_rules:
+            for issue in rule.check(path, content, fm, ctx):
+                issue.rule = rule.slug
+                issues.append(issue)
 
     return issues

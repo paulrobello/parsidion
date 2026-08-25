@@ -31,7 +31,16 @@ from doctor.daily import run_migrate_daily_notes
 from doctor.orchestrator import run_scan_and_repair
 from doctor.permissions import run_fix_permissions
 from doctor.prefixes import run_strip_prefixes
-from doctor.protocol import DoctorOptions, FixMode, run_fix_modes
+from doctor.protocol import (
+    RULE_NAMES,
+    RULE_SPECS,
+    DoctorOptions,
+    FixMode,
+    deselected_rules,
+    run_fix_modes,
+    rule_enabled,
+    select_rules,
+)
 from doctor.subfolder import run_migrate_subfolders
 from doctor.tags import run_fix_tags
 
@@ -254,7 +263,51 @@ def _build_parser() -> argparse.ArgumentParser:
             "--fix-all."
         ),
     )
+    # ENH-015: per-rule selection. --only/--skip name rules from the
+    # RULE_SPECS catalog (see --list-rules) and gate both the fix-mode
+    # dispatch and the scan-and-repair checks, so a bulk --fix-all can
+    # exclude the historically risky rules without giving up the safe ones.
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--only",
+        action="append",
+        metavar="RULE",
+        choices=RULE_NAMES,
+        help=(
+            "Run only the named rule(s) (repeatable). "
+            "See --list-rules for the rule names."
+        ),
+    )
+    selection.add_argument(
+        "--skip",
+        action="append",
+        metavar="RULE",
+        choices=RULE_NAMES,
+        help=(
+            "Run everything except the named rule(s) (repeatable). "
+            "Safe bulk invocation: --fix-all --skip strip-prefixes "
+            "--skip subfolder-prefix."
+        ),
+    )
+    parser.add_argument(
+        "--list-rules",
+        action="store_true",
+        help="Print the selectable rule catalog (name, kind, risk, description) and exit.",
+    )
     return parser
+
+
+def _print_rule_catalog() -> None:
+    """Print the RULE_SPECS catalog with a risk column (ENH-015)."""
+    width = max(len(spec.name) for spec in RULE_SPECS)
+    print(f"{'rule':<{width}} | kind   | risk | description")
+    print(f"{'-' * width}-+--------+------+-------------")
+    for spec in RULE_SPECS:
+        print(
+            f"{spec.name:<{width}} | {spec.kind:<6} | {spec.risk:<4} | "
+            f"{spec.description}"
+        )
+    print("\nSelect with --only RULE / --skip RULE (repeatable, mutually exclusive).")
 
 
 def main() -> None:
@@ -262,6 +315,11 @@ def main() -> None:
     _backed_up_this_run.clear()  # defensive: fresh dedup set for this run
     parser = _build_parser()
     args = parser.parse_args()
+
+    # ENH-015: --list-rules needs no vault, lock, or state — answer and exit.
+    if args.list_rules:
+        _print_rule_catalog()
+        return
 
     # Resolve vault path.  Mutates the module-level _vault_path in doctor._state
     # (re-exported here) so submodules that consult it via _active_vault() see
@@ -326,9 +384,22 @@ def main() -> None:
     # Per-mode dispatch via the registry.  Standalone modes (selected without
     # --fix-all) run once and skip scan-and-repair; --fix-all runs every
     # selected mode in sequence and then falls through to scan-and-repair.
+    # ENH-015: --only/--skip filter the registry by rule name, and deselecting
+    # frontmatter-repair switches off the AI repair stage below.
+    enabled = select_rules(args.only, args.skip)
     modes = _build_fix_modes(args)
+    if enabled is not None:
+        rule_for_flag = {
+            spec.target: spec.name for spec in RULE_SPECS if spec.kind == "mode"
+        }
+        modes = tuple(m for m in modes if rule_enabled(enabled, rule_for_flag[m.flag]))
     standalone_ran = run_fix_modes(modes, args, _state._vault_path)
     if standalone_ran:
+        # Standalone-mode runs never reach scan-and-repair, so the
+        # end-of-run report (and its deselected line) is printed here.
+        deselected = deselected_rules(enabled)
+        if deselected:
+            print(f"\nDeselected by --only/--skip: {', '.join(deselected)}")
         return
 
     run_scan_and_repair(
@@ -337,7 +408,9 @@ def main() -> None:
         notes=list(args.notes),
         options=DoctorOptions(
             dry_run=args.dry_run,
-            fix_frontmatter=args.fix_frontmatter,
+            fix_frontmatter=(
+                args.fix_frontmatter and rule_enabled(enabled, "frontmatter-repair")
+            ),
             fix_sessions=args.fix_sessions,
             errors_only=args.errors_only,
             no_state=args.no_state,
@@ -346,5 +419,6 @@ def main() -> None:
             jobs=args.jobs,
             timeout=args.timeout,
             fix_headings=args.fix_headings,
+            enabled_rules=enabled,
         ),
     )

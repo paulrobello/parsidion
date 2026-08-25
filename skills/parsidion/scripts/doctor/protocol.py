@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # A runner takes (vault_path, dry_run) and performs the mode's work.  CLI
 # concerns (argparse, args model, etc.) stay in doctor.cli; the runner sees
@@ -48,6 +48,234 @@ class FixMode:
     label: str
 
 
+# ---------------------------------------------------------------------------
+# Selectable rule catalog (ENH-015)
+# ---------------------------------------------------------------------------
+
+RuleKind = Literal["check", "mode", "repair"]
+RuleRisk = Literal["safe", "bulk"]
+
+
+@dataclass(frozen=True)
+class RuleSpec:
+    """One selectable doctor rule (ENH-015).
+
+    The catalog unifies the three kinds of rule a doctor run can execute so
+    ``--only``/``--skip`` name them from one namespace:
+
+    * ``check`` — a per-note scan rule (``doctor.check`` registry).  ``target``
+      is the ``Rule.name`` (issue-code family) of the registry entry.
+    * ``mode`` — a vault-wide fix mode (``FixMode`` registry).  ``target`` is
+      the ``FixMode.flag`` (argparse attribute name).
+    * ``repair`` — the AI frontmatter-repair stage of scan-and-repair
+      (``--fix-frontmatter``).  ``target`` is the ``DoctorOptions`` field.
+
+    ``risk`` marks the rules that operate on many notes at once or let the
+    AI backend rewrite note bodies — the historically regression-prone ones
+    (``bulk``) — so ``--list-rules`` can flag them and a safe bulk invocation
+    can exclude them via ``--skip``.
+    """
+
+    name: str
+    kind: RuleKind
+    risk: RuleRisk
+    description: str
+    target: str
+
+
+RULE_SPECS: tuple[RuleSpec, ...] = (
+    RuleSpec(
+        "frontmatter-syntax",
+        "check",
+        "safe",
+        "Frontmatter parses; nested/list/bracket syntax errors",
+        "FRONTMATTER_SYNTAX",
+    ),
+    RuleSpec(
+        "required-fields",
+        "check",
+        "safe",
+        "Required frontmatter fields present (date, type, related)",
+        "REQUIRED_FIELDS",
+    ),
+    RuleSpec(
+        "valid-type",
+        "check",
+        "safe",
+        "type field is one of the allowed note types",
+        "VALID_TYPE",
+    ),
+    RuleSpec(
+        "date-format",
+        "check",
+        "safe",
+        "date field is YYYY-MM-DD",
+        "DATE_FORMAT",
+    ),
+    RuleSpec(
+        "related-links",
+        "check",
+        "safe",
+        "related field links to at least one other note (no orphans)",
+        "ORPHAN",
+    ),
+    RuleSpec(
+        "self-ref",
+        "check",
+        "safe",
+        "related field does not link to the note itself",
+        "SELF_REF",
+    ),
+    RuleSpec(
+        "headings",
+        "check",
+        "safe",
+        "First heading matches the note title",
+        "HEADING_MISMATCH",
+    ),
+    RuleSpec(
+        "broken-wikilinks",
+        "check",
+        "safe",
+        "Wikilinks resolve to an existing note",
+        "BROKEN_WIKILINKS",
+    ),
+    RuleSpec(
+        "flat-daily",
+        "check",
+        "safe",
+        "Daily notes use the DD-{username}.md namespace",
+        "FLAT_DAILY",
+    ),
+    RuleSpec(
+        "frontmatter-repair",
+        "repair",
+        "bulk",
+        "AI frontmatter repair stage of scan-and-repair",
+        "fix_frontmatter",
+    ),
+    RuleSpec(
+        "tags",
+        "mode",
+        "bulk",
+        "Merge duplicate tags (plural/singular, hyphen variants)",
+        "fix_tags",
+    ),
+    RuleSpec(
+        "strip-prefixes",
+        "mode",
+        "bulk",
+        "Strip redundant subfolder prefixes from filenames (vault-wide rename)",
+        "strip_prefixes",
+    ),
+    RuleSpec(
+        "subfolder-prefix",
+        "mode",
+        "bulk",
+        "Move prefix clusters into subfolders (rewrites wikilinks)",
+        "migrate_subfolders",
+    ),
+    RuleSpec(
+        "daily-namespace",
+        "mode",
+        "bulk",
+        "Rename legacy flat daily notes to DD-{username}.md",
+        "migrate_daily_notes",
+    ),
+    RuleSpec(
+        "permissions",
+        "mode",
+        "safe",
+        "Tighten permissions on sensitive vault files",
+        "fix_permissions",
+    ),
+)
+
+RULE_NAMES: tuple[str, ...] = tuple(spec.name for spec in RULE_SPECS)
+
+
+def select_rules(
+    only: list[str] | None, skip: list[str] | None
+) -> frozenset[str] | None:
+    """Resolve ``--only``/``--skip`` into the enabled rule-name set.
+
+    Returns ``None`` when no selection was made (every rule enabled) so the
+    default pipeline is untouched; an explicit ``--only``/``--skip`` returns
+    the effective set even when empty.
+    """
+    if only:
+        return frozenset(only)
+    if skip:
+        return frozenset(RULE_NAMES) - frozenset(skip)
+    return None
+
+
+def rule_enabled(enabled: frozenset[str] | None, name: str) -> bool:
+    """True when *name* runs under the selection (``None`` = all enabled)."""
+    return enabled is None or name in enabled
+
+
+def deselected_rules(enabled: frozenset[str] | None) -> list[str]:
+    """Rule names excluded by the selection, in catalog order."""
+    if enabled is None:
+        return []
+    return [name for name in RULE_NAMES if name not in enabled]
+
+
+@dataclass
+class RuleReport:
+    """Per-rule found/fixed counters behind the end-of-run table.
+
+    ENH-015: ``found`` counts detected issues; ``fixed`` counts issues whose
+    note was repaired this run (deterministic or AI — repair is staged per
+    note, so every issue a repaired note carried is credited to its rule).
+    ``skipped`` in the rendered table is ``found - fixed``: issues left
+    unprocessed (all of them under ``--dry-run``; manual-only and
+    beyond-``--limit`` notes otherwise). Issues without an owning rule
+    (``READ_ERROR``) are not counted.
+    """
+
+    found: dict[str, int] = field(default_factory=dict)
+    fixed: dict[str, int] = field(default_factory=dict)
+
+    def _bump(self, bucket: dict[str, int], slug: str, n: int) -> None:
+        if n > 0 and slug:
+            bucket[slug] = bucket.get(slug, 0) + n
+
+    def record_found(self, slug: str, n: int = 1) -> None:
+        self._bump(self.found, slug, n)
+
+    def record_fixed(self, slug: str, n: int = 1) -> None:
+        self._bump(self.fixed, slug, n)
+
+    def rows(self) -> list[tuple[str, int, int, int]]:
+        """(rule, found, fixed, skipped) in catalog order, active rules only."""
+        active = set(self.found) | set(self.fixed)
+        return [
+            (
+                name,
+                self.found.get(name, 0),
+                self.fixed.get(name, 0),
+                self.found.get(name, 0) - self.fixed.get(name, 0),
+            )
+            for name in RULE_NAMES
+            if name in active
+        ]
+
+    def render(self) -> str:
+        """The ``rule | found | fixed | skipped`` table (empty when inactive)."""
+        rows = self.rows()
+        if not rows:
+            return ""
+        width = max(len(name) for name, *_ in rows)
+        header = f"{'rule':<{width}} | found | fixed | skipped"
+        sep = f"{'-' * width}-+-------+-------+--------"
+        lines = [header, sep]
+        for name, found, fixed, skipped in rows:
+            lines.append(f"{name:<{width}} | {found:>5} | {fixed:>5} | {skipped:>7}")
+        return "\n".join(lines)
+
+
 @dataclass(frozen=True)
 class DoctorOptions:
     """Every flag ``run_scan_and_repair`` reads, frozen at construction.
@@ -67,6 +295,8 @@ class DoctorOptions:
         jobs: Parallel repair worker count.
         timeout: Per-repair AI call timeout in seconds.
         fix_headings: Auto-promote ``##`` headings to ``#`` during repair.
+        enabled_rules: ENH-015 selection from ``--only``/``--skip``;
+            ``None`` runs every rule, otherwise only the named rules run.
     """
 
     dry_run: bool = False
@@ -79,6 +309,7 @@ class DoctorOptions:
     jobs: int = 3
     timeout: int = 120
     fix_headings: bool = True
+    enabled_rules: frozenset[str] | None = None
 
 
 @dataclass
@@ -102,6 +333,8 @@ class ScanContext:
         skipped_by_state: Count filtered out by the stale-state check.
         vault_claude_md / vault_tags_md: Auto-generated root files always
             excluded from scanning (rebuilt by ``update_index.py``).
+        report: Per-rule found/fixed counters (ENH-015) rendered as the
+            end-of-run table.
     """
 
     vault: Path
@@ -115,6 +348,7 @@ class ScanContext:
     skipped_by_state: int = 0
     vault_claude_md: Path | None = None
     vault_tags_md: Path | None = None
+    report: RuleReport = field(default_factory=RuleReport)
 
 
 @dataclass(frozen=True)
@@ -155,11 +389,15 @@ class Rule:
             and repair are intentionally decoupled -- the repair pipeline
             (``doctor.worker``) stages fixes by code across a whole note --
             so this field documents the pairing without requiring it.
+        slug: Kebab-case CLI name (ENH-015) matching a ``RuleSpec`` in the
+            ``RULE_SPECS`` catalog; the ``--only``/``--skip`` selection and
+            the per-rule report key on it.
     """
 
     name: str
     check: RuleCheck
     fix: RuleFix | None = None
+    slug: str = ""
 
 
 def run_fix_modes(

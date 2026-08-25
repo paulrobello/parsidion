@@ -1,6 +1,6 @@
 # ENH-015 — Per-rule selection for `vault_doctor` (`--only` / `--skip`) and a rule report
 
-> Status: not started (filed 2026-08-23, Fable audit cycle)
+> Status: done (2026-08-24; kanban 01a0319f4f707d8187015197e3d140eb)
 > Impact: high · Effort: M · Depends on: QA-005 (doctor rule registry) from `AUDIT-REMEDIATION-PLAN.md`
 
 ## Goal
