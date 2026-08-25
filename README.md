@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.20.0:** grok-cli prompt AI backend (grok-4.6) joins claude-cli and codex-cli; both CLI backends now run hermetically (no project-doc or skill-catalog ingestion via `minimal_context`); the session-start AI selector's candidate pool is ranked and pruned Python-side; and every runtime gives the SessionStart hook the same 60 s budget. See the [Changelog](CHANGELOG.md).
+> **New in 0.21.0:** all 93 findings from the 2026-08-23 audit resolved (DNS-rebinding-to-RCE chain closed, atomic writes hardened, Actions pinned); par-mem renamed to parsight with legacy config aliases; doctor per-rule `--only`/`--skip` selection; adaptive-context half-life decay; config reference generated from the typed schema and drift-gated in CI; one byte-bounded transcript reader for every runtime; hook latency percentiles in `vault-stats --hooks`. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -662,7 +662,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.20.0** (grok-cli prompt AI backend; minimal-context hermetic prompts for claude-cli and grok-cli; ranked and pruned AI-selector candidate pool; SessionStart timeout unified at 60 s across runtimes). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.21.0** (2026-08-23 audit fully remediated — 93 findings including the visualizer DNS-rebinding-to-RCE chain; par-mem renamed to parsight; doctor per-rule selection; adaptive-context decay; generated config reference; byte-bounded transcript reader; hook latency percentiles). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

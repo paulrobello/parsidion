@@ -1,6 +1,6 @@
 [project]
 name = "parsidion"
-version = "0.20.0"
+version = "0.21.0"
 # ARC-009: raised back from >=3.11 (ARC-013's headroom experiment). CI
 # (.github/workflows/ci.yml), parsidion-mcp, and README/CONTRIBUTING/
 # ARCHITECTURE all already assume 3.13 and nothing tests 3.11; the root

@@ -7,12 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-08-25
+
+Audit remediation and hardening release. All 93 findings from the 2026-08-23 audit are resolved (security-heavy), the par-mem search backend is renamed to parsight with legacy config aliases, the doctor gains per-rule selection, adaptive context gains time decay, the config reference is now generated from the typed schema and drift-gated in CI, every runtime shares one byte-bounded transcript reader, and `vault-stats --hooks` reports latency percentiles with a SessionStart budget alert.
+
+### Added
+
+- **Per-rule doctor selection** (ENH-015) — `vault_doctor.py --only RULE / --skip RULE` (repeatable, mutually exclusive) select rules by name from the new `--list-rules` catalog (name, kind, risk, description); the flags gate fix modes, scan checks, and the AI repair stage, and every scan ends with a per-rule found/fixed/skipped report.
+- **Adaptive-context time decay** (ENH-016) — `adaptive_context.decay_days` (default 90) implements half-life decay of usefulness scores, so stale notes derank even when unused rather than only when clicked through.
+- **Generated config reference** (ENH-017) — `docs/generated/config-reference.md` is generated from `core/vault_schema.py` by `scripts/gen_config_docs.py`; `make docs-api-check` fails CI when the committed reference drifts from the schema.
+- **One byte-bounded transcript reader** (ENH-018) — every runtime (hooks, adapters, summarizer) reads transcript tails through `core/transcript_reader.py`, bounded by bytes with huge-line chunking, so a single multi-megabyte JSONL line can no longer blow the tail budget.
+- **Hook latency percentiles** (ENH-019) — `vault-stats --hooks N --hooks-window D` renders a per-hook count/p50/p95/max/timeout table plus a SessionStart budget warning; feeds the `hook_latency` health component.
+
+### Fixed
+
+- `spawn_background_index` now launches with `--no-wait` and skips the manual index entirely when the parsight daemon watcher already covers the vault (root cause of the orphaned stuck par-mem index processes and writer contention).
+- `summarize_sessions.py --retry-dead-letters` skips records whose transcript no longer exists instead of re-queueing un-summarizable entries.
+- `vault-stats` mode dispatch (`_selected_mode` returned the first mode for every invocation) and an `IndexError` on a 0-byte `embeddings.db` with no `note_index` table.
+- `--migrate-subfolders` and `--strip-prefixes` now rewrite plain-path body references (`Patterns/foo.md`), not just wikilinks, so moves no longer leave stale links behind.
+
 ### Security
 
 - **2026-08-23 audit remediation** — all 93 findings from the 2026-08-23 audit resolved (0 Critical / 19 High / 34 Medium / 40 Low; details in `AUDIT-REMEDIATION.md`). Highlights: DNS-rebinding-to-RCE chain in the visualizer closed (Host allowlist + note-only mutation paths on `/api/note`); pi/omp extension no longer resolves hook scripts from a cwd-relative sibling; `atomic_write_text` uses `O_EXCL|O_NOFOLLOW`; config-sourced binaries and API endpoints ownership-checked; `anthropic_env` network keys honored only from `config.local.yaml` or an untracked `config.yaml`; MCP `vault_read` restricted to notes; GitHub Actions pinned to SHAs; 17 further hardening items.
 
 ### Changed
 
+- **par-mem renamed to parsight** — the search backend, config section (`parsight`), `parsight.binary` config key, and `parsight_backend` module are renamed, with legacy aliases (`par_mem` config section/backends) so deployed vault configs keep working; visualizer, MCP tools, tests, and docs updated.
 - **Unified session-end pipeline** (ARC-002) — `session_stop_hook.py` is now a shim over `agent_adapter.run_session_end`; Codex/Gemini/omp gain config-gated AI classification and auto-summarize; every runtime uses one byte-bounded transcript reader.
 - **Wheel manifest complete** (ARC-003) — non-editable installs no longer ship three broken console scripts; CI imports every script target and package from the built wheel.
 - **Python floor raised to 3.13** (ARC-009); ruff target `py313`.
