@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any
 
 BLOB_RE = re.compile(r'=\s*"([A-Za-z0-9+/=]{40,})"')
-SEARCHJS_RE = re.compile(r"(const docs = )(\{.*\})(;)", re.S)
+SEARCHJS_RE = re.compile(r"(const docs = )(\{.*\}|\[.*\])(;)", re.S)
 
 # Token prefixes dropped from every search-index trie. docs-api-gen imports
 # its subjects from /tmp/parsidion-docs-gen and /tmp/parsidion-docs-home, and
@@ -98,7 +98,12 @@ def normalize_search_js(path: Path) -> bool:
         obj = json.loads(m.group(2))
     except json.JSONDecodeError:
         return False
-    _normalize_tries(obj)
+    if isinstance(obj, dict):
+        _normalize_tries(obj)
+        documents = obj.get("documentStore", {}).get("docs", {})
+        obj = list(documents.values()) if isinstance(documents, dict) else []
+    if not isinstance(obj, list):
+        return False
     canonical = json.dumps(obj, sort_keys=True, separators=(", ", ": "))
     path.write_text(text[: m.start(2)] + canonical + text[m.end(2) :], encoding="utf-8")
     return True
