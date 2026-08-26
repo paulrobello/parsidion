@@ -104,6 +104,13 @@ def normalize_search_js(path: Path) -> bool:
         obj = list(documents.values()) if isinstance(documents, dict) else []
     if not isinstance(obj, list):
         return False
+    obj.sort(
+        key=lambda document: (
+            str(document.get("fullname", "")),
+            str(document.get("kind", "")),
+            str(document.get("qualname", "")),
+        )
+    )
     canonical = json.dumps(obj, sort_keys=True, separators=(", ", ": "))
     path.write_text(text[: m.start(2)] + canonical + text[m.end(2) :], encoding="utf-8")
     return True
