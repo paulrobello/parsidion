@@ -83,7 +83,6 @@ docs-api-check:
 	if diff -r docs/api $$tmp >/dev/null; then \
 		echo "docs/api is up to date"; rc=0; \
 	else \
-		diff -ru docs/api $$tmp | sed -n '1,200p' 1>&2 || true; \
 		echo "docs/api is stale -- run 'make docs-api' and commit the result" 1>&2; rc=1; \
 	fi; \
 	rm -rf $$tmp; exit $$rc
