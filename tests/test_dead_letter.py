@@ -419,6 +419,7 @@ def test_dead_letter_notice_included_in_session_context(
         (vault / d).mkdir(parents=True, exist_ok=True)
     (vault / "config.yaml").write_text(
         "session_start_hook:\n"
+        "  show_dead_letter_notice: true\n"
         "  use_embeddings: false\n"
         "  track_delta: false\n"
         "  graph_expand: false\n",
@@ -441,6 +442,33 @@ def test_dead_letter_notice_included_in_session_context(
 
     assert "⚠ 2 session summary(ies) were dead-lettered" in context
     assert "vault-stats --pending" in context
+
+
+def test_dead_letter_notice_suppressed_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    vault = tmp_path / "vault"
+    for d in vault_common.VAULT_DIRS:
+        (vault / d).mkdir(parents=True, exist_ok=True)
+    (vault / "config.yaml").write_text(
+        "session_start_hook:\n"
+        "  use_embeddings: false\n"
+        "  track_delta: false\n"
+        "  graph_expand: false\n",
+        encoding="utf-8",
+    )
+    _use_vault(monkeypatch, vault)
+    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
+    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+    monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
+    (vault / "dead_letters.jsonl").write_text(
+        json.dumps({"session_id": "a", "project": "p1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    context, _count = session_start_hook.build_session_context(cwd=str(vault))
+
+    assert "dead-lettered" not in context
 
 
 def test_no_dead_letter_notice_when_file_absent(

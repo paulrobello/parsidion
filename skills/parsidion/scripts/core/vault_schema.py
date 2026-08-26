@@ -361,6 +361,13 @@ class SessionStartHookConfig:
             "read_by": "session_start_hook.py",
         },
     )
+    show_dead_letter_notice: bool = field(
+        default=False,
+        metadata={
+            "doc": "Include the dead-letter queue warning in SessionStart context",
+            "read_by": "session_start_hook.py",
+        },
+    )
     graph_expand: bool = field(
         default=True,
         metadata={

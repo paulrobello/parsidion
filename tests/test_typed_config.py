@@ -34,7 +34,7 @@ _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
     ("session_start_hook", "debug", False),
     ("session_start_hook", "verbose_mode", False),
     ("session_start_hook", "use_embeddings", True),
-    ("session_start_hook", "track_delta", True),
+    ("session_start_hook", "show_dead_letter_notice", False),
     ("session_start_hook", "graph_expand", True),
     ("session_start_hook", "graph_expand_max", 8),
     ("session_start_hook", "graph_rerank", True),

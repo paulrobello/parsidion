@@ -80,6 +80,7 @@ session_start_hook:
   verbose_mode: false  # Inject full note summaries instead of the compact one-line-per-note index
   use_embeddings: true  # Blend semantic matches into context; graceful fallback if db absent
   track_delta: true  # Prepend a 'Since last session' delta of new/updated notes per project
+  show_dead_letter_notice: false  # Include the dead-letter queue warning in SessionStart context
   graph_expand: true  # Tier 1: splice in 1-hop wikilink neighbours of selected notes
   graph_expand_max: 8  # Max neighbour notes added per session (best-connected first)
   graph_rerank: true  # Tier 2: re-rank by seed-cluster tag overlap + hubness

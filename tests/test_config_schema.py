@@ -81,6 +81,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "verbose_mode": (bool,),
         "use_embeddings": (bool,),
         "track_delta": (bool,),
+        "show_dead_letter_notice": (bool,),
         "graph_expand": (bool,),
         "graph_expand_max": (int,),
         "graph_rerank": (bool,),

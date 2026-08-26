@@ -9,7 +9,7 @@
 | `claude_cli` | `minimal_context`, `system_prompt`, `timeout` | ai_backend.py |
 | `codex_cli` | `command`, `timeout`, `sandbox`, `ephemeral`, `skip_git_repo_check`, `suppress_notify`, `allow_danger_full_access` | ai_backend.py |
 | `grok_cli` | `command`, `timeout`, `minimal_context`, `system_prompt` | ai_backend.py |
-| `session_start_hook` | `ai_model`, `ai_cooldown_seconds`, `ai_single_flight`, `ai_candidates_max`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings`, `track_delta`, `graph_expand`, `graph_expand_max`, `graph_rerank` | session_start_hook.py |
+| `session_start_hook` | `ai_model`, `ai_cooldown_seconds`, `ai_single_flight`, `ai_candidates_max`, `max_chars`, `ai_timeout`, `recent_days`, `debug`, `verbose_mode`, `use_embeddings`, `track_delta`, `show_dead_letter_notice`, `graph_expand`, `graph_expand_max`, `graph_rerank` | session_start_hook.py |
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `pi_transcript_tail_lines`, `transcript_tail_bytes` | session_stop_hook.py, agent_adapter.py |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents`, `transcript_tail_bytes` | subagent_stop_hook.py |
 | `pre_compact_hook` | `lines`, `transcript_tail_bytes` | pre_compact_hook.py |
