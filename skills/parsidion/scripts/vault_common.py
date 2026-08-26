@@ -181,7 +181,7 @@ from vault_adaptive import (
     update_usefulness_scores,
 )
 
-__version__ = "0.19.0"
+__version__ = "0.22.0"
 
 # deprecated: import directly from core.<module> -- this enumeration is retained
 # for backwards-compat external callers and is NOT extended. New public symbols

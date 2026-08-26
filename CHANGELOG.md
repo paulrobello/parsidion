@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-08-26
+
+Cross-platform documentation-build reproducibility release. CI now canonicalizes generated API documentation and removes checkout-specific path data, while release artifacts and vault metadata remain deterministic and valid.
+
+### Fixed
+
+- **Deterministic API documentation CI** — sort TypeDoc entry points, scrub machine-path tokens from generated search indexes, canonicalize TypeDoc assets, and make the documentation drift gate independent of checkout paths and filesystem ordering.
+
+### Changed
+
+- Removed completed audit artifacts after the 0.21.0 remediation release.
+
 ## [0.21.0] - 2026-08-25
 
 Audit remediation and hardening release. All 93 findings from the 2026-08-23 audit are resolved (security-heavy), the par-mem search backend is renamed to parsight with legacy config aliases, the doctor gains per-rule selection, adaptive context gains time decay, the config reference is now generated from the typed schema and drift-gated in CI, every runtime shares one byte-bounded transcript reader, and `vault-stats --hooks` reports latency percentiles with a SessionStart budget alert.
@@ -251,7 +263,9 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/paulrobello/parsidion/compare/v0.21.0...v0.22.0
+[0.21.0]: https://github.com/paulrobello/parsidion/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/paulrobello/parsidion/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/paulrobello/parsidion/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/paulrobello/parsidion/compare/v0.17.0...v0.18.0
