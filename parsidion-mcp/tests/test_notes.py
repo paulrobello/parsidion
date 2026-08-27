@@ -204,6 +204,75 @@ def test_vault_write_oserror_raises(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# SEC-201: vault_write hidden-path / excluded-dir gate (mirrors SEC-008 read)
+# ---------------------------------------------------------------------------
+
+
+class TestVaultWriteNoteOnly:
+    """SEC-201: vault_write enforces the same segment gate as vault_read.
+
+    Containment + ``.md`` suffix alone accepted writes into ``.trash/**``
+    (overwriting the SEC-107 pre-mutation backups), ``.obsidian/**``, and
+    ``.git/**`` — every case below must be rejected before any filesystem
+    access.
+    """
+
+    def test_write_trash_backup_rejected(self, tmp_path: Path) -> None:
+        # The exact attack from the audit: overwrite SEC-107 pre-mutation
+        # backups before vandalizing live notes.
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="not writable"):
+                vault_write(".trash/backup/2026-01-01/x.md", "#evil\n")
+
+    def test_write_obsidian_rejected(self, tmp_path: Path) -> None:
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="not writable"):
+                vault_write(".obsidian/y.md", "#evil\n")
+
+    def test_write_git_rejected(self, tmp_path: Path) -> None:
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="not writable"):
+                vault_write(".git/z.md", "#evil\n")
+
+    def test_write_dot_segment_via_traversal_rejected(self, tmp_path: Path) -> None:
+        # A dot-segment reached through .. traversal: _resolve_vault_path
+        # resolves foo/../.trash/x.md to vault/.trash/x.md, which the segment
+        # gate must still refuse (the path stays inside the vault, so the
+        # containment check alone would pass it).
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="not writable"):
+                vault_write("foo/../.trash/x.md", "#evil\n")
+
+    def test_write_excluded_dir_rejected(self, tmp_path: Path) -> None:
+        # Templates is excluded but not dot-prefixed — only the EXCLUDE_DIRS
+        # check catches it.
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            with pytest.raises(VaultToolError, match="Excluded directory"):
+                vault_write("Templates/x.md", "#evil\n")
+
+    def test_write_normal_note_still_works(self, tmp_path: Path) -> None:
+        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
+            mock_vc.resolve_vault.return_value = tmp_path
+            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+            result = vault_write("Patterns/x.md", "# fine\n")
+
+        assert (tmp_path / "Patterns" / "x.md").read_text(encoding="utf-8") == (
+            "# fine\n"
+        )
+        assert result.startswith("Written:")
+
+
+# ---------------------------------------------------------------------------
 # ARC-021: vault parameter threaded through to resolve_vault
 # ---------------------------------------------------------------------------
 
