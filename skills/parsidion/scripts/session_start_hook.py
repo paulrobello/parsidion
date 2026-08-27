@@ -78,11 +78,11 @@ from session_start.ai_selector import (
     _write_ai_cooldown_stamp,
 )
 from session_start.context import (
-    _DEBUG_FILE,
     _assemble_context,
     _build_dead_letter_notice,
     _build_delta_section,
     _build_pending_notice,
+    _debug_file,
     _write_debug_log,
 )
 from session_start.graph_retrieval import (
@@ -605,7 +605,7 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            f"Append injected context and metadata to {_DEBUG_FILE} "
+            f"Append injected context and metadata to {_debug_file()} "
             "for quality evaluation. Use --no-debug to force off even if "
             "config.yaml enables it."
         ),

@@ -11,6 +11,7 @@ framing wrapper, and the best-effort debug log writer.  They are leaf helpers
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from datetime import datetime
@@ -19,7 +20,20 @@ from pathlib import Path
 from core.vault_index import all_vault_notes
 from core.vault_path import secure_log_dir
 
-_DEBUG_FILE = secure_log_dir() / "parsidion-session-start-debug.log"
+_DEBUG_FILE_NAME = "parsidion-session-start-debug.log"
+
+
+@functools.cache
+def _debug_file() -> Path:
+    """Return the debug log path, creating ``~/.claude/logs/`` on first call.
+
+    ARC-109: this was a module-level constant, so merely importing this module
+    ran a ``mkdir`` + ``chmod`` (``secure_log_dir()``). Every importer paid it --
+    ``agent_adapter`` already imports this module lazily *because* it was
+    heavy -- and it made test isolation harder than it needed to be. Deferring
+    it costs one call per process instead of one per import.
+    """
+    return secure_log_dir() / _DEBUG_FILE_NAME
 
 
 def _build_pending_notice(vault_path: Path) -> str:
@@ -236,7 +250,7 @@ def _write_debug_log(
 
     try:
         # SEC-008: Use O_NOFOLLOW to prevent a symlink-substitution attack — if an
-        # adversary replaced _DEBUG_FILE with a symlink to a sensitive file, O_NOFOLLOW
+        # adversary replaced the debug log with a symlink to a sensitive file, O_NOFOLLOW
         # causes the open to fail with ELOOP rather than following the symlink.
         # O_NOFOLLOW is POSIX and available on Linux/macOS; on Windows it is absent
         # so we fall back gracefully (Windows does not support symlinks by default).
@@ -244,7 +258,7 @@ def _write_debug_log(
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         fd = os.open(
-            _DEBUG_FILE,
+            _debug_file(),
             flags,
             0o600,
         )
