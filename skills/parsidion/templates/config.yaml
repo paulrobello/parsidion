@@ -85,7 +85,7 @@ session_start_hook:
   ai_model: null  # Model for AI note selection (null = disabled)
   ai_cooldown_seconds: 30  # Skip nested claude -p if AI SessionStart ran recently for this vault
   ai_single_flight: true  # Allow only one nested AI SessionStart selector per vault at a time
-  ai_candidates_max: 48  # Cap on the AI selector's ranked candidate pool (0 = unlimited)
+  ai_candidates_max: 48  # Cap on the AI selector's ranked candidate pool (0 = unlimited, unset = seed_selection's default of 48)
   max_chars: 4000  # Max context injection characters
   ai_timeout: 25  # AI call timeout in seconds
   recent_days: 3  # Days to look back for recent notes

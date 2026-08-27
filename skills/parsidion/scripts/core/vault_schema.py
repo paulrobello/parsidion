@@ -312,10 +312,13 @@ class SessionStartHookConfig:
             "read_by": "session_start_hook.py",
         },
     )
-    ai_candidates_max: int = field(
+    ai_candidates_max: int | None = field(
         default=None,
         metadata={
-            "doc": "Cap on the AI selector's ranked candidate pool (0 = unlimited)",
+            "doc": (
+                "Cap on the AI selector's ranked candidate pool "
+                "(0 = unlimited, unset = seed_selection's default of 48)"
+            ),
             "read_by": "session_start_hook.py",
             "example": 48,
         },

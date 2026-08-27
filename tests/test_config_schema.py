@@ -73,7 +73,9 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
     "session_start_hook": {
         "ai_model": (str, type(None)),
         "ai_cooldown_seconds": (int, float),
-        "ai_candidates_max": (int,),
+        # ARC-108: the field has always defaulted to None (seed_selection's
+        # _build_candidates handles it); only the annotation said otherwise.
+        "ai_candidates_max": (int, type(None)),
         "ai_single_flight": (bool,),
         "max_chars": (int,),
         "ai_timeout": (int, float),
