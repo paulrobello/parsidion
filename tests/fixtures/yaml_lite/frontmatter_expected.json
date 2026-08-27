@@ -1,0 +1,182 @@
+{
+  "$comment": "ENH-024 differential expectations: output of the PRE-ENH-024 parser for every case in frontmatter_corpus.json, captured at commit f936bc1 before the consolidation onto core/yaml_lite. The differential test asserts the yaml_lite-backed parser still produces these exact values.",
+  "cases": {
+    "block-lists": {
+      "mixed": [
+        "2026",
+        "true",
+        "3.14"
+      ],
+      "quoted": [
+        "[[wikilink]]",
+        "single"
+      ],
+      "tags": [
+        "alpha",
+        "beta",
+        "gamma"
+      ]
+    },
+    "code-fence-in-body": {
+      "tags": [
+        "yaml"
+      ],
+      "type": "knowledge"
+    },
+    "code-fence-no-frontmatter": {},
+    "colon-in-scalar-value": {
+      "subtitle": "A: B: C",
+      "title": "My: Title"
+    },
+    "crlf-frontmatter": {
+      "date": "2026-01-15",
+      "tags": [
+        "a",
+        "b"
+      ]
+    },
+    "duplicate-keys": {
+      "key": "second"
+    },
+    "empty-and-missing-fences": {},
+    "empty-input": {},
+    "inline-comment-in-scalar": {
+      "key": "value # comment",
+      "other": "quoted # keep",
+      "url": "https://example.com/a#anchor"
+    },
+    "inline-list-variants": {
+      "commas": [
+        "a, b",
+        "c"
+      ],
+      "empty": [],
+      "escaped": [
+        "say \"hi\"",
+        "plain"
+      ],
+      "mixed": [
+        "[[note-a]]",
+        "[[note-b]]"
+      ],
+      "numeric": [
+        "2026",
+        "3.14",
+        "true"
+      ],
+      "spaces": [
+        "padded",
+        "x"
+      ],
+      "tags": [
+        "python",
+        "rust",
+        "ai"
+      ]
+    },
+    "list-continuation-after-key": {
+      "key_after": "v",
+      "tags": [
+        "one"
+      ]
+    },
+    "missing-closing": {},
+    "multiline-scalars": {
+      "folded": "line one line two",
+      "folded-strip": "a b",
+      "literal": "line one\nline two",
+      "literal-strip": "a\nb",
+      "next_key": "value"
+    },
+    "multiline-then-list": {
+      "desc": "folded text",
+      "related": [
+        "[[note-x]]"
+      ]
+    },
+    "nested-mapping-indent": {
+      "after": 3,
+      "nested": 2,
+      "top": 1
+    },
+    "no-frontmatter": {},
+    "only-comments": {},
+    "realistic-debugging-note": {
+      "confidence": "high",
+      "date": "2026-03-10",
+      "project": "par-voxel",
+      "related": [
+        "[[WGPU Basics]]"
+      ],
+      "session_id": "abc123",
+      "sources": [],
+      "tags": [
+        "rust",
+        "wgpu",
+        "rendering"
+      ],
+      "type": "debugging"
+    },
+    "scalar-coercions": {
+      "also_no": false,
+      "also_yes": true,
+      "count": 42,
+      "date": "2026-01-15",
+      "disabled": false,
+      "emptyish": "",
+      "enabled": true,
+      "nul": null,
+      "quoted": "Hello World",
+      "ratio": 3.14,
+      "single": "Hello World",
+      "tilde": null
+    },
+    "sources-urls": {
+      "sources": [
+        "https://example.com/a",
+        "https://example.com/b?x=1"
+      ]
+    },
+    "template-daily": {
+      "date": "{{date}}",
+      "provenance": "observed",
+      "related": [],
+      "tags": [
+        "daily"
+      ],
+      "type": "daily"
+    },
+    "template-debugging": {
+      "confidence": "high",
+      "date": "{{date}}",
+      "provenance": "inferred",
+      "related": [],
+      "sources": [],
+      "tags": [
+        "debugging"
+      ],
+      "type": "debugging"
+    },
+    "template-pattern": {
+      "confidence": "medium",
+      "date": "{{date}}",
+      "provenance": "inferred",
+      "related": [],
+      "sources": [],
+      "tags": [
+        "pattern"
+      ],
+      "type": "pattern"
+    },
+    "toml-ish-lines": {
+      "real": "yaml"
+    },
+    "trailing-space-delimiters": {
+      "date": "2026-01-15"
+    },
+    "unterminated-inline-list": {
+      "other": "x",
+      "tags": "[a, b"
+    }
+  }
+}

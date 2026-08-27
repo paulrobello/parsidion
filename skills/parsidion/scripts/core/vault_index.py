@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from .subproc_util import run_with_pgkill
-from .vault_config import _parse_list_item, _parse_scalar, _split_list_items, get_config
+from .vault_config import get_config
 from .vault_hooks import env_without_claudecode
 from .vault_path import (
     EXCLUDE_DIRS,
@@ -32,6 +32,14 @@ from .vault_path import (
     is_path_inside_vault,
     is_symlink_inside_vault,
     resolve_vault,
+)
+from .yaml_lite import (
+    dump_list_item,
+    dump_scalar,
+    parse_inline_list,
+    parse_list_item,
+    parse_scalar,
+    split_key_value,
 )
 
 # ARC-005: the canonical frontmatter key order lives in the note contract
@@ -91,7 +99,6 @@ __all__: list[str] = [
 # ---------------------------------------------------------------------------
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?\n)---\s*\n", re.DOTALL)
-_YAML_LIST_INLINE_RE = re.compile(r"^\[(.*)]\s*$")
 _SLUG_SPECIAL_RE = re.compile(r"[^a-z0-9\-]")
 _SLUG_MULTI_HYPHEN_RE = re.compile(r"-{2,}")
 
@@ -138,7 +145,10 @@ def drain_parse_warnings() -> list[str]:
 def parse_frontmatter(content: str) -> dict[str, Any]:
     """Parse YAML frontmatter from markdown content using regex.
 
-    **Supported YAML subset** (stdlib-only; not a full YAML 1.2 parser):
+    **Supported YAML subset** (stdlib-only; not a full YAML 1.2 parser) --
+    scalar/list tokenization lives in ``core/yaml_lite`` (ENH-024); only
+    the frontmatter-specific structure (delimiters, block sequences,
+    multi-line scalars) lives here:
 
     - Scalars: bare strings, single/double-quoted strings, integers, floats,
       booleans (``true``/``false``/``yes``/``no``), ``null``/``~``, and
@@ -153,8 +163,9 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
       space), ``|`` (literal -- joins with newlines), and strip variants
       ``>-`` / ``|-``.  Only indented continuation lines (indent > 0) are
       collected; the block ends at the next bare key or blank line.
-    - Trailing inline comments (``# comment``) are stripped from scalar
-      values, respecting surrounding quotes.
+    - Comment LINES (first non-blank character ``#``) are skipped; trailing
+      inline comments are NOT stripped from scalar values (``key: v # c``
+      reads back as the string ``v # c``), unlike the config.yaml parser.
 
     **Not supported** (silently ignored or returned as bare strings):
     - Nested mappings deeper than 1 level (``key: {a: 1}`` or indented
@@ -208,7 +219,7 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
             and current_key is not None
             and current_list is not None
         ):
-            current_list.append(_parse_list_item(stripped[2:].strip()))
+            current_list.append(parse_list_item(stripped[2:].strip()))
             result[current_key] = current_list
             continue
 
@@ -221,12 +232,11 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
             continue
 
         # key: value pair
-        colon_idx = line.find(":")
-        if colon_idx == -1:
+        key_value = split_key_value(line)
+        if key_value is None:
             continue
 
-        key = line[:colon_idx].strip()
-        value_str = line[colon_idx + 1 :].strip()
+        key, value_str = key_value
 
         if not key:
             continue
@@ -260,21 +270,14 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
             continue
 
         # Inline list: [a, b, c]
-        list_match = _YAML_LIST_INLINE_RE.match(value_str)
-        if list_match:
-            inner = list_match.group(1).strip()
-            if not inner:
-                result[key] = []
-            else:
-                items = [
-                    _parse_list_item(item.strip()) for item in _split_list_items(inner)
-                ]
-                result[key] = items
+        items = parse_inline_list(value_str)
+        if items is not None:
+            result[key] = items
             current_list = None
             continue
 
         # Scalar value
-        result[key] = _parse_scalar(value_str)
+        result[key] = parse_scalar(value_str)
         current_list = None
 
     # Flush any remaining block at end of frontmatter
@@ -287,107 +290,14 @@ def parse_frontmatter(content: str) -> dict[str, Any]:
 # Frontmatter serialization (ARC-005)
 # ---------------------------------------------------------------------------
 
-# Characters that make a bare YAML scalar ambiguous for the subset parser
-# above (or for the TS parser in visualizer/lib/frontmatter.ts).
-_YAML_SPECIAL_PREFIXES: tuple[str, ...] = (
-    "-",
-    "?",
-    ":",
-    "[",
-    "]",
-    "{",
-    "}",
-    ",",
-    "#",
-    "&",
-    "*",
-    "!",
-    "|",
-    ">",
-    "'",
-    '"',
-    "%",
-    "@",
-    "`",
-)
-_YAML_COERCED_WORDS: frozenset[str] = frozenset(
-    {"true", "yes", "false", "no", "null", "~", ""}
-)
+# Scalar/array emission policy (quoting, round-trip rules) lives in
+# core/yaml_lite (ENH-024): scalar_needs_quotes / quote_scalar /
+# dump_scalar / dump_list_item. Only the frontmatter-specific policy
+# stays here.
 # List fields whose items are always double-quoted: ``related`` holds
 # ``[[wikilinks]]`` and the canonical form (CLAUDE.md conventions,
 # visualizer/lib/frontmatter.ts) is ``related: ["[[a]]", "[[b]]"]``.
 _ALWAYS_QUOTED_LIST_KEYS: frozenset[str] = frozenset({"related"})
-
-
-def _scalar_needs_quotes(text: str) -> bool:
-    """Return True when a bare YAML scalar would not round-trip exactly."""
-    if not text or text != text.strip():
-        return True
-    if text[0] in _YAML_SPECIAL_PREFIXES:
-        return True
-    if ": " in text or text.endswith(":"):
-        # Either a mapping indicator for the parser or an inline-comment /
-        # key-value split hazard.
-        return True
-    if " #" in text:
-        return True  # _strip_inline_comment would drop the tail
-    if text.lower() in _YAML_COERCED_WORDS:
-        return True  # would parse as bool/null instead of the string
-    try:
-        int(text)
-        return True
-    except ValueError:
-        pass
-    try:
-        float(text)
-        return True
-    except ValueError:
-        pass
-    return False
-
-
-def _quote_yaml(text: str) -> str:
-    """Wrap *text* in YAML quotes the subset parser strips on read.
-
-    Single quotes are preferred when the value contains a double quote (the
-    inline-list splitter toggles on double quotes), double quotes otherwise.
-    Values containing both quote characters are double-quoted with ``\\"``
-    escapes — the documented best-effort limit of the parser subset.
-    """
-    if '"' in text and "'" not in text:
-        return f"'{text}'"
-    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
-def _format_scalar(value: Any) -> str:
-    """Render one frontmatter scalar value (non-list) as a YAML string.
-
-    Only ``str`` values are ever quoted: a bare ``3`` (int) parses back to
-    int 3, but a string ``"3"`` must be quoted or the parser would coerce it
-    to an int and break the round-trip.
-    """
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str) and _scalar_needs_quotes(value):
-        return _quote_yaml(value)
-    return str(value)
-
-
-def _format_list_item(item: Any, *, always_quote: bool) -> str:
-    """Render one inline-array item.
-
-    List items are never type-coerced by the parser, so bare items only need
-    quoting for structural characters (``[],`` and quote characters that would
-    confuse the splitter or the item parser) and for ``: `` (a plain YAML
-    scalar may not contain a colon+space — Obsidian's parser rejects it even
-    though the subset parser here round-trips).
-    """
-    text = str(item)
-    structural = any(ch in text for ch in ",[]\"'") or ": " in text
-    if always_quote or (structural or text != text.strip() or not text):
-        return _quote_yaml(text)
-    return text
 
 
 def serialize_frontmatter(fields: dict[str, Any]) -> str:
@@ -425,16 +335,14 @@ def serialize_frontmatter(fields: dict[str, Any]) -> str:
         if isinstance(value, list):
             if value:
                 items = ", ".join(
-                    _format_list_item(
-                        item, always_quote=key in _ALWAYS_QUOTED_LIST_KEYS
-                    )
+                    dump_list_item(item, always_quote=key in _ALWAYS_QUOTED_LIST_KEYS)
                     for item in value
                 )
                 lines.append(f"{key}: [{items}]")
             else:
                 lines.append(f"{key}: []")
         else:
-            lines.append(f"{key}: {_format_scalar(value)}")
+            lines.append(f"{key}: {dump_scalar(value)}")
     lines.append("---")
     return "\n".join(lines) + "\n"
 

@@ -15,6 +15,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .yaml_lite import split_key_value, strip_quote_edges
+
 __all__: list[str] = [
     # Constants
     "VAULT_ROOT",
@@ -179,6 +181,10 @@ def read_vaults_yaml(path: Path | None = None) -> tuple[dict[str, str], str | No
     QA-004: the single ``vaults.yaml`` reader. The installer's record and
     uninstall paths previously carried two private copies of this parse; both
     now call this function, and ``list_named_vaults`` is built on it too.
+    ENH-024: key/value splitting and quote stripping come from
+    ``core/yaml_lite`` (``split_key_value`` + the reader's historical
+    permissive ``strip_quote_edges``) so the tokenization rules are shared
+    with the config and frontmatter parsers.
 
     Values are returned raw (no ``expanduser``/``resolve``) so writers can
     re-emit them verbatim; callers resolve when they need a real path.
@@ -209,17 +215,21 @@ def read_vaults_yaml(path: Path | None = None) -> tuple[dict[str, str], str | No
         if stripped == "vaults:" or stripped.startswith("vaults:"):
             in_vaults = True
             continue
+        key_value = split_key_value(stripped)
+        if key_value is None:
+            # No colon: neither an entry line nor a section-exit candidate.
+            continue
+        key, raw_value = key_value
         # End of vaults: section on a new top-level key.
-        if in_vaults and line and not line[0].isspace() and ":" in stripped:
+        if in_vaults and line and not line[0].isspace():
             in_vaults = False
-        if in_vaults and ":" in stripped:
-            name, _, rest = stripped.partition(":")
-            name = name.strip().strip("'\"")
-            rest = rest.strip().strip("'\"")
-            if name and rest:
-                vaults[name] = rest
-        if stripped.startswith("default:") and not in_vaults:
-            default = stripped.split(":", 1)[1].strip().strip("'\"") or None
+        if in_vaults:
+            name = strip_quote_edges(key)
+            value = strip_quote_edges(raw_value)
+            if name and value:
+                vaults[name] = value
+        if not in_vaults and stripped.startswith("default:"):
+            default = strip_quote_edges(raw_value) or None
     return vaults, default
 
 
@@ -337,7 +347,10 @@ def _parse_vaults_file(text: str) -> _VaultsFile:
     Line semantics mirror the reader/writer contract: a line whose stripped
     form starts with ``vaults:`` (any indent) arms the section, and the
     first following non-blank column-0 line ends it. Entry lines are the
-    indented non-comment ``key: value`` lines inside the section.
+    indented non-comment ``key: value`` lines inside the section. Keys are
+    kept RAW (no strip, no quote handling -- unlike the reader's yaml_lite
+    tokenization) because ``set_entry`` matches them verbatim for in-place
+    rewrites.
     """
     nodes: list[_VaultsNode] = []
     in_vaults = False

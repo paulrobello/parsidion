@@ -1,0 +1,107 @@
+{
+  "$comment": "ENH-024 differential expectations: output of the PRE-ENH-024 parser for every case in vaults_corpus.json, captured at commit f936bc1 before the consolidation onto core/yaml_lite. The differential test asserts the yaml_lite-backed parser still produces these exact values.",
+  "cases": {
+    "asymmetric-quotes": {
+      "default": "d",
+      "vaults": {
+        "odd": "unterminated",
+        "odd2": "x",
+        "triple": "t"
+      }
+    },
+    "canonical": {
+      "default": "/Users/x/Vaults/work",
+      "vaults": {
+        "personal": "/Users/x/Vaults/personal",
+        "work": "/Users/x/Vaults/work"
+      }
+    },
+    "comments-and-blanks": {
+      "default": "/a",
+      "vaults": {
+        "a": "/a"
+      }
+    },
+    "default-empty-value": {
+      "default": null,
+      "vaults": {
+        "a": "/a"
+      }
+    },
+    "default-variants": {
+      "default": "/a",
+      "vaults": {
+        "a": "/a"
+      }
+    },
+    "default-with-trailing-comment": {
+      "default": "/a # note",
+      "vaults": {
+        "a": "/a"
+      }
+    },
+    "duplicate-entry": {
+      "default": null,
+      "vaults": {
+        "a": "/second"
+      }
+    },
+    "empty-file": {
+      "default": null,
+      "vaults": {}
+    },
+    "entries-with-spaces": {
+      "default": null,
+      "vaults": {
+        "my vault": "/path with spaces",
+        "~/tilde": "~/Vaults/main"
+      }
+    },
+    "indented-default-inside-section": {
+      "default": null,
+      "vaults": {
+        "a": "/a",
+        "default": "/inner"
+      }
+    },
+    "indented-header": {
+      "default": "/a",
+      "vaults": {
+        "a": "/a"
+      }
+    },
+    "inline-value-header": {
+      "default": null,
+      "vaults": {
+        "a": "/a"
+      }
+    },
+    "malformed-entries": {
+      "default": null,
+      "vaults": {
+        "spaced": "/spaced"
+      }
+    },
+    "no-section-just-default": {
+      "default": "/only",
+      "vaults": {}
+    },
+    "only-comments": {
+      "default": null,
+      "vaults": {}
+    },
+    "quoted-entries": {
+      "default": "/w",
+      "vaults": {
+        "home": "/h",
+        "work": "/w"
+      }
+    },
+    "top-level-key-after-section": {
+      "default": "/a",
+      "vaults": {
+        "a": "/a"
+      }
+    }
+  }
+}

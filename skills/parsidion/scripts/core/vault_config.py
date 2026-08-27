@@ -12,12 +12,18 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
-import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from .vault_path import resolve_vault
+from .yaml_lite import (
+    parse_list_item,
+    parse_scalar,
+    split_key_value,
+    split_list_items,
+    strip_inline_comment,
+)
 from .vault_schema import (
     AdaptersConfig,
     AdaptiveContextConfig,
@@ -95,127 +101,16 @@ __all__: list[str] = [
 # ---------------------------------------------------------------------------
 # Low-level YAML parsing helpers
 # ---------------------------------------------------------------------------
+# ENH-024: the implementations moved to core/yaml_lite, the shared YAML
+# subset module (one set of quoting/comment/array rules for config.yaml,
+# note frontmatter, and vaults.yaml). The private names remain as aliases
+# because vault_common re-exports them for backward compatibility; the
+# docstrings and tests live on the yaml_lite functions.
 
-_YAML_LIST_INLINE_RE = re.compile(r"^\[(.*)]\s*$")
-
-
-def _split_list_items(text: str) -> list[str]:
-    """Split a comma-separated list, respecting quoted strings.
-
-    SEC-033(c): an escaped double quote (``\\"``) does not close the string —
-    writers (vault_merge's frontmatter emitter) escape embedded quotes, and
-    the split must not let one toggle the quote state and split mid-item.
-    """
-    items: list[str] = []
-    current: list[str] = []
-    in_quote: str | None = None
-
-    for i, ch in enumerate(text):
-        if in_quote:
-            current.append(ch)
-            if ch == in_quote:
-                # The quote is escaped (does not close the string) only when
-                # preceded by an odd run of backslashes.
-                j = i - 1
-                run = 0
-                while j >= 0 and text[j] == "\\":
-                    run += 1
-                    j -= 1
-                if run % 2 == 0:
-                    in_quote = None
-        elif ch in ('"', "'"):
-            in_quote = ch
-            current.append(ch)
-        elif ch == ",":
-            items.append("".join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-
-    remaining = "".join(current).strip()
-    if remaining:
-        items.append(remaining)
-
-    return items
-
-
-def _parse_scalar(value: str) -> Any:
-    """Parse a scalar YAML value into a Python type.
-
-    Handles booleans, None/null, integers, floats, quoted strings, and bare
-    strings. Date strings (YYYY-MM-DD) are kept as strings for simplicity.
-    """
-    # Strip surrounding quotes
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-        return value[1:-1]
-
-    lower = value.lower()
-    if lower in ("true", "yes"):
-        return True
-    if lower in ("false", "no"):
-        return False
-    if lower in ("null", "~", ""):
-        return None
-
-    # Try integer
-    try:
-        return int(value)
-    except ValueError:
-        pass
-
-    # Try float
-    try:
-        return float(value)
-    except ValueError:
-        pass
-
-    return value
-
-
-def _parse_list_item(value: str) -> str:
-    """Parse a YAML list item, keeping it as a string.
-
-    Unlike ``_parse_scalar``, list items are never coerced to bool/int/float:
-    frontmatter list fields (``tags``, ``sources``, ``related``) are always
-    string-valued, and coercing e.g. ``tags: [2026, python]`` to an int makes
-    the tag silently unfindable downstream. Surrounding quotes are stripped.
-
-    SEC-033(c): double-quoted items unescape ``\\"`` → ``"`` and ``\\\\`` →
-    ``\\``, matching what the frontmatter emitters write.
-    """
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-        inner = value[1:-1]
-        if value[0] == '"':
-            out: list[str] = []
-            i = 0
-            while i < len(inner):
-                if (
-                    inner[i] == "\\"
-                    and i + 1 < len(inner)
-                    and inner[i + 1] in ('"', "\\")
-                ):
-                    out.append(inner[i + 1])
-                    i += 2
-                else:
-                    out.append(inner[i])
-                    i += 1
-            return "".join(out)
-        return inner
-    return value
-
-
-def _strip_inline_comment(value: str) -> str:
-    """Strip a trailing ``# comment`` from a YAML value, respecting quotes."""
-    in_quote: str | None = None
-    for i, ch in enumerate(value):
-        if in_quote:
-            if ch == in_quote:
-                in_quote = None
-        elif ch in ('"', "'"):
-            in_quote = ch
-        elif ch == "#" and i > 0 and value[i - 1] in (" ", "\t"):
-            return value[:i].rstrip()
-    return value
+_parse_scalar = parse_scalar
+_parse_list_item = parse_list_item
+_split_list_items = split_list_items
+_strip_inline_comment = strip_inline_comment
 
 
 # ---------------------------------------------------------------------------
@@ -249,16 +144,15 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
             continue
 
         indent = len(line) - len(line.lstrip())
-        colon_idx = stripped.find(":")
-        if colon_idx == -1:
+        key_value = split_key_value(stripped)
+        if key_value is None:
             print(
                 f"vault_config: ignoring unparsable config line: {stripped!r}",
                 file=sys.stderr,
             )
             continue
 
-        key = stripped[:colon_idx].strip()
-        value_str = stripped[colon_idx + 1 :].strip()
+        key, value_str = key_value
 
         if not key:
             print(
@@ -276,14 +170,14 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                 current_nested_leaf_indent = None
                 result[key] = {}
             else:
-                value_str = _strip_inline_comment(value_str)
-                result[key] = _parse_scalar(value_str)
+                value_str = strip_inline_comment(value_str)
+                result[key] = parse_scalar(value_str)
                 current_section = None
                 current_nested_key = None
                 current_nested_indent = 0
                 current_nested_leaf_indent = None
         elif current_section is not None and indent > 0:
-            value_str = _strip_inline_comment(value_str)
+            value_str = strip_inline_comment(value_str)
             section = result.get(current_section)
             if not isinstance(section, dict):
                 continue
@@ -308,7 +202,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                             file=sys.stderr,
                         )
                         continue
-                    nested[key] = _parse_scalar(value_str)
+                    nested[key] = parse_scalar(value_str)
                 continue
 
             if not value_str:
@@ -317,7 +211,7 @@ def _parse_config_yaml(text: str) -> dict[str, Any]:
                 current_nested_indent = indent
                 current_nested_leaf_indent = None
             else:
-                section[key] = _parse_scalar(value_str)
+                section[key] = parse_scalar(value_str)
                 current_nested_key = None
                 current_nested_indent = 0
                 current_nested_leaf_indent = None

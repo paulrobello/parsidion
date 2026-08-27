@@ -77,6 +77,9 @@ _ENFORCEMENT_SCOPE = [
     "core.vault_metrics",
     "core.vault_health",
     "core.subproc_util",
+    # ENH-024: the shared YAML subset module (imported by vault_config,
+    # vault_index, and vault_path) shares the same stdlib-only contract.
+    "core.yaml_lite",
     # ARC-006: the AI/parsight backends moved into core/ (the root names below
     # remain as re-export shims and are held to the same contract).
     "core.ai_backend",

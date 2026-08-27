@@ -1,0 +1,85 @@
+{
+  "$comment": "ENH-024 differential corpus: config-dialect YAML inputs fed to vault_config._parse_config_yaml. Inputs are committed; the expected outputs in config_expected.json were captured from the PRE-ENH-024 private parser at commit f936bc1.",
+  "cases": [
+    {
+      "name": "template-header-and-ai-sections",
+      "text": "# Parsidion Vault Configuration\n#\n# Place at ~/ParsidionVault/config.yaml\n# Values here override script defaults. CLI arguments override these values.\n# Precedence: defaults → config.yaml → config.local.yaml → CLI args\n#\n# config.local.yaml (same directory, always gitignored) is an optional overlay\n# merged over this file section-by-section, local values winning on conflict.\n# Use it to keep secrets or machine-specific overrides out of config.yaml.\n#\n# GENERATED BODY: every section and key below is generated from\n# skills/parsidion/scripts/core/vault_schema.py by scripts/gen_config_docs.py\n# (make config-docs). Values shown are the template-recommended value when one\n# exists, otherwise the code default (null = no default / feature disabled).\n# Do not hand-edit below this header — change the schema and regenerate.\n\nai:\n  backend: auto  # auto | claude-cli | codex-cli | grok-cli | none\n\nai_models:\n  claude:\n    small: claude-haiku-4-5-20251001\n    large: claude-sonnet-4-6\n  codex:\n    small: gpt-5.5\n    large: gpt-5.5\n"
+    },
+    {
+      "name": "top-level-scalars",
+      "text": "timeout: 30\nmodel: claude-haiku\nenabled: true\nratio: 0.5\nmissing: null\ntilde: ~\nsure: yes\nunsure: no\n"
+    },
+    {
+      "name": "inline-comment-variants",
+      "text": "timeout: 30  # seconds\ntok: \"abc # keep\"\nnospace: value#nospace\nleadtok: \"x\"#nospace\n"
+    },
+    {
+      "name": "quoted-scalars",
+      "text": "a: \"double\"\nb: 'single'\nc: \"mixed'\nd: ''\ne: \"\"\nf: \"true\"\ng: '42'\n"
+    },
+    {
+      "name": "three-level-nesting",
+      "text": "ai_models:\n  codex:\n    small: gpt-small\n    deeper:\n      leaf: nope\n  claude:\n    small: haiku\n"
+    },
+    {
+      "name": "two-level-nesting",
+      "text": "ai_models:\n  codex:\n    small: gpt-small\n    large: gpt-large\n"
+    },
+    {
+      "name": "unparsable-lines",
+      "text": "no colon here\n: emptykey\nkey: value\n"
+    },
+    {
+      "name": "orphan-indented-line",
+      "text": "  orphan_key: orphan_value\ntop: 1\n"
+    },
+    {
+      "name": "numeric-forms",
+      "text": "i: 42\nf: 3.14\nexp: 1e3\nneg: -7\nplus: +5\nhex: 0x10\nunderscored: 1_000\ninf: .inf\n"
+    },
+    {
+      "name": "section-reset-by-top-scalar",
+      "text": "section:\n  k: v\nflat: 1\n"
+    },
+    {
+      "name": "anthropic-env-urls",
+      "text": "anthropic_env:\n  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic\n  API_TIMEOUT_MS: 3000000\n  ANTHROPIC_DEFAULT_OPUS_MODEL: GLM-5.1\n"
+    },
+    {
+      "name": "blank-and-comment-lines",
+      "text": "\n# a comment\n\nkey1: value1\n\n  # indented comment\nkey2: value2\n"
+    },
+    {
+      "name": "colon-in-value",
+      "text": "url: https://example.com/x\npath: C:\\\\Users\\\\x\n"
+    },
+    {
+      "name": "section-header-with-inline-comment",
+      "text": "hooks:  # section comment\n  enabled: true\n"
+    },
+    {
+      "name": "nested-section-empty-value",
+      "text": "a:\n  b:\n    c: 1\n"
+    },
+    {
+      "name": "tab-indented-key",
+      "text": "section:\n\tkey: v\n"
+    },
+    {
+      "name": "crlf-lines",
+      "text": "top: 1\r\nsection:\r\n  k: v\r\n"
+    },
+    {
+      "name": "quoted-with-hash-inside",
+      "text": "pound: \"a # b\"\nplain: a # b\n"
+    },
+    {
+      "name": "yes-no-case-insensitive",
+      "text": "y: TRUE\nz: False\nw: NULL\n"
+    },
+    {
+      "name": "deep-leaf-after-nested",
+      "text": "ai_models:\n  codex:\n    small: s\n      way_too_deep: 1\n"
+    }
+  ]
+}

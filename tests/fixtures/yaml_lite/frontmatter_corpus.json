@@ -1,0 +1,109 @@
+{
+  "$comment": "ENH-024 differential corpus: note contents fed to vault_index.parse_frontmatter. Includes template files verbatim and the historical doctor false-positive shapes (TOML-ish lines, code-fence content). Inputs are committed; the expected outputs in frontmatter_expected.json were captured from the PRE-ENH-024 parser at commit f936bc1.",
+  "cases": [
+    {
+      "name": "template-pattern",
+      "text": "---\ndate: {{date}}\ntype: pattern\ntags: [pattern]\nconfidence: medium\nsources: []\nrelated: []\nprovenance: inferred\n---\n\n## Problem\n\n<!-- The problem this pattern addresses -->\n\n## Solution\n\n<!-- Description of the solution approach -->\n\n## Example\n\n<!-- Concrete code or implementation example -->\n\n## When to Use\n\n<!-- Scenarios where this pattern is appropriate -->\n\n## When Not to Use\n\n<!-- Scenarios where this pattern should be avoided -->\n"
+    },
+    {
+      "name": "template-daily",
+      "text": "---\ndate: {{date}}\ntype: daily\ntags: [daily]\nrelated: []\nprovenance: observed\n---\n\n## Sessions\n\n<!-- List of sessions worked today with brief descriptions -->\n\n## Key Decisions\n\n<!-- Important decisions made and their rationale -->\n\n## Problems Solved\n\n<!-- Problems encountered and how they were resolved -->\n\n## Open Questions\n\n<!-- Unresolved questions to carry forward -->\n"
+    },
+    {
+      "name": "template-debugging",
+      "text": "---\ndate: {{date}}\ntype: debugging\ntags: [debugging]\nconfidence: high\nsources: []\nrelated: []\nprovenance: inferred\n---\n\n## Symptom\n\n<!-- Observable error message or unexpected behavior -->\n\n## Root Cause\n\n<!-- Underlying reason for the issue -->\n\n## Fix\n\n<!-- Steps or code changes to resolve the issue -->\n\n## Prevention\n\n<!-- How to avoid this issue in the future -->\n\n## Related Errors\n\n<!-- Similar or related error patterns -->\n"
+    },
+    {
+      "name": "realistic-debugging-note",
+      "text": "---\ndate: 2026-03-10\ntype: debugging\ntags: [rust, wgpu, rendering]\nproject: par-voxel\nconfidence: high\nsources: []\nrelated: [\"[[WGPU Basics]]\"]\nsession_id: abc123\n---\n\n## WGPU Pipeline Fix\n\nBody content here.\n"
+    },
+    {
+      "name": "scalar-coercions",
+      "text": "---\nenabled: true\ndisabled: false\nalso_yes: yes\nalso_no: no\ncount: 42\nratio: 3.14\nnul: null\ntilde: ~\nquoted: \"Hello World\"\nsingle: 'Hello World'\ndate: 2026-01-15\nemptyish: ''\n---\nbody\n"
+    },
+    {
+      "name": "inline-list-variants",
+      "text": "---\ntags: [python, rust, ai]\nempty: []\ncommas: [\"a, b\", c]\nmixed: [\"[[note-a]]\", '[[note-b]]']\nnumeric: [2026, 3.14, true]\nescaped: [\"say \\\"hi\\\"\", plain]\nspaces: [  padded  ,  x ]\n---\n"
+    },
+    {
+      "name": "block-lists",
+      "text": "---\ntags:\n  - alpha\n  - beta\n  - gamma\nmixed:\n  - 2026\n  - true\n  - 3.14\nquoted:\n  - \"[[wikilink]]\"\n  - 'single'\n---\n"
+    },
+    {
+      "name": "multiline-scalars",
+      "text": "---\nfolded: >\n  line one\n  line two\nliteral: |\n  line one\n  line two\nfolded-strip: >-\n  a\n  b\nliteral-strip: |-\n  a\n  b\nnext_key: value\n---\n"
+    },
+    {
+      "name": "toml-ish-lines",
+      "text": "---\ntitle = \"TOML style\"\n[dependencies]\ndate = 2026-01-01\nreal: yaml\n---\n"
+    },
+    {
+      "name": "code-fence-in-body",
+      "text": "---\ntype: knowledge\ntags: [yaml]\n---\nExample frontmatter people paste:\n```yaml\n---\ndate: 2020-01-01\nfake: field\n---\n```\n"
+    },
+    {
+      "name": "code-fence-no-frontmatter",
+      "text": "```yaml\n---\ndate: 2020-01-01\n---\n```\nJust body.\n"
+    },
+    {
+      "name": "inline-comment-in-scalar",
+      "text": "---\nkey: value # comment\nother: \"quoted # keep\"\nurl: https://example.com/a#anchor\n---\n"
+    },
+    {
+      "name": "unterminated-inline-list",
+      "text": "---\ntags: [a, b\nother: x\n---\n"
+    },
+    {
+      "name": "nested-mapping-indent",
+      "text": "---\ntop: 1\n  nested: 2\nafter: 3\n---\n"
+    },
+    {
+      "name": "duplicate-keys",
+      "text": "---\nkey: first\nkey: second\n---\n"
+    },
+    {
+      "name": "empty-and-missing-fences",
+      "text": "---\n---\n"
+    },
+    {
+      "name": "missing-closing",
+      "text": "---\ndate: 2026-01-15\n"
+    },
+    {
+      "name": "no-frontmatter",
+      "text": "# Just a heading\nBody text.\n"
+    },
+    {
+      "name": "only-comments",
+      "text": "---\n# just a comment\n# another\n---\n"
+    },
+    {
+      "name": "empty-input",
+      "text": ""
+    },
+    {
+      "name": "crlf-frontmatter",
+      "text": "---\r\ndate: 2026-01-15\r\ntags: [a, b]\r\n---\r\nBody.\r\n"
+    },
+    {
+      "name": "trailing-space-delimiters",
+      "text": "---  \ndate: 2026-01-15\n---  \n"
+    },
+    {
+      "name": "list-continuation-after-key",
+      "text": "---\ntags:\n  - one\nkey_after: v\n  - orphan-item\n---\n"
+    },
+    {
+      "name": "colon-in-scalar-value",
+      "text": "---\ntitle: My: Title\nsubtitle: A: B: C\n---\n"
+    },
+    {
+      "name": "sources-urls",
+      "text": "---\nsources: [https://example.com/a, https://example.com/b?x=1]\n---\n"
+    },
+    {
+      "name": "multiline-then-list",
+      "text": "---\ndesc: >\n  folded text\nrelated:\n  - \"[[note-x]]\"\n---\n"
+    }
+  ]
+}

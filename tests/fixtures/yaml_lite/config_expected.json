@@ -1,0 +1,137 @@
+{
+  "$comment": "ENH-024 differential expectations: output of the PRE-ENH-024 parser for every case in config_corpus.json, captured at commit f936bc1 before the consolidation onto core/yaml_lite. The differential test asserts the yaml_lite-backed parser still produces these exact values.",
+  "cases": {
+    "anthropic-env-urls": {
+      "anthropic_env": {
+        "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "GLM-5.1",
+        "API_TIMEOUT_MS": 3000000
+      }
+    },
+    "blank-and-comment-lines": {
+      "key1": "value1",
+      "key2": "value2"
+    },
+    "colon-in-value": {
+      "path": "C:\\\\Users\\\\x",
+      "url": "https://example.com/x"
+    },
+    "crlf-lines": {
+      "section": {
+        "k": "v"
+      },
+      "top": 1
+    },
+    "deep-leaf-after-nested": {
+      "ai_models": {
+        "codex": {
+          "small": "s"
+        }
+      }
+    },
+    "inline-comment-variants": {
+      "leadtok": "\"x\"#nospace",
+      "nospace": "value#nospace",
+      "timeout": 30,
+      "tok": "abc # keep"
+    },
+    "nested-section-empty-value": {
+      "a": {
+        "b": {
+          "c": 1
+        }
+      }
+    },
+    "numeric-forms": {
+      "exp": 1000.0,
+      "f": 3.14,
+      "hex": "0x10",
+      "i": 42,
+      "inf": ".inf",
+      "neg": -7,
+      "plus": 5,
+      "underscored": 1000
+    },
+    "orphan-indented-line": {
+      "top": 1
+    },
+    "quoted-scalars": {
+      "a": "double",
+      "b": "single",
+      "c": "\"mixed'",
+      "d": "",
+      "e": "",
+      "f": "true",
+      "g": "42"
+    },
+    "quoted-with-hash-inside": {
+      "plain": "a",
+      "pound": "a # b"
+    },
+    "section-header-with-inline-comment": {
+      "hooks": "# section comment"
+    },
+    "section-reset-by-top-scalar": {
+      "flat": 1,
+      "section": {
+        "k": "v"
+      }
+    },
+    "tab-indented-key": {
+      "section": {
+        "key": "v"
+      }
+    },
+    "template-header-and-ai-sections": {
+      "ai": {
+        "backend": "auto"
+      },
+      "ai_models": {
+        "claude": {
+          "large": "claude-sonnet-4-6",
+          "small": "claude-haiku-4-5-20251001"
+        },
+        "codex": {
+          "large": "gpt-5.5",
+          "small": "gpt-5.5"
+        }
+      }
+    },
+    "three-level-nesting": {
+      "ai_models": {
+        "claude": {
+          "small": "haiku"
+        },
+        "codex": {
+          "small": "gpt-small"
+        }
+      }
+    },
+    "top-level-scalars": {
+      "enabled": true,
+      "missing": null,
+      "model": "claude-haiku",
+      "ratio": 0.5,
+      "sure": true,
+      "tilde": null,
+      "timeout": 30,
+      "unsure": false
+    },
+    "two-level-nesting": {
+      "ai_models": {
+        "codex": {
+          "large": "gpt-large",
+          "small": "gpt-small"
+        }
+      }
+    },
+    "unparsable-lines": {
+      "key": "value"
+    },
+    "yes-no-case-insensitive": {
+      "w": null,
+      "y": true,
+      "z": false
+    }
+  }
+}

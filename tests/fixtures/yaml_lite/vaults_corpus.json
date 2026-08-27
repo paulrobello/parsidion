@@ -1,0 +1,73 @@
+{
+  "$comment": "ENH-024 differential corpus: vaults.yaml file contents fed to vault_path.read_vaults_yaml. Inputs are committed; the expected outputs in vaults_expected.json were captured from the PRE-ENH-024 reader at commit f936bc1.",
+  "cases": [
+    {
+      "name": "canonical",
+      "text": "# Named vaults for parsidion\n# Populated by `install.py --vault` (ARC-019).\n\nvaults:\n  work: /Users/x/Vaults/work\n  personal: /Users/x/Vaults/personal\n\ndefault: /Users/x/Vaults/work\n"
+    },
+    {
+      "name": "quoted-entries",
+      "text": "vaults:\n  'work': '/w'\n  \"home\": \"/h\"\ndefault: '/w'\n"
+    },
+    {
+      "name": "asymmetric-quotes",
+      "text": "vaults:\n  odd: \"unterminated'\n  odd2: 'x\"\n  triple: \"'t'\"\ndefault: \"d'\n"
+    },
+    {
+      "name": "indented-header",
+      "text": "  vaults:\n    a: /a\ndefault: /a\n"
+    },
+    {
+      "name": "top-level-key-after-section",
+      "text": "vaults:\n  a: /a\nother_top: 1\ndefault: /a\n"
+    },
+    {
+      "name": "default-variants",
+      "text": "vaults:\n  a: /a\ndefault: /a\ndefault2:\ndefault3: 'name'\n"
+    },
+    {
+      "name": "entries-with-spaces",
+      "text": "vaults:\n  my vault: /path with spaces\n  '~/tilde': ~/Vaults/main\n"
+    },
+    {
+      "name": "malformed-entries",
+      "text": "vaults:\n  nocolon\n  empty:\n  spaced  :  /spaced  \n"
+    },
+    {
+      "name": "comments-and-blanks",
+      "text": "# header\n\nvaults:\n\n  # about a\n  a: /a\n\n# between\n\ndefault: /a\n"
+    },
+    {
+      "name": "no-section-just-default",
+      "text": "default: /only\n"
+    },
+    {
+      "name": "duplicate-entry",
+      "text": "vaults:\n  a: /first\n  a: /second\n"
+    },
+    {
+      "name": "inline-value-header",
+      "text": "vaults: {}\n  a: /a\n"
+    },
+    {
+      "name": "default-with-trailing-comment",
+      "text": "vaults:\n  a: /a\ndefault: /a # note\n"
+    },
+    {
+      "name": "empty-file",
+      "text": ""
+    },
+    {
+      "name": "only-comments",
+      "text": "# nothing here\n# at all\n"
+    },
+    {
+      "name": "default-empty-value",
+      "text": "vaults:\n  a: /a\ndefault:\n"
+    },
+    {
+      "name": "indented-default-inside-section",
+      "text": "vaults:\n  a: /a\n  default: /inner\n"
+    }
+  ]
+}
