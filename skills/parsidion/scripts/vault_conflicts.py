@@ -76,6 +76,7 @@ def _group_clusters(n: int, pairs: list[tuple[int, int]]) -> list[list[int]]:
     parent = list(range(n))
 
     def find(x: int) -> int:
+        """Return the root of *x*, compressing the path along the way."""
         while parent[x] != x:
             parent[x] = parent[parent[x]]
             x = parent[x]

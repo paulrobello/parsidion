@@ -164,6 +164,7 @@ def _rank_candidates(
     decay_days = get_config("adaptive_context", "decay_days", 30, vault=vault)
 
     def score_and_mtime(note: Path) -> tuple[float, float]:
+        """Compute the (ranking score, mtime) pair for a candidate note."""
         key = str(note)
         score = _PROJECT_MATCH_SCORE if key in project_paths else 0.0
         if key in neighbour_paths:
