@@ -25,6 +25,7 @@ from core.vault_adaptive import (
 )
 from core.vault_config import get_config
 from core.vault_index import (
+    SessionIndexSnapshot,
     all_vault_notes,
     parse_frontmatter,
     query_note_index,
@@ -53,6 +54,7 @@ def _build_candidates(
     graph_meta: dict[str, dict[str, object]] | None = None,
     graph_expand_max: int = 0,
     max_candidates: int | None = None,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> list[Path]:
     """Collect, rank, and prune the AI-mode candidate pool.
 
@@ -80,6 +82,9 @@ def _build_candidates(
         graph_meta: Optional output of ``vault_index.load_graph_metadata()``.
         graph_expand_max: Max graph neighbours to splice in (0 = disabled).
         max_candidates: Cap on the ranked pool (0 = unlimited, None = default).
+        snapshot: PRF-104 -- the run's shared ``note_index`` snapshot. When
+            given, both pool queries are served from it instead of opening two
+            more read-only connections.
 
     Returns:
         Ranked, pruned list of note paths.
@@ -88,10 +93,18 @@ def _build_candidates(
         max_candidates = _DEFAULT_AI_CANDIDATES_MAX
 
     # ARC-011: Try SQLite first for project notes (O(1) index lookup)
-    db_project_notes = query_note_index(
-        project=project_name, limit=500, vault=vault_path
-    )
-    db_recent_notes = query_note_index(recent_days=30, limit=500, vault=vault_path)
+    if snapshot is not None:
+        db_project_notes: list[Path] | None = snapshot.paths_where(
+            project=project_name, limit=500
+        )
+        db_recent_notes: list[Path] | None = snapshot.paths_where(
+            recent_days=30, limit=500
+        )
+    else:
+        db_project_notes = query_note_index(
+            project=project_name, limit=500, vault=vault_path
+        )
+        db_recent_notes = query_note_index(recent_days=30, limit=500, vault=vault_path)
 
     if db_project_notes is not None and db_recent_notes is not None:
         # SQLite path: fast, no file reads needed for candidate list
@@ -134,7 +147,9 @@ def _build_candidates(
     # project prefix. Computed once here so the same set feeds the scorer.
     neighbours: list[Path] = []
     if graph_meta and graph_expand_max > 0 and seeds:
-        neighbours = _graph_neighbors(seeds, graph_meta, vault_path, graph_expand_max)
+        neighbours = _graph_neighbors(
+            seeds, graph_meta, vault_path, graph_expand_max, snapshot=snapshot
+        )
     existing = {str(p) for p in base}
     fresh = [n for n in neighbours if str(n) not in existing]
     enriched = base[:prefix_len] + fresh + base[prefix_len:]

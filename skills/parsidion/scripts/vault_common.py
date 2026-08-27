@@ -131,7 +131,10 @@ from vault_index import (
     find_notes_by_type,
     find_recent_notes,
     get_body,
+    SessionIndexRow,
+    SessionIndexSnapshot,
     load_graph_metadata,
+    load_session_index_snapshot,
     note_index_age,
     parse_frontmatter,
     parse_related_stems,
@@ -283,6 +286,10 @@ __all__: list[str] = [
     "query_note_index",
     "note_index_age",
     "load_graph_metadata",
+    # Per-run note_index snapshot (PRF-104)
+    "SessionIndexRow",
+    "SessionIndexSnapshot",
+    "load_session_index_snapshot",
     "parse_related_stems",
     # Content helpers
     "extract_title",

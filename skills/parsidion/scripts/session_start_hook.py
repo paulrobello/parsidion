@@ -48,11 +48,13 @@ from core.vault_hooks import (
     write_hook_event,
 )
 from core.vault_index import (
+    SessionIndexSnapshot,
     build_compact_index,
     build_context_block,
     find_notes_by_project,
     find_recent_notes,
     load_graph_metadata,
+    load_session_index_snapshot,
     read_note_summary,
 )
 from core.vault_path import (
@@ -107,6 +109,10 @@ from session_start.seed_selection import (
 # resolved to a vault (see main()/build_session_context).
 _BACKEND_DEFAULT_AI_MODEL = "__parsidion_backend_default__"
 _DEFAULT_MAX_CHARS = 4000
+# PRF-104: cap on the recent-notes fetch in the standard context path. The
+# injected context is char-budgeted (_DEFAULT_MAX_CHARS), so the tail of a
+# thousands-row fetch could never reach the agent.
+_CONTEXT_RECENT_LIMIT = 200
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
@@ -369,6 +375,7 @@ def _select_seed_notes(
     project_name: str,
     vault_path: Path,
     daily_path: Path,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> tuple[list[Path], set[Path]]:
     """Collect and de-duplicate the seed note set for the standard context path.
 
@@ -379,11 +386,21 @@ def _select_seed_notes(
     graph-neighbour expansion (:func:`_apply_graph_retrieval`) dedups against
     the same index.
     """
-    project_notes: list[Path] = find_notes_by_project(project_name, vault=vault_path)
+    project_notes: list[Path] = find_notes_by_project(
+        project_name, vault=vault_path, snapshot=snapshot
+    )
     recent_days: int = load_typed_config(
         vault=vault_path
     ).session_start_hook.recent_days
-    recent_notes: list[Path] = find_recent_notes(days=recent_days, vault=vault_path)
+    # PRF-104: cap the recent-notes fetch. The general-purpose finder is still
+    # unbounded for other callers; here the injected-context budget is 4,000
+    # chars, so pulling thousands of rows only to truncate them serves nothing.
+    recent_notes: list[Path] = find_recent_notes(
+        days=recent_days,
+        vault=vault_path,
+        limit=_CONTEXT_RECENT_LIMIT,
+        snapshot=snapshot,
+    )
 
     seen: set[Path] = set()
     all_notes: list[Path] = []
@@ -451,6 +468,13 @@ def build_session_context(
     # Ensure vault directories exist and create today's daily note
     ensure_vault_dirs(vault=vault_path)
 
+    # PRF-104: one note_index read for the whole invocation. Every DB-backed
+    # consumer below (seed queries, graph metadata, the compact index, the
+    # delta block) takes its data off this snapshot instead of opening its own
+    # connection. None means no embeddings.db -- each consumer then falls back
+    # exactly as it did before.
+    snapshot = load_session_index_snapshot(vault=vault_path)
+
     header: str = f"# Vault Context for {project_name}\n**Date:** {today_str}\n\n"
 
     # --- Pending queue warning (#3) ---
@@ -469,7 +493,9 @@ def build_session_context(
     if load_typed_config(vault=vault_path).session_start_hook.track_delta:
         last_seen_map = load_last_seen(vault=vault_path)
         last_seen_ts = last_seen_map.get(project_name)
-        delta_section = _build_delta_section(project_name, last_seen_ts, vault_path)
+        delta_section = _build_delta_section(
+            project_name, last_seen_ts, vault_path, snapshot=snapshot
+        )
     # Update last-seen timestamp for this project
     save_last_seen(project_name, vault=vault_path)
 
@@ -481,7 +507,11 @@ def build_session_context(
         # is ranked and pruned Python-side (project match > graph adjacency >
         # adaptive usefulness > recency > hubness) so the selector's prompt
         # carries the best subset, not an arbitrary 8000-char prefix.
-        ai_graph_meta = load_graph_metadata(vault=vault_path)
+        ai_graph_meta = (
+            snapshot.graph_metadata()
+            if snapshot is not None
+            else load_graph_metadata(vault=vault_path)
+        )
         ai_max_add = 0
         _cfg = load_typed_config(vault=vault_path)
         if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
@@ -494,6 +524,7 @@ def build_session_context(
             max_candidates=load_typed_config(
                 vault=vault_path
             ).session_start_hook.ai_candidates_max,
+            snapshot=snapshot,
         )
         ai_context = _select_context_with_ai(
             project_name, cwd, candidates, ai_model, max_chars, vault_path=vault_path
@@ -520,7 +551,9 @@ def build_session_context(
         daily_dir.mkdir(parents=True, exist_ok=True)
         daily_path.touch()
 
-    all_notes, seen = _select_seed_notes(project_name, vault_path, daily_path)
+    all_notes, seen = _select_seed_notes(
+        project_name, vault_path, daily_path, snapshot=snapshot
+    )
 
     # Graph retrieval (Tier 1 neighbour expansion + Tier 2 tag/hubness rerank)
     # plus the adaptive usefulness rerank. The seed snapshot is captured inside
@@ -528,9 +561,13 @@ def build_session_context(
     adaptive_enabled: bool = load_typed_config(
         vault=vault_path
     ).adaptive_context.enabled
-    graph_meta = load_graph_metadata(vault=vault_path)
+    graph_meta = (
+        snapshot.graph_metadata()
+        if snapshot is not None
+        else load_graph_metadata(vault=vault_path)
+    )
     all_notes = _apply_graph_retrieval(
-        all_notes, seen, graph_meta, vault_path, adaptive_enabled
+        all_notes, seen, graph_meta, vault_path, adaptive_enabled, snapshot=snapshot
     )
 
     notes_injected = len(all_notes)
@@ -544,7 +581,9 @@ def build_session_context(
     # Build context block from collected notes, reserving space for the header
     max_body_chars: int = max_chars - len(header)
     if not verbose_mode:
-        context_body: str = build_compact_index(all_notes, max_chars=max_body_chars)
+        context_body: str = build_compact_index(
+            all_notes, max_chars=max_body_chars, vault=vault_path, snapshot=snapshot
+        )
     else:
         context_body = build_context_block(all_notes, max_chars=max_body_chars)
 

@@ -427,10 +427,14 @@ def test_dead_letter_notice_included_in_session_context(
     )
     _use_vault(monkeypatch, vault)
     monkeypatch.setattr(
-        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+        session_start_hook,
+        "find_notes_by_project",
+        lambda project, vault=None, snapshot=None: [],
     )
     monkeypatch.setattr(
-        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+        session_start_hook,
+        "find_recent_notes",
+        lambda days=3, vault=None, limit=None, snapshot=None: [],
     )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
@@ -463,10 +467,14 @@ def test_dead_letter_notice_suppressed_by_default(
     )
     _use_vault(monkeypatch, vault)
     monkeypatch.setattr(
-        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+        session_start_hook,
+        "find_notes_by_project",
+        lambda project, vault=None, snapshot=None: [],
     )
     monkeypatch.setattr(
-        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+        session_start_hook,
+        "find_recent_notes",
+        lambda days=3, vault=None, limit=None, snapshot=None: [],
     )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
     (vault / "dead_letters.jsonl").write_text(
@@ -494,10 +502,14 @@ def test_no_dead_letter_notice_when_file_absent(
     )
     _use_vault(monkeypatch, vault)
     monkeypatch.setattr(
-        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+        session_start_hook,
+        "find_notes_by_project",
+        lambda project, vault=None, snapshot=None: [],
     )
     monkeypatch.setattr(
-        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+        session_start_hook,
+        "find_recent_notes",
+        lambda days=3, vault=None, limit=None, snapshot=None: [],
     )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
@@ -558,10 +570,14 @@ def test_selected_vault_config_loaded_under_different_cwd(
 
     # Mock filesystem scans
     monkeypatch.setattr(
-        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+        session_start_hook,
+        "find_notes_by_project",
+        lambda project, vault=None, snapshot=None: [],
     )
     monkeypatch.setattr(
-        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+        session_start_hook,
+        "find_recent_notes",
+        lambda days=3, vault=None, limit=None, snapshot=None: [],
     )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 

@@ -45,6 +45,7 @@ def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> No
 
 import vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
 from core import ai_backend as core_ai_backend  # noqa: E402 -- ARC-006: patch internals where they live
+from core import vault_index as core_vault_index  # noqa: E402 -- same rule
 
 
 def _write_codex_config(vault: Path) -> None:
@@ -786,10 +787,12 @@ class TestGraphExpansionIntegration:
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
-            lambda project, vault=None: [seed],
+            lambda project, vault=None, snapshot=None: [seed],
         )
         monkeypatch.setattr(
-            session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+            session_start_hook,
+            "find_recent_notes",
+            lambda days=3, vault=None, limit=None, snapshot=None: [],
         )
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
@@ -955,10 +958,12 @@ class TestGraphRerankIntegration:
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
-            lambda project, vault=None: [seed],
+            lambda project, vault=None, snapshot=None: [seed],
         )
         monkeypatch.setattr(
-            session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+            session_start_hook,
+            "find_recent_notes",
+            lambda days=3, vault=None, limit=None, snapshot=None: [],
         )
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
@@ -1518,3 +1523,163 @@ class TestSemanticSearchParsightInProcess:
 
         assert events, "SessionStart hook event must be written"
         assert events[0].get("semantic") == "parsight-inproc"
+
+
+# ---------------------------------------------------------------------------
+# PRF-104: one note_index snapshot per SessionStart
+# ---------------------------------------------------------------------------
+
+
+class TestSessionIndexSnapshot:
+    """The snapshot must be equivalent to the per-call queries it replaces."""
+
+    def _vault_with_rows(self, tmp_path: Path) -> Path:
+        vault = tmp_path / "vault"
+        (vault / "Patterns").mkdir(parents=True)
+        conn = _make_note_index(vault)
+        for stem, project, related, mtime in (
+            ("alpha", "proj", "beta", 5000.0),
+            ("beta", "other", "gamma", 4000.0),
+            ("gamma", "proj", "", 3000.0),
+        ):
+            note = vault / "Patterns" / f"{stem}.md"
+            note.write_text(f"# {stem}\n", encoding="utf-8")
+            _index_row(
+                conn,
+                stem=stem,
+                path=note,
+                related=related,
+                project=project,
+                tags=stem[0],
+                mtime=mtime,
+            )
+        conn.close()
+        return vault
+
+    def test_missing_db_returns_none(self, tmp_path: Path) -> None:
+        """Same sentinel contract as every other DB-first reader here."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        assert vault_common.load_session_index_snapshot(vault=empty) is None
+
+    def test_graph_metadata_matches_the_standalone_loader(self, tmp_path: Path) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert snapshot.graph_metadata() == vault_common.load_graph_metadata(
+            vault=vault
+        )
+
+    def test_compact_map_matches_the_standalone_loader(self, tmp_path: Path) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert snapshot.compact_index_map() == core_vault_index._load_note_index_map(
+            vault
+        )
+
+    def test_paths_where_matches_query_note_index(self, tmp_path: Path) -> None:
+        """The in-Python filter must reproduce the SQL it replaces."""
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert snapshot.paths_where(project="proj", limit=50) == (
+            vault_common.query_note_index(project="proj", vault=vault, limit=50)
+        )
+        # Ordering is mtime-descending, like the SQL's ORDER BY.
+        stems = [p.stem for p in snapshot.paths_where(project="proj", limit=50)]
+        assert stems == ["alpha", "gamma"]
+
+    def test_paths_where_honours_the_limit(self, tmp_path: Path) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert len(snapshot.paths_where(limit=2)) == 2
+
+    def test_paths_where_drops_rows_whose_file_is_gone(self, tmp_path: Path) -> None:
+        """SEC-005 / SEC-130 containment and existence checks are not skipped."""
+        vault = self._vault_with_rows(tmp_path)
+        (vault / "Patterns" / "alpha.md").unlink()
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert [p.stem for p in snapshot.paths_where(limit=50)] == ["beta", "gamma"]
+
+    def test_paths_where_rejects_rows_pointing_outside_the_vault(
+        self, tmp_path: Path
+    ) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        outside = tmp_path / "outside.md"
+        outside.write_text("# outside\n", encoding="utf-8")
+        conn = _make_note_index(vault)
+        _index_row(conn, stem="outside", path=outside, mtime=9999.0)
+        conn.close()
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert "outside" not in [p.stem for p in snapshot.paths_where(limit=50)]
+
+    def test_reverse_adjacency_matches_a_full_scan(self, tmp_path: Path) -> None:
+        """The precomputed incoming map replaces the O(N x seeds) scan."""
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        meta = snapshot.graph_metadata()
+        for stem in meta:
+            expected = {
+                other
+                for other, m in meta.items()
+                if stem in vault_common.parse_related_stems(str(m.get("related", "")))
+            }
+            assert snapshot.incoming_stems(stem) == expected
+
+    def test_graph_neighbors_agree_with_and_without_a_snapshot(
+        self, tmp_path: Path
+    ) -> None:
+        """The snapshot fast path must not change which neighbours are found."""
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        meta = snapshot.graph_metadata()
+        seeds = [vault / "Patterns" / "beta.md"]
+
+        with_snapshot = session_start_hook._graph_neighbors(
+            seeds, meta, vault, 8, snapshot=snapshot
+        )
+        without = session_start_hook._graph_neighbors(seeds, meta, vault, 8)
+        assert with_snapshot == without
+        # beta links to gamma (outgoing) and alpha links to beta (incoming).
+        assert {p.stem for p in with_snapshot} == {"alpha", "gamma"}
+
+    def test_build_session_context_reads_note_index_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole point: one full table read per hook invocation.
+
+        Previously a standard run performed ~3 (project/recent queries, graph
+        metadata, and another load inside build_compact_index).
+        """
+        vault = self._vault_with_rows(tmp_path)
+        _use_vault(monkeypatch, vault)
+        monkeypatch.setattr(
+            session_start_hook, "_run_semantic_search", lambda *a, **k: []
+        )
+
+        reads = {"n": 0}
+        real_loader = core_vault_index.load_session_index_snapshot
+
+        def counting_loader(vault: Path | None = None):  # type: ignore[no-untyped-def]
+            reads["n"] += 1
+            return real_loader(vault)
+
+        monkeypatch.setattr(
+            core_vault_index, "load_session_index_snapshot", counting_loader
+        )
+        monkeypatch.setattr(
+            session_start_hook, "load_session_index_snapshot", counting_loader
+        )
+
+        context, _count = session_start_hook.build_session_context(
+            str(vault), max_chars=4000
+        )
+
+        assert context
+        assert reads["n"] == 1, f"note_index read {reads['n']} times, expected 1"
