@@ -407,7 +407,7 @@ def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
     """Point vault_common at *vault* and clear the resolver/config caches."""
     monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
     vault_common._clear_config_cache()
 
 
@@ -554,7 +554,7 @@ def test_selected_vault_config_loaded_under_different_cwd(
 
     # Clear caches
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
 
     # Mock filesystem scans
     monkeypatch.setattr(

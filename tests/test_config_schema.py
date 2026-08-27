@@ -303,7 +303,7 @@ class TestValidateConfigBattery:
         self, name: str, yaml_text: str, tmp_vault: Path
     ) -> None:
         (tmp_vault / "config.yaml").write_text(yaml_text, encoding="utf-8")
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         live = vault_config.validate_config()
 
@@ -322,7 +322,7 @@ class TestValidateConfigBattery:
 
     def test_empty_config_yields_no_warnings(self, tmp_vault: Path) -> None:
         # No config.yaml at all -> load_config returns {} -> validate_config [].
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         assert vault_config.validate_config() == []
 
 
@@ -405,7 +405,7 @@ class TestLoadTypedConfig:
             "embeddings:\n  top_k: 8\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         vault_config._clear_typed_config_cache()
 
         typed = vault_config.load_typed_config()
@@ -424,7 +424,7 @@ class TestLoadTypedConfig:
         (tmp_vault / "config.yaml").write_text(
             "ai:\n  backend: claude-cli\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         vault_config._clear_typed_config_cache()
 
         first = vault_config.load_typed_config()

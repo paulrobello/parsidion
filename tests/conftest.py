@@ -66,7 +66,7 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
     # Clear caches before setting the env var so any residual cached entry
     # from a previous test cannot bleed into this one.
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
 
     # SEC-P001: register tmp_path in a test-local vaults.yaml so the
     # allowlist resolver accepts CLAUDE_VAULT references to it.
@@ -83,7 +83,7 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
 
     # Teardown: clear caches so the next test starts clean.
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
 
 
 @pytest.fixture(autouse=True)

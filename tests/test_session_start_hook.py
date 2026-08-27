@@ -527,7 +527,7 @@ def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
     """Point vault_common at *vault* and clear the resolver/config caches."""
     monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
     vault_common._clear_config_cache()
 
 
@@ -1258,7 +1258,7 @@ class TestAiBranchGraphEnrichment:
             "  track_delta: false\n",
             encoding="utf-8",
         )
-        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.clear_config_cache()
         vault_common._clear_config_cache()
         captured: dict[str, list[str]] = {}
 

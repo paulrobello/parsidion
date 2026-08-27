@@ -83,7 +83,7 @@ def run_build_graph(
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     import parsight_backend
 
     parsight_backend.reset_parsight_cache()
@@ -262,7 +262,7 @@ class TestParsightDisabledOutputIdentical:
         # Run 2 (control): binary entirely absent from PATH, config default
         # (enabled) — the pre-integration behavior.
         (tmp_vault / "config.yaml").unlink()
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
         import parsight_backend
 
         parsight_backend.reset_parsight_cache()
