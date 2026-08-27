@@ -63,10 +63,10 @@ The stdlib-only constraint is enforced on <code><a href="core/vault_adaptive.htm
 
                         <label class="view-source-button" for="mod-vault_adaptive-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;vault_adaptive -- compatibility shim (ARC-004 / QA-005 / ARC-012).</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">"""vault_adaptive -- compatibility shim (ARC-004 / QA-005 / ARC-012).</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Implementation moved to ``core.vault_adaptive``. This shim re-exports</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">the module&#39;s controlled non-dunder surface (defined by</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">the module's controlled non-dunder surface (defined by</span>
 </span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">``core.vault_adaptive.__all__``) so every existing caller --</span>
 </span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">``import vault_adaptive``, ``from vault_adaptive import X``,</span>
 </span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="sd">``vault_adaptive.X`` -- keeps working unchanged. QA-005 / ARC-012:</span>
@@ -76,7 +76,7 @@ The stdlib-only constraint is enforced on <code><a href="core/vault_adaptive.htm
 </span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="sd">the former directly and the latter are not part of the public surface.</span>
 </span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">The stdlib-only constraint is enforced on ``core.vault_adaptive`` by</span>
 </span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="sd">``tests/test_stdlib_only.py``.</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">"""</span>
 </span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>
 </span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">core.vault_adaptive</span><span class="w"> </span><span class="kn">import</span> <span class="o">*</span>  <span class="c1"># noqa: F403 -- controlled by core.vault_adaptive.__all__</span>
 </span></pre></div>

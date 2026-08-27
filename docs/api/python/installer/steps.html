@@ -34,9 +34,6 @@
                     <a class="variable" href="#StepBody">StepBody</a>
             </li>
             <li>
-                    <a class="variable" href="#UndoBody">UndoBody</a>
-            </li>
-            <li>
                     <a class="class" href="#Step">Step</a>
                             <ul class="memberlist">
                         <li>
@@ -49,13 +46,7 @@
                                 <a class="variable" href="#Step.on_run">on_run</a>
                         </li>
                         <li>
-                                <a class="variable" href="#Step.on_undo">on_undo</a>
-                        </li>
-                        <li>
                                 <a class="function" href="#Step.run">run</a>
-                        </li>
-                        <li>
-                                <a class="function" href="#Step.undo">undo</a>
                         </li>
                 </ul>
 
@@ -110,18 +101,17 @@ both flows are rebuilt on top of:</p>
 
 <ul>
 <li><code><a href="#Step">Step</a></code>  — one ordered, individually-testable step with a <code>run()</code>
-(forward / install) and an <code>undo()</code> (inverse / uninstall). The default
-<code>undo()</code> is a no-op: most vault-affecting steps deliberately do not roll
-back (the vault is preserved across uninstall, by long-standing contract).
-Steps that own an inverse pass <code>on_undo</code>; steps that only undo under
-<code>--purge-config</code> gate on the <code>purge</code> flag passed to <code>undo()</code>.</li>
+(forward / install) action. QA-108 removed the never-wired <code>undo()</code> /
+<code>on_undo</code> rollback machinery: both <code>install()</code> and <code>uninstall()</code>
+build forward-only step lists (uninstall is itself the inverse flow, and
+the vault is preserved across it by long-standing contract).</li>
 <li><code><a href="#StepList">StepList</a></code> — owns the ordered steps, the failed-step tracker
 (preserving ARC-022's "surface every failure, return non-zero" semantics),
-and the forward/reverse iteration.</li>
+and the forward iteration.</li>
 </ul>
 
 <p>The step <em>abstraction</em> lives here. The step <em>instances</em> — the actual
-<code>on_run</code> / <code>on_undo</code> bodies — are still built in <code>install.py</code> (and in
+<code>on_run</code> bodies — are still built in <code>install.py</code> (and in
 <code>installer/uninstall.py</code>) because their lambdas reference install.py's
 module-global function names (<code>install_skill</code>, <code>merge_hooks</code>, ...) which
 the test suite monkeypatches via <code>install.&lt;name&gt;</code>. Moving the bodies into
@@ -140,7 +130,7 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
 
                         <label class="view-source-button" for="mod-steps-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">&quot;&quot;&quot;Transaction step-list primitives shared by ``install()`` and ``uninstall()``.</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">"""Transaction step-list primitives shared by ``install()`` and ``uninstall()``.</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos">  2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos">  3</span></a><span class="sd">ARC-017 / QA-002: ``install.py:install()`` was a CC-67 monolith of ~12 bare</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos">  4</span></a><span class="sd">sequential ``_run_step`` calls with no rollback, and ``installer/uninstall.py</span>
@@ -149,122 +139,107 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
 </span><span id="L-7"><a href="#L-7"><span class="linenos">  7</span></a><span class="sd">both flows are rebuilt on top of:</span>
 </span><span id="L-8"><a href="#L-8"><span class="linenos">  8</span></a>
 </span><span id="L-9"><a href="#L-9"><span class="linenos">  9</span></a><span class="sd">* :class:`Step`  — one ordered, individually-testable step with a ``run()``</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos"> 10</span></a><span class="sd">  (forward / install) and an ``undo()`` (inverse / uninstall). The default</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos"> 11</span></a><span class="sd">  ``undo()`` is a no-op: most vault-affecting steps deliberately do not roll</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos"> 12</span></a><span class="sd">  back (the vault is preserved across uninstall, by long-standing contract).</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos"> 13</span></a><span class="sd">  Steps that own an inverse pass ``on_undo``; steps that only undo under</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos"> 14</span></a><span class="sd">  ``--purge-config`` gate on the ``purge`` flag passed to ``undo()``.</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos"> 15</span></a><span class="sd">* :class:`StepList` — owns the ordered steps, the failed-step tracker</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos"> 16</span></a><span class="sd">  (preserving ARC-022&#39;s &quot;surface every failure, return non-zero&quot; semantics),</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos"> 17</span></a><span class="sd">  and the forward/reverse iteration.</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos"> 18</span></a>
-</span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a><span class="sd">The step *abstraction* lives here. The step *instances* — the actual</span>
-</span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="sd">``on_run`` / ``on_undo`` bodies — are still built in ``install.py`` (and in</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a><span class="sd">``installer/uninstall.py``) because their lambdas reference install.py&#39;s</span>
-</span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a><span class="sd">module-global function names (``install_skill``, ``merge_hooks``, ...) which</span>
-</span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="sd">the test suite monkeypatches via ``install.&lt;name&gt;``. Moving the bodies into</span>
-</span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a><span class="sd">this module would break that patch path, so only the infrastructure is here.</span>
-</span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a>
-</span><span id="L-26"><a href="#L-26"><span class="linenos"> 26</span></a><span class="sd">Composition with existing hardening (ARC-018 / SEC-105): ``hooks.merge_hooks``</span>
-</span><span id="L-27"><a href="#L-27"><span class="linenos"> 27</span></a><span class="sd">already does its own per-RMW ``settings.json.bak`` snapshot + flock. The</span>
-</span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a><span class="sd">transaction-level snapshot/restore lives inline in ``install()`` (snapshot</span>
-</span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a><span class="sd">before the run, restore if any settings-mutating step failed) and composes</span>
-</span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a><span class="sd">with, rather than duplicates, that per-write ``.bak``.</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a>
-</span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="sd">Stdlib-only — no third-party dependencies.</span>
-</span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a>
-</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a>
-</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Iterator</span>
-</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a>
-</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">installer.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">_err</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos"> 10</span></a><span class="sd">  (forward / install) action. QA-108 removed the never-wired ``undo()`` /</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos"> 11</span></a><span class="sd">  ``on_undo`` rollback machinery: both ``install()`` and ``uninstall()``</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos"> 12</span></a><span class="sd">  build forward-only step lists (uninstall is itself the inverse flow, and</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos"> 13</span></a><span class="sd">  the vault is preserved across it by long-standing contract).</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos"> 14</span></a><span class="sd">* :class:`StepList` — owns the ordered steps, the failed-step tracker</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos"> 15</span></a><span class="sd">  (preserving ARC-022's "surface every failure, return non-zero" semantics),</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos"> 16</span></a><span class="sd">  and the forward iteration.</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos"> 17</span></a>
+</span><span id="L-18"><a href="#L-18"><span class="linenos"> 18</span></a><span class="sd">The step *abstraction* lives here. The step *instances* — the actual</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a><span class="sd">``on_run`` bodies — are still built in ``install.py`` (and in</span>
+</span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="sd">``installer/uninstall.py``) because their lambdas reference install.py's</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a><span class="sd">module-global function names (``install_skill``, ``merge_hooks``, ...) which</span>
+</span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a><span class="sd">the test suite monkeypatches via ``install.&lt;name&gt;``. Moving the bodies into</span>
+</span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="sd">this module would break that patch path, so only the infrastructure is here.</span>
+</span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a>
+</span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a><span class="sd">Composition with existing hardening (ARC-018 / SEC-105): ``hooks.merge_hooks``</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos"> 26</span></a><span class="sd">already does its own per-RMW ``settings.json.bak`` snapshot + flock. The</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos"> 27</span></a><span class="sd">transaction-level snapshot/restore lives inline in ``install()`` (snapshot</span>
+</span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a><span class="sd">before the run, restore if any settings-mutating step failed) and composes</span>
+</span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a><span class="sd">with, rather than duplicates, that per-write ``.bak``.</span>
+</span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a>
+</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a><span class="sd">Stdlib-only — no third-party dependencies.</span>
+</span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="sd">"""</span>
+</span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a>
+</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a>
+</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Iterator</span>
+</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a>
+</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">installer.ui</span><span class="w"> </span><span class="kn">import</span> <span class="n">_err</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a>
 </span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a>
-</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a>
-</span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a><span class="c1"># A step body takes no arguments (it closes over the resolved install ctx).</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a><span class="c1"># Return value is ignored — many underlying helpers (install_skill, _confirm)</span>
-</span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a><span class="c1"># return a Path/bool that the step doesn&#39;t use, so the alias permits any return.</span>
-</span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a><span class="n">StepBody</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="nb">object</span><span class="p">]</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a><span class="c1"># An undo body receives the purge_config flag (uninstall-only).</span>
-</span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a><span class="n">UndoBody</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">bool</span><span class="p">],</span> <span class="nb">object</span><span class="p">]</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>
-</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a>
-</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a><span class="nd">@dataclass</span>
-</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="k">class</span><span class="w"> </span><span class="nc">Step</span><span class="p">:</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;One ordered install step with an optional inverse.</span>
-</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a>
-</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a><span class="sd">    Attributes:</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a><span class="sd">        name:    Stable identifier surfaced in the failed-step summary and</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a><span class="sd">                 in dry-run output (e.g. ``&quot;merge_hooks&quot;``). Matches the</span>
-</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="sd">                 function name tests monkeypatch via ``install.&lt;name&gt;``.</span>
-</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="sd">        on_run:  Forward action. Must raise on failure (the runner catches</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a><span class="sd">                 and records it). Resolves referenced functions through the</span>
-</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="sd">                 *caller&#39;s* module globals so monkeypatch keeps working.</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a><span class="sd">        on_undo: Inverse action, or ``None`` for steps that the uninstall</span>
-</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="sd">                 flow deliberately preserves (vault contents, embeddings</span>
-</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">                 config, git init, etc.). When provided, receives the</span>
-</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="sd">                 ``purge`` flag so a single body can gate on</span>
-</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">                 ``--purge-config``.</span>
-</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a><span class="c1"># A step body takes no arguments (it closes over the resolved install ctx).</span>
+</span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a><span class="c1"># Return value is ignored — many underlying helpers (install_skill, _confirm)</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a><span class="c1"># return a Path/bool that the step doesn't use, so the alias permits any return.</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a><span class="n">StepBody</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="nb">object</span><span class="p">]</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a>
+</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a>
+</span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a><span class="nd">@dataclass</span>
+</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a><span class="k">class</span><span class="w"> </span><span class="nc">Step</span><span class="p">:</span>
+</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a><span class="w">    </span><span class="sd">"""One ordered install step.</span>
+</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a>
+</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="sd">    Attributes:</span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a><span class="sd">        name:    Stable identifier surfaced in the failed-step summary and</span>
+</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a><span class="sd">                 in dry-run output (e.g. ``"merge_hooks"``). Matches the</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a><span class="sd">                 function name tests monkeypatch via ``install.&lt;name&gt;``.</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a><span class="sd">        on_run:  Forward action. Must raise on failure (the runner catches</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a><span class="sd">                 and records it). Resolves referenced functions through the</span>
+</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="sd">                 *caller's* module globals so monkeypatch keeps working.</span>
+</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="sd">    """</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a>    <span class="n">on_run</span><span class="p">:</span> <span class="n">StepBody</span>
+</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a>
+</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="w">        </span><span class="sd">"""Run this step's forward (install) action via ``on_run``."""</span>
+</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_run</span><span class="p">()</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a>
 </span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a>
-</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a>    <span class="n">on_run</span><span class="p">:</span> <span class="n">StepBody</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a>    <span class="n">on_undo</span><span class="p">:</span> <span class="n">UndoBody</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="nd">@dataclass</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="k">class</span><span class="w"> </span><span class="nc">StepList</span><span class="p">:</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="w">    </span><span class="sd">"""Ordered list of :class:`Step` with a forward runner.</span>
 </span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a>
-</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run this step&#39;s forward (install) action via ``on_run``.&quot;&quot;&quot;</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_run</span><span class="p">()</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">undo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">purge</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the inverse action with the ``purge`` flag; no-op when ``on_undo`` is unset.&quot;&quot;&quot;</span>
-</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_undo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>            <span class="k">return</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_undo</span><span class="p">(</span><span class="n">purge</span><span class="p">)</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">    ``run_all()`` preserves ARC-022 semantics exactly: each step runs inside</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="sd">    a ``try/except Exception`` (KeyboardInterrupt/SystemExit propagate so</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="sd">    Ctrl-C still works mid-install); failures are appended to</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="sd">    ``failed_steps`` and the run *continues* so a partial install surfaces</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="sd">    as many independent failures as possible. The caller turns a non-empty</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="sd">    ``failed_steps`` into a non-zero exit code.</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a><span class="sd">    """</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>    <span class="n">failed_steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
 </span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>
-</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a><span class="nd">@dataclass</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a><span class="k">class</span><span class="w"> </span><span class="nc">StepList</span><span class="p">:</span>
-</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ordered list of :class:`Step` with forward/backward runners.</span>
-</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>
-</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="sd">    ``run_all()`` preserves ARC-022 semantics exactly: each step runs inside</span>
-</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="sd">    a ``try/except Exception`` (KeyboardInterrupt/SystemExit propagate so</span>
-</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="sd">    Ctrl-C still works mid-install); failures are appended to</span>
-</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a><span class="sd">    ``failed_steps`` and the run *continues* so a partial install surfaces</span>
-</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="sd">    as many independent failures as possible. The caller turns a non-empty</span>
-</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="sd">    ``failed_steps`` into a non-zero exit code.</span>
-</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a>
-</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a>    <span class="n">failed_steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a>
-</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">Step</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
-</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Append *step*; returns self for chaining.&quot;&quot;&quot;</span>
-</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
-</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a>        <span class="k">return</span> <span class="bp">self</span>
-</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>
-</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
-</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Append each step in *steps*; returns self for chaining.&quot;&quot;&quot;</span>
-</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>        <span class="k">return</span> <span class="bp">self</span>
-</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>
-</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Step</span><span class="p">]:</span>
-</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>
-</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a>
-</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]:</span>
-</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run each step&#39;s ``run()`` in order; capture failures without</span>
-</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a><span class="sd">        aborting siblings. Returns ``failed_steps`` (empty on full success).</span>
-</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
-</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a>            <span class="k">try</span><span class="p">:</span>
-</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>                <span class="n">step</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
-</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — install must not crash</span>
-</span><span id="L-123"><a href="#L-123"><span class="linenos">123</span></a>                <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
-</span><span id="L-124"><a href="#L-124"><span class="linenos">124</span></a>                <span class="n">_err</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step &#39;</span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="L-125"><a href="#L-125"><span class="linenos">125</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">Step</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a><span class="w">        </span><span class="sd">"""Append *step*; returns self for chaining."""</span>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>        <span class="k">return</span> <span class="bp">self</span>
+</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="w">        </span><span class="sd">"""Append each step in *steps*; returns self for chaining."""</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>        <span class="k">return</span> <span class="bp">self</span>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Step</span><span class="p">]:</span>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a>        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]:</span>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="w">        </span><span class="sd">"""Run each step's ``run()`` in order; capture failures without</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="sd">        aborting siblings. Returns ``failed_steps`` (empty on full success).</span>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a><span class="sd">        """</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>            <span class="k">try</span><span class="p">:</span>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a>                <span class="n">step</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — install must not crash</span>
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>                <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>                <span class="n">_err</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step '</span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">' failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span>
 </span></pre></div>
 
 
@@ -281,18 +256,6 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
     
 
                 </section>
-                <section id="UndoBody">
-                    <div class="attr variable">
-            <span class="name">UndoBody</span>        =
-<span class="default_value">collections.abc.Callable[[bool], object]</span>
-
-        
-    </div>
-    <a class="headerlink" href="#UndoBody"></a>
-    
-    
-
-                </section>
                 <section id="Step">
                             <input id="Step-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr class">
@@ -305,41 +268,29 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
 
     </div>
     <a class="headerlink" href="#Step"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="Step-52"><a href="#Step-52"><span class="linenos">52</span></a><span class="nd">@dataclass</span>
-</span><span id="Step-53"><a href="#Step-53"><span class="linenos">53</span></a><span class="k">class</span><span class="w"> </span><span class="nc">Step</span><span class="p">:</span>
-</span><span id="Step-54"><a href="#Step-54"><span class="linenos">54</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;One ordered install step with an optional inverse.</span>
-</span><span id="Step-55"><a href="#Step-55"><span class="linenos">55</span></a>
-</span><span id="Step-56"><a href="#Step-56"><span class="linenos">56</span></a><span class="sd">    Attributes:</span>
-</span><span id="Step-57"><a href="#Step-57"><span class="linenos">57</span></a><span class="sd">        name:    Stable identifier surfaced in the failed-step summary and</span>
-</span><span id="Step-58"><a href="#Step-58"><span class="linenos">58</span></a><span class="sd">                 in dry-run output (e.g. ``&quot;merge_hooks&quot;``). Matches the</span>
-</span><span id="Step-59"><a href="#Step-59"><span class="linenos">59</span></a><span class="sd">                 function name tests monkeypatch via ``install.&lt;name&gt;``.</span>
-</span><span id="Step-60"><a href="#Step-60"><span class="linenos">60</span></a><span class="sd">        on_run:  Forward action. Must raise on failure (the runner catches</span>
-</span><span id="Step-61"><a href="#Step-61"><span class="linenos">61</span></a><span class="sd">                 and records it). Resolves referenced functions through the</span>
-</span><span id="Step-62"><a href="#Step-62"><span class="linenos">62</span></a><span class="sd">                 *caller&#39;s* module globals so monkeypatch keeps working.</span>
-</span><span id="Step-63"><a href="#Step-63"><span class="linenos">63</span></a><span class="sd">        on_undo: Inverse action, or ``None`` for steps that the uninstall</span>
-</span><span id="Step-64"><a href="#Step-64"><span class="linenos">64</span></a><span class="sd">                 flow deliberately preserves (vault contents, embeddings</span>
-</span><span id="Step-65"><a href="#Step-65"><span class="linenos">65</span></a><span class="sd">                 config, git init, etc.). When provided, receives the</span>
-</span><span id="Step-66"><a href="#Step-66"><span class="linenos">66</span></a><span class="sd">                 ``purge`` flag so a single body can gate on</span>
-</span><span id="Step-67"><a href="#Step-67"><span class="linenos">67</span></a><span class="sd">                 ``--purge-config``.</span>
-</span><span id="Step-68"><a href="#Step-68"><span class="linenos">68</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="Step-69"><a href="#Step-69"><span class="linenos">69</span></a>
-</span><span id="Step-70"><a href="#Step-70"><span class="linenos">70</span></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="Step-71"><a href="#Step-71"><span class="linenos">71</span></a>    <span class="n">on_run</span><span class="p">:</span> <span class="n">StepBody</span>
-</span><span id="Step-72"><a href="#Step-72"><span class="linenos">72</span></a>    <span class="n">on_undo</span><span class="p">:</span> <span class="n">UndoBody</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="Step-73"><a href="#Step-73"><span class="linenos">73</span></a>
-</span><span id="Step-74"><a href="#Step-74"><span class="linenos">74</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="Step-75"><a href="#Step-75"><span class="linenos">75</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run this step&#39;s forward (install) action via ``on_run``.&quot;&quot;&quot;</span>
-</span><span id="Step-76"><a href="#Step-76"><span class="linenos">76</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_run</span><span class="p">()</span>
-</span><span id="Step-77"><a href="#Step-77"><span class="linenos">77</span></a>
-</span><span id="Step-78"><a href="#Step-78"><span class="linenos">78</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">undo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">purge</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="Step-79"><a href="#Step-79"><span class="linenos">79</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the inverse action with the ``purge`` flag; no-op when ``on_undo`` is unset.&quot;&quot;&quot;</span>
-</span><span id="Step-80"><a href="#Step-80"><span class="linenos">80</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_undo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="Step-81"><a href="#Step-81"><span class="linenos">81</span></a>            <span class="k">return</span>
-</span><span id="Step-82"><a href="#Step-82"><span class="linenos">82</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_undo</span><span class="p">(</span><span class="n">purge</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="Step-49"><a href="#Step-49"><span class="linenos">49</span></a><span class="nd">@dataclass</span>
+</span><span id="Step-50"><a href="#Step-50"><span class="linenos">50</span></a><span class="k">class</span><span class="w"> </span><span class="nc">Step</span><span class="p">:</span>
+</span><span id="Step-51"><a href="#Step-51"><span class="linenos">51</span></a><span class="w">    </span><span class="sd">"""One ordered install step.</span>
+</span><span id="Step-52"><a href="#Step-52"><span class="linenos">52</span></a>
+</span><span id="Step-53"><a href="#Step-53"><span class="linenos">53</span></a><span class="sd">    Attributes:</span>
+</span><span id="Step-54"><a href="#Step-54"><span class="linenos">54</span></a><span class="sd">        name:    Stable identifier surfaced in the failed-step summary and</span>
+</span><span id="Step-55"><a href="#Step-55"><span class="linenos">55</span></a><span class="sd">                 in dry-run output (e.g. ``"merge_hooks"``). Matches the</span>
+</span><span id="Step-56"><a href="#Step-56"><span class="linenos">56</span></a><span class="sd">                 function name tests monkeypatch via ``install.&lt;name&gt;``.</span>
+</span><span id="Step-57"><a href="#Step-57"><span class="linenos">57</span></a><span class="sd">        on_run:  Forward action. Must raise on failure (the runner catches</span>
+</span><span id="Step-58"><a href="#Step-58"><span class="linenos">58</span></a><span class="sd">                 and records it). Resolves referenced functions through the</span>
+</span><span id="Step-59"><a href="#Step-59"><span class="linenos">59</span></a><span class="sd">                 *caller's* module globals so monkeypatch keeps working.</span>
+</span><span id="Step-60"><a href="#Step-60"><span class="linenos">60</span></a><span class="sd">    """</span>
+</span><span id="Step-61"><a href="#Step-61"><span class="linenos">61</span></a>
+</span><span id="Step-62"><a href="#Step-62"><span class="linenos">62</span></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="Step-63"><a href="#Step-63"><span class="linenos">63</span></a>    <span class="n">on_run</span><span class="p">:</span> <span class="n">StepBody</span>
+</span><span id="Step-64"><a href="#Step-64"><span class="linenos">64</span></a>
+</span><span id="Step-65"><a href="#Step-65"><span class="linenos">65</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="Step-66"><a href="#Step-66"><span class="linenos">66</span></a><span class="w">        </span><span class="sd">"""Run this step's forward (install) action via ``on_run``."""</span>
+</span><span id="Step-67"><a href="#Step-67"><span class="linenos">67</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_run</span><span class="p">()</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>One ordered install step with an optional inverse.</p>
+            <div class="docstring"><p>One ordered install step.</p>
 
 <p>Attributes:
     name:    Stable identifier surfaced in the failed-step summary and
@@ -347,19 +298,14 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
              function name tests monkeypatch via <code>install.&lt;name&gt;</code>.
     on_run:  Forward action. Must raise on failure (the runner catches
              and records it). Resolves referenced functions through the
-             <em>caller's</em> module globals so monkeypatch keeps working.
-    on_undo: Inverse action, or <code>None</code> for steps that the uninstall
-             flow deliberately preserves (vault contents, embeddings
-             config, git init, etc.). When provided, receives the
-             <code>purge</code> flag so a single body can gate on
-             <code>--purge-config</code>.</p>
+             <em>caller's</em> module globals so monkeypatch keeps working.</p>
 </div>
 
 
                             <div id="Step.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">Step</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">name</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">on_run</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="nb">object</span><span class="p">]</span>,</span><span class="param">	<span class="n">on_undo</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">bool</span><span class="p">],</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span>)</span>
+        <span class="name">Step</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">name</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">on_run</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="nb">object</span><span class="p">]</span></span>)</span>
 
         
     </div>
@@ -390,18 +336,6 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
     
 
                             </div>
-                            <div id="Step.on_undo" class="classattr">
-                                <div class="attr variable">
-            <span class="name">on_undo</span><span class="annotation">: Callable[[bool], object] | None</span>        =
-<span class="default_value">None</span>
-
-        
-    </div>
-    <a class="headerlink" href="#Step.on_undo"></a>
-    
-    
-
-                            </div>
                             <div id="Step.run" class="classattr">
                                         <input id="Step.run-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
@@ -413,37 +347,13 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
 
     </div>
     <a class="headerlink" href="#Step.run"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="Step.run-74"><a href="#Step.run-74"><span class="linenos">74</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="Step.run-75"><a href="#Step.run-75"><span class="linenos">75</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run this step&#39;s forward (install) action via ``on_run``.&quot;&quot;&quot;</span>
-</span><span id="Step.run-76"><a href="#Step.run-76"><span class="linenos">76</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_run</span><span class="p">()</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="Step.run-65"><a href="#Step.run-65"><span class="linenos">65</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="Step.run-66"><a href="#Step.run-66"><span class="linenos">66</span></a><span class="w">        </span><span class="sd">"""Run this step's forward (install) action via ``on_run``."""</span>
+</span><span id="Step.run-67"><a href="#Step.run-67"><span class="linenos">67</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_run</span><span class="p">()</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Run this step's forward (install) action via <code><a href="#Step.on_run">on_run</a></code>.</p>
-</div>
-
-
-                            </div>
-                            <div id="Step.undo" class="classattr">
-                                        <input id="Step.undo-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-<div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">undo</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">*</span>, </span><span class="param"><span class="n">purge</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
-
-                <label class="view-source-button" for="Step.undo-view-source"><span>View Source</span></label>
-
-    </div>
-    <a class="headerlink" href="#Step.undo"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="Step.undo-78"><a href="#Step.undo-78"><span class="linenos">78</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">undo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">purge</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="Step.undo-79"><a href="#Step.undo-79"><span class="linenos">79</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run the inverse action with the ``purge`` flag; no-op when ``on_undo`` is unset.&quot;&quot;&quot;</span>
-</span><span id="Step.undo-80"><a href="#Step.undo-80"><span class="linenos">80</span></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">on_undo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="Step.undo-81"><a href="#Step.undo-81"><span class="linenos">81</span></a>            <span class="k">return</span>
-</span><span id="Step.undo-82"><a href="#Step.undo-82"><span class="linenos">82</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">on_undo</span><span class="p">(</span><span class="n">purge</span><span class="p">)</span>
-</span></pre></div>
-
-
-            <div class="docstring"><p>Run the inverse action with the <code>purge</code> flag; no-op when <code><a href="#Step.on_undo">on_undo</a></code> is unset.</p>
 </div>
 
 
@@ -461,52 +371,52 @@ with, rather than duplicates, that per-write <code>.bak</code>.</p>
 
     </div>
     <a class="headerlink" href="#StepList"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList-85"><a href="#StepList-85"><span class="linenos"> 85</span></a><span class="nd">@dataclass</span>
-</span><span id="StepList-86"><a href="#StepList-86"><span class="linenos"> 86</span></a><span class="k">class</span><span class="w"> </span><span class="nc">StepList</span><span class="p">:</span>
-</span><span id="StepList-87"><a href="#StepList-87"><span class="linenos"> 87</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Ordered list of :class:`Step` with forward/backward runners.</span>
-</span><span id="StepList-88"><a href="#StepList-88"><span class="linenos"> 88</span></a>
-</span><span id="StepList-89"><a href="#StepList-89"><span class="linenos"> 89</span></a><span class="sd">    ``run_all()`` preserves ARC-022 semantics exactly: each step runs inside</span>
-</span><span id="StepList-90"><a href="#StepList-90"><span class="linenos"> 90</span></a><span class="sd">    a ``try/except Exception`` (KeyboardInterrupt/SystemExit propagate so</span>
-</span><span id="StepList-91"><a href="#StepList-91"><span class="linenos"> 91</span></a><span class="sd">    Ctrl-C still works mid-install); failures are appended to</span>
-</span><span id="StepList-92"><a href="#StepList-92"><span class="linenos"> 92</span></a><span class="sd">    ``failed_steps`` and the run *continues* so a partial install surfaces</span>
-</span><span id="StepList-93"><a href="#StepList-93"><span class="linenos"> 93</span></a><span class="sd">    as many independent failures as possible. The caller turns a non-empty</span>
-</span><span id="StepList-94"><a href="#StepList-94"><span class="linenos"> 94</span></a><span class="sd">    ``failed_steps`` into a non-zero exit code.</span>
-</span><span id="StepList-95"><a href="#StepList-95"><span class="linenos"> 95</span></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="StepList-96"><a href="#StepList-96"><span class="linenos"> 96</span></a>
-</span><span id="StepList-97"><a href="#StepList-97"><span class="linenos"> 97</span></a>    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-</span><span id="StepList-98"><a href="#StepList-98"><span class="linenos"> 98</span></a>    <span class="n">failed_steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-</span><span id="StepList-99"><a href="#StepList-99"><span class="linenos"> 99</span></a>
-</span><span id="StepList-100"><a href="#StepList-100"><span class="linenos">100</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">Step</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
-</span><span id="StepList-101"><a href="#StepList-101"><span class="linenos">101</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Append *step*; returns self for chaining.&quot;&quot;&quot;</span>
-</span><span id="StepList-102"><a href="#StepList-102"><span class="linenos">102</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
-</span><span id="StepList-103"><a href="#StepList-103"><span class="linenos">103</span></a>        <span class="k">return</span> <span class="bp">self</span>
-</span><span id="StepList-104"><a href="#StepList-104"><span class="linenos">104</span></a>
-</span><span id="StepList-105"><a href="#StepList-105"><span class="linenos">105</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
-</span><span id="StepList-106"><a href="#StepList-106"><span class="linenos">106</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Append each step in *steps*; returns self for chaining.&quot;&quot;&quot;</span>
-</span><span id="StepList-107"><a href="#StepList-107"><span class="linenos">107</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="StepList-108"><a href="#StepList-108"><span class="linenos">108</span></a>        <span class="k">return</span> <span class="bp">self</span>
-</span><span id="StepList-109"><a href="#StepList-109"><span class="linenos">109</span></a>
-</span><span id="StepList-110"><a href="#StepList-110"><span class="linenos">110</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Step</span><span class="p">]:</span>
-</span><span id="StepList-111"><a href="#StepList-111"><span class="linenos">111</span></a>        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="StepList-112"><a href="#StepList-112"><span class="linenos">112</span></a>
-</span><span id="StepList-113"><a href="#StepList-113"><span class="linenos">113</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="StepList-114"><a href="#StepList-114"><span class="linenos">114</span></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="StepList-115"><a href="#StepList-115"><span class="linenos">115</span></a>
-</span><span id="StepList-116"><a href="#StepList-116"><span class="linenos">116</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]:</span>
-</span><span id="StepList-117"><a href="#StepList-117"><span class="linenos">117</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run each step&#39;s ``run()`` in order; capture failures without</span>
-</span><span id="StepList-118"><a href="#StepList-118"><span class="linenos">118</span></a><span class="sd">        aborting siblings. Returns ``failed_steps`` (empty on full success).</span>
-</span><span id="StepList-119"><a href="#StepList-119"><span class="linenos">119</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StepList-120"><a href="#StepList-120"><span class="linenos">120</span></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
-</span><span id="StepList-121"><a href="#StepList-121"><span class="linenos">121</span></a>            <span class="k">try</span><span class="p">:</span>
-</span><span id="StepList-122"><a href="#StepList-122"><span class="linenos">122</span></a>                <span class="n">step</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
-</span><span id="StepList-123"><a href="#StepList-123"><span class="linenos">123</span></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — install must not crash</span>
-</span><span id="StepList-124"><a href="#StepList-124"><span class="linenos">124</span></a>                <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
-</span><span id="StepList-125"><a href="#StepList-125"><span class="linenos">125</span></a>                <span class="n">_err</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step &#39;</span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="StepList-126"><a href="#StepList-126"><span class="linenos">126</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList-70"><a href="#StepList-70"><span class="linenos"> 70</span></a><span class="nd">@dataclass</span>
+</span><span id="StepList-71"><a href="#StepList-71"><span class="linenos"> 71</span></a><span class="k">class</span><span class="w"> </span><span class="nc">StepList</span><span class="p">:</span>
+</span><span id="StepList-72"><a href="#StepList-72"><span class="linenos"> 72</span></a><span class="w">    </span><span class="sd">"""Ordered list of :class:`Step` with a forward runner.</span>
+</span><span id="StepList-73"><a href="#StepList-73"><span class="linenos"> 73</span></a>
+</span><span id="StepList-74"><a href="#StepList-74"><span class="linenos"> 74</span></a><span class="sd">    ``run_all()`` preserves ARC-022 semantics exactly: each step runs inside</span>
+</span><span id="StepList-75"><a href="#StepList-75"><span class="linenos"> 75</span></a><span class="sd">    a ``try/except Exception`` (KeyboardInterrupt/SystemExit propagate so</span>
+</span><span id="StepList-76"><a href="#StepList-76"><span class="linenos"> 76</span></a><span class="sd">    Ctrl-C still works mid-install); failures are appended to</span>
+</span><span id="StepList-77"><a href="#StepList-77"><span class="linenos"> 77</span></a><span class="sd">    ``failed_steps`` and the run *continues* so a partial install surfaces</span>
+</span><span id="StepList-78"><a href="#StepList-78"><span class="linenos"> 78</span></a><span class="sd">    as many independent failures as possible. The caller turns a non-empty</span>
+</span><span id="StepList-79"><a href="#StepList-79"><span class="linenos"> 79</span></a><span class="sd">    ``failed_steps`` into a non-zero exit code.</span>
+</span><span id="StepList-80"><a href="#StepList-80"><span class="linenos"> 80</span></a><span class="sd">    """</span>
+</span><span id="StepList-81"><a href="#StepList-81"><span class="linenos"> 81</span></a>
+</span><span id="StepList-82"><a href="#StepList-82"><span class="linenos"> 82</span></a>    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="StepList-83"><a href="#StepList-83"><span class="linenos"> 83</span></a>    <span class="n">failed_steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="StepList-84"><a href="#StepList-84"><span class="linenos"> 84</span></a>
+</span><span id="StepList-85"><a href="#StepList-85"><span class="linenos"> 85</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">Step</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
+</span><span id="StepList-86"><a href="#StepList-86"><span class="linenos"> 86</span></a><span class="w">        </span><span class="sd">"""Append *step*; returns self for chaining."""</span>
+</span><span id="StepList-87"><a href="#StepList-87"><span class="linenos"> 87</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
+</span><span id="StepList-88"><a href="#StepList-88"><span class="linenos"> 88</span></a>        <span class="k">return</span> <span class="bp">self</span>
+</span><span id="StepList-89"><a href="#StepList-89"><span class="linenos"> 89</span></a>
+</span><span id="StepList-90"><a href="#StepList-90"><span class="linenos"> 90</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
+</span><span id="StepList-91"><a href="#StepList-91"><span class="linenos"> 91</span></a><span class="w">        </span><span class="sd">"""Append each step in *steps*; returns self for chaining."""</span>
+</span><span id="StepList-92"><a href="#StepList-92"><span class="linenos"> 92</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="StepList-93"><a href="#StepList-93"><span class="linenos"> 93</span></a>        <span class="k">return</span> <span class="bp">self</span>
+</span><span id="StepList-94"><a href="#StepList-94"><span class="linenos"> 94</span></a>
+</span><span id="StepList-95"><a href="#StepList-95"><span class="linenos"> 95</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">Step</span><span class="p">]:</span>
+</span><span id="StepList-96"><a href="#StepList-96"><span class="linenos"> 96</span></a>        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="StepList-97"><a href="#StepList-97"><span class="linenos"> 97</span></a>
+</span><span id="StepList-98"><a href="#StepList-98"><span class="linenos"> 98</span></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="StepList-99"><a href="#StepList-99"><span class="linenos"> 99</span></a>        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="StepList-100"><a href="#StepList-100"><span class="linenos">100</span></a>
+</span><span id="StepList-101"><a href="#StepList-101"><span class="linenos">101</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]:</span>
+</span><span id="StepList-102"><a href="#StepList-102"><span class="linenos">102</span></a><span class="w">        </span><span class="sd">"""Run each step's ``run()`` in order; capture failures without</span>
+</span><span id="StepList-103"><a href="#StepList-103"><span class="linenos">103</span></a><span class="sd">        aborting siblings. Returns ``failed_steps`` (empty on full success).</span>
+</span><span id="StepList-104"><a href="#StepList-104"><span class="linenos">104</span></a><span class="sd">        """</span>
+</span><span id="StepList-105"><a href="#StepList-105"><span class="linenos">105</span></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
+</span><span id="StepList-106"><a href="#StepList-106"><span class="linenos">106</span></a>            <span class="k">try</span><span class="p">:</span>
+</span><span id="StepList-107"><a href="#StepList-107"><span class="linenos">107</span></a>                <span class="n">step</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span><span id="StepList-108"><a href="#StepList-108"><span class="linenos">108</span></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — install must not crash</span>
+</span><span id="StepList-109"><a href="#StepList-109"><span class="linenos">109</span></a>                <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
+</span><span id="StepList-110"><a href="#StepList-110"><span class="linenos">110</span></a>                <span class="n">_err</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step '</span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">' failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="StepList-111"><a href="#StepList-111"><span class="linenos">111</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Ordered list of <code><a href="#Step">Step</a></code> with forward/backward runners.</p>
+            <div class="docstring"><p>Ordered list of <code><a href="#Step">Step</a></code> with a forward runner.</p>
 
 <p><code><a href="#StepList.run_all">run_all()</a></code> preserves ARC-022 semantics exactly: each step runs inside
 a <code>try/except Exception</code> (KeyboardInterrupt/SystemExit propagate so
@@ -562,10 +472,10 @@ as many independent failures as possible. The caller turns a non-empty
 
     </div>
     <a class="headerlink" href="#StepList.append"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList.append-100"><a href="#StepList.append-100"><span class="linenos">100</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">Step</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
-</span><span id="StepList.append-101"><a href="#StepList.append-101"><span class="linenos">101</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Append *step*; returns self for chaining.&quot;&quot;&quot;</span>
-</span><span id="StepList.append-102"><a href="#StepList.append-102"><span class="linenos">102</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
-</span><span id="StepList.append-103"><a href="#StepList.append-103"><span class="linenos">103</span></a>        <span class="k">return</span> <span class="bp">self</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList.append-85"><a href="#StepList.append-85"><span class="linenos">85</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="n">Step</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
+</span><span id="StepList.append-86"><a href="#StepList.append-86"><span class="linenos">86</span></a><span class="w">        </span><span class="sd">"""Append *step*; returns self for chaining."""</span>
+</span><span id="StepList.append-87"><a href="#StepList.append-87"><span class="linenos">87</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">step</span><span class="p">)</span>
+</span><span id="StepList.append-88"><a href="#StepList.append-88"><span class="linenos">88</span></a>        <span class="k">return</span> <span class="bp">self</span>
 </span></pre></div>
 
 
@@ -585,10 +495,10 @@ as many independent failures as possible. The caller turns a non-empty
 
     </div>
     <a class="headerlink" href="#StepList.extend"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList.extend-105"><a href="#StepList.extend-105"><span class="linenos">105</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
-</span><span id="StepList.extend-106"><a href="#StepList.extend-106"><span class="linenos">106</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Append each step in *steps*; returns self for chaining.&quot;&quot;&quot;</span>
-</span><span id="StepList.extend-107"><a href="#StepList.extend-107"><span class="linenos">107</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
-</span><span id="StepList.extend-108"><a href="#StepList.extend-108"><span class="linenos">108</span></a>        <span class="k">return</span> <span class="bp">self</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList.extend-90"><a href="#StepList.extend-90"><span class="linenos">90</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Step</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">StepList</span><span class="p">:</span>
+</span><span id="StepList.extend-91"><a href="#StepList.extend-91"><span class="linenos">91</span></a><span class="w">        </span><span class="sd">"""Append each step in *steps*; returns self for chaining."""</span>
+</span><span id="StepList.extend-92"><a href="#StepList.extend-92"><span class="linenos">92</span></a>        <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span>
+</span><span id="StepList.extend-93"><a href="#StepList.extend-93"><span class="linenos">93</span></a>        <span class="k">return</span> <span class="bp">self</span>
 </span></pre></div>
 
 
@@ -608,17 +518,17 @@ as many independent failures as possible. The caller turns a non-empty
 
     </div>
     <a class="headerlink" href="#StepList.run_all"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList.run_all-116"><a href="#StepList.run_all-116"><span class="linenos">116</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]:</span>
-</span><span id="StepList.run_all-117"><a href="#StepList.run_all-117"><span class="linenos">117</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run each step&#39;s ``run()`` in order; capture failures without</span>
-</span><span id="StepList.run_all-118"><a href="#StepList.run_all-118"><span class="linenos">118</span></a><span class="sd">        aborting siblings. Returns ``failed_steps`` (empty on full success).</span>
-</span><span id="StepList.run_all-119"><a href="#StepList.run_all-119"><span class="linenos">119</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="StepList.run_all-120"><a href="#StepList.run_all-120"><span class="linenos">120</span></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
-</span><span id="StepList.run_all-121"><a href="#StepList.run_all-121"><span class="linenos">121</span></a>            <span class="k">try</span><span class="p">:</span>
-</span><span id="StepList.run_all-122"><a href="#StepList.run_all-122"><span class="linenos">122</span></a>                <span class="n">step</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
-</span><span id="StepList.run_all-123"><a href="#StepList.run_all-123"><span class="linenos">123</span></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — install must not crash</span>
-</span><span id="StepList.run_all-124"><a href="#StepList.run_all-124"><span class="linenos">124</span></a>                <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
-</span><span id="StepList.run_all-125"><a href="#StepList.run_all-125"><span class="linenos">125</span></a>                <span class="n">_err</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step &#39;</span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="StepList.run_all-126"><a href="#StepList.run_all-126"><span class="linenos">126</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="StepList.run_all-101"><a href="#StepList.run_all-101"><span class="linenos">101</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">run_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="ne">BaseException</span><span class="p">]]:</span>
+</span><span id="StepList.run_all-102"><a href="#StepList.run_all-102"><span class="linenos">102</span></a><span class="w">        </span><span class="sd">"""Run each step's ``run()`` in order; capture failures without</span>
+</span><span id="StepList.run_all-103"><a href="#StepList.run_all-103"><span class="linenos">103</span></a><span class="sd">        aborting siblings. Returns ``failed_steps`` (empty on full success).</span>
+</span><span id="StepList.run_all-104"><a href="#StepList.run_all-104"><span class="linenos">104</span></a><span class="sd">        """</span>
+</span><span id="StepList.run_all-105"><a href="#StepList.run_all-105"><span class="linenos">105</span></a>        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
+</span><span id="StepList.run_all-106"><a href="#StepList.run_all-106"><span class="linenos">106</span></a>            <span class="k">try</span><span class="p">:</span>
+</span><span id="StepList.run_all-107"><a href="#StepList.run_all-107"><span class="linenos">107</span></a>                <span class="n">step</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span><span id="StepList.run_all-108"><a href="#StepList.run_all-108"><span class="linenos">108</span></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 — install must not crash</span>
+</span><span id="StepList.run_all-109"><a href="#StepList.run_all-109"><span class="linenos">109</span></a>                <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">exc</span><span class="p">))</span>
+</span><span id="StepList.run_all-110"><a href="#StepList.run_all-110"><span class="linenos">110</span></a>                <span class="n">_err</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step '</span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">' failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="StepList.run_all-111"><a href="#StepList.run_all-111"><span class="linenos">111</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">failed_steps</span>
 </span></pre></div>
 
 

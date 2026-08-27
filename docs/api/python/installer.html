@@ -84,7 +84,7 @@ sub-module instead.</p>
 
                         <label class="view-source-button" for="mod-installer-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;Parsidion installer package.</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">"""Parsidion installer package.</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Sub-modules:</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">  colors   — ANSI colour helpers</span>
@@ -100,16 +100,16 @@ sub-module instead.</p>
 </span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">``install.py`` is a thin entry shim over ``installer.cli.main`` (ARC-008);</span>
 </span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="sd">it no longer re-exports the installer API — import from the owning</span>
 </span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="sd">sub-module instead.</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a><span class="sd">"""</span>
 </span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>
 </span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_sys</span>
 </span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span> <span class="k">as</span> <span class="n">_Path</span>
 </span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="c1"># ENH-006: make the skill&#39;s scripts/ importable so installer sub-modules can</span>
+</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="c1"># ENH-006: make the skill's scripts/ importable so installer sub-modules can</span>
 </span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a><span class="c1"># read the agent_adapter runtime registry. Runs once at package import, before</span>
 </span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a><span class="c1"># any sub-module body, so a sub-module can `import agent_adapter` unconditionally.</span>
 </span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a><span class="n">_SCRIPTS_DIR</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a>    <span class="n">_Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;skills&quot;</span> <span class="o">/</span> <span class="s2">&quot;parsidion&quot;</span> <span class="o">/</span> <span class="s2">&quot;scripts&quot;</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a>    <span class="n">_Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"skills"</span> <span class="o">/</span> <span class="s2">"parsidion"</span> <span class="o">/</span> <span class="s2">"scripts"</span>
 </span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a><span class="p">)</span>
 </span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a><span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">_SCRIPTS_DIR</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_sys</span><span class="o">.</span><span class="n">path</span><span class="p">:</span>
 </span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a>    <span class="n">_sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">_SCRIPTS_DIR</span><span class="p">))</span>

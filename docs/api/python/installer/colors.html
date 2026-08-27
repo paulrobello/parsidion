@@ -74,53 +74,53 @@ Stdlib-only — no third-party dependencies.</p>
 
                         <label class="view-source-button" for="mod-colors-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;ANSI colour helpers for the Parsidion installer.</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">"""ANSI colour helpers for the Parsidion installer.</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Disabled automatically when stdout is not a TTY or NO_COLOR is set.</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">Stdlib-only — no third-party dependencies.</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">"""</span>
 </span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>
 </span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 </span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>
 </span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 </span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 </span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="n">_USE_COLOUR</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">isatty</span><span class="p">()</span> <span class="ow">and</span> <span class="s2">&quot;NO_COLOR&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="n">_USE_COLOUR</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">isatty</span><span class="p">()</span> <span class="ow">and</span> <span class="s2">"NO_COLOR"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
 </span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>
 </span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>
 </span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_colorize</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Wrap *text* in ANSI escape *code*, respecting NO_COLOR and non-TTY output.&quot;&quot;&quot;</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\033</span><span class="s2">[</span><span class="si">{</span><span class="n">code</span><span class="si">}</span><span class="s2">m</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="se">\033</span><span class="s2">[0m&quot;</span> <span class="k">if</span> <span class="n">_USE_COLOUR</span> <span class="k">else</span> <span class="n">text</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="w">    </span><span class="sd">"""Wrap *text* in ANSI escape *code*, respecting NO_COLOR and non-TTY output."""</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\033</span><span class="s2">[</span><span class="si">{</span><span class="n">code</span><span class="si">}</span><span class="s2">m</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="se">\033</span><span class="s2">[0m"</span> <span class="k">if</span> <span class="n">_USE_COLOUR</span> <span class="k">else</span> <span class="n">text</span>
 </span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>
 </span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>
 </span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="k">def</span><span class="w"> </span><span class="nf">bold</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* rendered in bold.&quot;&quot;&quot;</span>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a><span class="w">    </span><span class="sd">"""Return *t* rendered in bold."""</span>
+</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"1"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a>
 </span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a>
 </span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a><span class="k">def</span><span class="w"> </span><span class="nf">green</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright green.&quot;&quot;&quot;</span>
-</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;92&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright green."""</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"92"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a>
 </span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a>
 </span><span id="L-30"><a href="#L-30"><span class="linenos">30</span></a><span class="k">def</span><span class="w"> </span><span class="nf">yellow</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright yellow.&quot;&quot;&quot;</span>
-</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;93&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright yellow."""</span>
+</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"93"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a>
 </span><span id="L-34"><a href="#L-34"><span class="linenos">34</span></a>
 </span><span id="L-35"><a href="#L-35"><span class="linenos">35</span></a><span class="k">def</span><span class="w"> </span><span class="nf">red</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright red.&quot;&quot;&quot;</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;91&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright red."""</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"91"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a>
 </span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a>
 </span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a><span class="k">def</span><span class="w"> </span><span class="nf">cyan</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright cyan.&quot;&quot;&quot;</span>
-</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;96&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright cyan."""</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"96"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a>
 </span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>
 </span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a><span class="k">def</span><span class="w"> </span><span class="nf">dim</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in dim (faint) style.&quot;&quot;&quot;</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;2&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="w">    </span><span class="sd">"""Return *t* in dim (faint) style."""</span>
+</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"2"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -137,8 +137,8 @@ Stdlib-only — no third-party dependencies.</p>
     </div>
     <a class="headerlink" href="#bold"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="bold-21"><a href="#bold-21"><span class="linenos">21</span></a><span class="k">def</span><span class="w"> </span><span class="nf">bold</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="bold-22"><a href="#bold-22"><span class="linenos">22</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* rendered in bold.&quot;&quot;&quot;</span>
-</span><span id="bold-23"><a href="#bold-23"><span class="linenos">23</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="bold-22"><a href="#bold-22"><span class="linenos">22</span></a><span class="w">    </span><span class="sd">"""Return *t* rendered in bold."""</span>
+</span><span id="bold-23"><a href="#bold-23"><span class="linenos">23</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"1"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -159,8 +159,8 @@ Stdlib-only — no third-party dependencies.</p>
     </div>
     <a class="headerlink" href="#green"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="green-26"><a href="#green-26"><span class="linenos">26</span></a><span class="k">def</span><span class="w"> </span><span class="nf">green</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="green-27"><a href="#green-27"><span class="linenos">27</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright green.&quot;&quot;&quot;</span>
-</span><span id="green-28"><a href="#green-28"><span class="linenos">28</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;92&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="green-27"><a href="#green-27"><span class="linenos">27</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright green."""</span>
+</span><span id="green-28"><a href="#green-28"><span class="linenos">28</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"92"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -181,8 +181,8 @@ Stdlib-only — no third-party dependencies.</p>
     </div>
     <a class="headerlink" href="#yellow"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="yellow-31"><a href="#yellow-31"><span class="linenos">31</span></a><span class="k">def</span><span class="w"> </span><span class="nf">yellow</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="yellow-32"><a href="#yellow-32"><span class="linenos">32</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright yellow.&quot;&quot;&quot;</span>
-</span><span id="yellow-33"><a href="#yellow-33"><span class="linenos">33</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;93&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="yellow-32"><a href="#yellow-32"><span class="linenos">32</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright yellow."""</span>
+</span><span id="yellow-33"><a href="#yellow-33"><span class="linenos">33</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"93"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -203,8 +203,8 @@ Stdlib-only — no third-party dependencies.</p>
     </div>
     <a class="headerlink" href="#red"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="red-36"><a href="#red-36"><span class="linenos">36</span></a><span class="k">def</span><span class="w"> </span><span class="nf">red</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="red-37"><a href="#red-37"><span class="linenos">37</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright red.&quot;&quot;&quot;</span>
-</span><span id="red-38"><a href="#red-38"><span class="linenos">38</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;91&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="red-37"><a href="#red-37"><span class="linenos">37</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright red."""</span>
+</span><span id="red-38"><a href="#red-38"><span class="linenos">38</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"91"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -225,8 +225,8 @@ Stdlib-only — no third-party dependencies.</p>
     </div>
     <a class="headerlink" href="#cyan"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="cyan-41"><a href="#cyan-41"><span class="linenos">41</span></a><span class="k">def</span><span class="w"> </span><span class="nf">cyan</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="cyan-42"><a href="#cyan-42"><span class="linenos">42</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in bright cyan.&quot;&quot;&quot;</span>
-</span><span id="cyan-43"><a href="#cyan-43"><span class="linenos">43</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;96&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="cyan-42"><a href="#cyan-42"><span class="linenos">42</span></a><span class="w">    </span><span class="sd">"""Return *t* in bright cyan."""</span>
+</span><span id="cyan-43"><a href="#cyan-43"><span class="linenos">43</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"96"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -247,8 +247,8 @@ Stdlib-only — no third-party dependencies.</p>
     </div>
     <a class="headerlink" href="#dim"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="dim-46"><a href="#dim-46"><span class="linenos">46</span></a><span class="k">def</span><span class="w"> </span><span class="nf">dim</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="dim-47"><a href="#dim-47"><span class="linenos">47</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return *t* in dim (faint) style.&quot;&quot;&quot;</span>
-</span><span id="dim-48"><a href="#dim-48"><span class="linenos">48</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">&quot;2&quot;</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</span><span id="dim-47"><a href="#dim-47"><span class="linenos">47</span></a><span class="w">    </span><span class="sd">"""Return *t* in dim (faint) style."""</span>
+</span><span id="dim-48"><a href="#dim-48"><span class="linenos">48</span></a>    <span class="k">return</span> <span class="n">_colorize</span><span class="p">(</span><span class="s2">"2"</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
 </span></pre></div>
 
 
