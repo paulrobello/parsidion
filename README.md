@@ -384,7 +384,7 @@ An optional MCP server that exposes Parsidion vault operations to **Claude Deskt
 | `vault_context` | Return a session-start-style context block (compact index or verbose summaries) |
 | `rebuild_index` | Rebuild `CLAUDE.md`, `MANIFEST.md` files, and the `note_index` SQLite table |
 | `vault_doctor` | Scan vault notes for structural issues; optionally repair them; `--fix-sessions` detects multi-note sessions |
-| `vault_health` | Composite 0–100 vault-health score across seven dimensions (index freshness, queue, graph, metadata, embeddings, tags, files) with concrete next-action commands; subprocess wrapper around `vault-stats --health --json` (ENH-007) |
+| `vault_health` | Composite 0–100 vault-health score across eight dimensions (index freshness, queue, graph, metadata, embeddings, tags, files, hook latency) with concrete next-action commands; subprocess wrapper around `vault-stats --health --json` (ENH-007) |
 | `code_search` | Search a parsight-indexed repository's code graph by natural language; requires the [parsight](docs/PARSIGHT.md) backend (returns a clear error if parsight is unavailable) |
 
 **Install:**

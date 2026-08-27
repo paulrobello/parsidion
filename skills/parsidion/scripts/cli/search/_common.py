@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import threading
 
-import vault_common
+from core.vault_config import get_config
 
-_DEFAULT_MODEL: str = vault_common.get_config(
-    "embeddings", "model", "BAAI/bge-small-en-v1.5"
-)
+_DEFAULT_MODEL: str = get_config("embeddings", "model", "BAAI/bge-small-en-v1.5")
 
 _VALID_BACKENDS: frozenset[str] = frozenset({"auto", "parsight", "embeddings", "none"})
 
@@ -41,7 +39,7 @@ def _normalize_backend(value: str) -> str:
 
 def _configured_search_backend() -> str:
     """Return the validated ``search.backend`` config value (default: auto)."""
-    value = vault_common.get_config("search", "backend", "auto")
+    value = get_config("search", "backend", "auto")
     normalized = str(value).strip().lower() if value is not None else "auto"
     normalized = _normalize_backend(normalized)
     return normalized if normalized in _VALID_BACKENDS else "auto"

@@ -33,34 +33,35 @@ from datetime import date, datetime
 from io import TextIOWrapper
 from pathlib import Path
 
-import ai_backend
-import parsight_backend
-from prompt_templates import render
-from vault_adaptive import (
+from core import ai_backend, parsight_backend
+from core.vault_adaptive import (
     load_last_seen,
     save_injected_notes,
     save_last_seen,
 )
-from vault_config import load_typed_config, validate_config
-from vault_fs import ensure_vault_dirs, today_daily_path
-from vault_hooks import (
+from core.vault_config import load_typed_config, validate_config
+from core.vault_fs import ensure_vault_dirs, today_daily_path
+from core.vault_hooks import (
     env_without_claudecode,
     get_project_name,
     log_hook_error,
     write_hook_event,
 )
-from vault_index import (
+from core.vault_index import (
+    SessionIndexSnapshot,
     build_compact_index,
     build_context_block,
     find_notes_by_project,
     find_recent_notes,
     load_graph_metadata,
+    load_session_index_snapshot,
     read_note_summary,
 )
-from vault_path import (
+from core.vault_path import (
     get_embeddings_db_path,
     resolve_vault,
 )
+from prompt_templates import render
 
 # ARC-006: focused submodules.  These from-imports load the subpackage AND
 # re-export every moved symbol on this module's namespace — that is what lets
@@ -79,11 +80,11 @@ from session_start.ai_selector import (
     _write_ai_cooldown_stamp,
 )
 from session_start.context import (
-    _DEBUG_FILE,
     _assemble_context,
     _build_dead_letter_notice,
     _build_delta_section,
     _build_pending_notice,
+    _debug_file,
     _write_debug_log,
 )
 from session_start.graph_retrieval import (
@@ -100,14 +101,28 @@ from session_start.seed_selection import (
     _rank_by_usefulness,
 )
 
-_DEFAULT_AI_MODEL: str = (
-    load_typed_config().defaults.haiku_model or "claude-haiku-4-5-20251001"
-)
+# ARC-101: no module-level config read here. The previous import-time
+# ``_DEFAULT_AI_MODEL = load_typed_config()...`` primed the LRU-frozen
+# ``_resolve_vault_cached(None, None)`` with the process cwd before the hook
+# payload's cwd was parsed, silently pinning every later vault-less lookup in
+# the process to the wrong vault. Config is read after the payload cwd is
+# resolved to a vault (see main()/build_session_context).
 _BACKEND_DEFAULT_AI_MODEL = "__parsidion_backend_default__"
 _DEFAULT_MAX_CHARS = 4000
+# PRF-104: cap on the recent-notes fetch in the standard context path. The
+# injected context is char-budgeted (_DEFAULT_MAX_CHARS), so the tail of a
+# thousands-row fetch could never reach the agent.
+_CONTEXT_RECENT_LIMIT = 200
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
+# PRF-101: how the semantic leg of the last _run_semantic_search call was
+# served — "parsight-inproc" (in-process parsight_search call), "subprocess"
+# (``uv run vault_search.py``), or "timeout" (subprocess killed at
+# _SEMANTIC_TIMEOUT). None when semantic search never ran or failed before
+# choosing a path. Read by main() for the SessionStart hook event so
+# degradation is visible in ``vault-stats --hooks``.
+_SEMANTIC_SOURCE: str | None = None
 # Characters reserved for the vault-context header injected before the AI-selected
 # note content.  Ensures the final output never slightly exceeds max_chars.
 _AI_CONTEXT_HEADER_RESERVE: int = 500
@@ -126,7 +141,9 @@ def _is_ai_cooldown_active(vault_path: Path) -> bool:
     helper directly — bare-name ``get_config`` lookup must therefore resolve
     in this module's namespace.
     """
-    cooldown_seconds = load_typed_config().session_start_hook.ai_cooldown_seconds
+    cooldown_seconds = load_typed_config(
+        vault=vault_path
+    ).session_start_hook.ai_cooldown_seconds
     if cooldown_seconds <= 0:
         return False
     stamp_path = _ai_stamp_path(vault_path)
@@ -143,7 +160,15 @@ def _run_semantic_search(
     vault_search_script: Path,
     vault_path: Path,
 ) -> list[Path]:
-    """Run vault_search.py as a subprocess and return matching note paths.
+    """Run the semantic search and return matching note paths.
+
+    PRF-101: when parsight serves retrieval (backend ``auto``/``parsight``
+    and the daemon is available), the query runs in-process via
+    ``parsight_backend.parsight_search`` — a stdlib-only call already
+    imported here. The ``uv run vault_search.py`` subprocess is kept
+    exclusively for the embeddings fallback (parsight unavailable or
+    backend forced to ``embeddings``): the subprocess only ever existed to
+    isolate fastembed, which the parsight path never touches.
 
     Returns an empty list if the script doesn't exist, the DB is missing,
     the subprocess times out, or any other error occurs.
@@ -157,7 +182,29 @@ def _run_semantic_search(
     Returns:
         List of note Paths from the semantic search results.
     """
+    global _SEMANTIC_SOURCE
     import json as _json
+
+    _SEMANTIC_SOURCE = None
+    backend = (
+        (load_typed_config(vault=vault_path).search.backend or "auto").strip().lower()
+    )
+    parsight_available = parsight_backend.resolve_parsight_backend(vault_path)
+
+    if backend in ("auto", "parsight") and parsight_available:
+        # In-process parsight path. parsight_search never raises and returns
+        # None on any failure so the caller can fall back.
+        results = parsight_backend.parsight_search(query, top_k=top, vault=vault_path)
+        if results is not None:
+            _SEMANTIC_SOURCE = "parsight-inproc"
+            return [Path(str(item["path"])) for item in results]
+        if backend == "parsight":
+            # Forced parsight failed in-process; the subprocess routes to the
+            # same backend, so spawning it would only re-pay the tower to
+            # fail again.
+            return []
+        # auto: the parsight query itself failed — fall through to the
+        # embeddings subprocess fallback below.
 
     if not vault_search_script.exists():
         return []
@@ -166,10 +213,7 @@ def _run_semantic_search(
     # embeddings.db for the local-embeddings path: an explicit ``embeddings``
     # backend, or ``auto`` falling back when parsight is unavailable. Matches
     # vault_search.py's own backend routing.
-    backend = (load_typed_config().search.backend or "auto").strip().lower()
-    if backend == "embeddings" or (
-        backend == "auto" and not parsight_backend.resolve_parsight_backend(vault_path)
-    ):
+    if backend == "embeddings" or (backend == "auto" and not parsight_available):
         db_path = get_embeddings_db_path(vault=vault_path)
         if not db_path.exists():
             return []
@@ -202,6 +246,7 @@ def _run_semantic_search(
             start_new_session=True,  # new process group — enables killpg
             env=env_without_claudecode(),
         )
+        _SEMANTIC_SOURCE = "subprocess"
         try:
             stdout, _ = proc.communicate(timeout=_SEMANTIC_TIMEOUT)
         except subprocess.TimeoutExpired:
@@ -212,6 +257,7 @@ def _run_semantic_search(
             except OSError:
                 proc.kill()
             proc.wait()
+            _SEMANTIC_SOURCE = "timeout"
             return []
         if proc.returncode != 0:
             return []
@@ -255,7 +301,7 @@ def _select_context_with_ai(
         vault_path = resolve_vault(cwd=cwd)
 
     lock_handle: TextIOWrapper | None = None
-    if load_typed_config().session_start_hook.ai_single_flight:
+    if load_typed_config(vault=vault_path).session_start_hook.ai_single_flight:
         lock_handle = _try_acquire_ai_lock(vault_path)
         if lock_handle is None:
             return ""
@@ -304,7 +350,7 @@ def _select_context_with_ai(
             prompt,
             model=model,
             model_tier="small",
-            timeout=load_typed_config().session_start_hook.ai_timeout,
+            timeout=load_typed_config(vault=vault_path).session_start_hook.ai_timeout,
             cwd=cwd,
             purpose="session-start-selection",
             vault=vault_path,
@@ -329,6 +375,7 @@ def _select_seed_notes(
     project_name: str,
     vault_path: Path,
     daily_path: Path,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> tuple[list[Path], set[Path]]:
     """Collect and de-duplicate the seed note set for the standard context path.
 
@@ -339,9 +386,21 @@ def _select_seed_notes(
     graph-neighbour expansion (:func:`_apply_graph_retrieval`) dedups against
     the same index.
     """
-    project_notes: list[Path] = find_notes_by_project(project_name)
-    recent_days: int = load_typed_config().session_start_hook.recent_days
-    recent_notes: list[Path] = find_recent_notes(days=recent_days)
+    project_notes: list[Path] = find_notes_by_project(
+        project_name, vault=vault_path, snapshot=snapshot
+    )
+    recent_days: int = load_typed_config(
+        vault=vault_path
+    ).session_start_hook.recent_days
+    # PRF-104: cap the recent-notes fetch. The general-purpose finder is still
+    # unbounded for other callers; here the injected-context budget is 4,000
+    # chars, so pulling thousands of rows only to truncate them serves nothing.
+    recent_notes: list[Path] = find_recent_notes(
+        days=recent_days,
+        vault=vault_path,
+        limit=_CONTEXT_RECENT_LIMIT,
+        snapshot=snapshot,
+    )
 
     seen: set[Path] = set()
     all_notes: list[Path] = []
@@ -352,7 +411,9 @@ def _select_seed_notes(
             seen.add(resolved)
             all_notes.append(note)
 
-    use_embeddings: bool = load_typed_config().session_start_hook.use_embeddings
+    use_embeddings: bool = load_typed_config(
+        vault=vault_path
+    ).session_start_hook.use_embeddings
     if use_embeddings:
         # Backend-aware gating lives inside _run_semantic_search (parsight needs
         # no local embeddings.db), so just delegate; it returns [] when there is
@@ -407,6 +468,13 @@ def build_session_context(
     # Ensure vault directories exist and create today's daily note
     ensure_vault_dirs(vault=vault_path)
 
+    # PRF-104: one note_index read for the whole invocation. Every DB-backed
+    # consumer below (seed queries, graph metadata, the compact index, the
+    # delta block) takes its data off this snapshot instead of opening its own
+    # connection. None means no embeddings.db -- each consumer then falls back
+    # exactly as it did before.
+    snapshot = load_session_index_snapshot(vault=vault_path)
+
     header: str = f"# Vault Context for {project_name}\n**Date:** {today_str}\n\n"
 
     # --- Pending queue warning (#3) ---
@@ -422,10 +490,12 @@ def build_session_context(
 
     # --- Cross-session delta (#10) ---
     delta_section = ""
-    if load_typed_config().session_start_hook.track_delta:
+    if load_typed_config(vault=vault_path).session_start_hook.track_delta:
         last_seen_map = load_last_seen(vault=vault_path)
         last_seen_ts = last_seen_map.get(project_name)
-        delta_section = _build_delta_section(project_name, last_seen_ts, vault_path)
+        delta_section = _build_delta_section(
+            project_name, last_seen_ts, vault_path, snapshot=snapshot
+        )
     # Update last-seen timestamp for this project
     save_last_seen(project_name, vault=vault_path)
 
@@ -437,9 +507,13 @@ def build_session_context(
         # is ranked and pruned Python-side (project match > graph adjacency >
         # adaptive usefulness > recency > hubness) so the selector's prompt
         # carries the best subset, not an arbitrary 8000-char prefix.
-        ai_graph_meta = load_graph_metadata()
+        ai_graph_meta = (
+            snapshot.graph_metadata()
+            if snapshot is not None
+            else load_graph_metadata(vault=vault_path)
+        )
         ai_max_add = 0
-        _cfg = load_typed_config()
+        _cfg = load_typed_config(vault=vault_path)
         if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
             ai_max_add = _cfg.session_start_hook.graph_expand_max
         candidates = _build_candidates(
@@ -447,7 +521,10 @@ def build_session_context(
             vault_path,
             graph_meta=ai_graph_meta,
             graph_expand_max=ai_max_add,
-            max_candidates=load_typed_config().session_start_hook.ai_candidates_max,
+            max_candidates=load_typed_config(
+                vault=vault_path
+            ).session_start_hook.ai_candidates_max,
+            snapshot=snapshot,
         )
         ai_context = _select_context_with_ai(
             project_name, cwd, candidates, ai_model, max_chars, vault_path=vault_path
@@ -474,15 +551,23 @@ def build_session_context(
         daily_dir.mkdir(parents=True, exist_ok=True)
         daily_path.touch()
 
-    all_notes, seen = _select_seed_notes(project_name, vault_path, daily_path)
+    all_notes, seen = _select_seed_notes(
+        project_name, vault_path, daily_path, snapshot=snapshot
+    )
 
     # Graph retrieval (Tier 1 neighbour expansion + Tier 2 tag/hubness rerank)
     # plus the adaptive usefulness rerank. The seed snapshot is captured inside
     # the helper BEFORE expansion, so Tier 2 reflects the intentional selection.
-    adaptive_enabled: bool = load_typed_config().adaptive_context.enabled
-    graph_meta = load_graph_metadata()
+    adaptive_enabled: bool = load_typed_config(
+        vault=vault_path
+    ).adaptive_context.enabled
+    graph_meta = (
+        snapshot.graph_metadata()
+        if snapshot is not None
+        else load_graph_metadata(vault=vault_path)
+    )
     all_notes = _apply_graph_retrieval(
-        all_notes, seen, graph_meta, vault_path, adaptive_enabled
+        all_notes, seen, graph_meta, vault_path, adaptive_enabled, snapshot=snapshot
     )
 
     notes_injected = len(all_notes)
@@ -496,7 +581,9 @@ def build_session_context(
     # Build context block from collected notes, reserving space for the header
     max_body_chars: int = max_chars - len(header)
     if not verbose_mode:
-        context_body: str = build_compact_index(all_notes, max_chars=max_body_chars)
+        context_body: str = build_compact_index(
+            all_notes, max_chars=max_body_chars, vault=vault_path, snapshot=snapshot
+        )
     else:
         context_body = build_context_block(all_notes, max_chars=max_body_chars)
 
@@ -557,7 +644,7 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            f"Append injected context and metadata to {_DEBUG_FILE} "
+            f"Append injected context and metadata to {_debug_file()} "
             "for quality evaluation. Use --no-debug to force off even if "
             "config.yaml enables it."
         ),
@@ -584,23 +671,26 @@ def main() -> None:
             ai_model = args.ai
             ai_enabled = True
         else:
-            ai_model = load_typed_config().session_start_hook.ai_model
+            ai_model = load_typed_config(vault=vault_path).session_start_hook.ai_model
             ai_enabled = ai_model is not None
         max_chars: int = (
             args.max_chars
             if args.max_chars is not None
-            else load_typed_config().session_start_hook.max_chars
+            else load_typed_config(vault=vault_path).session_start_hook.max_chars
         )
         verbose_mode: bool = (
-            args.verbose or load_typed_config().session_start_hook.verbose_mode
+            args.verbose
+            or load_typed_config(vault=vault_path).session_start_hook.verbose_mode
         )
         # args.debug is always a bool (BooleanOptionalAction); OR with config so
         # either --debug CLI flag or config.yaml debug:true enables it, while
         # --no-debug explicitly overrides config.
-        debug: bool = args.debug or load_typed_config().session_start_hook.debug
+        debug: bool = (
+            args.debug or load_typed_config(vault=vault_path).session_start_hook.debug
+        )
 
         # Config validation (#5) — warn on startup for typos
-        config_warnings = validate_config()
+        config_warnings = validate_config(vault=vault_path)
         for warning in config_warnings:
             print(f"[session_start_hook] {warning}", file=sys.stderr)
 
@@ -616,7 +706,11 @@ def main() -> None:
 
         project_name = get_project_name(cwd)
 
-        # Hook event log (#1)
+        # Hook event log (#1). PRF-101: record how the semantic leg was served
+        # (or that it timed out) so degradation shows up in vault-stats --hooks.
+        extra_event: dict[str, object] = {}
+        if _SEMANTIC_SOURCE:
+            extra_event["semantic"] = _SEMANTIC_SOURCE
         write_hook_event(
             hook="SessionStart",
             project=project_name,
@@ -624,6 +718,7 @@ def main() -> None:
             notes_injected=notes_injected,
             chars=len(context),
             vault=vault_path,
+            **extra_event,
         )
 
         # parsight watch hold: fire-and-forget so live vault edits reindex in

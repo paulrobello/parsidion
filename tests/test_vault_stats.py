@@ -36,7 +36,7 @@ vault_stats = importlib.import_module("vault_stats")
 def _patch_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
 
 
 @pytest.fixture()

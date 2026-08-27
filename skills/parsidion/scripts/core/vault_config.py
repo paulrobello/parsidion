@@ -52,6 +52,7 @@ __all__: list[str] = [
     "_merge_config_dicts",
     "_apply_legacy_aliases",
     "load_config",
+    "clear_config_cache",
     "clamp_timeout",
     "config_key_sources",
     "load_typed_config",
@@ -62,6 +63,7 @@ __all__: list[str] = [
     # Embedding-score temporal decay (ARC-023: leaf location so vault_search
     # and parsight_backend can both import it top-level without forming a cycle)
     "apply_decay_score",
+    "resolve_decay_params",
     # Config validation
     "validate_config",
     "_CONFIG_SCHEMA",
@@ -398,8 +400,14 @@ def _apply_legacy_aliases(config: dict[str, Any]) -> dict[str, Any]:
 
 
 @functools.lru_cache(maxsize=8)
-def load_config(vault: Path | None = None) -> dict[str, Any]:
-    """Load ``config.yaml`` from the vault, layered with ``config.local.yaml``.
+def _load_config_cached(vault: Path | None = None) -> dict[str, Any]:
+    """Read and merge the config files once per vault (QA-101 cache layer).
+
+    Returns the *shared* cached parsed dict. Callers must treat it as
+    read-only -- the public :func:`load_config` wrapper hands each caller
+    a deep copy of this value. The cache cap is 8 so alternating vaults
+    (multi-vault setups, tests with ``tmp_vault`` plus the real vault) stop
+    evicting each other on every call.
 
     ``config.local.yaml`` is an optional gitignored overlay read from the
     same vault directory. When present, it is deep-merged over ``config.yaml``
@@ -408,16 +416,9 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
     ``config.yaml``, or vice versa. Legacy section/enum spellings are
     normalized per file before the merge (see :func:`_apply_legacy_aliases`).
 
-    Results are cached per-process via ``functools.lru_cache``. Both files
-    are read within the same cached call, so the cache covers them jointly --
-    call ``load_config.cache_clear()`` to invalidate the cache in tests (or
-    after either file changes) when the vault path has been changed.
-
-    ARC-034: returns a deep copy so a caller that mutates the returned dict
-    (e.g. ``config["summarizer"]["model"] = "claude-..."``) cannot corrupt the
-    cached values for the rest of the process. The cache cap was also raised
-    from 1 to 8 so alternating vaults (multi-vault setups, tests with
-    ``tmp_vault`` plus the real vault) stop evicting each other on every call.
+    Both files are read within the same cached call, so the cache covers
+    them jointly -- call :func:`clear_config_cache` to invalidate it (in
+    tests, or after either file changes).
 
     Args:
         vault: Optional vault path. Defaults to resolve_vault().
@@ -445,7 +446,7 @@ def load_config(vault: Path | None = None) -> dict[str, Any]:
         except (OSError, UnicodeDecodeError):
             pass
 
-    return _deep_copy_config(config)
+    return config
 
 
 def config_key_sources(vault: Path | None = None) -> dict[tuple[str, str], str]:
@@ -460,7 +461,7 @@ def config_key_sources(vault: Path | None = None) -> dict[tuple[str, str], str]:
     :func:`load_config`'s merge order.
 
     Deliberately uncached: it re-reads the two small files on each call so
-    it can never disagree with a ``load_config.cache_clear()`` in tests.
+    it can never disagree with a :func:`clear_config_cache` call in tests.
     """
     if vault is None:
         vault = resolve_vault()
@@ -499,8 +500,47 @@ def _deep_copy_config(obj: Any) -> Any:
 
 
 # QA-015: Keep backward-compatible aliases for callers that used the old names.
-_load_config_cached = load_config
-_clear_config_cache = load_config.cache_clear
+# QA-101: ``_load_config_cached`` is now the real cached function (defined
+# above, returning the shared parsed dict); ``_clear_config_cache`` is bound
+# to the public invalidation helper just below. Use :func:`load_config` /
+# :func:`clear_config_cache` in new code.
+
+
+def load_config(vault: Path | None = None) -> dict[str, Any]:
+    """Load ``config.yaml`` from the vault, layered with ``config.local.yaml``.
+
+    Public wrapper over :func:`_load_config_cached`: the file read + parse is
+    cached per-process (keyed on the vault path), and every call returns a
+    fresh deep copy of the cached dict.
+
+    ARC-034 / QA-101: a caller that mutates the returned dict (e.g.
+    ``config["summarizer"]["model"] = "claude-..."``) cannot corrupt the
+    values seen by later callers -- the deep copy is made per call, outside
+    the cache. (Previously the copy happened inside the cached function, so
+    ``functools.lru_cache`` handed every caller the same copy object and the
+    documented isolation did not hold.)
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
+
+    Returns an empty dict when both files are missing or unreadable.
+    """
+    return _deep_copy_config(_load_config_cached(vault))
+
+
+def clear_config_cache() -> None:
+    """Clear the per-process config cache (QA-101 public invalidation helper).
+
+    Invalidates the :func:`_load_config_cached` cache so the next
+    :func:`load_config` / :func:`load_typed_config` / :func:`get_config`
+    call re-reads the files from disk. Tests (and tools that just rewrote
+    a config file) call this instead of reaching into ``lru_cache``
+    internals.
+    """
+    _load_config_cached.cache_clear()
+
+
+_clear_config_cache = clear_config_cache
 
 
 def clamp_timeout(
@@ -533,7 +573,9 @@ def clamp_timeout(
     return min(max(value, lo), hi)
 
 
-def get_config(section: str, key: str, default: Any = None) -> Any:
+def get_config(
+    section: str, key: str, default: Any = None, vault: Path | None = None
+) -> Any:
     """Look up a config value with fallback to *default*.
 
     ARC-007 adapter over the typed schema. Resolution order:
@@ -551,17 +593,21 @@ def get_config(section: str, key: str, default: Any = None) -> Any:
         key: Key within the section (e.g. ``"max_chars"``).
         default: Value returned when the key is absent and the schema
             declares no default for it.
+        vault: Optional vault path so multi-vault callers read the config of
+            the vault they are operating on (ARC-101). Defaults to
+            resolve_vault() — hook-path callers must pass the vault resolved
+            from the hook payload instead of relying on the process cwd.
 
     Returns:
         The configured value (which may be ``None`` if explicitly set), the
         schema default, or *default*.
     """
-    config = load_config()
+    config = load_config(vault=vault)
     section_dict = config.get(section)
     if isinstance(section_dict, dict) and key in section_dict:
         return section_dict[key]
 
-    cfg = load_typed_config()
+    cfg = load_typed_config(vault=vault)
     section_obj = getattr(cfg, section, None)
     if section_obj is not None:
         for field in dataclasses.fields(section_obj):
@@ -576,15 +622,22 @@ def get_config(section: str, key: str, default: Any = None) -> Any:
 
 
 def _load_typed_config_cached(vault: Path | None = None) -> VaultAppConfig:
-    """Build the typed config from the parsed dict (compat name).
+    """Build the typed config from the cached parsed dict (compat name).
 
     ARC-007: the separate lru cache was removed. It could serve stale values
-    after a caller cleared only ``load_config.cache_clear()`` (the common
-    test/invalidation idiom), and it only saved the cheap dict-to-dataclass
-    mapping -- the expensive work (file read + YAML parse) is cached inside
-    :func:`load_config`. Kept as an alias because the name is re-exported.
+    after a caller cleared only the parse cache (the common test/invalidation
+    idiom), and it only saved the cheap dict-to-dataclass mapping -- the
+    expensive work (file read + YAML parse) is cached inside
+    :func:`_load_config_cached`. Kept as an alias because the name is
+    re-exported.
+
+    QA-101: builds directly from the shared cached dict without a deep copy.
+    This is safe because ``VaultAppConfig.from_dict`` assigns only the
+    parsed dict's scalar leaf values onto the section dataclasses (the
+    config parser produces no lists), so the dataclass tree never aliases
+    a mutable leaf of the cached dict.
     """
-    return VaultAppConfig.from_dict(load_config(vault=vault))
+    return VaultAppConfig.from_dict(_load_config_cached(vault))
 
 
 def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
@@ -600,8 +653,8 @@ def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
     Additive to the dict-returning :func:`load_config`; callers that prefer
     typed attribute access (``cfg.summarizer.model``) can use this instead.
     ARC-007: no separate cache -- the parse is cached inside
-    :func:`load_config` and ``from_dict`` builds a fresh tree per call, so
-    invalidation is exactly ``load_config.cache_clear()``.
+    :func:`_load_config_cached` and ``from_dict`` builds a fresh tree per
+    call, so invalidation is exactly :func:`clear_config_cache`.
 
     Args:
         vault: Optional vault path. Defaults to :func:`resolve_vault`.
@@ -614,16 +667,15 @@ def load_typed_config(vault: Path | None = None) -> VaultAppConfig:
 
 
 # Expose cache management so tests/callers can invalidate the typed-config
-# cache the same way they do ``load_config.cache_clear()`` (via the
-# ``_clear_config_cache`` alias below). A named function -- rather than a
+# cache the same way they do :func:`clear_config_cache` (via the
+# ``_clear_config_cache`` alias above). A named function -- rather than a
 # ``.cache_clear`` attribute bolted onto the public wrapper -- keeps the API
 # statically visible to type checkers.
 def _clear_typed_config_cache() -> None:
     """Clear the typed-config cache (test helper; compat no-op since ARC-007).
 
     ``load_typed_config`` no longer keeps a separate cache — invalidation is
-    ``load_config.cache_clear()``. Kept because tests call it beside
-    ``load_config.cache_clear()``.
+    :func:`clear_config_cache`. Kept because tests call it beside it.
     """
     return None
 
@@ -640,31 +692,76 @@ def _clear_typed_config_cache() -> None:
 # callers import it at module top level and drops the lazy import.
 
 
-def apply_decay_score(score: float, mtime: float, now: float) -> float:
+def resolve_decay_params(vault: Path | None = None) -> tuple[float, float]:
+    """Resolve ``(decay_half_life_days, decay_min_factor)`` for batch scoring.
+
+    PRF-103: the scoring loops in both search backends call this once per
+    search instead of paying two :func:`get_config` reads per scored row
+    (each of which rebuilds/copies the config tree). Non-numeric configured
+    values fall back to the schema defaults so a malformed config value
+    degrades to default decay instead of failing the whole search.
+
+    Args:
+        vault: Optional vault path so multi-vault callers read the config of
+            the vault they are operating on (ARC-101).
+
+    Returns:
+        ``(half_life_days, min_factor)`` as floats.
+    """
+    embeddings = load_typed_config(vault=vault).embeddings
+    half_life = embeddings.decay_half_life_days
+    if isinstance(half_life, bool) or not isinstance(half_life, (int, float)):
+        half_life = 90.0
+    min_factor = embeddings.decay_min_factor
+    if isinstance(min_factor, bool) or not isinstance(min_factor, (int, float)):
+        min_factor = 0.5
+    return float(half_life), float(min_factor)
+
+
+def apply_decay_score(
+    score: float,
+    mtime: float,
+    now: float,
+    *,
+    half_life_days: float | None = None,
+    min_factor: float | None = None,
+    vault: Path | None = None,
+) -> float:
     """Apply exponential temporal decay to an embedding/RRF search score.
 
-    Reads ``embeddings.decay_half_life_days`` (default 90) and
-    ``embeddings.decay_min_factor`` (default 0.5) from config. The decay factor
-    is ``min_factor + (1 - min_factor) * e^(-lambda * age_days)`` where
-    ``lambda = ln(2) / half_life_days`` — so a note exactly ``half_life_days``
-    old decays to the midpoint between 1.0 and ``min_factor``.
+    The decay factor is ``min_factor + (1 - min_factor) * e^(-lambda *
+    age_days)`` where ``lambda = ln(2) / half_life_days`` — so a note exactly
+    ``half_life_days`` old decays to the midpoint between 1.0 and
+    ``min_factor``.
+
+    PRF-103: batch callers pass *half_life_days* and *min_factor* explicitly
+    (resolved once per search via :func:`resolve_decay_params`) so scored rows
+    never trigger config reads. When omitted, both are read from config
+    (``embeddings.decay_half_life_days``, default 90, and
+    ``embeddings.decay_min_factor``, default 0.5) — the pre-PRF-103 behavior
+    for non-hot callers.
 
     Args:
         score: Raw similarity / RRF score.
         mtime: Note file modification time (Unix timestamp).
         now: Reference timestamp (typically ``time.time()``); pass 0.0 to skip
             decay (used when the caller has already decided decay is disabled).
+        half_life_days: Decay half-life in days; None reads it from config.
+        min_factor: Floor multiplier for very old notes; None reads it from
+            config.
+        vault: Optional vault path used only when reading config because the
+            decay parameters were omitted.
 
     Returns:
         Decay-adjusted score. When ``mtime`` is 0/missing the score is returned
         unchanged (the original code path that gated on ``if mtime``).
     """
-    half_life: float = get_config("embeddings", "decay_half_life_days", 90.0)
-    min_factor: float = get_config("embeddings", "decay_min_factor", 0.5)
+    if half_life_days is None or min_factor is None:
+        half_life_days, min_factor = resolve_decay_params(vault)
     if not mtime:
         return score
     age_days = max(0.0, (now - mtime) / 86400.0)
-    lam = math.log(2) / half_life
+    lam = math.log(2) / half_life_days
     decay = min_factor + (1.0 - min_factor) * math.exp(-lam * age_days)
     return score * decay
 
@@ -683,16 +780,21 @@ def apply_decay_score(score: float, mtime: float, now: float) -> float:
 _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = schema_dict()
 
 
-def validate_config() -> list[str]:
+def validate_config(vault: Path | None = None) -> list[str]:
     """Validate config.yaml against the known schema.
 
     Checks for unknown sections, unknown keys within known sections, and
     type mismatches. Warnings are informational -- never raises.
 
+    Args:
+        vault: Optional vault path so multi-vault callers validate the config
+            of the vault they are operating on (ARC-101). Defaults to
+            resolve_vault().
+
     Returns:
         A list of warning strings (empty when config is valid or absent).
     """
-    config = load_config()
+    config = load_config(vault=vault)
     if not config:
         return []
 

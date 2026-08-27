@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import vault_config
+from core.vault_config import load_config
 
 # Backend-neutral default for the AI-merge timeout (seconds). The original
 # ``vault_merge.py`` defined this at module level; it lives here now that
@@ -72,7 +72,7 @@ def _is_valid_merge_body(merged: str) -> bool:
 
 def _configured_merge_model(vault_path: Path | None = None) -> str | None:
     """Return an explicitly configured merge model, if any."""
-    config = vault_config.load_config(vault=vault_path)
+    config = load_config(vault=vault_path)
     summarizer = config.get("summarizer")
     if not isinstance(summarizer, dict) or "merge_model" not in summarizer:
         return None
@@ -84,7 +84,7 @@ def _configured_merge_model(vault_path: Path | None = None) -> str | None:
 
 def _configured_merge_timeout(vault_path: Path | None = None) -> int | float:
     """Return the configured merge timeout or the backend-neutral default."""
-    config = vault_config.load_config(vault=vault_path)
+    config = load_config(vault=vault_path)
     summarizer = config.get("summarizer")
     if isinstance(summarizer, dict):
         timeout = summarizer.get("merge_timeout")

@@ -8,6 +8,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +39,14 @@ def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> No
     base = VaultAppConfig()
     base.session_start_hook = dataclasses.replace(base.session_start_hook, **ssh_fields)
     stub = _types.SimpleNamespace(session_start_hook=base.session_start_hook)
-    monkeypatch.setattr(session_start_hook, "load_typed_config", lambda: stub)
+    monkeypatch.setattr(
+        session_start_hook, "load_typed_config", lambda *args, **kwargs: stub
+    )
 
 
 import vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
 from core import ai_backend as core_ai_backend  # noqa: E402 -- ARC-006: patch internals where they live
+from core import vault_index as core_vault_index  # noqa: E402 -- same rule
 
 
 def _write_codex_config(vault: Path) -> None:
@@ -525,7 +529,7 @@ def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
     """Point vault_common at *vault* and clear the resolver/config caches."""
     monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
     vault_common._clear_config_cache()
 
 
@@ -784,9 +788,13 @@ class TestGraphExpansionIntegration:
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
-            lambda project: [seed],
+            lambda project, vault=None, snapshot=None: [seed],
         )
-        monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+        monkeypatch.setattr(
+            session_start_hook,
+            "find_recent_notes",
+            lambda days=3, vault=None, limit=None, snapshot=None: [],
+        )
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )
@@ -951,9 +959,13 @@ class TestGraphRerankIntegration:
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
-            lambda project: [seed],
+            lambda project, vault=None, snapshot=None: [seed],
         )
-        monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+        monkeypatch.setattr(
+            session_start_hook,
+            "find_recent_notes",
+            lambda days=3, vault=None, limit=None, snapshot=None: [],
+        )
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )
@@ -1252,7 +1264,7 @@ class TestAiBranchGraphEnrichment:
             "  track_delta: false\n",
             encoding="utf-8",
         )
-        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.clear_config_cache()
         vault_common._clear_config_cache()
         captured: dict[str, list[str]] = {}
 
@@ -1291,3 +1303,438 @@ class TestAiBranchGraphEnrichment:
             cwd=str(vault), ai_model="some-model", ai_enabled=True
         )
         assert "neighbor" not in captured["stems"]
+
+
+# ---------------------------------------------------------------------------
+# PRF-101: in-process parsight path for the semantic leg
+# ---------------------------------------------------------------------------
+
+
+class _FakeCommunicateProc:
+    """Minimal Popen stand-in for _run_semantic_search subprocess tests."""
+
+    def __init__(
+        self,
+        stdout: str = "",
+        returncode: int = 0,
+        timeout: bool = False,
+    ) -> None:
+        self.stdout = stdout
+        self.returncode = returncode
+        self._timeout = timeout
+        self.pid = 4242
+        self.waited = False
+
+    def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+        if self._timeout:
+            raise subprocess.TimeoutExpired(cmd="uv", timeout=timeout or 0)
+        return self.stdout, ""
+
+    def wait(self) -> int:
+        self.waited = True
+        return self.returncode
+
+    def kill(self) -> None:  # pragma: no cover - killpg path guard
+        return None
+
+
+class TestSemanticSearchParsightInProcess:
+    """PRF-101: parsight path served in-process; subprocess only as fallback."""
+
+    def _script(self, tmp_path: Path) -> Path:
+        script = tmp_path / "vault_search.py"
+        script.write_text("# stub\n", encoding="utf-8")
+        return script
+
+    def test_inprocess_path_taken_when_parsight_available(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        note = tmp_vault / "Patterns" / "inproc-note.md"
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "parsight_search",
+            lambda q, top_k=10, vault=None, timeout=None: [
+                {"path": str(note), "score": 0.9}
+            ],
+        )
+        popen_calls: list[object] = []
+
+        def _fail_popen(*args: object, **kwargs: object) -> None:
+            popen_calls.append(args)
+            raise AssertionError("subprocess must not spawn on the in-process path")
+
+        monkeypatch.setattr(session_start_hook.subprocess, "Popen", _fail_popen)
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert [p.name for p in result] == ["inproc-note.md"]
+        assert session_start_hook._SEMANTIC_SOURCE == "parsight-inproc"
+        assert popen_calls == []
+
+    def test_subprocess_fallback_when_parsight_unavailable(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: False,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "parsight_search",
+            lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("parsight_search must not run when unavailable")
+            ),
+        )
+        # auto + parsight-unavailable requires embeddings.db to exist before
+        # the subprocess spawns; the fake Popen never opens it.
+        (tmp_vault / "embeddings.db").touch()
+        monkeypatch.setattr(
+            session_start_hook.subprocess,
+            "Popen",
+            lambda *a, **k: _FakeCommunicateProc(stdout='[{"path": "/tmp/n.md"}]'),
+        )
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert [p.name for p in result] == ["n.md"]
+        assert session_start_hook._SEMANTIC_SOURCE == "subprocess"
+
+    def test_timeout_sets_timeout_source(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: False,
+        )
+        (tmp_vault / "embeddings.db").touch()
+        monkeypatch.setattr(
+            session_start_hook.subprocess,
+            "Popen",
+            lambda *a, **k: _FakeCommunicateProc(timeout=True),
+        )
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert result == []
+        assert session_start_hook._SEMANTIC_SOURCE == "timeout"
+
+    def test_forced_parsight_failure_skips_subprocess(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "search:\n  backend: parsight\n", encoding="utf-8"
+        )
+
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend, "parsight_search", lambda *a, **k: None
+        )
+        popen_calls: list[object] = []
+
+        def _fail_popen(*args: object, **kwargs: object) -> None:
+            popen_calls.append(args)
+            raise AssertionError("forced-parsight failure must not spawn a subprocess")
+
+        monkeypatch.setattr(session_start_hook.subprocess, "Popen", _fail_popen)
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert result == []
+        assert popen_calls == []
+
+    def test_auto_backend_parsight_failure_falls_back_to_subprocess(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend, "parsight_search", lambda *a, **k: None
+        )
+        monkeypatch.setattr(
+            session_start_hook.subprocess,
+            "Popen",
+            lambda *a, **k: _FakeCommunicateProc(stdout='[{"path": "/tmp/f.md"}]'),
+        )
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert [p.name for p in result] == ["f.md"]
+        assert session_start_hook._SEMANTIC_SOURCE == "subprocess"
+
+    def test_main_emits_semantic_field_in_hook_event(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "session_start_hook:\n"
+            "  use_embeddings: true\n"
+            "  track_delta: false\n"
+            "  ai_model: null\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "parsight_search",
+            lambda q, top_k=10, vault=None, timeout=None: [],
+        )
+        events: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            session_start_hook,
+            "write_hook_event",
+            lambda **kwargs: events.append(kwargs),
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend, "spawn_watch", lambda *a: True
+        )
+        monkeypatch.setattr(sys, "argv", ["session_start_hook.py"])
+        monkeypatch.setattr(
+            sys, "stdin", io.StringIO(json.dumps({"cwd": str(tmp_vault)}))
+        )
+        monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+        session_start_hook.main()
+
+        assert events, "SessionStart hook event must be written"
+        assert events[0].get("semantic") == "parsight-inproc"
+
+
+# ---------------------------------------------------------------------------
+# PRF-104: one note_index snapshot per SessionStart
+# ---------------------------------------------------------------------------
+
+
+def _delta_stems(section: str) -> set[str]:
+    """Stems listed in a ``_build_delta_section`` block."""
+    return {
+        line.split("NEW/UPDATED:", 1)[1].split("(", 1)[0].strip()
+        for line in section.splitlines()
+        if "NEW/UPDATED:" in line
+    }
+
+
+class TestSessionIndexSnapshot:
+    """The snapshot must be equivalent to the per-call queries it replaces."""
+
+    def _vault_with_rows(self, tmp_path: Path) -> Path:
+        vault = tmp_path / "vault"
+        (vault / "Patterns").mkdir(parents=True)
+        conn = _make_note_index(vault)
+        for stem, project, related, mtime in (
+            ("alpha", "proj", "beta", 5000.0),
+            ("beta", "other", "gamma", 4000.0),
+            ("gamma", "proj", "", 3000.0),
+        ):
+            note = vault / "Patterns" / f"{stem}.md"
+            note.write_text(f"# {stem}\n", encoding="utf-8")
+            _index_row(
+                conn,
+                stem=stem,
+                path=note,
+                related=related,
+                project=project,
+                tags=stem[0],
+                mtime=mtime,
+            )
+        conn.close()
+        return vault
+
+    def test_missing_db_returns_none(self, tmp_path: Path) -> None:
+        """Same sentinel contract as every other DB-first reader here."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        assert vault_common.load_session_index_snapshot(vault=empty) is None
+
+    def test_graph_metadata_matches_the_standalone_loader(self, tmp_path: Path) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert snapshot.graph_metadata() == vault_common.load_graph_metadata(
+            vault=vault
+        )
+
+    def test_compact_map_matches_the_standalone_loader(self, tmp_path: Path) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert snapshot.compact_index_map() == core_vault_index._load_note_index_map(
+            vault
+        )
+
+    def test_paths_where_matches_query_note_index(self, tmp_path: Path) -> None:
+        """The in-Python filter must reproduce the SQL it replaces."""
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert snapshot.paths_where(project="proj", limit=50) == (
+            vault_common.query_note_index(project="proj", vault=vault, limit=50)
+        )
+        # Ordering is mtime-descending, like the SQL's ORDER BY.
+        stems = [p.stem for p in snapshot.paths_where(project="proj", limit=50)]
+        assert stems == ["alpha", "gamma"]
+
+    def test_paths_where_honours_the_limit(self, tmp_path: Path) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert len(snapshot.paths_where(limit=2)) == 2
+
+    def test_paths_where_drops_rows_whose_file_is_gone(self, tmp_path: Path) -> None:
+        """SEC-005 / SEC-130 containment and existence checks are not skipped."""
+        vault = self._vault_with_rows(tmp_path)
+        (vault / "Patterns" / "alpha.md").unlink()
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert [p.stem for p in snapshot.paths_where(limit=50)] == ["beta", "gamma"]
+
+    def test_paths_where_rejects_rows_pointing_outside_the_vault(
+        self, tmp_path: Path
+    ) -> None:
+        vault = self._vault_with_rows(tmp_path)
+        outside = tmp_path / "outside.md"
+        outside.write_text("# outside\n", encoding="utf-8")
+        conn = _make_note_index(vault)
+        _index_row(conn, stem="outside", path=outside, mtime=9999.0)
+        conn.close()
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert "outside" not in [p.stem for p in snapshot.paths_where(limit=50)]
+
+    def test_reverse_adjacency_matches_a_full_scan(self, tmp_path: Path) -> None:
+        """The precomputed incoming map replaces the O(N x seeds) scan."""
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        meta = snapshot.graph_metadata()
+        for stem in meta:
+            expected = {
+                other
+                for other, m in meta.items()
+                if stem in vault_common.parse_related_stems(str(m.get("related", "")))
+            }
+            assert snapshot.incoming_stems(stem) == expected
+
+    def test_graph_neighbors_agree_with_and_without_a_snapshot(
+        self, tmp_path: Path
+    ) -> None:
+        """The snapshot fast path must not change which neighbours are found."""
+        vault = self._vault_with_rows(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        meta = snapshot.graph_metadata()
+        seeds = [vault / "Patterns" / "beta.md"]
+
+        with_snapshot = session_start_hook._graph_neighbors(
+            seeds, meta, vault, 8, snapshot=snapshot
+        )
+        without = session_start_hook._graph_neighbors(seeds, meta, vault, 8)
+        assert with_snapshot == without
+        # beta links to gamma (outgoing) and alpha links to beta (incoming).
+        assert {p.stem for p in with_snapshot} == {"alpha", "gamma"}
+
+    def test_delta_section_agrees_with_the_filesystem_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The snapshot delta must match the walk it replaces.
+
+        This rests on note_index.mtime being the FILE's mtime
+        (update_index.py stores ``note_path.stat().st_mtime``). Were it the
+        index-write time, every rebuild would make the delta list the whole
+        vault -- so pin the two against each other on a fresh index.
+        """
+        vault = self._vault_with_rows(tmp_path)
+        _use_vault(monkeypatch, vault)
+        # Re-index against the real file mtimes rather than the fixture's
+        # synthetic ones, so the two sources are directly comparable.
+        conn = _make_note_index(vault)
+        for note in sorted((vault / "Patterns").glob("*.md")):
+            _index_row(conn, stem=note.stem, path=note, mtime=note.stat().st_mtime)
+        conn.close()
+
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+
+        # A cutoff before every note: both sources must report all three.
+        old = datetime.fromtimestamp(
+            min(r.mtime for r in snapshot.rows) - 60
+        ).isoformat()
+        from_snapshot = session_start_hook._build_delta_section(
+            "proj", old, vault, snapshot=snapshot
+        )
+        from_walk = session_start_hook._build_delta_section("proj", old, vault)
+        assert _delta_stems(from_snapshot) == _delta_stems(from_walk)
+        assert _delta_stems(from_snapshot) == {"alpha", "beta", "gamma"}
+
+        # A cutoff after every note: both must report nothing.
+        future = datetime.fromtimestamp(
+            max(r.mtime for r in snapshot.rows) + 60
+        ).isoformat()
+        assert (
+            session_start_hook._build_delta_section(
+                "proj", future, vault, snapshot=snapshot
+            )
+            == ""
+        )
+        assert session_start_hook._build_delta_section("proj", future, vault) == ""
+
+    def test_build_session_context_reads_note_index_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole point: one full table read per hook invocation.
+
+        Previously a standard run performed ~3 (project/recent queries, graph
+        metadata, and another load inside build_compact_index).
+        """
+        vault = self._vault_with_rows(tmp_path)
+        _use_vault(monkeypatch, vault)
+        monkeypatch.setattr(
+            session_start_hook, "_run_semantic_search", lambda *a, **k: []
+        )
+
+        reads = {"n": 0}
+        real_loader = core_vault_index.load_session_index_snapshot
+
+        def counting_loader(vault: Path | None = None):  # type: ignore[no-untyped-def]
+            reads["n"] += 1
+            return real_loader(vault)
+
+        monkeypatch.setattr(
+            core_vault_index, "load_session_index_snapshot", counting_loader
+        )
+        monkeypatch.setattr(
+            session_start_hook, "load_session_index_snapshot", counting_loader
+        )
+
+        context, _count = session_start_hook.build_session_context(
+            str(vault), max_chars=4000
+        )
+
+        assert context
+        assert reads["n"] == 1, f"note_index read {reads['n']} times, expected 1"

@@ -243,9 +243,11 @@ class RuleReport:
             bucket[slug] = bucket.get(slug, 0) + n
 
     def record_found(self, slug: str, n: int = 1) -> None:
+        """Record *n* detected issues against rule *slug*."""
         self._bump(self.found, slug, n)
 
     def record_fixed(self, slug: str, n: int = 1) -> None:
+        """Record *n* repaired issues against rule *slug*."""
         self._bump(self.fixed, slug, n)
 
     def rows(self) -> list[tuple[str, int, int, int]]:

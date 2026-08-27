@@ -649,3 +649,122 @@ def test_main_retry_dead_letters_dry_run_reports_unrecoverable(
     out = capsys.readouterr().out
     assert "would re-queue 1 dead-lettered session(s)" in out
     assert "1 unrecoverable" in out
+
+
+# ---------------------------------------------------------------------------
+# ARC-106: max_parallel clamp + doctor sub-run through the shared pgkill owner
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (500, 16),  # above the ceiling
+        (16, 16),  # exactly the ceiling
+        (5, 5),  # in range, untouched
+        (1, 1),
+        (0, 1),  # "run one at a time", not "fall back to the default"
+        (-3, 1),
+        (True, 5),  # bool is not a concurrency; falls back to the default
+        ("abc", 5),  # YAML can hand back a string
+        (float("nan"), 5),
+        (float("inf"), 5),  # non-finite is not a concurrency either
+    ],
+)
+def test_clamp_max_parallel(
+    monkeypatch: pytest.MonkeyPatch, configured: object, expected: int
+) -> None:
+    """Every unit of fan-out is a CLI agent process, so the value must be bounded."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    assert mod._clamp_max_parallel(configured) == expected
+
+
+def test_clamp_max_parallel_warns_only_when_clamped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+
+    mod._clamp_max_parallel(5)
+    assert capsys.readouterr().err == ""
+
+    mod._clamp_max_parallel(500)
+    assert "clamped to 16" in capsys.readouterr().err
+
+
+def test_resolve_options_clamps_configured_max_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The clamp is wired into the option resolution, not just available."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    real_get_config = mod.vault_common.get_config
+
+    def _fake_get_config(section: str, key: str, default: object = None, **kw: object):
+        if section == "summarizer" and key == "max_parallel":
+            return 500
+        return real_get_config(section, key, default, **kw)
+
+    monkeypatch.setattr(mod.vault_common, "get_config", _fake_get_config)
+    args = mod._build_parser().parse_args([])
+    assert mod._resolve_options(args).max_parallel == 16
+
+
+def test_run_doctor_goes_through_run_with_pgkill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The doctor sub-run must not use a bare subprocess.run.
+
+    A plain timeout kills only the direct child, orphaning vault_doctor's own
+    AI workers; run_with_pgkill takes down the whole process group.
+    """
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "pending_summaries.jsonl").write_text("", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def _fake_pgkill(cmd: list[str], **kwargs: object):
+        calls.append(cmd)
+        return "ok", types.SimpleNamespace(
+            returncode=0, stdout="doctor output\n", stderr=""
+        )
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise AssertionError("doctor sub-run must not use subprocess.run")
+
+    monkeypatch.setattr(mod, "run_with_pgkill", _fake_pgkill)
+    monkeypatch.setattr(mod.subprocess, "run", _boom)
+    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["summarize_sessions.py", "--vault", str(vault), "--run-doctor"],
+    )
+
+    mod.main()
+
+    assert len(calls) == 1
+    assert Path(calls[0][1]).name == "vault_doctor.py"
+    assert calls[0][2:] == ["--fix-all"]
+    assert "doctor output" in capsys.readouterr().out
+
+
+def test_run_doctor_timeout_warns_and_continues(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "pending_summaries.jsonl").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(mod, "run_with_pgkill", lambda *_a, **_k: ("timeout", None))
+    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["summarize_sessions.py", "--vault", str(vault), "--run-doctor"],
+    )
+
+    mod.main()  # must not raise
+
+    assert "timed out after 600s" in capsys.readouterr().err

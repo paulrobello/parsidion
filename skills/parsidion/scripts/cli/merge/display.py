@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import vault_common
+from core.vault_index import extract_title, get_body, parse_frontmatter
 
 from cli.merge.frontmatter import _parse_tags_list
 
@@ -32,14 +32,14 @@ def _print_diff_summary(
         content_b: Content of note B.
         vault_path: Path to the vault root.
     """
-    title_a = vault_common.extract_title(content_a, path_a.stem)
-    title_b = vault_common.extract_title(content_b, path_b.stem)
-    fm_a = vault_common.parse_frontmatter(content_a)
-    fm_b = vault_common.parse_frontmatter(content_b)
+    title_a = extract_title(content_a, path_a.stem)
+    title_b = extract_title(content_b, path_b.stem)
+    fm_a = parse_frontmatter(content_a)
+    fm_b = parse_frontmatter(content_b)
     tags_a = _parse_tags_list(fm_a)
     tags_b = _parse_tags_list(fm_b)
-    body_a = vault_common.get_body(content_a).strip()
-    body_b = vault_common.get_body(content_b).strip()
+    body_a = get_body(content_a).strip()
+    body_b = get_body(content_b).strip()
 
     print("=" * 60)
     print(f"NOTE A:  {path_a}")

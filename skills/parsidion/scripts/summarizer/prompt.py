@@ -24,8 +24,8 @@ from functools import partial
 from pathlib import Path
 from typing import cast
 
-import ai_backend
 from anyio import to_thread  # type: ignore[import-untyped]
+from core import ai_backend
 
 from prompt_templates import load_prompt, render
 from summarizer._state_const import _VALID_NOTE_TYPES

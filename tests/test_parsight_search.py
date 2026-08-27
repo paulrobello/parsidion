@@ -44,7 +44,7 @@ EXPECTED_KEYS = {
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     parsight_backend.reset_parsight_cache()
 
 
@@ -347,6 +347,39 @@ class TestParsightSearchMapping:
     ) -> None:
         results = parsight_backend.parsight_search("q", vault=tmp_vault)
         assert results == []
+
+    def test_decay_config_resolved_once_per_search(
+        self, tmp_vault: Path, ready: FakeParsight, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PRF-103: decay params are hoisted out of the scoring loop."""
+        _write_config(tmp_vault, "")  # decay enabled (default)
+        _make_note_index(tmp_vault)
+        now = time.time()
+        _insert_note(tmp_vault, stem="note-a", mtime=now - 10 * 86400.0)
+        _insert_note(tmp_vault, stem="note-b", mtime=now - 20 * 86400.0)
+        _insert_note(tmp_vault, stem="note-c", mtime=now - 30 * 86400.0)
+        ready.configure(
+            find_code={
+                "results": [
+                    {"file_path": "Patterns/note-a.md", "score": 0.05},
+                    {"file_path": "Patterns/note-b.md", "score": 0.06},
+                    {"file_path": "Patterns/note-c.md", "score": 0.07},
+                ]
+            }
+        )
+        resolve_calls: list[object] = []
+        orig_resolve = parsight_backend.resolve_decay_params
+
+        def counting_resolve(vault=None):
+            resolve_calls.append(vault)
+            return orig_resolve(vault)
+
+        monkeypatch.setattr(parsight_backend, "resolve_decay_params", counting_resolve)
+        results = parsight_backend.parsight_search("q", vault=tmp_vault)
+        assert results is not None
+        assert len(results) == 3
+        # Once for the whole search — not once per scored row.
+        assert len(resolve_calls) == 1
 
     def test_applies_temporal_decay_matching_vault_search(
         self, tmp_vault: Path, ready: FakeParsight

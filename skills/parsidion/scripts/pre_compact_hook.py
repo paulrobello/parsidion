@@ -14,8 +14,18 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-import vault_common
-from vault_hooks import log_hook_error
+from core.vault_config import get_config, load_typed_config
+from core.vault_fs import (
+    ensure_vault_dirs,
+    git_commit_vault,
+    today_daily_path,
+)
+from core.vault_hooks import (
+    get_project_name,
+    is_allowed_transcript_path,
+    log_hook_error,
+)
+from core.vault_path import resolve_vault
 
 # Tool names and the input fields that contain file paths.
 # Keys are lowercase to support both Claude Code (Read/Write/Edit) and
@@ -29,11 +39,6 @@ _FILE_TOOLS: dict[str, list[str]] = {
     "find": ["path"],
     "ls": ["path"],
 }
-
-
-# Utility functions imported from vault_common (canonical implementation)
-extract_text_from_content = vault_common.extract_text_from_content
-read_last_n_lines = vault_common.read_last_n_lines
 
 
 def extract_user_task(lines: list[str]) -> str:
@@ -255,12 +260,12 @@ def append_snapshot_to_daily(
         vault_path: The vault root path.
     """
     if vault_path is None:
-        vault_path = vault_common.resolve_vault(cwd=cwd)
+        vault_path = resolve_vault(cwd=cwd)
 
-    daily_path = vault_common.today_daily_path(vault=vault_path)
+    daily_path = today_daily_path(vault=vault_path)
     # Ensure the daily note exists
     if not daily_path.exists():
-        vault_common.ensure_vault_dirs(vault=vault_path)
+        ensure_vault_dirs(vault=vault_path)
         from datetime import date as _date
 
         _month = f"{_date.today().year:04d}-{_date.today().month:02d}"
@@ -332,18 +337,18 @@ def main() -> None:
         transcript_path_str: str = input_data.get("transcript_path", "")
 
         # Resolve vault path from cwd (supports multi-vault)
-        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+        vault_path: Path = resolve_vault(cwd=cwd)
 
         # Ensure vault directories exist
-        vault_common.ensure_vault_dirs(vault=vault_path)
+        ensure_vault_dirs(vault=vault_path)
 
-        project: str = vault_common.get_project_name(cwd) if cwd else "unknown"
+        project: str = get_project_name(cwd) if cwd else "unknown"
 
         # Resolve options: defaults → config → CLI args
         lines: int = (
             args.lines
             if args.lines is not None
-            else vault_common.get_config("pre_compact_hook", "lines", _DEFAULT_LINES)
+            else get_config("pre_compact_hook", "lines", _DEFAULT_LINES)
         )
 
         task_summary: str = "Unknown task"
@@ -355,15 +360,15 @@ def main() -> None:
             # transcript readers (session_stop, subagent_stop, etc.) instead
             # of a bare ``is_file()`` so a tampered payload cannot point us
             # at an arbitrary file outside the allowed transcript roots.
-            if vault_common.is_allowed_transcript_path(transcript_path, cwd=cwd):
+            if is_allowed_transcript_path(transcript_path, cwd=cwd):
                 # SEC-111: bound the tail by bytes as well as lines so a
                 # single newline-free multi-MB line cannot drag the whole
                 # file into memory through ``deque(maxlen=n)``.
                 tail_bytes: int = int(
-                    vault_common.get_config(
+                    get_config(
                         "pre_compact_hook",
                         "transcript_tail_bytes",
-                        vault_common.load_typed_config().transcripts.tail_bytes,
+                        load_typed_config().transcripts.tail_bytes,
                     )
                 )
                 # ENH-018: unified byte-bounded reader (huge-line safe).
@@ -373,9 +378,7 @@ def main() -> None:
                     transcript_path,
                     tail_lines=lines,
                     max_bytes=tail_bytes,
-                    max_line_bytes=int(
-                        vault_common.load_typed_config().transcripts.max_line_bytes
-                    ),
+                    max_line_bytes=int(load_typed_config().transcripts.max_line_bytes),
                 ).lines
                 task_summary = extract_user_task(raw_lines)
                 recent_files = extract_file_paths(raw_lines, cwd=cwd)
@@ -385,7 +388,7 @@ def main() -> None:
         )
         # SEC-002: sanitize project name to prevent embedded newlines in commit messages
         safe_project = project.replace("\n", " ").replace("\r", "").strip()
-        vault_common.git_commit_vault(
+        git_commit_vault(
             f"chore(vault): pre-compact snapshot [{safe_project}]",
             vault=vault_path,
         )

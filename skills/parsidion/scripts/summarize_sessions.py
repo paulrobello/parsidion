@@ -36,6 +36,7 @@ vault_links.py.  This file now imports and delegates to that module.
 
 import argparse
 import atexit
+import math
 import os
 import subprocess  # re-exported for test monkeypatch (mod.subprocess.run)
 import sys
@@ -50,6 +51,7 @@ import anyio  # type: ignore[import-untyped]
 import ai_backend  # re-exported for tests (summarize_sessions.ai_backend)
 import vault_common
 import vault_links  # re-exported for tests (summarize_sessions.vault_links)
+from core.subproc_util import run_with_pgkill
 
 # Constants, sentinels, enums, regexes, and default config values (ARC-009).
 from summarizer._state_const import (  # re-exported for tests
@@ -536,6 +538,48 @@ class _SummarizerOptions(NamedTuple):
     graph_include_daily: bool | None
 
 
+_MAX_PARALLEL_CEILING = 16
+# QA-005: ceiling for the optional --run-doctor sub-run (see its call site).
+_DOCTOR_TIMEOUT_SECS = 600
+
+
+def _clamp_max_parallel(value: object) -> int:
+    """Coerce ``summarizer.max_parallel`` into ``[1, 16]`` (ARC-106).
+
+    Every unit of fan-out here is a full CLI agent process, so the config value
+    reached ``anyio.Semaphore`` unbounded: ``max_parallel: 500`` launched 500 of
+    them. Follows ``clamp_timeout``'s SEC-024 shape -- coerce first, because
+    ``get_config`` can hand back a YAML string or a bool, and only then clamp --
+    but ``0`` floors to 1 rather than falling back to the default, since "run
+    one at a time" is the intent a zero expresses.
+
+    Args:
+        value: Raw configured value.
+
+    Returns:
+        A concurrency between 1 and 16.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        print(
+            f"Note: summarizer.max_parallel {value!r} is not a valid concurrency; "
+            f"using {_DEFAULT_MAX_PARALLEL}.",
+            file=sys.stderr,
+        )
+        return _DEFAULT_MAX_PARALLEL
+    clamped = max(1, min(_MAX_PARALLEL_CEILING, int(value)))
+    if clamped != value:
+        print(
+            f"Note: summarizer.max_parallel {value!r} clamped to {clamped} "
+            f"(valid range 1-{_MAX_PARALLEL_CEILING}).",
+            file=sys.stderr,
+        )
+    return clamped
+
+
 def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
     """Resolve defaults → config → CLI args (CLI wins) into a typed bundle."""
     configured_model = vault_common.get_config("summarizer", "model", None)
@@ -550,8 +594,8 @@ def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
     # an absent CLI flag the same as `--flag False`, so once config was true
     # there was no way to disable from the CLI for a single run.
     persist: bool = _resolve(args.persist, "summarizer", "persist", False)
-    max_parallel: int = vault_common.get_config(
-        "summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL
+    max_parallel: int = _clamp_max_parallel(
+        vault_common.get_config("summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL)
     )
     tail_lines: int = vault_common.get_config(
         "summarizer", "transcript_tail_lines", _DEFAULT_TRANSCRIPT_TAIL_LINES
@@ -768,27 +812,41 @@ def main() -> None:
 
     # Optionally run vault_doctor first (--fix-all: frontmatter, tags, subfolders)
     if args.run_doctor:
-        import subprocess as _sp
-        import sys as _sys
-
         _doctor = Path(__file__).parent / "vault_doctor.py"
         print("Running vault_doctor --fix-all before summarizing…")
         # QA-005: bound the run so a hung vault_doctor cannot stall the
         # summarizer indefinitely. vault_doctor --fix-all is bounded work
         # (a few seconds on a small vault, ~1 min on a large one); 10
         # minutes is a generous ceiling for the rare AI-driven repair.
-        try:
-            _sp.run(
-                [_sys.executable, str(_doctor), "--fix-all"],
-                check=False,
-                timeout=600,
-            )
-        except _sp.TimeoutExpired:
+        #
+        # ARC-106: routed through run_with_pgkill like every other child in
+        # this pipeline. The bare subprocess.run predated ARC-004 and killed
+        # only the direct child on timeout, orphaning vault_doctor's own AI
+        # worker processes -- exactly the zombie class the SessionStart
+        # semantic-search comment documents. run_with_pgkill captures output,
+        # so it is relayed here to preserve the previous console behaviour.
+        _reason, _proc = run_with_pgkill(
+            [sys.executable, str(_doctor), "--fix-all"],
+            cwd=Path.cwd(),
+            timeout=_DOCTOR_TIMEOUT_SECS,
+        )
+        if _reason == "timeout":
             print(
-                "Warning: vault_doctor --fix-all timed out after 600s; "
+                f"Warning: vault_doctor --fix-all timed out after "
+                f"{_DOCTOR_TIMEOUT_SECS}s; continuing with summarization.",
+                file=sys.stderr,
+            )
+        elif _reason == "launch":
+            print(
+                "Warning: vault_doctor --fix-all could not be started; "
                 "continuing with summarization.",
                 file=sys.stderr,
             )
+        elif _proc is not None:
+            if _proc.stdout:
+                print(_proc.stdout, end="")
+            if _proc.stderr:
+                print(_proc.stderr, end="", file=sys.stderr)
 
     # --retry-dead-letters: pull retryable failures out of the dead-letter
     # graveyard back into the live pending queue, then fall through to the

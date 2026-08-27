@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vault_config import get_config
-from vault_index import parse_related_stems
-from vault_path import is_path_inside_vault
+from core.vault_config import get_config
+from core.vault_index import SessionIndexSnapshot, parse_related_stems
+from core.vault_path import is_path_inside_vault
 
 # Graph retrieval (Tier 1 expansion + Tier 2 rerank).  The note_index wikilink
 # graph is maintained by vault_links.py but was historically never traversed at
@@ -39,6 +39,7 @@ def _enrich_with_graph(
     graph_meta: dict[str, dict[str, object]] | None,
     vault_path: Path,
     max_add: int,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> list[Path]:
     """Splice 1-hop graph neighbours of *seed_notes* into *base* after the
     project-notes prefix (Phase 3 AI-mode enrichment).
@@ -48,7 +49,9 @@ def _enrich_with_graph(
     """
     if not graph_meta or max_add <= 0:
         return base
-    neighbours = _graph_neighbors(seed_notes, graph_meta, vault_path, max_add)
+    neighbours = _graph_neighbors(
+        seed_notes, graph_meta, vault_path, max_add, snapshot=snapshot
+    )
     if not neighbours:
         return base
     existing = {str(p) for p in base}
@@ -63,6 +66,7 @@ def _graph_neighbors(
     meta_map: dict[str, dict[str, object]] | None,
     vault_path: Path,
     max_add: int,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> list[Path]:
     """Tier 1: return up to *max_add* 1-hop wikilink neighbours of *seed_paths*.
 
@@ -80,6 +84,9 @@ def _graph_neighbors(
         meta_map: Output of ``vault_index.load_graph_metadata()``, or ``None``.
         vault_path: Vault root for path-containment validation.
         max_add: Maximum number of neighbour paths to return.
+        snapshot: PRF-104 -- a ``SessionIndexSnapshot`` carrying the reverse
+            adjacency precomputed in one pass. Without it the incoming edges
+            are derived here, which costs one scan of *meta_map* per seed.
 
     Returns:
         List of neighbour Paths, possibly empty.
@@ -87,22 +94,31 @@ def _graph_neighbors(
     if not meta_map or max_add <= 0:
         return []
 
-    parse_related = parse_related_stems
-    related_sets: dict[str, set[str]] = {
-        stem: set(parse_related(str(meta.get("related", ""))))
-        for stem, meta in meta_map.items()
-    }
-
     seed_stems = {p.stem for p in seed_paths}
     neighbour_stems: set[str] = set()
-    for seed in seed_paths:
-        stem = seed.stem
-        # Outgoing: stems this seed declares.
-        neighbour_stems |= related_sets.get(stem, set())
-        # Incoming: notes that declare this seed.
-        for other, rels in related_sets.items():
-            if stem in rels:
-                neighbour_stems.add(other)
+
+    if snapshot is not None:
+        for seed in seed_paths:
+            stem = seed.stem
+            meta = meta_map.get(stem)
+            if meta:
+                # Outgoing: stems this seed declares.
+                neighbour_stems |= set(
+                    parse_related_stems(str(meta.get("related", "")))
+                )
+            # Incoming: precomputed reverse adjacency.
+            neighbour_stems |= snapshot.incoming_stems(stem)
+    else:
+        related_sets: dict[str, set[str]] = {
+            stem: set(parse_related_stems(str(meta.get("related", ""))))
+            for stem, meta in meta_map.items()
+        }
+        for seed in seed_paths:
+            stem = seed.stem
+            neighbour_stems |= related_sets.get(stem, set())
+            for other, rels in related_sets.items():
+                if stem in rels:
+                    neighbour_stems.add(other)
 
     neighbour_stems -= seed_stems
 
@@ -184,6 +200,7 @@ def _apply_graph_retrieval(
     graph_meta: dict[str, dict[str, object]] | None,
     vault_path: Path,
     adaptive_enabled: bool,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> list[Path]:
     """Tier 1: expand the seed set with 1-hop wikilink neighbours.
 
@@ -196,20 +213,35 @@ def _apply_graph_retrieval(
     seed_snapshot: list[Path] = list(all_notes)
 
     if (
-        get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
+        get_config(
+            "session_start_hook",
+            "graph_expand",
+            _DEFAULT_GRAPH_EXPAND,
+            vault=vault_path,
+        )
         and graph_meta is not None
     ):
         max_add = get_config(
-            "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
+            "session_start_hook",
+            "graph_expand_max",
+            _DEFAULT_GRAPH_EXPAND_MAX,
+            vault=vault_path,
         )
-        for note in _graph_neighbors(seed_snapshot, graph_meta, vault_path, max_add):
+        for note in _graph_neighbors(
+            seed_snapshot, graph_meta, vault_path, max_add, snapshot=snapshot
+        ):
             resolved = note.resolve()
             if resolved not in seen:
                 seen.add(resolved)
                 all_notes.append(note)
 
     if (
-        get_config("session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK)
+        get_config(
+            "session_start_hook",
+            "graph_rerank",
+            _DEFAULT_GRAPH_RERANK,
+            vault=vault_path,
+        )
         and graph_meta is not None
         and all_notes
     ):
@@ -222,6 +254,6 @@ def _apply_graph_retrieval(
         # submodule is fully loaded.
         from .seed_selection import _rank_by_usefulness
 
-        all_notes = _rank_by_usefulness(all_notes)
+        all_notes = _rank_by_usefulness(all_notes, vault=vault_path)
 
     return all_notes

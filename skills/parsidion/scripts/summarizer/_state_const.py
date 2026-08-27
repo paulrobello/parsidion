@@ -1,7 +1,7 @@
 """Sentinels, enums, regexes, and default config constants for the summarizer.
 
 Extracted from ``summarize_sessions.py`` (ARC-009).  Pure constants only — no
-``vault_common`` dependency, no side effects at import time.  Both the entry
+``core.*`` vault dependency, no side effects at import time.  Both the entry
 shim and the leaf submodules import from here so every binder shares one
 definition.
 """

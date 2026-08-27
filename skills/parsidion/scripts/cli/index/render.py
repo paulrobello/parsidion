@@ -13,7 +13,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from vault_fs import atomic_write_text
+from core.vault_fs import atomic_write_text
 
 from cli.index.parse import _WIKILINK_RE
 

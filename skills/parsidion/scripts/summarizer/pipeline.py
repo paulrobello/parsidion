@@ -15,7 +15,7 @@ name is looked up. The entry shim re-exports every name here so legacy
 resolving unchanged.
 
 Stdlib-only is NOT required here (unlike the hook scripts): runs under the
-PEP-723 entry script's env and MAY ``import anyio`` and ``import vault_common``.
+PEP-723 entry script's env and MAY ``import anyio``.
 """
 
 from __future__ import annotations
@@ -27,11 +27,12 @@ import time
 import traceback
 from pathlib import Path
 
-import ai_backend
 import anyio  # type: ignore[import-untyped]  # annotation only (semaphore param)
-import vault_common
-import vault_links
-from vault_path import is_path_inside_vault
+from core import ai_backend, vault_links
+from core.vault_config import load_typed_config
+from core.vault_fs import atomic_write_text
+from core.vault_index import parse_frontmatter
+from core.vault_path import is_path_inside_vault
 
 from prompt_templates import load_prompt
 from summarizer._state_const import (
@@ -230,7 +231,7 @@ def _apply_merge_decision(
         return entry, None
     # SEC-127: atomic write preserves the existing mode and
     # is crash-safe (the create path uses the same primitive).
-    vault_common.atomic_write_text(resolved_target, new_content)
+    atomic_write_text(resolved_target, new_content)
     if _stripped:
         print(
             f"  [links] Stripped {_stripped} non-resolving wikilink(s)",
@@ -303,7 +304,7 @@ def _apply_backlinks_and_strip_links(
         if _stripped:
             # SEC-127: route through atomic_write_text so the link
             # rewrite is crash-atomic and preserves the note's mode.
-            vault_common.atomic_write_text(written, _written_text)
+            atomic_write_text(written, _written_text)
             print(
                 f"  [links] Stripped {_stripped} non-resolving wikilink(s)",
                 file=sys.stderr,
@@ -311,7 +312,7 @@ def _apply_backlinks_and_strip_links(
     except (OSError, UnicodeDecodeError):
         pass  # best-effort; never fail the main flow
     try:
-        new_fm = vault_common.parse_frontmatter(written.read_text(encoding="utf-8"))
+        new_fm = parse_frontmatter(written.read_text(encoding="utf-8"))
         note_tags = new_fm.get("tags") or []
         if not isinstance(note_tags, list):
             note_tags = []
@@ -411,9 +412,9 @@ async def summarize_one(
             return entry, None
 
         # Semantic dedup: find near-duplicate notes before calling the backend
-        dedup_threshold: float = (
-            vault_common.load_typed_config().summarizer.dedup_threshold
-        )
+        dedup_threshold: float = load_typed_config(
+            vault=vault
+        ).summarizer.dedup_threshold
         # Content-rich query: include a slice of the cleaned transcript so
         # semantic dedup can match the SPECIFIC existing note. The coarse
         # project+categories query was too generic and missed near-duplicates,
@@ -434,7 +435,7 @@ async def summarize_one(
                 model=model,
                 model_tier="large",
                 purpose="summarizer-note",
-                timeout=vault_common.load_typed_config().summarizer.ai_timeout,
+                timeout=load_typed_config(vault=vault).summarizer.ai_timeout,
                 vault=vault,
             )
         except Exception as e:  # noqa: BLE001

@@ -104,7 +104,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 
                         <label class="view-source-button" for="mod-note_schema-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">&quot;&quot;&quot;Single source of truth for the vault note schema (ENH-008, Step 2).</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">"""Single source of truth for the vault note schema (ENH-008, Step 2).</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos">  2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos">  3</span></a><span class="sd">The note-type enum, the type→folder routing, the required frontmatter fields,</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos">  4</span></a><span class="sd">and the tag rules used across the summarizer, ``vault_doctor``, and</span>
@@ -112,7 +112,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-6"><a href="#L-6"><span class="linenos">  6</span></a><span class="sd">vocabularies — ``summarizer._state_const._VALID_NOTE_TYPES`` and</span>
 </span><span id="L-7"><a href="#L-7"><span class="linenos">  7</span></a><span class="sd">``doctor._state._VALID_TYPES`` — kept in sync only by a parity test. That</span>
 </span><span id="L-8"><a href="#L-8"><span class="linenos">  8</span></a><span class="sd">duplicated definition is exactly how the original ARC-010 bug happened: the</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos">  9</span></a><span class="sd">summarizer&#39;s enum silently dropped ``knowledge``, so model responses with</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos">  9</span></a><span class="sd">summarizer's enum silently dropped ``knowledge``, so model responses with</span>
 </span><span id="L-10"><a href="#L-10"><span class="linenos"> 10</span></a><span class="sd">``type: knowledge`` were rejected and the live vault accumulated only a</span>
 </span><span id="L-11"><a href="#L-11"><span class="linenos"> 11</span></a><span class="sd">handful of ``Knowledge/`` notes.</span>
 </span><span id="L-12"><a href="#L-12"><span class="linenos"> 12</span></a>
@@ -124,7 +124,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-18"><a href="#L-18"><span class="linenos"> 18</span></a><span class="sd">``prompt_templates`` and the select-notes prompt), so it is held to the same</span>
 </span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a><span class="sd">stdlib-only contract as the ``core/`` package and is covered by</span>
 </span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="sd">``tests/test_stdlib_only.py``.</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a><span class="sd">"""</span>
 </span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a>
 </span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 </span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a>
@@ -137,41 +137,41 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a><span class="c1">#: ``doctor._state.VALID_TYPES`` are aliases over this set.</span>
 </span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="n">VALID_NOTE_TYPES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
 </span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a>    <span class="p">{</span>
-</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a>        <span class="s2">&quot;debugging&quot;</span><span class="p">,</span>
-</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a>        <span class="s2">&quot;research&quot;</span><span class="p">,</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a>        <span class="s2">&quot;pattern&quot;</span><span class="p">,</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a>        <span class="s2">&quot;tool&quot;</span><span class="p">,</span>
-</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a>        <span class="s2">&quot;framework&quot;</span><span class="p">,</span>
-</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a>        <span class="s2">&quot;language&quot;</span><span class="p">,</span>
-</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a>        <span class="s2">&quot;project&quot;</span><span class="p">,</span>
-</span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a>        <span class="s2">&quot;daily&quot;</span><span class="p">,</span>
-</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a>        <span class="s2">&quot;knowledge&quot;</span><span class="p">,</span>
+</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a>        <span class="s2">"debugging"</span><span class="p">,</span>
+</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a>        <span class="s2">"research"</span><span class="p">,</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a>        <span class="s2">"pattern"</span><span class="p">,</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a>        <span class="s2">"tool"</span><span class="p">,</span>
+</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a>        <span class="s2">"framework"</span><span class="p">,</span>
+</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a>        <span class="s2">"language"</span><span class="p">,</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a>        <span class="s2">"project"</span><span class="p">,</span>
+</span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a>        <span class="s2">"daily"</span><span class="p">,</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a>        <span class="s2">"knowledge"</span><span class="p">,</span>
 </span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a>    <span class="p">}</span>
 </span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a><span class="p">)</span>
 </span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a>
 </span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a><span class="c1">#: Map each note type to the vault folder that holds it. Keys are exactly</span>
 </span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a><span class="c1">#: :data:`VALID_NOTE_TYPES`; every type routes somewhere.</span>
 </span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a><span class="n">TYPE_FOLDERS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>    <span class="s2">&quot;debugging&quot;</span><span class="p">:</span> <span class="s2">&quot;Debugging&quot;</span><span class="p">,</span>
-</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a>    <span class="s2">&quot;research&quot;</span><span class="p">:</span> <span class="s2">&quot;Research&quot;</span><span class="p">,</span>
-</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a>    <span class="s2">&quot;pattern&quot;</span><span class="p">:</span> <span class="s2">&quot;Patterns&quot;</span><span class="p">,</span>
-</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a>    <span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="s2">&quot;Tools&quot;</span><span class="p">,</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a>    <span class="s2">&quot;framework&quot;</span><span class="p">:</span> <span class="s2">&quot;Frameworks&quot;</span><span class="p">,</span>
-</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a>    <span class="s2">&quot;language&quot;</span><span class="p">:</span> <span class="s2">&quot;Languages&quot;</span><span class="p">,</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>    <span class="s2">&quot;project&quot;</span><span class="p">:</span> <span class="s2">&quot;Projects&quot;</span><span class="p">,</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>    <span class="s2">&quot;daily&quot;</span><span class="p">:</span> <span class="s2">&quot;Daily&quot;</span><span class="p">,</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>    <span class="s2">&quot;knowledge&quot;</span><span class="p">:</span> <span class="s2">&quot;Knowledge&quot;</span><span class="p">,</span>
+</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>    <span class="s2">"debugging"</span><span class="p">:</span> <span class="s2">"Debugging"</span><span class="p">,</span>
+</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a>    <span class="s2">"research"</span><span class="p">:</span> <span class="s2">"Research"</span><span class="p">,</span>
+</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a>    <span class="s2">"pattern"</span><span class="p">:</span> <span class="s2">"Patterns"</span><span class="p">,</span>
+</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a>    <span class="s2">"tool"</span><span class="p">:</span> <span class="s2">"Tools"</span><span class="p">,</span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a>    <span class="s2">"framework"</span><span class="p">:</span> <span class="s2">"Frameworks"</span><span class="p">,</span>
+</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a>    <span class="s2">"language"</span><span class="p">:</span> <span class="s2">"Languages"</span><span class="p">,</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>    <span class="s2">"project"</span><span class="p">:</span> <span class="s2">"Projects"</span><span class="p">,</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>    <span class="s2">"daily"</span><span class="p">:</span> <span class="s2">"Daily"</span><span class="p">,</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>    <span class="s2">"knowledge"</span><span class="p">:</span> <span class="s2">"Knowledge"</span><span class="p">,</span>
 </span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="p">}</span>
 </span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a>
-</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a><span class="c1">#: Fallback folder when a note&#39;s type is unrecognized or missing.</span>
-</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="n">DEFAULT_FOLDER</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;Research&quot;</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a><span class="c1">#: Fallback folder when a note's type is unrecognized or missing.</span>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="n">DEFAULT_FOLDER</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"Research"</span>
 </span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a>
 </span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
 </span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="c1"># Frontmatter field contract</span>
 </span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
 </span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a>
 </span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="c1">#: Fields required on every note, of any type.</span>
-</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="n">REQUIRED_FRONTMATTER_FIELDS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;date&quot;</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;tags&quot;</span><span class="p">})</span>
+</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="n">REQUIRED_FRONTMATTER_FIELDS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"type"</span><span class="p">,</span> <span class="s2">"tags"</span><span class="p">})</span>
 </span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a>
 </span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="c1">#: Canonical serialization order for the known frontmatter fields (ARC-005).</span>
 </span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="c1">#: ``core.vault_index.serialize_frontmatter`` emits these keys first (when</span>
@@ -180,46 +180,46 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="c1">#: the parity fixture ``tests/fixtures/parity/frontmatter.json`` pins the</span>
 </span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="c1">#: Python and TS emitters to this order.</span>
 </span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="n">FRONTMATTER_FIELD_ORDER</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>    <span class="s2">&quot;date&quot;</span><span class="p">,</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>    <span class="s2">&quot;type&quot;</span><span class="p">,</span>
-</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>    <span class="s2">&quot;tags&quot;</span><span class="p">,</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>    <span class="s2">&quot;project&quot;</span><span class="p">,</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>    <span class="s2">&quot;confidence&quot;</span><span class="p">,</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>    <span class="s2">&quot;sources&quot;</span><span class="p">,</span>
-</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>    <span class="s2">&quot;related&quot;</span><span class="p">,</span>
-</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>    <span class="s2">&quot;provenance&quot;</span><span class="p">,</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>    <span class="s2">&quot;session_id&quot;</span><span class="p">,</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>    <span class="s2">"date"</span><span class="p">,</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>    <span class="s2">"type"</span><span class="p">,</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>    <span class="s2">"tags"</span><span class="p">,</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>    <span class="s2">"project"</span><span class="p">,</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>    <span class="s2">"confidence"</span><span class="p">,</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>    <span class="s2">"sources"</span><span class="p">,</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>    <span class="s2">"related"</span><span class="p">,</span>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>    <span class="s2">"provenance"</span><span class="p">,</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>    <span class="s2">"session_id"</span><span class="p">,</span>
 </span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="p">)</span>
 </span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>
 </span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="c1">#: Fields required on knowledge notes (i.e. non-daily). Daily notes are exempt</span>
 </span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="c1">#: from ``confidence`` and ``related``.</span>
-</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="n">REQUIRED_KNOWLEDGE_FIELDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;confidence&quot;</span><span class="p">,</span> <span class="s2">&quot;related&quot;</span><span class="p">)</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="n">REQUIRED_KNOWLEDGE_FIELDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"confidence"</span><span class="p">,</span> <span class="s2">"related"</span><span class="p">)</span>
 </span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>
 </span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="c1">#: Valid values for the optional ``provenance`` frontmatter field.</span>
 </span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="n">VALID_PROVENANCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
-</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>    <span class="p">{</span><span class="s2">&quot;explicit&quot;</span><span class="p">,</span> <span class="s2">&quot;inferred&quot;</span><span class="p">,</span> <span class="s2">&quot;corrected&quot;</span><span class="p">,</span> <span class="s2">&quot;observed&quot;</span><span class="p">,</span> <span class="s2">&quot;imported&quot;</span><span class="p">}</span>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>    <span class="p">{</span><span class="s2">"explicit"</span><span class="p">,</span> <span class="s2">"inferred"</span><span class="p">,</span> <span class="s2">"corrected"</span><span class="p">,</span> <span class="s2">"observed"</span><span class="p">,</span> <span class="s2">"imported"</span><span class="p">}</span>
 </span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="p">)</span>
 </span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
 </span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="c1">#: Valid values for the ``confidence`` frontmatter field.</span>
-</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="n">VALID_CONFIDENCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;high&quot;</span><span class="p">,</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span> <span class="s2">&quot;low&quot;</span><span class="p">})</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="n">VALID_CONFIDENCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"high"</span><span class="p">,</span> <span class="s2">"medium"</span><span class="p">,</span> <span class="s2">"low"</span><span class="p">})</span>
 </span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>
 </span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
 </span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="c1"># Tag rules (shared by every prompt that instructs the model on tags)</span>
 </span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
 </span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>
 </span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="c1">#: The kebab-case / short-singular tag rule, stated once. Both branches of the</span>
-</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="c1">#: summarizer&#39;s tag instruction (existing-tags vs. fresh-vault) interpolate</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="c1">#: summarizer's tag instruction (existing-tags vs. fresh-vault) interpolate</span>
 </span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="c1">#: this so a single edit updates both. Prompt templates that mention tags also</span>
 </span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="c1">#: interpolate ``{tag_rules}`` from this constant.</span>
 </span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a><span class="n">TAG_RULES</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="s2">&quot;  NEVER use underscores — always kebab-case (hyphens);</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="s2">&quot;  prefer short singular tags: &#39;voxel&#39; not &#39;voxel-engine&#39;, &#39;hook&#39; not &#39;hooks&#39;)&quot;</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="s2">"  NEVER use underscores — always kebab-case (hyphens);</span><span class="se">\n</span><span class="s2">"</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="s2">"  prefer short singular tags: 'voxel' not 'voxel-engine', 'hook' not 'hooks')"</span>
 </span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a><span class="p">)</span>
 </span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>
 </span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a><span class="c1">#: Comma-separated, sorted list of valid note types — the form prompts inject</span>
 </span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a><span class="c1">#: as ``{note_types}``. Pre-computed so prompt rendering does not have to import</span>
 </span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="c1">#: the frozenset at render time (the loader stays free of domain knowledge).</span>
-</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
 </span></pre></div>
 
 

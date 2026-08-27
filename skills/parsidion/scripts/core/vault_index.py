@@ -18,7 +18,7 @@ import sys
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from .subproc_util import run_with_pgkill
 from .vault_config import _parse_list_item, _parse_scalar, _split_list_items, get_config
@@ -67,6 +67,10 @@ __all__: list[str] = [
     "ensure_note_index_schema",
     "query_note_index",
     "load_graph_metadata",
+    # Per-run note_index snapshot (PRF-104)
+    "SessionIndexRow",
+    "SessionIndexSnapshot",
+    "load_session_index_snapshot",
     # Index-rebuild subprocess owner (ARC-004)
     "run_index_rebuild",
     "note_index_age",
@@ -883,14 +887,27 @@ def _find_recent_notes_walk(
     return [path for _, path in recent]
 
 
-def find_notes_by_project(project: str, vault: str | Path | None = None) -> list[Path]:
+def find_notes_by_project(
+    project: str,
+    vault: str | Path | None = None,
+    snapshot: SessionIndexSnapshot | None = None,
+) -> list[Path]:
     """Find all notes with a matching ``project`` field in frontmatter.
 
     Reads ``note_index`` when available and ``search.use_note_index`` is true
     (default); falls back to a filesystem walk so behaviour is unchanged on a
     vault with no embeddings.db.
+
+    Args:
+        project: Exact project value to match.
+        vault: Optional vault path. Defaults to resolve_vault().
+        snapshot: PRF-104 -- serve the query from an already-loaded snapshot
+            instead of a fresh one. Honours ``search.use_note_index`` the same
+            way, so the escape hatch still forces the walk.
     """
     if _note_index_enabled(vault):
+        if snapshot is not None:
+            return snapshot.paths_where(project=project, limit=_FIND_ALL_LIMIT)
         result = query_note_index(project=project, vault=vault, limit=_FIND_ALL_LIMIT)
         if result is not None:
             return result
@@ -923,16 +940,32 @@ def find_notes_by_type(note_type: str, vault: str | Path | None = None) -> list[
     return _find_notes_by_type_walk(note_type, vault=vault)
 
 
-def find_recent_notes(days: int = 3, vault: str | Path | None = None) -> list[Path]:
+def find_recent_notes(
+    days: int = 3,
+    vault: str | Path | None = None,
+    limit: int = _FIND_ALL_LIMIT,
+    snapshot: SessionIndexSnapshot | None = None,
+) -> list[Path]:
     """Find notes modified within the last *days* days, sorted by mtime descending.
 
     DB-first with walk fallback; see :func:`find_notes_by_project`.
+
+    Args:
+        days: Look-back window in days.
+        vault: Optional vault path. Defaults to resolve_vault().
+        limit: PRF-104 -- cap on returned notes. The general-purpose default is
+            unbounded, as before; the SessionStart context path passes an
+            explicit cap because its injected-context budget is 4,000 chars and
+            fetching thousands of rows serves nothing.
+        snapshot: PRF-104 -- serve the query from an already-loaded snapshot.
     """
     if _note_index_enabled(vault):
-        result = query_note_index(recent_days=days, vault=vault, limit=_FIND_ALL_LIMIT)
+        if snapshot is not None:
+            return snapshot.paths_where(recent_days=days, limit=limit)
+        result = query_note_index(recent_days=days, vault=vault, limit=limit)
         if result is not None:
             return result
-    return _find_recent_notes_walk(days, vault=vault)
+    return _find_recent_notes_walk(days, vault=vault)[:limit]
 
 
 def read_note_summary(path: Path, max_lines: int = 5) -> str:
@@ -1110,16 +1143,127 @@ def build_context_block(notes: list[Path], max_chars: int = 4000) -> str:
     return "".join(parts).rstrip("\n")
 
 
-def _load_note_index_map() -> dict[str, tuple[str, str, str]] | None:
-    """Load a stem -> (title, tags, folder) map from the note_index DB.
+class SessionIndexRow(NamedTuple):
+    """One ``note_index`` row, in the shape the SessionStart path consumes."""
 
-    QA-005: Used by build_compact_index and build_context_block to avoid
-    N+1 file reads when the DB is available.
+    stem: str
+    path: str
+    title: str
+    tags: str
+    folder: str
+    project: str
+    related: str
+    incoming_links: int
+    mtime: float
+
+
+class SessionIndexSnapshot:
+    """One read of ``note_index``, shared across a single hook invocation.
+
+    PRF-104: a standard SessionStart used to perform roughly three full
+    ``note_index`` reads (the project and recent queries, the graph-metadata
+    load, and another full load inside ``build_compact_index``), each opening
+    its own connection, plus an O(N x seeds) incoming-link scan rebuilt per
+    call. None of that is algorithmically wrong -- it is the SHAPE of the work
+    that grows with the vault -- so the fix is one snapshot per run rather than
+    micro-optimising each site.
+
+    The derived views (compact-index map, graph metadata, and the reverse-link
+    adjacency the Tier-1 neighbour expansion needs) are computed once here in a
+    single pass. Path validation is NOT skipped: callers that resolve rows to
+    filesystem paths still apply the SEC-005 / SEC-130 containment guard -- the
+    saving is doing it once per run instead of once per query.
+
+    Construct via :func:`load_session_index_snapshot`, which returns ``None``
+    when the DB or table is absent, mirroring ``query_note_index``'s sentinel
+    contract so every caller keeps its existing fallback.
+    """
+
+    __slots__ = ("vault", "rows", "by_stem", "_graph_meta", "_incoming", "_compact")
+
+    def __init__(self, vault: Path, rows: list[SessionIndexRow]) -> None:
+        self.vault = vault
+        self.rows = rows
+        self.by_stem: dict[str, SessionIndexRow] = {r.stem: r for r in rows}
+
+        self._graph_meta: dict[str, dict[str, object]] = {
+            r.stem: {
+                "path": r.path,
+                "related": r.related,
+                "incoming_links": r.incoming_links,
+                "tags": r.tags,
+            }
+            for r in rows
+        }
+        self._compact: dict[str, tuple[str, str, str]] = {
+            r.stem: (r.title, r.tags, r.folder) for r in rows
+        }
+        # Reverse adjacency, built in one O(N x avg_links) pass. The Tier-1
+        # expansion previously rediscovered incoming links by scanning every
+        # note's ``related`` set once per seed.
+        incoming: dict[str, set[str]] = {}
+        for row in rows:
+            for target in parse_related_stems(row.related):
+                incoming.setdefault(target, set()).add(row.stem)
+        self._incoming = incoming
+
+    def graph_metadata(self) -> dict[str, dict[str, object]]:
+        """The mapping ``load_graph_metadata`` returns, computed once."""
+        return self._graph_meta
+
+    def compact_index_map(self) -> dict[str, tuple[str, str, str]]:
+        """The stem -> (title, tags, folder) map ``build_compact_index`` uses."""
+        return self._compact
+
+    def incoming_stems(self, stem: str) -> set[str]:
+        """Stems whose ``related`` field points at *stem* (precomputed)."""
+        return self._incoming.get(stem, set())
+
+    def paths_where(
+        self,
+        *,
+        project: str | None = None,
+        recent_days: int | None = None,
+        limit: int = 200,
+    ) -> list[Path]:
+        """Rows matching the filters, newest first, as validated Paths.
+
+        Mirrors ``query_note_index``'s filtering, ordering, containment guard
+        and limit semantics -- against the snapshot instead of a fresh query.
+        """
+        cutoff = (
+            (datetime.now() - timedelta(days=recent_days)).timestamp()
+            if recent_days is not None
+            else None
+        )
+        matched = [
+            row
+            for row in self.rows
+            if (project is None or row.project == project)
+            and (cutoff is None or row.mtime >= cutoff)
+        ]
+        matched.sort(key=lambda r: r.mtime, reverse=True)
+        return _paths_from_rows(
+            [(r.path,) for r in matched[:limit]], self.vault.resolve()
+        )
+
+
+def load_session_index_snapshot(
+    vault: Path | None = None,
+) -> SessionIndexSnapshot | None:
+    """Read ``note_index`` once for a hook invocation (PRF-104).
+
+    Args:
+        vault: Optional vault path used to locate embeddings.db (ARC-101).
+            Defaults to resolve_vault().
 
     Returns:
-        Dict mapping stem to (title, tags_str, folder), or None if DB unavailable.
+        A :class:`SessionIndexSnapshot`, or ``None`` when ``embeddings.db`` or
+        the ``note_index`` table is absent -- the same sentinel every other
+        DB-first reader here uses to signal "take the fallback path".
     """
-    db_path = get_embeddings_db_path()
+    resolved = vault or resolve_vault()
+    db_path = get_embeddings_db_path(resolved)
     if not db_path.exists():
         return None
     try:
@@ -1127,19 +1271,60 @@ def _load_note_index_map() -> dict[str, tuple[str, str, str]] | None:
     except sqlite3.OperationalError:
         return None
     try:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-        ).fetchone()
-        if row is None:
+        if (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+            ).fetchone()
+            is None
+        ):
             return None
-        rows = conn.execute(
-            "SELECT stem, title, tags, folder FROM note_index"
+        raw = conn.execute(
+            "SELECT stem, path, title, tags, folder, project, related, "
+            "incoming_links, mtime FROM note_index"
         ).fetchall()
-        return {r[0]: (r[1], r[2], r[3]) for r in rows}
     except sqlite3.Error:
         return None
     finally:
         conn.close()
+    rows = [
+        SessionIndexRow(
+            stem=r[0],
+            path=r[1],
+            title=r[2] or "",
+            tags=r[3] or "",
+            folder=r[4] or "",
+            project=r[5] or "",
+            related=r[6] or "",
+            incoming_links=int(r[7] or 0),
+            mtime=float(r[8] or 0.0),
+        )
+        for r in raw
+    ]
+    return SessionIndexSnapshot(Path(resolved), rows)
+
+
+def _load_note_index_map(
+    vault: Path | None = None,
+) -> dict[str, tuple[str, str, str]] | None:
+    """Load a stem -> (title, tags, folder) map from the note_index DB.
+
+    QA-005: Used by build_compact_index and build_context_block to avoid
+    N+1 file reads when the DB is available.
+
+    PRF-104: a thin wrapper over :func:`load_session_index_snapshot` so
+    external callers (parsidion-mcp reaches this through
+    ``build_compact_index``) keep a one-off-snapshot entry point, while the
+    SessionStart path passes its shared snapshot in directly.
+
+    Args:
+        vault: Optional vault path used to locate embeddings.db (ARC-101).
+            Defaults to resolve_vault().
+
+    Returns:
+        Dict mapping stem to (title, tags_str, folder), or None if DB unavailable.
+    """
+    snapshot = load_session_index_snapshot(vault)
+    return snapshot.compact_index_map() if snapshot is not None else None
 
 
 def parse_related_stems(related_str: str) -> list[str]:
@@ -1163,7 +1348,9 @@ def parse_related_stems(related_str: str) -> list[str]:
     return [s.strip() for s in related_str.split(",") if s.strip()]
 
 
-def load_graph_metadata() -> dict[str, dict[str, object]] | None:
+def load_graph_metadata(
+    vault: Path | None = None,
+) -> dict[str, dict[str, object]] | None:
     """Load per-note graph metadata from the ``note_index`` table.
 
     Used by ``session_start_hook`` for 1-hop neighbor expansion (Tier 1) and
@@ -1175,43 +1362,27 @@ def load_graph_metadata() -> dict[str, dict[str, object]] | None:
     Paths are returned verbatim (unvalidated); callers that resolve stems to
     filesystem paths must apply the SEC-005 vault-containment guard themselves.
 
+    Args:
+        vault: Optional vault path used to locate embeddings.db (ARC-101).
+            Defaults to resolve_vault().
+
+    PRF-104: a thin wrapper over :func:`load_session_index_snapshot`. The
+    SessionStart path takes the mapping off its shared snapshot instead of
+    calling this and paying a second full table read.
+
     Returns:
         Mapping of ``stem -> {"path": str, "related": str,
         "incoming_links": int, "tags": str}``, or ``None`` on DB error.
     """
-    db_path = get_embeddings_db_path()
-    if not db_path.exists():
-        return None
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return None
-    try:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-        ).fetchone()
-        if row is None:
-            return None
-        rows = conn.execute(
-            "SELECT stem, path, related, incoming_links, tags FROM note_index"
-        ).fetchall()
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
-    return {
-        r[0]: {
-            "path": r[1],
-            "related": r[2] or "",
-            "incoming_links": int(r[3] or 0),
-            "tags": r[4] or "",
-        }
-        for r in rows
-    }
+    snapshot = load_session_index_snapshot(vault)
+    return snapshot.graph_metadata() if snapshot is not None else None
 
 
 def build_compact_index(
-    notes: list[Path], max_chars: int = 2000, vault: Path | None = None
+    notes: list[Path],
+    max_chars: int = 2000,
+    vault: Path | None = None,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> str:
     """Build a compact one-line-per-note index: title [tags] (folder).
 
@@ -1225,13 +1396,21 @@ def build_compact_index(
         notes: List of note paths to include.
         max_chars: Maximum total characters before truncating with a count line.
         vault: Optional vault path. Defaults to resolve_vault().
+        snapshot: PRF-104 -- an already-loaded ``note_index`` snapshot to read
+            the title/tags/folder map from. Omit it (the default) and one is
+            loaded here, preserving the standalone contract external callers
+            such as parsidion-mcp depend on.
 
     Returns:
         A compact index string, or empty string if notes is empty.
     """
     vault = vault or resolve_vault()
     # QA-005: Try DB-backed lookup to avoid N+1 file reads
-    index_map = _load_note_index_map()
+    index_map = (
+        snapshot.compact_index_map()
+        if snapshot is not None
+        else _load_note_index_map(vault)
+    )
     lines: list[str] = []
     total = 0
     for path in notes:

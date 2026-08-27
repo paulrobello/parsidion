@@ -44,7 +44,7 @@ def _isolate_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     every dimension reads from the synthetic vault under test.
     """
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
     # SEC-P001: register tmp_path in a test-local vaults.yaml so the
     # allowlist resolver accepts the CLAUDE_VAULT reference.
     _cfg_dir = tmp_path / ".config" / "parsidion"
@@ -56,7 +56,7 @@ def _isolate_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
     yield
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
 
 
 def _make_db(vault: Path) -> Path:
@@ -194,7 +194,7 @@ class TestDegradesOnMissingInputs:
     def test_empty_vault_does_not_raise(self, tmp_path: Path) -> None:
         report = vault_health.compute_health_report(tmp_path)
         assert isinstance(report, vault_health.HealthReport)
-        # All seven dimensions present.
+        # All eight dimensions present.
         names = {d.name for d in report.dimensions}
         assert names == set(vault_health.DIMENSION_WEIGHTS)
 

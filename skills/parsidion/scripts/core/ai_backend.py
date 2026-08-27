@@ -674,9 +674,13 @@ def _run_grok_prompt(
 ) -> tuple[str | None, str | None]:
     """Run a single-turn grok prompt via ``--prompt-file``.
 
-    ``grok_cli.minimal_context`` (default true) overrides the system prompt
-    and runs from a clean scratch cwd with tools, subagents, and web search
-    disabled — without it grok ingests the project's CLAUDE.md/AGENTS.md
+    SEC-202: tool/subagent/web-search disabling and the clean scratch cwd are
+    emitted unconditionally — they are safety flags on prompts that embed
+    transcript/vault content, not context options. Only the explicit
+    ``grok_cli.allow_tools`` double opt-in (mirroring
+    ``codex_cli.allow_danger_full_access``) omits them, with a stderr warning.
+    ``grok_cli.minimal_context`` (default true) now controls only the system
+    prompt override; without it grok ingests the project's CLAUDE.md/AGENTS.md
     rules and its full skill catalog, which is dead context for parsidion's
     selector/summarizer prompts. SEC-123: the prompt travels via a temp
     file, not ``argv``.
@@ -695,6 +699,7 @@ def _run_grok_prompt(
         else _config_timeout("grok_cli", "timeout", _DEFAULT_GROK_TIMEOUT, vault=vault)
     )
     minimal_context = _config_bool("grok_cli", "minimal_context", True, vault=vault)
+    allow_tools = _config_bool("grok_cli", "allow_tools", False, vault=vault)
 
     prompt_path: Path | None = None
     try:
@@ -710,22 +715,23 @@ def _run_grok_prompt(
         cmd = [command, "--prompt-file", str(prompt_path), "--verbatim"]
         if model:
             cmd.extend(["--model", model])
+        # SEC-202: always run from the clean scratch cwd so grok never
+        # ingests the caller project's files (or acts on them with tools).
+        cmd.extend(["--cwd", str(_minimal_context_cwd())])
+        if allow_tools:
+            sys.stderr.write(
+                "[ai_backend] WARNING: grok_cli.allow_tools=true — grok runs "
+                "with tools, subagents, and web search enabled. Do not enable "
+                "on untrusted vault content.\n"
+            )
+            sys.stderr.flush()
+        else:
+            cmd.extend(["--tools", "", "--no-subagents", "--disable-web-search"])
         if minimal_context:
             system_prompt = _config_str(
                 "grok_cli", "system_prompt", _MINIMAL_SYSTEM_PROMPT, vault=vault
             )
-            cmd.extend(
-                [
-                    "--cwd",
-                    str(_minimal_context_cwd()),
-                    "--system-prompt-override",
-                    system_prompt,
-                    "--tools",
-                    "",
-                    "--no-subagents",
-                    "--disable-web-search",
-                ]
-            )
+            cmd.extend(["--system-prompt-override", system_prompt])
 
         result = _run_prompt_subprocess(
             cmd,

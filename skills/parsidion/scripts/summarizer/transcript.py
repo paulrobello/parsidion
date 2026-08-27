@@ -23,7 +23,8 @@ import sys
 import traceback
 from pathlib import Path
 
-import vault_common
+from core.vault_config import get_config, load_typed_config
+
 from prompt_templates import render
 
 from summarizer._state_const import (
@@ -128,6 +129,7 @@ def preprocess_transcript(
     tail_lines: int = _DEFAULT_TRANSCRIPT_TAIL_LINES,
     max_chars: int | None = _DEFAULT_MAX_CLEANED_CHARS,
     tail_bytes: int | None = _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+    vault: Path | None = None,
 ) -> str:
     """Pre-process a transcript JSONL file into a cleaned human/assistant dialogue.
 
@@ -140,6 +142,8 @@ def preprocess_transcript(
         max_chars: Maximum output characters, or ``None`` to return all cleaned text.
         tail_bytes: Byte ceiling on the raw tail (see ``read_last_n_lines``); bounds
             transcripts with few-but-huge lines before cleaning.
+        vault: Vault root being summarized (ARC-101); selects the config
+            vault for ``transcripts.max_line_bytes``.
 
     Returns:
         Cleaned dialogue string, truncated to *max_chars* when provided.
@@ -160,7 +164,7 @@ def preprocess_transcript(
             tail_lines=tail_lines,
             max_bytes=tail_bytes or 0,
             max_line_bytes=int(
-                vault_common.load_typed_config().transcripts.max_line_bytes
+                load_typed_config(vault=vault).transcripts.max_line_bytes
             ),
         )
     except OSError:
@@ -237,7 +241,7 @@ async def _summarize_chunk(
             model=model,
             model_tier="small",
             purpose="summarizer-chunk",
-            timeout=vault_common.get_config("summarizer", "ai_timeout", None),
+            timeout=get_config("summarizer", "ai_timeout", None, vault=vault),
             vault=vault,
         )
     except Exception:  # noqa: BLE001
@@ -280,7 +284,9 @@ async def preprocess_transcript_hierarchical(
     Returns:
         Cleaned dialogue string, or hierarchical summary string for long sessions.
     """
-    cleaned = preprocess_transcript(transcript_path_str, tail_lines, None, tail_bytes)
+    cleaned = preprocess_transcript(
+        transcript_path_str, tail_lines, None, tail_bytes, vault=vault
+    )
     if len(cleaned) <= max_cleaned_chars:
         return cleaned
 

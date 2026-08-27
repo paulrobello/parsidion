@@ -50,6 +50,7 @@ import os
 import signal
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -118,17 +119,29 @@ def pid_alive(pid: int) -> bool:
 # ---------------------------------------------------------------------------
 
 _MODELS: dict[str, Any] = {}
+# PRF-105: connections are now handled on threads, so the model cache and the
+# inference call need a guard. fastembed's TextEmbedding is not documented as
+# thread-safe, and concurrent embed() calls on one instance are not worth the
+# risk for work that takes ~10 ms.
+_MODEL_LOCK = threading.Lock()
 
 
 def _get_model(model_name: str) -> Any:
     """Return a cached ``TextEmbedding`` for *model_name* (loaded once)."""
-    m = _MODELS.get(model_name)
-    if m is None:
-        from fastembed import TextEmbedding  # type: ignore[import-untyped]
+    with _MODEL_LOCK:
+        m = _MODELS.get(model_name)
+        if m is None:
+            from fastembed import TextEmbedding  # type: ignore[import-untyped]
 
-        m = TextEmbedding(model_name=model_name)
-        _MODELS[model_name] = m
-    return m
+            m = TextEmbedding(model_name=model_name)
+            _MODELS[model_name] = m
+        return m
+
+
+def _embed(model: Any, text: str) -> list[float]:
+    """Run one inference under the model lock (PRF-105)."""
+    with _MODEL_LOCK:
+        return [float(x) for x in list(model.embed([text]))[0]]
 
 
 # SEC-018: request-line cap. A client that never sends a newline would
@@ -157,9 +170,18 @@ def _read_line(conn: socket.socket) -> str:
     return buf.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
 
 
+# PRF-105: per-connection socket timeout. A warm embed is ~10 ms, and main()
+# preloads the model BEFORE bind() -- the socket's existence means "warm and
+# ready" -- so no request ever pays a cold load and no first-request grace is
+# needed. The previous 60 s allowed one wedged client to hold a handler open
+# for a minute; combined with the serial accept loop that stalled every other
+# client for the same minute.
+_CONN_TIMEOUT_SECS = 5.0
+
+
 def _handle(conn: socket.socket, default_model: str) -> None:
     """Serve one embed request; respond with a vector or an error object."""
-    conn.settimeout(60.0)
+    conn.settimeout(_CONN_TIMEOUT_SECS)
     try:
         line = _read_line(conn)
         if not line:
@@ -171,8 +193,7 @@ def _handle(conn: socket.socket, default_model: str) -> None:
         # (potentially huge or hostile-source) ONNX bundle into the daemon.
         model_name = default_model
         model = _get_model(model_name)
-        vec = list(model.embed([text]))[0]
-        payload = json.dumps({"vector": [float(x) for x in vec]}) + "\n"
+        payload = json.dumps({"vector": _embed(model, text)}) + "\n"
         conn.sendall(payload.encode("utf-8"))
     except Exception as e:  # noqa: BLE001 — report any failure to the client
         try:
@@ -281,7 +302,14 @@ def main() -> int:
             except OSError:
                 break
             last_activity = time.monotonic()
-            _handle(conn, args.model)
+            # PRF-105: hand the connection to a daemon thread so one slow or
+            # wedged client cannot head-of-line block every other client for
+            # the duration of its timeout. Daemon threads so a shutdown or
+            # idle-exit is never held up by an in-flight handler; inference
+            # itself stays serialised by _MODEL_LOCK.
+            threading.Thread(
+                target=_handle, args=(conn, args.model), daemon=True
+            ).start()
     except KeyboardInterrupt:
         pass
     finally:

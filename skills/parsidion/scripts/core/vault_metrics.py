@@ -99,11 +99,10 @@ class VecExtensionMissing(ImportError):
 def connect_with_vec(db_path: Path) -> sqlite3.Connection:
     """Open *db_path* read-write with the sqlite-vec extension loaded.
 
-    QA-017: the single sqlite-vec-loading connector, previously
-    copy-pasted in build_embeddings.open_db and
-    cli.search.embeddings._open_db_semantic. The optional import lives in
-    this branch so the stdlib-only gate stays green for callers that
-    never touch the vector path.
+    QA-017: the single sqlite-vec-loading connector — every RW vector-path
+    caller (build_embeddings, cli.search.embeddings) routes through here.
+    The optional import lives in this branch so the stdlib-only gate stays
+    green for callers that never touch the vector path.
 
     Args:
         db_path: Path to the SQLite database file.

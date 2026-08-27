@@ -11,15 +11,29 @@ framing wrapper, and the best-effort debug log writer.  They are leaf helpers
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from vault_index import all_vault_notes
-from vault_path import secure_log_dir
+from core.vault_index import SessionIndexSnapshot, all_vault_notes
+from core.vault_path import secure_log_dir
 
-_DEBUG_FILE = secure_log_dir() / "parsidion-session-start-debug.log"
+_DEBUG_FILE_NAME = "parsidion-session-start-debug.log"
+
+
+@functools.cache
+def _debug_file() -> Path:
+    """Return the debug log path, creating ``~/.claude/logs/`` on first call.
+
+    ARC-109: this was a module-level constant, so merely importing this module
+    ran a ``mkdir`` + ``chmod`` (``secure_log_dir()``). Every importer paid it --
+    ``agent_adapter`` already imports this module lazily *because* it was
+    heavy -- and it made test isolation harder than it needed to be. Deferring
+    it costs one call per process instead of one per import.
+    """
+    return secure_log_dir() / _DEBUG_FILE_NAME
 
 
 def _build_pending_notice(vault_path: Path) -> str:
@@ -79,7 +93,10 @@ def _build_dead_letter_notice(vault_path: Path) -> str:
 
 
 def _build_delta_section(
-    project_name: str, last_seen_ts: str | None, vault_path: Path
+    project_name: str,
+    last_seen_ts: str | None,
+    vault_path: Path,
+    snapshot: SessionIndexSnapshot | None = None,
 ) -> str:
     """Build a 'Since last time' section from notes newer than *last_seen_ts*.
 
@@ -87,6 +104,13 @@ def _build_delta_section(
         project_name: Current project name (used to label the section).
         last_seen_ts: ISO 8601 timestamp of the last session, or None.
         vault_path: The vault root path.
+        snapshot: PRF-104 -- read mtimes from the run's ``note_index``
+            snapshot, which already carries them, instead of walking the vault
+            and calling ``stat()`` once per note. Falls back to the walk when
+            no snapshot is available (no ``embeddings.db``). Consequence: a
+            note modified since the last index rebuild is not reported until
+            the index catches up -- the same staleness every other DB-first
+            read here already accepts.
 
     Returns:
         A formatted section string, or empty string if nothing new.
@@ -101,18 +125,23 @@ def _build_delta_section(
     cutoff_ts = last_seen_dt.timestamp()
     new_notes: list[tuple[float, str, str]] = []  # (mtime, stem, folder)
 
-    for note_path in all_vault_notes(vault=vault_path):
-        try:
-            mtime = note_path.stat().st_mtime
-        except OSError:
-            continue
-        if mtime > cutoff_ts:
+    if snapshot is not None:
+        for row in snapshot.rows:
+            if row.mtime > cutoff_ts:
+                new_notes.append((row.mtime, row.stem, row.folder or "root"))
+    else:
+        for note_path in all_vault_notes(vault=vault_path):
             try:
-                rel = note_path.relative_to(vault_path)
-                folder = str(rel.parent) if str(rel.parent) != "." else "root"
-            except ValueError:
-                folder = note_path.parent.name
-            new_notes.append((mtime, note_path.stem, folder))
+                mtime = note_path.stat().st_mtime
+            except OSError:
+                continue
+            if mtime > cutoff_ts:
+                try:
+                    rel = note_path.relative_to(vault_path)
+                    folder = str(rel.parent) if str(rel.parent) != "." else "root"
+                except ValueError:
+                    folder = note_path.parent.name
+                new_notes.append((mtime, note_path.stem, folder))
 
     if not new_notes:
         return ""
@@ -236,7 +265,7 @@ def _write_debug_log(
 
     try:
         # SEC-008: Use O_NOFOLLOW to prevent a symlink-substitution attack — if an
-        # adversary replaced _DEBUG_FILE with a symlink to a sensitive file, O_NOFOLLOW
+        # adversary replaced the debug log with a symlink to a sensitive file, O_NOFOLLOW
         # causes the open to fail with ELOOP rather than following the symlink.
         # O_NOFOLLOW is POSIX and available on Linux/macOS; on Windows it is absent
         # so we fall back gracefully (Windows does not support symlinks by default).
@@ -244,7 +273,7 @@ def _write_debug_log(
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         fd = os.open(
-            _DEBUG_FILE,
+            _debug_file(),
             flags,
             0o600,
         )

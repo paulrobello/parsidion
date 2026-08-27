@@ -44,8 +44,29 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-import ai_backend
-import vault_common
+from core import ai_backend
+from core.vault_adaptive import get_injected_stems, update_usefulness_scores
+from core.vault_config import load_config, load_typed_config
+from core.vault_fs import (
+    append_session_to_daily,
+    append_to_pending,
+    ensure_vault_dirs,
+    git_commit_vault,
+)
+from core.vault_hooks import (
+    detect_categories,
+    env_without_claudecode,
+    get_project_name,
+    is_allowed_transcript_path,
+    is_codex_transcript_path,
+    is_gemini_transcript_path,
+    is_pi_transcript_path,
+    parse_codex_transcript_lines,
+    parse_gemini_transcript_lines,
+    parse_transcript_lines,
+    write_hook_event,
+)
+from core.vault_path import resolve_vault
 
 # ---------------------------------------------------------------------------
 # Adapter descriptor
@@ -56,7 +77,7 @@ import vault_common
 class AgentAdapter:
     """Static description of one runtime's hook behaviour.
 
-    Each field names a vault_common helper or constant the generic
+    Each field names a ``core.vault_*`` helper or constant the generic
     entrypoint should call. The dataclass is frozen so adapters can be
     used as dict keys / compared by identity.
     """
@@ -83,7 +104,7 @@ class AgentAdapter:
     )
     """Optional parser — ``parse_codex_transcript_lines`` /
     ``parse_gemini_transcript_lines``. None means fall back to the
-    shape-agnostic ``vault_common.parse_transcript_lines``."""
+    shape-agnostic ``parse_transcript_lines``."""
 
     read_transcript_tail: Callable[[Path, int], list[str]] | None = field(
         default=None, repr=False
@@ -231,32 +252,49 @@ def _load_external_adapters() -> None:
     """Opt-in drop-in loader for ``~/.config/parsidion/adapters/*.py``.
 
     Each file defines a module-level ``ADAPTER: AgentAdapter``. Loading
-    arbitrary Python is code execution, so three guards (mirroring SEC-117's
-    reasoning for ``codex_cli.command``): off by default; each file refused if
-    group- or world-writable; every load logged by path. Never raises — a
-    broken external adapter must not break the registry or the hooks that read
-    it.
+    arbitrary Python is code execution, so the guards (mirroring SEC-117's
+    reasoning for ``codex_cli.command``): off by default; the adapters
+    directory and each file must pass the full SEC-007 trust criteria
+    (``vault_fs.is_trusted_executable`` — owned by the current uid, no
+    group/world write bits; a group-writable directory would let any group
+    member plant a module); every load logged by path. Never raises — a
+    broken external adapter must not break the registry or the hooks that
+    read it.
     """
     global _external_loaded
     if _external_loaded:
         return
     _external_loaded = True
     try:
-        if vault_common.load_typed_config().adapters.load_external is not True:
+        # ARC-101 allowlist: registry population runs before any hook payload
+        # (and thus before any vault) exists, so the default-vault read here
+        # is deliberate — there is no resolved vault to thread yet.
+        if load_typed_config().adapters.load_external is not True:
             return
         import importlib.util
+
+        from vault_fs import is_trusted_executable
 
         adapters_dir = Path.home() / ".config" / "parsidion" / "adapters"
         if not adapters_dir.is_dir():
             return
+        # SEC-205: gate the directory itself, not just the files — planting a
+        # module only needs write access to the dir.
+        if not is_trusted_executable(adapters_dir):
+            print(
+                f"agent_adapter: refusing external adapters from untrusted "
+                f"directory {adapters_dir} (not owned by current user or "
+                f"group/world-writable)",
+                file=sys.stderr,
+            )
+            return
         for path in sorted(adapters_dir.glob("*.py")):
-            try:
-                mode = path.stat().st_mode
-            except OSError:
-                continue
-            if mode & 0o022:  # group- or world-writable -> refuse
+            # SEC-205: full SEC-007 criteria per file — ownership in addition
+            # to the write bits.
+            if not is_trusted_executable(path):
                 print(
-                    f"agent_adapter: refusing group/world-writable adapter {path}",
+                    f"agent_adapter: refusing untrusted adapter {path} "
+                    f"(not owned by current user or group/world-writable)",
                     file=sys.stderr,
                 )
                 continue
@@ -345,8 +383,8 @@ def _register_builtin_adapters() -> None:
             runtime_env_value="codex",
             hook_event_name_start="CodexSessionStart",
             hook_event_name_end="CodexSessionEnd",
-            is_transcript_path=lambda p, cwd: vault_common.is_codex_transcript_path(p),
-            parse_transcript_lines=vault_common.parse_codex_transcript_lines,
+            is_transcript_path=lambda p, cwd: is_codex_transcript_path(p),
+            parse_transcript_lines=parse_codex_transcript_lines,
             hooks_config_filename="hooks.json",
             event_scripts=_CODEX_HOOK_SCRIPTS,
             entry_matcher="",
@@ -362,10 +400,8 @@ def _register_builtin_adapters() -> None:
             runtime_env_value="gemini",
             hook_event_name_start="GeminiSessionStart",
             hook_event_name_end="GeminiSessionEnd",
-            is_transcript_path=lambda p, cwd: vault_common.is_gemini_transcript_path(
-                p, cwd=cwd
-            ),
-            parse_transcript_lines=vault_common.parse_gemini_transcript_lines,
+            is_transcript_path=lambda p, cwd: is_gemini_transcript_path(p, cwd=cwd),
+            parse_transcript_lines=parse_gemini_transcript_lines,
             hooks_config_filename="settings.json",
             event_scripts=_GEMINI_HOOK_SCRIPTS,
             entry_matcher="*",
@@ -413,7 +449,7 @@ def _emit_hook_event(hook: str, project: str, vault: Path, **extra: object) -> N
     blind to every Codex/Gemini session.
     """
     try:
-        vault_common.write_hook_event(
+        write_hook_event(
             hook=hook, project=project, duration_ms=0.0, vault=vault, **extra
         )
     except Exception as exc:  # noqa: BLE001
@@ -466,7 +502,9 @@ _DEFAULT_TRANSCRIPT_TAIL_BYTES = 1_500_000
 _SIGNIFICANT_CATEGORIES = {"error_fix", "research", "pattern"}
 
 
-def _read_transcript_tail(path: Path, tail_lines: int) -> list[str]:
+def _read_transcript_tail(
+    path: Path, tail_lines: int, vault: Path | None = None
+) -> list[str]:
     """Read the last *tail_lines* of a transcript through the unified reader.
 
     Shared default ``AgentAdapter.read_transcript_tail`` implementation
@@ -476,11 +514,15 @@ def _read_transcript_tail(path: Path, tail_lines: int) -> list[str]:
     Byte budget: the per-hook ``session_stop_hook.transcript_tail_bytes``
     override when explicitly set, else the ``transcripts.tail_bytes`` key,
     else the built-in default.
+
+    ``vault`` (ARC-101) selects the config vault; external adapters keep the
+    two-argument ``read_transcript_tail`` contract and resolve a vault
+    themselves when they need one.
     """
     from core.transcript_reader import read_tail
 
-    cfg = vault_common.load_typed_config()
-    raw_section = vault_common.load_config().get("session_stop_hook") or {}
+    cfg = load_typed_config(vault=vault)
+    raw_section = load_config(vault=vault).get("session_stop_hook") or {}
     override = raw_section.get("transcript_tail_bytes")
     if override is None:
         # No explicit per-hook override: the unified transcripts key drives
@@ -501,6 +543,7 @@ def _classify_session_with_ai(
     assistant_texts: list[str],
     project: str,
     model: str | None,
+    vault: Path | None = None,
 ) -> dict[str, object] | None:
     """Use the configured AI backend to classify whether a session should be queued.
 
@@ -512,6 +555,8 @@ def _classify_session_with_ai(
         assistant_texts: List of assistant message texts from the transcript.
         project: The current project name.
         model: Explicit model ID to use, or None for the backend default.
+        vault: Vault root the session belongs to (ARC-101); selects the
+            config vault for the AI timeout.
 
     Returns:
         Dict with keys ``should_queue`` (bool), ``categories`` (list[str]),
@@ -565,7 +610,7 @@ def _classify_session_with_ai(
             prompt,
             model=model,
             model_tier="small",
-            timeout=vault_common.load_typed_config().session_stop_hook.ai_timeout,
+            timeout=load_typed_config(vault=vault).session_stop_hook.ai_timeout,
             purpose="session-stop-classification",
         )
         if not output:
@@ -610,7 +655,7 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
     Args:
         vault_path: The vault root path.
     """
-    if not vault_common.load_typed_config().session_stop_hook.auto_summarize:
+    if not load_typed_config(vault=vault_path).session_stop_hook.auto_summarize:
         return
 
     pending_path = vault_path / "pending_summaries.jsonl"
@@ -628,7 +673,7 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
 
     # Check threshold — default 1 means "launch whenever there's anything pending"
     threshold: int = int(
-        vault_common.load_typed_config().session_stop_hook.auto_summarize_after or 1
+        load_typed_config(vault=vault_path).session_stop_hook.auto_summarize_after or 1
     )
     if pending_count < threshold:
         print(
@@ -649,14 +694,17 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
-            env=vault_common.env_without_claudecode(),
+            env=env_without_claudecode(),
         )
     except (OSError, ValueError):
         pass
 
 
 def _update_adaptive_scores(
-    project: str, all_lines: list[str], log_prefix: str
+    project: str,
+    all_lines: list[str],
+    log_prefix: str,
+    vault: Path | None = None,
 ) -> None:
     """Update note usefulness scores based on transcript content (#17).
 
@@ -668,18 +716,20 @@ def _update_adaptive_scores(
         project: Current project name for looking up the injected stems.
         all_lines: All transcript lines parsed from the JSONL file.
         log_prefix: Stderr log prefix for the best-effort status line.
+        vault: Vault root the session belongs to (ARC-101); selects the
+            config vault for the ``adaptive_context.enabled`` gate.
     """
     try:
-        if not vault_common.load_typed_config().adaptive_context.enabled:
+        if not load_typed_config(vault=vault).adaptive_context.enabled:
             return
-        injected = vault_common.get_injected_stems(project)
+        injected = get_injected_stems(project)
         if not injected:
             return
         # Build a lowercase combined text blob from all assistant messages
-        texts = vault_common.parse_transcript_lines(all_lines)
+        texts = parse_transcript_lines(all_lines)
         combined = " ".join(texts).lower()
         referenced: set[str] = {stem for stem in injected if stem.lower() in combined}
-        vault_common.update_usefulness_scores(referenced, injected)
+        update_usefulness_scores(referenced, injected)
         print(
             f"{log_prefix} adaptive: {len(referenced)}/{len(injected)} notes referenced",
             file=sys.stderr,
@@ -694,6 +744,7 @@ def _classify_session(
     project: str,
     ai_cli_arg: str | None,
     log_prefix: str,
+    vault: Path | None = None,
 ) -> tuple[dict[str, list[str]], str, bool, bool | None, str] | None:
     """QA-002: single AI classification stage for the session-end pipeline.
 
@@ -703,6 +754,8 @@ def _classify_session(
         ai_cli_arg: The ``--ai`` CLI value — ``_BACKEND_DEFAULT_AI_MODEL``
             (bare ``--ai``), an explicit model id, or None (no flag).
         log_prefix: Stderr log prefix for progress lines.
+        vault: Vault root the session belongs to (ARC-101); selects the
+            config vault for the ``session_stop_hook.ai_model`` gate.
 
     Returns:
         ``(categories, summary, queued, force_queue, mode)`` where
@@ -718,7 +771,7 @@ def _classify_session(
     elif ai_cli_arg is not None:
         ai_model = ai_cli_arg
     else:
-        ai_model = vault_common.load_typed_config().session_stop_hook.ai_model
+        ai_model = load_typed_config(vault=vault).session_stop_hook.ai_model
         if ai_model is None:
             return None
 
@@ -727,7 +780,7 @@ def _classify_session(
         f"{log_prefix} classifying with AI model: {model_label}",
         file=sys.stderr,
     )
-    ai_result = _classify_session_with_ai(assistant_texts, project, ai_model)
+    ai_result = _classify_session_with_ai(assistant_texts, project, ai_model, vault)
     if ai_result is None:
         print(
             f"{log_prefix} AI classification failed, falling back to "
@@ -797,7 +850,7 @@ def _persist_and_report(
     if subagent:
         agent_id = str(payload.get("agent_id") or "") or None
         agent_type = str(payload.get("agent_type") or "") or None
-        vault_common.append_to_pending(
+        append_to_pending(
             transcript_path=transcript_path,
             project=project,
             categories=categories,
@@ -808,12 +861,10 @@ def _persist_and_report(
         )
     else:
         if categories or adapter.always_log_daily:
-            vault_common.append_session_to_daily(
-                project, categories, first_summary, vault_path
-            )
+            append_session_to_daily(project, categories, first_summary, vault_path)
             print(f"{log_prefix} daily note updated", file=sys.stderr)
         if force_queue is not None:
-            vault_common.append_to_pending(
+            append_to_pending(
                 transcript_path,
                 project,
                 categories,
@@ -837,7 +888,7 @@ def _persist_and_report(
         # breaking git log parsers (not a shell-injection risk since we
         # use argv list, not shell=True, but message integrity matters).
         safe_project = project.replace("\n", " ").replace("\r", "").strip()
-        vault_common.git_commit_vault(
+        git_commit_vault(
             f"chore(vault): session notes [{safe_project}]",
             vault=vault_path,
         )
@@ -855,7 +906,7 @@ def _persist_and_report(
         event_extra["queued"] = queued
         event_extra["mode"] = mode
     try:
-        vault_common.write_hook_event(
+        write_hook_event(
             hook=adapter.hook_event_name_end
             if not subagent
             else f"{adapter.name.title()}SubagentStop",
@@ -891,7 +942,10 @@ def run_session_start(adapter: AgentAdapter) -> None:
         cwd_value = payload.get("cwd")
         cwd = str(cwd_value) if cwd_value else str(Path.cwd())
 
-        max_chars = int(vault_common.load_typed_config().session_start_hook.max_chars)
+        vault_path = resolve_vault(cwd=cwd)
+        max_chars = int(
+            load_typed_config(vault=vault_path).session_start_hook.max_chars
+        )
         old_runtime = os.environ.get("PARSIDION_RUNTIME")
         os.environ["PARSIDION_RUNTIME"] = adapter.name
         try:
@@ -920,8 +974,7 @@ def run_session_start(adapter: AgentAdapter) -> None:
         # ARC-020 step 4: emit a hook event so vault-stats --hooks surfaces
         # Codex/Gemini sessions too.
         try:
-            vault_path = vault_common.resolve_vault(cwd=cwd)
-            project = vault_common.get_project_name(cwd)
+            project = get_project_name(cwd)
             _emit_hook_event(
                 adapter.hook_event_name_start, project, vault_path, notes_injected=0
             )
@@ -948,7 +1001,9 @@ def _read_stdin_payload() -> dict[str, object]:
         return {}
 
 
-def _deeper_pi_tail(transcript_path: Path, tail_lines: int) -> list[str] | None:
+def _deeper_pi_tail(
+    transcript_path: Path, tail_lines: int, vault: Path | None = None
+) -> list[str] | None:
     """Read a deeper transcript tail for pi transcripts (ARC-002 step 1d).
 
     pi transcripts (which share the claude entrypoint) can be noisier than
@@ -956,15 +1011,17 @@ def _deeper_pi_tail(transcript_path: Path, tail_lines: int) -> list[str] | None:
     tail found nothing, a configurable deeper tail (default 1000 lines) is
     re-read through the same byte-bounded reader.
 
+    ``vault`` (ARC-101) selects the config vault for the deeper-tail depth.
+
     Returns the deeper tail, or None when the configured depth does not
     exceed the default tail already read.
     """
     pi_tail_lines = int(
-        vault_common.load_typed_config().session_stop_hook.pi_transcript_tail_lines
+        load_typed_config(vault=vault).session_stop_hook.pi_transcript_tail_lines
     )
     if pi_tail_lines <= tail_lines:
         return None
-    return _read_transcript_tail(transcript_path, pi_tail_lines)
+    return _read_transcript_tail(transcript_path, pi_tail_lines, vault=vault)
 
 
 def _resolve_transcript(
@@ -994,7 +1051,7 @@ def _resolve_transcript(
     transcript_path = Path(str(transcript_value))
     if not transcript_path.is_file():
         return cwd, None
-    if not vault_common.is_allowed_transcript_path(transcript_path, cwd=cwd):
+    if not is_allowed_transcript_path(transcript_path, cwd=cwd):
         return cwd, None
     if adapter.is_transcript_path is not None and not adapter.is_transcript_path(
         transcript_path, cwd
@@ -1048,9 +1105,9 @@ def run_session_end(
             sys.stdout.write("{}")
             return
 
-        vault_path = vault_common.resolve_vault(cwd=cwd)
-        vault_common.ensure_vault_dirs(vault=vault_path)
-        project = vault_common.get_project_name(cwd) if cwd else "unknown"
+        vault_path = resolve_vault(cwd=cwd)
+        ensure_vault_dirs(vault=vault_path)
+        project = get_project_name(cwd) if cwd else "unknown"
         hook_start = time.monotonic()
 
         # Read the transcript tail through the byte-bounded reader. Subagent
@@ -1059,8 +1116,8 @@ def run_session_end(
         # configured tail via the adapter's reader (SEC-022/SEC-111).
         # Line budget: the per-hook override when explicitly set, else the
         # unified transcripts.tail_lines (ENH-018).
-        _cfg = vault_common.load_typed_config()
-        _raw_ssh = vault_common.load_config().get("session_stop_hook") or {}
+        _cfg = load_typed_config(vault=vault_path)
+        _raw_ssh = load_config(vault=vault_path).get("session_stop_hook") or {}
         _lines_override = _raw_ssh.get("transcript_tail_lines")
         if subagent:
             tail_lines = _DEFAULT_SUBAGENT_TAIL_LINES
@@ -1069,17 +1126,21 @@ def run_session_end(
         else:
             tail_lines = int(_cfg.session_stop_hook.transcript_tail_lines)
         raw_lines = (
-            _read_transcript_tail(transcript_path, tail_lines)
+            _read_transcript_tail(transcript_path, tail_lines, vault=vault_path)
             if subagent
-            else (adapter.read_transcript_tail or _read_transcript_tail)(
-                transcript_path, tail_lines
+            else (
+                adapter.read_transcript_tail(transcript_path, tail_lines)
+                if adapter.read_transcript_tail is not None
+                else _read_transcript_tail(
+                    transcript_path, tail_lines, vault=vault_path
+                )
             )
         )
 
         if adapter.parse_transcript_lines is not None:
             parse_lines = adapter.parse_transcript_lines
         else:
-            parse_lines = vault_common.parse_transcript_lines
+            parse_lines = parse_transcript_lines
         assistant_texts = parse_lines(raw_lines)
 
         # pi transcripts can be noisier than Claude tails — when the default
@@ -1087,9 +1148,9 @@ def run_session_end(
         if (
             not subagent
             and not assistant_texts
-            and vault_common.is_pi_transcript_path(transcript_path, cwd=cwd)
+            and is_pi_transcript_path(transcript_path, cwd=cwd)
         ):
-            deeper = _deeper_pi_tail(transcript_path, tail_lines)
+            deeper = _deeper_pi_tail(transcript_path, tail_lines, vault=vault_path)
             if deeper is not None:
                 raw_lines = deeper
                 assistant_texts = parse_lines(raw_lines)
@@ -1097,7 +1158,7 @@ def run_session_end(
         if not subagent:
             # Adaptive context: update usefulness scores before we do
             # anything else (config-gated, best-effort).
-            _update_adaptive_scores(project, raw_lines, log_prefix)
+            _update_adaptive_scores(project, raw_lines, log_prefix, vault=vault_path)
 
         if not assistant_texts:
             print(
@@ -1117,12 +1178,14 @@ def run_session_end(
         # AI first (CLI flag / config gated, session events only); keyword
         # heuristics are the fallback.
         classified = (
-            _classify_session(assistant_texts, project, ai_cli_arg, log_prefix)
+            _classify_session(
+                assistant_texts, project, ai_cli_arg, log_prefix, vault=vault_path
+            )
             if not subagent
             else None
         )
         if classified is None:
-            categories = vault_common.detect_categories(assistant_texts)
+            categories = detect_categories(assistant_texts)
             cats_str = ", ".join(categories.keys()) or "none"
             print(
                 f"{log_prefix} keyword detection: categories=[{cats_str}]",

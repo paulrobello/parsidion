@@ -129,8 +129,12 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
         calls.append({"prompt": prompt, **kwargs})
         return "summary text"
 
+    # ARC-103: summarizer.prompt binds the backend module as ``core.ai_backend``,
+    # so the patch must land on the module object that module dereferences.
     monkeypatch.setattr(
-        summarize_sessions.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        sys.modules["summarizer.prompt"].ai_backend,
+        "run_ai_prompt",
+        fake_run_ai_prompt,
     )
 
     result = asyncio.run(
@@ -236,7 +240,9 @@ def test_summarize_chunk_uses_small_tier_backend(
         calls.append({"prompt": prompt, **kwargs})
         return "backend summary"
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         assert (section, key, default) == ("summarizer", "ai_timeout", None)
         return 42
 
@@ -245,7 +251,9 @@ def test_summarize_chunk_uses_small_tier_backend(
         "_run_summarizer_prompt",
         fake_run_summarizer_prompt,
     )
-    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.transcript imports get_config by name from
+    # core.vault_config, so patch the bound name on the consumer module.
+    monkeypatch.setattr(_transcript_module(), "get_config", fake_get_config)
 
     result = asyncio.run(
         summarize_sessions._summarize_chunk(
@@ -298,6 +306,7 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
         tail_lines: int,
         max_chars: int | None,
         tail_bytes: int | None,
+        vault: Path | None = None,
     ) -> str:
         return "line\n" * 10
 
@@ -439,8 +448,12 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         "_run_summarizer_prompt_with_cause",
         fake_run_summarizer_prompt,
     )
+    # ARC-103: summarizer.pipeline imports load_typed_config by name from
+    # core.vault_config, so patch the bound name on the consumer module.
     monkeypatch.setattr(
-        summarize_sessions.vault_common, "load_typed_config", lambda: _cfg_stub
+        _pipeline_module(),
+        "load_typed_config",
+        lambda *args, **kwargs: _cfg_stub,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -710,7 +723,9 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
     vault.mkdir()
     observed: dict[str, object] = {}
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         if section == "summarizer" and key in {"model", "cluster_model"}:
             assert default is None
             return None
@@ -758,6 +773,10 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
+    # name from core.vault_config, so the option resolution in main() needs
+    # the stub bound there too — otherwise it reads the real machine config.
+    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
     )
@@ -814,7 +833,9 @@ def test_main_requeues_write_gate_skips_in_default_queue(
     removed: list[dict[str, object]] = []
     seen_skip_retry: list[set[str] | None] = []
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         return default
 
     def fake_read_pending(path: Path) -> list[dict[str, object]]:
@@ -851,6 +872,10 @@ def test_main_requeues_write_gate_skips_in_default_queue(
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
+    # name from core.vault_config, so the option resolution in main() needs
+    # the stub bound there too — otherwise it reads the real machine config.
+    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
     )
@@ -889,7 +914,9 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
     sessions.write_text("", encoding="utf-8")
     observed: dict[str, object] = {}
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         if section == "summarizer" and key == "model":
             return "configured-large-model"
         if section == "summarizer" and key == "cluster_model":
@@ -929,6 +956,10 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
+    # name from core.vault_config, so the option resolution in main() needs
+    # the stub bound there too — otherwise it reads the real machine config.
+    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: tmp_path / "vault"
     )
@@ -1167,6 +1198,103 @@ def test_write_note_merges_on_slug_collision_no_sibling(
     assert "## Session update" in content
     captured = capsys.readouterr()
     assert "Slug collision" in captured.err
+
+
+def test_write_note_slug_collision_creates_pre_mutation_backup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """SEC-204: the slug-collision merge backs up the existing note first.
+
+    The merge path in ``_apply_merge_decision`` takes a SEC-107 pre-mutation
+    backup; the ``write_note`` collision branch must not be the one mutation
+    of an existing note without one.
+    """
+    from datetime import date
+
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    existing = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nOriginal insight.\n"
+    )
+    (debugging / "test-note.md").write_text(existing, encoding="utf-8")
+
+    new_note = (
+        "---\n"
+        "date: 2026-06-15\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nFollow-up insight.\n"
+    )
+    result = summarize_sessions.write_note(new_note, False, vault)
+
+    assert result is not None
+    backup = (
+        vault
+        / ".trash"
+        / "backup"
+        / date.today().isoformat()
+        / "Debugging"
+        / "test-note.md"
+    )
+    assert backup.is_file()
+    # The original content is recoverable from the backup.
+    assert backup.read_text(encoding="utf-8") == existing
+    # The live note was still merged as before.
+    assert "Follow-up insight." in result.read_text(encoding="utf-8")
+
+
+def test_write_note_slug_collision_backup_failure_aborts_merge(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """SEC-204: a failed backup aborts the merge — never mutate unprotected."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    import summarizer.notes as summarizer_notes
+
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    existing = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nOriginal insight.\n"
+    )
+    target = debugging / "test-note.md"
+    target.write_text(existing, encoding="utf-8")
+
+    def _boom(note_path: Path, vault: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(summarizer_notes, "_backup_note", _boom)
+
+    new_note = (
+        "---\n"
+        "date: 2026-06-15\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nFollow-up insight.\n"
+    )
+    result = summarize_sessions.write_note(new_note, False, vault)
+
+    assert result is None
+    # The existing note is byte-for-byte untouched.
+    assert target.read_text(encoding="utf-8") == existing
+    captured = capsys.readouterr()
+    assert "backup failed" in captured.err
 
 
 def test_normalize_related_field_clean_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-import vault_common
+from core.vault_path import secure_log_dir
 
 # Progress tracking (#13)
-_PROGRESS_FILE = vault_common.secure_log_dir() / "parsidion-summarizer-progress.json"
+_PROGRESS_FILE = secure_log_dir() / "parsidion-summarizer-progress.json"
 
 
 def _write_progress(

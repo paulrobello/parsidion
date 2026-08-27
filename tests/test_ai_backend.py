@@ -55,6 +55,8 @@ class TestConfigSchema:
         assert vault_config._CONFIG_SCHEMA["grok_cli"]["timeout"] == (int, float)
         assert vault_config._CONFIG_SCHEMA["grok_cli"]["minimal_context"] == (bool,)
         assert vault_config._CONFIG_SCHEMA["grok_cli"]["system_prompt"] == (str,)
+        # SEC-202: grok_cli.allow_tools registers as a bool (double opt-in).
+        assert vault_config._CONFIG_SCHEMA["grok_cli"]["allow_tools"] == (bool,)
         assert vault_config._CONFIG_SCHEMA["claude_cli"]["minimal_context"] == (bool,)
         assert vault_config._CONFIG_SCHEMA["claude_cli"]["system_prompt"] == (str,)
         assert vault_config._CONFIG_SCHEMA["claude_cli"]["timeout"] == (int, float)
@@ -463,9 +465,17 @@ class TestRunAiPrompt:
         assert env["PARSIDION_INTERNAL"] == "1"
         assert "CLAUDECODE" not in env
 
-    def test_grok_minimal_context_false_keeps_project_cwd(
+    def test_grok_minimal_context_false_still_disables_tools(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """SEC-202: minimal_context is a context option, not a safety switch.
+
+        With ``minimal_context: false`` (and the default ``allow_tools:
+        false``) the system-prompt override is dropped but the tool/subagent/
+        web-search flags and the clean scratch cwd must still be emitted —
+        previously this config re-armed grok's default tools on prompts
+        embedding adversarial transcript/vault content.
+        """
         vault = _reset_config(
             monkeypatch,
             tmp_path,
@@ -484,12 +494,54 @@ class TestRunAiPrompt:
 
         assert ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault) is not None
         cmd, kwargs = calls[0]
+        # Only the context option disappears.
         assert "--system-prompt-override" not in cmd
-        assert "--cwd" not in cmd
-        assert "--no-subagents" not in cmd
+        # Safety flags stay on regardless of minimal_context.
+        assert cmd[cmd.index("--cwd") + 1] == str(ai_backend._minimal_context_cwd())
+        assert cmd[cmd.index("--tools") + 1] == ""
+        assert "--no-subagents" in cmd
+        assert "--disable-web-search" in cmd
         assert kwargs["cwd"] == str(tmp_path)
         # Default timeout: grok-4.6 headless measured 17-40s per prompt.
         assert kwargs["timeout"] == ai_backend._DEFAULT_GROK_TIMEOUT
+
+    def test_grok_allow_tools_true_omits_tool_flags_and_warns(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """SEC-202: only the explicit allow_tools opt-in re-arms tools, and it warns."""
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: grok-cli\ngrok_cli:\n  allow_tools: true\n",
+        )
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, stdout="grok answer", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        assert ai_backend.run_ai_prompt("hello", vault=vault) is not None
+        cmd, _kwargs = calls[0]
+        assert "--tools" not in cmd
+        assert "--no-subagents" not in cmd
+        assert "--disable-web-search" not in cmd
+        # The scratch cwd and the system-prompt override (minimal_context
+        # defaults true) are independent of the tool flags.
+        assert cmd[cmd.index("--cwd") + 1] == str(ai_backend._minimal_context_cwd())
+        assert cmd[cmd.index("--system-prompt-override") + 1] == (
+            ai_backend._MINIMAL_SYSTEM_PROMPT
+        )
+        captured = capsys.readouterr()
+        assert "allow_tools" in captured.err
+        assert "WARNING" in captured.err
 
     def test_grok_cli_config_controls_command_and_timeout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -51,7 +51,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 cfg = json.loads((HERE / "config.json").read_text(encoding="utf-8"))
 with open(HERE / "calls.jsonl", "a", encoding="utf-8") as fh:
-    fh.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}) + "\\n")
+    # env_keys records the child process's actual environment names so tests
+    # can assert allowlist behavior (SEC-206: no Anthropic credentials).
+    fh.write(
+        json.dumps(
+            {"argv": sys.argv[1:], "cwd": os.getcwd(), "env_keys": sorted(os.environ)}
+        )
+        + "\\n"
+    )
 if cfg.get("delay"):
     time.sleep(float(cfg["delay"]))
 sub = sys.argv[1] if len(sys.argv) > 1 else ""

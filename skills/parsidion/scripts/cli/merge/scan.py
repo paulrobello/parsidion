@@ -15,7 +15,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import vault_common
+from core.vault_path import get_embeddings_db_path
 
 _DEFAULT_SCAN_THRESHOLD = 0.92
 _DEFAULT_SCAN_TOP = 50
@@ -59,7 +59,7 @@ def _scan_duplicates(
         top: Maximum number of pairs to report.
         vault_path: Path to the vault root.
     """
-    db_path = vault_common.get_embeddings_db_path(vault=vault_path)
+    db_path = get_embeddings_db_path(vault=vault_path)
     if not db_path.exists():
         raise MergeScanError(
             "No embeddings database found. Run build_embeddings.py first."

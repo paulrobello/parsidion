@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -141,10 +142,10 @@ class TestRunSessionStartAcrossRuntimes:
         monkeypatch.setattr(session_start_hook, "build_session_context", fake_build)
         # Point resolve_vault at tmp_path so the hook event emission doesn't
         # touch the real vault.
-        import vault_common
-
-        monkeypatch.setattr(vault_common, "resolve_vault", lambda **_kw: tmp_path)
-        monkeypatch.setattr(vault_common, "get_project_name", lambda _cwd: "test")
+        # ARC-103: agent_adapter imports these by name from core.vault_path /
+        # core.vault_hooks, so patch the bound names on agent_adapter itself.
+        monkeypatch.setattr(agent_adapter, "resolve_vault", lambda **_kw: tmp_path)
+        monkeypatch.setattr(agent_adapter, "get_project_name", lambda _cwd: "test")
 
         adapter = agent_adapter.get(name)
         assert adapter is not None
@@ -289,7 +290,7 @@ class TestExternalLoading:
         )  # no config.yaml -> default off
         monkeypatch.setenv("HOME", str(home))
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
         agent_adapter.reset_external_adapters()
         try:
             assert "x" not in agent_adapter.known_runtimes()
@@ -307,6 +308,10 @@ class TestExternalLoading:
         home = tmp_path / "home"
         ad = home / ".config" / "parsidion" / "adapters"
         ad.mkdir(parents=True)
+        # SEC-205: the loader now trust-checks the directory too; pin an
+        # explicitly trusted mode so a group-writable umask can't flip this
+        # test from "loads fine" to "refused by the dir gate".
+        ad.chmod(0o755)
         (ad / "acme.py").write_text(
             "from agent_adapter import AgentAdapter\n"
             "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
@@ -324,7 +329,7 @@ class TestExternalLoading:
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
         agent_adapter.reset_external_adapters()
         try:
             runtimes = agent_adapter.known_runtimes()
@@ -334,6 +339,93 @@ class TestExternalLoading:
             assert "bad" not in runtimes  # world-writable refused
         finally:
             agent_adapter._REGISTRY.pop("acme", None)  # type: ignore[attr-defined]
+            agent_adapter.reset_external_adapters()
+
+    def test_refuses_group_writable_adapters_dir(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """SEC-205: a group-writable adapters dir means every adapter is
+        planted-code — refuse the whole directory even when the files
+        themselves look clean."""
+        import vault_common
+
+        vault_dir = tmp_path / "vault"
+        vault_dir.mkdir()
+        (vault_dir / "config.yaml").write_text("adapters:\n  load_external: true\n")
+        home = tmp_path / "home"
+        ad = home / ".config" / "parsidion" / "adapters"
+        ad.mkdir(parents=True)
+        ad.chmod(0o775)  # group-writable directory -> dir gate must refuse
+        (ad / "acme.py").write_text(
+            "from agent_adapter import AgentAdapter\n"
+            "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
+        )
+        (_cfg_dir := home / ".config" / "parsidion").mkdir(parents=True, exist_ok=True)
+        (_cfg_dir / "vaults.yaml").write_text(
+            f"vaults:\n  test: {vault_dir}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+        monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
+        monkeypatch.setenv("HOME", str(home))
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_common.clear_config_cache()
+        agent_adapter.reset_external_adapters()
+        try:
+            assert "acme" not in agent_adapter.known_runtimes()
+            captured = capsys.readouterr()
+            assert "untrusted directory" in captured.err
+        finally:
+            agent_adapter.reset_external_adapters()
+
+    def test_refuses_foreign_owned_adapters_dir(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """SEC-205: uid check — a directory owned by another user is refused.
+
+        Tests cannot chown, so simulate foreign ownership by answering
+        ``os.getuid()`` with an uid that owns nothing in the temp tree (the
+        same check ``vault_fs.is_trusted_executable`` applies).
+        """
+        import vault_common
+
+        vault_dir = tmp_path / "vault"
+        vault_dir.mkdir()
+        (vault_dir / "config.yaml").write_text("adapters:\n  load_external: true\n")
+        home = tmp_path / "home"
+        ad = home / ".config" / "parsidion" / "adapters"
+        ad.mkdir(parents=True)
+        ad.chmod(0o755)
+        (ad / "acme.py").write_text(
+            "from agent_adapter import AgentAdapter\n"
+            "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
+        )
+        (_cfg_dir := home / ".config" / "parsidion").mkdir(parents=True, exist_ok=True)
+        (_cfg_dir / "vaults.yaml").write_text(
+            f"vaults:\n  test: {vault_dir}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+        monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
+        monkeypatch.setenv("HOME", str(home))
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_common.clear_config_cache()
+        real_getuid = os.getuid
+        monkeypatch.setattr(
+            os,
+            "getuid",
+            lambda: real_getuid() + 4242,  # owns nothing here
+        )
+        agent_adapter.reset_external_adapters()
+        try:
+            assert "acme" not in agent_adapter.known_runtimes()
+            captured = capsys.readouterr()
+            assert "untrusted" in captured.err
+        finally:
             agent_adapter.reset_external_adapters()
 
 

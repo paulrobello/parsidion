@@ -16,10 +16,12 @@ fastembed is mocked throughout so the suite runs without the search extra.
 
 from __future__ import annotations
 
+import ast
 import json
 import socket
 import sys
 import threading
+import time
 import types
 from collections.abc import Iterator
 from pathlib import Path
@@ -35,7 +37,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import vault_embed_serve  # noqa: E402
 import vault_links  # noqa: E402
 import vault_search  # noqa: E402
-import vault_common  # noqa: E402
+from cli.search import embeddings as cli_embeddings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +148,7 @@ def test_find_related_by_semantic_forwards_vault(
 def test_service_active_gate(
     monkeypatch: pytest.MonkeyPatch, enabled: bool, backend: str, expected: bool
 ) -> None:
-    orig = vault_common.get_config
+    orig = cli_embeddings.get_config
 
     def fake_get(section: str, key: str, default: object = None) -> object:
         if section == "embeddings" and key == "service_enabled":
@@ -155,8 +157,13 @@ def test_service_active_gate(
             return backend
         return orig(section, key, default)
 
-    monkeypatch.setattr(vault_common, "get_config", fake_get)
-    monkeypatch.setattr(vault_search, "_configured_search_backend", lambda: backend)
+    # ARC-103: ``_embeddings_service_active`` resolves both dependencies as bare
+    # names in ``cli.search.embeddings`` globals, so both patches must land
+    # there. The former ``vault_search._configured_search_backend`` patch was a
+    # no-op on the shim's re-export, which let the backend guard read the real
+    # machine config instead of the parametrized value.
+    monkeypatch.setattr(cli_embeddings, "get_config", fake_get)
+    monkeypatch.setattr(cli_embeddings, "_configured_search_backend", lambda: backend)
 
     assert vault_search._embeddings_service_active() is expected
 
@@ -279,3 +286,147 @@ def test_pid_singleton_helpers_roundtrip(tmp_path: Path) -> None:
     assert vault_embed_serve._read_pid(pid_file) == 4242
     # PID 4242 is not a real process here -> not alive (stale-reclaim path).
     assert vault_embed_serve.pid_alive(4242) is False
+
+
+# ---------------------------------------------------------------------------
+# PRF-105: bounded per-connection stalls
+# ---------------------------------------------------------------------------
+
+
+def test_connection_timeout_is_short() -> None:
+    """A warm embed is ~10 ms and main() preloads the model before bind().
+
+    The old 60 s let one wedged client hold a handler open for a minute; with
+    the serial accept loop that stalled every other client for the same minute.
+    """
+    assert vault_embed_serve._CONN_TIMEOUT_SECS == 5.0
+
+
+def test_handle_gives_up_on_a_client_that_never_sends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A silent client is dropped at the timeout, not held indefinitely."""
+    monkeypatch.setattr(vault_embed_serve, "_CONN_TIMEOUT_SECS", 0.2)
+    monkeypatch.setattr(vault_embed_serve, "_get_model", lambda name: _FakeModel([0.1]))
+    client, peer = socket.socketpair()
+    try:
+        handler = threading.Thread(
+            target=vault_embed_serve._handle, args=(peer, "m"), daemon=True
+        )
+        started = time.monotonic()
+        handler.start()
+        handler.join(timeout=5)
+        assert not handler.is_alive(), "handler did not give up on a silent client"
+        assert time.monotonic() - started < 3
+    finally:
+        client.close()
+        peer.close()
+
+
+def test_accept_loop_dispatches_handlers_on_threads() -> None:
+    """main()'s accept loop must hand each connection to a daemon thread.
+
+    Checked structurally: main() installs a SIGTERM handler, which raises off
+    the main thread, so the loop itself cannot be driven from a test. Without
+    this, the behaviour test below would still pass while the real server went
+    back to serving connections serially.
+    """
+    source = (SCRIPTS_DIR / "vault_embed_serve.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    main_fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    threaded = [
+        node
+        for node in ast.walk(main_fn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Thread"
+        and any(
+            kw.arg == "target"
+            and isinstance(kw.value, ast.Name)
+            and kw.value.id == "_handle"
+            for kw in node.keywords
+        )
+    ]
+    assert len(threaded) == 1, "main() does not dispatch _handle on a thread"
+    assert any(
+        kw.arg == "daemon" and getattr(kw.value, "value", None) is True
+        for kw in threaded[0].keywords
+    ), "the handler thread must be a daemon so shutdown is never held up"
+
+    # And the loop must not also call _handle inline.
+    inline = [
+        node
+        for node in ast.walk(main_fn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_handle"
+    ]
+    assert inline == []
+
+
+def test_a_wedged_client_does_not_block_another(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Threaded handling means a stalled connection is not head-of-line blocking.
+
+    The wedged handler is left running on its own thread; the second client
+    must be served without waiting for the first to time out.
+    """
+    monkeypatch.setattr(vault_embed_serve, "_CONN_TIMEOUT_SECS", 30.0)
+    monkeypatch.setattr(vault_embed_serve, "_get_model", lambda name: _FakeModel([0.7]))
+    wedged_client, wedged_peer = socket.socketpair()
+    good_client, good_peer = socket.socketpair()
+    try:
+        # Connected, but never sends a line -- the handler blocks in recv().
+        threading.Thread(
+            target=vault_embed_serve._handle, args=(wedged_peer, "m"), daemon=True
+        ).start()
+
+        started = time.monotonic()
+        threading.Thread(
+            target=vault_embed_serve._handle, args=(good_peer, "m"), daemon=True
+        ).start()
+        good_client.sendall((json.dumps({"text": "hi"}) + "\n").encode())
+        good_client.settimeout(5)
+        payload = json.loads(good_client.recv(4096).decode().strip())
+
+        assert payload == {"vector": [0.7]}
+        assert time.monotonic() - started < 5  # not waiting on the wedged peer
+    finally:
+        for sock in (wedged_client, wedged_peer, good_client, good_peer):
+            sock.close()
+
+
+def test_embed_calls_are_serialised() -> None:
+    """Concurrent handlers must not run fastembed inference in parallel."""
+    overlaps: list[int] = []
+    inflight = 0
+    counter_lock = threading.Lock()
+
+    class _SlowModel:
+        def embed(self, texts: list[str]):  # type: ignore[no-untyped-def]
+            nonlocal inflight
+            with counter_lock:
+                inflight += 1
+                overlaps.append(inflight)
+            time.sleep(0.05)
+            with counter_lock:
+                inflight -= 1
+            return [[0.3] for _ in texts]
+
+    model = _SlowModel()
+    threads = [
+        threading.Thread(target=vault_embed_serve._embed, args=(model, "x"))
+        for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert overlaps, "inference never ran"
+    assert max(overlaps) == 1, f"concurrent inference observed: {overlaps}"

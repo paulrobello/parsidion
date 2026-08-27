@@ -10,15 +10,15 @@ import os
 import sys
 from pathlib import Path
 
-import vault_common
+from core.vault_config import get_config
+from core.vault_fs import flock_exclusive as _flock_exclusive
+from core.vault_fs import flock_shared as _flock_shared
+from core.vault_fs import funlock as _funlock
+from core.vault_index import run_index_rebuild
 
 from summarizer._state_const import _MAX_ATTEMPTS, _MAX_SKIPS
 from summarizer.dead_letter import _append_dead_letter
 from summarizer.failure import _failure_record_retryable, _format_failure_record
-
-_flock_exclusive = vault_common.flock_exclusive
-_flock_shared = vault_common.flock_shared
-_funlock = vault_common.funlock
 
 
 def read_pending(pending_path: Path) -> list[dict[str, object]]:
@@ -224,7 +224,10 @@ def _resolve(
     """
     if cli_value is not None:
         return cli_value
-    configured = vault_common.get_config(section, key, default)
+    # ARC-101 allowlist: the summarizer resolves CLI/config options in
+    # ``_resolve_options`` before it resolves the vault (summarize_sessions
+    # ``main``), so there is no resolved vault to thread here yet.
+    configured = get_config(section, key, default)
     if isinstance(configured, bool):
         return configured
     return default
@@ -254,7 +257,7 @@ def rebuild_index(
             (only meaningful when ``rebuild_graph`` is True). ``None`` means
             "no flag".
     """
-    reason, proc = vault_common.run_index_rebuild(
+    reason, proc = run_index_rebuild(
         vault,
         rebuild_graph=rebuild_graph,
         graph_include_daily=graph_include_daily,

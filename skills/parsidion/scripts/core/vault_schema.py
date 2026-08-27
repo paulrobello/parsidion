@@ -174,10 +174,11 @@ class ClaudeCliConfig:
 class GrokCliConfig:
     """``grok`` CLI invocation (ai_backend.py). Only used when
     ``ai.backend`` is ``grok-cli``. Auth uses the CLI's own OAuth login.
-    ``minimal_context`` (default true) overrides the system prompt and runs
-    single-turn from a clean scratch cwd with tools, subagents, and web
-    search disabled — grok otherwise appends every CLAUDE.md/AGENTS.md it
-    finds plus its full skill catalog to the system prompt."""
+    Tools, subagents, and web search are always disabled (SEC-202) and every
+    prompt runs from a clean scratch cwd; ``allow_tools`` is the explicit
+    double opt-in that re-arms them. ``minimal_context`` (default true)
+    overrides the system prompt — grok otherwise appends every
+    CLAUDE.md/AGENTS.md it finds plus its full skill catalog to it."""
 
     command: str = field(
         default=None,
@@ -198,7 +199,7 @@ class GrokCliConfig:
     minimal_context: bool = field(
         default=None,
         metadata={
-            "doc": "Override the system prompt; disable tools/subagents/web search",
+            "doc": "Override the system prompt (tools stay disabled; see allow_tools)",
             "read_by": "ai_backend.py",
             "example": True,
         },
@@ -207,6 +208,13 @@ class GrokCliConfig:
         default=None,
         metadata={
             "doc": "Override the minimal system prompt text",
+            "read_by": "ai_backend.py",
+        },
+    )
+    allow_tools: bool = field(
+        default=None,
+        metadata={
+            "doc": "SEC-202 explicit opt-in to run grok with tools/subagents/web search enabled",
             "read_by": "ai_backend.py",
         },
     )
@@ -304,10 +312,13 @@ class SessionStartHookConfig:
             "read_by": "session_start_hook.py",
         },
     )
-    ai_candidates_max: int = field(
+    ai_candidates_max: int | None = field(
         default=None,
         metadata={
-            "doc": "Cap on the AI selector's ranked candidate pool (0 = unlimited)",
+            "doc": (
+                "Cap on the AI selector's ranked candidate pool "
+                "(0 = unlimited, unset = seed_selection's default of 48)"
+            ),
             "read_by": "session_start_hook.py",
             "example": 48,
         },

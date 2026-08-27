@@ -28,6 +28,7 @@ import pytest
 import vault_adaptive
 import vault_common
 import vault_fs
+from core import vault_fs as core_vault_fs  # ARC-006: patch internals where they live
 import vault_hooks
 
 
@@ -329,6 +330,129 @@ class TestGitCommitVault:
 
 
 # ---------------------------------------------------------------------------
+# ARC-110 — git_commit_vault emits a hook event when it fails
+# ---------------------------------------------------------------------------
+
+
+def _git_commit_events(vault: Path) -> list[dict[str, object]]:
+    """Return the GitCommitVault entries from the vault's hook_events.log."""
+    log = vault / "hook_events.log"
+    if not log.exists():
+        return []
+    return [
+        event
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+        for event in [json.loads(line)]
+        if event.get("hook") == "GitCommitVault"
+    ]
+
+
+class TestGitCommitVaultFailureEvents:
+    """A detached auto-commit's only possible failure signal is an event.
+
+    ``vault-stats --hooks N`` reads these, so accumulating failures become
+    visible instead of silently leaving the vault uncommitted.
+    """
+
+    def test_timeout_emits_event(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _timeout(*_args: object, **_kwargs: object) -> None:
+            raise subprocess.TimeoutExpired(cmd="git", timeout=10)
+
+        monkeypatch.setattr(core_vault_fs.subprocess, "run", _timeout)
+        (git_repo / "note.md").write_text("# Note\n", encoding="utf-8")
+
+        assert vault_fs.git_commit_vault("timing out", vault=git_repo) is False
+
+        events = _git_commit_events(git_repo)
+        assert len(events) == 1
+        assert events[0]["outcome"] == "timeout"
+        assert events[0]["step"] == "add"
+
+    def test_commit_step_timeout_is_labelled(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_run = subprocess.run
+        calls: list[int] = []
+
+        def _fail_second(*args: object, **kwargs: object) -> object:
+            calls.append(1)
+            if len(calls) == 1:
+                return real_run(*args, **kwargs)  # type: ignore[arg-type]
+            raise subprocess.TimeoutExpired(cmd="git", timeout=10)
+
+        monkeypatch.setattr(core_vault_fs.subprocess, "run", _fail_second)
+        (git_repo / "note.md").write_text("# Note\n", encoding="utf-8")
+
+        assert vault_fs.git_commit_vault("timing out", vault=git_repo) is False
+
+        events = _git_commit_events(git_repo)
+        assert len(events) == 1
+        assert events[0]["outcome"] == "timeout"
+        assert events[0]["step"] == "commit"
+
+    def test_nonzero_exit_emits_error_event(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _fail(
+            *_args: object, **_kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                args=["git"], returncode=128, stdout="", stderr="fatal: bad object\n"
+            )
+
+        monkeypatch.setattr(core_vault_fs.subprocess, "run", _fail)
+        (git_repo / "note.md").write_text("# Note\n", encoding="utf-8")
+
+        assert vault_fs.git_commit_vault("broken", vault=git_repo) is False
+
+        events = _git_commit_events(git_repo)
+        assert len(events) == 1
+        assert events[0]["outcome"] == "error"
+        assert events[0]["step"] == "add"
+        assert "fatal: bad object" in str(events[0]["detail"])
+
+    def test_nothing_to_commit_is_silent(self, git_repo: Path) -> None:
+        """The common no-op case must not write an event.
+
+        git exits non-zero here on nearly every hook run; logging it would
+        rotate the real failures out of hook_events.log.
+        """
+        (git_repo / "note.md").write_text("# Note\n", encoding="utf-8")
+        assert vault_fs.git_commit_vault("first", vault=git_repo) is True
+
+        # Second call has nothing new to stage -> git commit exits 1.
+        assert vault_fs.git_commit_vault("second", vault=git_repo) is False
+        assert _git_commit_events(git_repo) == []
+
+    def test_nothing_to_commit_with_explicit_paths_is_silent(
+        self, git_repo: Path
+    ) -> None:
+        """The scoped-commit no-op must be silent too.
+
+        update_index.py commits with explicit paths after every index rebuild
+        and a no-op there is routine, so if this branch's output did not match
+        a nothing-to-commit signature, every rebuild would write an error event
+        and rotate the genuine failures out of hook_events.log.
+        """
+        note = git_repo / "note.md"
+        note.write_text("# Note\n", encoding="utf-8")
+        assert vault_fs.git_commit_vault("first", vault=git_repo, paths=[note]) is True
+
+        assert (
+            vault_fs.git_commit_vault("second", vault=git_repo, paths=[note]) is False
+        )
+        assert _git_commit_events(git_repo) == []
+
+    def test_success_is_silent(self, git_repo: Path) -> None:
+        (git_repo / "note.md").write_text("# Note\n", encoding="utf-8")
+        assert vault_fs.git_commit_vault("ok", vault=git_repo) is True
+        assert _git_commit_events(git_repo) == []
+
+
+# ---------------------------------------------------------------------------
 # vault_hooks — write_hook_event atomic rotation
 # ---------------------------------------------------------------------------
 
@@ -339,7 +463,7 @@ class TestWriteHookEventRotation:
             f"event_log:\n  enabled: true\n  max_lines: {max_lines}\n",
             encoding="utf-8",
         )
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
 
     def test_rotation_keeps_second_half_plus_new_line(self, tmp_vault: Path) -> None:
         self._configure(tmp_vault, max_lines=4)
@@ -363,6 +487,34 @@ class TestWriteHookEventRotation:
         vault_hooks.write_hook_event("Test", "proj", 1.0, seq=99)  # must not raise
         assert log.read_text() == original
 
+    def test_below_byte_threshold_appends_without_rotation(
+        self, tmp_vault: Path
+    ) -> None:
+        """PRF-102: appends under the size gate never rotate — file just grows."""
+        self._configure(tmp_vault, max_lines=1000)
+        log = tmp_vault / "hook_events.log"
+        for i in range(5):
+            vault_hooks.write_hook_event("Test", "proj", 1.0, seq=i)
+        lines = [json.loads(line) for line in log.read_text().splitlines() if line]
+        assert [entry["seq"] for entry in lines] == [0, 1, 2, 3, 4]
+        assert not (tmp_vault / "hook_events.log.tmp").exists()
+
+    def test_size_past_threshold_rotates_and_drops_oldest(
+        self, tmp_vault: Path
+    ) -> None:
+        """PRF-102: once size passes max_lines*64, rotation keeps the tail."""
+        self._configure(tmp_vault, max_lines=4)
+        log = tmp_vault / "hook_events.log"
+        # Seed 4 lines (>= max_lines) whose combined size already exceeds
+        # the 4*64-byte gate, then append: rotation must keep the second
+        # half plus the new line, dropping the oldest.
+        for i in range(4):
+            vault_hooks.write_hook_event("Test", "proj", 1.0, seq=i, pad="x" * 60)
+        assert log.stat().st_size >= 4 * 64
+        vault_hooks.write_hook_event("Test", "proj", 1.0, seq=4, pad="x" * 60)
+        lines = [json.loads(line) for line in log.read_text().splitlines() if line]
+        assert [entry["seq"] for entry in lines] == [2, 3, 4]
+
 
 class TestWriteHookEventPathContainment:
     """SEC-006: event_log.path must resolve inside the vault or ~/.claude/logs."""
@@ -372,7 +524,7 @@ class TestWriteHookEventPathContainment:
             f"event_log:\n  enabled: true\n  path: {path}\n",
             encoding="utf-8",
         )
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
 
     def test_outside_path_is_refused_and_default_used(
         self, tmp_vault: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -691,7 +843,7 @@ def build_embeddings_mod(monkeypatch: pytest.MonkeyPatch):
 
 
 def _seed_embeddings_db(mod, db_path: Path) -> None:
-    conn = mod.open_db(db_path)
+    conn = mod.open_embeddings_db(db_path)
     with conn:
         conn.execute(
             "INSERT INTO note_embeddings (stem, path, embedding) VALUES (?, ?, ?)",

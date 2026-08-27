@@ -23,15 +23,17 @@ import sys
 import time
 from pathlib import Path
 
-import vault_common
-import vault_metrics
 import vault_embed_serve
+from core import vault_metrics
+from core.vault_config import get_config
+from core.vault_hooks import env_without_claudecode
+from core.vault_path import get_embeddings_db_path, resolve_vault
 from cli.search._common import (
     _DEFAULT_MODEL,
     _EMBED_MODEL_LOCK,
     _configured_search_backend,
 )
-from vault_config import apply_decay_score
+from core.vault_config import apply_decay_score, resolve_decay_params
 
 
 def _open_db_semantic(db_path: Path) -> sqlite3.Connection:
@@ -64,7 +66,15 @@ def _pack_vector(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
-def _apply_decay(score: float, mtime: float, now: float) -> float:
+def _apply_decay(
+    score: float,
+    mtime: float,
+    now: float,
+    *,
+    half_life_days: float | None = None,
+    min_factor: float | None = None,
+    vault: Path | None = None,
+) -> float:
     """Apply temporal decay to a semantic search score.
 
     ARC-023: thin wrapper around ``vault_config.apply_decay_score`` (the
@@ -73,12 +83,25 @@ def _apply_decay(score: float, mtime: float, now: float) -> float:
     internal call sites and parsight_backend's lazy import (if any older copy of
     the module still references it) keep resolving during the transition.
     New code should call ``vault_config.apply_decay_score`` directly.
+    PRF-103: accepts the decay parameters explicitly so the scoring loop can
+    resolve them once per search instead of per row.
     """
-    return apply_decay_score(score, mtime, now)
+    return apply_decay_score(
+        score,
+        mtime,
+        now,
+        half_life_days=half_life_days,
+        min_factor=min_factor,
+        vault=vault,
+    )
 
 
 # ENH-003: the fastembed ONNX model is ~67 MB and dominates a search whose real
-# work is a sqlite-vec ANN lookup. Cache one instance per model name for the
+# work is an EXACT full-table cosine scan -- ``_search_embeddings`` scores every
+# row in ``note_embeddings`` with ``vec_distance_cosine`` and sorts, which is not
+# an ANN lookup and does not use a vec0 virtual table. Fine up to roughly 10k
+# notes; migrating to a vec0 KNN index is filed as enhancement ENH-022. Cache one
+# instance per model name for the
 # process lifetime (maxsize=2 covers the default plus one override), and
 # serialise embed() so the shared instance is safe under the summarizer's
 # max_parallel fan-out. lru_cache does not memoise exceptions, so a missing
@@ -121,7 +144,7 @@ def _embeddings_service_active() -> bool:
     when parsight didn't serve under ``auto``, so the second guard mainly covers
     an explicit ``search.backend: parsight`` setting.
     """
-    if vault_common.get_config("embeddings", "service_enabled", False) is not True:
+    if get_config("embeddings", "service_enabled", False) is not True:
         return False
     if _configured_search_backend() == "parsight":
         return False
@@ -144,9 +167,7 @@ def _spawn_service(vault: Path, model_name: str) -> None:
         script = _SCRIPTS_DIR / "vault_embed_serve.py"
         if not script.exists():
             return
-        idle = int(
-            vault_common.get_config("embeddings", "service_idle_exit", 600) or 600
-        )
+        idle = int(get_config("embeddings", "service_idle_exit", 600) or 600)
         subprocess.Popen(
             [
                 str(script),
@@ -161,7 +182,7 @@ def _spawn_service(vault: Path, model_name: str) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
-            env=vault_common.env_without_claudecode(),
+            env=env_without_claudecode(),
         )
     except Exception as exc:  # noqa: BLE001 — best-effort; in-process fallback covers failure
         print(f"embedding service spawn best-effort: {exc}", file=sys.stderr)
@@ -205,7 +226,7 @@ def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]
     The service is tried only when ``_embeddings_service_active`` is true; any
     miss falls back to the cached in-process model (loaded once per process).
     """
-    resolved = vault or vault_common.resolve_vault()
+    resolved = vault or resolve_vault()
     if _embeddings_service_active():
         _spawn_service(resolved, model_name)
         vec = _service_embed(query, model_name, resolved)
@@ -239,7 +260,7 @@ def _search_embeddings(
         List of result dicts with keys: score, stem, title, folder, tags, path.
         Sorted by score descending.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -249,12 +270,16 @@ def _search_embeddings(
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
 
-    decay_enabled: bool = vault_common.get_config(
+    decay_enabled: bool = get_config(
         "embeddings",
         "decay_enabled",
         True,
     )
     now = time.time() if decay_enabled else 0.0
+    # PRF-103: resolve the decay parameters once per search — previously
+    # apply_decay_score re-read them (two get_config calls, each rebuilding
+    # the config tree) for every scored row.
+    half_life, min_factor = resolve_decay_params(vault)
 
     try:
         conn = _open_db_semantic(db_path)
@@ -267,38 +292,50 @@ def _search_embeddings(
             ORDER BY score DESC
             LIMIT ?
             """,
-            (query_blob, top),
+            # ARC-102: over-fetch 3x top (the same factor parsight_search
+            # uses) — decay can reorder rows, so a raw-cosine LIMIT top
+            # would never fetch better-decayed rows just outside it.
+            (query_blob, top * 3),
         )
         rows = cursor.fetchall()
         conn.close()
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
 
-    results: list[dict[str, object]] = []
+    # ARC-102: the ordering contract ("Sorted by score descending") is over
+    # the DECAYED score, matching parsight_search — filter by min_score,
+    # sort on the unrounded decayed score, then truncate to top.
+    scored: list[tuple[float, dict[str, object]]] = []
     for stem, path, folder, title, tags_str, score, mtime in rows:
         if decay_enabled and mtime:
-            score = _apply_decay(score, mtime, now)
+            score = _apply_decay(
+                score, mtime, now, half_life_days=half_life, min_factor=min_factor
+            )
         if score < min_score:
             continue
         tags_raw: str = tags_str if isinstance(tags_str, str) else ""
         tags: list[str] = [t.strip() for t in tags_raw.split(",") if t.strip()]
-        results.append(
-            {
-                "score": round(float(score), 4),
-                "stem": stem,
-                "title": title,
-                "folder": folder,
-                "tags": tags,
-                "path": path,
-                "summary": "",
-                "note_type": "",
-                "project": "",
-                "confidence": "",
-                "mtime": None,
-                "related": [],
-                "is_stale": False,
-                "incoming_links": 0,
-            }
+        scored.append(
+            (
+                float(score),
+                {
+                    "score": round(float(score), 4),
+                    "stem": stem,
+                    "title": title,
+                    "folder": folder,
+                    "tags": tags,
+                    "path": path,
+                    "summary": "",
+                    "note_type": "",
+                    "project": "",
+                    "confidence": "",
+                    "mtime": None,
+                    "related": [],
+                    "is_stale": False,
+                    "incoming_links": 0,
+                },
+            )
         )
 
-    return results
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _, entry in scored[:top]]

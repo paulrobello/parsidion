@@ -412,7 +412,7 @@ An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summa
 
 The note-writing and chunk-summarizer prompts are externalized versioned templates under `skills/parsidion/templates/prompts/`, rendered through the strict-variable loader in `prompt_templates.py`, and every AI-generated note is stamped with a `prompt_version: <id>@<semver>` field in its frontmatter. See [docs/PROMPTS.md](PROMPTS.md) for the template format, the variable contract, and the opt-in eval harness that scores a prompt edit against a golden transcript set.
 
-**CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`, `--run-doctor`, `--rebuild-graph` / `--no-rebuild-graph` (tri-state override of the `rebuild_graph` config), `--graph-include-daily`, `--retry-dead-letters` (re-queue dead-lettered entries; pairs with `--reason CODE`, `--min-age-days N`, `--max-count N`), `--vault PATH`
+**CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`, `--run-doctor`, `--rebuild-graph` / `--no-rebuild-graph` (tri-state override of the `rebuild_graph` config), `--graph-include-daily`, `--retry-dead-letters` (re-queue dead-lettered entries; pairs with `--reason CODE`, `--min-age-days N`, `--max-count N` — the valid reason codes are cataloged in [Dead-letter reason codes](USAGE.md#dead-letter-reason-codes)), `--vault PATH`
 
 **Configurable options** (section `summarizer` in `config.yaml`):
 
@@ -447,7 +447,7 @@ The note-writing and chunk-summarizer prompts are externalized versioned templat
 
 **Location:** `skills/parsidion/scripts/vault_doctor.py` (thin re-export shim) + the stdlib implementations in the `scripts/doctor/` subpackage (`_state.py`, `check.py`, `cli.py`, `daily.py`, `frontmatter.py`, `graph.py`, `headings.py`, `links.py`, `orchestrator.py`, `permissions.py`, `prefixes.py`, `protocol.py`, `scan.py`, `subfolder.py`, `tags.py`, `worker.py`).
 
-An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via `claude -p` (haiku model by default). As of ARC-008 / QA-003, the original 3,128-line God module was decomposed into focused submodules behind a `Fixer`/`FixMode` protocol; every public and private symbol the original exposed remains importable from `vault_doctor`, so existing `import vault_doctor` callers and test `monkeypatch` sites keep working byte-for-byte. The shim re-exports stdlib modules (`argparse`, `subprocess`, `shutil`, etc.) and `ai_backend` / `vault_common` / `vault_fs` / `vault_links` so monkeypatching `vault_doctor.X` still patches every submodule that did `import X`.
+An on-demand diagnostic and repair tool that scans vault notes for structural issues and fixes them via the configured prompt AI backend (small tier by default; `claude -p`, `codex exec`, or `grok --prompt-file` depending on `ai.backend`). As of ARC-008 / QA-003, the original 3,128-line God module was decomposed into focused submodules behind a `Fixer`/`FixMode` protocol; every public and private symbol the original exposed remains importable from `vault_doctor`, so existing `import vault_doctor` callers and test `monkeypatch` sites keep working byte-for-byte. The shim re-exports stdlib modules (`argparse`, `subprocess`, `shutil`, etc.) and `ai_backend` / `vault_common` / `vault_fs` / `vault_links` so monkeypatching `vault_doctor.X` still patches every submodule that did `import X`.
 
 **Issue codes detected:**
 
@@ -473,28 +473,29 @@ Daily notes are exempt from `confidence`, `related`, and orphan checks.
 
 **Frontmatter-syntax checks.** The last five codes exist because `parse_frontmatter` implements a deliberately small YAML subset and never raises: a note using a shape outside that subset silently yields the wrong value, so the scan reported it clean while its tags or sources were quietly dropped. These checks read the raw frontmatter text — the only place the damage is still visible — and mirror the parser's own state machine (block scalars, block sequences) so supported shapes stay silent.
 
-They are **detection-only**: none are in `REPAIRABLE_CODES`, so the AI repair path is never turned loose on structurally broken frontmatter. Because a `skipped` state entry is permanent (unlike `ok`, which expires after `STATE_STALE_DAYS`), a note whose only issues are these is left out of `doctor_state.json` entirely, so every run re-reports it until a human fixes it.
+None of the five are in `REPAIRABLE_CODES`, so the AI repair path is never turned loose on structurally broken frontmatter. Two of them have deterministic repairs: since 0.18.0 a Python-only pre-pass (`_run_deterministic_frontmatter_fixes` in `doctor/orchestrator.py`, run before issue classification) repairs `NESTED_FM_KEY` and `SCALAR_LIST_FIELD` with no AI backend call. The other three (`UNTERMINATED_FM_LIST`, `ORPHAN_FM_BRACKET`, `DUPLICATE_FM_KEY`) are detection-only until a human fixes them. Because a `skipped` state entry is permanent (unlike `ok`, which expires after `STATE_STALE_DAYS`), a note whose only issues are detection-only codes is left out of `doctor_state.json` entirely, so every run re-reports it until a human fixes it.
 
 **Prefix-cluster reorganization:** In `--fix` mode, after per-note repairs, the doctor also scans for groups of flat notes that share a common prefix and should be moved into a subfolder. Two cluster types are detected:
-- **Exact-stem clusters:** one note's stem is the exact prefix of 2+ sibling notes (e.g. `gpu-voxel-ray-marching-optimizations`, `gpu-voxel-ray-marching-optimizations-0853`, …) — relationship is unambiguous, so these bypass Claude filtering and are moved immediately.
-- **First-word clusters:** 3+ notes share the same first `-`-delimited word; these are sent to Claude (haiku) to filter out generic words before moves are applied.
+- **Exact-stem clusters:** one note's stem is the exact prefix of 2+ sibling notes (e.g. `gpu-voxel-ray-marching-optimizations`, `gpu-voxel-ray-marching-optimizations-0853`, …) — relationship is unambiguous, so these bypass the AI generic-word filter and are moved immediately.
+- **First-word clusters:** 3+ notes share the same first `-`-delimited word; these are sent to the configured prompt AI backend (small tier) to filter out generic words before moves are applied.
 
 Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` is wiped for moved notes, and the vault index is rebuilt. Requires `PREFIX_CLUSTER_MIN = 3` notes per cluster (configurable in source).
 
-**State file:** `~/ParsidionVault/doctor_state.json` tracks per-note status across runs and the running doctor's PID:
-- `pid` — PID of the currently-running doctor; cleared on exit (singleton guard)
+**State file:** `<vault>/doctor_state.json` tracks per-note status across runs:
 - `ok` — no issues; skipped for 7 days before re-checking
-- `fixed` — Claude repaired it; re-checked on next run
-- `failed` — Claude returned no output; retried next run
-- `timeout` — `claude -p` timed out once; retried one more time
+- `fixed` — a repair was applied (prompt AI backend or the deterministic frontmatter pre-pass); re-checked on next run
+- `failed` — the prompt AI backend returned no output; retried next run
+- `timeout` — the prompt AI backend timed out once; retried one more time
 - `needs_review` — timed out on retry; skipped indefinitely, flagged for user
 - `skipped` — only non-auto-repairable issues (`FLAT_DAILY`); skipped indefinitely
+
+A legacy `pid` key in an old state file is inert residue. Since SEC-016 the doctor's singleton guard is an `flock` on `<vault>/.doctor.lock`, taken via `vault_fs.try_singleton_lock` in `doctor/cli.py` and released via `atexit`; the kernel releases it automatically when the holder dies, so there is no PID to inspect and no stale-PID handling.
 
 **Additional CLI flags:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--fix-frontmatter` | off | Apply Claude-suggested frontmatter repairs |
+| `--fix-frontmatter` | off | Apply backend-suggested frontmatter repairs |
 | `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration, **`--strip-prefixes`**, and **`--fix-permissions`**); implies `--execute`. Because `--strip-prefixes` rewrites filenames and updates `[[wikilinks]]` vault-wide, run `--fix-all` on a clean git tree so a rename can be reverted. Used by the nightly cron. |
 | `--fix-tags` | off | Detect and merge duplicate tags; use `--execute` to apply |
 | `--fix-sessions` | off | Detect notes sharing the same `session_id` and suggest consolidation (manual or via vault-deduplicator) |
@@ -508,25 +509,24 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 | `--execute` | off | Apply changes for `--migrate-subfolders`, `--fix-tags`, and `--migrate-daily-notes` |
 | `--only RULE` / `--skip RULE` | — | Repeatable, mutually exclusive rule selection by name from `--list-rules`; gates fix modes, scan checks, and the AI repair stage (every scan ends with a per-rule found/fixed/skipped report) |
 | `--list-rules` | — | Print the selectable rule catalog (name, kind, risk, description) and exit |
-| `--model MODEL` | haiku tier | Model override for AI repair calls |
+| `--model MODEL` | small tier | Model override for AI repair calls |
 | `--vault PATH` | default vault | Target a specific vault (path or configured name) |
 | `--jobs N` | `3` | Number of parallel repair workers |
-| `--timeout SECS` | `120` | Timeout per Claude repair call |
+| `--timeout SECS` | `120` | Timeout per AI repair call |
 | `--limit N` | `0` | Max notes to repair (0 = unlimited) |
 | `--errors-only` | off | Only report/repair notes with errors (skip warnings) |
 | `--no-state` | off | Ignore state file and rescan all notes |
 
 **Behavior:**
-1. Checks `doctor_state.json` for a live `pid`; exits if another instance is already running
-2. Writes own PID to state file immediately (singleton lock); clears it via `atexit` on exit
-3. Auto-commits uncommitted vault files whose mtime is >= 15 minutes old (skips deletions; respects `git.auto_commit` config; no-op when vault has no `.git`)
-4. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
-5. Scans remaining notes for issues using stdlib-only checks
-6. Records clean notes as `ok` in state (skipped for 7 days)
-7. In `--fix-frontmatter` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match, then prefix-strip match, then a `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. The semantic lookup never returns a `Daily/` note: journals name every project worked that day, so a link that is really a project name scores highest against a journal page, and substituting one satisfies "the link resolves" while destroying what the link meant. Dropping the link is preferred instead, since the backlink pass can refill `related` but a plausible wrong link is never revisited. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the Claude prompt, then calls `claude -p` per note with haiku to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent. Uses `--jobs` parallel workers (default 3).
-8. Commits the repaired notes under a message naming the repair, then reindexes. The reindex stages only `CLAUDE.md`/`TAGS.md`/`MANIFEST.md`, so without this step the repairs would sit uncommitted until an unrelated later hook swept them into a commit that never mentions them.
-9. Saves state after each run; escalates double-timeout to `needs_review`
-10. `--no-state` rescans all notes regardless of prior results
+1. Takes an `flock` on `<vault>/.doctor.lock` (`vault_fs.try_singleton_lock`); exits if another instance already holds it, and releases the lock via `atexit` on exit — the kernel releases it on process death, so no stale-PID handling is needed
+2. Auto-commits uncommitted vault files whose mtime is >= 15 minutes old (skips deletions; respects `git.auto_commit` config; no-op when vault has no `.git`)
+3. Loads `doctor_state.json` and skips notes with `ok`/`skipped`/`needs_review` status
+4. Scans remaining notes for issues using stdlib-only checks
+5. Records clean notes as `ok` in state (skipped for 7 days)
+6. In `--fix-frontmatter` mode: for `BROKEN_WIKILINK` issues, performs Python-only repair — tries exact stem match, then prefix-strip match, then a `vault-search` semantic lookup; replaces the link if a match is found or strips brackets if not. The semantic lookup never returns a `Daily/` note: journals name every project worked that day, so a link that is really a project name scores highest against a journal page, and substituting one satisfies "the link resolves" while destroying what the link meant. Dropping the link is preferred instead, since the backlink pass can refill `related` but a plausible wrong link is never revisited. If removing broken links empties the `related` field, injects semantic candidates (orphan repair). For `ORPHAN_NOTE` and other repairable issues, queries `vault-search` semantically to find up to 5 real candidate wikilinks, injects them into the repair prompt, then calls the configured prompt AI backend (small tier) per note to apply repairs. Falls back gracefully when `vault-search` is not installed or `embeddings.db` is absent. Uses `--jobs` parallel workers (default 3).
+7. Commits the repaired notes under a message naming the repair, then reindexes. The reindex stages only `CLAUDE.md`/`TAGS.md`/`MANIFEST.md`, so without this step the repairs would sit uncommitted until an unrelated later hook swept them into a commit that never mentions them.
+8. Saves state after each run; escalates double-timeout to `needs_review`
+9. `--no-state` rescans all notes regardless of prior results
 
 The vault health summary (clean count, pending repair, needs review, manual fix) is included in `CLAUDE.md` by `update_index.py` after each index rebuild.
 
@@ -832,7 +832,7 @@ Analytics CLI for vault health and activity. All modes output to stdout; Rich fo
 
 | Flag | Description |
 |------|-------------|
-| `--health` | Composite vault health score (the default mode when no flag is given; ENH-007). Seven scored dimensions (index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, file hygiene) with a weighted overall grade. Each unhealthy dimension carries a concrete next-action command. `--json` emits machine-readable output (consumed by the MCP server and the visualizer); `--fast` skips the metadata-quality scan so the report renders in <1s on a 7k-note vault. |
+| `--health` | Composite vault health score (the default mode when no flag is given; ENH-007). Eight scored dimensions (index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, file hygiene, hook latency — ENH-019) with a weighted overall grade. Each unhealthy dimension carries a concrete next-action command. `--json` emits machine-readable output (consumed by the MCP server and the visualizer); `--fast` skips the metadata-quality scan so the report renders in <1s on a 7k-note vault. |
 | `--summary` | Note counts, most active folders, top tags, growth trend |
 | `--stale` | Notes with no incoming wikilinks that are older than 30 days |
 | `--top-linked` | Most-referenced notes (by incoming wikilink count) |
@@ -1006,7 +1006,7 @@ A [FastMCP](https://github.com/jlowin/fastmcp)-based MCP server that exposes vau
 | `vault_context` | Session-start-style context injection (compact index or full summaries) |
 | `rebuild_index` | Trigger `update_index.py` from within a conversation |
 | `vault_doctor` | Run vault health scan and automated repair |
-| `vault_health` | Composite 0–100 vault-health score across seven dimensions (ENH-007); subprocess wrapper around `vault-stats --health --json` |
+| `vault_health` | Composite 0–100 vault-health score across eight dimensions (ENH-007); subprocess wrapper around `vault-stats --health --json` |
 | `code_search` | Hybrid BM25+vector+graph code search via the parsight backend |
 
 **Installation:**
@@ -1099,23 +1099,25 @@ codex_cli:
   allow_danger_full_access: null  # SEC-117 opt-in required for sandbox: danger-full-access
 
 # ``grok`` CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
-# ``grok-cli``. Auth uses the CLI's own OAuth login. ``minimal_context``
-# (default true) overrides the system prompt and runs single-turn from a clean
-# scratch cwd with tools, subagents, and web search disabled — grok otherwise
-# appends every CLAUDE.md/AGENTS.md it finds plus its full skill catalog to
-# the system prompt.
+# ``grok-cli``. Auth uses the CLI's own OAuth login. Tools, subagents, and web
+# search are always disabled (SEC-202) and every prompt runs from a clean
+# scratch cwd; ``allow_tools`` is the explicit double opt-in that re-arms
+# them. ``minimal_context`` (default true) overrides the system prompt — grok
+# otherwise appends every CLAUDE.md/AGENTS.md it finds plus its full skill
+# catalog to it.
 grok_cli:
   command: grok  # PATH lookup or absolute path to the grok CLI
   timeout: 120  # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40 s)
-  minimal_context: true  # Override the system prompt; disable tools/subagents/web search
+  minimal_context: true  # Override the system prompt (tools stay disabled; see allow_tools)
   system_prompt: null  # Override the minimal system prompt text
+  allow_tools: null  # SEC-202 explicit opt-in to run grok with tools/subagents/web search enabled
 
 # Session start hook (session_start_hook.py).
 session_start_hook:
   ai_model: null  # Model for AI note selection (null = disabled)
   ai_cooldown_seconds: 30  # Skip nested claude -p if AI SessionStart ran recently for this vault
   ai_single_flight: true  # Allow only one nested AI SessionStart selector per vault at a time
-  ai_candidates_max: 48  # Cap on the AI selector's ranked candidate pool (0 = unlimited)
+  ai_candidates_max: 48  # Cap on the AI selector's ranked candidate pool (0 = unlimited, unset = seed_selection's default of 48)
   max_chars: 4000  # Max context injection characters
   ai_timeout: 25  # AI call timeout in seconds
   recent_days: 3  # Days to look back for recent notes

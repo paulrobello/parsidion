@@ -61,10 +61,10 @@ on <code><a href="core/vault_path.html">core.vault_path</a></code> by <code>test
 
                         <label class="view-source-button" for="mod-vault_path-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;vault_path -- compatibility shim (ARC-004 / QA-005 / ARC-012).</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">"""vault_path -- compatibility shim (ARC-004 / QA-005 / ARC-012).</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Implementation moved to ``core.vault_path``. This shim re-exports the</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">module&#39;s controlled non-dunder surface (defined by</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">module's controlled non-dunder surface (defined by</span>
 </span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">``core.vault_path.__all__``) so every existing caller --</span>
 </span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">``import vault_path``, ``from vault_path import X``, ``vault_path.X``</span>
 </span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="sd">-- keeps working unchanged. QA-005 / ARC-012: ``__all__`` deliberately</span>
@@ -72,7 +72,7 @@ on <code><a href="core/vault_path.html">core.vault_path</a></code> by <code>test
 </span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">private helpers -- callers import the former directly and the latter are</span>
 </span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">not part of the public surface. The stdlib-only constraint is enforced</span>
 </span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="sd">on ``core.vault_path`` by ``tests/test_stdlib_only.py``.</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">"""</span>
 </span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>
 </span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">core.vault_path</span><span class="w"> </span><span class="kn">import</span> <span class="o">*</span>  <span class="c1"># noqa: F403 -- controlled by core.vault_path.__all__</span>
 </span></pre></div>
