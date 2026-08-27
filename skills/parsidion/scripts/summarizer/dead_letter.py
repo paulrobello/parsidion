@@ -112,6 +112,14 @@ def _append_dead_letter(
                     return
                 finally:
                     _funlock(f)
+        # Retry exhaustion is a silent data-loss path otherwise: the caller
+        # sees success and the entry never lands. Loud so the next occurrence
+        # is diagnosable (5 consecutive replaces beat every reopen attempt).
+        print(
+            "Warning: could not write dead-letter record: file was replaced "
+            "on every inode-retry attempt",
+            file=sys.stderr,
+        )
     except OSError as e:
         print(f"Warning: could not write dead-letter record: {e}", file=sys.stderr)
 

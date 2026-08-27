@@ -248,7 +248,17 @@ def test_arc013_prune_does_not_lose_concurrent_append(
     for _ in range(5):
         mod._prune_dead_letters(vault, retention_days=7)
     stop.set()
-    t.join(timeout=5)
+    # The join must be long enough that the appender finishes its in-flight
+    # append; a shorter timeout let a loaded machine proceed while a write
+    # was still mid-flight, and the snapshot below then counted that entry
+    # as lost (observed 2026-08-27 under three concurrent gate runs). If the
+    # thread is STILL alive the test must fail loudly here rather than race.
+    t.join(timeout=30)
+    assert not t.is_alive(), (
+        "appender thread still running 30s after stop.set(); cannot assert "
+        "on the file while an append may be in flight"
+    )
+    assert not errors, f"appender hit unexpected exceptions: {errors[:3]}..."
 
     # All appends that succeeded must appear in the final file. Under the
     # original unlocked-read bug, some were lost to the in-place truncate.
