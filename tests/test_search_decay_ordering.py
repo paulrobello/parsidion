@@ -19,6 +19,7 @@ import struct
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -157,7 +158,7 @@ class TestDecayOrderingContract:
             reverse=True,
         )
         assert [r["stem"] for r in results] == [stem for _, stem in expected]
-        scores = [r["score"] for r in results]
+        scores = [cast(float, r["score"]) for r in results]
         assert scores == sorted(scores, reverse=True)
 
     def test_truncates_to_top(
