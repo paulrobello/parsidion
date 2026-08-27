@@ -339,7 +339,7 @@ class TestWriteHookEventRotation:
             f"event_log:\n  enabled: true\n  max_lines: {max_lines}\n",
             encoding="utf-8",
         )
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
 
     def test_rotation_keeps_second_half_plus_new_line(self, tmp_vault: Path) -> None:
         self._configure(tmp_vault, max_lines=4)
@@ -372,7 +372,7 @@ class TestWriteHookEventPathContainment:
             f"event_log:\n  enabled: true\n  path: {path}\n",
             encoding="utf-8",
         )
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
 
     def test_outside_path_is_refused_and_default_used(
         self, tmp_vault: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -691,7 +691,7 @@ def build_embeddings_mod(monkeypatch: pytest.MonkeyPatch):
 
 
 def _seed_embeddings_db(mod, db_path: Path) -> None:
-    conn = mod.open_db(db_path)
+    conn = mod.open_embeddings_db(db_path)
     with conn:
         conn.execute(
             "INSERT INTO note_embeddings (stem, path, embedding) VALUES (?, ?, ?)",

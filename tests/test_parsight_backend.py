@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     parsight_backend.reset_parsight_cache()
 
 
@@ -253,7 +253,7 @@ class TestLegacyCompat:
         (tmp_vault / "config.local.yaml").write_text(
             "par_mem:\n  binary: /opt/local\n", encoding="utf-8"
         )
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
         assert vault_common.load_config()["parsight"]["binary"] == "/opt/local"
 
 

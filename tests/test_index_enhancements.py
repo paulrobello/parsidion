@@ -270,7 +270,7 @@ def _build_index(tmp_vault: Path) -> None:
 def _write_config(tmp_vault: Path, text: str) -> None:
     """Write config.yaml in the tmp vault and clear the config cache."""
     (tmp_vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
 
 
 _NOTES: list[tuple[str, str, dict[str, Any]]] = [

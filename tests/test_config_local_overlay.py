@@ -5,10 +5,12 @@ Covers:
 - ``load_config()`` reading and merging both files from a vault root.
 - ``get_config()`` surfacing overlay-only values (e.g. secrets kept out of
   the git-synced config.yaml).
-- Cache behaviour: ``load_config`` is a plain ``functools.lru_cache`` keyed
-  on the ``vault`` argument with no mtime tracking, so edits to either file
-  are only picked up after an explicit ``load_config.cache_clear()`` -- this
-  mirrors the pre-existing config.yaml-only cache semantics exactly.
+- Cache behaviour: the parse is cached per vault (``_load_config_cached``,
+  a ``functools.lru_cache`` keyed on the ``vault`` argument) with no mtime
+  tracking, so edits to either file are only picked up after an explicit
+  ``clear_config_cache()`` -- this mirrors the pre-existing config.yaml-only
+  cache semantics exactly. ``load_config`` itself is an uncached wrapper
+  returning a per-call deep copy (QA-101).
 """
 
 from __future__ import annotations
@@ -69,7 +71,7 @@ class TestLoadConfigLocalOverlay:
             "session_start_hook:\n  max_chars: 9000\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         config = vault_config.load_config(tmp_vault)
 
@@ -84,7 +86,7 @@ class TestLoadConfigLocalOverlay:
         (tmp_vault / "config.local.yaml").write_text(
             "vault:\n  username: alice\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         config = vault_config.load_config(tmp_vault)
 
@@ -102,7 +104,7 @@ class TestLoadConfigLocalOverlay:
         (tmp_vault / "config.local.yaml").write_text(
             "session_stop_hook:\n  auto_summarize: false\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         config = vault_config.load_config(tmp_vault)
 
@@ -118,7 +120,7 @@ class TestLoadConfigLocalOverlay:
             "anthropic_env:\n  ANTHROPIC_API_KEY: sk-local-secret\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         assert (
             vault_config.get_config("anthropic_env", "ANTHROPIC_API_KEY")
@@ -133,7 +135,7 @@ class TestLoadConfigLocalOverlay:
         (tmp_vault / "config.yaml").write_text(
             "git:\n  auto_commit: true\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         config = vault_config.load_config(tmp_vault)
 
@@ -144,7 +146,7 @@ class TestLoadConfigLocalOverlay:
         (tmp_vault / "config.local.yaml").write_text(
             "git:\n  auto_commit: false\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         config = vault_config.load_config(tmp_vault)
 
@@ -152,16 +154,18 @@ class TestLoadConfigLocalOverlay:
 
 
 class TestLoadConfigCacheBehaviour:
-    """load_config caches per-process with no mtime tracking (matches the
+    """The parse is cached per-process with no mtime tracking (matches the
     pre-existing config.yaml-only behaviour) -- edits are only visible after
-    an explicit cache_clear().
+    an explicit clear_config_cache(). QA-101: ``load_config`` wraps the
+    cached parse with a per-call deep copy, so callers get fresh dicts even
+    on cache hits.
     """
 
     def test_cache_is_stale_until_explicitly_cleared(self, tmp_vault: Path) -> None:
         (tmp_vault / "config.yaml").write_text(
             "git:\n  auto_commit: true\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         first = vault_config.load_config(tmp_vault)
         assert first["git"]["auto_commit"] is True
@@ -171,12 +175,67 @@ class TestLoadConfigCacheBehaviour:
             "git:\n  auto_commit: false\n", encoding="utf-8"
         )
         stale = vault_config.load_config(tmp_vault)
-        assert stale is first
+        # QA-101: each call returns a fresh copy, so identity no longer holds
+        # -- staleness is pinned by the value, which still serves the cached
+        # parse that predates the overlay.
+        assert stale == first
         assert stale["git"]["auto_commit"] is True
 
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         fresh = vault_config.load_config(tmp_vault)
         assert fresh["git"]["auto_commit"] is False
+
+
+class TestLoadConfigMutationIsolation:
+    """QA-101: load_config must hand each caller an isolated deep copy.
+
+    The ARC-034 docstring promised mutation isolation, but the deep copy
+    used to happen *inside* the ``functools.lru_cache``-decorated function,
+    so every caller received the same cached copy object and a mutation
+    corrupted all later callers. These tests pin the fixed contract.
+    """
+
+    def test_each_call_returns_a_distinct_object(self, tmp_vault: Path) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "git:\n  auto_commit: true\n", encoding="utf-8"
+        )
+        vault_config.clear_config_cache()
+
+        assert vault_config.load_config(tmp_vault) is not vault_config.load_config(
+            tmp_vault
+        )
+
+    def test_mutating_a_returned_dict_does_not_leak_into_later_calls(
+        self, tmp_vault: Path
+    ) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "summarizer:\n  model: sonnet\n  max_parallel: 3\n", encoding="utf-8"
+        )
+        vault_config.clear_config_cache()
+
+        first = vault_config.load_config(tmp_vault)
+        first["summarizer"]["model"] = "mutated-by-caller"
+        del first["summarizer"]["max_parallel"]
+
+        second = vault_config.load_config(tmp_vault)
+        assert second["summarizer"]["model"] == "sonnet"
+        assert second["summarizer"]["max_parallel"] == 3
+
+    def test_clear_config_cache_forces_a_re_read(self, tmp_vault: Path) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "git:\n  auto_commit: true\n", encoding="utf-8"
+        )
+        vault_config.clear_config_cache()
+        assert vault_config.load_config(tmp_vault)["git"]["auto_commit"] is True
+
+        (tmp_vault / "config.yaml").write_text(
+            "git:\n  auto_commit: false\n", encoding="utf-8"
+        )
+        # Stale until explicitly cleared ...
+        assert vault_config.load_config(tmp_vault)["git"]["auto_commit"] is True
+
+        vault_config.clear_config_cache()
+        assert vault_config.load_config(tmp_vault)["git"]["auto_commit"] is False
 
 
 # Path to the shipped template relative to the tests/ directory.
@@ -207,7 +266,7 @@ class TestShippedTemplateIsValid:
         (tmp_vault / "config.yaml").write_text(
             _TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
 
         warnings = vault_config.validate_config()
         assert warnings == [], (
@@ -227,7 +286,7 @@ class TestShippedTemplateIsValid:
             f"event_log:\n  enabled: true\n  path: '{custom_log}'\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         vault_hooks.write_hook_event(
             hook="SessionStart",
             project="test-project",
@@ -278,7 +337,7 @@ class TestSec007NetworkEnvKeys:
             "  API_TIMEOUT_MS: 9000\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         monkeypatch.setattr(core_vault_hooks, "_untrusted_network_env_warned", False)
 
         defaults = core_vault_hooks._configured_env_defaults(vault=tmp_vault)
@@ -296,7 +355,7 @@ class TestSec007NetworkEnvKeys:
             "anthropic_env:\n  ANTHROPIC_BASE_URL: https://mine.example/api\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         monkeypatch.setattr(core_vault_hooks, "_untrusted_network_env_warned", False)
 
         defaults = core_vault_hooks._configured_env_defaults(vault=tmp_vault)
@@ -312,7 +371,7 @@ class TestSec007NetworkEnvKeys:
             "anthropic_env:\n  HTTPS_PROXY: http://127.0.0.1:7890\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         monkeypatch.setattr(core_vault_hooks, "_untrusted_network_env_warned", False)
 
         defaults = core_vault_hooks._configured_env_defaults(vault=tmp_vault)
@@ -329,7 +388,7 @@ class TestSec007NetworkEnvKeys:
         (tmp_vault / "config.local.yaml").write_text(
             "anthropic_env:\n  ANTHROPIC_AUTH_TOKEN: tok-local\n", encoding="utf-8"
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         monkeypatch.setattr(core_vault_hooks, "_untrusted_network_env_warned", False)
 
         defaults = core_vault_hooks._configured_env_defaults(vault=tmp_vault)
@@ -346,7 +405,7 @@ class TestSec007NetworkEnvKeys:
             "anthropic_env:\n  ANTHROPIC_BASE_URL: https://evil.example\n",
             encoding="utf-8",
         )
-        vault_config.load_config.cache_clear()
+        vault_config.clear_config_cache()
         monkeypatch.setattr(core_vault_hooks, "_untrusted_network_env_warned", False)
 
         core_vault_hooks._configured_env_defaults(vault=tmp_vault)

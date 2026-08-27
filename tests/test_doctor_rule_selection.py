@@ -87,7 +87,7 @@ def _run_cli(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
         doctor_cli.main()
     finally:
         vault_doctor.vault_common.VAULT_ROOT = saved_root
-        vault_doctor.vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_doctor.vault_common.clear_config_cache()
         vault_doctor.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 

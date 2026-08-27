@@ -383,11 +383,16 @@ def _build_scan_context(
     today_str: str,
 ) -> ScanContext:
     """Resolve scan targets and build the ScanContext (QA-005 extraction)."""
+    # QA-107: one vault walk per run. The non-explicit path derives the scan
+    # targets from the same walk that feeds note_map; only an explicit-notes
+    # run uses a walk for all_notes alone. (The post-subfolder-move re-walk
+    # in _apply_subfolder_migration is separate and deliberately kept.)
+    all_notes = list(vault_common.all_vault_notes_walk(vault))
     if notes:
         target_notes = [Path(n).resolve() for n in notes]
         explicit = True
     else:
-        target_notes = list(vault_common.all_vault_notes_walk(vault))
+        target_notes = list(all_notes)
         explicit = False
 
     # Always skip auto-generated files (rebuilt by update_index.py, never doctor-repaired).
@@ -410,7 +415,6 @@ def _build_scan_context(
         skipped_by_state = 0
 
     # Build note map once for wikilink resolution
-    all_notes = list(vault_common.all_vault_notes_walk(vault))
     note_map = build_note_map(all_notes)
 
     return ScanContext(

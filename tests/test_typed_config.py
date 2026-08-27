@@ -86,7 +86,7 @@ _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
 def empty_config(tmp_vault: Path) -> Path:
     """A vault with an empty config; caches cleared."""
     (tmp_vault / "config.yaml").write_text("", encoding="utf-8")
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     vault_config._clear_typed_config_cache()
     return tmp_vault
 
@@ -98,7 +98,7 @@ def configured_vault(tmp_vault: Path) -> Path:
         "session_start_hook:\n  max_chars: 123\n  ai_model: sonnet\n",
         encoding="utf-8",
     )
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     vault_config._clear_typed_config_cache()
     return tmp_vault
 
@@ -118,7 +118,7 @@ def test_explicit_null_still_returns_none(tmp_vault: Path) -> None:
     (tmp_vault / "config.yaml").write_text(
         "session_start_hook:\n  max_chars: null\n", encoding="utf-8"
     )
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     vault_config._clear_typed_config_cache()
     assert vault_common.get_config("session_start_hook", "max_chars", 4000) is None
 
@@ -127,7 +127,7 @@ def test_configured_value_wins_over_schema_default(tmp_vault: Path) -> None:
     (tmp_vault / "config.yaml").write_text(
         "session_start_hook:\n  max_chars: 999\n", encoding="utf-8"
     )
-    vault_common.load_config.cache_clear()
+    vault_common.clear_config_cache()
     vault_config._clear_typed_config_cache()
     assert vault_common.get_config("session_start_hook", "max_chars", 4000) == 999
 

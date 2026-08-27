@@ -67,6 +67,7 @@ from vault_config import (
     _strip_inline_comment,
     get_config,
     load_config,
+    clear_config_cache,
     load_typed_config,
     validate_config,
 )

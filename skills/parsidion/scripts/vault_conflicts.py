@@ -485,13 +485,13 @@ def main() -> None:
     original_vault_root = vault_common.VAULT_ROOT
     vault_common.VAULT_ROOT = vault_path
     vault_common.apply_configured_env_defaults(vault=vault_path)
-    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+    vault_common.clear_config_cache()
     vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
     try:
         conflicts = _run_scan(vault_path, args.threshold, args.top, no_ai=args.no_ai)
     finally:
         vault_common.VAULT_ROOT = original_vault_root
-        vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+        vault_common.clear_config_cache()
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     if args.json:

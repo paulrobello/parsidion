@@ -7,17 +7,16 @@ function — so the two drifted. This module provides the step abstraction that
 both flows are rebuilt on top of:
 
 * :class:`Step`  — one ordered, individually-testable step with a ``run()``
-  (forward / install) and an ``undo()`` (inverse / uninstall). The default
-  ``undo()`` is a no-op: most vault-affecting steps deliberately do not roll
-  back (the vault is preserved across uninstall, by long-standing contract).
-  Steps that own an inverse pass ``on_undo``; steps that only undo under
-  ``--purge-config`` gate on the ``purge`` flag passed to ``undo()``.
+  (forward / install) action. QA-108 removed the never-wired ``undo()`` /
+  ``on_undo`` rollback machinery: both ``install()`` and ``uninstall()``
+  build forward-only step lists (uninstall is itself the inverse flow, and
+  the vault is preserved across it by long-standing contract).
 * :class:`StepList` — owns the ordered steps, the failed-step tracker
   (preserving ARC-022's "surface every failure, return non-zero" semantics),
-  and the forward/reverse iteration.
+  and the forward iteration.
 
 The step *abstraction* lives here. The step *instances* — the actual
-``on_run`` / ``on_undo`` bodies — are still built in ``install.py`` (and in
+``on_run`` bodies — are still built in ``install.py`` (and in
 ``installer/uninstall.py``) because their lambdas reference install.py's
 module-global function names (``install_skill``, ``merge_hooks``, ...) which
 the test suite monkeypatches via ``install.<name>``. Moving the bodies into
@@ -44,13 +43,11 @@ from installer.ui import _err
 # Return value is ignored — many underlying helpers (install_skill, _confirm)
 # return a Path/bool that the step doesn't use, so the alias permits any return.
 StepBody = Callable[[], object]
-# An undo body receives the purge_config flag (uninstall-only).
-UndoBody = Callable[[bool], object]
 
 
 @dataclass
 class Step:
-    """One ordered install step with an optional inverse.
+    """One ordered install step.
 
     Attributes:
         name:    Stable identifier surfaced in the failed-step summary and
@@ -59,31 +56,19 @@ class Step:
         on_run:  Forward action. Must raise on failure (the runner catches
                  and records it). Resolves referenced functions through the
                  *caller's* module globals so monkeypatch keeps working.
-        on_undo: Inverse action, or ``None`` for steps that the uninstall
-                 flow deliberately preserves (vault contents, embeddings
-                 config, git init, etc.). When provided, receives the
-                 ``purge`` flag so a single body can gate on
-                 ``--purge-config``.
     """
 
     name: str
     on_run: StepBody
-    on_undo: UndoBody | None = None
 
     def run(self) -> None:
         """Run this step's forward (install) action via ``on_run``."""
         self.on_run()
 
-    def undo(self, *, purge: bool = False) -> None:
-        """Run the inverse action with the ``purge`` flag; no-op when ``on_undo`` is unset."""
-        if self.on_undo is None:
-            return
-        self.on_undo(purge)
-
 
 @dataclass
 class StepList:
-    """Ordered list of :class:`Step` with forward/backward runners.
+    """Ordered list of :class:`Step` with a forward runner.
 
     ``run_all()`` preserves ARC-022 semantics exactly: each step runs inside
     a ``try/except Exception`` (KeyboardInterrupt/SystemExit propagate so
