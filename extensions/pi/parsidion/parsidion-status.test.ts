@@ -4,6 +4,7 @@ import {
 	formatAnthropicStatusLines,
 	maskSecret,
 	parseAnthropicEnvSection,
+	resolveVaultConfigPath,
 } from "./lib/parsidion-status";
 
 describe("maskSecret", () => {
@@ -117,6 +118,34 @@ describe("buildAnthropicStatus", () => {
 		expect(status.warning).toContain("vault config");
 		const item = status.items.find((entry) => entry.key === "API_TIMEOUT_MS");
 		expect(item?.source).toBe("env");
+	});
+});
+
+describe("resolveVaultConfigPath", () => {
+	const HOME = "/home/tester";
+
+	it("uses CLAUDE_VAULT when set", () => {
+		expect(resolveVaultConfigPath({ CLAUDE_VAULT: "/custom/vault" }, HOME)).toBe(
+			"/custom/vault/config.yaml",
+		);
+	});
+
+	it("prefers ParsidionVault when it exists", () => {
+		expect(resolveVaultConfigPath({}, HOME, () => true)).toBe(
+			`${HOME}/ParsidionVault/config.yaml`,
+		);
+	});
+
+	it("falls back to legacy ClaudeVault only when ParsidionVault is absent", () => {
+		expect(
+			resolveVaultConfigPath({}, HOME, (p) => p === `${HOME}/ClaudeVault`),
+		).toBe(`${HOME}/ClaudeVault/config.yaml`);
+	});
+
+	it("defaults to the ParsidionVault path when neither vault exists", () => {
+		expect(resolveVaultConfigPath({}, HOME, () => false)).toBe(
+			`${HOME}/ParsidionVault/config.yaml`,
+		);
 	});
 });
 
