@@ -947,7 +947,7 @@ def run_session_start(adapter: AgentAdapter) -> None:
             load_typed_config(vault=vault_path).session_start_hook.max_chars
         )
         old_runtime = os.environ.get("PARSIDION_RUNTIME")
-        os.environ["PARSIDION_RUNTIME"] = adapter.name
+        os.environ["PARSIDION_RUNTIME"] = adapter.runtime_env_value or adapter.name
         try:
             context, _notes_injected = build_session_context(
                 cwd,

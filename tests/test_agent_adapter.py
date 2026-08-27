@@ -531,3 +531,63 @@ class TestHookScriptMapsSingleSource:
             "ARC-004: hook-script maps must be defined only in "
             "agent_adapter.py. Found dict-literal definitions: " + ", ".join(offenders)
         )
+
+
+class TestRuntimeEnvValueWired:
+    """The declared ``runtime_env_value`` field drives PARSIDION_RUNTIME
+    during the context build (not ``adapter.name``); an empty field falls
+    back to the name so adapters that omit it keep working."""
+
+    def _run_capturing_runtime(
+        self,
+        adapter: agent_adapter.AgentAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_stdin: io.StringIO,
+        tmp_path: Path,
+    ) -> str | None:
+        monkeypatch.delenv("PARSIDION_INTERNAL", raising=False)
+        import session_start_hook
+
+        seen: dict[str, str | None] = {}
+
+        def fake_build(_cwd: str, **_kw: object) -> tuple[str, int]:
+            seen["runtime"] = os.environ.get("PARSIDION_RUNTIME")
+            return ("ctx", 1)
+
+        monkeypatch.setattr(session_start_hook, "build_session_context", fake_build)
+        monkeypatch.setattr(agent_adapter, "resolve_vault", lambda **_kw: tmp_path)
+        monkeypatch.setattr(agent_adapter, "get_project_name", lambda _cwd: "test")
+        agent_adapter.run_session_start(adapter)
+        return seen["runtime"]
+
+    def test_env_uses_runtime_env_value_field(
+        self,
+        patched_stdin: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import dataclasses
+
+        adapter = agent_adapter.get("codex")
+        assert adapter is not None
+        divergent = dataclasses.replace(adapter, runtime_env_value="codex-custom-env")
+        runtime = self._run_capturing_runtime(
+            divergent, monkeypatch, patched_stdin, tmp_path
+        )
+        assert runtime == "codex-custom-env"
+
+    def test_env_falls_back_to_name_when_field_empty(
+        self,
+        patched_stdin: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import dataclasses
+
+        adapter = agent_adapter.get("gemini")
+        assert adapter is not None
+        bare = dataclasses.replace(adapter, runtime_env_value="")
+        runtime = self._run_capturing_runtime(
+            bare, monkeypatch, patched_stdin, tmp_path
+        )
+        assert runtime == "gemini"
