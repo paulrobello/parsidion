@@ -280,10 +280,14 @@ def _embed_query(
     """
     resolved = vault or resolve_vault()
     if _embeddings_service_active(backend):
-        _spawn_service(resolved, model_name)
+        # Socket first: with the service default-on (ENH-020) a warm daemon
+        # is the common case, and spawning before the check would launch a
+        # throwaway duplicate daemon (PID-guarded, it exits — but every
+        # short-lived client would pay the launch) on every query.
         vec = _service_embed(query, model_name, resolved)
         if vec is not None:
             return vec
+        _spawn_service(resolved, model_name)
         _note_cold_load(resolved, model_name)
     model = _get_embedding_model(model_name)
     with _EMBED_MODEL_LOCK:

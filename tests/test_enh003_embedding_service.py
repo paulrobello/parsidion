@@ -605,6 +605,28 @@ def test_cold_load_event_on_service_miss(
     assert events == ["EmbedColdLoad"]
 
 
+def test_warm_socket_skips_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A warm daemon answer must not trigger a (duplicate) spawn attempt."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    spawns: list[int] = []
+
+    monkeypatch.setattr(
+        cli_embeddings, "_embeddings_service_active", lambda backend=None: True
+    )
+    monkeypatch.setattr(
+        cli_embeddings, "_service_embed", lambda q, m, v, timeout=5.0: [0.5]
+    )
+    monkeypatch.setattr(cli_embeddings, "_spawn_service", lambda v, m: spawns.append(1))
+
+    vec = cli_embeddings._embed_query("q", "m", vault)
+
+    assert vec == [0.5]
+    assert spawns == []
+
+
 def test_lock_path_lives_outside_vault(tmp_path: Path) -> None:
     """The single-flight lock follows the socket/pid rule: runtime dir, never
     inside the git-synced vault tree."""
