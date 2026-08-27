@@ -71,7 +71,10 @@ _PARSIGHT_ENV_KEYS = ("PATH", "HOME", "PARSIGHT_MCP_URL")
 
 def _parsight_env() -> dict[str, str]:
     """Return the least-privilege env for a parsight CLI subprocess (SEC-206)."""
-    return {key: value for key, value in os.environ.items() if key in _PARSIGHT_ENV_KEYS}
+    return {
+        key: value for key, value in os.environ.items() if key in _PARSIGHT_ENV_KEYS
+    }
+
 
 # Per-process availability cache: str(vault) -> absolute binary path when
 # available, or None when parsight was probed and found unavailable.
