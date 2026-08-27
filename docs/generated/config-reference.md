@@ -56,16 +56,18 @@ codex_cli:
   allow_danger_full_access: null  # SEC-117 opt-in required for sandbox: danger-full-access
 
 # ``grok`` CLI invocation (ai_backend.py). Only used when ``ai.backend`` is
-# ``grok-cli``. Auth uses the CLI's own OAuth login. ``minimal_context``
-# (default true) overrides the system prompt and runs single-turn from a clean
-# scratch cwd with tools, subagents, and web search disabled — grok otherwise
-# appends every CLAUDE.md/AGENTS.md it finds plus its full skill catalog to
-# the system prompt.
+# ``grok-cli``. Auth uses the CLI's own OAuth login. Tools, subagents, and web
+# search are always disabled (SEC-202) and every prompt runs from a clean
+# scratch cwd; ``allow_tools`` is the explicit double opt-in that re-arms
+# them. ``minimal_context`` (default true) overrides the system prompt — grok
+# otherwise appends every CLAUDE.md/AGENTS.md it finds plus its full skill
+# catalog to it.
 grok_cli:
   command: grok  # PATH lookup or absolute path to the grok CLI
   timeout: 120  # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40 s)
-  minimal_context: true  # Override the system prompt; disable tools/subagents/web search
+  minimal_context: true  # Override the system prompt (tools stay disabled; see allow_tools)
   system_prompt: null  # Override the minimal system prompt text
+  allow_tools: null  # SEC-202 explicit opt-in to run grok with tools/subagents/web search enabled
 
 # Session start hook (session_start_hook.py).
 session_start_hook:
