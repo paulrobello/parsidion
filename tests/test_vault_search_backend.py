@@ -80,6 +80,7 @@ def embeddings_sentinel(monkeypatch: pytest.MonkeyPatch) -> list[list[object]]:
         min_score: float = 0.45,
         model_name: str = "",
         vault: Path | None = None,
+        backend: str | None = None,
     ) -> list[dict[str, object]]:
         calls.append([query, top, min_score, model_name, vault])
         return SENTINEL

@@ -170,7 +170,12 @@ def search_with_meta(
             return SearchResultEnvelope([], "parsight", "rrf")
 
     embeddings_results = _embeddings._search_embeddings(
-        query=query, top=top, min_score=min_score, model_name=model_name, vault=vault
+        query=query,
+        top=top,
+        min_score=min_score,
+        model_name=model_name,
+        vault=vault,
+        backend=selected,
     )
     return SearchResultEnvelope(embeddings_results, "embeddings", "cosine")
 
