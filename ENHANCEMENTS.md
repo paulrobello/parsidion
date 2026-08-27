@@ -1,7 +1,8 @@
 # ENHANCEMENTS.md
 
 > Performance, functionality, and maintainability opportunities for parsidion — **beyond** the
-> defect findings in `AUDIT.md`. These are net-new improvements, not bug fixes.
+> audit cycle's defect findings (tracked on the kanban board; `AUDIT.md` is transient and
+> deleted by /fix-audit). These are net-new improvements, not bug fixes.
 >
 > **Consumed by `/enhancement-all`** (and `/enhancement-next`). An item is marked `[x]` only once
 > its verification passes; finished items are marked rather than deleted so this file stays a

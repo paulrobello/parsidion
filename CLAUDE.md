@@ -209,7 +209,7 @@ initial commit) during installation. When `<vault>/.git` exists, the scripts aut
 stage and commit changes after every vault write (default vault is `~/ParsidionVault/`;
 legacy `~/ClaudeVault/` is still honored if present):
 
-- `session_stop_wrapper.sh` / `session_stop_hook.py` — commits daily note + pending queue after each session end
+- `session_stop_wrapper.sh` / `session_stop_hook.py` — updates the pending queue (gitignored, never committed) and commits the daily note after each session end
 - `pre_compact_hook.py` — commits daily note after each pre-compact snapshot
 - `update_index.py` — commits `CLAUDE.md` + `TAGS.md` + per-folder `MANIFEST.md` files after each index rebuild
 - `summarize_sessions.py` — commits new notes + updated index after processing
