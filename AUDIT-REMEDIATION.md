@@ -112,3 +112,28 @@ Left untouched (still open, correctly so): the two blocking backlog decision car
 3. Optional: delete `AUDIT.md` and `AUDIT-REMEDIATION-PLAN.md` — both are transient audit
    artifacts per this cycle's own DOC-107 fix ("AUDIT.md is transient and deleted by
    `/fix-audit`"). This report (`AUDIT-REMEDIATION.md`) is the durable record.
+
+## Addendum — 2026-08-27: the two skipped findings closed
+
+Both blocking decision cards were decided by the user on 2026-08-27 (option "wire" in
+both cases), unblocking the two skipped findings. All 25 findings from the 2026-08-26
+audit are now resolved.
+
+- **ARC-105 (AgentAdapter/InstallerSpec split)** — resolved. Precondition card
+  `01a041068d81` ("Remove or wire dead AgentAdapter fields"): wired — `runtime_env_value`
+  now drives `PARSIDION_RUNTIME` and `instructions_filename` drives the installer's
+  instruction-file paths. The split then landed: a frozen `InstallerSpec` carries the
+  eleven ENH-006 installer fields on `AgentAdapter.install` (None for pi/omp), with the
+  flat names kept as read-only deprecated compat properties for one release.
+- **QA-104 (render_vaults_yaml structured-model rewrite, merged ARC-111)** — resolved.
+  Precondition card `01a0410689567c` ("Decide fate of vaults.yaml top-level default key"):
+  wired — `resolve_vault` branch 4 and the ENH-009 server default honor the key through
+  the SEC-P001 allowlist (7 new parity vectors, both suites green), making ARC-019's
+  `record_installed_vault` docstring true for the first time. The renderer was then
+  rewritten parse → mutate → serialize over an ordered node model, fixing two real bugs
+  the old line-rewriter had (double insert on a top-level name shadow; caller-dict
+  mutation), pinned by 33 new tests and an 8,960-input differential harness.
+
+QA-110 (opportunistic CLI complexity cluster) remains intentionally untouched, per the
+plan's "only if another entry touches the file" rule; its six files were not touched by
+this cycle either.

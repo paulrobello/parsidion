@@ -10,9 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Audit remediation cycle. 23 of 25 findings from the 2026-08-26 audit are resolved
 (architecture/performance-heavy, security and doc fixes included); 2 remain skipped
 pending open backlog decisions. Full report: `AUDIT-REMEDIATION.md` in the merge commit.
+2026-08-27 follow-up: both decisions were made ("wire" in both cases) and the two
+skipped findings (ARC-105, QA-104) are now resolved too — 25 of 25. See the addendum
+in `AUDIT-REMEDIATION.md`.
 
 ### Fixed
 
+- **`vaults.yaml` top-level `default:` key honored** — `resolve_vault` branch 4 and the visualizer's server default now resolve the key (vault name or registered path, through the SEC-P001 allowlist), making custom-vault installs (`install.py --vault`) the default without an env var, as ARC-019 always promised. Pinned by 7 new cross-language parity vectors.
+- **`render_vaults_yaml` double insert and caller-dict mutation** (QA-104) — the old line-rewriter inserted an entry twice when the name was shadowed by a top-level key and mutated the caller's dict; both fixed and pinned by the structured-model rewrite (33 tests, 8,960-input differential harness).
 - **Vault threading through config/DB lookups** (ARC-101) — every hook-path `get_config`/`load_typed_config` call now receives the payload-resolved vault instead of silently re-resolving from process cwd, fixing multi-vault correctness.
 - **`load_config` shared-dict cache** (QA-101) — the public function now returns a per-call deep copy; the cached shared dict moved to a private `_load_config_cached`, matching the documented isolation contract.
 - **Security hardening** (SEC-201..206) — `parsidion-mcp`'s `vault_write` gates hidden paths and excluded dirs like the read path; grok's tool-disabling flags no longer ride on `minimal_context`; `session_stop_wrapper.sh` creates logs owner-only; slug-collision note merges back up the existing note first; the external adapter loader checks file ownership; parsight subprocess env is narrowed to a minimal allowlist.
@@ -22,6 +27,7 @@ pending open backlog decisions. Full report: `AUDIT-REMEDIATION.md` in the merge
 
 ### Changed
 
+- **Installer-side adapter data split into `InstallerSpec`** (ARC-105) — the eleven ENH-006 installer-declarative fields moved off `AgentAdapter` onto a frozen `InstallerSpec` carried as `install` (None for pi/omp); the flat names remain as read-only deprecated compat properties for one release. `runtime_env_value` and `instructions_filename` are now real reads (they previously worked only because their values coincided with the hardcoded ones).
 - **Import surface collapsed onto `core/`** (ARC-103) — `session_start/`, `summarizer/`, `cli/`, and `agent_adapter.py` now import via `from core import X` instead of the flat `vault_common`-style shims; the shims themselves remain as the external compatibility surface.
 - **`docs-api` scrub ported from Makefile perl to Python** (ARC-104) — `scripts/normalize_docs_api.py` now owns all normalization rules, verified byte-exact against the prior perl output and with a hard failure on an empty needle instead of a silent no-op.
 - **Per-run `note_index` snapshot for SessionStart** (PRF-104) — one DB read per hook run instead of one per query, plus a precomputed reverse-link adjacency for graph neighbor lookups.

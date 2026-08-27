@@ -282,6 +282,97 @@
       ],
       "explicit": null,
       "expect": "{TMP}/ParsidionVault"
+    },
+    {
+      "name": "config-default-name-resolves",
+      "description": "The vaults.yaml top-level default: key (a vault NAME) is honored by both resolvers when no higher-precedence channel applies. Python: resolve_vault branch 4. TS: resolve_vault_server's _server_default_vault. ARC-019's record_installed_vault promise becomes true.",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}",
+      "vaults_yaml": "vaults:\n  myvault: {TMP}/named-vault\ndefault: myvault\n",
+      "mkdir": [
+        "{TMP}/named-vault"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/named-vault"
+    },
+    {
+      "name": "config-default-registered-path-resolves",
+      "description": "The default: key as a registered PATH (the form record_installed_vault writes) also resolves, through the same SEC-P001 allowlist as any other reference.",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}",
+      "vaults_yaml": "vaults:\n  myvault: {TMP}/named-vault\ndefault: {TMP}/named-vault\n",
+      "mkdir": [
+        "{TMP}/named-vault"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/named-vault"
+    },
+    {
+      "name": "config-default-unregistered-path-falls-through",
+      "description": "default: pointing at a path that is not a registered named vault is not allowlisted; resolution falls through to the filesystem default instead of accepting an arbitrary path.",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}",
+      "vaults_yaml": "vaults:\n  myvault: {TMP}/named-vault\ndefault: {TMP}/not-registered\n",
+      "mkdir": [
+        "{TMP}/named-vault",
+        "{TMP}/not-registered"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/ParsidionVault"
+    },
+    {
+      "name": "config-default-unknown-name-falls-through",
+      "description": "default: naming an unregistered vault falls through to the filesystem default (same graceful handling as branches 2 and 3).",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}",
+      "vaults_yaml": "vaults:\n  myvault: {TMP}/named-vault\ndefault: ghost\n",
+      "mkdir": [
+        "{TMP}/named-vault"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/ParsidionVault"
+    },
+    {
+      "name": "config-default-forbidden-named-falls-through",
+      "description": "default: naming a registered vault whose path is under a forbidden system prefix (/etc) is rejected by _validate_vault_path; resolution falls through to the filesystem default. (Home-relative forbidden prefixes are frozen at import time, so the vector uses a system prefix that both languages forbid unconditionally.)",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}",
+      "vaults_yaml": "vaults:\n  evil: /etc/parsidion-evil\ndefault: evil\n",
+      "explicit": null,
+      "expect": "{TMP}/ParsidionVault"
+    },
+    {
+      "name": "claude-vault-env-beats-config-default-python",
+      "applies_to": [
+        "python"
+      ],
+      "description": "CLAUDE_VAULT (branch 3) outranks the vaults.yaml default key (branch 4).",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}",
+      "env_CLAUDE_VAULT": "{TMP}/vault-b",
+      "vaults_yaml": "vaults:\n  a: {TMP}/vault-a\n  b: {TMP}/vault-b\ndefault: a\n",
+      "mkdir": [
+        "{TMP}/vault-a",
+        "{TMP}/vault-b"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/vault-b"
+    },
+    {
+      "name": "vault-root-env-beats-config-default-typescript",
+      "applies_to": [
+        "typescript"
+      ],
+      "description": "TS getDefaultVault() still honors $VAULT_ROOT ahead of the vaults.yaml default key: an explicit per-process override outranks the config file.",
+      "env_HOME": "{TMP}",
+      "env_VAULT_ROOT": "{TMP}/env-root",
+      "vaults_yaml": "vaults:\n  a: {TMP}/vault-a\ndefault: a\n",
+      "mkdir": [
+        "{TMP}/env-root",
+        "{TMP}/vault-a"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/env-root"
     }
   ]
 }

@@ -12,6 +12,7 @@ from __future__ import annotations
 import functools
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 __all__: list[str] = [
@@ -222,6 +223,160 @@ def read_vaults_yaml(path: Path | None = None) -> tuple[dict[str, str], str | No
     return vaults, default
 
 
+# QA-104 structured model for vaults.yaml rendering. Parse keeps every
+# source line verbatim as a node tagged with its role; mutation rewrites
+# only the managed lines (the named entry and ``default:``); serialization
+# is a join -- so preservation of comments, blank lines, and unknown keys
+# is structural, not emergent from a line-oriented rewrite.
+_ROLE_RAW = "raw"
+_ROLE_HEADER = "header"
+_ROLE_ENTRY = "entry"
+_ROLE_DEFAULT = "default"
+
+
+@dataclass
+class _VaultsNode:
+    """One line of a vaults.yaml file with its parsed role."""
+
+    text: str
+    role: str
+    key: str = ""
+
+
+@dataclass
+class _VaultsFile:
+    """Ordered model of a vaults.yaml file.
+
+    The node list is the file: entries and the ``default:`` line are found
+    by role, everything else passes through to serialization untouched.
+    """
+
+    nodes: list[_VaultsNode]
+
+    @property
+    def has_section(self) -> bool:
+        """Whether a column-0 ``vaults:`` line exists (the template gate)."""
+        return any(
+            node.role == _ROLE_HEADER and node.text.startswith("vaults:")
+            for node in self.nodes
+        )
+
+    def set_entry(self, name: str, value: str) -> None:
+        """Set the named vault entry inside the section, inserting once.
+
+        An existing in-section slot is rewritten in place (a duplicated
+        slot rewrites every copy, matching the historical behavior of
+        rewriting every matching line). A missing slot is inserted once --
+        directly under the section header for a brand-new name, or after
+        the section's last non-blank line when the name already appears
+        elsewhere in the file (e.g. shadowed by a top-level key).
+        """
+        found = False
+        for node in self.nodes:
+            if node.role == _ROLE_ENTRY and node.key == name:
+                node.text = f"  {name}: {value}"
+                found = True
+        if found:
+            return
+        self.nodes.insert(
+            self._entry_insertion_index(name),
+            _VaultsNode(f"  {name}: {value}", _ROLE_ENTRY, name),
+        )
+
+    def set_default(self, value: str) -> None:
+        """Replace every top-level ``default:`` line; append one when absent."""
+        found = False
+        for node in self.nodes:
+            if node.role == _ROLE_DEFAULT:
+                node.text = f"default: {value}"
+                found = True
+        if not found:
+            self.nodes.append(
+                _VaultsNode(f"default: {value}", _ROLE_DEFAULT, "default")
+            )
+
+    def serialize(self) -> str:
+        """Emit the model with exactly one trailing newline."""
+        return "\n".join([*(node.text for node in self.nodes), ""])
+
+    def _entry_insertion_index(self, name: str) -> int:
+        span = self._section_span()
+        if span is None:
+            return len(self.nodes)
+        header, end = span
+        if not any(node.text.strip().startswith(f"{name}:") for node in self.nodes):
+            # Brand-new name: directly under the section header.
+            return header + 1
+        # Name shadowed elsewhere in the file: keep the section's existing
+        # content first, insert after its last non-blank line.
+        for i in range(end - 1, header, -1):
+            if self.nodes[i].text.strip():
+                return i + 1
+        return header + 1
+
+    def _section_span(self) -> tuple[int, int] | None:
+        """Node index range ``[header, end)`` of the first vaults: section."""
+        header = next(
+            (i for i, node in enumerate(self.nodes) if node.role == _ROLE_HEADER),
+            None,
+        )
+        if header is None:
+            return None
+        end = len(self.nodes)
+        for i in range(header + 1, len(self.nodes)):
+            line = self.nodes[i].text
+            if line and not line[0].isspace():
+                end = i
+                break
+        return header, end
+
+
+def _parse_vaults_file(text: str) -> _VaultsFile:
+    """Parse vaults.yaml text into the ordered QA-104 model.
+
+    Line semantics mirror the reader/writer contract: a line whose stripped
+    form starts with ``vaults:`` (any indent) arms the section, and the
+    first following non-blank column-0 line ends it. Entry lines are the
+    indented non-comment ``key: value`` lines inside the section.
+    """
+    nodes: list[_VaultsNode] = []
+    in_vaults = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("vaults:"):
+            nodes.append(_VaultsNode(line, _ROLE_HEADER, "vaults"))
+            in_vaults = True
+            continue
+        if in_vaults and line and not line[0].isspace():
+            in_vaults = False
+        if in_vaults and stripped and not stripped.startswith("#") and ":" in stripped:
+            nodes.append(_VaultsNode(line, _ROLE_ENTRY, stripped.partition(":")[0]))
+            continue
+        if not in_vaults and stripped.startswith("default:"):
+            nodes.append(_VaultsNode(line, _ROLE_DEFAULT, "default"))
+            continue
+        nodes.append(_VaultsNode(line, _ROLE_RAW, ""))
+    return _VaultsFile(nodes)
+
+
+def _template_lines(
+    vaults: dict[str, str], vault_name: str, vault_path_str: str
+) -> list[str]:
+    """Build a minimal vaults.yaml body for a file with no usable section."""
+    entries = dict(vaults)
+    entries[vault_name] = vault_path_str
+    lines = [
+        "# Named vaults for parsidion",
+        "# Populated by `install.py --vault` (ARC-019).",
+        "",
+        "vaults:",
+    ]
+    lines.extend(f"  {name}: {path}" for name, path in entries.items())
+    lines.append("")
+    lines.append(f"default: {vault_path_str}")
+    return lines
+
+
 def render_vaults_yaml(
     vaults: dict[str, str],
     default: str,
@@ -231,99 +386,23 @@ def render_vaults_yaml(
 ) -> str:
     """Return new vaults.yaml content with *vault_name* and ``default:`` set.
 
-    QA-004: the single ``vaults.yaml`` writer body (moved from the
-    installer's ``_render_vaults_yaml_for_record``, with its unreachable
-    ``if vault_name not in vaults`` branch deleted and the original-names
-    scan precomputed once). Preserves the file's existing structure
-    (comments, the ``vaults:`` section, the ``default:`` line, other
-    top-level keys) and only mutates the two relevant lines. Falls back to
-    a fresh template when the file is empty or has no recognised
-    ``vaults:`` section. The output round-trips through
-    ``read_vaults_yaml`` unchanged.
+    QA-004: the single ``vaults.yaml`` writer body. QA-104: rewritten as
+    parse -> mutate -> serialize over :class:`_VaultsFile`, so the named
+    entry and the ``default:`` line are the only lines rewritten and the
+    file's existing structure (comments, the ``vaults:`` section, other
+    top-level keys) survives in order. Falls back to a fresh template when
+    the file is empty or has no column-0 ``vaults:`` section. The output
+    round-trips through ``read_vaults_yaml`` unchanged and re-rendering it
+    is a byte-identical no-op. The caller's ``vaults`` dict is not
+    modified; *default* is accepted for signature compatibility and the
+    new default is always *vault_path_str*.
     """
-    vaults[vault_name] = vault_path_str
-    new_default = vault_path_str
-
-    has_vaults_section = "\nvaults:" in ("\n" + original) or original.startswith(
-        "vaults:"
-    )
-    if not has_vaults_section:
-        # Build a minimal file from scratch.
-        lines = ["# Named vaults for parsidion"]
-        lines.append("# Populated by `install.py --vault` (ARC-019).")
-        lines.append("")
-        lines.append("vaults:")
-        for name, path in vaults.items():
-            lines.append(f"  {name}: {path}")
-        lines.append("")
-        lines.append(f"default: {new_default}")
-        lines.append("")
-        return "\n".join(lines)
-
-    # Rewrite line-by-line, inserting/updating the named entry and the
-    # default line. Idempotent on a second run. The existing-entry scan is
-    # hoisted out of the loop (it was re-splitting *original* per line).
-    has_named_entry = any(
-        ln.strip().startswith(f"{vault_name}:") for ln in original.splitlines()
-    )
-    out: list[str] = []
-    in_vaults = False
-    inserted_named = False
-    wrote_default = False
-    for line in original.splitlines():
-        stripped = line.strip()
-        if stripped == "vaults:" or stripped.startswith("vaults:"):
-            out.append(line)
-            in_vaults = True
-            # Emit our entry first when the original section has no slot
-            # for it, so the new value lands inside the section even when
-            # the section is empty.
-            if not has_named_entry:
-                out.append(f"  {vault_name}: {vault_path_str}")
-                inserted_named = True
-            continue
-        if in_vaults and line and not line[0].isspace():
-            # Leaving the vaults: section.
-            if not inserted_named and vault_name not in {
-                ln.strip().split(":", 1)[0].strip()
-                for ln in out
-                if ln.startswith("  ") and ":" in ln
-            }:
-                # Didn't find a slot above; append at section end.
-                insert_at = len(out)
-                while insert_at > 0 and out[insert_at - 1].strip() == "":
-                    insert_at -= 1
-                out.insert(insert_at, f"  {vault_name}: {vault_path_str}")
-            in_vaults = False
-        if in_vaults and stripped.startswith(f"{vault_name}:"):
-            out.append(f"  {vault_name}: {vault_path_str}")
-            inserted_named = True
-            continue
-        if stripped.startswith("default:") and not in_vaults:
-            out.append(f"default: {new_default}")
-            wrote_default = True
-            continue
-        out.append(line)
-
-    if not inserted_named:
-        # The vaults: section was non-empty but had no slot for our name
-        # (e.g. it only had comments). Append at the end of the section.
-        for i, ln in enumerate(out):
-            if ln.strip() == "vaults:" or ln.strip().startswith("vaults:"):
-                # Insert after the last consecutive indented entry.
-                j = i + 1
-                while j < len(out) and (
-                    out[j].startswith("  ") or out[j].strip() == ""
-                ):
-                    j += 1
-                out.insert(j, f"  {vault_name}: {vault_path_str}")
-                inserted_named = True
-                break
-    if not wrote_default:
-        out.append(f"default: {new_default}")
-    if not out[-1].endswith("\n"):
-        out.append("")
-    return "\n".join(out)
+    model = _parse_vaults_file(original)
+    if not model.has_section:
+        return "\n".join([*_template_lines(vaults, vault_name, vault_path_str), ""])
+    model.set_entry(vault_name, vault_path_str)
+    model.set_default(vault_path_str)
+    return model.serialize()
 
 
 def list_named_vaults() -> dict[str, Path]:
@@ -514,7 +593,9 @@ def resolve_vault(
     1. explicit flag (path or vault name)
     2. cwd/.claude/vault file (project-local vault)
     3. CLAUDE_VAULT environment variable
-    4. Default ~/ParsidionVault, or legacy ~/ClaudeVault if it already exists
+    4. vaults.yaml top-level ``default:`` key (a vault name or a registered
+       path; ARC-019), then the filesystem default ~/ParsidionVault, or
+       legacy ~/ClaudeVault if it already exists
 
     Args:
         explicit: Optional explicit vault reference (name or path).
@@ -615,7 +696,33 @@ def _resolve_vault_cached(
                 stacklevel=2,
             )
             return Path(vc_root)
+
+    # 4b. Configured default: the vaults.yaml top-level ``default:`` key
+    # (ARC-019). Resolved through the same SEC-P001 allowlist as any other
+    # reference; an unset or unresolvable value falls through to the
+    # filesystem default below.
+    configured = _configured_default_vault()
+    if configured is not None:
+        return configured
     return default_vault_root()
+
+
+def _configured_default_vault() -> Path | None:
+    """Resolve the top-level ``default:`` key of ``vaults.yaml``, if usable.
+
+    ARC-019: the value may be a vault name or a path, and must pass the same
+    SEC-P001 allowlist as any other reference (:func:`_resolve_vault_reference`)
+    -- a ``default:`` pointing at an unregistered or forbidden path is
+    ignored, not honored. Returns None when the key is absent or fails
+    resolution; callers fall back to the filesystem default.
+    """
+    _, default_ref = read_vaults_yaml()
+    if not default_ref:
+        return None
+    try:
+        return _resolve_vault_reference(default_ref)
+    except VaultConfigError:
+        return None
 
 
 def _server_default_vault() -> Path:
@@ -623,7 +730,8 @@ def _server_default_vault() -> Path:
 
     Honors the ``VAULT_ROOT`` environment override -- the one default-vault
     override the long-lived visualizer server has historically supported
-    (formerly TS ``getDefaultVault()``) -- then falls back to
+    (formerly TS ``getDefaultVault()``) -- then the vaults.yaml top-level
+    ``default:`` key (ARC-019), then falls back to
     :func:`default_vault_root`. Unlike :func:`resolve_vault`, a server has no
     project context, so this never consults ``cwd/.claude/vault`` or
     ``CLAUDE_VAULT``.
@@ -631,6 +739,9 @@ def _server_default_vault() -> Path:
     env_root = os.environ.get("VAULT_ROOT")
     if env_root:
         return Path(env_root).expanduser()
+    configured = _configured_default_vault()
+    if configured is not None:
+        return configured
     return default_vault_root()
 
 
@@ -646,10 +757,12 @@ def resolve_vault_server(reference: str | None = None) -> Path:
 
     Resolution is an allowlist: *reference* must match either (a) a named vault
     registered in ``vaults.yaml`` or (b) the default vault by its own path.
-    With no *reference* the default vault (honoring ``VAULT_ROOT``) is returned.
-    The ``cwd/.claude/vault`` and ``CLAUDE_VAULT`` channels of
-    :func:`resolve_vault` are intentionally absent -- a long-lived server has
-    no current project and no inherited runtime environment (ARC-007).
+    With no *reference* the default vault is returned -- honoring ``VAULT_ROOT``,
+    then the vaults.yaml top-level ``default:`` key (ARC-019), then the
+    filesystem default. The ``cwd/.claude/vault`` and ``CLAUDE_VAULT``
+    channels of :func:`resolve_vault` are intentionally absent -- a long-lived
+    server has no current project and no inherited runtime environment
+    (ARC-007).
 
     Args:
         reference: Optional vault name or path. ``None``/empty resolves the

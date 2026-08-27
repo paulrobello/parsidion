@@ -384,3 +384,77 @@ class TestSec116RevertCodexHooksFlag:
         # returns early when config.toml is absent.)
         hooks.disable_codex_hooks_config(codex_home)
         assert not config.exists()
+
+
+class TestInstructionsFilenameWired:
+    """``instructions_filename`` on the AgentAdapter drives which file the
+    installer injects/strips — the per-runtime wrappers read it from the
+    registry instead of hardcoding AGENTS.md/GEMINI.md."""
+
+    def _patch_custom_codex(self, monkeypatch, tmp_path: Path, filename: str) -> None:
+        import dataclasses
+
+        import agent_adapter
+
+        monkeypatch.setattr(
+            skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
+        )
+        codex_adapter = agent_adapter.get("codex")
+        assert codex_adapter is not None and codex_adapter.install is not None
+        custom = dataclasses.replace(
+            codex_adapter,
+            install=dataclasses.replace(
+                codex_adapter.install, instructions_filename=filename
+            ),
+        )
+        monkeypatch.setattr(
+            agent_adapter, "get", lambda n: custom if n == "codex" else None
+        )
+
+    def test_install_uses_adapter_instructions_filename(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        self._patch_custom_codex(monkeypatch, tmp_path, "CUSTOM.md")
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        skill.install_codex_agents_md(codex_home)
+        custom = codex_home / "CUSTOM.md"
+        assert custom.exists()
+        assert not (codex_home / "AGENTS.md").exists()
+        assert "parsidion-test-sentinel-9f2a" in custom.read_text(encoding="utf-8")
+
+    def test_remove_uses_adapter_instructions_filename(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        self._patch_custom_codex(monkeypatch, tmp_path, "CUSTOM.md")
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        skill.install_codex_agents_md(codex_home)
+        assert skill.remove_codex_agents_md(codex_home) is True
+        cleaned = (codex_home / "CUSTOM.md").read_text(encoding="utf-8")
+        assert "<!-- BEGIN parsidion -->" not in cleaned
+
+    def test_install_noop_when_adapter_has_no_instructions_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        self._patch_custom_codex(monkeypatch, tmp_path, "")
+        # instructions_filename=None (claude/pi shape) → wrapper must not write
+        import dataclasses
+
+        import agent_adapter
+
+        base = agent_adapter.get("codex")
+        assert base is not None and base.install is not None
+        no_instructions = dataclasses.replace(
+            base,
+            install=dataclasses.replace(base.install, instructions_filename=None),
+        )
+        monkeypatch.setattr(
+            agent_adapter,
+            "get",
+            lambda n: no_instructions if n == "codex" else None,
+        )
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        skill.install_codex_agents_md(codex_home)
+        assert list(codex_home.iterdir()) == []

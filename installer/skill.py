@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import agent_adapter  # ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)
 from installer.colors import dim
 from installer.hooks import _atomic_write_text, remove_legacy_hooks
 from installer.paths import (
@@ -417,36 +418,60 @@ def _remove_instructions_block(dest: Path, dry_run: bool = False) -> bool:
     return True
 
 
+def _instructions_dest(runtime_home: Path, runtime: str) -> Path | None:
+    """Resolve the instructions file from the runtime's AgentAdapter.
+
+    ``instructions_filename`` is the registry's declaration of which file the
+    installer owns (ENH-006); None means the runtime gets no injected
+    instructions file (claude's CLAUDE-VAULT.md path and pi are handled
+    elsewhere), so callers treat a None dest as a no-op.
+    """
+    adapter = agent_adapter.get(runtime)
+    if adapter is None or not adapter.instructions_filename:
+        return None
+    return runtime_home / adapter.instructions_filename
+
+
 def install_codex_agents_md(
     codex_home: Path, dry_run: bool = False, verbose: bool = False
 ) -> None:
-    """Inject parsidion instructions into ~/.codex/AGENTS.md (global user layer)."""
-    _inject_instructions_block(codex_home / "AGENTS.md", dry_run, verbose)
+    """Inject parsidion instructions into the codex instructions file
+    (``AGENTS.md`` per the registry's ``instructions_filename``)."""
+    dest = _instructions_dest(codex_home, "codex")
+    if dest is not None:
+        _inject_instructions_block(dest, dry_run, verbose)
 
 
 def install_gemini_md(
     gemini_home: Path, dry_run: bool = False, verbose: bool = False
 ) -> None:
-    """Inject parsidion instructions into ~/.gemini/GEMINI.md (global user layer)."""
-    _inject_instructions_block(gemini_home / "GEMINI.md", dry_run, verbose)
+    """Inject parsidion instructions into the gemini instructions file
+    (``GEMINI.md`` per the registry's ``instructions_filename``)."""
+    dest = _instructions_dest(gemini_home, "gemini")
+    if dest is not None:
+        _inject_instructions_block(dest, dry_run, verbose)
 
 
 def remove_codex_agents_md(codex_home: Path, dry_run: bool = False) -> bool:
-    """Strip the parsidion instructions block from ~/.codex/AGENTS.md.
+    """Strip the parsidion instructions block from the codex instructions
+    file.
 
     Called by ``disconnect codex`` / full uninstall so the Codex
     integration stops loading parsidion instructions every session.
     """
-    return _remove_instructions_block(codex_home / "AGENTS.md", dry_run)
+    dest = _instructions_dest(codex_home, "codex")
+    return _remove_instructions_block(dest, dry_run) if dest is not None else False
 
 
 def remove_gemini_md(gemini_home: Path, dry_run: bool = False) -> bool:
-    """Strip the parsidion instructions block from ~/.gemini/GEMINI.md.
+    """Strip the parsidion instructions block from the gemini instructions
+    file.
 
     Called by ``disconnect gemini`` / full uninstall so the Gemini
     integration stops loading parsidion instructions every session.
     """
-    return _remove_instructions_block(gemini_home / "GEMINI.md", dry_run)
+    dest = _instructions_dest(gemini_home, "gemini")
+    return _remove_instructions_block(dest, dry_run) if dest is not None else False
 
 
 # ---------------------------------------------------------------------------

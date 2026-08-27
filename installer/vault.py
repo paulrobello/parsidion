@@ -570,7 +570,8 @@ vaults:
   # work: ~/WorkVault
   # team: ~/team-vault
 
-# Optional: override default vault
+# Optional: default vault used when no flag, project file, or env var names one.
+# Value is a vault name from vaults: above (or a registered path); unresolvable values are ignored.
 # default: work
 """
 

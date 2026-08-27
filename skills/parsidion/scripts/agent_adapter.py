@@ -74,56 +74,16 @@ from core.vault_path import resolve_vault
 
 
 @dataclass(frozen=True)
-class AgentAdapter:
-    """Static description of one runtime's hook behaviour.
+class InstallerSpec:
+    """Declarative installer-side description of one runtime (ENH-006/ARC-105).
 
-    Each field names a ``core.vault_*`` helper or constant the generic
-    entrypoint should call. The dataclass is frozen so adapters can be
-    used as dict keys / compared by identity.
+    The installer reads these to merge/remove hook registrations and write
+    instructions files. Held by ``AgentAdapter.install`` — None for runtimes
+    with no installer integration (pi/omp are extension-only). Defaults keep
+    the dataclass constructible standalone for runtimes that need only a
+    subset of the fields.
     """
 
-    name: str
-    """Lowercase runtime identifier — 'codex', 'gemini', 'pi'."""
-
-    hook_event_name_start: str = ""
-    """Hook event name emitted to hook_events.log on session start
-    (e.g. 'SessionStart'). Used for observability via vault-stats --hooks."""
-
-    hook_event_name_end: str = ""
-    """Hook event name emitted on session end / stop."""
-
-    is_transcript_path: Callable[[Path, str], bool] | None = field(
-        default=None, repr=False
-    )
-    """Optional validator — ``is_codex_transcript_path`` /
-    ``is_gemini_transcript_path``. None for runtimes without a custom
-    validator (the entrypoint skips the extra check)."""
-
-    parse_transcript_lines: Callable[[list[str]], list[str]] | None = field(
-        default=None, repr=False
-    )
-    """Optional parser — ``parse_codex_transcript_lines`` /
-    ``parse_gemini_transcript_lines``. None means fall back to the
-    shape-agnostic ``parse_transcript_lines``."""
-
-    read_transcript_tail: Callable[[Path, int], list[str]] | None = field(
-        default=None, repr=False
-    )
-    """Optional transcript-tail reader — ``(path, tail_lines) -> lines``.
-    None falls back to the shared byte-bounded reader
-    ``_read_transcript_tail`` (SEC-022), so every adapter gets the
-    ``transcript_tail_bytes`` ceiling regardless of this field."""
-
-    always_log_daily: bool = False
-    """When True, append a daily-note session entry even when no categories
-    were detected (Claude's native behaviour — a 'General' entry per session).
-    Other runtimes only write a daily entry when categories are found."""
-
-    # --- ENH-006: installer-side declarative fields ---
-    # The installer reads these to merge/remove hook registrations and write
-    # instructions files, so one descriptor covers both the hook shims and the
-    # installer. Defaults keep the dataclass constructible for runtimes that
-    # only need a subset (e.g. pi uses none of the installer-hook fields).
     display_name: str = ""
     """User-facing label for installer messaging ('Codex', 'Gemini')."""
 
@@ -169,6 +129,124 @@ class AgentAdapter:
     """Optional entry-builder override for runtimes whose entry needs logic, not
     just data (Claude's AI-mode timeout raise). When None the installer builds
     the entry from ``entry_matcher``/``entry_timeout``/``entry_names``."""
+
+
+@dataclass(frozen=True)
+class AgentAdapter:
+    """Static description of one runtime's hook behaviour.
+
+    Each field names a ``core.vault_*`` helper or constant the generic
+    entrypoint should call. The dataclass is frozen so adapters can be
+    used as dict keys / compared by identity.
+
+    ARC-105: the installer-side declarative data lives on a separate
+    ``InstallerSpec`` carried by ``install`` (None for runtimes with no
+    installer integration). The former flat fields survive as read-only
+    deprecated compat properties below (one release).
+    """
+
+    name: str
+    """Lowercase runtime identifier — 'codex', 'gemini', 'pi'."""
+
+    hook_event_name_start: str = ""
+    """Hook event name emitted to hook_events.log on session start
+    (e.g. 'SessionStart'). Used for observability via vault-stats --hooks."""
+
+    hook_event_name_end: str = ""
+    """Hook event name emitted on session end / stop."""
+
+    is_transcript_path: Callable[[Path, str], bool] | None = field(
+        default=None, repr=False
+    )
+    """Optional validator — ``is_codex_transcript_path`` /
+    ``is_gemini_transcript_path``. None for runtimes without a custom
+    validator (the entrypoint skips the extra check)."""
+
+    parse_transcript_lines: Callable[[list[str]], list[str]] | None = field(
+        default=None, repr=False
+    )
+    """Optional parser — ``parse_codex_transcript_lines`` /
+    ``parse_gemini_transcript_lines``. None means fall back to the
+    shape-agnostic ``parse_transcript_lines``."""
+
+    read_transcript_tail: Callable[[Path, int], list[str]] | None = field(
+        default=None, repr=False
+    )
+    """Optional transcript-tail reader — ``(path, tail_lines) -> lines``.
+    None falls back to the shared byte-bounded reader
+    ``_read_transcript_tail`` (SEC-022), so every adapter gets the
+    ``transcript_tail_bytes`` ceiling regardless of this field."""
+
+    always_log_daily: bool = False
+    """When True, append a daily-note session entry even when no categories
+    were detected (Claude's native behaviour — a 'General' entry per session).
+    Other runtimes only write a daily entry when categories are found."""
+
+    install: InstallerSpec | None = None
+    """Installer-side declarative data (ENH-006/ARC-105). None for runtimes
+    with no installer integration (pi/omp are extension-only)."""
+
+    # --- ARC-105 deprecated compat shims (remove after one release) ---
+    # The ENH-006 fields moved to InstallerSpec; these read-only properties
+    # keep flat ``adapter.<field>`` access working (installer/hooks.py,
+    # installer/skill.py, external adapters) during the migration window.
+
+    @property
+    def display_name(self) -> str:
+        """Deprecated compat shim — read ``install.display_name``."""
+        return self.install.display_name if self.install is not None else ""
+
+    @property
+    def runtime_env_value(self) -> str:
+        """Deprecated compat shim — read ``install.runtime_env_value``."""
+        return self.install.runtime_env_value if self.install is not None else ""
+
+    @property
+    def hooks_config_filename(self) -> str | None:
+        """Deprecated compat shim — read ``install.hooks_config_filename``."""
+        return self.install.hooks_config_filename if self.install is not None else None
+
+    @property
+    def event_scripts(self) -> dict[str, str]:
+        """Deprecated compat shim — read ``install.event_scripts``."""
+        return self.install.event_scripts if self.install is not None else {}
+
+    @property
+    def entry_matcher(self) -> str:
+        """Deprecated compat shim — read ``install.entry_matcher``."""
+        return self.install.entry_matcher if self.install is not None else ""
+
+    @property
+    def entry_timeout(self) -> int:
+        """Deprecated compat shim — read ``install.entry_timeout``."""
+        return self.install.entry_timeout if self.install is not None else 0
+
+    @property
+    def timeout_unit(self) -> Literal["ms", "s"]:
+        """Deprecated compat shim — read ``install.timeout_unit``."""
+        return self.install.timeout_unit if self.install is not None else "s"
+
+    @property
+    def entry_names(self) -> dict[str, str] | None:
+        """Deprecated compat shim — read ``install.entry_names``."""
+        return self.install.entry_names if self.install is not None else None
+
+    @property
+    def instructions_filename(self) -> str | None:
+        """Deprecated compat shim — read ``install.instructions_filename``."""
+        return self.install.instructions_filename if self.install is not None else None
+
+    @property
+    def config_validator(
+        self,
+    ) -> Callable[[dict[str, object]], dict[str, object] | None] | None:
+        """Deprecated compat shim — read ``install.config_validator``."""
+        return self.install.config_validator if self.install is not None else None
+
+    @property
+    def build_entry(self) -> Callable[[str, str], dict[str, object]] | None:
+        """Deprecated compat shim — read ``install.build_entry``."""
+        return self.install.build_entry if self.install is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -365,66 +443,63 @@ def _register_builtin_adapters() -> None:
     register(
         AgentAdapter(
             name="claude",
-            display_name="Claude",
-            runtime_env_value="claude",
             hook_event_name_start="SessionStart",
             hook_event_name_end="SessionEnd",
             read_transcript_tail=_read_transcript_tail,
             always_log_daily=True,
-            hooks_config_filename="settings.json",
-            event_scripts=_CLAUDE_HOOK_SCRIPTS,
-            timeout_unit="ms",
+            install=InstallerSpec(
+                display_name="Claude",
+                runtime_env_value="claude",
+                hooks_config_filename="settings.json",
+                event_scripts=_CLAUDE_HOOK_SCRIPTS,
+                timeout_unit="ms",
+            ),
         )
     )
     register(
         AgentAdapter(
             name="codex",
-            display_name="Codex",
-            runtime_env_value="codex",
             hook_event_name_start="CodexSessionStart",
             hook_event_name_end="CodexSessionEnd",
             is_transcript_path=lambda p, cwd: is_codex_transcript_path(p),
             parse_transcript_lines=parse_codex_transcript_lines,
-            hooks_config_filename="hooks.json",
-            event_scripts=_CODEX_HOOK_SCRIPTS,
-            entry_matcher="",
-            entry_timeout=60,
-            timeout_unit="s",
-            instructions_filename="AGENTS.md",
+            install=InstallerSpec(
+                display_name="Codex",
+                runtime_env_value="codex",
+                hooks_config_filename="hooks.json",
+                event_scripts=_CODEX_HOOK_SCRIPTS,
+                entry_matcher="",
+                entry_timeout=60,
+                timeout_unit="s",
+                instructions_filename="AGENTS.md",
+            ),
         )
     )
     register(
         AgentAdapter(
             name="gemini",
-            display_name="Gemini",
-            runtime_env_value="gemini",
             hook_event_name_start="GeminiSessionStart",
             hook_event_name_end="GeminiSessionEnd",
             is_transcript_path=lambda p, cwd: is_gemini_transcript_path(p, cwd=cwd),
             parse_transcript_lines=parse_gemini_transcript_lines,
-            hooks_config_filename="settings.json",
-            event_scripts=_GEMINI_HOOK_SCRIPTS,
-            entry_matcher="*",
-            entry_timeout=60000,
-            timeout_unit="ms",
-            entry_names=_GEMINI_HOOK_NAMES,
-            instructions_filename="GEMINI.md",
+            install=InstallerSpec(
+                display_name="Gemini",
+                runtime_env_value="gemini",
+                hooks_config_filename="settings.json",
+                event_scripts=_GEMINI_HOOK_SCRIPTS,
+                entry_matcher="*",
+                entry_timeout=60000,
+                timeout_unit="ms",
+                entry_names=_GEMINI_HOOK_NAMES,
+                instructions_filename="GEMINI.md",
+            ),
         )
     )
-    register(
-        AgentAdapter(
-            name="pi",
-            display_name="pi",
-            runtime_env_value="pi",
-        )
-    )
-    register(
-        AgentAdapter(
-            name="omp",
-            display_name="omp",
-            runtime_env_value="omp",
-        )
-    )
+    # pi/omp are extension-only (no installer hook integration): install=None.
+    # The flat runtime_env_value read falls back to the adapter name, which is
+    # the value these runtimes always used.
+    register(AgentAdapter(name="pi"))
+    register(AgentAdapter(name="omp"))
 
 
 # ARC-010: builtins register on first get/all_adapters/known_runtimes call
@@ -947,7 +1022,7 @@ def run_session_start(adapter: AgentAdapter) -> None:
             load_typed_config(vault=vault_path).session_start_hook.max_chars
         )
         old_runtime = os.environ.get("PARSIDION_RUNTIME")
-        os.environ["PARSIDION_RUNTIME"] = adapter.name
+        os.environ["PARSIDION_RUNTIME"] = adapter.runtime_env_value or adapter.name
         try:
             context, _notes_injected = build_session_context(
                 cwd,

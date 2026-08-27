@@ -242,8 +242,8 @@ class TestCodexHooks:
         claude_dir = tmp_path / ".claude"
         hooks_file = codex_home / "hooks.json"
         codex = agent_adapter.get("codex")
-        assert codex is not None
-        managed_command = _build_managed_command(codex, claude_dir, "Stop")
+        assert codex is not None and codex.install is not None
+        managed_command = _build_managed_command(codex.install, claude_dir, "Stop")
         malformed_entry = "bad"
         non_list_hooks_entry = {"matcher": "keep", "hooks": "bad"}
         user_entry = {

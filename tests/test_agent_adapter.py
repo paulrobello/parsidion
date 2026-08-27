@@ -313,8 +313,9 @@ class TestExternalLoading:
         # test from "loads fine" to "refused by the dir gate".
         ad.chmod(0o755)
         (ad / "acme.py").write_text(
-            "from agent_adapter import AgentAdapter\n"
-            "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
+            "from agent_adapter import AgentAdapter, InstallerSpec\n"
+            "ADAPTER = AgentAdapter(name='acme', "
+            "install=InstallerSpec(display_name='Acme'))\n"
         )
         bad = ad / "bad.py"
         bad.write_text("ADAPTER = None")
@@ -360,8 +361,9 @@ class TestExternalLoading:
         ad.mkdir(parents=True)
         ad.chmod(0o775)  # group-writable directory -> dir gate must refuse
         (ad / "acme.py").write_text(
-            "from agent_adapter import AgentAdapter\n"
-            "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
+            "from agent_adapter import AgentAdapter, InstallerSpec\n"
+            "ADAPTER = AgentAdapter(name='acme', "
+            "install=InstallerSpec(display_name='Acme'))\n"
         )
         (_cfg_dir := home / ".config" / "parsidion").mkdir(parents=True, exist_ok=True)
         (_cfg_dir / "vaults.yaml").write_text(
@@ -402,8 +404,9 @@ class TestExternalLoading:
         ad.mkdir(parents=True)
         ad.chmod(0o755)
         (ad / "acme.py").write_text(
-            "from agent_adapter import AgentAdapter\n"
-            "ADAPTER = AgentAdapter(name='acme', display_name='Acme')\n"
+            "from agent_adapter import AgentAdapter, InstallerSpec\n"
+            "ADAPTER = AgentAdapter(name='acme', "
+            "install=InstallerSpec(display_name='Acme'))\n"
         )
         (_cfg_dir := home / ".config" / "parsidion").mkdir(parents=True, exist_ok=True)
         (_cfg_dir / "vaults.yaml").write_text(
@@ -531,3 +534,179 @@ class TestHookScriptMapsSingleSource:
             "ARC-004: hook-script maps must be defined only in "
             "agent_adapter.py. Found dict-literal definitions: " + ", ".join(offenders)
         )
+
+
+class TestInstallerSpecSplit:
+    """ARC-105: the installer-side declarative fields live on their own
+    frozen ``InstallerSpec`` carried by ``AgentAdapter.install`` (None for
+    extension-only runtimes), while the old flat names remain as read-only
+    compat properties for one release."""
+
+    def test_spec_constructible_standalone_and_frozen(self) -> None:
+        import dataclasses
+
+        spec = agent_adapter.InstallerSpec(
+            display_name="Acme", hooks_config_filename="hooks.json"
+        )
+        assert spec.display_name == "Acme"
+        assert spec.hooks_config_filename == "hooks.json"
+        assert spec.event_scripts == {}
+        assert spec.entry_matcher == ""
+        assert spec.entry_timeout == 0
+        assert spec.timeout_unit == "s"
+        assert spec.entry_names is None
+        assert spec.instructions_filename is None
+        assert spec.config_validator is None
+        assert spec.build_entry is None
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            spec.display_name = "Nope"  # type: ignore[misc]
+
+    def test_extension_only_runtimes_have_no_spec(self) -> None:
+        for name in ("pi", "omp"):
+            adapter = agent_adapter.get(name)
+            assert adapter is not None
+            assert adapter.install is None
+
+    def test_codex_spec_matches_former_flat_values(self) -> None:
+        codex = agent_adapter.get("codex")
+        assert codex is not None and codex.install is not None
+        assert codex.install.display_name == "Codex"
+        assert codex.install.runtime_env_value == "codex"
+        assert codex.install.hooks_config_filename == "hooks.json"
+        assert codex.install.event_scripts is agent_adapter._CODEX_HOOK_SCRIPTS
+        assert codex.install.entry_matcher == ""
+        assert codex.install.entry_timeout == 60
+        assert codex.install.timeout_unit == "s"
+        assert codex.install.entry_names is None
+        assert codex.install.instructions_filename == "AGENTS.md"
+
+    def test_gemini_spec_matches_former_flat_values(self) -> None:
+        gemini = agent_adapter.get("gemini")
+        assert gemini is not None and gemini.install is not None
+        assert gemini.install.display_name == "Gemini"
+        assert gemini.install.runtime_env_value == "gemini"
+        assert gemini.install.hooks_config_filename == "settings.json"
+        assert gemini.install.event_scripts is agent_adapter._GEMINI_HOOK_SCRIPTS
+        assert gemini.install.entry_matcher == "*"
+        assert gemini.install.entry_timeout == 60000
+        assert gemini.install.timeout_unit == "ms"
+        assert gemini.install.entry_names is agent_adapter._GEMINI_HOOK_NAMES
+        assert gemini.install.instructions_filename == "GEMINI.md"
+
+    def test_claude_spec_matches_former_flat_values(self) -> None:
+        claude = agent_adapter.get("claude")
+        assert claude is not None and claude.install is not None
+        assert claude.install.display_name == "Claude"
+        assert claude.install.runtime_env_value == "claude"
+        assert claude.install.hooks_config_filename == "settings.json"
+        assert claude.install.event_scripts is agent_adapter._CLAUDE_HOOK_SCRIPTS
+        assert claude.install.timeout_unit == "ms"
+        assert claude.install.instructions_filename is None
+
+    def test_flat_properties_delegate_to_spec(self) -> None:
+        codex = agent_adapter.get("codex")
+        assert codex is not None and codex.install is not None
+        assert codex.display_name == codex.install.display_name
+        assert codex.runtime_env_value == codex.install.runtime_env_value
+        assert codex.hooks_config_filename == codex.install.hooks_config_filename
+        assert codex.event_scripts is codex.install.event_scripts
+        assert codex.entry_matcher == codex.install.entry_matcher
+        assert codex.entry_timeout == codex.install.entry_timeout
+        assert codex.timeout_unit == codex.install.timeout_unit
+        assert codex.entry_names == codex.install.entry_names
+        assert codex.instructions_filename == codex.install.instructions_filename
+        gemini = agent_adapter.get("gemini")
+        assert gemini is not None and gemini.install is not None
+        assert gemini.entry_names is gemini.install.entry_names
+
+    def test_flat_properties_safe_without_spec(self) -> None:
+        pi = agent_adapter.get("pi")
+        assert pi is not None
+        assert pi.display_name == ""
+        assert pi.runtime_env_value == ""
+        assert pi.hooks_config_filename is None
+        assert pi.event_scripts == {}
+        assert list(pi.event_scripts) == []
+        assert pi.entry_matcher == ""
+        assert pi.entry_timeout == 0
+        assert pi.timeout_unit == "s"
+        assert pi.entry_names is None
+        assert pi.instructions_filename is None
+        assert pi.config_validator is None
+        assert pi.build_entry is None
+
+    def test_flat_properties_are_read_only(self) -> None:
+        codex = agent_adapter.get("codex")
+        assert codex is not None
+        with pytest.raises(AttributeError):
+            codex.instructions_filename = "X.md"  # type: ignore[misc]
+        with pytest.raises(AttributeError):
+            codex.event_scripts = {}  # type: ignore[misc]
+
+
+class TestRuntimeEnvValueWired:
+    """The declared ``runtime_env_value`` field drives PARSIDION_RUNTIME
+    during the context build (not ``adapter.name``); an empty field falls
+    back to the name so adapters that omit it keep working."""
+
+    def _run_capturing_runtime(
+        self,
+        adapter: agent_adapter.AgentAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        patched_stdin: io.StringIO,
+        tmp_path: Path,
+    ) -> str | None:
+        monkeypatch.delenv("PARSIDION_INTERNAL", raising=False)
+        import session_start_hook
+
+        seen: dict[str, str | None] = {}
+
+        def fake_build(_cwd: str, **_kw: object) -> tuple[str, int]:
+            seen["runtime"] = os.environ.get("PARSIDION_RUNTIME")
+            return ("ctx", 1)
+
+        monkeypatch.setattr(session_start_hook, "build_session_context", fake_build)
+        monkeypatch.setattr(agent_adapter, "resolve_vault", lambda **_kw: tmp_path)
+        monkeypatch.setattr(agent_adapter, "get_project_name", lambda _cwd: "test")
+        agent_adapter.run_session_start(adapter)
+        return seen["runtime"]
+
+    def test_env_uses_runtime_env_value_field(
+        self,
+        patched_stdin: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import dataclasses
+
+        adapter = agent_adapter.get("codex")
+        assert adapter is not None and adapter.install is not None
+        divergent = dataclasses.replace(
+            adapter,
+            install=dataclasses.replace(
+                adapter.install, runtime_env_value="codex-custom-env"
+            ),
+        )
+        runtime = self._run_capturing_runtime(
+            divergent, monkeypatch, patched_stdin, tmp_path
+        )
+        assert runtime == "codex-custom-env"
+
+    def test_env_falls_back_to_name_when_field_empty(
+        self,
+        patched_stdin: io.StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import dataclasses
+
+        adapter = agent_adapter.get("gemini")
+        assert adapter is not None and adapter.install is not None
+        bare = dataclasses.replace(
+            adapter,
+            install=dataclasses.replace(adapter.install, runtime_env_value=""),
+        )
+        runtime = self._run_capturing_runtime(
+            bare, monkeypatch, patched_stdin, tmp_path
+        )
+        assert runtime == "gemini"

@@ -249,6 +249,7 @@ class TestVaultResolutionVectors:
             "vault-root-forbidden-rejected-typescript",
             "cwd-marker-ignored-typescript",
             "claude-vault-env-ignored-typescript",
+            "vault-root-env-beats-config-default-typescript",
         }, (
             "TypeScript-only vector set changed; update this assertion to "
             "acknowledge the new exclusion (or make the vector shared)."
