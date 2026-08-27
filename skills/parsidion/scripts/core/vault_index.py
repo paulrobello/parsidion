@@ -1110,16 +1110,22 @@ def build_context_block(notes: list[Path], max_chars: int = 4000) -> str:
     return "".join(parts).rstrip("\n")
 
 
-def _load_note_index_map() -> dict[str, tuple[str, str, str]] | None:
+def _load_note_index_map(
+    vault: Path | None = None,
+) -> dict[str, tuple[str, str, str]] | None:
     """Load a stem -> (title, tags, folder) map from the note_index DB.
 
     QA-005: Used by build_compact_index and build_context_block to avoid
     N+1 file reads when the DB is available.
 
+    Args:
+        vault: Optional vault path used to locate embeddings.db (ARC-101).
+            Defaults to resolve_vault().
+
     Returns:
         Dict mapping stem to (title, tags_str, folder), or None if DB unavailable.
     """
-    db_path = get_embeddings_db_path()
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
     try:
@@ -1163,7 +1169,9 @@ def parse_related_stems(related_str: str) -> list[str]:
     return [s.strip() for s in related_str.split(",") if s.strip()]
 
 
-def load_graph_metadata() -> dict[str, dict[str, object]] | None:
+def load_graph_metadata(
+    vault: Path | None = None,
+) -> dict[str, dict[str, object]] | None:
     """Load per-note graph metadata from the ``note_index`` table.
 
     Used by ``session_start_hook`` for 1-hop neighbor expansion (Tier 1) and
@@ -1175,11 +1183,15 @@ def load_graph_metadata() -> dict[str, dict[str, object]] | None:
     Paths are returned verbatim (unvalidated); callers that resolve stems to
     filesystem paths must apply the SEC-005 vault-containment guard themselves.
 
+    Args:
+        vault: Optional vault path used to locate embeddings.db (ARC-101).
+            Defaults to resolve_vault().
+
     Returns:
         Mapping of ``stem -> {"path": str, "related": str,
         "incoming_links": int, "tags": str}``, or ``None`` on DB error.
     """
-    db_path = get_embeddings_db_path()
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
     try:
@@ -1231,7 +1243,7 @@ def build_compact_index(
     """
     vault = vault or resolve_vault()
     # QA-005: Try DB-backed lookup to avoid N+1 file reads
-    index_map = _load_note_index_map()
+    index_map = _load_note_index_map(vault)
     lines: list[str] = []
     total = 0
     for path in notes:
