@@ -141,20 +141,22 @@ _last_cold_load_event = 0.0
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent
 
 
-def _embeddings_service_active() -> bool:
+def _embeddings_service_active(backend: str | None = None) -> bool:
     """True only when the persistent embedding service should be used.
 
     Two hard guards: ``embeddings.service_enabled`` (default true since
-    ENH-020; set false to opt out), AND the backend must not be
-    parsight-only — parsight serves retrieval without local query
-    embeddings, so the service would never be consulted and must not run.
-    ``_search_embeddings`` is itself only reached when parsight didn't serve
-    under ``auto``, so the second guard mainly covers an explicit
-    ``search.backend: parsight`` setting.
+    ENH-020; set false to opt out), AND the effective backend must not be
+    parsight — parsight serves retrieval without local query embeddings, so
+    the service would never be consulted and must not run. *backend* is the
+    per-call resolved backend (``-B`` override aware); when None the
+    ``search.backend`` config value is read. A config of ``parsight`` with a
+    CLI-forced ``embeddings`` run means parsight is NOT serving this call,
+    so the guard honours the override.
     """
     if get_config("embeddings", "service_enabled", True) is not True:
         return False
-    if _configured_search_backend() == "parsight":
+    effective = backend if backend is not None else _configured_search_backend()
+    if effective == "parsight":
         return False
     return True
 
@@ -263,14 +265,21 @@ def _service_embed(
     return None
 
 
-def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]:
+def _embed_query(
+    query: str,
+    model_name: str,
+    vault: Path | None,
+    backend: str | None = None,
+) -> list[float]:
     """Embed *query*: prefer the opt-in service, else the in-process cache.
 
     The service is tried only when ``_embeddings_service_active`` is true; any
     miss falls back to the cached in-process model (loaded once per process).
+    *backend* is the per-call resolved search backend (see
+    ``_embeddings_service_active``).
     """
     resolved = vault or resolve_vault()
-    if _embeddings_service_active():
+    if _embeddings_service_active(backend):
         _spawn_service(resolved, model_name)
         vec = _service_embed(query, model_name, resolved)
         if vec is not None:
@@ -288,6 +297,7 @@ def _search_embeddings(
     min_score: float = 0.45,
     model_name: str = _DEFAULT_MODEL,
     vault: Path | None = None,
+    backend: str | None = None,
 ) -> list[dict[str, object]]:
     """Embeddings-backend semantic search (the always-on fallback path).
 
@@ -299,6 +309,9 @@ def _search_embeddings(
         min_score: Minimum cosine similarity threshold (0.0–1.0).
         model_name: fastembed model ID used when the index was built.
         vault: Optional vault path. Defaults to resolve_vault().
+        backend: Per-call resolved search backend (``-B`` override aware);
+            forwarded to the service gate so a forced embeddings run uses
+            the warm service even when the config backend is parsight.
 
     Returns:
         List of result dicts with keys: score, stem, title, folder, tags, path.
@@ -309,7 +322,7 @@ def _search_embeddings(
         return []
 
     try:
-        query_vec = _embed_query(query, model_name, vault)
+        query_vec = _embed_query(query, model_name, vault, backend)
         query_blob = _pack_vector(list(query_vec))
     except Exception:  # noqa: BLE001 — graceful fallback
         return []

@@ -179,6 +179,39 @@ def test_service_active_gate(
     assert vault_search._embeddings_service_active() is expected
 
 
+@pytest.mark.parametrize(
+    ("override", "expected"),
+    [
+        ("embeddings", True),  # -B embeddings outranks a parsight config
+        ("parsight", False),
+        ("auto", True),
+        (None, False),  # no override -> the parsight config wins
+    ],
+)
+def test_service_gate_honours_backend_override(
+    monkeypatch: pytest.MonkeyPatch, override: str | None, expected: bool
+) -> None:
+    """ENH-020: a per-call ``-B`` override reaches the service gate.
+
+    With ``search.backend: parsight`` configured, a CLI-forced embeddings run
+    is NOT served by parsight, so the warm service must be used; without an
+    override the parsight config keeps it off.
+    """
+    orig = cli_embeddings.get_config
+
+    def fake_get(section: str, key: str, default: object = None) -> object:
+        if section == "embeddings" and key == "service_enabled":
+            return True
+        return orig(section, key, default)
+
+    monkeypatch.setattr(cli_embeddings, "get_config", fake_get)
+    monkeypatch.setattr(
+        cli_embeddings, "_configured_search_backend", lambda: "parsight"
+    )
+
+    assert cli_embeddings._embeddings_service_active(override) is expected
+
+
 # ---------------------------------------------------------------------------
 # Phase 4: daemon request handler (newline-JSON over AF_UNIX)
 # ---------------------------------------------------------------------------
@@ -546,7 +579,9 @@ def test_cold_load_event_on_service_miss(
     vault.mkdir()
     events: list[str] = []
 
-    monkeypatch.setattr(cli_embeddings, "_embeddings_service_active", lambda: True)
+    monkeypatch.setattr(
+        cli_embeddings, "_embeddings_service_active", lambda backend=None: True
+    )
     monkeypatch.setattr(cli_embeddings, "_spawn_service", lambda v, m: None)
     monkeypatch.setattr(
         cli_embeddings, "_service_embed", lambda q, m, v, timeout=5.0: None
