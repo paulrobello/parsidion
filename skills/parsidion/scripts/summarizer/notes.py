@@ -514,6 +514,19 @@ def write_note(
         # suffix and wrote a sibling file, which accumulated hundreds of
         # near-duplicate timestamped notes. Merge the new note's body into the
         # existing note instead so no duplicate file is ever created.
+        # SEC-204: this merge mutates an existing note, so it takes the same
+        # SEC-107 pre-mutation backup _apply_merge_decision takes — a failed
+        # merge must never destroy the only copy. Abort (return None) when the
+        # backup fails rather than mutating unprotected.
+        try:
+            _backup_note(target_path, vault)
+        except OSError as backup_err:
+            print(
+                f"  Warning: slug-collision backup failed for "
+                f"{target_path}: {backup_err}",
+                file=sys.stderr,
+            )
+            return None
         try:
             existing = target_path.read_text(encoding="utf-8")
         except OSError:

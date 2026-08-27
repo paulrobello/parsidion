@@ -1180,6 +1180,103 @@ def test_write_note_merges_on_slug_collision_no_sibling(
     assert "Slug collision" in captured.err
 
 
+def test_write_note_slug_collision_creates_pre_mutation_backup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """SEC-204: the slug-collision merge backs up the existing note first.
+
+    The merge path in ``_apply_merge_decision`` takes a SEC-107 pre-mutation
+    backup; the ``write_note`` collision branch must not be the one mutation
+    of an existing note without one.
+    """
+    from datetime import date
+
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    existing = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nOriginal insight.\n"
+    )
+    (debugging / "test-note.md").write_text(existing, encoding="utf-8")
+
+    new_note = (
+        "---\n"
+        "date: 2026-06-15\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nFollow-up insight.\n"
+    )
+    result = summarize_sessions.write_note(new_note, False, vault)
+
+    assert result is not None
+    backup = (
+        vault
+        / ".trash"
+        / "backup"
+        / date.today().isoformat()
+        / "Debugging"
+        / "test-note.md"
+    )
+    assert backup.is_file()
+    # The original content is recoverable from the backup.
+    assert backup.read_text(encoding="utf-8") == existing
+    # The live note was still merged as before.
+    assert "Follow-up insight." in result.read_text(encoding="utf-8")
+
+
+def test_write_note_slug_collision_backup_failure_aborts_merge(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """SEC-204: a failed backup aborts the merge — never mutate unprotected."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    import summarizer.notes as summarizer_notes
+
+    vault = tmp_path / "vault"
+    debugging = vault / "Debugging"
+    debugging.mkdir(parents=True)
+    existing = (
+        "---\n"
+        "date: 2026-06-01\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nOriginal insight.\n"
+    )
+    target = debugging / "test-note.md"
+    target.write_text(existing, encoding="utf-8")
+
+    def _boom(note_path: Path, vault: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(summarizer_notes, "_backup_note", _boom)
+
+    new_note = (
+        "---\n"
+        "date: 2026-06-15\n"
+        "type: debugging\n"
+        "tags: [debugging]\n"
+        "---\n"
+        "# Test Note\n\nFollow-up insight.\n"
+    )
+    result = summarize_sessions.write_note(new_note, False, vault)
+
+    assert result is None
+    # The existing note is byte-for-byte untouched.
+    assert target.read_text(encoding="utf-8") == existing
+    captured = capsys.readouterr()
+    assert "backup failed" in captured.err
+
+
 def test_normalize_related_field_clean_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     note = (
