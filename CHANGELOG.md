@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-08-27
+
+Patch release for configurable dead-letter notices in SessionStart context.
+
+### Added
+
+- **Dead-letter notice suppression** — add `session_start_hook.show_dead_letter_notice`, disabled by default, to suppress the dead-letter queue warning while allowing it to be re-enabled per vault.
+
 ## [0.22.0] - 2026-08-26
 
 Cross-platform documentation-build reproducibility release. CI now canonicalizes generated API documentation and removes checkout-specific path data, while release artifacts and vault metadata remain deterministic and valid.
@@ -263,7 +271,8 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.22.1...HEAD
+[0.22.1]: https://github.com/paulrobello/parsidion/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/paulrobello/parsidion/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/paulrobello/parsidion/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/paulrobello/parsidion/compare/v0.19.0...v0.20.0
