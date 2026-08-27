@@ -3,7 +3,7 @@ name = "parsidion-mcp"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp>=3.4.5",
+    "fastmcp>=3.4.7",
     "parsidion[search]",
 ]
 
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-timeout>=2.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.16.1",
+    "ruff>=0.16.4",
     "pyright>=1.1.411",
 ]
 
