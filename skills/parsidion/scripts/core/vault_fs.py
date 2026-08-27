@@ -856,6 +856,52 @@ def _clear_stale_index_lock(vault: Path) -> bool:
         return False
 
 
+# ARC-110: git exits non-zero on the entirely normal "there was nothing to
+# commit" outcome. Emitting a failure event for that would write a line on
+# nearly every hook run and rotate the real failures out of hook_events.log,
+# so these signatures are recognised and stay silent.
+_GIT_TIMEOUT_SECS = 10
+
+_GIT_NOTHING_TO_COMMIT = (
+    "nothing to commit",
+    "no changes added to commit",
+    "nothing added to commit",
+)
+
+
+def _report_git_commit_failure(
+    vault: Path, outcome: str, step: str, detail: str
+) -> None:
+    """Record a ``git_commit_vault`` failure in ``hook_events.log``.
+
+    ARC-110: vault auto-commits run detached and fire-and-forget, so a wedged
+    or failing git left uncommitted state accruing with no observable signal
+    anywhere. An event is the only channel that survives the caller exiting;
+    ``vault-stats --hooks N`` then surfaces the accumulation.
+
+    Safe against recursion: ``write_hook_event`` only appends to (and rotates)
+    a log file -- it never invokes git, so it cannot re-enter this function.
+
+    Args:
+        vault: The vault whose commit failed.
+        outcome: ``"timeout"`` or ``"error"``.
+        step: ``"add"`` or ``"commit"`` -- which git invocation failed.
+        detail: Short diagnostic text (truncated).
+    """
+    try:
+        write_hook_event(
+            hook="GitCommitVault",
+            project=vault.name,
+            duration_ms=0.0,
+            vault=vault,
+            outcome=outcome,
+            step=step,
+            detail=detail[:400],
+        )
+    except Exception as exc:  # noqa: BLE001 — never raise on a best-effort log
+        print(f"git commit hook event failed: {exc}", file=sys.stderr)
+
+
 def git_commit_vault(
     message: str, vault: Path | None = None, paths: list[Path] | None = None
 ) -> bool:
@@ -886,6 +932,7 @@ def git_commit_vault(
     # add/commit below fail silently; clear it first if it is provably stale.
     _clear_stale_index_lock(vault)
 
+    step = "add"  # ARC-110: which git invocation an exception below came from
     try:
         # Stage files
         if paths:
@@ -923,11 +970,15 @@ def git_commit_vault(
             cwd=str(vault),
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_GIT_TIMEOUT_SECS,
         )
         if result.returncode != 0:
+            _report_git_commit_failure(
+                vault, "error", step, (result.stderr or result.stdout or "").strip()
+            )
             return False
 
+        step = "commit"
         # Commit -- exit code 1 with "nothing to commit" is not an error
         # SEC-002: message is caller-controlled but project names embedded in it
         # are sanitized by callers using safe_project (see git_commit_vault usages).
@@ -951,10 +1002,24 @@ def git_commit_vault(
             cwd=str(vault),
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_GIT_TIMEOUT_SECS,
         )
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
+        if result.returncode == 0:
+            return True
+        output = (result.stdout or "") + (result.stderr or "")
+        if not any(sig in output for sig in _GIT_NOTHING_TO_COMMIT):
+            _report_git_commit_failure(vault, "error", step, output.strip())
+        return False
+    except subprocess.TimeoutExpired:
+        _report_git_commit_failure(
+            vault,
+            "timeout",
+            step,
+            f"git {step} exceeded the {_GIT_TIMEOUT_SECS}s limit",
+        )
+        return False
+    except OSError as exc:
+        _report_git_commit_failure(vault, "error", step, str(exc))
         return False
 
 
