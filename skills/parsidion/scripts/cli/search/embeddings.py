@@ -97,7 +97,11 @@ def _apply_decay(
 
 
 # ENH-003: the fastembed ONNX model is ~67 MB and dominates a search whose real
-# work is a sqlite-vec ANN lookup. Cache one instance per model name for the
+# work is an EXACT full-table cosine scan -- ``_search_embeddings`` scores every
+# row in ``note_embeddings`` with ``vec_distance_cosine`` and sorts, which is not
+# an ANN lookup and does not use a vec0 virtual table. Fine up to roughly 10k
+# notes; migrating to a vec0 KNN index is filed as enhancement ENH-022. Cache one
+# instance per model name for the
 # process lifetime (maxsize=2 covers the default plus one override), and
 # serialise embed() so the shared instance is safe under the summarizer's
 # max_parallel fan-out. lru_cache does not memoise exceptions, so a missing
