@@ -100,6 +100,7 @@ from cli.index.parse import (  # re-exports
 from cli.index.build import (  # re-exports
     _build_note_db_rows,
     _compute_incoming_link_counts,
+    _compute_incoming_link_stems,
     build_index,
 )
 from cli.index.render import build_manifests, build_tags_md  # re-exports

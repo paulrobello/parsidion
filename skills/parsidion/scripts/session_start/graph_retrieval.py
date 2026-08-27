@@ -85,8 +85,12 @@ def _graph_neighbors(
         vault_path: Vault root for path-containment validation.
         max_add: Maximum number of neighbour paths to return.
         snapshot: PRF-104 -- a ``SessionIndexSnapshot`` carrying the reverse
-            adjacency precomputed in one pass. Without it the incoming edges
-            are derived here, which costs one scan of *meta_map* per seed.
+            adjacency. ENH-021: that adjacency is read from the
+            ``incoming_stems`` column persisted at index time; the snapshot
+            rebuilds it in one pass only as the fallback when the column is
+            not populated (pre-ENH-021 index). Without a snapshot the incoming
+            edges are derived here, which costs one scan of *meta_map* per
+            seed.
 
     Returns:
         List of neighbour Paths, possibly empty.

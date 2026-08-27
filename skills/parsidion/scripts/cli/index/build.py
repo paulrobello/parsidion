@@ -35,12 +35,33 @@ def _compute_incoming_link_counts(
     return link_count
 
 
+def _compute_incoming_link_stems(
+    per_note_data: dict[str, tuple[float, list[str]]],
+) -> dict[str, list[str]]:
+    """Build the reverse link adjacency: stem -> sorted source stems.
+
+    ENH-021: the inversion of every note's outgoing ``related`` links,
+    persisted in ``note_index.incoming_stems`` so retrieval reads an
+    O(1)-per-note adjacency instead of re-deriving incoming links per
+    query. Dangling targets are dropped (a target that is not itself an
+    indexed note has no row to store the adjacency on), mirroring
+    :func:`_compute_incoming_link_counts`.
+    """
+    incoming: dict[str, set[str]] = {stem: set() for stem in per_note_data}
+    for stem, (_, related_stems) in per_note_data.items():
+        for target_stem in related_stems:
+            if target_stem in incoming:
+                incoming[target_stem].add(stem)
+    return {stem: sorted(sources) for stem, sources in incoming.items()}
+
+
 def _build_note_db_rows(
     note_contents: dict[
         Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
     ],
     per_note_data: dict[str, tuple[float, list[str]]],
     link_count: dict[str, int],
+    incoming_stems: dict[str, list[str]],
     stale_cutoff_ts: float,
 ) -> tuple[
     list[NoteEntry],
@@ -90,6 +111,9 @@ def _build_note_db_rows(
                 incoming_links=incoming,
                 date=str(fm.get("date", "") or ""),
                 prompt_version=str(fm.get("prompt_version", "") or ""),
+                # ENH-021: persisted reverse-link adjacency (sorted source
+                # stems as a JSON array) -- see _compute_incoming_link_stems.
+                incoming_stems=json.dumps(incoming_stems.get(stem, [])),
             )
         )
 
@@ -179,10 +203,14 @@ def build_index(
 
     # Build reverse link count: stem -> number of incoming wikilinks
     link_count: dict[str, int] = _compute_incoming_link_counts(per_note_data)
+    # ENH-021: reverse link adjacency, persisted per row (update_index always
+    # rebuilds every row, so a full in-memory re-inversion each run keeps the
+    # column correct across incremental rebuilds too).
+    incoming_stems: dict[str, list[str]] = _compute_incoming_link_stems(per_note_data)
 
     # Second pass: group by folder, compute staleness, collect DB rows
     db_rows, folder_notes, stale_count = _build_note_db_rows(
-        note_contents, per_note_data, link_count, stale_cutoff_ts
+        note_contents, per_note_data, link_count, incoming_stems, stale_cutoff_ts
     )
 
     # Sort recent by mtime descending, limit

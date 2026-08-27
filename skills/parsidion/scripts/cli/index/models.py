@@ -37,6 +37,9 @@ class NoteEntry(NamedTuple):
             ``summarize-session@1.0.0``) for AI-generated notes. Empty for notes
             written by hand or by older summarizer versions. Lets evaluation slice
             note quality by the prompt that produced it (ENH-008 Step 3).
+        incoming_stems: ENH-021 -- JSON array of the sorted stems whose
+            ``related`` field links to this note (the reverse-link adjacency,
+            inverted at index time). ``"[]"`` when no note links here.
     """
 
     stem: str
@@ -54,6 +57,7 @@ class NoteEntry(NamedTuple):
     incoming_links: int
     date: str = ""
     prompt_version: str = ""
+    incoming_stems: str = ""
 
 
 class NoteRecord(NamedTuple):

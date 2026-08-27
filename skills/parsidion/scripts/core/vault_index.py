@@ -10,6 +10,7 @@ are re-exported from ``vault_common`` for backward compatibility.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -539,7 +540,8 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
             is_stale       INTEGER NOT NULL DEFAULT 0,
             incoming_links INTEGER NOT NULL DEFAULT 0,
             date           TEXT    NOT NULL DEFAULT '',
-            prompt_version TEXT    NOT NULL DEFAULT ''
+            prompt_version TEXT    NOT NULL DEFAULT '',
+            incoming_stems TEXT    NOT NULL DEFAULT ''
         )
         """
     )
@@ -553,6 +555,15 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     if "prompt_version" not in cols:
         conn.execute(
             "ALTER TABLE note_index ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''"
+        )
+    # ENH-021: incoming_stems column -- the reverse-link adjacency (JSON array
+    # of source stems), inverted from every note's outgoing ``related`` links
+    # at index time. Empty on pre-ENH-021 rows until the next full rebuild;
+    # readers treat empty as "not populated" and fall back to deriving the
+    # inversion from ``related`` (see SessionIndexSnapshot).
+    if "incoming_stems" not in cols:
+        conn.execute(
+            "ALTER TABLE note_index ADD COLUMN incoming_stems TEXT NOT NULL DEFAULT ''"
         )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_folder    ON note_index(folder)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_note_type ON note_index(note_type)")
@@ -1155,6 +1166,32 @@ class SessionIndexRow(NamedTuple):
     related: str
     incoming_links: int
     mtime: float
+    incoming_stems: str = ""
+
+
+def _incoming_stems_from_column(
+    rows: list[SessionIndexRow],
+) -> dict[str, set[str]] | None:
+    """Parse the persisted ``incoming_stems`` column into an adjacency map.
+
+    ENH-021: ``update_index`` inverts every note's outgoing ``related`` links
+    in one pass and stores the per-note source stems as a JSON array. This
+    returns that adjacency, or ``None`` when any row's value is empty
+    (pre-ENH-021 index, not yet rebuilt) or unparseable -- the caller then
+    falls back to deriving the inversion from ``related``.
+    """
+    parsed: dict[str, set[str]] = {}
+    for row in rows:
+        if not row.incoming_stems:
+            return None
+        try:
+            raw_list = json.loads(row.incoming_stems)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(raw_list, list):
+            return None
+        parsed[row.stem] = {s for s in raw_list if isinstance(s, str)}
+    return parsed
 
 
 class SessionIndexSnapshot:
@@ -1198,13 +1235,16 @@ class SessionIndexSnapshot:
         self._compact: dict[str, tuple[str, str, str]] = {
             r.stem: (r.title, r.tags, r.folder) for r in rows
         }
-        # Reverse adjacency, built in one O(N x avg_links) pass. The Tier-1
-        # expansion previously rediscovered incoming links by scanning every
-        # note's ``related`` set once per seed.
-        incoming: dict[str, set[str]] = {}
-        for row in rows:
-            for target in parse_related_stems(row.related):
-                incoming.setdefault(target, set()).add(row.stem)
+        # Reverse adjacency. ENH-021: read the inversion persisted at index
+        # time in the ``incoming_stems`` column; only when the column is not
+        # populated (pre-ENH-021 index) rebuild it here in one
+        # O(N x avg_links) pass -- the PRF-104 behaviour.
+        incoming = _incoming_stems_from_column(rows)
+        if incoming is None:
+            incoming = {}
+            for row in rows:
+                for target in parse_related_stems(row.related):
+                    incoming.setdefault(target, set()).add(row.stem)
         self._incoming = incoming
 
     def graph_metadata(self) -> dict[str, dict[str, object]]:
@@ -1278,9 +1318,17 @@ def load_session_index_snapshot(
             is None
         ):
             return None
+        # ENH-021: incoming_stems is absent on tables created before the
+        # column existed and not yet re-ensured; select a literal '' for
+        # those so the snapshot (and its legacy-inversion fallback) keeps
+        # working instead of failing the whole read.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
+        incoming_sel = (
+            "incoming_stems" if "incoming_stems" in cols else "'' AS incoming_stems"
+        )
         raw = conn.execute(
-            "SELECT stem, path, title, tags, folder, project, related, "
-            "incoming_links, mtime FROM note_index"
+            f"SELECT stem, path, title, tags, folder, project, related, "
+            f"incoming_links, mtime, {incoming_sel} FROM note_index"
         ).fetchall()
     except sqlite3.Error:
         return None
@@ -1297,6 +1345,7 @@ def load_session_index_snapshot(
             related=r[6] or "",
             incoming_links=int(r[7] or 0),
             mtime=float(r[8] or 0.0),
+            incoming_stems=str(r[9] or ""),
         )
         for r in raw
     ]

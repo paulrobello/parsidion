@@ -49,7 +49,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - Working state snapshots before context compaction; snapshot restored automatically after compaction via PostCompact hook
 - A dedicated research agent that saves findings to the vault
 - Auto-generated lean root index (`CLAUDE.md`) with quick stats, conventions, recent activity, and folder pointers; full tag cloud in `TAGS.md`; detailed per-folder `MANIFEST.md` files
-- Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks
+- Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks. Since ENH-021 each row also carries `incoming_stems` (JSON array of source stems, the reverse-link adjacency inverted from every note's `related` field at index time), so graph retrieval reads incoming links per note instead of re-deriving them; empty values (pre-ENH-021 indexes) fall back to deriving the inversion from `related`
 - Graph retrieval at session start: Tier 1 expands the injected note set with 1-hop wikilink neighbours of selected notes; Tier 2 re-ranks by seed-cluster tag overlap + hubness (default on, configurable via `graph_expand`/`graph_expand_max`/`graph_rerank`)
 - Obsidian graph view with domain-based color grouping
 - Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), pi agent (`extensions/pi/parsidion/`), and omp (`install.py connect omp` — reuses the pi extension, installed into `~/.omp/agent/extensions`)
@@ -654,7 +654,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 | `get_body()` | Returns markdown content after frontmatter |
 | `extract_title()` | Extract H1 heading or stem as the note title |
 | `get_embeddings_db_path()` | Return the path to `embeddings.db` |
-| `ensure_note_index_schema(conn)` | Creates `note_index` table and 6 indexes (folder, note_type, project, mtime, tags, date) in an open SQLite connection |
+| `ensure_note_index_schema(conn)` | Creates `note_index` table and 6 indexes (folder, note_type, project, mtime, tags, date) in an open SQLite connection; idempotently ALTER-migrates the `date`, `prompt_version`, and `incoming_stems` (ENH-021 reverse-link adjacency) columns onto older tables |
 | `query_note_index(*, tag, folder, note_type, project, recent_days, limit)` | DB-first metadata query; returns `None` (not `[]`) when DB absent to signal file-walk fallback |
 | `load_graph_metadata()` | Load per-note graph metadata (`path`, `related`, `incoming_links`, `tags`) from the `note_index` table; returns `None` when DB/table absent so graph-retrieval callers fall back gracefully |
 | `parse_related_stems(related_str)` | Extract note stems from a `related` column value, accepting both bare comma-separated and `[[wikilink]]` form |
@@ -717,7 +717,7 @@ Rebuilds `~/ParsidionVault/CLAUDE.md` and `TAGS.md` by scanning all vault notes.
 - `TAGS.md` with full tag cloud (frequency-sorted) and machine-readable tag list (used by the summarizer to avoid duplicating tags)
 - **Staleness markers:** notes with zero incoming wikilinks AND older than 30 days are flagged `[STALE?]` in MANIFEST listings and the Quick Stats stale count. Notes are never auto-deleted — only surfaced for review.
 - **Per-folder `MANIFEST.md` files:** a table-format index (Note | Tags | Summary) written inside each subfolder after every rebuild, allowing quick orientation within a domain without loading the full root index. Stale notes are marked with ⚠️.
-- **`note_index` DB upsert:** after writing `CLAUDE.md`, calls `_write_note_index_to_db()` to upsert all note metadata rows into `embeddings.db` and prune rows for deleted notes. No-op when `embeddings.db` does not yet exist; all DB errors are silently swallowed so a database failure never aborts the indexer.
+- **`note_index` DB upsert:** after writing `CLAUDE.md`, calls `_write_note_index_to_db()` to upsert all note metadata rows into `embeddings.db` and prune rows for deleted notes. Rows include the `incoming_stems` reverse-link adjacency (ENH-021): after all notes' outgoing `related` links are parsed, the indexer inverts the map in one pass and stores each note's source stems as a JSON array — the full re-inversion each run keeps the column correct across incremental rebuilds too. No-op when `embeddings.db` does not yet exist; all DB errors are silently swallowed so a database failure never aborts the indexer.
 
 ### Metadata Query (vault-search filter mode)
 

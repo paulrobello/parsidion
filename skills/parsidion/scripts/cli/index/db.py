@@ -51,10 +51,12 @@ def _write_note_index_to_db(
                 """
                 INSERT INTO note_index (
                     stem, path, folder, title, summary, tags, note_type,
-                    project, confidence, mtime, related, is_stale, incoming_links, date, prompt_version
+                    project, confidence, mtime, related, is_stale, incoming_links, date, prompt_version,
+                    incoming_stems
                 ) VALUES (
                     :stem, :path, :folder, :title, :summary, :tags, :note_type,
-                    :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date, :prompt_version
+                    :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date, :prompt_version,
+                    :incoming_stems
                 )
                 ON CONFLICT(stem) DO UPDATE SET
                     path=excluded.path,
@@ -70,7 +72,8 @@ def _write_note_index_to_db(
                     is_stale=excluded.is_stale,
                     incoming_links=excluded.incoming_links,
                     date=excluded.date,
-                    prompt_version=excluded.prompt_version
+                    prompt_version=excluded.prompt_version,
+                    incoming_stems=excluded.incoming_stems
                 """,
                 [row._asdict() for row in db_rows],
             )
