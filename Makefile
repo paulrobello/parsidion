@@ -125,13 +125,6 @@ docs-api-check:
 #   same module-per-file structure as expand, but a conversion order that is
 #   identical on every filesystem.
 #
-# - the scrub's resolved-path needles are passed through %ENV: an
-#   "VAR=x cmd1 | cmd2" assignment prefix does NOT propagate to cmd2 under
-#   every /bin/sh (macOS's does not), and a needle that never reaches perl
-#   silently degrades to the literal-path rule -- which on macOS leaves the
-#   /private prefix behind ('/private<repo-root>'). Exporting the variables
-#   before the pipeline reaches perl everywhere.
-#
 # - two artifacts are content-identical but byte-unstable across platforms:
 #   pdoc's prebuilt search index (lunr posting maps serialize in document
 #   processing order, which varies) and typedoc's compressed asset blobs
@@ -153,16 +146,16 @@ docs-api-check:
 #   in an ephemeral cache instead of re-creating the project .venv on machines
 #   whose local default is a newer minor.
 #
-# - set/frozenset default-value reprs iterate in hash order: under
-#   PYTHONHASHSEED=0 the order is stable for a given interpreter build, but
-#   the first pdoc run in some freshly-built uv environments has been
-#   observed with a different (non-seed-0) order, and a plain PYTHONHASHSEED
-#   cannot guarantee cross-build stability. The scrub therefore sorts the
-#   elements of every frozenset({...}) display and of every colon-free brace
-#   group made purely of quoted elements (dict displays contain colons and
-#   keep their insertion order), making the emitted order canonical. It also
-#   strips the cosmetic view-value toggle markup and pins every numeric
-#   default_value lunr field length to 1, so those cannot vary either.
+# - set/frozenset default-value reprs iterate in hash order, which
+#   PYTHONHASHSEED=0 does not make stable across interpreter BUILDS. That,
+#   the cosmetic view-value toggle markup, the numeric default_value lunr
+#   field lengths, and the machine-path needles are all handled by the scrub
+#   in scripts/normalize_docs_api.py (ARC-104 moved it out of this recipe so
+#   each rule is unit-testable; its module docstring carries the trap notes
+#   and tests/test_normalize_docs_api.py pins it against the original perl).
+#   The resolved-path needles are passed as CLI args: an empty needle is a
+#   hard error there, where it used to degrade silently to the literal-path
+#   rule and leave a '/private<repo-root>' prefix behind on macOS.
 .PHONY: docs-api-gen
 PDOC_GEN_ROOT := /tmp/parsidion-docs-gen
 PDOC_GEN_HOME := /tmp/parsidion-docs-home
@@ -183,10 +176,9 @@ docs-api-gen:
 		--out $(abspath $(DOCS_API_OUT))/visualizer --options typedoc.json
 	gen_resolved=$$(realpath $(PDOC_GEN_ROOT) 2>/dev/null || echo $(PDOC_GEN_ROOT)); \
 		home_resolved=$$(realpath $(PDOC_GEN_HOME) 2>/dev/null || echo $(PDOC_GEN_HOME)); \
-		export GEN_RESOLVED="$$gen_resolved" HOME_RESOLVED="$$home_resolved"; \
-		find $(abspath $(DOCS_API_OUT)) -type f \( -name '*.html' -o -name '*.js' \) -print0 | \
-		xargs -0 perl -pi -e '$$ENV{GEN_RESOLVED} ne "" && s|\Q$$ENV{GEN_RESOLVED}\E|<repo-root>|g; s|\Q$(PDOC_GEN_ROOT)\E|<repo-root>|g; s|\Q$(CURDIR)\E|<repo-root>|g; $$ENV{HOME_RESOLVED} ne "" && s|\Q$$ENV{HOME_RESOLVED}\E|<home>|g; s|\Q$(PDOC_GEN_HOME)\E|<home>|g; s|\Q$(HOME)\E|<home>|g; s/<input id="[^"]*view-value" class="view-value-toggle-state"[^>]*>\s*//g; s/<label class="view-value-button pdoc-button" for="[^"]*"><\/label>//g; s/"default_value": \d+/"default_value": 1/g; s!\bfrozenset\(\{([^{}]+)\}\)!do { my $$i=$$1; "frozenset({".join(", ", sort(split(/,\s+/, $$i)))."})" }!ge; s!\{((?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;)(?:,\s*(?:\x27|\&#39;|\&#x27;)[^{}()]*?(?:\x27|\&#39;|\&#x27;))*)\}!do { my $$g=$$1; $$g =~ /:/ ? "{".$$g."}" : "{".join(", ", sort(split(/,\s+/, $$g)))."}" }!ge'
-	python3 scripts/normalize_docs_api.py $(abspath $(DOCS_API_OUT))
+		python3 scripts/normalize_docs_api.py $(abspath $(DOCS_API_OUT)) \
+			--repo-root "$$gen_resolved" --repo-root "$(PDOC_GEN_ROOT)" --repo-root "$(CURDIR)" \
+			--home "$$home_resolved" --home "$(PDOC_GEN_HOME)" --home "$(HOME)"
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses

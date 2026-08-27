@@ -28,11 +28,39 @@ output depending on platform:
   zlib level 0 (stored blocks): no entropy coding, byte-identical on every
   zlib implementation. Costs some file size; buys provable determinism.
 
-Usage: normalize_docs_api.py <docs-api-out-dir>
+ARC-104 additionally moved the machine-path/display scrub here out of the
+Makefile recipe, where it lived as a chained ``perl -pi -e`` one-liner. It runs
+FIRST (before the two canonicalizations above), because the trie-drop logic
+depends on seeing which machine-path tokens survived the text scrub. Condensed
+trap notes for the scrub, each of which produced a real incident or is load
+bearing for byte-exactness:
+
+- ``perl -pi -e`` is a per-RECORD filter with ``$/ = "\\n"``, so ``$_`` is one
+  line INCLUDING its newline. Character classes match a newline, so a whole-file
+  ``re.sub`` would match brace groups and frozenset displays spanning pdoc's
+  multiline signature layout that perl never matched. The scrub therefore
+  splits on ``\\n`` and applies the rule chain per line, newline attached.
+- Path needles are applied in a fixed order: the realpath-resolved generator
+  root BEFORE the literal one. macOS resolves ``/tmp`` -> ``/private/tmp``, so
+  rewriting the literal first leaves ``/private<repo-root>`` behind -- the
+  recorded incident this ordering exists to prevent.
+- An EMPTY needle must be a hard error, not a silent skip: an unset variable
+  that never reached perl degraded to the literal-path rule and produced that
+  same ``/private`` residue with no diagnostic.
+- The scrub operates on bytes. Every needle and replacement is ASCII, and
+  byte-exactness is the acceptance bar (``make docs-api-check`` diffs the
+  committed tree), so no decode/encode or newline translation is involved.
+- ``sorted()`` over bytes is codepoint order, matching perl's default ``sort``;
+  elements split on ``,\\s+`` and rejoin with exactly ``", "``.
+
+Usage:
+  normalize_docs_api.py <docs-api-out-dir>
+      [--repo-root NEEDLE ...] [--home NEEDLE ...]
 """
 
 from __future__ import annotations
 
+import argparse
 import base64
 import json
 import re
@@ -51,6 +79,198 @@ SEARCHJS_RE = re.compile(r"(const docs = )(\{.*\}|\[.*\])(;)", re.S)
 # Neither token is legitimate content; dropping both keeps the tries
 # identical on every platform.
 DROPPED_TOKEN_PREFIXES = ("private/", "tmp/parsidion")
+
+# --- ARC-104: the machine-path / display scrub (ported from the Makefile) ----
+
+# Files the scrub visits, matching the recipe's
+# ``find ... \( -name '*.html' -o -name '*.js' \)``.
+SCRUB_SUFFIXES = (".html", ".js")
+
+REPO_ROOT_TOKEN = b"<repo-root>"
+HOME_TOKEN = b"<home>"
+
+# pdoc's cosmetic "view value" toggle: an input carrying the toggle state and
+# the label that flips it. Both are pure markup, and whether pdoc emits them at
+# all depends on PRE-scrub rendered lengths, so they cannot be allowed to vary.
+_TOGGLE_INPUT_RE = re.compile(
+    rb'<input id="[^"]*view-value" class="view-value-toggle-state"[^>]*>\s*'
+)
+_TOGGLE_LABEL_RE = re.compile(
+    rb'<label class="view-value-button pdoc-button" for="[^"]*"></label>'
+)
+# lunr stores default_value FIELD LENGTHS (token counts) computed from the
+# pre-scrub strings; pin them so a machine path's token count cannot leak.
+_DEFAULT_VALUE_LEN_RE = re.compile(rb'"default_value": \d+')
+
+# set/frozenset default-value reprs iterate in hash order, which is not stable
+# across interpreter builds even under PYTHONHASHSEED=0. Sort the elements of
+# every frozenset display and of every colon-free brace group made purely of
+# quoted elements (a dict display contains colons and keeps insertion order).
+_FROZENSET_RE = re.compile(rb"\bfrozenset\(\{([^{}]+)\}\)")
+_ELEMENT_SPLIT_RE = re.compile(rb",\s+")
+# The three ways pdoc can render a quote in a default-value display.
+_OPEN_QUOTE_RE = re.compile(rb"'|&#39;|&#x27;")
+
+
+def _sorted_elements(inner: bytes) -> bytes:
+    """Return *inner* split on ``,\\s+``, sorted, rejoined with ``", "``."""
+    return b", ".join(sorted(_ELEMENT_SPLIT_RE.split(inner)))
+
+
+def _sort_frozenset(match: re.Match[bytes]) -> bytes:
+    return b"frozenset({" + _sorted_elements(match.group(1)) + b"})"
+
+
+def _is_quoted_element_list(inner: bytes) -> bool:
+    """Whether *inner* is what perl's brace-group pattern accepted between braces.
+
+    The original pattern was
+    ``\\{(Q[^{}()]*?Q(?:,\\s*Q[^{}()]*?Q)*)\\}`` with ``Q`` one of ``'``,
+    ``&#39;``, ``&#x27;``. Translated literally it is catastrophically slow in
+    Python's ``re`` (measured: perl 0.24 s vs >90 s on the 684 KB minified line
+    in ``docs/api/python/search.js``), so the acceptance test is a differential
+    against perl rather than a transliteration.
+
+    The predicate collapses because the repeated group is optional: any string
+    the k-element form accepts, the ONE-element form ``Q B Q`` also accepts --
+    ``B`` is ``[^{}()]*?``, which already permits the commas, spaces and quotes
+    that separate elements. So a match exists exactly when *inner* opens with a
+    quote token, ends with a quote token, the two do not overlap, and *inner*
+    contains none of ``{``, ``(``, ``)`` (``}`` is impossible: the caller cuts
+    at the first one). The three spellings have mutually exclusive suffixes, so
+    both tokens are identified in O(1).
+    """
+    if b"{" in inner or b"(" in inner or b")" in inner:
+        return False
+    for token in (b"'", b"&#39;", b"&#x27;"):
+        if inner.endswith(token):
+            closing_start = len(inner) - len(token)
+            break
+    else:
+        return False
+    opening = _OPEN_QUOTE_RE.match(inner)
+    # The opening token's span must not reach into the closing quote.
+    return opening is not None and opening.end() <= closing_start
+
+
+def _sort_brace_groups(line: bytes) -> bytes:
+    """Sort the elements of every colon-free quoted brace group in *line*.
+
+    A dict display contains a colon and keeps its insertion order. Because the
+    group body admits no braces, a match always runs from a ``{`` to the FIRST
+    ``}`` after it, which is what makes the left-to-right scan below equivalent
+    to the original global substitution -- including the failure behaviour of
+    advancing one byte past the ``{`` and retrying.
+    """
+    out: list[bytes] = []
+    pos = 0
+    while True:
+        open_at = line.find(b"{", pos)
+        if open_at < 0:
+            break
+        close_at = line.find(b"}", open_at + 1)
+        if close_at < 0:
+            break
+        inner = line[open_at + 1 : close_at]
+        if _is_quoted_element_list(inner):
+            body = inner if b":" in inner else _sorted_elements(inner)
+            out.append(line[pos:open_at])
+            out.append(b"{" + body + b"}")
+            pos = close_at + 1
+        else:
+            out.append(line[pos : open_at + 1])
+            pos = open_at + 1
+    out.append(line[pos:])
+    return b"".join(out)
+
+
+Rule = Any  # Callable[[bytes], bytes]
+
+
+def _regex_rule(pattern: re.Pattern[bytes], replacement: Any) -> Rule:
+    """Adapt a compiled pattern + replacement into the callable rule shape."""
+
+    def apply(line: bytes) -> bytes:
+        return pattern.sub(replacement, line)
+
+    return apply
+
+
+def build_scrub_rules(repo_roots: list[str], homes: list[str]) -> list[Rule]:
+    """Assemble the ordered scrub rule chain.
+
+    Args:
+        repo_roots: Path needles rewritten to ``<repo-root>``, most-resolved
+            first (see the module docstring's ordering trap).
+        homes: Path needles rewritten to ``<home>``, same ordering rule.
+
+    Returns:
+        ``(compiled pattern, replacement)`` pairs to apply in order.
+
+    Raises:
+        ValueError: if any needle is empty.
+    """
+    for needle in (*repo_roots, *homes):
+        if not needle:
+            raise ValueError(
+                "empty path needle: a needle that never reaches the scrub "
+                "degrades to the literal-path rule and leaves a machine-path "
+                "prefix in the output"
+            )
+    rules: list[Rule] = []
+    for needle in repo_roots:
+        rules.append(
+            _regex_rule(re.compile(re.escape(needle.encode())), REPO_ROOT_TOKEN)
+        )
+    for needle in homes:
+        rules.append(_regex_rule(re.compile(re.escape(needle.encode())), HOME_TOKEN))
+    rules.append(_regex_rule(_TOGGLE_INPUT_RE, b""))
+    rules.append(_regex_rule(_TOGGLE_LABEL_RE, b""))
+    rules.append(_regex_rule(_DEFAULT_VALUE_LEN_RE, b'"default_value": 1'))
+    rules.append(_regex_rule(_FROZENSET_RE, _sort_frozenset))
+    rules.append(_sort_brace_groups)
+    return rules
+
+
+def scrub_line(line: bytes, rules: list[Rule]) -> bytes:
+    """Apply the rule chain to one record (newline attached, as perl sees it)."""
+    for rule in rules:
+        line = rule(line)
+    return line
+
+
+def scrub_bytes(data: bytes, rules: list[Rule]) -> bytes:
+    """Apply the rule chain per ``\\n``-terminated record, like ``perl -p``.
+
+    ``bytes.splitlines()`` is deliberately NOT used: it also splits on ``\\r``,
+    ``\\v``, ``\\f`` and the information separators, which perl's ``$/ = "\\n"``
+    record reader does not.
+    """
+    records = data.split(b"\n")
+    trailing = records.pop()  # text after the final newline ("" when data ends in one)
+    out = [scrub_line(record + b"\n", rules) for record in records]
+    if trailing:
+        out.append(scrub_line(trailing, rules))
+    return b"".join(out)
+
+
+def scrub_file(path: Path, rules: list[Rule]) -> bool:
+    """Scrub one file in place. Returns True when the bytes changed."""
+    data = path.read_bytes()
+    new = scrub_bytes(data, rules)
+    if new == data:
+        return False
+    path.write_bytes(new)
+    return True
+
+
+def scrub_tree(root: Path, rules: list[Rule]) -> int:
+    """Scrub every ``*.html`` / ``*.js`` file under *root*. Returns the count changed."""
+    changed = 0
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix in SCRUB_SUFFIXES and scrub_file(path, rules):
+            changed += 1
+    return changed
 
 
 def _extract(node: dict[str, Any], prefix: str, out: dict[str, dict[str, Any]]) -> None:
@@ -137,10 +357,40 @@ def normalize_asset_blobs(path: Path) -> bool:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__, file=sys.stderr)
-        return 2
-    root = Path(argv[1])
+    parser = argparse.ArgumentParser(
+        prog="normalize_docs_api.py",
+        description="Canonicalize generated docs/api artifacts (ARC-104 / DOC-003).",
+    )
+    parser.add_argument("out_dir", help="Generated docs/api output directory.")
+    parser.add_argument(
+        "--repo-root",
+        action="append",
+        default=[],
+        metavar="NEEDLE",
+        help=(
+            "Path needle rewritten to <repo-root>. Repeatable; pass the "
+            "realpath-resolved form BEFORE the literal one."
+        ),
+    )
+    parser.add_argument(
+        "--home",
+        action="append",
+        default=[],
+        metavar="NEEDLE",
+        help="Path needle rewritten to <home>. Repeatable, same ordering rule.",
+    )
+    args = parser.parse_args(argv[1:])
+    root = Path(args.out_dir)
+
+    if args.repo_root or args.home:
+        try:
+            rules = build_scrub_rules(args.repo_root, args.home)
+        except ValueError as exc:
+            print(f"normalize_docs_api: {exc}", file=sys.stderr)
+            return 2
+        # The scrub must precede both canonicalizations below: the trie-drop
+        # logic keys off which machine-path tokens survived it.
+        scrub_tree(root, rules)
 
     search_js = root / "python" / "search.js"
     if search_js.exists():
