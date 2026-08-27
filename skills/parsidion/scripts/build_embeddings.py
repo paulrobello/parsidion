@@ -11,6 +11,10 @@
 Creates <resolved vault>/embeddings.db with cosine-similarity vectors for every
 vault note. Uses BAAI/bge-small-en-v1.5 (384-dim, ~67 MB ONNX, CPU-only).
 
+Since ENH-022 every vector is dual-written into a ``note_vec`` vec0 virtual
+table (cosine-distance KNN mirror of ``note_embeddings``, which is kept as-is
+for one release so old readers keep working).
+
 Usage:
     uv run build_embeddings.py              # full rebuild
     uv run build_embeddings.py --incremental  # update only changed / new notes
@@ -45,6 +49,14 @@ import vault_metrics
 _DEFAULT_MODEL: str = "BAAI/bge-small-en-v1.5"
 _EMBED_DIM: int = 384
 _MAX_TEXT_CHARS: int = 1500  # ~400 tokens for bge-small
+
+# ENH-022: embeddings DB layout version, stamped into PRAGMA user_version
+# (the same role GRAPH_SCHEMA_VERSION in build_graph.py plays for graph.json).
+# 0 = pre-ENH-022 DB: plain note_embeddings rows, no ANN mirror. 2 = the
+# note_vec vec0 KNN mirror is dual-written alongside note_embeddings. The
+# query path gates on note_vec actually being present and row-count-synced,
+# so this marker is a migration/debug signal, not a load-bearing gate.
+EMBEDDINGS_SCHEMA_VERSION: int = 2
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +100,108 @@ def open_embeddings_db(db_path: Path) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stem ON note_embeddings(stem)")
     conn.commit()
     vault_common.ensure_note_index_schema(conn)
+    ensure_note_vec_schema(conn)
     return conn
+
+
+# ---------------------------------------------------------------------------
+# ENH-022: note_vec vec0 KNN mirror
+# ---------------------------------------------------------------------------
+
+# Set when the loaded sqlite-vec runtime cannot provide the vec0 module
+# (broken or ancient extension). The mirror is an acceleration, not a
+# correctness requirement: once disabled, every mirror write in this process
+# is skipped and search serves from the exact scan.
+_note_vec_unavailable = False
+
+
+def _note_vec_exists(conn: sqlite3.Connection) -> bool:
+    """Return True when the note_vec virtual table exists."""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note_vec'"
+    ).fetchone()
+    return row is not None
+
+
+def _note_vec_dim(conn: sqlite3.Connection) -> int | None:
+    """Return the float dimension stored in note_vec rows, or None if empty."""
+    row = conn.execute("SELECT embedding FROM note_vec LIMIT 1").fetchone()
+    if row is None or not row[0]:
+        return None
+    return len(row[0]) // 4
+
+
+def _create_note_vec(conn: sqlite3.Connection, dim: int) -> None:
+    """Create the vec0 KNN mirror at *dim* (cosine distance, to match the
+    exact scan's ``vec_distance_cosine`` scoring).
+
+    A sqlite3.Error here disables the mirror for the rest of the process
+    rather than failing the build.
+    """
+    global _note_vec_unavailable
+    try:
+        conn.execute(
+            f"CREATE VIRTUAL TABLE note_vec USING "
+            f"vec0(embedding float[{dim}] distance_metric=cosine)"
+        )
+    except sqlite3.Error as exc:
+        _note_vec_unavailable = True
+        print(
+            f"build_embeddings: vec0 unavailable ({exc}) — KNN mirror "
+            "skipped; search will use the exact scan.",
+            file=sys.stderr,
+        )
+
+
+def ensure_note_vec_schema(conn: sqlite3.Connection) -> None:
+    """Create/backfill the note_vec vec0 KNN mirror (ENH-022).
+
+    Idempotent upgrade step, run whenever the DB is opened for writing:
+
+    - no stored embeddings yet (fresh DB) → no-op; ``embed_and_write``
+      creates the table at first write, where the model's vector dimension
+      is known.
+    - stored embeddings but no note_vec (pre-ENH-022 DB) → create the vec0
+      table at the stored dimension and backfill every row, so one build
+      run upgrades an old DB without re-embedding anything.
+    - note_vec whose dimension disagrees with the stored rows (model
+      switched without a rebuild) → drop and recreate at the stored
+      dimension, then backfill.
+
+    Mirrored rows keep note_embeddings' ``id`` as their rowid so the KNN
+    query can join straight back to the metadata columns. Stamps
+    EMBEDDINGS_SCHEMA_VERSION into PRAGMA user_version once the mirror is
+    in place.
+    """
+    if _note_vec_unavailable:
+        return
+    probe = conn.execute("SELECT embedding FROM note_embeddings LIMIT 1").fetchone()
+    if probe is None or not probe[0]:
+        return
+    dim = len(probe[0]) // 4
+
+    exists = _note_vec_exists(conn)
+    # An empty note_vec carries no discoverable dimension, so it is recreated
+    # too — dropping an empty table loses nothing and guarantees the
+    # backfill below inserts into a dim-matched table.
+    recreate = exists and _note_vec_dim(conn) != dim
+
+    with conn:
+        if recreate:
+            conn.execute("DROP TABLE note_vec")
+        if recreate or not exists:
+            _create_note_vec(conn, dim)
+        if not _note_vec_exists(conn):
+            return  # creation failed (vec0 unavailable) — mirror skipped
+        missing = conn.execute(
+            "SELECT ne.id, ne.embedding FROM note_embeddings ne "
+            "WHERE ne.id NOT IN (SELECT rowid FROM note_vec)"
+        ).fetchall()
+        if missing:
+            conn.executemany(
+                "INSERT INTO note_vec(rowid, embedding) VALUES (?, ?)", missing
+            )
+    conn.execute(f"PRAGMA user_version = {EMBEDDINGS_SCHEMA_VERSION}")
 
 
 def build_embed_text(title: str, tags_str: str, body: str) -> str:
@@ -176,6 +289,8 @@ def embed_and_write(
         if clear_existing and not dry_run:
             with conn:
                 conn.execute("DELETE FROM note_embeddings")
+                if _note_vec_exists(conn):
+                    conn.execute("DELETE FROM note_vec")
         return 0
 
     if dry_run:
@@ -188,10 +303,15 @@ def embed_and_write(
     texts = [t for _, _, t in notes_to_embed]
     model = TextEmbedding(model_name=model_name)
     vectors = list(model.embed(texts))
+    vec_dim = len(next(iter(vectors)))
 
     with conn:
+        _ensure_note_vec_for_write(conn, vec_dim)
         if clear_existing:
             conn.execute("DELETE FROM note_embeddings")
+            if _note_vec_exists(conn):
+                conn.execute("DELETE FROM note_vec")
+        written_stems: list[str] = []
         for (note_path, stem, _), vec in zip(notes_to_embed, vectors, strict=False):
             try:
                 content = note_path.read_text(encoding="utf-8")
@@ -233,8 +353,58 @@ def embed_and_write(
                 """,
                 (stem, str(note_path), folder, title, tags_str, mtime, blob),
             )
+            written_stems.append(stem)
 
+        _sync_note_vec_stems(conn, written_stems)
+
+    if not _note_vec_unavailable:
+        conn.execute(f"PRAGMA user_version = {EMBEDDINGS_SCHEMA_VERSION}")
     return len(notes_to_embed)
+
+
+def _ensure_note_vec_for_write(conn: sqlite3.Connection, dim: int) -> None:
+    """Make note_vec exist at *dim* before a write pass (ENH-022).
+
+    Creates the table when absent. When present with any other dimension —
+    including the undiscoverable dimension of an empty table — drops and
+    recreates at *dim*: the stored note_embeddings rows are stale for the
+    new model either way, and the query path falls back to the exact scan
+    until the rows are rebuilt.
+    """
+    if _note_vec_unavailable:
+        return
+    if not _note_vec_exists(conn):
+        _create_note_vec(conn, dim)
+        return
+    if _note_vec_dim(conn) != dim:
+        conn.execute("DROP TABLE note_vec")
+        _create_note_vec(conn, dim)
+
+
+def _sync_note_vec_stems(conn: sqlite3.Connection, stems: list[str]) -> None:
+    """Mirror the note_embeddings rows for *stems* into note_vec (ENH-022).
+
+    Point-deletes then re-inserts by rowid, so both an upsert that kept a
+    stale id and a fresh AUTOINCREMENT id land on the current vector.
+    Chunked to stay under SQLite's 999 host-parameter limit on very large
+    incremental batches.
+    """
+    if _note_vec_unavailable or not _note_vec_exists(conn):
+        return
+    chunk_size = 400
+    for start in range(0, len(stems), chunk_size):
+        chunk = stems[start : start + chunk_size]
+        marks = ",".join("?" * len(chunk))
+        conn.execute(
+            f"DELETE FROM note_vec WHERE rowid IN "
+            f"(SELECT id FROM note_embeddings WHERE stem IN ({marks}))",
+            chunk,
+        )
+        pairs = conn.execute(
+            f"SELECT id, embedding FROM note_embeddings WHERE stem IN ({marks})",
+            chunk,
+        ).fetchall()
+        conn.executemany("INSERT INTO note_vec(rowid, embedding) VALUES (?, ?)", pairs)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +491,14 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
     deleted_stems = [s for s in stored if s not in current_stems]
     if deleted_stems and not dry_run:
         with conn:
+            # ENH-022: drop the mirrored vec0 rows before their metadata
+            # goes, so the two representations stay row-count-synced.
+            if _note_vec_exists(conn):
+                conn.executemany(
+                    "DELETE FROM note_vec WHERE rowid IN "
+                    "(SELECT id FROM note_embeddings WHERE stem = ?)",
+                    [(s,) for s in deleted_stems],
+                )
             conn.executemany(
                 "DELETE FROM note_embeddings WHERE stem = ?",
                 [(s,) for s in deleted_stems],

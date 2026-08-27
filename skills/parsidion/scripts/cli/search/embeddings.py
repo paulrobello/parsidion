@@ -102,16 +102,18 @@ def _apply_decay(
 
 
 # ENH-003: the fastembed ONNX model is ~67 MB and dominates a search whose real
-# work is an EXACT full-table cosine scan -- ``_search_embeddings`` scores every
-# row in ``note_embeddings`` with ``vec_distance_cosine`` and sorts, which is not
-# an ANN lookup and does not use a vec0 virtual table. Fine up to roughly 10k
-# notes; migrating to a vec0 KNN index is filed as enhancement ENH-022. Cache one
-# instance per model name for the
+# work is ranking rows in SQLite. Cache one instance per model name for the
 # process lifetime (maxsize=2 covers the default plus one override), and
 # serialise embed() so the shared instance is safe under the summarizer's
 # max_parallel fan-out. lru_cache does not memoise exceptions, so a missing
 # fastembed still degrades gracefully (the call-site guard below) and is retried
 # rather than sticky-cached.
+#
+# ENH-022: candidate rows come from the sqlite-vec ``vec0`` KNN index
+# (``note_vec``, dual-written by build_embeddings) whenever it is present and
+# row-count-synced with ``note_embeddings``; otherwise the exact full-table
+# cosine scan serves the query (pre-ENH-022 DBs, interrupted builds). See
+# ``_fetch_candidate_rows``.
 
 
 @functools.lru_cache(maxsize=2)
@@ -295,6 +297,95 @@ def _embed_query(
     return [float(x) for x in embedded[0]]
 
 
+# ENH-022: vec0 KNN candidate fetch with exact-scan fallback. The KNN set is
+# materialized in a derived table before the metadata join — vec0's KNN
+# constraints (MATCH + k) cannot be planned through an arbitrary join in all
+# sqlite-vec releases.
+_KNN_SQL = """
+    SELECT ne.stem, ne.path, ne.folder, ne.title, ne.tags,
+           (1.0 - nv.distance) AS score,
+           ne.mtime
+    FROM (SELECT rowid, distance FROM note_vec
+          WHERE embedding MATCH ? AND k = ?) nv
+    JOIN note_embeddings ne ON ne.id = nv.rowid
+"""
+
+_SCAN_SQL = """
+    SELECT stem, path, folder, title, tags,
+           (1.0 - vec_distance_cosine(embedding, ?)) AS score,
+           mtime
+    FROM note_embeddings
+    ORDER BY score DESC
+    LIMIT ?
+"""
+
+# One-shot notice when the vec0 index cannot serve and the exact scan takes
+# over — the same best-effort stderr channel the service spawn uses. One
+# line per process, not per query.
+_note_vec_fallback_logged = False
+
+
+def _note_vec_fallback_note(reason: str) -> None:
+    """Log (once per process) that search fell back to the exact scan."""
+    global _note_vec_fallback_logged
+    if _note_vec_fallback_logged:
+        return
+    _note_vec_fallback_logged = True
+    print(
+        f"note_vec KNN index unusable ({reason}) — using exact scan fallback",
+        file=sys.stderr,
+    )
+
+
+def _vec0_ready(conn: sqlite3.Connection) -> bool:
+    """True when note_vec can serve this search (ENH-022).
+
+    The table must exist AND hold exactly as many rows as note_embeddings:
+    an absent table means a pre-ENH-022 or not-yet-mirrored DB, and a count
+    mismatch means the mirror is out of sync (e.g. an older binary wrote
+    note_embeddings alone). Both fall back to the exact scan, which is
+    always correct — only slower.
+    """
+    try:
+        present = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note_vec'"
+        ).fetchone()
+        if present is None:
+            return False
+        vec_count = conn.execute("SELECT COUNT(*) FROM note_vec").fetchone()
+        emb_count = conn.execute("SELECT COUNT(*) FROM note_embeddings").fetchone()
+        return bool(
+            vec_count is not None
+            and emb_count is not None
+            and vec_count[0] == emb_count[0]
+        )
+    except sqlite3.Error:
+        return False
+
+
+def _fetch_candidate_rows(
+    conn: sqlite3.Connection, query_blob: bytes, fetch_k: int
+) -> list[tuple[str, str, str, str, str, float, float]]:
+    """Fetch the *fetch_k* nearest candidate rows for the query blob (ENH-022).
+
+    Prefers the vec0 KNN index (cosine distance, so ``1.0 - distance`` is the
+    same score the scan's ``vec_distance_cosine`` produces); falls back to the
+    exact full-table cosine scan when the index is absent/out of sync or the
+    KNN query itself fails. Both paths return
+    ``(stem, path, folder, title, tags, raw cosine score, mtime)`` rows that
+    feed the identical ARC-102 decay → min_score → sort → truncate pipeline
+    in ``_search_embeddings``.
+    """
+    if _vec0_ready(conn):
+        try:
+            return conn.execute(_KNN_SQL, (query_blob, fetch_k)).fetchall()
+        except sqlite3.Error as exc:
+            _note_vec_fallback_note(f"KNN query failed: {exc}")
+    else:
+        _note_vec_fallback_note("table missing or out of sync")
+    return conn.execute(_SCAN_SQL, (query_blob, fetch_k)).fetchall()
+
+
 def _search_embeddings(
     query: str,
     top: int = 10,
@@ -344,21 +435,14 @@ def _search_embeddings(
 
     try:
         conn = _open_db_semantic(db_path)
-        cursor = conn.execute(
-            """
-            SELECT stem, path, folder, title, tags,
-                   (1.0 - vec_distance_cosine(embedding, ?)) AS score,
-                   mtime
-            FROM note_embeddings
-            ORDER BY score DESC
-            LIMIT ?
-            """,
+        rows = _fetch_candidate_rows(
+            conn,
+            query_blob,
             # ARC-102: over-fetch 3x top (the same factor parsight_search
             # uses) — decay can reorder rows, so a raw-cosine LIMIT top
             # would never fetch better-decayed rows just outside it.
-            (query_blob, top * 3),
+            top * 3,
         )
-        rows = cursor.fetchall()
         conn.close()
     except Exception:  # noqa: BLE001 — graceful fallback
         return []

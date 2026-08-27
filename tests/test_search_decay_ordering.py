@@ -64,7 +64,11 @@ def _seed_db(vault: Path, rows: list[tuple[str, float, float]]) -> None:
 def decay_env(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Vault whose embeddings search uses a fixed query vector."""
     monkeypatch.setattr(
-        cli_embeddings, "_embed_query", lambda q, model, vault: list(_QUERY_VEC)
+        cli_embeddings,
+        "_embed_query",
+        # 2286edb threaded the per-call backend through _embed_query as a
+        # fourth positional argument; the stub must accept it.
+        lambda q, model, vault, backend=None: list(_QUERY_VEC),
     )
     return tmp_vault
 

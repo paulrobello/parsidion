@@ -59,7 +59,7 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 
 - Purely local: model weights are downloaded once (~67 MB) and cached; no data leaves the machine
 - CPU-only: no GPU required; built on `fastembed` and `sqlite-vec`
-- Fast enough for ~10 K notes with a brute-force scan (no external vector database needed)
+- Fast at any vault size: `vec0` KNN index with an exact-scan fallback (no external vector database needed)
 - Incremental builds: re-embeds only notes whose `mtime` has changed
 - Temporal decay: newer notes score higher by default; configurable half-life and floor factor
 - Importable `search()` function for use by hooks and agents without spawning a subprocess loop
@@ -151,7 +151,7 @@ graph TB
 
 1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
-3. `vault_search.py`'s `search()` function routes a semantic query according to the `search.backend` config key (default `auto`): when parsight is installed and its daemon is healthy, the query is served by parsight's hybrid BM25+vector+graph retrieval; otherwise it loads the same `fastembed` model, encodes the query, and runs a cosine similarity scan against `note_embeddings` via `sqlite-vec`, returning ranked results as a JSON array. Both backends return identically shaped result dicts. When `decay_enabled` is `true` (the default), raw cosine scores from the embeddings backend are multiplied by an exponential decay factor based on note age, so newer notes rank higher. (`min_score` gates only the embeddings backend; parsight RRF scores are rank-fusion values and gate by rank/`top` instead.) `vault_search.py` also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model, and a `--grep` body-search mode — neither involves a backend choice.
+3. `vault_search.py`'s `search()` function routes a semantic query according to the `search.backend` config key (default `auto`): when parsight is installed and its daemon is healthy, the query is served by parsight's hybrid BM25+vector+graph retrieval; otherwise it loads the same `fastembed` model, encodes the query, and runs a `vec0` KNN lookup against the `note_vec` index via `sqlite-vec` (falling back to an exact cosine scan of `note_embeddings` on databases without a synced index), returning ranked results as a JSON array. Both backends return identically shaped result dicts. When `decay_enabled` is `true` (the default), raw cosine scores from the embeddings backend are multiplied by an exponential decay factor based on note age, so newer notes rank higher. (`min_score` gates only the embeddings backend; parsight RRF scores are rank-fusion values and gate by rank/`top` instead.) `vault_search.py` also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model, and a `--grep` body-search mode — neither involves a backend choice.
 4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking. The facade also re-exports `load_graph_metadata()` and `parse_related_stems()`, which read the `related`/`incoming_links`/`tags` columns to drive the session start hook's graph retrieval passes.
 5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
@@ -266,7 +266,7 @@ The two tables serve complementary roles:
 |--|---|---|
 | **Built by** | `build_embeddings.py` | `update_index.py` |
 | **Query type** | Semantic (cosine similarity via `sqlite-vec`) | Metadata (folder, tag, type, recency) |
-| **Speed** | ~100 ms (brute-force scan) | < 1 ms (indexed SQL) |
+| **Speed** | ~100 ms (vec0 KNN lookup) | < 1 ms (indexed SQL) |
 | **Requires model** | Yes | No |
 | **Updated** | On demand / background | Every index rebuild |
 
@@ -778,13 +778,22 @@ it automatically via incremental updates.
 
 ## Performance and Limits
 
-**Brute-force scan:** `vault_search.py` computes cosine similarity against every row in
-`note_embeddings` on every query. There is no approximate nearest-neighbor index. This is
-intentional — for up to approximately 10,000 notes the scan completes in well under one second
-on modern hardware, and it eliminates the dependency on a vector database server.
+**KNN index with exact-scan fallback (ENH-022):** `build_embeddings.py` dual-writes every vector
+into a sqlite-vec `vec0` virtual table (`note_vec`, cosine distance) alongside `note_embeddings`,
+and `vault_search.py` resolves query candidates through that table's KNN lookup
+(`WHERE embedding MATCH ? AND k = ?`) instead of scoring every row. The KNN path returns the same
+results the exact scan would — same stems, same order, scores identical within float tolerance —
+so query latency stays flat well past the ~10,000-note ceiling the old full-table scan documented.
 
-> **⚠️ Warning:** If your vault grows beyond 10,000 notes, query latency will increase noticeably.
-> At that scale, consider migrating to a dedicated vector store such as Qdrant or Chroma.
+When `note_vec` is absent (a database built before ENH-022) or row-count-out-of-sync with
+`note_embeddings` (an interrupted build), the search automatically falls back to the exact
+full-table cosine scan and notes the fallback once on stderr. The scan is always correct, only
+slower. The next `build_embeddings.py` run — full or incremental — creates and backfills `note_vec`
+from the vectors already stored in `note_embeddings`, no re-embedding required.
+
+> **⚠️ Warning:** The fallback scan's latency still grows linearly with vault size. If you see the
+> one-time `note_vec KNN index unusable` notice on stderr, rebuild the index
+> (`uv run build_embeddings.py --incremental`) to return to the KNN path.
 
 **Model size:** The BAAI/bge-small-en-v1.5 model is approximately 67 MB. It is downloaded once
 on the first run and cached in `~/.cache/fastembed/`. The embedding dimension is 384, so each
