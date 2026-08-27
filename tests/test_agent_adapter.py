@@ -371,7 +371,7 @@ class TestExternalLoading:
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
         agent_adapter.reset_external_adapters()
         try:
             assert "acme" not in agent_adapter.known_runtimes()
@@ -413,7 +413,7 @@ class TestExternalLoading:
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
         vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.load_config.cache_clear()
+        vault_common.clear_config_cache()
         real_getuid = os.getuid
         monkeypatch.setattr(
             os,
