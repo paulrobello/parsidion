@@ -488,6 +488,15 @@ def write_hook_event(
         with open(fd, "r+", encoding="utf-8") as f:
             flock_exclusive(f)
             try:
+                # PRF-102: cheap fstat size gate before the O(file) read.
+                # 64 bytes/line is a conservative floor for these JSON
+                # events (real lines run 150-400 bytes), so the rotation
+                # check engages no later than the exact line count would
+                # while the common append path stays a plain locked write.
+                if os.fstat(f.fileno()).st_size < max_lines * 64:
+                    f.seek(0, 2)
+                    f.write(line)
+                    return
                 f.seek(0)
                 existing_lines = f.readlines()
                 if len(existing_lines) >= max_lines:

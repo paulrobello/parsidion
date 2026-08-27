@@ -363,6 +363,34 @@ class TestWriteHookEventRotation:
         vault_hooks.write_hook_event("Test", "proj", 1.0, seq=99)  # must not raise
         assert log.read_text() == original
 
+    def test_below_byte_threshold_appends_without_rotation(
+        self, tmp_vault: Path
+    ) -> None:
+        """PRF-102: appends under the size gate never rotate — file just grows."""
+        self._configure(tmp_vault, max_lines=1000)
+        log = tmp_vault / "hook_events.log"
+        for i in range(5):
+            vault_hooks.write_hook_event("Test", "proj", 1.0, seq=i)
+        lines = [json.loads(line) for line in log.read_text().splitlines() if line]
+        assert [entry["seq"] for entry in lines] == [0, 1, 2, 3, 4]
+        assert not (tmp_vault / "hook_events.log.tmp").exists()
+
+    def test_size_past_threshold_rotates_and_drops_oldest(
+        self, tmp_vault: Path
+    ) -> None:
+        """PRF-102: once size passes max_lines*64, rotation keeps the tail."""
+        self._configure(tmp_vault, max_lines=4)
+        log = tmp_vault / "hook_events.log"
+        # Seed 4 lines (>= max_lines) whose combined size already exceeds
+        # the 4*64-byte gate, then append: rotation must keep the second
+        # half plus the new line, dropping the oldest.
+        for i in range(4):
+            vault_hooks.write_hook_event("Test", "proj", 1.0, seq=i, pad="x" * 60)
+        assert log.stat().st_size >= 4 * 64
+        vault_hooks.write_hook_event("Test", "proj", 1.0, seq=4, pad="x" * 60)
+        lines = [json.loads(line) for line in log.read_text().splitlines() if line]
+        assert [entry["seq"] for entry in lines] == [2, 3, 4]
+
 
 class TestWriteHookEventPathContainment:
     """SEC-006: event_log.path must resolve inside the vault or ~/.claude/logs."""
