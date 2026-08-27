@@ -411,21 +411,28 @@ keep that cost down (ENH-003):
   (which now call `vault_search.search()` in-process rather than spawning a subprocess) — share a
   single warm model instead of reloading it per call. The embed call is serialised under a lock so
   the shared instance is safe under the summarizer's `max_parallel` fan-out.
-- **Opt-in persistent service.** For *cross-process* sharing — many short-lived `vault-search` CLI
-  invocations or hook subprocesses that would each cold-load the model — set
-  `embeddings.service_enabled: true`. `vault_search` then transparently routes query embeddings
-  through `vault_embed_serve.py`, a long-lived process that holds one warm model and serves embed
-  requests over a local Unix socket (`~/.claude/parsidion-embed/embed-<vault-hash>.sock` —
-  `<vault-hash>` is a sha256 prefix of the resolved vault path, so each vault gets a stable unique socket;
-  mode 0600, outside the synced vault tree, so multi-machine vault git sync never transports it). The service
-  is started lazily by the first enabled caller, idle-exits after `embeddings.service_idle_exit`
-  seconds (default 600), and cleans up its socket/PID on exit.
+- **Persistent service (on by default, ENH-020).** For *cross-process* sharing — many short-lived
+  `vault-search` CLI invocations or hook subprocesses that would each cold-load the model —
+  `vault_search` transparently routes query embeddings through `vault_embed_serve.py`, a long-lived
+  process that holds one warm model and serves embed requests over a local Unix socket
+  (`~/.claude/parsidion-embed/embed-<vault-hash>.sock` — `<vault-hash>` is a sha256 prefix of the
+  resolved vault path, so each vault gets a stable unique socket; mode 0600, outside the synced
+  vault tree, so multi-machine vault git sync never transports it). The service is started lazily
+  and detached by the first enabled caller: the spawn is single-flight (a non-blocking flock on
+  `~/.claude/parsidion-embed/embed-<vault-hash>.lock`, so parallel cold clients launch at most one
+  daemon), the daemon itself self-guards via its PID file plus the atomic socket bind, and it
+  idle-exits after `embeddings.service_idle_exit` seconds (default 600) and cleans up its
+  socket/PID on exit. A launch that loses the bind race exits without touching the winner's
+  socket.
 
-The service is **off by default** and is **never used while parsight serves retrieval** — parsight
-answers semantic queries with its own hybrid retrieval, so local query embeddings are not computed
-at all and the service would be pointless. A daemon miss (not yet started, errored, or absent) is
-normal: `vault_search` falls back to the in-process cached model, so the service is an
-optimization, never a dependency.
+The service is **on by default since ENH-020** (set `embeddings.service_enabled: false` to force
+cold in-process loads) and is **never used while parsight serves retrieval** — parsight answers
+semantic queries with its own hybrid retrieval, so local query embeddings are not computed at all
+and the service would be pointless. A daemon miss (not yet warm, errored, or absent) is normal:
+`vault_search` falls back to the in-process cached model, so the service is an optimization, never
+a dependency. Two hook events make the lifecycle observable in `vault-stats --hooks`:
+`EmbedServiceSpawn` (a client launched the daemon) and `EmbedColdLoad` (debounced — the service
+path was enabled but missed, so this query paid an in-process model load).
 
 ### Output Formats
 
@@ -693,7 +700,7 @@ embeddings:
   decay_enabled: true
   decay_half_life_days: 90
   decay_min_factor: 0.5
-  service_enabled: false        # ENH-003: opt-in persistent embedding service (see above)
+  service_enabled: true         # ENH-020: persistent embedding service, auto-spawned (see above)
   service_idle_exit: 600        # daemon idle-exit seconds
 
 session_start_hook:
@@ -720,7 +727,7 @@ parsight:
 | `decay_enabled` | `embeddings` | boolean | `true` | Apply temporal decay to semantic search scores so newer notes rank higher |
 | `decay_half_life_days` | `embeddings` | float | `90` | Days for a score to decay halfway to `decay_min_factor`; higher values mean slower decay |
 | `decay_min_factor` | `embeddings` | float | `0.5` | Floor multiplier for very old notes (0.0–1.0); prevents scores from vanishing entirely |
-| `service_enabled` | `embeddings` | boolean | `false` | ENH-003: opt-in persistent embedding service (`vault_embed_serve.py`). When `true` and `search.backend` is not `parsight`, `vault_search` shares one warm model across processes via a local Unix socket instead of each caller loading its own ~67 MB ONNX. Never used while parsight serves retrieval |
+| `service_enabled` | `embeddings` | boolean | `true` | ENH-003/ENH-020: persistent embedding service (`vault_embed_serve.py`), auto-spawned single-flight by the first enabled client. While `true` and `search.backend` is not `parsight`, `vault_search` shares one warm model across processes via a local Unix socket instead of each caller loading its own ~67 MB ONNX. Set `false` to force cold in-process loads. Never used while parsight serves retrieval |
 | `service_idle_exit` | `embeddings` | integer | `600` | Seconds the persistent service stays alive with no requests before idle-exiting |
 | `use_embeddings` | `session_start_hook` | boolean | `true` | Enable semantic blending in the session start hook |
 | `graph_expand` | `session_start_hook` | boolean | `true` | Enable Tier 1 graph retrieval — splice 1-hop wikilink neighbours of selected notes into the candidate pool |

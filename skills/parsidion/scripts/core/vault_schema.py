@@ -668,9 +668,9 @@ class EmbeddingsConfig:
         },
     )
     service_enabled: bool = field(
-        default=False,
+        default=True,
         metadata={
-            "doc": "ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while parsight serves retrieval",
+            "doc": "ENH-003/ENH-020: persistent embedding service (vault_embed_serve.py), auto-spawned single-flight on the first enabled client; set false to force cold in-process loads; never used while parsight serves retrieval",
             "read_by": "vault_embed_serve.py, vault_search.py",
         },
     )

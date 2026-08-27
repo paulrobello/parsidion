@@ -15,8 +15,11 @@ its own short-lived process) share one warm model instead of each paying a
 OPT-IN. ``vault_search`` only contacts/starts this service when
 ``embeddings.service_enabled`` is true AND the active search backend is not
 parsight — parsight serves retrieval without local query embeddings, so the
-service is pointless (and never reached) under it. When disabled (the default)
-or under parsight, ``vault_search`` uses its in-process cached model instead.
+service is pointless (and never reached) under it. Since ENH-020 the default
+is true: the first enabled client auto-spawns the daemon (single-flight via
+an flock on the runtime lock file) and it idle-exits on its own, so the
+warm path needs no manual setup. Setting ``service_enabled: false`` reverts
+to cold in-process loads; under parsight the service never runs.
 
 Protocol: newline-delimited JSON over AF_UNIX, one request/response per line::
 
@@ -25,7 +28,10 @@ Protocol: newline-delimited JSON over AF_UNIX, one request/response per line::
 
 Lifecycle: launched detached by the first enabled client; idle-exits after
 ``--idle-exit`` seconds with no connection (default 600). A PID file guards
-against double-launch; a stale PID (dead process) is reclaimed.
+against double-launch; a stale PID (dead process) is reclaimed. Concurrent
+client launches are serialised by an flock on the runtime lock file, and the
+AF_UNIX bind itself is atomic — a launcher that loses the bind race exits
+without touching the winner's socket.
 
 Usage::
 
@@ -88,6 +94,11 @@ def socket_path(vault: Path) -> Path:
 def pid_path(vault: Path) -> Path:
     """PID-file path for *vault*'s embed service (singleton guard)."""
     return runtime_dir() / f"embed-{_vault_hash(vault)}.pid"
+
+
+def lock_path(vault: Path) -> Path:
+    """Flock path for single-flight client spawns of *vault*'s service."""
+    return runtime_dir() / f"embed-{_vault_hash(vault)}.lock"
 
 
 def _read_pid(path: Path) -> int | None:
@@ -207,17 +218,23 @@ def _handle(conn: socket.socket, default_model: str) -> None:
             pass
 
 
-def _cleanup(sock_path: Path, pid_file: Path, our_pid: int) -> None:
-    """Remove only our own socket/pid files (never a successor daemon's)."""
+def _cleanup(sock_path: Path, pid_file: Path, our_pid: int, owns_socket: bool) -> None:
+    """Remove our PID file, and the socket only when *we* bound it.
+
+    A launcher that lost the bind race to a live daemon (owns_socket=False)
+    must not unlink the winner's socket; it still reclaims its own PID file
+    when the write was ours.
+    """
     if _read_pid(pid_file) == our_pid:
         try:
             pid_file.unlink()
         except OSError:
             pass
-    try:
-        sock_path.unlink()
-    except OSError:
-        pass
+    if owns_socket:
+        try:
+            sock_path.unlink()
+        except OSError:
+            pass
 
 
 def main() -> int:
@@ -243,6 +260,9 @@ def main() -> int:
     sock_path = socket_path(vault)
     pid_file = pid_path(vault)
     our_pid = os.getpid()
+    # True only once THIS process has successfully bound the socket — a
+    # launcher that loses the bind race must not unlink the winner's socket.
+    owns_socket = False
 
     # Singleton guard: a live daemon for this vault already owns the socket.
     existing = _read_pid(pid_file)
@@ -264,7 +284,7 @@ def main() -> int:
         _get_model(args.model)
     except Exception as e:  # noqa: BLE001
         print(f"embed service: model load failed: {e}", file=sys.stderr)
-        _cleanup(sock_path, pid_file, our_pid)
+        _cleanup(sock_path, pid_file, our_pid, owns_socket)
         return 1
 
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -272,9 +292,10 @@ def main() -> int:
         srv.bind(str(sock_path))
         os.chmod(sock_path, 0o600)
         srv.listen(8)
+        owns_socket = True
     except OSError as e:
         print(f"embed service: could not bind {sock_path}: {e}", file=sys.stderr)
-        _cleanup(sock_path, pid_file, our_pid)
+        _cleanup(sock_path, pid_file, our_pid, owns_socket)
         return 1
 
     print(
@@ -314,7 +335,7 @@ def main() -> int:
         pass
     finally:
         srv.close()
-        _cleanup(sock_path, pid_file, our_pid)
+        _cleanup(sock_path, pid_file, our_pid, owns_socket)
     return 0
 
 
