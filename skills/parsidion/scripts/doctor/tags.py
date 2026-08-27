@@ -80,6 +80,102 @@ def _find_session_duplicates(notes: list[Path]) -> list[tuple[str, list[Path]]]:
     return [(sid, paths) for sid, paths in session_map.items() if len(paths) > 1]
 
 
+# QA-105: candidate heuristics extracted from _find_tag_duplicates into named
+# predicates, one per merge rule. Each returns its verdict in isolation so the
+# pair loop below only sequences them; behavior is byte-identical to the
+# pre-split elif chain (matching rule order: hyphen/underscore, plural, case,
+# collapsed-hyphen).
+
+
+def _is_hyphen_underscore_variant(t1: str, t2: str) -> bool:
+    """True when the pair differs only by hyphen vs underscore spelling."""
+    return t1.replace("-", "_") == t2 or t1.replace("_", "-") == t2
+
+
+def _plural_variant_order(t1: str, t2: str) -> tuple[str, str] | None:
+    """Return ``(singular, plural)`` for a simple ``-s`` suffix pair, else None."""
+    if t1 + "s" == t2:
+        return (t1, t2)
+    if t2 + "s" == t1:
+        return (t2, t1)
+    return None
+
+
+def _passes_dominance_guard(
+    tag_counts: dict[str, int], singular: str, plural: str
+) -> bool:
+    """b7931fd: True when the pair is two coexisting tags, not drift.
+
+    A "-s" suffix match is a semantic guess, not a form variant: distinct
+    tags can collide (io vs ios). When the "plural" form dominates its
+    "singular" by an order of magnitude, the pair is two coexisting tags,
+    not drift onto a rare typo form — the merge must be skipped.
+    """
+    return tag_counts.get(plural, 0) >= 10 * max(1, tag_counts.get(singular, 0))
+
+
+def _is_case_variant(t1: str, t2: str) -> bool:
+    """True for an exact duplicate spelled with different casing."""
+    return t1.lower() == t2.lower() and t1 != t2
+
+
+def _is_collapsed_hyphen_variant(t1: str, t2: str) -> bool:
+    """True for hyphenated vs single-word spellings (real-time / realtime)."""
+    return t1.replace("-", "") == t2 or t2.replace("-", "") == t1
+
+
+# Sentinel reason: the pair matched the plural heuristic but the dominance
+# guard ruled it two coexisting tags — the caller skips it permanently.
+_DOMINANCE_GUARDED = "dominance-guarded"
+
+
+def _classify_tag_pair(t1: str, t2: str, tag_counts: dict[str, int]) -> str | None:
+    """Classify a tag pair into a merge reason (or None / sentinel).
+
+    Preserves the original rule order: hyphen/underscore, plural/singular
+    (with the b7931fd dominance guard), case, hyphenated/collapsed.
+    """
+    if _is_hyphen_underscore_variant(t1, t2):
+        return "hyphen/underscore"
+
+    order = _plural_variant_order(t1, t2)
+    if order is not None:
+        singular, plural = order
+        if _passes_dominance_guard(tag_counts, singular, plural):
+            return _DOMINANCE_GUARDED
+        return "plural/singular"
+
+    if _is_case_variant(t1, t2):
+        return "case"
+
+    if _is_collapsed_hyphen_variant(t1, t2):
+        return "hyphenated/collapsed"
+
+    return None
+
+
+def _pick_canonical_form(
+    reason: str, t1: str, t2: str, c1: int, c2: int
+) -> tuple[str, str]:
+    """Pick the ``(keep, merge_away)`` ordering for a duplicate pair.
+
+    Vault convention: prefer short, singular, kebab-case tags. So:
+    1. Plural/singular → always keep singular
+    2. Hyphen/underscore → always keep kebab-case
+    3. Hyphenated/collapsed → keep hyphenated (more readable)
+    4. Fallback: higher count wins
+    """
+    if reason == "plural/singular":
+        # Singular is the shorter one (without trailing -s)
+        return (t1, t2) if t1 + "s" == t2 else (t2, t1)
+    if reason == "hyphen/underscore":
+        return (t1, t2) if "-" in t1 and "_" in t2 else (t2, t1)
+    if reason == "hyphenated/collapsed":
+        # Keep the hyphenated form (more readable)
+        return (t1, t2) if "-" in t1 else (t2, t1)
+    return (t1, t2) if c1 >= c2 else (t2, t1)
+
+
 def _find_tag_duplicates(
     tag_counts: dict[str, int],
 ) -> list[tuple[str, str, str]]:
@@ -98,68 +194,132 @@ def _find_tag_duplicates(
             if pair_key in seen:
                 continue
 
-            reason: str | None = None
+            reason = _classify_tag_pair(t1, t2, tag_counts)
+            if reason is None:
+                continue
 
-            # Hyphen vs underscore (exact match after normalization)
-            if t1.replace("-", "_") == t2 or t1.replace("_", "-") == t2:
-                reason = "hyphen/underscore"
+            seen.add(pair_key)
+            if reason == _DOMINANCE_GUARDED:
+                continue
 
-            # Plural/singular (simple -s suffix)
-            elif t1 + "s" == t2 or t2 + "s" == t1:
-                # A "-s" suffix match is a semantic guess, not a form variant:
-                # distinct tags can collide (io vs ios). When the "plural" form
-                # dominates its "singular" by an order of magnitude, the pair is
-                # two coexisting tags, not drift onto a rare typo form — skip it.
-                singular, plural = (t1, t2) if t1 + "s" == t2 else (t2, t1)
-                if tag_counts.get(plural, 0) >= 10 * max(
-                    1, tag_counts.get(singular, 0)
-                ):
-                    seen.add(pair_key)
-                    continue
-                reason = "plural/singular"
-
-            # Exact duplicate with different casing
-            elif t1.lower() == t2.lower() and t1 != t2:
-                reason = "case"
-
-            # Hyphenated vs single-word (e.g. real-time vs realtime)
-            elif t1.replace("-", "") == t2 or t2.replace("-", "") == t1:
-                reason = "hyphenated/collapsed"
-
-            if reason:
-                seen.add(pair_key)
-                c1 = tag_counts.get(t1, 0)
-                c2 = tag_counts.get(t2, 0)
-                # Pick canonical form.  Vault convention: prefer short,
-                # singular, kebab-case tags.  So:
-                # 1. Plural/singular → always keep singular
-                # 2. Hyphen/underscore → always keep kebab-case
-                # 3. Hyphenated/collapsed → keep hyphenated (more readable)
-                # 4. Fallback: higher count wins
-                if reason == "plural/singular":
-                    # Singular is the shorter one (without trailing -s)
-                    if t1 + "s" == t2:
-                        keep, away = t1, t2
-                    else:
-                        keep, away = t2, t1
-                elif reason == "hyphen/underscore":
-                    if "-" in t1 and "_" in t2:
-                        keep, away = t1, t2
-                    else:
-                        keep, away = t2, t1
-                elif reason == "hyphenated/collapsed":
-                    # Keep the hyphenated form (more readable)
-                    if "-" in t1:
-                        keep, away = t1, t2
-                    else:
-                        keep, away = t2, t1
-                elif c1 >= c2:
-                    keep, away = t1, t2
-                else:
-                    keep, away = t2, t1
-                pairs.append((keep, away, reason))
+            keep, away = _pick_canonical_form(
+                reason, t1, t2, tag_counts.get(t1, 0), tag_counts.get(t2, 0)
+            )
+            pairs.append((keep, away, reason))
 
     return pairs
+
+
+# QA-105: the tags-field rewrite split into one helper per representation.
+# _replace_tag_in_note (below) is now the read/dispatch/write orchestrator;
+# each helper returns the rewritten frontmatter text, or None when old_tag
+# was not present (no modification). Byte-identical to the pre-split inline
+# logic.
+
+
+def _strip_tag_quotes(raw: str) -> str:
+    """Strip surrounding whitespace and quote characters from a raw tag item."""
+    return raw.strip().strip('"').strip("'")
+
+
+def _replace_in_inline_list(
+    fm_text: str, match: re.Match[str], old_tag: str, new_tag: str
+) -> str | None:
+    """Rewrite the inline ``tags: [a, b]`` (or quoted) line in place.
+
+    Detects the quoting style from the original items string and re-emits
+    the list in that style. Deduplicates while rebuilding (matching the
+    pre-split behavior).
+    """
+    prefix = match.group(1)
+    items_str = match.group(2)
+    # Parse items, respecting quotes
+    items: list[str] = []
+    for item in re.findall(r'"([^"]*)"', items_str):
+        items.append(item)
+    if not items:
+        # Unquoted inline: [a, b, c]
+        items = [_strip_tag_quotes(i) for i in items_str.split(",")]
+
+    new_items: list[str] = []
+    replaced = False
+    for item in items:
+        if item == old_tag:
+            if new_tag not in new_items:
+                new_items.append(new_tag)
+            replaced = True
+        elif item not in new_items:
+            new_items.append(item)
+
+    if not replaced:
+        return None
+
+    # Detect quoting style from original
+    has_quotes = '"' in items_str
+    if has_quotes:
+        formatted = ", ".join(f'"{t}"' for t in new_items)
+    else:
+        formatted = ", ".join(new_items)
+    new_line = f"{prefix}[{formatted}]"
+    return fm_text[: match.start()] + new_line + fm_text[match.end() :]
+
+
+def _replace_in_frontmatter_array(
+    fm_text: str, match: re.Match[str], old_tag: str, new_tag: str
+) -> str | None:
+    """Rewrite the block-sequence tags field (``tags:\\n  - a\\n  - b``).
+
+    Consumes the contiguous block of ``- item`` lines following the
+    ``tags:`` key (the first line is often empty — the newline right after
+    ``tags:``) and rewrites only that block, leaving later frontmatter
+    fields untouched. Deduplicates while rebuilding (matching the
+    pre-split behavior).
+    """
+    # Split everything after "tags:" into lines and find the
+    # contiguous block of "  - ..." items.
+    after = fm_text[match.end() :]
+    all_lines = after.split("\n")
+    tag_lines: list[str] = []  # original "  - X" lines
+    end_idx = 0
+    for i, line in enumerate(all_lines):
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            tag_lines.append(line)
+            end_idx = i + 1
+        elif not stripped and not tag_lines:
+            # Leading blank line before first item — skip
+            end_idx = i + 1
+            continue
+        elif not stripped and tag_lines:
+            # Blank line after items — end of block
+            break
+        else:
+            break  # next field
+
+    if not tag_lines:
+        return None
+
+    # Parse old tags, build new list with replacement
+    replaced = False
+    seen_tags: set[str] = set()
+    new_tag_lines: list[str] = []
+    for line in tag_lines:
+        tag_val = _strip_tag_quotes(line.strip()[2:])
+        if tag_val == old_tag:
+            if new_tag not in seen_tags:
+                new_tag_lines.append(f"  - {new_tag}")
+                seen_tags.add(new_tag)
+            replaced = True
+        elif tag_val not in seen_tags:
+            new_tag_lines.append(line)
+            seen_tags.add(tag_val)
+
+    if not replaced:
+        return None
+
+    # Reconstruct: "tags:\n" + new tag lines + everything after the block
+    rest = "\n".join(all_lines[end_idx:])
+    return fm_text[: match.end()] + "\n" + "\n".join(new_tag_lines) + "\n" + rest
 
 
 def _replace_tag_in_note(path: Path, old_tag: str, new_tag: str) -> bool:
@@ -167,6 +327,9 @@ def _replace_tag_in_note(path: Path, old_tag: str, new_tag: str) -> bool:
 
     Handles inline lists ``[a, b]``, inline quoted ``["a", "b"]``, and
     block sequence (``- item``) formats.  Returns True if the file was modified.
+
+    Targets the replacement to the tags field only (via the representation
+    helpers above) so other frontmatter fields keep their formatting.
     """
     try:
         content = path.read_text(encoding="utf-8")
@@ -181,100 +344,16 @@ def _replace_tag_in_note(path: Path, old_tag: str, new_tag: str) -> bool:
     fm_text = fm_match.group(1)
     original_fm = fm_text
 
-    # Strategy: find the tags field and do targeted replacement within it.
-    # This avoids corrupting other frontmatter fields.
-
-    # Inline list: tags: [tag1, tag2]
     inline_m = _TAGS_INLINE_RE.search(fm_text)
     if inline_m:
-        prefix = inline_m.group(1)
-        items_str = inline_m.group(2)
-        # Parse items, respecting quotes
-        items: list[str] = []
-        for item in re.findall(r'"([^"]*)"', items_str):
-            items.append(item)
-        if not items:
-            # Unquoted inline: [a, b, c]
-            items = [i.strip().strip('"').strip("'") for i in items_str.split(",")]
-
-        new_items: list[str] = []
-        replaced = False
-        for item in items:
-            if item == old_tag:
-                if new_tag not in new_items:
-                    new_items.append(new_tag)
-                replaced = True
-            elif item not in new_items:
-                new_items.append(item)
-
-        if not replaced:
-            return False
-
-        # Detect quoting style from original
-        has_quotes = '"' in items_str
-        if has_quotes:
-            formatted = ", ".join(f'"{t}"' for t in new_items)
-        else:
-            formatted = ", ".join(new_items)
-        new_line = f"{prefix}[{formatted}]"
-        fm_text = fm_text[: inline_m.start()] + new_line + fm_text[inline_m.end() :]
-
+        fm_text = _replace_in_inline_list(fm_text, inline_m, old_tag, new_tag)
     else:
-        # Block sequence: tags:\n  - item\n  - item\n...
         block_m = _TAGS_BLOCK_START_RE.search(fm_text)
-        if block_m:
-            # Split everything after "tags:" into lines and find the
-            # contiguous block of "  - ..." items.  The first line is
-            # often empty (the newline right after "tags:").
-            after = fm_text[block_m.end() :]
-            all_lines = after.split("\n")
-            tag_lines: list[str] = []  # original "  - X" lines
-            end_idx = 0
-            for i, line in enumerate(all_lines):
-                stripped = line.strip()
-                if stripped.startswith("- "):
-                    tag_lines.append(line)
-                    end_idx = i + 1
-                elif not stripped and not tag_lines:
-                    # Leading blank line before first item — skip
-                    end_idx = i + 1
-                    continue
-                elif not stripped and tag_lines:
-                    # Blank line after items — end of block
-                    break
-                else:
-                    break  # next field
-
-            if not tag_lines:
-                return False
-
-            # Parse old tags, build new list with replacement
-            replaced = False
-            seen_tags: set[str] = set()
-            new_tag_lines: list[str] = []
-            for line in tag_lines:
-                tag_val = line.strip()[2:].strip().strip('"').strip("'")
-                if tag_val == old_tag:
-                    if new_tag not in seen_tags:
-                        new_tag_lines.append(f"  - {new_tag}")
-                        seen_tags.add(new_tag)
-                    replaced = True
-                elif tag_val not in seen_tags:
-                    new_tag_lines.append(line)
-                    seen_tags.add(tag_val)
-
-            if not replaced:
-                return False
-
-            # Reconstruct: "tags:\n" + new tag lines + everything after the block
-            rest = "\n".join(all_lines[end_idx:])
-            fm_text = (
-                fm_text[: block_m.end()] + "\n" + "\n".join(new_tag_lines) + "\n" + rest
-            )
-        else:
+        if not block_m:
             return False
+        fm_text = _replace_in_frontmatter_array(fm_text, block_m, old_tag, new_tag)
 
-    if fm_text == original_fm:
+    if fm_text is None or fm_text == original_fm:
         return False
 
     new_content = content[: fm_match.start(1)] + fm_text + content[fm_match.end(1) :]
