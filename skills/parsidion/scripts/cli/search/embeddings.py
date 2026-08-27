@@ -267,14 +267,20 @@ def _search_embeddings(
             ORDER BY score DESC
             LIMIT ?
             """,
-            (query_blob, top),
+            # ARC-102: over-fetch 3x top (the same factor parsight_search
+            # uses) — decay can reorder rows, so a raw-cosine LIMIT top
+            # would never fetch better-decayed rows just outside it.
+            (query_blob, top * 3),
         )
         rows = cursor.fetchall()
         conn.close()
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
 
-    results: list[dict[str, object]] = []
+    # ARC-102: the ordering contract ("Sorted by score descending") is over
+    # the DECAYED score, matching parsight_search — filter by min_score,
+    # sort on the unrounded decayed score, then truncate to top.
+    scored: list[tuple[float, dict[str, object]]] = []
     for stem, path, folder, title, tags_str, score, mtime in rows:
         if decay_enabled and mtime:
             score = _apply_decay(score, mtime, now)
@@ -282,23 +288,27 @@ def _search_embeddings(
             continue
         tags_raw: str = tags_str if isinstance(tags_str, str) else ""
         tags: list[str] = [t.strip() for t in tags_raw.split(",") if t.strip()]
-        results.append(
-            {
-                "score": round(float(score), 4),
-                "stem": stem,
-                "title": title,
-                "folder": folder,
-                "tags": tags,
-                "path": path,
-                "summary": "",
-                "note_type": "",
-                "project": "",
-                "confidence": "",
-                "mtime": None,
-                "related": [],
-                "is_stale": False,
-                "incoming_links": 0,
-            }
+        scored.append(
+            (
+                float(score),
+                {
+                    "score": round(float(score), 4),
+                    "stem": stem,
+                    "title": title,
+                    "folder": folder,
+                    "tags": tags,
+                    "path": path,
+                    "summary": "",
+                    "note_type": "",
+                    "project": "",
+                    "confidence": "",
+                    "mtime": None,
+                    "related": [],
+                    "is_stale": False,
+                    "incoming_links": 0,
+                },
+            )
         )
 
-    return results
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _, entry in scored[:top]]
