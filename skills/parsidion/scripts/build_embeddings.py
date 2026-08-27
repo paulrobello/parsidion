@@ -52,8 +52,14 @@ _MAX_TEXT_CHARS: int = 1500  # ~400 tokens for bge-small
 # ---------------------------------------------------------------------------
 
 
-def open_db(db_path: Path) -> sqlite3.Connection:
-    """Open (or create) the embeddings database and load the sqlite-vec extension.
+def open_embeddings_db(db_path: Path) -> sqlite3.Connection:
+    """Open (or create) the embeddings database for writing, with schema bootstrapped.
+
+    QA-109: schema-bootstrap wrapper, deliberately *not* named ``open_db`` —
+    that name belongs to the semantically different read-only connector in
+    ``core.vault_metrics``. The sqlite-vec loading itself is the canonical
+    QA-017 connector; only WAL mode and the note_embeddings / note_index DDL
+    live here.
 
     Args:
         db_path: Path to the SQLite database file.
@@ -62,7 +68,6 @@ def open_db(db_path: Path) -> sqlite3.Connection:
         An open sqlite3.Connection with WAL mode and the note_embeddings table
         already created.
     """
-    # QA-017: shared vec-loading connector from core.vault_metrics.
     conn = vault_metrics.connect_with_vec(db_path)
 
     conn.execute("PRAGMA journal_mode=WAL")
@@ -280,7 +285,7 @@ def full_rebuild(vault_root: Path, model_name: str, dry_run: bool) -> None:
         print(f"[dry-run] DB path: {db_path}")
         return
 
-    conn = open_db(db_path)
+    conn = open_embeddings_db(db_path)
     # The DELETE happens inside embed_and_write's transaction, after the
     # embedding model has loaded, so a model-load/network failure cannot
     # leave the semantic index permanently empty.
@@ -306,7 +311,7 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
         full_rebuild(vault_root, model_name, dry_run)
         return
 
-    conn = open_db(db_path)
+    conn = open_embeddings_db(db_path)
     stored = get_stored_mtimes(conn)
 
     current_notes = vault_common.all_vault_notes_walk()
@@ -430,7 +435,7 @@ def main() -> None:
     # existing vectors have a different dimension. Force full rebuild.
     db_path = vault_common.get_embeddings_db_path(vault=vault_path)
     if args.incremental and db_path.exists():
-        conn_check = open_db(db_path)
+        conn_check = open_embeddings_db(db_path)
         row = conn_check.execute(
             "SELECT embedding FROM note_embeddings LIMIT 1"
         ).fetchone()

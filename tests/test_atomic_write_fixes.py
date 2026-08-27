@@ -691,7 +691,7 @@ def build_embeddings_mod(monkeypatch: pytest.MonkeyPatch):
 
 
 def _seed_embeddings_db(mod, db_path: Path) -> None:
-    conn = mod.open_db(db_path)
+    conn = mod.open_embeddings_db(db_path)
     with conn:
         conn.execute(
             "INSERT INTO note_embeddings (stem, path, embedding) VALUES (?, ?, ?)",
