@@ -8,6 +8,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -1530,6 +1531,15 @@ class TestSemanticSearchParsightInProcess:
 # ---------------------------------------------------------------------------
 
 
+def _delta_stems(section: str) -> set[str]:
+    """Stems listed in a ``_build_delta_section`` block."""
+    return {
+        line.split("NEW/UPDATED:", 1)[1].split("(", 1)[0].strip()
+        for line in section.splitlines()
+        if "NEW/UPDATED:" in line
+    }
+
+
 class TestSessionIndexSnapshot:
     """The snapshot must be equivalent to the per-call queries it replaces."""
 
@@ -1648,6 +1658,51 @@ class TestSessionIndexSnapshot:
         assert with_snapshot == without
         # beta links to gamma (outgoing) and alpha links to beta (incoming).
         assert {p.stem for p in with_snapshot} == {"alpha", "gamma"}
+
+    def test_delta_section_agrees_with_the_filesystem_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The snapshot delta must match the walk it replaces.
+
+        This rests on note_index.mtime being the FILE's mtime
+        (update_index.py stores ``note_path.stat().st_mtime``). Were it the
+        index-write time, every rebuild would make the delta list the whole
+        vault -- so pin the two against each other on a fresh index.
+        """
+        vault = self._vault_with_rows(tmp_path)
+        _use_vault(monkeypatch, vault)
+        # Re-index against the real file mtimes rather than the fixture's
+        # synthetic ones, so the two sources are directly comparable.
+        conn = _make_note_index(vault)
+        for note in sorted((vault / "Patterns").glob("*.md")):
+            _index_row(conn, stem=note.stem, path=note, mtime=note.stat().st_mtime)
+        conn.close()
+
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+
+        # A cutoff before every note: both sources must report all three.
+        old = datetime.fromtimestamp(
+            min(r.mtime for r in snapshot.rows) - 60
+        ).isoformat()
+        from_snapshot = session_start_hook._build_delta_section(
+            "proj", old, vault, snapshot=snapshot
+        )
+        from_walk = session_start_hook._build_delta_section("proj", old, vault)
+        assert _delta_stems(from_snapshot) == _delta_stems(from_walk)
+        assert _delta_stems(from_snapshot) == {"alpha", "beta", "gamma"}
+
+        # A cutoff after every note: both must report nothing.
+        future = datetime.fromtimestamp(
+            max(r.mtime for r in snapshot.rows) + 60
+        ).isoformat()
+        assert (
+            session_start_hook._build_delta_section(
+                "proj", future, vault, snapshot=snapshot
+            )
+            == ""
+        )
+        assert session_start_hook._build_delta_section("proj", future, vault) == ""
 
     def test_build_session_context_reads_note_index_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

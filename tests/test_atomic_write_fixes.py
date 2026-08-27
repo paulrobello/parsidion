@@ -427,6 +427,25 @@ class TestGitCommitVaultFailureEvents:
         assert vault_fs.git_commit_vault("second", vault=git_repo) is False
         assert _git_commit_events(git_repo) == []
 
+    def test_nothing_to_commit_with_explicit_paths_is_silent(
+        self, git_repo: Path
+    ) -> None:
+        """The scoped-commit no-op must be silent too.
+
+        update_index.py commits with explicit paths after every index rebuild
+        and a no-op there is routine, so if this branch's output did not match
+        a nothing-to-commit signature, every rebuild would write an error event
+        and rotate the genuine failures out of hook_events.log.
+        """
+        note = git_repo / "note.md"
+        note.write_text("# Note\n", encoding="utf-8")
+        assert vault_fs.git_commit_vault("first", vault=git_repo, paths=[note]) is True
+
+        assert (
+            vault_fs.git_commit_vault("second", vault=git_repo, paths=[note]) is False
+        )
+        assert _git_commit_events(git_repo) == []
+
     def test_success_is_silent(self, git_repo: Path) -> None:
         (git_repo / "note.md").write_text("# Note\n", encoding="utf-8")
         assert vault_fs.git_commit_vault("ok", vault=git_repo) is True
