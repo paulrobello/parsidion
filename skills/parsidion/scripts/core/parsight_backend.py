@@ -27,7 +27,7 @@ from typing import Any
 
 from . import vault_config, vault_fs
 from .subproc_util import run_with_pgkill
-from .vault_config import apply_decay_score
+from .vault_config import apply_decay_score, resolve_decay_params
 from .vault_hooks import write_hook_event
 from .vault_path import get_embeddings_db_path, is_path_inside_vault, resolve_vault
 
@@ -587,19 +587,32 @@ def _load_note_index_rows(
         conn.close()
 
 
-def _decayed_score(score: float, mtime: object, vault: Path) -> float:
+def _decayed_score(
+    score: float,
+    mtime: object,
+    *,
+    decay_enabled: bool,
+    half_life: float,
+    min_factor: float,
+    now: float,
+) -> float:
     """Apply parsidion's temporal decay when enabled and mtime is known.
 
-    ARC-023: ``apply_decay_score`` now lives on ``vault_config`` (a leaf module
+    PRF-103: the decay configuration (enabled flag, half-life, min-factor,
+    reference time) is resolved once per search by the caller — previously
+    this helper re-read config for every scored row. ARC-023:
+    ``apply_decay_score`` now lives on ``vault_config`` (a leaf module
     this file already depends on), so the previous lazy ``import vault_search``
     — required because vault_search top-level imports parsight_backend — is gone.
     The cycle is broken at the import-graph level, not by deferring the import.
     """
-    if _config_value("embeddings", "decay_enabled", True, vault=vault) is not True:
+    if not decay_enabled:
         return score
     if not isinstance(mtime, (int, float)) or not mtime:
         return score
-    return apply_decay_score(score, float(mtime), time.time())
+    return apply_decay_score(
+        score, float(mtime), now, half_life_days=half_life, min_factor=min_factor
+    )
 
 
 def _result_from_index_row(row: dict[str, Any], score: float) -> dict[str, object]:
@@ -712,6 +725,13 @@ def parsight_search(
         if not best:
             return []
         index_rows = _load_note_index_rows(list(best.keys()), vault)
+        # PRF-103: resolve the decay configuration once per search —
+        # previously _decayed_score re-read config for every scored row.
+        decay_enabled = (
+            _config_value("embeddings", "decay_enabled", True, vault=vault) is True
+        )
+        half_life, min_factor = resolve_decay_params(vault)
+        now = time.time()
         scored: list[tuple[float, dict[str, object]]] = []
         for stem, (raw_score, rel) in best.items():
             if index_rows is not None:
@@ -723,7 +743,14 @@ def parsight_search(
                 row_path = Path(str(row.get("path") or ""))
                 if row_path.name and not is_path_inside_vault(row_path, vault):
                     continue
-                final = _decayed_score(raw_score, row.get("mtime"), vault)
+                final = _decayed_score(
+                    raw_score,
+                    row.get("mtime"),
+                    decay_enabled=decay_enabled,
+                    half_life=half_life,
+                    min_factor=min_factor,
+                    now=now,
+                )
                 scored.append((final, _result_from_index_row(row, final)))
             else:
                 note_path = vault / rel
@@ -733,7 +760,14 @@ def parsight_search(
                     file_mtime: float | None = note_path.stat().st_mtime
                 except OSError:
                     file_mtime = None
-                final = _decayed_score(raw_score, file_mtime, vault)
+                final = _decayed_score(
+                    raw_score,
+                    file_mtime,
+                    decay_enabled=decay_enabled,
+                    half_life=half_life,
+                    min_factor=min_factor,
+                    now=now,
+                )
                 scored.append(
                     (final, _result_from_path(note_path, vault, final, file_mtime))
                 )

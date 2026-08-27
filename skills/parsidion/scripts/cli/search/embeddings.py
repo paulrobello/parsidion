@@ -31,7 +31,7 @@ from cli.search._common import (
     _EMBED_MODEL_LOCK,
     _configured_search_backend,
 )
-from vault_config import apply_decay_score
+from vault_config import apply_decay_score, resolve_decay_params
 
 
 def _open_db_semantic(db_path: Path) -> sqlite3.Connection:
@@ -64,7 +64,15 @@ def _pack_vector(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
-def _apply_decay(score: float, mtime: float, now: float) -> float:
+def _apply_decay(
+    score: float,
+    mtime: float,
+    now: float,
+    *,
+    half_life_days: float | None = None,
+    min_factor: float | None = None,
+    vault: Path | None = None,
+) -> float:
     """Apply temporal decay to a semantic search score.
 
     ARC-023: thin wrapper around ``vault_config.apply_decay_score`` (the
@@ -73,8 +81,17 @@ def _apply_decay(score: float, mtime: float, now: float) -> float:
     internal call sites and parsight_backend's lazy import (if any older copy of
     the module still references it) keep resolving during the transition.
     New code should call ``vault_config.apply_decay_score`` directly.
+    PRF-103: accepts the decay parameters explicitly so the scoring loop can
+    resolve them once per search instead of per row.
     """
-    return apply_decay_score(score, mtime, now)
+    return apply_decay_score(
+        score,
+        mtime,
+        now,
+        half_life_days=half_life_days,
+        min_factor=min_factor,
+        vault=vault,
+    )
 
 
 # ENH-003: the fastembed ONNX model is ~67 MB and dominates a search whose real
@@ -255,6 +272,10 @@ def _search_embeddings(
         True,
     )
     now = time.time() if decay_enabled else 0.0
+    # PRF-103: resolve the decay parameters once per search — previously
+    # apply_decay_score re-read them (two get_config calls, each rebuilding
+    # the config tree) for every scored row.
+    half_life, min_factor = resolve_decay_params(vault)
 
     try:
         conn = _open_db_semantic(db_path)
@@ -283,7 +304,9 @@ def _search_embeddings(
     scored: list[tuple[float, dict[str, object]]] = []
     for stem, path, folder, title, tags_str, score, mtime in rows:
         if decay_enabled and mtime:
-            score = _apply_decay(score, mtime, now)
+            score = _apply_decay(
+                score, mtime, now, half_life_days=half_life, min_factor=min_factor
+            )
         if score < min_score:
             continue
         tags_raw: str = tags_str if isinstance(tags_str, str) else ""

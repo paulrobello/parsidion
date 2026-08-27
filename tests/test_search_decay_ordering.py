@@ -174,3 +174,92 @@ class TestDecayOrderingContract:
         )
         assert len(results) == 3
         assert [r["stem"] for r in results] == ["n5", "n4", "n3"]
+
+
+# ---------------------------------------------------------------------------
+# PRF-103: no per-row config reads in the scoring loops
+# ---------------------------------------------------------------------------
+
+
+class TestDecayConfigHoistedOutOfLoops:
+    def test_apply_decay_score_with_explicit_params_skips_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Explicit decay parameters must not read config at all."""
+        from core import vault_config as core_vc
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise AssertionError(
+                "explicit-param apply_decay_score must not read config (PRF-103)"
+            )
+
+        monkeypatch.setattr(core_vc, "get_config", _boom)
+        now = time.time()
+        score = core_vc.apply_decay_score(
+            0.9, now - 90 * 86400.0, now, half_life_days=90.0, min_factor=0.5
+        )
+        # One half-life old: decays to the midpoint between 1.0 and 0.5.
+        assert score == pytest.approx(0.9 * 0.75, rel=1e-6)
+
+    def test_scoring_loop_never_reads_get_config(
+        self, decay_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The row loop must not touch get_config (previously 2 calls/row)."""
+        from core import vault_config as core_vc
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise AssertionError("scoring loop must not read config per row (PRF-103)")
+
+        monkeypatch.setattr(core_vc, "get_config", _boom)
+        now = time.time()
+        _seed_db(
+            decay_env,
+            [(f"n{i}", 0.80 + 0.01 * i, now - i * 86400.0) for i in range(5)],
+        )
+        results = cli_embeddings._search_embeddings(
+            "q", top=5, min_score=0.0, vault=decay_env
+        )
+        assert len(results) == 5
+
+    def test_resolve_decay_params_defaults_and_overrides(self, tmp_vault: Path) -> None:
+        import vault_common
+        from vault_config import resolve_decay_params
+
+        assert resolve_decay_params(vault=tmp_vault) == (90.0, 0.5)
+        (tmp_vault / "config.yaml").write_text(
+            "embeddings:\n  decay_half_life_days: 30\n  decay_min_factor: 0.2\n",
+            encoding="utf-8",
+        )
+        vault_common.clear_config_cache()
+        assert resolve_decay_params(vault=tmp_vault) == (30.0, 0.2)
+
+    def test_resolve_decay_params_garbage_falls_back_to_defaults(
+        self, tmp_vault: Path
+    ) -> None:
+        import vault_common
+        from vault_config import resolve_decay_params
+
+        (tmp_vault / "config.yaml").write_text(
+            "embeddings:\n"
+            "  decay_half_life_days: not-a-number\n"
+            "  decay_min_factor: also-not-a-number\n",
+            encoding="utf-8",
+        )
+        vault_common.clear_config_cache()
+        assert resolve_decay_params(vault=tmp_vault) == (90.0, 0.5)
+
+    def test_omitted_params_still_read_config(self, tmp_vault: Path) -> None:
+        """Back-compat path: apply_decay_score without params reads config."""
+        from vault_config import apply_decay_score
+
+        (tmp_vault / "config.yaml").write_text(
+            "embeddings:\n  decay_half_life_days: 30\n  decay_min_factor: 0.5\n",
+            encoding="utf-8",
+        )
+        import vault_common
+
+        vault_common.clear_config_cache()
+        now = time.time()
+        # 30-day half-life, 30 days old: factor 0.75.
+        score = apply_decay_score(0.8, now - 30 * 86400.0, now, vault=tmp_vault)
+        assert score == pytest.approx(0.8 * 0.75, rel=1e-6)

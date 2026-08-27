@@ -63,6 +63,7 @@ __all__: list[str] = [
     # Embedding-score temporal decay (ARC-023: leaf location so vault_search
     # and parsight_backend can both import it top-level without forming a cycle)
     "apply_decay_score",
+    "resolve_decay_params",
     # Config validation
     "validate_config",
     "_CONFIG_SCHEMA",
@@ -691,31 +692,76 @@ def _clear_typed_config_cache() -> None:
 # callers import it at module top level and drops the lazy import.
 
 
-def apply_decay_score(score: float, mtime: float, now: float) -> float:
+def resolve_decay_params(vault: Path | None = None) -> tuple[float, float]:
+    """Resolve ``(decay_half_life_days, decay_min_factor)`` for batch scoring.
+
+    PRF-103: the scoring loops in both search backends call this once per
+    search instead of paying two :func:`get_config` reads per scored row
+    (each of which rebuilds/copies the config tree). Non-numeric configured
+    values fall back to the schema defaults so a malformed config value
+    degrades to default decay instead of failing the whole search.
+
+    Args:
+        vault: Optional vault path so multi-vault callers read the config of
+            the vault they are operating on (ARC-101).
+
+    Returns:
+        ``(half_life_days, min_factor)`` as floats.
+    """
+    embeddings = load_typed_config(vault=vault).embeddings
+    half_life = embeddings.decay_half_life_days
+    if isinstance(half_life, bool) or not isinstance(half_life, (int, float)):
+        half_life = 90.0
+    min_factor = embeddings.decay_min_factor
+    if isinstance(min_factor, bool) or not isinstance(min_factor, (int, float)):
+        min_factor = 0.5
+    return float(half_life), float(min_factor)
+
+
+def apply_decay_score(
+    score: float,
+    mtime: float,
+    now: float,
+    *,
+    half_life_days: float | None = None,
+    min_factor: float | None = None,
+    vault: Path | None = None,
+) -> float:
     """Apply exponential temporal decay to an embedding/RRF search score.
 
-    Reads ``embeddings.decay_half_life_days`` (default 90) and
-    ``embeddings.decay_min_factor`` (default 0.5) from config. The decay factor
-    is ``min_factor + (1 - min_factor) * e^(-lambda * age_days)`` where
-    ``lambda = ln(2) / half_life_days`` — so a note exactly ``half_life_days``
-    old decays to the midpoint between 1.0 and ``min_factor``.
+    The decay factor is ``min_factor + (1 - min_factor) * e^(-lambda *
+    age_days)`` where ``lambda = ln(2) / half_life_days`` — so a note exactly
+    ``half_life_days`` old decays to the midpoint between 1.0 and
+    ``min_factor``.
+
+    PRF-103: batch callers pass *half_life_days* and *min_factor* explicitly
+    (resolved once per search via :func:`resolve_decay_params`) so scored rows
+    never trigger config reads. When omitted, both are read from config
+    (``embeddings.decay_half_life_days``, default 90, and
+    ``embeddings.decay_min_factor``, default 0.5) — the pre-PRF-103 behavior
+    for non-hot callers.
 
     Args:
         score: Raw similarity / RRF score.
         mtime: Note file modification time (Unix timestamp).
         now: Reference timestamp (typically ``time.time()``); pass 0.0 to skip
             decay (used when the caller has already decided decay is disabled).
+        half_life_days: Decay half-life in days; None reads it from config.
+        min_factor: Floor multiplier for very old notes; None reads it from
+            config.
+        vault: Optional vault path used only when reading config because the
+            decay parameters were omitted.
 
     Returns:
         Decay-adjusted score. When ``mtime`` is 0/missing the score is returned
         unchanged (the original code path that gated on ``if mtime``).
     """
-    half_life: float = get_config("embeddings", "decay_half_life_days", 90.0)
-    min_factor: float = get_config("embeddings", "decay_min_factor", 0.5)
+    if half_life_days is None or min_factor is None:
+        half_life_days, min_factor = resolve_decay_params(vault)
     if not mtime:
         return score
     age_days = max(0.0, (now - mtime) / 86400.0)
-    lam = math.log(2) / half_life
+    lam = math.log(2) / half_life_days
     decay = min_factor + (1.0 - min_factor) * math.exp(-lam * age_days)
     return score * decay
 
