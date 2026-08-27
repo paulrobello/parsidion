@@ -483,7 +483,7 @@ Notes are moved, wikilinks in all vault notes are updated, `doctor_state.json` i
 
 **State file:** `<vault>/doctor_state.json` tracks per-note status across runs:
 - `ok` — no issues; skipped for 7 days before re-checking
-- `fixed` — the prompt AI backend repaired it; re-checked on next run
+- `fixed` — a repair was applied (prompt AI backend or the deterministic frontmatter pre-pass); re-checked on next run
 - `failed` — the prompt AI backend returned no output; retried next run
 - `timeout` — the prompt AI backend timed out once; retried one more time
 - `needs_review` — timed out on retry; skipped indefinitely, flagged for user
