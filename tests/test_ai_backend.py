@@ -506,7 +506,10 @@ class TestRunAiPrompt:
         assert kwargs["timeout"] == ai_backend._DEFAULT_GROK_TIMEOUT
 
     def test_grok_allow_tools_true_omits_tool_flags_and_warns(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """SEC-202: only the explicit allow_tools opt-in re-arms tools, and it warns."""
         vault = _reset_config(
