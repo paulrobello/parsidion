@@ -366,3 +366,60 @@ class TestSafeEnv:
         monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:6666/mcp")
         env = vault_common.env_without_claudecode(vault=tmp_vault)
         assert env["PARSIGHT_MCP_URL"] == "http://127.0.0.1:6666/mcp"
+
+
+class TestParsightEnvAllowlist:
+    """SEC-206: parsight subprocesses get the ``_PARSIGHT_ENV_KEYS`` allowlist,
+    not the full ``_SAFE_ENV_KEYS`` set the claude -p path forwards — the
+    parsight CLI talks to a local daemon and must never receive Anthropic
+    credentials."""
+
+    def test_parsight_env_helper_is_allowlist(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "tok-test")
+        monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:6666/mcp")
+        env = parsight_backend._parsight_env()
+        assert set(env) <= set(parsight_backend._PARSIGHT_ENV_KEYS)
+        assert env["PARSIGHT_MCP_URL"] == "http://127.0.0.1:6666/mcp"
+        assert "ANTHROPIC_API_KEY" not in env
+        assert "ANTHROPIC_AUTH_TOKEN" not in env
+
+    def test_run_parsight_child_env_omits_anthropic_keys(
+        self,
+        tmp_vault: Path,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """End-to-end through _run_parsight: the fake binary records its
+        actual environment names; the Anthropic keys set in the parent must
+        not appear there."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "tok-test")
+        assert parsight_backend.doc_links_raw(vault=tmp_vault) is not None
+        call = fake_parsight.wait_for_call("doc-links")
+        env_keys = call.get("env_keys")
+        assert isinstance(env_keys, list)
+        assert "ANTHROPIC_API_KEY" not in env_keys
+        assert "ANTHROPIC_AUTH_TOKEN" not in env_keys
+        assert "PATH" in env_keys
+        assert "HOME" in env_keys
+
+    def test_spawn_background_index_child_env_omits_anthropic_keys(
+        self,
+        tmp_vault: Path,
+        fake_parsight: FakeParsight,
+        fake_parsight_health: FakeHealth,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "tok-test")
+        assert parsight_backend.spawn_background_index(vault=tmp_vault) is True
+        call = fake_parsight.wait_for_call("index")
+        env_keys = call.get("env_keys")
+        assert isinstance(env_keys, list)
+        assert "ANTHROPIC_API_KEY" not in env_keys
+        assert "ANTHROPIC_AUTH_TOKEN" not in env_keys
+        assert "PARSIGHT_MCP_URL" in env_keys

@@ -28,7 +28,7 @@ from typing import Any
 from . import vault_config, vault_fs
 from .subproc_util import run_with_pgkill
 from .vault_config import apply_decay_score
-from .vault_hooks import env_without_claudecode, write_hook_event
+from .vault_hooks import write_hook_event
 from .vault_path import get_embeddings_db_path, is_path_inside_vault, resolve_vault
 
 __all__: list[str] = [
@@ -59,6 +59,19 @@ _MCP_PROBE_TIMEOUT_S = 2.0
 _MCP_PROTOCOL_VERSION = "2025-06-18"
 _LOG_DIR = Path.home() / ".claude" / "logs"
 _LOG_NAME = "parsidion-parsight.log"
+
+# SEC-206: parsight subprocesses talk to a local daemon and never need
+# Anthropic credentials — build their env from this minimal allowlist
+# (pattern: ``_CODEX_ENV_KEYS``/``_GROK_ENV_KEYS`` in core/ai_backend.py)
+# instead of forwarding every ``_SAFE_ENV_KEYS`` entry. ``PARSIGHT_MCP_URL``
+# overrides the daemon endpoint; PATH/HOME cover binary resolution and
+# config discovery. Add a key only after verifying the CLI reads it.
+_PARSIGHT_ENV_KEYS = ("PATH", "HOME", "PARSIGHT_MCP_URL")
+
+
+def _parsight_env() -> dict[str, str]:
+    """Return the least-privilege env for a parsight CLI subprocess (SEC-206)."""
+    return {key: value for key, value in os.environ.items() if key in _PARSIGHT_ENV_KEYS}
 
 # Per-process availability cache: str(vault) -> absolute binary path when
 # available, or None when parsight was probed and found unavailable.
@@ -372,6 +385,10 @@ def _run_parsight(
     the shared process-group-kill implementation extracted from this and
     ``ai_backend._run_prompt_subprocess`` (which had drifted). The 3a wave
     should repoint ai_backend at the same helper.
+
+    SEC-206: the child env is the ``_PARSIGHT_ENV_KEYS`` allowlist, not
+    ``env_without_claudecode`` — the parsight CLI never needs the
+    Anthropic credentials that helper forwards.
     """
     binary = _resolve_binary(vault)
     if binary is None:
@@ -381,7 +398,7 @@ def _run_parsight(
         cmd,
         cwd=cwd,
         timeout=timeout,
-        env=env_without_claudecode(vault=vault),
+        env=_parsight_env(),
     )
 
 
@@ -749,7 +766,7 @@ def spawn_background_index(vault: Path | None = None) -> bool:
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
-            env=env_without_claudecode(vault=vault),
+            env=_parsight_env(),
             start_new_session=True,
         )
         return True
@@ -781,7 +798,7 @@ def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
-            env=env_without_claudecode(vault=vault),
+            env=_parsight_env(),
             start_new_session=True,
         )
         return True
