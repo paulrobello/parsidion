@@ -59,6 +59,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "timeout": (int, float),
         "minimal_context": (bool,),
         "system_prompt": (str,),
+        "allow_tools": (bool,),  # SEC-202: explicit tools opt-in
     },
     "codex_cli": {
         "command": (str,),
