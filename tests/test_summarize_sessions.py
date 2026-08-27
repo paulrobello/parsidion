@@ -773,6 +773,10 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
+    # name from core.vault_config, so the option resolution in main() needs
+    # the stub bound there too — otherwise it reads the real machine config.
+    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
     )
@@ -868,6 +872,10 @@ def test_main_requeues_write_gate_skips_in_default_queue(
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
+    # name from core.vault_config, so the option resolution in main() needs
+    # the stub bound there too — otherwise it reads the real machine config.
+    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
     )
@@ -948,6 +956,10 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
+    # name from core.vault_config, so the option resolution in main() needs
+    # the stub bound there too — otherwise it reads the real machine config.
+    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: tmp_path / "vault"
     )
