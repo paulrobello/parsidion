@@ -536,6 +536,7 @@ session_start_hook:
   debug: false             # Append injected context to debug log in $TMPDIR
   verbose_mode: false      # If true, inject full note summaries instead of compact one-line index
   use_embeddings: true     # Blend semantic matches into context; graceful fallback if db absent
+  show_dead_letter_notice: false  # Include the dead-letter queue warning in SessionStart context
 
 session_stop_hook:
   ai_model: null           # Model for AI classification (null = disabled)

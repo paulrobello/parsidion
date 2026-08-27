@@ -411,7 +411,7 @@ def build_session_context(
 
     # --- Pending queue warning (#3) ---
     pending_notice = _build_pending_notice(vault_path)
-    if load_typed_config().session_start_hook.show_dead_letter_notice:
+    if load_typed_config(vault=vault_path).session_start_hook.show_dead_letter_notice:
         dead_letter_notice = _build_dead_letter_notice(vault_path)
         if dead_letter_notice:
             pending_notice = (

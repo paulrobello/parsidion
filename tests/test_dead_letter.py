@@ -494,6 +494,68 @@ def test_no_dead_letter_notice_when_file_absent(
     assert "dead-lettered" not in context
 
 
+def test_selected_vault_config_loaded_under_different_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The dead-letter guard must load config for the resolved vault, not the process cwd.
+
+    OMP/pi runs python scripts with cwd=scriptDir, but resolves the target vault
+    from the project's cwd (stdin JSON). The guard must load the resolved vault's
+    config to determine whether to show the dead-letter notice.
+    """
+    default_vault = tmp_path / "default_vault"
+    vault_common.ensure_vault_dirs(default_vault)
+    (default_vault / "config.yaml").write_text(
+        "session_start_hook:\n  show_dead_letter_notice: false\n", encoding="utf-8"
+    )
+
+    project_vault = tmp_path / "project_vault"
+    vault_common.ensure_vault_dirs(project_vault)
+    (project_vault / "config.yaml").write_text(
+        "session_start_hook:\n  show_dead_letter_notice: true\n", encoding="utf-8"
+    )
+    (project_vault / "dead_letters.jsonl").write_text(
+        json.dumps({"session_id": "a", "project": "p1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    # Allowlist both vaults by registering them in vaults.yaml
+    cfg_dir = tmp_path / ".config" / "parsidion"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  default_vault: {default_vault}\n  project_vault: {project_vault}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    monkeypatch.setattr(vault_common, "VAULT_ROOT", default_vault)
+
+    # Set up project directory pointing to project_vault
+    project_dir = tmp_path / "my_project"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / ".claude").mkdir(parents=True, exist_ok=True)
+    (project_dir / ".claude" / "vault").write_text("project_vault\n", encoding="utf-8")
+
+    # Set process cwd to a neutral directory so Path.cwd() does not match project_dir
+    neutral_dir = tmp_path / "neutral"
+    neutral_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(neutral_dir)
+
+    # Clear caches
+    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
+
+    # Mock filesystem scans
+    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
+    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+    monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
+
+    # Build context from project_dir (which resolves to project_vault)
+    context, _count = session_start_hook.build_session_context(cwd=str(project_dir))
+
+    # The notice should be shown because project_vault has show_dead_letter_notice: true
+    assert "⚠ 1 session summary(ies) were dead-lettered" in context
+
+
 # ---------------------------------------------------------------------------
 # ARC-030: non-retryable failures dead-letter on attempt 1
 # ---------------------------------------------------------------------------
