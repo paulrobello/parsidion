@@ -196,11 +196,19 @@ def _apply_graph_retrieval(
     seed_snapshot: list[Path] = list(all_notes)
 
     if (
-        get_config("session_start_hook", "graph_expand", _DEFAULT_GRAPH_EXPAND)
+        get_config(
+            "session_start_hook",
+            "graph_expand",
+            _DEFAULT_GRAPH_EXPAND,
+            vault=vault_path,
+        )
         and graph_meta is not None
     ):
         max_add = get_config(
-            "session_start_hook", "graph_expand_max", _DEFAULT_GRAPH_EXPAND_MAX
+            "session_start_hook",
+            "graph_expand_max",
+            _DEFAULT_GRAPH_EXPAND_MAX,
+            vault=vault_path,
         )
         for note in _graph_neighbors(seed_snapshot, graph_meta, vault_path, max_add):
             resolved = note.resolve()
@@ -209,7 +217,12 @@ def _apply_graph_retrieval(
                 all_notes.append(note)
 
     if (
-        get_config("session_start_hook", "graph_rerank", _DEFAULT_GRAPH_RERANK)
+        get_config(
+            "session_start_hook",
+            "graph_rerank",
+            _DEFAULT_GRAPH_RERANK,
+            vault=vault_path,
+        )
         and graph_meta is not None
         and all_notes
     ):
@@ -222,6 +235,6 @@ def _apply_graph_retrieval(
         # submodule is fully loaded.
         from .seed_selection import _rank_by_usefulness
 
-        all_notes = _rank_by_usefulness(all_notes)
+        all_notes = _rank_by_usefulness(all_notes, vault=vault_path)
 
     return all_notes

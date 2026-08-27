@@ -426,8 +426,12 @@ def test_dead_letter_notice_included_in_session_context(
         encoding="utf-8",
     )
     _use_vault(monkeypatch, vault)
-    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
-    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+    monkeypatch.setattr(
+        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+    )
+    monkeypatch.setattr(
+        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+    )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
     (vault / "dead_letters.jsonl").write_text(
@@ -458,8 +462,12 @@ def test_dead_letter_notice_suppressed_by_default(
         encoding="utf-8",
     )
     _use_vault(monkeypatch, vault)
-    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
-    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+    monkeypatch.setattr(
+        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+    )
+    monkeypatch.setattr(
+        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+    )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
     (vault / "dead_letters.jsonl").write_text(
         json.dumps({"session_id": "a", "project": "p1"}) + "\n",
@@ -485,8 +493,12 @@ def test_no_dead_letter_notice_when_file_absent(
         encoding="utf-8",
     )
     _use_vault(monkeypatch, vault)
-    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
-    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+    monkeypatch.setattr(
+        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+    )
+    monkeypatch.setattr(
+        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+    )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
     context, _count = session_start_hook.build_session_context(cwd=str(vault))
@@ -545,8 +557,12 @@ def test_selected_vault_config_loaded_under_different_cwd(
     vault_common.load_config.cache_clear()  # type: ignore[attr-defined]
 
     # Mock filesystem scans
-    monkeypatch.setattr(session_start_hook, "find_notes_by_project", lambda project: [])
-    monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+    monkeypatch.setattr(
+        session_start_hook, "find_notes_by_project", lambda project, vault=None: []
+    )
+    monkeypatch.setattr(
+        session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+    )
     monkeypatch.setattr(session_start_hook, "_run_semantic_search", lambda *a, **k: [])
 
     # Build context from project_dir (which resolves to project_vault)

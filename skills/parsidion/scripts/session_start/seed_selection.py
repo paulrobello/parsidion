@@ -80,8 +80,10 @@ def _build_candidates(
         max_candidates = _DEFAULT_AI_CANDIDATES_MAX
 
     # ARC-011: Try SQLite first for project notes (O(1) index lookup)
-    db_project_notes = query_note_index(project=project_name, limit=500)
-    db_recent_notes = query_note_index(recent_days=30, limit=500)
+    db_project_notes = query_note_index(
+        project=project_name, limit=500, vault=vault_path
+    )
+    db_recent_notes = query_note_index(recent_days=30, limit=500, vault=vault_path)
 
     if db_project_notes is not None and db_recent_notes is not None:
         # SQLite path: fast, no file reads needed for candidate list
@@ -135,6 +137,7 @@ def _build_candidates(
         {str(n) for n in neighbours},
         graph_meta,
         max_candidates,
+        vault=vault_path,
     )
 
 
@@ -144,16 +147,21 @@ def _rank_candidates(
     neighbour_paths: set[str],
     graph_meta: dict[str, dict[str, object]] | None,
     max_candidates: int,
+    vault: Path | None = None,
 ) -> list[Path]:
     """Score, de-duplicate, order, and cap the AI-mode candidate pool.
 
     Scoring is deliberately cheap (no embeddings, no AI): one usefulness JSON
     load, one ``stat`` per note, and graph metadata lookups when the index
     exists. See :func:`_build_candidates` for the signal weights.
+
+    Args:
+        vault: Vault root the candidates belong to (ARC-101); used for the
+            ``adaptive_context.decay_days`` config lookup.
     """
     usefulness = load_usefulness_scores()
     now = time.time()
-    decay_days = get_config("adaptive_context", "decay_days", 30)
+    decay_days = get_config("adaptive_context", "decay_days", 30, vault=vault)
 
     def score_and_mtime(note: Path) -> tuple[float, float]:
         key = str(note)
@@ -195,7 +203,7 @@ def _rank_candidates(
     return ranked[:max_candidates] if max_candidates > 0 else ranked
 
 
-def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
+def _rank_by_usefulness(notes: list[Path], vault: Path | None = None) -> list[Path]:
     """Re-rank *notes* by decayed usefulness score (adaptive context #17).
 
     Notes with a positive hit/miss ratio float to the top; notes that were
@@ -208,13 +216,15 @@ def _rank_by_usefulness(notes: list[Path]) -> list[Path]:
 
     Args:
         notes: Candidate note paths in their current order.
+        vault: Vault root the notes belong to (ARC-101); used for the
+            ``adaptive_context.decay_days`` config lookup.
 
     Returns:
         Re-ranked list of the same paths.
     """
     scores = load_usefulness_scores()
     now = time.time()
-    decay_days = get_config("adaptive_context", "decay_days", 30)
+    decay_days = get_config("adaptive_context", "decay_days", 30, vault=vault)
 
     def _score(path: Path) -> float:
         """Decayed Laplace-smoothed usefulness score in [0, 1] for *path*."""
