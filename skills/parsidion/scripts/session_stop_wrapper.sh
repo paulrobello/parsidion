@@ -23,8 +23,13 @@ fi
 
 # SEC-007: redirect log to ~/.claude/logs/ (user-private) instead of world-readable
 # /tmp/session_stop_hook.log to prevent other users from reading session metadata.
+# SEC-203: umask 077 from here on so the log dir/file and anything the detached
+# child creates land owner-only (0644/0755 at default umask would expose
+# cwd/transcript paths until the first Python hook repairs them).
+umask 077
 LOG_DIR="$HOME/.claude/logs"
 mkdir -p "$LOG_DIR"
+chmod 700 "$LOG_DIR"  # SEC-203: also repairs a pre-existing dir from before umask 077
 LOG_FILE="$LOG_DIR/session_stop_hook.log"
 
 # SEC-003: restrict temp file permissions to owner-only (mode 0600) by setting
