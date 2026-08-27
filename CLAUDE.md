@@ -360,13 +360,14 @@ A failed gitleaks/detect-private-key hook is a hard block — never bypass it. I
 | `make typecheck` | `uv run pyright .` | Type-check Python |
 | `make test` | `uv run pytest tests/` | Run unit test suite (numpy-free) |
 | `make test-graph` | `uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parsight.py` | parsight body-link enrichment tests (numpy-gated; the import probe fails fast when numpy cannot load) |
+| `make test-search` | `uv run --with sqlite-vec --with fastembed pytest tests/test_search_decay_ordering.py tests/test_vec0_ann_search.py` | sqlite_vec-gated search suites (decay contract + vec0 ANN parity/fallback); skipped by `make test`, which runs without the search extra — both deps are needed because `build_embeddings` exits at import when fastembed is absent |
 | `make parity-fixtures` | `uv run python scripts/gen_parity_fixtures.py` | ENH-005: regenerate `tests/fixtures/graph.schema.json` from `build_graph.py:GRAPH_JSON_SCHEMA` and structurally validate the vault-resolution vectors. Run after editing either. |
 | `make parity-fixtures-check` | `uv run python scripts/gen_parity_fixtures.py --check` | ENH-005 CI gate — regenerate to temp and diff against the committed fixtures; exits 1 on drift. |
 | `make config-docs` | `uv run python scripts/gen_config_docs.py` | ENH-017: regenerate the CLAUDE.md config table, the `docs/ARCHITECTURE.md` reference block, `skills/parsidion/templates/config.yaml`, and the standalone copies under `docs/generated/` from `core/vault_schema.py`. |
 | `make config-docs-check` | `uv run python scripts/gen_config_docs.py --check` | ENH-017 drift gate — regenerate in-memory and diff against the committed files; exits 1 on drift. Part of `make checkall` and CI. |
 | `make docs-api` | regenerate `docs/api/` (pdoc for Python docstrings, typedoc for visualizer TS) | Rebuild the committed generated API reference; needs the `docs` extra (`uv run --extra docs`) and visualizer devDeps. Commit the result. |
 | `make docs-api-check` | regenerate to a temp dir and diff against `docs/api/` | DOC-003 drift gate — exits 1 when the committed reference is stale; wired as its own CI job. |
-| `make checkall` | fmt-check + lint + typecheck + test + test-graph + visualizer-check + checkall-mcp + config-docs-check | Full quality gate. Non-mutating (uses `fmt-check`, not `fmt`); CI runs the same targets via separate jobs (see `.github/workflows/ci.yml`). |
+| `make checkall` | fmt-check + lint + typecheck + test + test-graph + test-search + visualizer-check + checkall-mcp + config-docs-check | Full quality gate. Non-mutating (uses `fmt-check`, not `fmt`); CI runs the same targets via separate jobs (see `.github/workflows/ci.yml`). |
 | `make checkall-mcp` | `$(MAKE) -C parsidion-mcp checkall` | parsidion-mcp sub-project gate |
 | `make visualizer-check` | `cd visualizer && bunx tsc --noEmit && bun run lint && bun test && bun run build` | Visualizer typecheck + lint + unit tests + production build (the build catches RSC server/client boundary violations tsc alone misses) |
 | `make build` | no-op | Managed configuration — no compile step |

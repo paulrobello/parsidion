@@ -1,4 +1,4 @@
-.PHONY: build test test-graph lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen
+.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen
 
 # Format code with ruff
 fmt:
@@ -24,6 +24,12 @@ test:
 # skipped under `test`/`checkall`'s numpy-free default suite)
 test-graph:
 	uv run --with numpy python -c "import numpy" && uv run --with numpy pytest tests/test_build_graph_parsight.py
+
+# Run the sqlite_vec-gated search suites (decay contract + vec0 ANN parity
+# and fallback; skipped under `test`/`checkall`'s dependency-free default
+# suite — a 2286edb stub break sat undetected in them for that reason)
+test-search:
+	uv run --with sqlite-vec --with fastembed pytest tests/test_search_decay_ordering.py tests/test_vec0_ann_search.py
 
 # ENH-005: regenerate the cross-language parity fixtures:
 #   - tests/fixtures/graph.schema.json (derived from build_graph.py:GRAPH_JSON_SCHEMA)
@@ -186,7 +192,7 @@ visualizer-check:
 	cd visualizer && bunx tsc --noEmit && bun run lint && bun test && bun run build
 
 # Run all checks in sequence: format check, lint, typecheck, test
-checkall: fmt-check lint typecheck test test-graph visualizer-check checkall-mcp config-docs-check
+checkall: fmt-check lint typecheck test test-graph test-search visualizer-check checkall-mcp config-docs-check
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
