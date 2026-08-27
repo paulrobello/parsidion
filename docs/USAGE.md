@@ -185,6 +185,27 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --s
 #               --run-doctor, --rebuild-graph, --graph-include-daily
 ```
 
+### Dead-letter reason codes
+
+`--retry-dead-letters` re-queues entries from `<vault>/dead_letters.jsonl` whose recorded `last_failure` starts with the `--reason` prefix (default `no_result`, which covers the legacy opaque `no_result` kind and every granular `no_result_*` cause below). Retryable kinds are dead-lettered after 3 failed attempts; non-retryable (deterministic) kinds are dead-lettered on the first attempt, because the same failure re-occurs on every retry (ARC-030). Matching a non-retryable kind with an explicit prefix does re-queue it, but the retry re-bills an AI call to re-derive the same failure — inspect the note by hand instead.
+
+| Code | Meaning | Retryable |
+|------|---------|-----------|
+| `no_result_timeout` | Backend produced no result within the timeout | Yes |
+| `no_result_empty` | Backend returned an empty response | Yes |
+| `no_result_backend` | Backend failed to launch, exited nonzero, or is disabled | Yes |
+| `transcript_read` | Reading the transcript failed | Yes |
+| `ai_backend_error` | Backend raised an unexpected error | Yes |
+| `backup_failed` | Pre-mutation backup of the target note failed | Yes |
+| `unhandled` | Unexpected exception that may not reproduce | Yes |
+| `merge_malformed` | Merge output could not be parsed | No |
+| `merge_unresolvable` | Merge decision could not be resolved | No |
+| `merge_validation` | Merged note failed frontmatter validation | No |
+| `merge_containment` | Merge output violated vault containment | No |
+| `note_validation` | Note writer rejected the generated note | No |
+
+Sessions the write-gate skips `_MAX_SKIPS` (2) times are dead-lettered under the literal reason `write-gate skip (transient)`. The catalog lives in `FailureReason` (`skills/parsidion/scripts/summarizer/_state_const.py`).
+
 ## Run vault doctor
 
 Scan for issues and repair via the configured prompt AI backend.

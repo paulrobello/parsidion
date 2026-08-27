@@ -116,6 +116,7 @@ def _approve_entry_mutator(
     """
 
     def mutator(cur: list[dict]) -> list[dict]:
+        """Return the queue with *target* marked ``approved``."""
         return [dict(e, status="approved") if e == target else e for e in cur]
 
     return mutator
@@ -127,6 +128,7 @@ def _remove_entry_mutator(
     """Build a _mutate_entries mutator dropping *target* from the queue."""
 
     def mutator(cur: list[dict]) -> list[dict]:
+        """Return the queue without *target*."""
         return [e for e in cur if e != target]
 
     return mutator

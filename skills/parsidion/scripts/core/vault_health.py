@@ -1,6 +1,6 @@
 """vault_health — composite vault health score (ENH-007).
 
-Seven scored dimensions (0–100 each) combined into a weighted overall grade.
+Eight scored dimensions (0–100 each) combined into a weighted overall grade.
 Each dimension returns a ``DimensionScore`` carrying its own action string —
 a score with no concrete next action is just a number, so dimensions that
 cannot name a command deliberately leave ``action`` as ``None`` when healthy.
