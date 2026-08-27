@@ -3,8 +3,8 @@
 Parsidion is **agent-agnostic**: the same vault, hooks, and installer serve multiple coding-agent
 runtimes (Claude Code, Codex CLI, Gemini CLI, pi, omp, and third-party runtimes). The mechanism is a
 single registry of **`AgentAdapter`** descriptors — one per runtime — that the hook shims, the
-installer, and `connect`/`disconnect` all read from. Adding a runtime is a data-only change against
-this contract rather than a copy-the-scripts ritual.
+installer, and `connect`/`disconnect` all read from. Adding a runtime means describing it against
+this contract rather than copying the hook scripts.
 
 The registry lives in [`skills/parsidion/scripts/agent_adapter.py`](../skills/parsidion/scripts/agent_adapter.py)
 and is stdlib-only (it is imported by both the hook shims and the installer, both of which are bound
@@ -23,9 +23,10 @@ by the [stdlib-only rule](../CLAUDE.md)).
 
 ## The `AgentAdapter` contract
 
-Each field names one thing that varies between runtimes. The installer drives all per-runtime
-behaviour from these; a field exists only when ≥2 runtimes use it or a runtime's schema requires it
-(one-runtime behaviour stays a callable override, not a field).
+Each field names one thing that varies between runtimes. The hook shims and the installer's generic
+hook-registration core drive per-runtime behaviour from these; a field exists only when ≥2 runtimes
+use it or a runtime's schema requires it (one-runtime behaviour stays a callable override, not a
+field).
 
 | Group | Field | Meaning |
 |---|---|---|
@@ -37,22 +38,24 @@ behaviour from these; a field exists only when ≥2 runtimes use it or a runtime
 | | `parse_transcript_lines` | Optional `(lines) -> [str]` parser for assistant text. `None` falls back to the shape-agnostic parser. |
 | | `read_transcript_tail` | Optional `(path, tail_lines) -> [str]` transcript-tail reader. `None` falls back to the shared byte-bounded reader (`transcript_tail_bytes` ceiling, SEC-022). |
 | | `always_log_daily` | When `true`, write a daily-note session entry even with no detected categories (Claude's 'General' entry). Default `false` — daily entries only when categories are found. |
-| **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi). |
+| **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi, omp). |
 | | `event_scripts` | Ordered `event -> hook-script-filename` map (e.g. `SessionStart -> codex_session_start_hook.py`). |
 | | `entry_matcher` | `matcher` for the hook entry (`""` codex/claude, `"*"` gemini). |
 | | `entry_timeout` + `timeout_unit` | Numeric timeout and its unit — **`"s"` (codex) or `"ms"` (gemini/claude)**. See [Timeout units](#timeout-units). |
 | | `entry_names` | Per-event `name` values when the runtime's schema requires one (gemini). `None` otherwise. |
-| | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). |
-| | `build_entry` | Optional `(event, command) -> dict` override for entries that need logic, not just data (Claude's AI-mode timeout). |
-| **Instructions** | `instructions_filename` | File the installer injects agent instructions into (`AGENTS.md`, `GEMINI.md`). `None` for claude (uses `CLAUDE-VAULT.md`) and pi. |
+| | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). Reserved: no built-in sets it — the installer's `_read_runtime_hooks` validates inline. |
+| | `build_entry` | Optional `(event, command) -> dict` override for entries that need logic, not just data. Reserved: no built-in sets it — the installer's `_build_entry` builds every entry from `entry_matcher`/`entry_timeout`/`entry_names`. |
+| **Instructions** | `instructions_filename` | File the installer injects agent instructions into (`AGENTS.md`, `GEMINI.md`). `None` for claude (uses `CLAUDE-VAULT.md`) and pi/omp. |
 
 ## Built-in runtimes
 
-Registered at module import by `_register_builtin_adapters()`:
+Registered lazily by `_register_builtin_adapters()` — the registry populates on the first
+`get`/`all_adapters`/`known_runtimes()` call, not at module import (ARC-010 keeps import-time side
+effects at zero):
 
 | Runtime | Hooks | Connect path | Notes |
 |---|---|---|---|
-| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (AI-mode timeout raise, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). |
+| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (unified 60 s SessionStart timeout raise via `installer.paths._HOOK_OPTIONS`, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). |
 | `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`. Timeout in **seconds**. |
 | `gemini` | `~/.gemini/settings.json` | `install()`/`uninstall()` | Generic core. Requires per-event `name`; timeout in **ms**. |
 | `pi` | none | `connect pi` runs `scripts/install-pi-extension` | Extension-only: ships a TypeScript extension that shells out to claude's hook scripts at runtime (preferring `uv run --no-project`). |
@@ -63,8 +66,11 @@ Registered at module import by `_register_builtin_adapters()`:
 **Hooks-only runtime** (the common case): add one `AgentAdapter` to `_register_builtin_adapters()`
 (or drop a file in the [external dir](#external-adapters)). Because `event_scripts`, the entry shape,
 and the config filename are all descriptor fields, the generic `_merge_runtime_hooks` /
-`remove_runtime_hooks` immediately serve it — no new installer functions, no new scripts. It also
-appears automatically in `install.py connect`/`disconnect` and `known_runtimes()`.
+`remove_runtime_hooks` core serves it with no new hook scripts, and the runtime appears automatically
+in `install.py connect`/`disconnect` choices and `known_runtimes()`. The install/uninstall plans
+still gate hook merging on named per-runtime flags (`_wants_codex_runtime`, …) that call thin
+wrappers (`merge_codex_hooks`, `remove_gemini_hooks`, …), so wiring the new runtime into `install()`
+is one small wrapper plus a plan flag.
 
 ```python
 register(
@@ -118,8 +124,9 @@ comment saying which scale applied).
 `agent_adapter.py` and every hook shim import nothing outside the Python standard library (plus the
 stdlib-only `vault_common`). This is the project's hardest constraint and it is enforced by
 `tests/test_stdlib_only.py`, which imports every `core/*` module and hook in a fresh interpreter with
-`rich`/`fastembed`/`sqlite_vec`/`anyio`/`yaml`/`numpy`/`PIL` poisoned in `sys.modules`. Any adapter
-descriptor that pulls a third-party import — even transitively — fails the gate.
+12 third-party packages poisoned in `sys.modules` (`rich`, `fastembed`, `sqlite_vec`, `anyio`,
+`yaml`, `numpy`, `PIL`, `requests`, `aiohttp`, plus their alias spellings). Any adapter descriptor
+that pulls a third-party import — even transitively — fails the gate.
 
 ## Architecture notes
 
@@ -132,7 +139,7 @@ descriptor that pulls a third-party import — even transitively — fails the g
   This is safe because `vault_common` is stdlib-only at import time.
 - **Generic core.** `_merge_runtime_hooks(adapter, …)` and `remove_runtime_hooks(adapter, …)` in
   `installer/hooks.py` are the single read-modify-write path for codex/gemini (and any future
-  hooks-based runtime). Claude retains its own `merge_hooks` for its AI-mode/options/`.bak` flow but
+  hooks-based runtime). Claude retains its own `merge_hooks` for its options-raise/`.bak` flow but
   reads `event_scripts` and builds commands through the shared helpers.
 
 ## Related documentation

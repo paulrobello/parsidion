@@ -70,7 +70,7 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 
 ## Architecture
 
-`vault_common.py` has been split into focused sub-modules (ARC-005): `vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, and `vault_adaptive`. The original module remains as a re-export facade so all existing `import vault_common` calls continue to work.
+`vault_common.py` has been split into focused sub-modules (ARC-005): `vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, and `vault_adaptive`. The original module remains as a re-export facade so all existing `import vault_common` calls continue to work. `vault_search.py` followed the same pattern: its embeddings backend, metadata query, and output formatters live in the `cli.search` package (`cli/search/embeddings.py`, `cli/search/metadata.py`, `cli/search/format.py`), with `vault_search.py` remaining as the CLI entry point and re-export shim for Python callers.
 
 `embeddings.db` is a single SQLite file that stores two tables:
 
@@ -186,12 +186,13 @@ CREATE TABLE note_index (
     related        TEXT    NOT NULL DEFAULT '',     -- comma-separated stems
     is_stale       INTEGER NOT NULL DEFAULT 0,
     incoming_links INTEGER NOT NULL DEFAULT 0,
-    date           TEXT    NOT NULL DEFAULT ''      -- YYYY-MM-DD from frontmatter (lexicographically sortable)
+    date           TEXT    NOT NULL DEFAULT '',     -- YYYY-MM-DD from frontmatter (lexicographically sortable)
+    prompt_version TEXT    NOT NULL DEFAULT ''      -- prompt version that produced an AI-generated note (ENH-008)
 );
 -- Secondary indexes: idx_ni_folder, idx_ni_note_type, idx_ni_project, idx_ni_mtime, idx_ni_tags, idx_ni_date
 ```
 
-The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The schema migration (`ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''`) runs automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open.
+The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The `prompt_version` column records which summarizer prompt version produced an AI-generated note, so note quality can be sliced by prompt. Both schema migrations (`ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''` and the matching `prompt_version` addition) run automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open.
 
 ### Querying via CLI
 
@@ -469,6 +470,7 @@ The JSON output format is the one consumed by hook integrations. Each element co
 | `related` | List of related note stems from frontmatter (populated in metadata mode; empty list in semantic mode) |
 | `is_stale` | Boolean — `true` if the note has no incoming links and is older than 30 days |
 | `incoming_links` | Count of other vault notes that link to this note |
+| `date` | Note frontmatter date (YYYY-MM-DD); included in metadata mode, omitted from semantic-mode results |
 
 ### Filtering by Score
 
@@ -541,10 +543,11 @@ vault-search --grep "FLOCK" --grep-case
 vault-search --folder Patterns --grep "sqlite"
 ```
 
-`--grep` can be combined with `--folder`, `--tag`, `--type`, `--project`, and
-`--recent-days` to narrow the candidate set before applying the regex. When used
-standalone (no other flags), it scans all vault notes via the `note_index` table,
-falling back to a file walk when the DB is absent.
+`--grep` can be combined with the metadata filter flags (`--folder`, `--tag`, `--type`,
+`--project`, `--recent-days`, `--changed-since`, `--as-of`) to narrow the candidate set
+before applying the regex, or with a semantic query to post-filter the semantic results by
+body text. When used standalone (no other flags), it scans all vault notes via the
+`note_index` table, falling back to a file walk when the DB is absent.
 
 ### Interactive TUI Mode
 
@@ -656,9 +659,11 @@ so the first rebuild bootstraps the file rather than skipping silently. If you n
 rebuild from scratch, delete `embeddings.db` and re-run `update_index.py`, or invoke
 `build_embeddings.py` directly (see [Quick Start](#quick-start)).
 
-In the same pass, `update_index.py` also kicks a detached `parsight index` so the code-memory
-graph stays current. That kick is independent of `embeddings.enabled` because parsight maintains
-its own index; disable it via the `parsight.enabled` config key.
+In the same pass, `update_index.py` also kicks a detached incremental `parsight index` so the
+code-memory graph stays current (skipped when the parsight daemon's directory watcher already
+covers the vault, since the watcher re-indexes on its own). That kick is independent of
+`embeddings.enabled` because parsight maintains its own index; disable it via the
+`parsight.enabled` config key.
 
 Background rebuild output is redirected to `~/.claude/logs/parsidion-embed.log`. Check this file
 when embeddings appear stale after an expected rebuild.

@@ -14,7 +14,7 @@ A fast native Rust CLI that lets AI coding agents control a Chrome or Chromium b
 
 ## Overview
 
-> **Verified against `agentchrome` v1.62.0 (August 2026).** Subcommands and JSON output shapes may drift in later releases; check `agentchrome --version` and `agentchrome --help` if a command below is rejected.
+> **Verified against `agentchrome` v1.63.0 (August 2026).** Subcommands and JSON output shapes may drift in later releases; check `agentchrome --version` and `agentchrome --help` if a command below is rejected.
 
 **Purpose:** Bridge the gap between AI agents and the live web — AgentChrome exposes structured, machine-readable browser state so agents can navigate pages, extract content, fill forms, and capture screenshots without fragile HTML scraping.
 

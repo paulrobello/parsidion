@@ -151,15 +151,19 @@ graph TD
     WsIndicator[Sync Status Dot]
     VaultSel[VaultSelector.tsx]
     VaultStats[VaultStats.tsx]
+    SidePanel[SidebarPanel.tsx]
     Sidebar[FileExplorer.tsx]
+    Confirm[ConfirmDialog.tsx]
+    ReadPanel[ReadingPanePanel.tsx]
     ReadPane[ReadingPane.tsx]
+    NoteEditor[reading-pane/NoteEditor.tsx]
+    Conflict[ConflictDialog.tsx]
+    FmEditor[FrontmatterEditor.tsx]
+    GraphPanel[GraphPanel.tsx]
     GraphCanvas[GraphCanvas.tsx]
     HUD[HUDPanel.tsx]
     TempBar[TemperatureBar.tsx]
     NewNote[NewNoteDialog.tsx]
-    Confirm[ConfirmDialog.tsx]
-    Conflict[ConflictDialog.tsx]
-    FmEditor[FrontmatterEditor.tsx]
     HistView[HistoryView.tsx]
     CommitList[CommitList.tsx]
     DiffViewer[DiffViewer.tsx]
@@ -170,39 +174,43 @@ graph TD
     Toolbar --> WsIndicator
     Toolbar --> VaultSel
     Toolbar --> VaultStats
-    Page --> Sidebar
-    Page --> ReadPane
-    Page --> GraphCanvas
+    Page --> SidePanel
+    Page --> ReadPanel
+    Page --> GraphPanel
     Page --> NewNote
     Page --> HistView
-    ReadPane --> Confirm
-    ReadPane --> Conflict
-    ReadPane --> FmEditor
-    GraphCanvas --> HUD
-    GraphCanvas --> TempBar
+    SidePanel --> Sidebar
+    SidePanel --> Confirm
+    ReadPanel --> ReadPane
+    ReadPane --> NoteEditor
+    NoteEditor --> Conflict
+    NoteEditor --> FmEditor
+    GraphPanel --> GraphCanvas
+    GraphPanel --> HUD
+    HUD --> TempBar
     HistView --> CommitList
     HistView --> DiffViewer
 
-    style Page fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Toolbar fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style GraphCanvas fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style HUD fill:#0d47a1,stroke:#2196f3,stroke-width:1px,color:#ffffff
-    style Sidebar fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style ReadPane fill:#1b5e20,stroke:#4caf50,stroke-width:1px,color:#ffffff
-    style TabBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style Search fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style WsIndicator fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
-    style VaultSel fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style VaultStats fill:#1b5e20,stroke:#4caf50,stroke-width:1px,color:#ffffff
-    style TempBar fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style NewNote fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
-    style Confirm fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
-    style Conflict fill:#b71c1c,stroke:#f44336,stroke-width:1px,color:#ffffff
-    style FmEditor fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
-    style HistView fill:#006064,stroke:#00acc1,stroke-width:2px,color:#ffffff
-    style CommitList fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
-    style DiffViewer fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
+    class Page primary
+    class Toolbar,ReadPane,ReadPanel,VaultStats active
+    class GraphCanvas,HUD,GraphPanel graphBlue
+    class SidePanel,Sidebar,TabBar,TempBar neutral
+    class Search,WsIndicator,VaultSel external
+    class NewNote,Confirm,FmEditor dialog
+    class Conflict error
+    class HistView,CommitList,DiffViewer history
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef graphBlue fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef dialog fill:#880e4f,stroke:#c2185b,stroke-width:1px,color:#ffffff
+    classDef error fill:#b71c1c,stroke:#f44336,stroke-width:1px,color:#ffffff
+    classDef history fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
 ```
+
+> **Note:** `SidebarPanel`, `ReadingPanePanel`, and `GraphPanel` are the ARC-008 container triad extracted from `app/page.tsx`. The reading pane and graph panels stay mounted (only visibility-toggled) so editor state and the force layout survive mode switches.
 
 ## Features
 
@@ -278,14 +286,15 @@ Default mode is **SPLIT**.
 
 Interactive force-directed graph for exploring note relationships:
 
-**Default (Local) View**
-- Displays a 2-hop neighborhood around the currently active note
+**Full Vault View (default)**
+- Renders all notes and edges simultaneously; this is what loads on start (`neighborhoodCenter` is `null`)
+
+**Local (Neighborhood) View**
+- Plain-clicking a node focuses a 2-hop neighborhood around it (see Interactions below)
 - Uses wiki edges (explicit wikilinks) for BFS traversal
 - Shows semantic edges within the neighborhood
-
-**Full Vault View**
-- Toggle via the "Show Full Vault ⤢" button in the top-right scope indicator (placed there to avoid overlapping the HUD)
-- Renders all notes and edges simultaneously
+- The top-right scope indicator (placed to avoid overlapping the HUD) names the centered stem with a "· 2 hops" badge
+- "Show Full Vault ⤢" in the scope indicator returns to the full graph; "Show Neighborhood ⤡" re-focuses the active note; clicking the canvas background also exits to full vault
 
 **Visual Encoding**
 
@@ -297,14 +306,16 @@ Interactive force-directed graph for exploring note relationships:
 | Semantic edge | Solid line — embedding similarity above threshold; color mode: binary (opacity) or gradient (blue to red) |
 
 **Interactions**
-- Click node → opens note in current tab and highlights selection
+- Click node → focuses its 2-hop neighborhood, highlights its immediate neighbors, and flies the camera to it (no tab change)
+- Shift+click → opens the note in the current tab and switches to Read mode; Cmd/Ctrl+click → opens it in a new tab
 - Right-click node → context menu: "Open in Reading Pane" / "View History", plus the Path Finder controls (see below)
 - Drag node → pins position, reheats physics simulation
+- Click background → exits neighborhood focus back to the full vault
 - Hover node → shows label (if labels-on-hover mode is active)
 
 #### Path Finder
 
-A node-right-click menu item traces the shortest wiki-link path between two notes. The path is computed by BFS over non-overlay wiki edges only (`findWikiPath` in `components/GraphCanvas.tsx`); semantic edges are ignored so routes reflect explicit structural links.
+A node-right-click menu item traces the shortest wiki-link path between two notes. The path is computed by BFS over non-overlay wiki edges only (`findWikiPath` in `lib/useGraphCanvasInteractions.ts`, QA-004); semantic edges are ignored so routes reflect explicit structural links.
 
 - **◎ Set Path Origin** — mark the right-clicked node as the path source (its stem is held in a ref, not component state, so it survives re-renders without re-running layout)
 - **⚡ Find Path Here** — shown on every other node once an origin is set; clicks run the BFS, highlight the resulting node/edge set on the canvas, and surface a toast breadcrumb of the form `Note A → Note B → Note C`
@@ -954,7 +965,7 @@ stateDiagram-v2
 For local (2-hop) view:
 
 1. Build adjacency list from wiki edges (O(E) setup, done once)
-2. BFS from active note using wiki edges only
+2. BFS from the neighborhood-center stem using wiki edges only
 3. Collect all nodes within 2 hops
 4. Include semantic edges between neighborhood nodes
 
@@ -1009,6 +1020,9 @@ parsidion/
 │   │   ├── api/summarize/route.ts       # Spawn the summarizer subprocess (POST, auth)
 │   │   └── api/summarizer/status/route.ts # Live summarizer run progress (GET)
 │   ├── components/
+│   │   ├── GraphPanel.tsx            # Graph-mode container: scope indicator + lazy-loaded GraphCanvas + HUDPanel (ARC-008)
+│   │   ├── ReadingPanePanel.tsx      # Read-mode container: ReadingPane wrapper + linked-notes memo (ARC-008)
+│   │   ├── SidebarPanel.tsx          # Sidebar container: FileExplorer + delete-confirmation flow (ARC-008)
 │   │   ├── GraphCanvas.tsx           # Sigma.js WebGL renderer + node right-click menu
 │   │   ├── HUDPanel.tsx              # Graph controls overlay (edge color, node color/size, density, physics)
 │   │   ├── FileExplorer.tsx          # Sidebar with folder tree + right-click context menu
@@ -1030,7 +1044,9 @@ parsidion/
 │   │   └── ViewToggle.tsx            # (unused) Legacy Read/Graph mode toggle — replaced by TabBar Graph tab
 │   ├── lib/
 │   │   ├── graph.ts                  # Data types and fetch helpers (incl. loadGraphDelta / applyGraphDelta for ARC-015)
+│   │   ├── graphEdges.ts             # QA-011 shared primary/overlay edge-build helpers for the sigma graph
 │   │   ├── types.ts                  # Shared client/server types
+│   │   ├── env.ts                    # SEC-P002 allowlist env filter for server-spawned subprocesses (drops CLAUDECODE and unrelated vars)
 │   │   ├── useVisualizerState.ts     # Central state orchestrator — thin wrapper over three slices (ARC-037)
 │   │   ├── useVaultSelection.ts      # State slice: persisted selected-vault storage
 │   │   ├── useNoteTabs.ts            # State slice: tabs, content cache, CRUD, view/sidebar/history UI
@@ -1040,6 +1056,7 @@ parsidion/
 │   │   ├── useForceLayout.ts         # Custom Newtonian physics loop (gravity + repulsion + edge attraction + damping)
 │   │   ├── useForceLayout.test.ts    # Unit tests for the physics loop
 │   │   ├── useGraphReducers.ts       # Sigma node/edge reducers and neighborhood computation
+│   │   ├── useGraphCanvasInteractions.ts # QA-008 node right-click menu actions, path finder (findWikiPath), toast banner
 │   │   ├── useFocusTrap.ts           # Focus-trap hook used by accessible modal dialogs
 │   │   ├── betweenness.ts            # Brandes algorithm for betweenness-centrality node sizing
 │   │   ├── findNote.ts               # Shared async note lookup by stem/path (used by note CRUD + history + diff)

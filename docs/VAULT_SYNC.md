@@ -124,6 +124,9 @@ database so semantic search works immediately.
 | `config.local.yaml` | **No** | Optional machine-specific overlay — gitignored, never synced |
 | `pyproject.toml`, `uv.toml`, `setup.py`, `.venv/` | **No** | Defence in depth against SEC-101 — stops `uv run` (without `--no-project`) from executing a build backend if one lands in the vault worktree |
 | `.obsidian/` | **No** | Obsidian workspace state — machine-specific |
+| `*.tmp` | **No** | Staged write siblings from atomic writes (`update_index.py`, `build_graph.py`) — transient, never synced |
+| `.merge_previews/` | **No** | `vault-merge --dry-run` preview cache — machine-local |
+| `*.lock` | **No** | flock singleton locks (vault doctor, daily-note siblings; covers `.doctor.lock`) — machine-local |
 
 The installer adds all "No" entries to `.gitignore` automatically.  Several
 entries are globs (`embeddings.db*`, `pending_summaries.jsonl*`,
@@ -181,11 +184,15 @@ without `--no-project`, `uv run` would walk up from the vault looking for a
 arbitrary code from whatever file lands in the vault worktree.
 
 **Idempotency:** running the installer again does not duplicate the hook.  The
-hook is identified by a marker comment (`# parsidion post-merge hook`).  The
-installer also recognises a legacy marker (`# parsidion-cc post-merge hook`)
-from earlier releases, and treats a hook that carries our marker but predates
-the `--no-project` fix as stale-but-ours — in both cases it regenerates the
-hook rather than leaving the vulnerable version in place.
+hook is identified by a marker comment (`# parsidion post-merge hook v2`).
+The installer also recognises legacy markers (`# parsidion-cc post-merge hook`
+and the pre-v2 `# parsidion post-merge hook`) from earlier releases.  The v1
+template interpolated `~/...` paths inside double quotes, where neither bash
+nor `uv` expands `~`, so every post-merge run died under `set -e`; v2 emits
+shell-quoted absolute script paths.  A hook that carries our marker but
+predates the `--no-project` fix is also treated as stale-but-ours — in every
+case the installer regenerates the hook rather than leaving the vulnerable or
+dead version in place.
 
 **Safety:** if a pre-existing `post-merge` hook is found that was not created
 by the installer (no current or legacy marker), it is left untouched with a

@@ -92,6 +92,12 @@ search:
 | `parsight.timeout_s` | `10` | Subprocess timeout per `find-code`/`repos` call; on expiry the query silently falls back to embeddings. |
 | `search.backend` | `auto` | `auto` = parsight when available+indexed, embeddings otherwise (silent). `parsight` = parsight or empty, no fallback (debugging). `embeddings` = today's path unconditionally. `none` = semantic search disabled. |
 
+A path-like `parsight.binary` (absolute or containing `/`) must pass a trust
+check before it runs — owned by the current user and not group/world-writable
+(skipped on Windows) — and a value that fails it, such as one injected via a
+synced `config.yaml`, is refused with a stderr warning while resolution falls
+back to the default command name.
+
 The `vault-search` CLI accepts `--backend/-B` to override the config per
 query, and `--rich` output names which backend served the query (on stderr).
 The env var `PARSIGHT_MCP_URL` (default `http://127.0.0.1:4848/mcp`) points

@@ -57,7 +57,7 @@ graph TD
     VaultCommon["vault_common<br/>(shared library)"]
     ParsightBackend["parsight_backend<br/>(parsight bridge, optional)"]
     ParsightDaemon["parsight daemon<br/>(local HTTP)"]
-    ScriptsDir["~/.claude/skills/parsidion/scripts/"]
+    ScriptsDir["parsidion scripts/<br/>(resolved from vault_path.__file__)"]
     UpdateIndex["update_index.py<br/>(subprocess)"]
     VaultDoctor["vault_doctor.py<br/>(subprocess)"]
     VaultStats["vault_stats.py<br/>(subprocess)"]
@@ -124,7 +124,7 @@ The server entry point in `server.py` creates a `FastMCP` application, registers
 
 Script paths for `rebuild_index`, `vault_doctor`, and `vault_health` resolve from `vault_path.__file__` rather than the module-level `SCRIPTS_DIR` constant. `ops.py` derives its `SCRIPTS_DIR` as `Path(vault_path.__file__).resolve().parent`, so each subprocess runs the same code the MCP server imported via the editable install — not a possibly-drifted `~/.claude/skills/parsidion/scripts/` copy. On Unix this resolves to the same path because the installer symlinks `~/.claude/skills/parsidion` at the repo; on Windows (where the installer copies) the distinction matters.
 
-Every vault-touching tool also accepts an optional `vault` parameter (ARC-021) — a vault name from `~/.config/parsidion/vaults.yaml` or an absolute path — so multi-vault callers can target a specific vault instead of always hitting the resolver's default. The parameter threads through to `vault_common.resolve_vault(explicit=vault)` for the in-process tools and to a `--vault <path>` argv flag for the subprocess tools.
+Every tool except `code_search` also accepts an optional `vault` parameter (ARC-021) — a vault name from `~/.config/parsidion/vaults.yaml` or an absolute path — so multi-vault callers can target a specific vault instead of always hitting the resolver's default. The parameter threads through to `vault_common.resolve_vault(explicit=vault)` for the in-process tools and to a `--vault <path>` argv flag for the subprocess tools.
 
 ## Installation
 
@@ -188,8 +188,12 @@ All tools return plain strings on success. On failure, tools raise typed excepti
 | Path escapes vault root | `VaultToolError` | `path escapes vault root` |
 | Vault root directory missing | `VaultToolError` | `vault root not found at <path>` |
 | Note not found | `VaultToolError` | `note not found at <path>` |
-| Content exceeds 10 MB | `VaultToolError` | `Content exceeds 10 MB limit` |
-| Non-.md file extension | `VaultToolError` | `Only .md files are allowed` |
+| Read exceeds 10 MB (`vault_read`) | `VaultToolError` | `Note exceeds 10 MB limit` |
+| Content exceeds 10 MB (`vault_write`) | `VaultToolError` | `Content exceeds 10 MB limit` |
+| Non-.md path (`vault_read`) | `VaultToolError` | `Only .md files are readable` |
+| Non-.md extension (`vault_write`) | `VaultToolError` | `Only .md files are allowed` |
+| Hidden path segment (`vault_read`) | `VaultToolError` | `Hidden paths are not readable` |
+| Excluded top-level directory (`vault_read`) | `VaultToolError` | `Excluded directory: <dir>` |
 | Embeddings DB missing and parsight unavailable (semantic search) | `ValueError` | `embeddings DB not found and parsight unavailable -- run rebuild_index first, or install/start parsight` |
 | parsight unavailable (`code_search`) | `ValueError` | `parsight unavailable -- install parsight and start its daemon (see docs/PARSIGHT.md)` |
 | `code_search` repo_path missing | `ValueError` | `repo_path does not exist: <path>` |
@@ -396,7 +400,7 @@ Scans all vault notes for structural issues — missing frontmatter fields, inva
 | `limit` | `int \| None` | `None` | Maximum notes to repair (only relevant when `fix=True`) |
 | `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
-The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`, `--fix-permissions`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
+The following `vault_doctor.py` flags are not exposed: `--dry-run`, `--model`, `--no-state`, `--jobs`, `--timeout`, `--migrate-subfolders`, `--execute`, `--fix-all`, `--fix-tags`, `--fix-sessions`, `--fix-frontmatter`, `--fix-headings`, `--no-fix-headings`, `--migrate-daily-notes`, `--daily-username`, `--strip-prefixes`, `--fix-permissions`, `--only`, `--skip`, `--list-rules`. The server uses the defaults (3 parallel workers, 120-second per-repair timeout).
 
 #### Return Value
 
@@ -424,7 +428,7 @@ vault_doctor(fix=True, errors_only=True)
 
 Returns the composite vault health report as JSON (ENH-007). Seven scored dimensions — index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, and file hygiene — are combined into a weighted overall grade. Each dimension carries a concrete `action` command when unhealthy, or `null` when healthy.
 
-Read-only: the tool never mutates the vault. It subprocessees `vault-stats --health --json` so the import and subprocess layers see the same code (the same pattern used by `rebuild_index` and `vault_doctor`).
+Read-only: the tool never mutates the vault. It subprocesses `vault-stats --health --json` so the import and subprocess layers see the same code (the same pattern used by `rebuild_index` and `vault_doctor`).
 
 #### Parameters
 
@@ -511,7 +515,7 @@ uv run pytest
 The test suite covers:
 
 - **Unit tests** — each tool module tested with mocked `vault_common`, `vault_search`, and `subprocess.run`
-- **Subprocess tests** — `rebuild_index` and `vault_doctor` verified for correct flag construction across all parameter combinations
+- **Subprocess tests** — `rebuild_index`, `vault_doctor`, and `vault_health` verified for correct flag construction across all parameter combinations
 - **Path safety tests** — traversal attempts in `vault_read` and `vault_write` confirmed to raise the expected `VaultToolError`
 - **Integration smoke test** — reads one real note; automatically skipped when the vault is absent
 
@@ -522,7 +526,7 @@ cd parsidion-mcp/
 make checkall
 ```
 
-This runs formatting (`ruff format`), linting (`ruff check`), type checking (`pyright`), and the full test suite in sequence.
+This runs format checking (`ruff format --check`), linting (`ruff check`), type checking (`pyright`), and the full test suite in sequence.
 
 ### Package Structure
 

@@ -15,6 +15,7 @@ the edit lands.
 - [Single Source for the Note Schema](#single-source-for-the-note-schema)
 - [Prompt Version Stamping](#prompt-version-stamping)
 - [Running an Evaluation](#running-an-evaluation)
+  - [Scoring Rubric](#scoring-rubric)
   - [Cost Controls](#cost-controls)
   - [Result Caching](#result-caching)
 - [Adding a Golden Case](#adding-a-golden-case)
@@ -77,10 +78,11 @@ silently renders as empty is precisely how a prompt degrades without anyone noti
 ### Two Substitution Syntaxes
 
 - `syntax: format` (default) — `str.format`-style `{var}` placeholders. Literal braces in the
-  body must be escaped as `{{` / `}}`. Used by the four prompts that have no literal JSON in
-  their body.
-- `syntax: template` — `string.Template` `$var` placeholders. Used by the two summarizer
-  prompts whose bodies contain literal `{` / `}` in JSON examples, so escaping is not needed.
+  body must be escaped as `{{` / `}}` (`detect-conflicts` escapes its JSON output example this
+  way). Used by the four non-summarizer prompts.
+- `syntax: template` — `string.Template` `$var` placeholders, so literal `{` / `}` need no
+  escaping (`summarize-session`'s body contains a JSON example). Used by the two legacy
+  summarizer prompts.
 
 The loader handles both via the `syntax` frontmatter field; consumers call the same `render()`
 regardless.
@@ -148,15 +150,15 @@ uv run tools/eval/prompt_eval_run.py --prompt summarize-session --limit 3
 uv run tools/eval/prompt_eval_run.py --prompt summarize-session --no-cache
 ```
 
-The `--prompt` id selects among six evaluators (one per externalized prompt), each in
-`tools/eval/evaluators/<prompt>.py`. The harness renders the prompt through the real
+The `--prompt` id selects among six evaluators (one per externalized prompt), each a module
+under `tools/eval/evaluators/` named for the prompt id with underscores
+(`summarize-session` → `summarize_session.py`). The harness renders the prompt through the real
 `prompt_templates` loader (the same path production uses), calls the configured AI backend,
 and scores the output against the case's `expected.yaml`.
 
 ### Scoring Rubric
 
-Each prompt has its own rubric in `tools/eval/evaluators/<prompt>.py` (weights always sum to
-100). The `summarize-session` rubric — the one the examples above exercise — is:
+Each prompt has its own rubric in its evaluator module (weights always sum to 100). The `summarize-session` rubric — the one the examples above exercise — is:
 
 | Check                       | Weight | How                                            |
 |-----------------------------|:------:|------------------------------------------------|
@@ -172,8 +174,8 @@ A result file is written to `tools/eval/results/prompt-eval-<id>-<timestamp>.jso
 ### Cost Controls
 
 - Defaults to the **small** model tier.
-- Prints the **projected AI call count** before starting and asks for confirmation above a
-  threshold (default 12 uncached calls; override with `--yes`).
+- Prints the **projected AI call count** before starting and asks for confirmation when it
+  reaches the threshold (default 12 uncached calls; override with `--yes`).
 - **Caches** each case's result keyed by `(prompt_id, version, model, case_id)` under
   `~/.cache/parsidion/prompt-eval/`, so re-running after editing one case does not re-bill the
   rest.
@@ -257,7 +259,7 @@ score in the commit message.
 | `skills/parsidion/scripts/summarizer/notes.py` | `_stamp_prompt_version` — injects the version stamp. |
 | `tools/eval/prompt_eval_run.py` | Opt-in eval harness (PEP 723 script). |
 | `tools/eval/evaluators/_base.py` | Shared `BaseEvaluator`: flat-YAML parser, golden-case discovery, `ScoredCase`. |
-| `tools/eval/evaluators/<prompt>.py` | One evaluator per prompt: render / parse / score against `expected.yaml`. |
+| `tools/eval/evaluators/<prompt with underscores>.py` | One evaluator per prompt (e.g. `summarize_session.py`): render / parse / score against `expected.yaml`. |
 | `tests/test_prompt_templates.py` | Byte-identical rendering gate + loader contract + ARC-010 convergence. |
 | `tests/test_note_index_prompt_version.py` | `note_index.prompt_version` column + migration. |
 | `tests/test_golden_fixtures_anonymization.py` | Golden-set anonymization gate. |

@@ -44,6 +44,10 @@ vault-search "sqlite vector search patterns" -t       # human-readable text
 vault-search "sqlite vector search patterns" -r       # Rich-colorized output
 vault-search "hook patterns" -n 5 -r                  # top 5, rich output
 
+# Backend override (semantic mode)
+vault-search -B parsight "hook patterns"              # force parsight hybrid backend (no silent fallback)
+vault-search -B embeddings "hook patterns"            # force local embeddings pipeline
+
 # Metadata search (filter flags, no query)
 vault-search -f Patterns -T python                    # short options
 vault-search --folder Patterns --tag python           # long options (also valid)
@@ -55,10 +59,10 @@ vault-search --grep "dedup_threshold"                 # case-insensitive body se
 vault-search --grep "FLOCK" --grep-case               # case-sensitive body search
 vault-search --grep "pattern" -f Patterns             # combine with metadata filters
 
-# Temporal filters (metadata mode) — narrow by note mtime
-vault-search --changed-since 2026-06-01               # notes modified on/after a date
+# Temporal filters (metadata mode; a query cannot be combined with them)
+vault-search --changed-since 2026-06-01               # notes modified on/after a date (file mtime)
 vault-search --changed-since 2026-06-01 -T python     # combine with other metadata filters
-vault-search --as-of 2026-05-15 "fastapi middleware"  # metadata filter: notes dated on/before a date (not semantic)
+vault-search --as-of 2026-05-15                       # notes whose frontmatter date is on/before a date
 
 # Interactive curses TUI (real-time results, navigation, editor integration)
 vault-search --interactive
@@ -117,6 +121,8 @@ vault-stats --monthly              # generate monthly rollup note from daily not
 vault-stats --timeline 90          # activity bar chart for last 90 days
 vault-stats --summarizer-progress  # live feedback from running summarize_sessions.py
 vault-stats --dashboard            # full combined dashboard (all modes)
+vault-stats --fast                 # skip the metadata-quality scan in --health (faster on large vaults)
+vault-stats --weekly --dry-run     # preview rollup output without writing notes (also --monthly)
 ```
 
 ## Review pending sessions
@@ -154,6 +160,7 @@ vault-conflicts                    # interactive: scan similar pairs, resolve co
 vault-conflicts --scan-only        # scan + write conflicts/report.json, no TUI (AI still runs unless --no-ai)
 vault-conflicts --json             # machine-readable output for scripting
 vault-conflicts --no-ai            # list pairs without invoking the AI backend
+# Other flags: --vault/-V PATH|NAME, --threshold SCORE (cosine cutoff), --top N (max pairs)
 ```
 
 ## Summarize queued sessions
@@ -172,6 +179,10 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --d
 
 # Process an explicit file (e.g. to test a single entry)
 uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --sessions /path/to/file.jsonl
+
+# Other flags: --model MODEL, --vault/-V PATH|NAME, --retry-dead-letters
+#               (pairs with --reason CODE, --min-age-days N, --max-count N),
+#               --run-doctor, --rebuild-graph, --graph-include-daily
 ```
 
 ## Run vault doctor
@@ -204,9 +215,12 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate
 
 # Run all automated structural maintenance (tags, prefixes, sessions, legacy formats)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
+# Other flags: --fix-tags, --fix-frontmatter, --migrate-daily-notes [--daily-username NAME],
+#               --list-rules, --only RULE / --skip RULE, --jobs/-j N, --timeout SECS,
+#               --model MODEL, --vault/-V PATH|NAME, plus a `notes` positional
 ```
 
-The doctor is singleton-guarded — it stores its PID in `doctor_state.json` and exits if another instance is already running. Before scanning it auto-commits any uncommitted vault files whose mtime is ≥ 15 minutes old. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
+The doctor is singleton-guarded — it takes an `flock` on `<vault>/.doctor.lock` (released by the kernel when the holder dies) and exits if another instance is already running. Before scanning it auto-commits any uncommitted vault files whose mtime is ≥ 15 minutes old. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.
 
 ## Run trigger eval
 
@@ -284,7 +298,7 @@ Variables Parsidion reads at runtime. Real environment variables always win over
 | `PARSIDION_SCRIPTS_DIR` | pi/omp extension (`scriptRunner.ts`) | Force the hook-scripts directory the extension invokes | installed `~/.claude/skills/parsidion/scripts` |
 | `PARSIDION_DIR` | pi/omp extension (`scriptRunner.ts`) | Parsidion checkout root; scripts resolve under `<dir>/skills/parsidion/scripts` | unset |
 | `NO_COLOR` | `installer/colors.py` | Disable installer colour output | unset |
-| `VAULT_SEARCH_*` | `vault_search.py` | Per-flag defaults: `VAULT_SEARCH_FORMAT`, `VAULT_SEARCH_MIN_SCORE`, `VAULT_SEARCH_TOP`, `VAULT_SEARCH_MODEL` (CLI flag > env > config) | unset |
+| `VAULT_SEARCH_*` | `vault_search.py` | Per-flag defaults: `VAULT_SEARCH_FORMAT`, `VAULT_SEARCH_MIN_SCORE`, `VAULT_SEARCH_TOP`, `VAULT_SEARCH_LIMIT`, `VAULT_SEARCH_MODEL` (CLI flag > env > config) | unset |
 | `VISUALIZER_TOKEN` | `visualizer/lib/apiAuth.ts` | When set at server start, every API request requires this bearer token | unset (token auth off) |
 
 ## Related Documentation

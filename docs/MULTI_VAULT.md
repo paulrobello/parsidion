@@ -28,14 +28,18 @@ Use `--create-vaults-config` to generate a vaults configuration file:
 uv run install.py --create-vaults-config
 ```
 
-This creates `~/.config/parsidion/vaults.yaml`:
+This creates `~/.config/parsidion/vaults.yaml` (the location honors `$XDG_CONFIG_HOME`) with commented examples. Edit it to register each vault's name and path:
 
 ```yaml
 vaults:
-  default: ~/ParsidionVault
   work: ~/WorkVault
   personal: ~/PersonalVault
+  team: ~/team-vault
 ```
+
+Each name is then accepted wherever a vault reference is: the `--vault` flag, the `CLAUDE_VAULT` environment variable, or a project's `.claude/vault` file.
+
+Installing to a custom path also registers the vault: `uv run install.py --vault ~/WorkVault` records the path as a named entry, plus a top-level `default:` line that uninstall reads to locate that vault. Runtime resolution itself follows the order in [Default Vault Resolution](#default-vault-resolution).
 
 ## Using Multiple Vaults
 
@@ -63,27 +67,39 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault w
 
 | Tool | `--vault` Flag |
 |------|----------------|
-| `vault-search` | Yes |
-| `vault-new` | Yes |
-| `vault-stats` | Yes |
-| `vault-review` | Yes |
-| `vault-export` | Yes |
-| `vault-merge` | Yes |
-| `vault-conflicts` | Yes |
-| `vault-doctor` | Yes |
-| `build_embeddings.py` | Yes |
-| `update_index.py` | Yes |
-| `summarize_sessions.py` | Yes |
+| `vault-search` | Yes — path or name |
+| `vault-new` | Yes — path or name |
+| `vault-stats` | Yes — path or name |
+| `vault-review` | Yes — path or name |
+| `vault-export` | Yes — path or name |
+| `vault-merge` | Yes — path or name |
+| `vault-conflicts` | Yes — path or name |
+| `vault_doctor.py` | Yes — path or name |
+| `build_embeddings.py` | Yes — path or name |
+| `update_index.py` | Yes — path or name |
+| `summarize_sessions.py` | Yes — path or name |
+| `build_graph.py` | Yes — path only |
+| `vault_embed_serve.py` | Yes — path only (required) |
+
+The `vault-*` names are global commands installed by `uv tool install --editable ".[tools]"`. The rest are scripts run via `uv run --no-project ~/.claude/skills/parsidion/scripts/<name>.py`.
 
 ## Vault-Aware Hooks
 
-All session hooks support multi-vault via the vaults config:
+Hooks take no `--vault` flag. Each one resolves its vault with the order in [Default Vault Resolution](#default-vault-resolution), using the session's project directory as the lookup context. To bind a project to a specific vault, write the vault name (or a registered path) into a `.claude/vault` file at the project root:
+
+```bash
+echo work > ~/code/client-app/.claude/vault
+```
+
+The reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path; an unregistered reference is skipped and resolution falls through to `CLAUDE_VAULT` and the default vault.
 
 - `session_start_hook.py` — loads context from the project's associated vault
 - `session_stop_hook.py` — queues sessions to the appropriate vault
 - `pre_compact_hook.py` — snapshots to the project's vault
 - `post_compact_hook.py` — restores from the project's vault
 - `subagent_stop_hook.py` — queues to the active vault
+
+The Codex and Gemini adapter hooks run the same resolution through the shared session pipeline.
 
 ## Default Vault Resolution
 
@@ -93,6 +109,8 @@ When no explicit vault is specified, tools use this resolution order:
 2. Project-local `.claude/vault` file (path or configured name)
 3. `CLAUDE_VAULT` environment variable (path or configured name)
 4. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
+
+> **Note:** A vault reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path. An arbitrary unregistered path is rejected: an explicit `--vault` reference fails with a `VaultConfigError`, while `.claude/vault` and `CLAUDE_VAULT` references that fail the check are skipped and resolution falls through to the next step.
 
 ## Related Documentation
 

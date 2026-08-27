@@ -1,6 +1,6 @@
 # Embedding Evaluation Harness
 
-Benchmarks embedding model and chunking strategy combinations against Claude-generated ground-truth
+Benchmarks embedding model and chunking strategy combinations against AI-generated ground-truth
 queries, producing a Rich terminal table, a timestamped JSON results file, and a self-contained
 interactive HTML report.
 
@@ -52,8 +52,8 @@ note for a given query against this specific vault?**
 
 **Key capabilities:**
 
-- Two-phase pipeline: ground truth generation via the configured prompt AI backend (Claude CLI or
-  Codex CLI), then offline evaluation matrix
+- Two-phase pipeline: ground truth generation via the configured prompt AI backend (Claude CLI,
+  Codex CLI, or Grok CLI), then offline evaluation matrix
 - Ground-truth queries are saved to YAML and reused across runs — the AI backend is called only once
 - Parallel evaluation: one thread per model, all chunking strategies serially per thread
 - In-memory sqlite-vec index per combo — no persistent database required during evaluation
@@ -159,8 +159,8 @@ flowchart TD
 
 **Data flow summary:**
 
-1. Phase 1 samples vault notes, calls the configured prompt AI backend (Claude CLI or Codex CLI)
-   once per note to generate varied natural-language queries, and saves the result to
+1. Phase 1 samples vault notes, calls the configured prompt AI backend (Claude CLI, Codex CLI,
+   or Grok CLI) once per note to generate varied natural-language queries, and saves the result to
    `embed_eval_queries.yaml`. This file is reusable: subsequent runs skip Phase 1 entirely unless
    `--generate` is passed.
 2. Phase 2 loads the YAML, spins up one thread per model via `ThreadPoolExecutor`, and runs all
@@ -201,7 +201,8 @@ Results appear in the terminal as a Rich table and are saved as timestamped JSON
 ### How the AI Backend Generates Queries
 
 For each sampled vault note, the harness calls the configured prompt AI backend (via
-`ai_backend.run_ai_prompt` with `model_tier="small"`) with the note's title, tags, and body.
+`ai_backend.run_ai_prompt` with `model_tier="small"`) with the note's title, tags, and an
+800-character body snippet.
 The backend returns K natural-language search queries (default 3) that cover a range of specificity:
 
 - **Broad queries** — describe the general topic without using exact terms from the note title
@@ -700,8 +701,8 @@ If paragraph chunking consistently outperforms whole-note across your vault, con
 
 **Symptom:** Phase 1 takes much longer than 3 seconds per note, or appears to stall.
 
-**Cause:** The prompt AI backend subprocess (Claude CLI or Codex CLI) is waiting for a slow API
-response or hitting rate limits.
+**Cause:** The prompt AI backend subprocess (Claude CLI, Codex CLI, or Grok CLI) is waiting for a
+slow API response or hitting rate limits.
 
 **Fix:**
 

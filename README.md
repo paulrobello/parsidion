@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.21.0:** all 93 findings from the 2026-08-23 audit resolved (DNS-rebinding-to-RCE chain closed, atomic writes hardened, Actions pinned); par-mem renamed to parsight with legacy config aliases; doctor per-rule `--only`/`--skip` selection; adaptive-context half-life decay; config reference generated from the typed schema and drift-gated in CI; one byte-bounded transcript reader for every runtime; hook latency percentiles in `vault-stats --hooks`. See the [Changelog](CHANGELOG.md).
+> **New in 0.22.1:** dead-letter queue notices in SessionStart context are now configurable (`session_start_hook.show_dead_letter_notice`, disabled by default); 0.22.0 made the generated API-docs build deterministic and checkout-path independent. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -210,7 +210,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 
 **Auto-triggering:** The skill includes YAML frontmatter with a description that enables automatic invocation when users mention saving knowledge, checking notes, or persisting findings across sessions.
 
-The skill ships ~40 Python scripts (hooks, CLIs, library modules, and the summarizer/doctor/graph builders) and 9 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge). The full per-script catalogue — purpose, public API surface, and which component consumes each one — lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **Component Details**, alongside the vault directory layout, the Obsidian graph color-group table, and the data-flow diagrams.
+The skill ships ~120 Python modules (hooks, CLIs, and library code across the flat script layer and the `core`/`summarizer`/`doctor`/`cli`/`session_start` subpackages) and 9 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge). The full per-script catalogue — purpose, public API surface, and which component consumes each one — lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **Component Details**, alongside the vault directory layout, the Obsidian graph color-group table, and the data-flow diagrams.
 
 The default vault structure:
 
@@ -662,7 +662,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.21.0** (2026-08-23 audit fully remediated — 93 findings including the visualizer DNS-rebinding-to-RCE chain; par-mem renamed to parsight; doctor per-rule selection; adaptive-context decay; generated config reference; byte-bounded transcript reader; hook latency percentiles). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.22.1** (configurable dead-letter notices in SessionStart context; 0.22.0 made the generated API-docs CI deterministic and checkout-path independent). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
