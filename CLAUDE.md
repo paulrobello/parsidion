@@ -457,7 +457,8 @@ Throughout this section `<vault>` is the resolved vault root (`~/ParsidionVault/
 1. `--vault PATH_OR_NAME` CLI flag (path or name from `~/.config/parsidion/vaults.yaml`)
 2. `<cwd>/.claude/vault` file (path or configured name)
 3. `CLAUDE_VAULT` environment variable (path or configured name)
-4. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
+4. Top-level `default:` key in `~/.config/parsidion/vaults.yaml` (vault name or registered path; unset/unresolvable values are ignored)
+5. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
 
 > **ENH-005 / ENH-009 — vault-resolution contract.** Since ENH-009 the resolution algorithm is single-sourced in Python: `visualizer/lib/vaultResolver.ts:resolveVault()` delegates to `core/vault_path.py:resolve_vault_server()` (the deliberately narrower server contract — named vaults + default + `VAULT_ROOT`; no `cwd/.claude/vault` or `CLAUDE_VAULT` channel, since the visualizer is a long-lived server with no current project) via the stdlib `vault_resolve.py` CLI. There is no longer a second implementation to drift. The shared observable behaviour is still pinned by the fixture at `tests/fixtures/parity/vault-resolution.json`, consumed by `tests/test_vault_resolver_parity.py` (the authoritative resolver-semantics suite) and `visualizer/lib/vaultResolver.parity.test.ts` (end-to-end through the delegated path, `uv`-gated). **Changing the contract requires updating that fixture** (add a vector, then run both test files). The `tests/fixtures/graph.schema.json` contract is likewise generated — run `make parity-fixtures` after editing `GRAPH_JSON_SCHEMA` in `build_graph.py`; CI fails on drift via `make parity-fixtures-check`.
 

@@ -39,7 +39,7 @@ vaults:
 
 Each name is then accepted wherever a vault reference is: the `--vault` flag, the `CLAUDE_VAULT` environment variable, or a project's `.claude/vault` file.
 
-Installing to a custom path also registers the vault: `uv run install.py --vault ~/WorkVault` records the path as a named entry, plus a top-level `default:` line that uninstall reads to locate that vault. Runtime resolution itself follows the order in [Default Vault Resolution](#default-vault-resolution).
+Installing to a custom path also registers the vault: `uv run install.py --vault ~/WorkVault` records the path as a named entry plus a top-level `default:` line, so subsequent runtime resolution (order in [Default Vault Resolution](#default-vault-resolution)) lands on that vault with no extra env var. The uninstaller reads the same line to locate that vault.
 
 ## Using Multiple Vaults
 
@@ -108,7 +108,8 @@ When no explicit vault is specified, tools use this resolution order:
 1. `--vault PATH_OR_NAME` CLI flag (path or name from `~/.config/parsidion/vaults.yaml`)
 2. Project-local `.claude/vault` file (path or configured name)
 3. `CLAUDE_VAULT` environment variable (path or configured name)
-4. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
+4. The top-level `default:` key in `~/.config/parsidion/vaults.yaml` (a vault name or a registered path; unset or unresolvable values are ignored)
+5. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
 
 > **Note:** A vault reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path. An arbitrary unregistered path is rejected: an explicit `--vault` reference fails with a `VaultConfigError`, while `.claude/vault` and `CLAUDE_VAULT` references that fail the check are skipped and resolution falls through to the next step.
 
