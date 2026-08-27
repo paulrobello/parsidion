@@ -125,10 +125,11 @@ def vault_doctor(
 def vault_health(vault: str | None = None, *, fast: bool = False) -> str:
     """Return the composite vault health report as JSON (ENH-007).
 
-    Seven scored dimensions (index freshness, queue health, graph
+    Eight scored dimensions (index freshness, queue health, graph
     connectivity, metadata quality, embedding coverage, tag hygiene, file
-    hygiene) combined into a weighted overall grade. Each dimension carries
-    a concrete ``action`` command when unhealthy, or ``null`` when healthy.
+    hygiene, hook latency) combined into a weighted overall grade. Each
+    dimension carries a concrete ``action`` command when unhealthy, or
+    ``null`` when healthy.
 
     Read-only — never mutates the vault. Subprocesses ``vault-stats
     --health --json`` so the import and subprocess layers see the same code

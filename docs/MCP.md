@@ -40,7 +40,7 @@ Key capabilities:
 - Session-start-style context injection — project notes and recent activity surfaced as a compact index or full summaries
 - Index rebuild triggering from within a conversation
 - Vault health scanning and automated repair via `vault_doctor`
-- Composite vault health scoring across seven dimensions via `vault_health`
+- Composite vault health scoring across eight dimensions via `vault_health`
 - Natural-language code search over any parsight-indexed repository via `code_search`
 
 The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires parsight to be installed and its local daemon running (see [docs/PARSIGHT.md](PARSIGHT.md)); without parsight the other seven tools continue to work and `code_search` raises a clear `ValueError`. **Note:** parsight itself is not yet publicly available (coming soon) — the other seven tools work fully today; `code_search` activates automatically once parsight ships.
@@ -426,7 +426,7 @@ vault_doctor(fix=True, errors_only=True)
 
 ### vault_health
 
-Returns the composite vault health report as JSON (ENH-007). Seven scored dimensions — index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, and file hygiene — are combined into a weighted overall grade. Each dimension carries a concrete `action` command when unhealthy, or `null` when healthy.
+Returns the composite vault health report as JSON (ENH-007). Eight scored dimensions — index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, file hygiene, and hook latency (ENH-019) — are combined into a weighted overall grade. Each dimension carries a concrete `action` command when unhealthy, or `null` when healthy.
 
 Read-only: the tool never mutates the vault. It subprocesses `vault-stats --health --json` so the import and subprocess layers see the same code (the same pattern used by `rebuild_index` and `vault_doctor`).
 

@@ -194,7 +194,7 @@ class TestDegradesOnMissingInputs:
     def test_empty_vault_does_not_raise(self, tmp_path: Path) -> None:
         report = vault_health.compute_health_report(tmp_path)
         assert isinstance(report, vault_health.HealthReport)
-        # All seven dimensions present.
+        # All eight dimensions present.
         names = {d.name for d in report.dimensions}
         assert names == set(vault_health.DIMENSION_WEIGHTS)
 
