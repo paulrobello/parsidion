@@ -416,7 +416,9 @@ class TestExternalLoading:
         vault_common.load_config.cache_clear()
         real_getuid = os.getuid
         monkeypatch.setattr(
-            os, "getuid", lambda: real_getuid() + 4242  # owns nothing here
+            os,
+            "getuid",
+            lambda: real_getuid() + 4242,  # owns nothing here
         )
         agent_adapter.reset_external_adapters()
         try:
