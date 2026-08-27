@@ -38,6 +38,34 @@ def _resolve_vault_path(path: str, vault: str | None = None) -> Path:
     return candidate
 
 
+def _validate_note_segments(resolved: Path, vault_root: Path, *, action: str) -> None:
+    """SEC-201: reject hidden or excluded-dir note locations (shared gate).
+
+    The segment policy both vault_read (SEC-008) and vault_write (SEC-201)
+    enforce: no path segment may start with ``.`` (dotfiles, dot-dirs such as
+    ``.git``/``.trash``/``.obsidian``) and the top-level folder may not be in
+    ``EXCLUDE_DIRS``. Sharing one helper keeps the read and write gates from
+    drifting apart again — the write side previously enforced only containment
+    + ``.md`` suffix, so writes into ``.trash/backup/**`` (the SEC-107
+    pre-mutation backups) or ``.obsidian/**`` were accepted.
+
+    Args:
+        resolved: Resolved absolute path inside *vault_root*.
+        vault_root: Resolved vault root.
+        action: Verb for the error message (``"readable"``/``"writable"``).
+
+    Raises:
+        VaultToolError: When any segment is hidden or the top-level folder is
+            excluded.
+    """
+    rel = resolved.relative_to(vault_root)
+    segments = rel.parts
+    if any(segment.startswith(".") for segment in segments):
+        raise VaultToolError(f"Hidden paths are not {action}")
+    if segments and segments[0] in vault_common.EXCLUDE_DIRS:
+        raise VaultToolError(f"Excluded directory: {segments[0]}")
+
+
 def _validate_readable_note(resolved: Path, vault_root: Path) -> None:
     """SEC-008: restrict vault_read to markdown notes in the note tree.
 
@@ -52,12 +80,7 @@ def _validate_readable_note(resolved: Path, vault_root: Path) -> None:
     """
     if resolved.suffix.lower() != ".md":
         raise VaultToolError("Only .md files are readable")
-    rel = resolved.relative_to(vault_root)
-    segments = rel.parts
-    if any(segment.startswith(".") for segment in segments):
-        raise VaultToolError("Hidden paths are not readable")
-    if segments and segments[0] in vault_common.EXCLUDE_DIRS:
-        raise VaultToolError(f"Excluded directory: {segments[0]}")
+    _validate_note_segments(resolved, vault_root, action="readable")
 
 
 def vault_read(path: str, vault: str | None = None) -> str:
@@ -124,6 +147,13 @@ def vault_write(path: str, content: str, vault: str | None = None) -> str:
         # SEC-009: Only allow .md file extensions.
         if resolved.suffix.lower() != ".md":
             raise VaultToolError("Only .md files are allowed")
+        vault_root = vault_common.resolve_vault(explicit=vault).resolve()
+        # SEC-201: apply the same hidden-path/excluded-dir segment gate the
+        # read side enforces, before any filesystem access — without it a
+        # write to .trash/backup/<date>/**.md could overwrite the SEC-107
+        # pre-mutation backups, and .obsidian/.git stashed content where the
+        # indexer/doctor/health never look.
+        _validate_note_segments(resolved, vault_root, action="writable")
         resolved.parent.mkdir(parents=True, exist_ok=True)
         # SEC-P003: close the TOCTOU window between the containment check
         # above and the actual write. Re-resolve + re-validate against the
@@ -131,10 +161,13 @@ def vault_write(path: str, content: str, vault: str | None = None) -> str:
         # with O_NOFOLLOW (blocks a leaf symlink swap) and write through the
         # resulting fd so a later swap cannot redirect the bytes. Any OSError
         # from the open or write is converted to VaultToolError below.
-        vault_root = vault_common.resolve_vault(explicit=vault).resolve()
         fresh = resolved.resolve()
         if not fresh.is_relative_to(vault_root):
             raise VaultToolError("path escapes vault root")
+        # SEC-201: re-run the segment gate on the re-resolved path so a
+        # vault-internal symlink swap cannot redirect the write into a hidden
+        # or excluded directory that containment alone permits.
+        _validate_note_segments(fresh, vault_root, action="writable")
         fd = os.open(
             str(fresh),
             os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC,
