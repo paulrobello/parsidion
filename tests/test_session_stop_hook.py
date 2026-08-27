@@ -90,32 +90,28 @@ def _run_session_stop_main_for_codex(
     monkeypatch.delenv("CLAUDE_VAULT_STOP_ACTIVE", raising=False)
     monkeypatch.delenv("PARSIDION_INTERNAL", raising=False)
     monkeypatch.setattr(
-        agent_adapter.vault_common,
+        agent_adapter,
         "is_allowed_transcript_path",
         lambda *_args, **_kwargs: True,
     )
+    monkeypatch.setattr(agent_adapter, "ensure_vault_dirs", lambda **_kwargs: None)
     monkeypatch.setattr(
-        agent_adapter.vault_common, "ensure_vault_dirs", lambda **_kwargs: None
-    )
-    monkeypatch.setattr(
-        agent_adapter.vault_common,
+        agent_adapter,
         "append_session_to_daily",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        agent_adapter.vault_common, "append_to_pending", lambda *_args, **_kwargs: None
+        agent_adapter, "append_to_pending", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(
-        agent_adapter.vault_common,
+        agent_adapter,
         "git_commit_vault",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
         agent_adapter, "_launch_summarizer_if_pending", lambda *_args: None
     )
-    monkeypatch.setattr(
-        agent_adapter.vault_common, "write_hook_event", lambda **_kwargs: None
-    )
+    monkeypatch.setattr(agent_adapter, "write_hook_event", lambda **_kwargs: None)
 
     calls: list[list[str]] = []
 
@@ -188,7 +184,7 @@ def test_classify_session_with_ai_uses_small_tier_backend(
         session_stop_hook=_types.SimpleNamespace(ai_timeout=9)
     )
     monkeypatch.setattr(
-        agent_adapter.vault_common,
+        agent_adapter,
         "load_typed_config",
         lambda *args, **kwargs: _cfg_stub,
     )

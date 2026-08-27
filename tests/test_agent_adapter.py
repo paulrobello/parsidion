@@ -142,10 +142,10 @@ class TestRunSessionStartAcrossRuntimes:
         monkeypatch.setattr(session_start_hook, "build_session_context", fake_build)
         # Point resolve_vault at tmp_path so the hook event emission doesn't
         # touch the real vault.
-        import vault_common
-
-        monkeypatch.setattr(vault_common, "resolve_vault", lambda **_kw: tmp_path)
-        monkeypatch.setattr(vault_common, "get_project_name", lambda _cwd: "test")
+        # ARC-103: agent_adapter imports these by name from core.vault_path /
+        # core.vault_hooks, so patch the bound names on agent_adapter itself.
+        monkeypatch.setattr(agent_adapter, "resolve_vault", lambda **_kw: tmp_path)
+        monkeypatch.setattr(agent_adapter, "get_project_name", lambda _cwd: "test")
 
         adapter = agent_adapter.get(name)
         assert adapter is not None
