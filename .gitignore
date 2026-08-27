@@ -25,6 +25,8 @@ docs/superpowers/
 
 # parsidion trigger-eval output (regenerated each eval run)
 skills/parsidion/eval_results.json
+# ENH-023 bench trend results (machine-local, appended per run)
+tools/bench/results.jsonl
 # prompt-eval run reports (non-deterministic, timestamped, regenerated each run)
 tools/eval/results/
 visualizer/docs/superpowers/

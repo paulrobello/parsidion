@@ -378,6 +378,7 @@ A failed gitleaks/detect-private-key hook is a hard block — never bypass it. I
 | `make build-visualizer` | `cd visualizer && bun run build` | Build visualizer for production |
 | `make stop-visualizer` | kills port 3999 | Stop dev server |
 | `make visualizer-setup` | `cd visualizer && bun install` | Install visualizer dependencies |
+| `make bench-hooks` | `uv run --no-project tools/bench/bench_session_start.py` | ENH-023: SessionStart latency bench + budget gate at N=500/5000 (on-demand, NOT in checkall — machine-dependent budgets; pass extra args via `BENCH_ARGS="--sizes 500 --reps 3"`) |
 
 ## Architecture
 

@@ -1,4 +1,4 @@
-.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen
+.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen bench-hooks
 
 # Format code with ruff
 fmt:
@@ -197,6 +197,13 @@ checkall: fmt-check lint typecheck test test-graph test-search visualizer-check 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
 	$(MAKE) -C parsidion-mcp checkall
+
+# ENH-023: SessionStart latency bench + budget gate (on-demand, NOT in
+# checkall/CI — absolute budgets are machine-dependent). Run before releases
+# and after touching session_start_hook.py / session_start/ / vault_index.py.
+# Override per run: make bench-hooks BENCH_ARGS="--sizes 500 --reps 3"
+bench-hooks:
+	uv run --no-project tools/bench/bench_session_start.py $(BENCH_ARGS)
 
 # Build (no-op for this project — it is managed configuration, not a compiled artifact)
 build:

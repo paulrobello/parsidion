@@ -8,6 +8,7 @@ Thank you for your interest in contributing to Parsidion. This guide covers the 
 - [Coding Constraints](#coding-constraints)
 - [Making Changes](#making-changes)
 - [Testing Hooks Manually](#testing-hooks-manually)
+- [Benchmarking Hooks (on-demand)](#benchmarking-hooks-on-demand)
 - [Commit Conventions](#commit-conventions)
 - [Pull Request Process](#pull-request-process)
 
@@ -178,6 +179,20 @@ python skills/parsidion/scripts/subagent_stop_hook.py <<'EOF'
 {"cwd": "/path/to/project", "agent_transcript_path": "/Users/you/.pi/agent/sessions/--path--/subagent-xyz.jsonl", "agent_id": "xyz", "agent_type": "Explore"}
 EOF
 ```
+
+## Benchmarking Hooks (on-demand)
+
+`make bench-hooks` (ENH-023) measures SessionStart hook latency against generated synthetic vaults (500 and 5000 notes) and fails when a size's median wall time exceeds its budget. It prints the per-stage breakdown the hook now logs (`stages_ms`: seed / semantic / graph / delta / ai / assemble) and appends each run to the gitignored `tools/bench/results.jsonl` trend file.
+
+**When to run it:** before releases, and after any change to `session_start_hook.py`, the `session_start/` package, or the `vault_index.py` retrieval helpers — the paths that decide what every session start pays. It is deliberately **not** part of `make checkall` or CI: absolute budgets are machine-dependent, so the gate only means something on the machine you run it on.
+
+```bash
+make bench-hooks                                     # both sizes, 5 reps each
+make bench-hooks BENCH_ARGS="--sizes 500 --reps 3"   # override via BENCH_ARGS
+uv run --no-project tools/bench/bench_session_start.py --slow-ms 1500   # gate self-test
+```
+
+The budgets live in `tools/bench/bench_session_start.py` (`_BUDGET_MS`), calibrated on first run (see the comment there for date/machine). Recalibrate deliberately when the hook's workload changes — never to make a regression pass.
 
 ## Commit Conventions
 

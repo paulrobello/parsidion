@@ -86,6 +86,9 @@ from session_start.context import (
     _build_pending_notice,
     _debug_file,
     _write_debug_log,
+    clear_stage_timings,
+    stage_timer,
+    stage_timings_ms,
 )
 from session_start.graph_retrieval import (
     _DEFAULT_GRAPH_EXPAND,
@@ -419,9 +422,10 @@ def _select_seed_notes(
         # no local embeddings.db), so just delegate; it returns [] when there is
         # nothing to search rather than spawning vault_search pointlessly.
         vault_search_script = Path(__file__).parent / _VAULT_SEARCH_SCRIPT_NAME
-        semantic_notes = _run_semantic_search(
-            project_name, _SEMANTIC_TOP_N, vault_search_script, vault_path
-        )
+        with stage_timer("semantic_ms"):
+            semantic_notes = _run_semantic_search(
+                project_name, _SEMANTIC_TOP_N, vault_search_script, vault_path
+            )
         for note in semantic_notes:
             resolved = note.resolve()
             if resolved not in seen:
@@ -459,6 +463,9 @@ def build_session_context(
     Returns:
         Tuple of (formatted context string, number of notes injected).
     """
+    # ENH-023: per-stage timings accumulate for the hook event written by
+    # main(); clear so repeated in-process calls (tests) never see stale stages.
+    clear_stage_timings()
     project_name: str = get_project_name(cwd)
     today_str: str = date.today().isoformat()
 
@@ -490,54 +497,62 @@ def build_session_context(
 
     # --- Cross-session delta (#10) ---
     delta_section = ""
-    if load_typed_config(vault=vault_path).session_start_hook.track_delta:
-        last_seen_map = load_last_seen(vault=vault_path)
-        last_seen_ts = last_seen_map.get(project_name)
-        delta_section = _build_delta_section(
-            project_name, last_seen_ts, vault_path, snapshot=snapshot
-        )
-    # Update last-seen timestamp for this project
-    save_last_seen(project_name, vault=vault_path)
+    with stage_timer("delta_ms"):
+        if load_typed_config(vault=vault_path).session_start_hook.track_delta:
+            last_seen_map = load_last_seen(vault=vault_path)
+            last_seen_ts = last_seen_map.get(project_name)
+            delta_section = _build_delta_section(
+                project_name, last_seen_ts, vault_path, snapshot=snapshot
+            )
+        # Update last-seen timestamp for this project
+        save_last_seen(project_name, vault=vault_path)
 
     notes_injected = 0
 
     if ai_enabled or ai_model is not None:
-        # Phase 3: widen the AI's candidate pool with 1-hop graph neighbours of
-        # the project notes so the selector sees related prior art.  The pool
-        # is ranked and pruned Python-side (project match > graph adjacency >
-        # adaptive usefulness > recency > hubness) so the selector's prompt
-        # carries the best subset, not an arbitrary 8000-char prefix.
-        ai_graph_meta = (
-            snapshot.graph_metadata()
-            if snapshot is not None
-            else load_graph_metadata(vault=vault_path)
-        )
-        ai_max_add = 0
-        _cfg = load_typed_config(vault=vault_path)
-        if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
-            ai_max_add = _cfg.session_start_hook.graph_expand_max
-        candidates = _build_candidates(
-            project_name,
-            vault_path,
-            graph_meta=ai_graph_meta,
-            graph_expand_max=ai_max_add,
-            max_candidates=load_typed_config(
-                vault=vault_path
-            ).session_start_hook.ai_candidates_max,
-            snapshot=snapshot,
-        )
-        ai_context = _select_context_with_ai(
-            project_name, cwd, candidates, ai_model, max_chars, vault_path=vault_path
-        )
-        if ai_context:
-            notes_injected = ai_context.count("\n### ") + (
-                1 if ai_context.startswith("### ") else 0
+        with stage_timer("ai_ms"):
+            # Phase 3: widen the AI's candidate pool with 1-hop graph neighbours
+            # of the project notes so the selector sees related prior art.  The
+            # pool is ranked and pruned Python-side (project match > graph
+            # adjacency > adaptive usefulness > recency > hubness) so the
+            # selector's prompt carries the best subset, not an arbitrary
+            # 8000-char prefix.
+            ai_graph_meta = (
+                snapshot.graph_metadata()
+                if snapshot is not None
+                else load_graph_metadata(vault=vault_path)
             )
-            context = _assemble_context(
-                header, ai_context, pending_notice, delta_section
+            ai_max_add = 0
+            _cfg = load_typed_config(vault=vault_path)
+            if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
+                ai_max_add = _cfg.session_start_hook.graph_expand_max
+            candidates = _build_candidates(
+                project_name,
+                vault_path,
+                graph_meta=ai_graph_meta,
+                graph_expand_max=ai_max_add,
+                max_candidates=load_typed_config(
+                    vault=vault_path
+                ).session_start_hook.ai_candidates_max,
+                snapshot=snapshot,
             )
-            return context, notes_injected
-        # AI failed — fall through to standard behaviour
+            ai_context = _select_context_with_ai(
+                project_name,
+                cwd,
+                candidates,
+                ai_model,
+                max_chars,
+                vault_path=vault_path,
+            )
+            if ai_context:
+                notes_injected = ai_context.count("\n### ") + (
+                    1 if ai_context.startswith("### ") else 0
+                )
+                context = _assemble_context(
+                    header, ai_context, pending_notice, delta_section
+                )
+                return context, notes_injected
+            # AI failed — fall through to standard behaviour
 
     # Standard behaviour: project notes + recent notes + today's daily note
     daily_path: Path = today_daily_path(vault=vault_path)
@@ -551,24 +566,26 @@ def build_session_context(
         daily_dir.mkdir(parents=True, exist_ok=True)
         daily_path.touch()
 
-    all_notes, seen = _select_seed_notes(
-        project_name, vault_path, daily_path, snapshot=snapshot
-    )
+    with stage_timer("seed_ms"):
+        all_notes, seen = _select_seed_notes(
+            project_name, vault_path, daily_path, snapshot=snapshot
+        )
 
     # Graph retrieval (Tier 1 neighbour expansion + Tier 2 tag/hubness rerank)
     # plus the adaptive usefulness rerank. The seed snapshot is captured inside
     # the helper BEFORE expansion, so Tier 2 reflects the intentional selection.
-    adaptive_enabled: bool = load_typed_config(
-        vault=vault_path
-    ).adaptive_context.enabled
-    graph_meta = (
-        snapshot.graph_metadata()
-        if snapshot is not None
-        else load_graph_metadata(vault=vault_path)
-    )
-    all_notes = _apply_graph_retrieval(
-        all_notes, seen, graph_meta, vault_path, adaptive_enabled, snapshot=snapshot
-    )
+    with stage_timer("graph_ms"):
+        adaptive_enabled: bool = load_typed_config(
+            vault=vault_path
+        ).adaptive_context.enabled
+        graph_meta = (
+            snapshot.graph_metadata()
+            if snapshot is not None
+            else load_graph_metadata(vault=vault_path)
+        )
+        all_notes = _apply_graph_retrieval(
+            all_notes, seen, graph_meta, vault_path, adaptive_enabled, snapshot=snapshot
+        )
 
     notes_injected = len(all_notes)
 
@@ -580,12 +597,13 @@ def build_session_context(
 
     # Build context block from collected notes, reserving space for the header
     max_body_chars: int = max_chars - len(header)
-    if not verbose_mode:
-        context_body: str = build_compact_index(
-            all_notes, max_chars=max_body_chars, vault=vault_path, snapshot=snapshot
-        )
-    else:
-        context_body = build_context_block(all_notes, max_chars=max_body_chars)
+    with stage_timer("assemble_ms"):
+        if not verbose_mode:
+            context_body: str = build_compact_index(
+                all_notes, max_chars=max_body_chars, vault=vault_path, snapshot=snapshot
+            )
+        else:
+            context_body = build_context_block(all_notes, max_chars=max_body_chars)
 
     if not context_body:
         context = _assemble_context(
@@ -708,9 +726,14 @@ def main() -> None:
 
         # Hook event log (#1). PRF-101: record how the semantic leg was served
         # (or that it timed out) so degradation shows up in vault-stats --hooks.
-        extra_event: dict[str, object] = {}
+        # stages_ms (ENH-023) is additive — readers that don't know the key
+        # ignore it; omitted entirely when no stage ran.
+        event_extra: dict[str, object] = {}
         if _SEMANTIC_SOURCE:
-            extra_event["semantic"] = _SEMANTIC_SOURCE
+            event_extra["semantic"] = _SEMANTIC_SOURCE
+        stages = stage_timings_ms()
+        if stages:
+            event_extra["stages_ms"] = stages
         write_hook_event(
             hook="SessionStart",
             project=project_name,
@@ -718,7 +741,7 @@ def main() -> None:
             notes_injected=notes_injected,
             chars=len(context),
             vault=vault_path,
-            **extra_event,
+            **event_extra,
         )
 
         # parsight watch hold: fire-and-forget so live vault edits reindex in

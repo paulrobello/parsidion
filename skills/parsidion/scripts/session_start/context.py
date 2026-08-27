@@ -14,6 +14,7 @@ from __future__ import annotations
 import functools
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -34,6 +35,45 @@ def _debug_file() -> Path:
     it costs one call per process instead of one per import.
     """
     return secure_log_dir() / _DEBUG_FILE_NAME
+
+
+# ENH-023: per-stage latency collection. The hook runs as a one-shot process,
+# so a module-level accumulator is process-local by construction;
+# ``build_session_context`` clears it on entry so in-process test callers and
+# repeated calls see only their own stages. The collected dict is written into
+# the SessionStart hook event as ``stages_ms`` (additive key; readers tolerate
+# its absence) and parsed by tools/bench/bench_session_start.py.
+_STAGE_TIMINGS: dict[str, float] = {}
+
+
+class stage_timer:
+    """Context manager recording wall-clock milliseconds under a stage name.
+
+    Overwrites any earlier recording of the same name (last run of a stage
+    wins) rather than summing, so a stage attempted once per hook run never
+    double-counts.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._start = 0.0
+
+    def __enter__(self) -> stage_timer:
+        self._start = time.perf_counter()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        _STAGE_TIMINGS[self._name] = (time.perf_counter() - self._start) * 1000.0
+
+
+def clear_stage_timings() -> None:
+    """Reset the accumulator (called at ``build_session_context`` entry)."""
+    _STAGE_TIMINGS.clear()
+
+
+def stage_timings_ms() -> dict[str, float]:
+    """Return a rounded snapshot of the accumulated stage timings."""
+    return {name: round(ms, 1) for name, ms in _STAGE_TIMINGS.items()}
 
 
 def _build_pending_notice(vault_path: Path) -> str:
