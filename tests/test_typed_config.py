@@ -67,7 +67,7 @@ _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
     ("embeddings", "decay_enabled", True),
     ("embeddings", "decay_half_life_days", 90.0),
     ("embeddings", "decay_min_factor", 0.5),
-    ("embeddings", "service_enabled", False),
+    ("embeddings", "service_enabled", True),  # flipped by ENH-020
     ("embeddings", "service_idle_exit", 600),
     ("search", "backend", "auto"),
     ("search", "use_note_index", True),

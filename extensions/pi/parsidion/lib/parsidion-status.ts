@@ -148,9 +148,19 @@ export function buildAnthropicStatus(
 
 export function resolveVaultConfigPath(
 	env: Record<string, string | undefined>,
+	home: string = os.homedir(),
+	vaultExists: (p: string) => boolean = existsSync,
 ): string {
-	const vaultRoot = env.CLAUDE_VAULT?.trim() || path.join(os.homedir(), "ClaudeVault");
-	return path.join(vaultRoot, "config.yaml");
+	const envVault = env.CLAUDE_VAULT?.trim();
+	if (envVault) {
+		return path.join(envVault, "config.yaml");
+	}
+	const modern = path.join(home, "ParsidionVault");
+	const legacy = path.join(home, "ClaudeVault");
+	if (!vaultExists(modern) && vaultExists(legacy)) {
+		return path.join(legacy, "config.yaml");
+	}
+	return path.join(modern, "config.yaml");
 }
 
 export function readVaultConfigText(

@@ -11,14 +11,25 @@ These tests pin the three behaviours ENH-003 added:
   explicit opt-in AND a non-parsight backend, and the daemon's request handler
   speaks the newline-JSON protocol (Phase 4).
 
+ENH-020 (default-on lifecycle) adds:
+
+* ``service_enabled`` defaults to true in the schema.
+* The client spawn is single-flight across processes (flock) and logs an
+  ``EmbedServiceSpawn`` hook event; a service miss logs a debounced
+  ``EmbedColdLoad`` event.
+* A launcher that loses the daemon bind race does not unlink the winner's
+  socket.
+
 fastembed is mocked throughout so the suite runs without the search extra.
 """
 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -430,3 +441,152 @@ def test_embed_calls_are_serialised() -> None:
 
     assert overlaps, "inference never ran"
     assert max(overlaps) == 1, f"concurrent inference observed: {overlaps}"
+
+
+# ---------------------------------------------------------------------------
+# ENH-020: default-on lifecycle — single-flight spawn, events, cleanup race
+# ---------------------------------------------------------------------------
+
+
+def test_schema_defaults_service_enabled_true() -> None:
+    """The ENH-020 flip: the schema default (what get_config falls back to)
+    must be true, so the service auto-starts with no config.yaml entry."""
+    from core.vault_schema import EmbeddingsConfig
+
+    field = next(
+        f for f in dataclasses.fields(EmbeddingsConfig) if f.name == "service_enabled"
+    )
+    assert field.default is True
+
+
+def test_spawn_service_single_flight_cross_process(
+    tmp_path: Path,
+) -> None:
+    """Two concurrent cold clients spawn exactly one service.
+
+    flock is per-process, so the contention path needs two real processes:
+    each one stubs Popen to hold the spawn window open (simulating the daemon
+    launch), calls ``_spawn_service``, and reports how many times it spawned.
+    Without the single-flight lock both processes spawn (total 2); with it
+    the loser sees the lock held and skips (total 1).
+    """
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    probe = (
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+        "from cli.search import embeddings as e\n"
+        "spawns = []\n"
+        "class _Proc:\n"
+        "    pid = 4242\n"
+        "def _fake_popen(*a, **k):\n"
+        "    time.sleep(0.5)\n"
+        "    spawns.append(1)\n"
+        "    return _Proc()\n"
+        "e.subprocess.Popen = _fake_popen\n"
+        "e.write_hook_event = lambda *a, **k: None\n"
+        "e._spawn_service(Path(sys.argv[1]), 'm')\n"
+        "print(len(spawns))\n"
+    )
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", probe, str(vault)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(2)
+    ]
+    outputs = []
+    for proc in procs:
+        out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 0, f"probe failed: {err}"
+        outputs.append(out.strip())
+
+    total = sum(int(n) for n in outputs)
+    assert total == 1, f"concurrent cold clients spawned {total} services, not 1"
+
+
+def test_spawn_service_writes_spawn_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful spawn logs EmbedServiceSpawn with the daemon PID."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    events: list[tuple[str, dict[str, object]]] = []
+
+    class _Proc:
+        pid = 777
+
+    monkeypatch.setattr(cli_embeddings.subprocess, "Popen", lambda *a, **k: _Proc())
+    monkeypatch.setattr(
+        cli_embeddings,
+        "write_hook_event",
+        lambda hook, project, duration_ms, vault=None, **kw: events.append(
+            (hook, dict(kw))
+        ),
+    )
+    monkeypatch.setattr(cli_embeddings, "_last_service_spawn_attempt", 0.0)
+
+    cli_embeddings._spawn_service(vault, "model-x")
+
+    assert len(events) == 1
+    hook, extra = events[0]
+    assert hook == "EmbedServiceSpawn"
+    assert extra["pid"] == 777
+    assert extra["model"] == "model-x"
+
+
+def test_cold_load_event_on_service_miss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A service miss falls back in-process and logs a debounced EmbedColdLoad."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    events: list[str] = []
+
+    monkeypatch.setattr(cli_embeddings, "_embeddings_service_active", lambda: True)
+    monkeypatch.setattr(cli_embeddings, "_spawn_service", lambda v, m: None)
+    monkeypatch.setattr(
+        cli_embeddings, "_service_embed", lambda q, m, v, timeout=5.0: None
+    )
+    monkeypatch.setattr(
+        cli_embeddings,
+        "write_hook_event",
+        lambda hook, project, duration_ms, vault=None, **kw: events.append(hook),
+    )
+    monkeypatch.setattr(
+        cli_embeddings, "_get_embedding_model", lambda name: _FakeModel([0.9])
+    )
+    monkeypatch.setattr(cli_embeddings, "_last_cold_load_event", 0.0)
+
+    vec = cli_embeddings._embed_query("q", "m", vault)
+    assert vec == [0.9]  # in-process fallback served the query
+    assert events == ["EmbedColdLoad"]
+
+    # Debounced: a second miss inside the window logs nothing more.
+    cli_embeddings._embed_query("q", "m", vault)
+    assert events == ["EmbedColdLoad"]
+
+
+def test_lock_path_lives_outside_vault(tmp_path: Path) -> None:
+    """The single-flight lock follows the socket/pid rule: runtime dir, never
+    inside the git-synced vault tree."""
+    lp = vault_embed_serve.lock_path(tmp_path / "avault")
+    assert lp.parent == vault_embed_serve.runtime_dir()
+    assert lp.name.startswith("embed-") and lp.suffix == ".lock"
+
+
+def test_cleanup_loser_does_not_unlink_winner_socket(tmp_path: Path) -> None:
+    """A launcher that lost the bind race must leave the winner's socket alone."""
+    sock = tmp_path / "embed-x.sock"
+    sock.write_text("", encoding="utf-8")
+    pid_file = tmp_path / "embed-x.pid"
+    pid_file.write_text("999", encoding="utf-8")  # not our pid
+
+    vault_embed_serve._cleanup(sock, pid_file, our_pid=111, owns_socket=False)
+    assert sock.exists(), "bind-race loser unlinked the winner's socket"
+
+    vault_embed_serve._cleanup(sock, pid_file, our_pid=111, owns_socket=True)
+    assert not sock.exists()

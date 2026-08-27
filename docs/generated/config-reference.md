@@ -138,7 +138,7 @@ embeddings:
   decay_enabled: true  # Apply temporal decay so newer notes score higher
   decay_half_life_days: 90.0  # Days for score to decay halfway to decay_min_factor
   decay_min_factor: 0.5  # Floor multiplier for very old notes (0.0-1.0); prevents scores from vanishing
-  service_enabled: false  # ENH-003: opt-in persistent embedding service (vault_embed_serve.py); never used while parsight serves retrieval
+  service_enabled: true  # ENH-003/ENH-020: persistent embedding service (vault_embed_serve.py), auto-spawned single-flight on the first enabled client; set false to force cold in-process loads; never used while parsight serves retrieval
   service_idle_exit: 600  # Seconds the embedding service stays alive idle before exiting
 
 # parsight code-memory backend (optional external CLI + always-on daemon;

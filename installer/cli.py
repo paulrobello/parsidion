@@ -310,7 +310,12 @@ def _disconnect_extension_runtime(
 ) -> None:
     """Remove the parsidion extension files from a pi-family *ext_dir*."""
     removed: list[str] = []
-    for name in ("parsidion.ts", "parsidion.md", "lib/parsidion-status.ts"):
+    for name in (
+        "parsidion.ts",
+        "parsidion.md",
+        "lib/parsidion-status.ts",
+        "lib/scriptRunner.ts",
+    ):
         candidate = ext_dir / name
         if candidate.is_symlink() or candidate.exists():
             removed.append(str(candidate))

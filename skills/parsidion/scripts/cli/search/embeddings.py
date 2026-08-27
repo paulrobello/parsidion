@@ -26,6 +26,11 @@ from pathlib import Path
 import vault_embed_serve
 from core import vault_metrics
 from core.vault_config import get_config
+from core.vault_fs import (
+    release_singleton_lock,
+    try_singleton_lock,
+    write_hook_event,
+)
 from core.vault_hooks import env_without_claudecode
 from core.vault_path import get_embeddings_db_path, resolve_vault
 from cli.search._common import (
@@ -122,12 +127,14 @@ def _get_embedding_model(model_name: str):  # type: ignore[no-untyped-def]
 # ---------------------------------------------------------------------------
 # AF_UNIX, lives outside the synced vault tree. Contacted only from
 # _search_embeddings — i.e. only when parsight did not serve — and only when
-# embeddings.service_enabled is true and the backend is not parsight-only
-# (the user's constraint). A daemon miss is normal: it falls back to the
-# in-process cached model, so the service is an optimization, never a
-# dependency. Nothing here raises.
+# embeddings.service_enabled is true (the ENH-020 default) and the backend is
+# not parsight-only (the user's constraint). A daemon miss is normal: it falls
+# back to the in-process cached model, so the service is an optimization,
+# never a dependency. Nothing here raises.
 _SERVICE_SPAWN_DEBOUNCE_S = 30.0
 _last_service_spawn_attempt = 0.0
+_COLD_LOAD_DEBOUNCE_S = 30.0
+_last_cold_load_event = 0.0
 
 # scripts/ is three parents up from cli/search/embeddings.py
 # (embeddings.py → cli/search/ → cli/ → scripts/).
@@ -137,14 +144,15 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent
 def _embeddings_service_active() -> bool:
     """True only when the persistent embedding service should be used.
 
-    Two hard guards: explicit opt-in via ``embeddings.service_enabled``
-    (default false), AND the backend must not be parsight-only — parsight serves
-    retrieval without local query embeddings, so the service would never be
-    consulted and must not run. ``_search_embeddings`` is itself only reached
-    when parsight didn't serve under ``auto``, so the second guard mainly covers
-    an explicit ``search.backend: parsight`` setting.
+    Two hard guards: ``embeddings.service_enabled`` (default true since
+    ENH-020; set false to opt out), AND the backend must not be
+    parsight-only — parsight serves retrieval without local query
+    embeddings, so the service would never be consulted and must not run.
+    ``_search_embeddings`` is itself only reached when parsight didn't serve
+    under ``auto``, so the second guard mainly covers an explicit
+    ``search.backend: parsight`` setting.
     """
-    if get_config("embeddings", "service_enabled", False) is not True:
+    if get_config("embeddings", "service_enabled", True) is not True:
         return False
     if _configured_search_backend() == "parsight":
         return False
@@ -152,23 +160,31 @@ def _embeddings_service_active() -> bool:
 
 
 def _spawn_service(vault: Path, model_name: str) -> None:
-    """Best-effort detached launch of the embed service.
+    """Best-effort detached launch of the embed service (ENH-020).
 
-    Debounced so a daemon that fails to start isn't re-spawned every call. A
-    no-op when one is already running: the daemon self-guards via its PID file
-    (a second launch sees the live PID and exits immediately).
+    Single-flight across processes: the spawn runs under a non-blocking
+    flock on the service's runtime lock file, so N cold clients launched in
+    parallel start at most one daemon — the rest see the lock held, skip,
+    and hit the warm socket shortly after. Also debounced in-process so a
+    daemon that fails to start isn't re-spawned every call, and a no-op when
+    one is already running (the daemon self-guards via its PID file and the
+    atomic socket bind).
     """
     global _last_service_spawn_attempt
     now = time.monotonic()
     if now - _last_service_spawn_attempt < _SERVICE_SPAWN_DEBOUNCE_S:
         return
     _last_service_spawn_attempt = now
+    lock_fd = try_singleton_lock(vault_embed_serve.lock_path(vault))
+    if lock_fd is None:
+        # Another cold client is mid-spawn and will bring the socket up.
+        return
     try:
         script = _SCRIPTS_DIR / "vault_embed_serve.py"
         if not script.exists():
             return
         idle = int(get_config("embeddings", "service_idle_exit", 600) or 600)
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 str(script),
                 "--vault",
@@ -184,9 +200,36 @@ def _spawn_service(vault: Path, model_name: str) -> None:
             start_new_session=True,
             env=env_without_claudecode(),
         )
+        write_hook_event(
+            "EmbedServiceSpawn",
+            "embeddings",
+            0.0,
+            vault=vault,
+            model=model_name,
+            pid=proc.pid,
+        )
     except Exception as exc:  # noqa: BLE001 — best-effort; in-process fallback covers failure
         print(f"embedding service spawn best-effort: {exc}", file=sys.stderr)
-        pass
+    finally:
+        # The lock covers the spawn call only — the daemon warms up unheld,
+        # so a later caller can re-spawn if it dies.
+        release_singleton_lock(lock_fd)
+
+
+def _note_cold_load(vault: Path, model_name: str) -> None:
+    """Log an ``EmbedColdLoad`` hook event (debounced) on a service miss.
+
+    With the service auto-starting (ENH-020), a cold in-process load means
+    the daemon was not warm yet or failed to start. The debounce keeps
+    ``vault-stats --hooks`` an honest signal without one log line per query
+    while the service is down.
+    """
+    global _last_cold_load_event
+    now = time.monotonic()
+    if now - _last_cold_load_event < _COLD_LOAD_DEBOUNCE_S:
+        return
+    _last_cold_load_event = now
+    write_hook_event("EmbedColdLoad", "embeddings", 0.0, vault=vault, model=model_name)
 
 
 def _service_embed(
@@ -232,6 +275,7 @@ def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]
         vec = _service_embed(query, model_name, resolved)
         if vec is not None:
             return vec
+        _note_cold_load(resolved, model_name)
     model = _get_embedding_model(model_name)
     with _EMBED_MODEL_LOCK:
         embedded = list(model.embed([query]))
