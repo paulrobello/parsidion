@@ -231,11 +231,14 @@ def _load_external_adapters() -> None:
     """Opt-in drop-in loader for ``~/.config/parsidion/adapters/*.py``.
 
     Each file defines a module-level ``ADAPTER: AgentAdapter``. Loading
-    arbitrary Python is code execution, so three guards (mirroring SEC-117's
-    reasoning for ``codex_cli.command``): off by default; each file refused if
-    group- or world-writable; every load logged by path. Never raises — a
-    broken external adapter must not break the registry or the hooks that read
-    it.
+    arbitrary Python is code execution, so the guards (mirroring SEC-117's
+    reasoning for ``codex_cli.command``): off by default; the adapters
+    directory and each file must pass the full SEC-007 trust criteria
+    (``vault_fs.is_trusted_executable`` — owned by the current uid, no
+    group/world write bits; a group-writable directory would let any group
+    member plant a module); every load logged by path. Never raises — a
+    broken external adapter must not break the registry or the hooks that
+    read it.
     """
     global _external_loaded
     if _external_loaded:
@@ -249,17 +252,28 @@ def _load_external_adapters() -> None:
             return
         import importlib.util
 
+        from vault_fs import is_trusted_executable
+
         adapters_dir = Path.home() / ".config" / "parsidion" / "adapters"
         if not adapters_dir.is_dir():
             return
+        # SEC-205: gate the directory itself, not just the files — planting a
+        # module only needs write access to the dir.
+        if not is_trusted_executable(adapters_dir):
+            print(
+                f"agent_adapter: refusing external adapters from untrusted "
+                f"directory {adapters_dir} (not owned by current user or "
+                f"group/world-writable)",
+                file=sys.stderr,
+            )
+            return
         for path in sorted(adapters_dir.glob("*.py")):
-            try:
-                mode = path.stat().st_mode
-            except OSError:
-                continue
-            if mode & 0o022:  # group- or world-writable -> refuse
+            # SEC-205: full SEC-007 criteria per file — ownership in addition
+            # to the write bits.
+            if not is_trusted_executable(path):
                 print(
-                    f"agent_adapter: refusing group/world-writable adapter {path}",
+                    f"agent_adapter: refusing untrusted adapter {path} "
+                    f"(not owned by current user or group/world-writable)",
                     file=sys.stderr,
                 )
                 continue
