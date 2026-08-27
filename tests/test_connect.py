@@ -400,8 +400,13 @@ class TestInstructionsFilenameWired:
             skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
         )
         codex_adapter = agent_adapter.get("codex")
-        assert codex_adapter is not None
-        custom = dataclasses.replace(codex_adapter, instructions_filename=filename)
+        assert codex_adapter is not None and codex_adapter.install is not None
+        custom = dataclasses.replace(
+            codex_adapter,
+            install=dataclasses.replace(
+                codex_adapter.install, instructions_filename=filename
+            ),
+        )
         monkeypatch.setattr(
             agent_adapter, "get", lambda n: custom if n == "codex" else None
         )
@@ -439,15 +444,15 @@ class TestInstructionsFilenameWired:
         import agent_adapter
 
         base = agent_adapter.get("codex")
-        assert base is not None
+        assert base is not None and base.install is not None
+        no_instructions = dataclasses.replace(
+            base,
+            install=dataclasses.replace(base.install, instructions_filename=None),
+        )
         monkeypatch.setattr(
             agent_adapter,
             "get",
-            lambda n: (
-                dataclasses.replace(base, instructions_filename=None)
-                if n == "codex"
-                else None
-            ),
+            lambda n: no_instructions if n == "codex" else None,
         )
         codex_home = tmp_path / ".codex"
         codex_home.mkdir()

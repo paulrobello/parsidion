@@ -276,7 +276,8 @@ def _merge_runtime_hooks(
     former ``_RuntimeHookSpec``.
 
     Args:
-        adapter: Runtime descriptor (config filename / event scripts / entry shape).
+        adapter: Runtime descriptor; its ``install`` InstallerSpec carries the
+            config filename / event scripts / entry shape (ARC-105).
         runtime_home: Config-directory root for the runtime (``~/.codex`` /
             ``~/.gemini``); the hook file is ``runtime_home / adapter.hooks_config_filename``.
         claude_dir: Claude Code config directory (``~/.claude``) — used to
@@ -284,10 +285,11 @@ def _merge_runtime_hooks(
         dry_run: When True, print registrations but skip the file write.
         verbose: When True, emit a line per already-registered event.
     """
+    spec = _spec(adapter)
     label = adapter.display_name or adapter.name
-    config_file = _runtime_hooks_file(adapter, runtime_home)
+    config_file = _runtime_hooks_file(spec, adapter.name, runtime_home)
     with _file_lock(config_file):
-        data = _read_runtime_hooks(adapter, config_file)
+        data = _read_runtime_hooks(spec, adapter.name, config_file)
         if data is None:
             return
 
@@ -295,8 +297,8 @@ def _merge_runtime_hooks(
         added: list[str] = []
         skipped: list[str] = []
 
-        for event in adapter.event_scripts:
-            command = _build_managed_command(adapter, claude_dir, event)
+        for event in spec.event_scripts:
+            command = _build_managed_command(spec, claude_dir, event)
             event_hooks = hooks_section.setdefault(event, [])
             if not isinstance(event_hooks, list):
                 _warn(f"{label} hook event {event} is not a list; skipping")
@@ -310,7 +312,7 @@ def _merge_runtime_hooks(
                 skipped.append(event)
                 continue
 
-            new_entry = _build_entry(adapter, event, command)
+            new_entry = _build_entry(spec, event, command)
             _step(
                 f"Register {label} hook {bold(event)}: {dim(command)}",
                 dry_run=dry_run,
@@ -378,23 +380,37 @@ def _adapter(name: str) -> agent_adapter.AgentAdapter:
     return adapter
 
 
+def _spec(adapter: agent_adapter.AgentAdapter) -> agent_adapter.InstallerSpec:
+    """Unwrap the adapter's InstallerSpec for the installer-side helpers.
+
+    ARC-105: the helpers below consume purely installer-side declarative
+    data, so they take the spec (+ the runtime name for messages). Raising
+    here preserves the former ValueError a config-less adapter hit in
+    ``_runtime_hooks_file``.
+    """
+    spec = adapter.install
+    if spec is None:
+        raise ValueError(f"adapter {adapter.name!r} has no installer spec")
+    return spec
+
+
 def _runtime_hooks_file(
-    adapter: agent_adapter.AgentAdapter, runtime_home: Path
+    spec: agent_adapter.InstallerSpec, runtime_name: str, runtime_home: Path
 ) -> Path:
-    """Resolve a runtime's hook-config file from its home dir + adapter filename."""
-    if adapter.hooks_config_filename is None:
-        raise ValueError(f"adapter {adapter.name!r} has no hook config file")
-    return runtime_home / adapter.hooks_config_filename
+    """Resolve a runtime's hook-config file from its home dir + spec filename."""
+    if spec.hooks_config_filename is None:
+        raise ValueError(f"adapter {runtime_name!r} has no hook config file")
+    return runtime_home / spec.hooks_config_filename
 
 
 def _read_runtime_hooks(
-    adapter: agent_adapter.AgentAdapter, hooks_file: Path
+    spec: agent_adapter.InstallerSpec, runtime_name: str, hooks_file: Path
 ) -> dict | None:
     """Read + validate a runtime hook config; None when unsafe to edit.
 
     Ensures a ``hooks`` sub-dict exists (matching the codex/gemini readers).
     """
-    label = adapter.display_name or adapter.name
+    label = spec.display_name or runtime_name
     if not hooks_file.exists():
         return {"hooks": {}}
     try:
@@ -415,14 +431,14 @@ def _read_runtime_hooks(
 
 
 def _build_managed_command(
-    adapter: agent_adapter.AgentAdapter, claude_dir: Path, event: str
+    spec: agent_adapter.InstallerSpec, claude_dir: Path, event: str
 ) -> str:
-    """Build the managed hook command for (adapter, event).
+    """Build the managed hook command for (spec, event).
 
     ``.sh`` scripts run directly; Python via ``uv run --no-project`` — identical
     to the per-runtime ``_managed_*_hook_command`` builders.
     """
-    script = adapter.event_scripts[event]
+    script = spec.event_scripts[event]
     script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
     try:
         rel = script_path.relative_to(Path.home())
@@ -434,8 +450,8 @@ def _build_managed_command(
     return f"uv run --no-project {display}"
 
 
-def _build_entry(adapter: agent_adapter.AgentAdapter, event: str, command: str) -> dict:
-    """Build the per-event hook entry dict from adapter declarative fields.
+def _build_entry(spec: agent_adapter.InstallerSpec, event: str, command: str) -> dict:
+    """Build the per-event hook entry dict from the spec's declarative fields.
 
     Matches the former ``_build_codex_entry`` / ``_build_gemini_entry`` output
     exactly (key order included): a ``matcher`` + ``hooks`` list whose hook
@@ -443,11 +459,11 @@ def _build_entry(adapter: agent_adapter.AgentAdapter, event: str, command: str) 
     ``timeout``.
     """
     hook: dict[str, object] = {"type": "command", "command": command}
-    if adapter.entry_names and event in adapter.entry_names:
-        hook = {"name": adapter.entry_names[event], **hook}
-    if adapter.entry_timeout:
-        hook["timeout"] = adapter.entry_timeout
-    return {"matcher": adapter.entry_matcher, "hooks": [hook]}
+    if spec.entry_names and event in spec.entry_names:
+        hook = {"name": spec.entry_names[event], **hook}
+    if spec.entry_timeout:
+        hook["timeout"] = spec.entry_timeout
+    return {"matcher": spec.entry_matcher, "hooks": [hook]}
 
 
 def remove_runtime_hooks(
@@ -462,21 +478,22 @@ def remove_runtime_hooks(
     remove_installed_hooks — identical behaviour, driven by the adapter's config
     filename, event scripts, and managed-command builder.
     """
-    if adapter.hooks_config_filename is None:
+    spec = adapter.install
+    if spec is None or spec.hooks_config_filename is None:
         return False  # extension-only runtimes (e.g. pi) have no hook config
     label = adapter.display_name or adapter.name
-    hooks_file = _runtime_hooks_file(adapter, runtime_home)
+    hooks_file = _runtime_hooks_file(spec, adapter.name, runtime_home)
     with _file_lock(hooks_file):
-        data = _read_runtime_hooks(adapter, hooks_file)
+        data = _read_runtime_hooks(spec, adapter.name, hooks_file)
         if data is None:
             return False
         if not hooks_file.exists():
-            _warn(f"{label} {adapter.hooks_config_filename} not found: {hooks_file}")
+            _warn(f"{label} {spec.hooks_config_filename} not found: {hooks_file}")
             return False
         hooks_section: dict = data["hooks"]
         changed = False
-        for event in adapter.event_scripts:
-            command = _build_managed_command(adapter, claude_dir, event)
+        for event in spec.event_scripts:
+            command = _build_managed_command(spec, claude_dir, event)
             event_hooks = hooks_section.get(event, [])
             if not isinstance(event_hooks, list):
                 continue
@@ -750,6 +767,7 @@ def merge_hooks(
     ``installer.skill``.
     """
     claude = _adapter("claude")
+    claude_spec = _spec(claude)
     with _file_lock(settings_file):
         pre_existing = settings_file.exists()
         original_bytes: bytes | None = None
@@ -779,7 +797,7 @@ def merge_hooks(
         skipped: list[str] = []
 
         for event in claude.event_scripts:
-            command = _build_managed_command(claude, claude_dir, event)
+            command = _build_managed_command(claude_spec, claude_dir, event)
             event_hooks: list[dict] = hooks_section.setdefault(event, [])
             desired_options = _HOOK_OPTIONS.get(event, {})
 

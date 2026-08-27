@@ -23,21 +23,32 @@ by the [stdlib-only rule](../CLAUDE.md)).
 
 ## The `AgentAdapter` contract
 
-Each field names one thing that varies between runtimes. The hook shims and the installer's generic
-hook-registration core drive per-runtime behaviour from these; a field exists only when ≥2 runtimes
-use it or a runtime's schema requires it (one-runtime behaviour stays a callable override, not a
-field).
+Each field names one thing that varies between runtimes. The hook shims drive per-runtime behaviour
+from the runtime fields; the installer's generic hook-registration core reads the adapter's
+**`InstallerSpec`** (carried by `install`, ARC-105). A field exists only when ≥2 runtimes use it or
+a runtime's schema requires it (one-runtime behaviour stays a callable override, not a field).
+
+### `AgentAdapter` (runtime) fields
 
 | Group | Field | Meaning |
 |---|---|---|
 | **Identity** | `name` | Lowercase runtime id (`claude`, `codex`, `gemini`, `pi`, …). Registry key. |
-| | `display_name` | User-facing label for installer messages (`Codex`). |
-| | `runtime_env_value` | Value set for `PARSIDION_RUNTIME` when the runtime's hook runs. |
 | **Hook side** | `hook_event_name_start` / `hook_event_name_end` | Names emitted to `hook_events.log` for `vault-stats --hooks` observability. |
 | | `is_transcript_path` | Optional `(path, cwd) -> bool` validator for the runtime's transcript files. `None` skips the check. |
 | | `parse_transcript_lines` | Optional `(lines) -> [str]` parser for assistant text. `None` falls back to the shape-agnostic parser. |
 | | `read_transcript_tail` | Optional `(path, tail_lines) -> [str]` transcript-tail reader. `None` falls back to the shared byte-bounded reader (`transcript_tail_bytes` ceiling, SEC-022). |
 | | `always_log_daily` | When `true`, write a daily-note session entry even with no detected categories (Claude's 'General' entry). Default `false` — daily entries only when categories are found. |
+| **Installer** | `install` | The runtime's `InstallerSpec` (below). `None` for runtimes with no installer integration (pi, omp are extension-only). |
+
+### `InstallerSpec` fields
+
+Held by `AgentAdapter.install`; a standalone frozen dataclass so the installer helpers can take
+`(spec, runtime_name)` without the rest of the adapter.
+
+| Group | Field | Meaning |
+|---|---|---|
+| **Identity** | `display_name` | User-facing label for installer messages (`Codex`). |
+| | `runtime_env_value` | Value set for `PARSIDION_RUNTIME` when the runtime's hook runs. |
 | **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi, omp). |
 | | `event_scripts` | Ordered `event -> hook-script-filename` map (e.g. `SessionStart -> codex_session_start_hook.py`). |
 | | `entry_matcher` | `matcher` for the hook entry (`""` codex/claude, `"*"` gemini). |
@@ -46,6 +57,42 @@ field).
 | | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). Reserved: no built-in sets it — the installer's `_read_runtime_hooks` validates inline. |
 | | `build_entry` | Optional `(event, command) -> dict` override for entries that need logic, not just data. Reserved: no built-in sets it — the installer's `_build_entry` builds every entry from `entry_matcher`/`entry_timeout`/`entry_names`. |
 | **Instructions** | `instructions_filename` | File the installer injects agent instructions into (`AGENTS.md`, `GEMINI.md`). `None` for claude (uses `CLAUDE-VAULT.md`) and pi/omp. |
+
+### Deprecated flat read-properties
+
+The eleven `InstallerSpec` field names survive on `AgentAdapter` as **read-only properties** that
+delegate to `install` (returning each field's old default — `None`/`""`/`{}` — when `install` is
+`None`). This is a one-release compat shim so `adapter.event_scripts`,
+`adapter.instructions_filename`, … keep reading correctly at unchanged call sites; setting any of
+them raises `AttributeError`. New code should read `adapter.install.<field>` (and construct via
+`install=InstallerSpec(...)`).
+
+### Migration for external adapter authors
+
+Before ARC-105 the installer fields were set directly on the `AgentAdapter` constructor. If your
+`~/.config/parsidion/adapters/*.py` module passes any of the eleven spec fields
+(`display_name`, `runtime_env_value`, `hooks_config_filename`, `event_scripts`, `entry_matcher`,
+`entry_timeout`, `timeout_unit`, `entry_names`, `instructions_filename`, `config_validator`,
+`build_entry`) to `AgentAdapter(...)`, move them into an `InstallerSpec`:
+
+```python
+from agent_adapter import AgentAdapter, InstallerSpec
+
+ADAPTER = AgentAdapter(
+    name="acme",
+    hook_event_name_start="AcmeSessionStart",
+    hook_event_name_end="AcmeSessionEnd",
+    install=InstallerSpec(
+        display_name="Acme",
+        runtime_env_value="acme",
+        hooks_config_filename="hooks.json",
+        event_scripts={"SessionStart": "acme_session_start_hook.py"},
+    ),
+)
+```
+
+Flat reads (`adapter.display_name`) keep working during the deprecation window; flat constructor
+arguments do not.
 
 ## Built-in runtimes
 
@@ -76,16 +123,18 @@ is one small wrapper plus a plan flag.
 register(
     AgentAdapter(
         name="acme",
-        display_name="Acme",
-        runtime_env_value="acme",
         hook_event_name_start="AcmeSessionStart",
         hook_event_name_end="AcmeSessionEnd",
-        hooks_config_filename="hooks.json",
-        event_scripts={"SessionStart": "acme_session_start_hook.py"},
-        entry_matcher="",
-        entry_timeout=60,
-        timeout_unit="s",
-        instructions_filename="AGENTS.md",
+        install=InstallerSpec(
+            display_name="Acme",
+            runtime_env_value="acme",
+            hooks_config_filename="hooks.json",
+            event_scripts={"SessionStart": "acme_session_start_hook.py"},
+            entry_matcher="",
+            entry_timeout=60,
+            timeout_unit="s",
+            instructions_filename="AGENTS.md",
+        ),
     )
 )
 ```
@@ -132,7 +181,10 @@ that pulls a third-party import — even transitively — fails the gate.
 
 - **One descriptor, two consumers.** The hook shims (`codex_session_start_hook.py`, …) call
   `run_session_start`/`run_session_end` with their adapter; the installer's `_merge_runtime_hooks` /
-  `remove_runtime_hooks` read the same adapter's installer-side fields.
+  `remove_runtime_hooks` take the same adapter and read its `InstallerSpec`
+  (`adapter.install`) — the purely installer-side helpers (`_runtime_hooks_file`,
+  `_read_runtime_hooks`, `_build_managed_command`, `_build_entry`) type their parameters as
+  `InstallerSpec` + runtime name (ARC-105).
 - **Installer → scripts dependency.** The installer imports `agent_adapter` from
   `skills/parsidion/scripts/`. `installer/__init__.py` puts that directory on `sys.path` at package
   import (established precedent — `installer/paths.py` already imports `vault_path` the same way).
