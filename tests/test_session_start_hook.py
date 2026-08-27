@@ -38,7 +38,9 @@ def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> No
     base = VaultAppConfig()
     base.session_start_hook = dataclasses.replace(base.session_start_hook, **ssh_fields)
     stub = _types.SimpleNamespace(session_start_hook=base.session_start_hook)
-    monkeypatch.setattr(session_start_hook, "load_typed_config", lambda: stub)
+    monkeypatch.setattr(
+        session_start_hook, "load_typed_config", lambda *args, **kwargs: stub
+    )
 
 
 import vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
@@ -784,9 +786,11 @@ class TestGraphExpansionIntegration:
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
-            lambda project: [seed],
+            lambda project, vault=None: [seed],
         )
-        monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+        monkeypatch.setattr(
+            session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+        )
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )
@@ -951,9 +955,11 @@ class TestGraphRerankIntegration:
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
-            lambda project: [seed],
+            lambda project, vault=None: [seed],
         )
-        monkeypatch.setattr(session_start_hook, "find_recent_notes", lambda days=3: [])
+        monkeypatch.setattr(
+            session_start_hook, "find_recent_notes", lambda days=3, vault=None: []
+        )
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )

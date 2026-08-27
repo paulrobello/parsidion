@@ -242,6 +242,9 @@ def _load_external_adapters() -> None:
         return
     _external_loaded = True
     try:
+        # ARC-101 allowlist: registry population runs before any hook payload
+        # (and thus before any vault) exists, so the default-vault read here
+        # is deliberate — there is no resolved vault to thread yet.
         if vault_common.load_typed_config().adapters.load_external is not True:
             return
         import importlib.util
@@ -466,7 +469,9 @@ _DEFAULT_TRANSCRIPT_TAIL_BYTES = 1_500_000
 _SIGNIFICANT_CATEGORIES = {"error_fix", "research", "pattern"}
 
 
-def _read_transcript_tail(path: Path, tail_lines: int) -> list[str]:
+def _read_transcript_tail(
+    path: Path, tail_lines: int, vault: Path | None = None
+) -> list[str]:
     """Read the last *tail_lines* of a transcript through the unified reader.
 
     Shared default ``AgentAdapter.read_transcript_tail`` implementation
@@ -476,11 +481,15 @@ def _read_transcript_tail(path: Path, tail_lines: int) -> list[str]:
     Byte budget: the per-hook ``session_stop_hook.transcript_tail_bytes``
     override when explicitly set, else the ``transcripts.tail_bytes`` key,
     else the built-in default.
+
+    ``vault`` (ARC-101) selects the config vault; external adapters keep the
+    two-argument ``read_transcript_tail`` contract and resolve a vault
+    themselves when they need one.
     """
     from core.transcript_reader import read_tail
 
-    cfg = vault_common.load_typed_config()
-    raw_section = vault_common.load_config().get("session_stop_hook") or {}
+    cfg = vault_common.load_typed_config(vault=vault)
+    raw_section = vault_common.load_config(vault=vault).get("session_stop_hook") or {}
     override = raw_section.get("transcript_tail_bytes")
     if override is None:
         # No explicit per-hook override: the unified transcripts key drives
@@ -501,6 +510,7 @@ def _classify_session_with_ai(
     assistant_texts: list[str],
     project: str,
     model: str | None,
+    vault: Path | None = None,
 ) -> dict[str, object] | None:
     """Use the configured AI backend to classify whether a session should be queued.
 
@@ -512,6 +522,8 @@ def _classify_session_with_ai(
         assistant_texts: List of assistant message texts from the transcript.
         project: The current project name.
         model: Explicit model ID to use, or None for the backend default.
+        vault: Vault root the session belongs to (ARC-101); selects the
+            config vault for the AI timeout.
 
     Returns:
         Dict with keys ``should_queue`` (bool), ``categories`` (list[str]),
@@ -565,7 +577,9 @@ def _classify_session_with_ai(
             prompt,
             model=model,
             model_tier="small",
-            timeout=vault_common.load_typed_config().session_stop_hook.ai_timeout,
+            timeout=vault_common.load_typed_config(
+                vault=vault
+            ).session_stop_hook.ai_timeout,
             purpose="session-stop-classification",
         )
         if not output:
@@ -610,7 +624,9 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
     Args:
         vault_path: The vault root path.
     """
-    if not vault_common.load_typed_config().session_stop_hook.auto_summarize:
+    if not vault_common.load_typed_config(
+        vault=vault_path
+    ).session_stop_hook.auto_summarize:
         return
 
     pending_path = vault_path / "pending_summaries.jsonl"
@@ -628,7 +644,10 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
 
     # Check threshold — default 1 means "launch whenever there's anything pending"
     threshold: int = int(
-        vault_common.load_typed_config().session_stop_hook.auto_summarize_after or 1
+        vault_common.load_typed_config(
+            vault=vault_path
+        ).session_stop_hook.auto_summarize_after
+        or 1
     )
     if pending_count < threshold:
         print(
@@ -656,7 +675,10 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
 
 
 def _update_adaptive_scores(
-    project: str, all_lines: list[str], log_prefix: str
+    project: str,
+    all_lines: list[str],
+    log_prefix: str,
+    vault: Path | None = None,
 ) -> None:
     """Update note usefulness scores based on transcript content (#17).
 
@@ -668,9 +690,11 @@ def _update_adaptive_scores(
         project: Current project name for looking up the injected stems.
         all_lines: All transcript lines parsed from the JSONL file.
         log_prefix: Stderr log prefix for the best-effort status line.
+        vault: Vault root the session belongs to (ARC-101); selects the
+            config vault for the ``adaptive_context.enabled`` gate.
     """
     try:
-        if not vault_common.load_typed_config().adaptive_context.enabled:
+        if not vault_common.load_typed_config(vault=vault).adaptive_context.enabled:
             return
         injected = vault_common.get_injected_stems(project)
         if not injected:
@@ -694,6 +718,7 @@ def _classify_session(
     project: str,
     ai_cli_arg: str | None,
     log_prefix: str,
+    vault: Path | None = None,
 ) -> tuple[dict[str, list[str]], str, bool, bool | None, str] | None:
     """QA-002: single AI classification stage for the session-end pipeline.
 
@@ -703,6 +728,8 @@ def _classify_session(
         ai_cli_arg: The ``--ai`` CLI value — ``_BACKEND_DEFAULT_AI_MODEL``
             (bare ``--ai``), an explicit model id, or None (no flag).
         log_prefix: Stderr log prefix for progress lines.
+        vault: Vault root the session belongs to (ARC-101); selects the
+            config vault for the ``session_stop_hook.ai_model`` gate.
 
     Returns:
         ``(categories, summary, queued, force_queue, mode)`` where
@@ -718,7 +745,9 @@ def _classify_session(
     elif ai_cli_arg is not None:
         ai_model = ai_cli_arg
     else:
-        ai_model = vault_common.load_typed_config().session_stop_hook.ai_model
+        ai_model = vault_common.load_typed_config(
+            vault=vault
+        ).session_stop_hook.ai_model
         if ai_model is None:
             return None
 
@@ -727,7 +756,7 @@ def _classify_session(
         f"{log_prefix} classifying with AI model: {model_label}",
         file=sys.stderr,
     )
-    ai_result = _classify_session_with_ai(assistant_texts, project, ai_model)
+    ai_result = _classify_session_with_ai(assistant_texts, project, ai_model, vault)
     if ai_result is None:
         print(
             f"{log_prefix} AI classification failed, falling back to "
@@ -891,7 +920,12 @@ def run_session_start(adapter: AgentAdapter) -> None:
         cwd_value = payload.get("cwd")
         cwd = str(cwd_value) if cwd_value else str(Path.cwd())
 
-        max_chars = int(vault_common.load_typed_config().session_start_hook.max_chars)
+        vault_path = vault_common.resolve_vault(cwd=cwd)
+        max_chars = int(
+            vault_common.load_typed_config(
+                vault=vault_path
+            ).session_start_hook.max_chars
+        )
         old_runtime = os.environ.get("PARSIDION_RUNTIME")
         os.environ["PARSIDION_RUNTIME"] = adapter.name
         try:
@@ -920,7 +954,6 @@ def run_session_start(adapter: AgentAdapter) -> None:
         # ARC-020 step 4: emit a hook event so vault-stats --hooks surfaces
         # Codex/Gemini sessions too.
         try:
-            vault_path = vault_common.resolve_vault(cwd=cwd)
             project = vault_common.get_project_name(cwd)
             _emit_hook_event(
                 adapter.hook_event_name_start, project, vault_path, notes_injected=0
@@ -948,7 +981,9 @@ def _read_stdin_payload() -> dict[str, object]:
         return {}
 
 
-def _deeper_pi_tail(transcript_path: Path, tail_lines: int) -> list[str] | None:
+def _deeper_pi_tail(
+    transcript_path: Path, tail_lines: int, vault: Path | None = None
+) -> list[str] | None:
     """Read a deeper transcript tail for pi transcripts (ARC-002 step 1d).
 
     pi transcripts (which share the claude entrypoint) can be noisier than
@@ -956,15 +991,19 @@ def _deeper_pi_tail(transcript_path: Path, tail_lines: int) -> list[str] | None:
     tail found nothing, a configurable deeper tail (default 1000 lines) is
     re-read through the same byte-bounded reader.
 
+    ``vault`` (ARC-101) selects the config vault for the deeper-tail depth.
+
     Returns the deeper tail, or None when the configured depth does not
     exceed the default tail already read.
     """
     pi_tail_lines = int(
-        vault_common.load_typed_config().session_stop_hook.pi_transcript_tail_lines
+        vault_common.load_typed_config(
+            vault=vault
+        ).session_stop_hook.pi_transcript_tail_lines
     )
     if pi_tail_lines <= tail_lines:
         return None
-    return _read_transcript_tail(transcript_path, pi_tail_lines)
+    return _read_transcript_tail(transcript_path, pi_tail_lines, vault=vault)
 
 
 def _resolve_transcript(
@@ -1059,8 +1098,10 @@ def run_session_end(
         # configured tail via the adapter's reader (SEC-022/SEC-111).
         # Line budget: the per-hook override when explicitly set, else the
         # unified transcripts.tail_lines (ENH-018).
-        _cfg = vault_common.load_typed_config()
-        _raw_ssh = vault_common.load_config().get("session_stop_hook") or {}
+        _cfg = vault_common.load_typed_config(vault=vault_path)
+        _raw_ssh = (
+            vault_common.load_config(vault=vault_path).get("session_stop_hook") or {}
+        )
         _lines_override = _raw_ssh.get("transcript_tail_lines")
         if subagent:
             tail_lines = _DEFAULT_SUBAGENT_TAIL_LINES
@@ -1069,10 +1110,14 @@ def run_session_end(
         else:
             tail_lines = int(_cfg.session_stop_hook.transcript_tail_lines)
         raw_lines = (
-            _read_transcript_tail(transcript_path, tail_lines)
+            _read_transcript_tail(transcript_path, tail_lines, vault=vault_path)
             if subagent
-            else (adapter.read_transcript_tail or _read_transcript_tail)(
-                transcript_path, tail_lines
+            else (
+                adapter.read_transcript_tail(transcript_path, tail_lines)
+                if adapter.read_transcript_tail is not None
+                else _read_transcript_tail(
+                    transcript_path, tail_lines, vault=vault_path
+                )
             )
         )
 
@@ -1089,7 +1134,7 @@ def run_session_end(
             and not assistant_texts
             and vault_common.is_pi_transcript_path(transcript_path, cwd=cwd)
         ):
-            deeper = _deeper_pi_tail(transcript_path, tail_lines)
+            deeper = _deeper_pi_tail(transcript_path, tail_lines, vault=vault_path)
             if deeper is not None:
                 raw_lines = deeper
                 assistant_texts = parse_lines(raw_lines)
@@ -1097,7 +1142,7 @@ def run_session_end(
         if not subagent:
             # Adaptive context: update usefulness scores before we do
             # anything else (config-gated, best-effort).
-            _update_adaptive_scores(project, raw_lines, log_prefix)
+            _update_adaptive_scores(project, raw_lines, log_prefix, vault=vault_path)
 
         if not assistant_texts:
             print(
@@ -1117,7 +1162,9 @@ def run_session_end(
         # AI first (CLI flag / config gated, session events only); keyword
         # heuristics are the fallback.
         classified = (
-            _classify_session(assistant_texts, project, ai_cli_arg, log_prefix)
+            _classify_session(
+                assistant_texts, project, ai_cli_arg, log_prefix, vault=vault_path
+            )
             if not subagent
             else None
         )

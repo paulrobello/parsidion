@@ -185,7 +185,9 @@ def _find_dedup_candidates(
         items = vault_search.search(
             query=topic_query,
             top=top_k,
-            min_score=vault_common.get_config("embeddings", "min_score", 0.45),
+            min_score=vault_common.get_config(
+                "embeddings", "min_score", 0.45, vault=vault
+            ),
             vault=vault,
         )
     except Exception:  # noqa: BLE001

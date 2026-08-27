@@ -190,7 +190,7 @@ def test_classify_session_with_ai_uses_small_tier_backend(
     monkeypatch.setattr(
         agent_adapter.vault_common,
         "load_typed_config",
-        lambda: _cfg_stub,
+        lambda *args, **kwargs: _cfg_stub,
     )
 
     result = agent_adapter._classify_session_with_ai(

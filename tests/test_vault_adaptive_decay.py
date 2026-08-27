@@ -91,7 +91,9 @@ class TestRankByUsefulnessDecay:
         monkeypatch.setattr(core_adaptive, "get_usefulness_path", lambda: store)
         # seed_selection imported get_config by name — patch it where it is used.
         monkeypatch.setattr(
-            seed_selection, "get_config", lambda section, key, default=None: default
+            seed_selection,
+            "get_config",
+            lambda section, key, default=None, vault=None: default,
         )
         return store
 
@@ -124,7 +126,7 @@ class TestRankByUsefulnessDecay:
         monkeypatch.setattr(
             seed_selection,
             "get_config",
-            lambda section, key, default=None: (
+            lambda section, key, default=None, vault=None: (
                 0 if (section, key) == ("adaptive_context", "decay_days") else default
             ),
         )
@@ -151,7 +153,7 @@ class TestRankByUsefulnessDecay:
         monkeypatch.setattr(
             seed_selection,
             "get_config",
-            lambda section, key, default=None: (
+            lambda section, key, default=None, vault=None: (
                 1 if (section, key) == ("adaptive_context", "decay_days") else default
             ),
         )
@@ -175,7 +177,7 @@ class TestRankByUsefulnessDecay:
         monkeypatch.setattr(
             seed_selection,
             "get_config",
-            lambda section, key, default=None: (
+            lambda section, key, default=None, vault=None: (
                 10 if (section, key) == ("adaptive_context", "decay_days") else default
             ),
         )

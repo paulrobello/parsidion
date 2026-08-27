@@ -224,6 +224,9 @@ def _resolve(
     """
     if cli_value is not None:
         return cli_value
+    # ARC-101 allowlist: the summarizer resolves CLI/config options in
+    # ``_resolve_options`` before it resolves the vault (summarize_sessions
+    # ``main``), so there is no resolved vault to thread here yet.
     configured = vault_common.get_config(section, key, default)
     if isinstance(configured, bool):
         return configured

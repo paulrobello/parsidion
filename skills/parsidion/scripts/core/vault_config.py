@@ -533,7 +533,9 @@ def clamp_timeout(
     return min(max(value, lo), hi)
 
 
-def get_config(section: str, key: str, default: Any = None) -> Any:
+def get_config(
+    section: str, key: str, default: Any = None, vault: Path | None = None
+) -> Any:
     """Look up a config value with fallback to *default*.
 
     ARC-007 adapter over the typed schema. Resolution order:
@@ -551,17 +553,21 @@ def get_config(section: str, key: str, default: Any = None) -> Any:
         key: Key within the section (e.g. ``"max_chars"``).
         default: Value returned when the key is absent and the schema
             declares no default for it.
+        vault: Optional vault path so multi-vault callers read the config of
+            the vault they are operating on (ARC-101). Defaults to
+            resolve_vault() — hook-path callers must pass the vault resolved
+            from the hook payload instead of relying on the process cwd.
 
     Returns:
         The configured value (which may be ``None`` if explicitly set), the
         schema default, or *default*.
     """
-    config = load_config()
+    config = load_config(vault=vault)
     section_dict = config.get(section)
     if isinstance(section_dict, dict) and key in section_dict:
         return section_dict[key]
 
-    cfg = load_typed_config()
+    cfg = load_typed_config(vault=vault)
     section_obj = getattr(cfg, section, None)
     if section_obj is not None:
         for field in dataclasses.fields(section_obj):
@@ -683,16 +689,21 @@ def apply_decay_score(score: float, mtime: float, now: float) -> float:
 _CONFIG_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = schema_dict()
 
 
-def validate_config() -> list[str]:
+def validate_config(vault: Path | None = None) -> list[str]:
     """Validate config.yaml against the known schema.
 
     Checks for unknown sections, unknown keys within known sections, and
     type mismatches. Warnings are informational -- never raises.
 
+    Args:
+        vault: Optional vault path so multi-vault callers validate the config
+            of the vault they are operating on (ARC-101). Defaults to
+            resolve_vault().
+
     Returns:
         A list of warning strings (empty when config is valid or absent).
     """
-    config = load_config()
+    config = load_config(vault=vault)
     if not config:
         return []
 
