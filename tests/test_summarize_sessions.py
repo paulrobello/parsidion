@@ -236,7 +236,9 @@ def test_summarize_chunk_uses_small_tier_backend(
         calls.append({"prompt": prompt, **kwargs})
         return "backend summary"
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         assert (section, key, default) == ("summarizer", "ai_timeout", None)
         return 42
 
@@ -298,6 +300,7 @@ def test_preprocess_transcript_hierarchical_passes_vault_to_chunk_summarizer(
         tail_lines: int,
         max_chars: int | None,
         tail_bytes: int | None,
+        vault: Path | None = None,
     ) -> str:
         return "line\n" * 10
 
@@ -440,7 +443,9 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         fake_run_summarizer_prompt,
     )
     monkeypatch.setattr(
-        summarize_sessions.vault_common, "load_typed_config", lambda: _cfg_stub
+        summarize_sessions.vault_common,
+        "load_typed_config",
+        lambda *args, **kwargs: _cfg_stub,
     )
     monkeypatch.setattr(
         _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
@@ -710,7 +715,9 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
     vault.mkdir()
     observed: dict[str, object] = {}
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         if section == "summarizer" and key in {"model", "cluster_model"}:
             assert default is None
             return None
@@ -814,7 +821,9 @@ def test_main_requeues_write_gate_skips_in_default_queue(
     removed: list[dict[str, object]] = []
     seen_skip_retry: list[set[str] | None] = []
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         return default
 
     def fake_read_pending(path: Path) -> list[dict[str, object]]:
@@ -889,7 +898,9 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
     sessions.write_text("", encoding="utf-8")
     observed: dict[str, object] = {}
 
-    def fake_get_config(section: str, key: str, default: object = None) -> object:
+    def fake_get_config(
+        section: str, key: str, default: object = None, vault: object = None
+    ) -> object:
         if section == "summarizer" and key == "model":
             return "configured-large-model"
         if section == "summarizer" and key == "cluster_model":
