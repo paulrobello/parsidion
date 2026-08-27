@@ -15,7 +15,8 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from vault_common import all_vault_notes_walk, ensure_vault_dirs
+from core.vault_fs import ensure_vault_dirs
+from core.vault_index import all_vault_notes_walk
 
 from cli.index._common import FOLDER_ORDER, RECENT_DAYS, RECENT_MAX, STALE_DAYS
 from cli.index.models import NoteEntry

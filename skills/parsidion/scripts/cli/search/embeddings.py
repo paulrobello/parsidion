@@ -23,15 +23,17 @@ import sys
 import time
 from pathlib import Path
 
-import vault_common
-import vault_metrics
 import vault_embed_serve
+from core import vault_metrics
+from core.vault_config import get_config
+from core.vault_hooks import env_without_claudecode
+from core.vault_path import get_embeddings_db_path, resolve_vault
 from cli.search._common import (
     _DEFAULT_MODEL,
     _EMBED_MODEL_LOCK,
     _configured_search_backend,
 )
-from vault_config import apply_decay_score, resolve_decay_params
+from core.vault_config import apply_decay_score, resolve_decay_params
 
 
 def _open_db_semantic(db_path: Path) -> sqlite3.Connection:
@@ -138,7 +140,7 @@ def _embeddings_service_active() -> bool:
     when parsight didn't serve under ``auto``, so the second guard mainly covers
     an explicit ``search.backend: parsight`` setting.
     """
-    if vault_common.get_config("embeddings", "service_enabled", False) is not True:
+    if get_config("embeddings", "service_enabled", False) is not True:
         return False
     if _configured_search_backend() == "parsight":
         return False
@@ -161,9 +163,7 @@ def _spawn_service(vault: Path, model_name: str) -> None:
         script = _SCRIPTS_DIR / "vault_embed_serve.py"
         if not script.exists():
             return
-        idle = int(
-            vault_common.get_config("embeddings", "service_idle_exit", 600) or 600
-        )
+        idle = int(get_config("embeddings", "service_idle_exit", 600) or 600)
         subprocess.Popen(
             [
                 str(script),
@@ -178,7 +178,7 @@ def _spawn_service(vault: Path, model_name: str) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
-            env=vault_common.env_without_claudecode(),
+            env=env_without_claudecode(),
         )
     except Exception as exc:  # noqa: BLE001 — best-effort; in-process fallback covers failure
         print(f"embedding service spawn best-effort: {exc}", file=sys.stderr)
@@ -222,7 +222,7 @@ def _embed_query(query: str, model_name: str, vault: Path | None) -> list[float]
     The service is tried only when ``_embeddings_service_active`` is true; any
     miss falls back to the cached in-process model (loaded once per process).
     """
-    resolved = vault or vault_common.resolve_vault()
+    resolved = vault or resolve_vault()
     if _embeddings_service_active():
         _spawn_service(resolved, model_name)
         vec = _service_embed(query, model_name, resolved)
@@ -256,7 +256,7 @@ def _search_embeddings(
         List of result dicts with keys: score, stem, title, folder, tags, path.
         Sorted by score descending.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -266,7 +266,7 @@ def _search_embeddings(
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
 
-    decay_enabled: bool = vault_common.get_config(
+    decay_enabled: bool = get_config(
         "embeddings",
         "decay_enabled",
         True,

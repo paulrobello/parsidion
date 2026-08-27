@@ -35,7 +35,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import vault_embed_serve  # noqa: E402
 import vault_links  # noqa: E402
 import vault_search  # noqa: E402
-import vault_common  # noqa: E402
+from cli.search import embeddings as cli_embeddings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +146,7 @@ def test_find_related_by_semantic_forwards_vault(
 def test_service_active_gate(
     monkeypatch: pytest.MonkeyPatch, enabled: bool, backend: str, expected: bool
 ) -> None:
-    orig = vault_common.get_config
+    orig = cli_embeddings.get_config
 
     def fake_get(section: str, key: str, default: object = None) -> object:
         if section == "embeddings" and key == "service_enabled":
@@ -155,8 +155,13 @@ def test_service_active_gate(
             return backend
         return orig(section, key, default)
 
-    monkeypatch.setattr(vault_common, "get_config", fake_get)
-    monkeypatch.setattr(vault_search, "_configured_search_backend", lambda: backend)
+    # ARC-103: ``_embeddings_service_active`` resolves both dependencies as bare
+    # names in ``cli.search.embeddings`` globals, so both patches must land
+    # there. The former ``vault_search._configured_search_backend`` patch was a
+    # no-op on the shim's re-export, which let the backend guard read the real
+    # machine config instead of the parametrized value.
+    monkeypatch.setattr(cli_embeddings, "get_config", fake_get)
+    monkeypatch.setattr(cli_embeddings, "_configured_search_backend", lambda: backend)
 
     assert vault_search._embeddings_service_active() is expected
 

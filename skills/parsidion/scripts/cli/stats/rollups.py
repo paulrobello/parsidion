@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-import vault_common
+from core.vault_path import resolve_vault
 
 from cli.stats._common import _get_console
 
@@ -151,7 +151,7 @@ def run_weekly(dry_run: bool = False, vault: Path | None = None) -> None:
         vault: Optional vault path. Defaults to resolve_vault().
     """
     console = _get_console()
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or resolve_vault()
 
     today = date.today()
     iso_year, iso_week, iso_weekday = today.isocalendar()
@@ -212,7 +212,7 @@ def run_monthly(dry_run: bool = False, vault: Path | None = None) -> None:
         vault: Optional vault path. Defaults to resolve_vault().
     """
     console = _get_console()
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or resolve_vault()
 
     today = date.today()
     month_dir = vault / "Daily" / f"{today.year:04d}-{today.month:02d}"

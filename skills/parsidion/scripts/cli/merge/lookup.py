@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import vault_common
-from vault_path import is_path_inside_vault
+from core.vault_index import all_vault_notes_walk
+from core.vault_path import is_path_inside_vault
 
 
 def _find_note(query: str, vault_path: Path) -> Path | None:
@@ -60,7 +60,7 @@ def _find_note(query: str, vault_path: Path) -> Path | None:
 
     # Stem search across all vault notes
     query_lower = query.lower().removesuffix(".md")
-    for path in vault_common.all_vault_notes_walk(vault=vault_path):
+    for path in all_vault_notes_walk(vault=vault_path):
         if path.stem.lower() == query_lower:
             return path
     return None

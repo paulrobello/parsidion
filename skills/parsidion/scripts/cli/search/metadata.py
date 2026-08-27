@@ -15,9 +15,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import vault_common
+from core.vault_index import all_vault_notes, get_body
+from core.vault_path import get_embeddings_db_path, resolve_vault
 from core.vault_index import _build_note_index_where
-from vault_path import is_path_inside_vault
+from core.vault_path import is_path_inside_vault
 
 # SEC-020: one stderr note per process when DB-sourced paths get skipped.
 _skipped_outside_warned = False
@@ -56,7 +57,7 @@ def query(
     Returns:
         List of result dicts with score set to null, sorted by mtime descending.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -153,7 +154,7 @@ def _get_all_notes_as_results(
     """Return all vault notes as result dicts suitable for grep filtering.
 
     Tries the note_index DB first; falls back to a file walk via
-    ``vault_common.all_vault_notes()``.
+    ``all_vault_notes()``.
 
     Args:
         limit: Maximum number of notes to return.
@@ -162,8 +163,8 @@ def _get_all_notes_as_results(
     Returns:
         List of result dicts with ``score`` set to ``None``.
     """
-    vault = vault or vault_common.resolve_vault()
-    db_path = vault_common.get_embeddings_db_path(vault)
+    vault = vault or resolve_vault()
+    db_path = get_embeddings_db_path(vault)
     if db_path.exists():
         try:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -215,7 +216,7 @@ def _get_all_notes_as_results(
 
     # Fallback: file walk
     fallback_results: list[dict[str, Any]] = []
-    for path in vault_common.all_vault_notes(vault)[:limit]:
+    for path in all_vault_notes(vault)[:limit]:
         stem = path.stem
         folder = path.parent.name if path.parent != vault else ""
         fallback_results.append(
@@ -286,7 +287,7 @@ def _apply_grep_filter(
 
     matched: list[dict[str, Any]] = []
     global _skipped_outside_warned
-    vault_root = vault if vault is not None else vault_common.resolve_vault()
+    vault_root = vault if vault is not None else resolve_vault()
     for result in results:
         note_path_str = result.get("path", "")
         if not note_path_str:
@@ -313,7 +314,7 @@ def _apply_grep_filter(
             content = raw.decode("utf-8", errors="replace")
         except OSError:
             continue
-        body = vault_common.get_body(content)
+        body = get_body(content)
         if compiled.search(body):
             # Normalise score to None for grep-only results
             matched.append({**result, "score": result.get("score")})

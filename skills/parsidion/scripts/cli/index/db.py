@@ -13,7 +13,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from vault_common import get_config, get_embeddings_db_path
+from core.vault_config import get_config
+from core.vault_path import get_embeddings_db_path
 
 from cli.index.models import NoteEntry
 
@@ -35,7 +36,7 @@ def _write_note_index_to_db(
         return
     try:
         import sqlite3 as _sqlite3
-        from vault_common import ensure_note_index_schema
+        from core.vault_index import ensure_note_index_schema
 
         db_path = get_embeddings_db_path(vault=vault)
         if not db_path.exists():

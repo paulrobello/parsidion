@@ -20,7 +20,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-import vault_common
+from core.vault_path import resolve_vault
 
 from cli.stats._common import _open_db, _get_console
 
@@ -378,7 +378,7 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
     conn = _open_db(vault_path)
 
     selected = _selected_mode(args)

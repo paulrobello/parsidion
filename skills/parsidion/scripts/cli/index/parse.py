@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from vault_common import extract_title, get_body
+from core.vault_index import extract_title, get_body
 
 from cli.index._common import SUMMARY_MAX_CHARS
 

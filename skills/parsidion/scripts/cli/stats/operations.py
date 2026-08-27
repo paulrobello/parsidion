@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import vault_metrics
+from core import vault_metrics
 
 from cli.stats._common import _get_console
 

@@ -10,8 +10,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import vault_common
-import vault_metrics
+from core import vault_metrics
+from core.vault_path import resolve_vault
 
 from cli.stats._common import _get_console
 
@@ -60,10 +60,7 @@ def run_no_db_summary(vault: Path | None = None) -> None:
     console = _get_console()
 
     if not data["vault_exists"]:
-        console.print(
-            "[red]Vault not found at[/red] "
-            + str(vault or vault_common.resolve_vault())
-        )
+        console.print("[red]Vault not found at[/red] " + str(vault or resolve_vault()))
         return
 
     console.print(
