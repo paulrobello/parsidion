@@ -683,7 +683,7 @@ def test_rebuild_index_timeout_is_swallowed(
     mod = _fresh_summarize_sessions(monkeypatch)
 
     monkeypatch.setattr(
-        sys.modules["summarizer.queue"].vault_common,
+        sys.modules["summarizer.queue"],
         "run_index_rebuild",
         lambda *args, **kwargs: ("timeout", None),
     )

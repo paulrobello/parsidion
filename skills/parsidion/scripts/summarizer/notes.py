@@ -15,9 +15,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
-import vault_common
-from vault_fs import backup_note
-from vault_path import is_path_inside_vault
+from core.vault_fs import atomic_write_text, backup_note
+from core.vault_index import parse_frontmatter, slugify
+from core.vault_path import is_path_inside_vault
 
 from summarizer._state_const import (
     _DEFAULT_FOLDER,
@@ -61,7 +61,7 @@ def parse_note_title_slug(note_content: str) -> str:
         match = re.search(r"^##\s+(.+)$", note_content, re.MULTILINE)
     if match:
         heading = match.group(1).strip()
-        slug = vault_common.slugify(heading)
+        slug = slugify(heading)
         if slug:
             return slug
     return "session-note"
@@ -125,7 +125,7 @@ def _validate_frontmatter(note_content: str) -> str | None:
     Returns:
         None when the note is valid, or an error string describing the violation.
     """
-    fm = vault_common.parse_frontmatter(note_content)
+    fm = parse_frontmatter(note_content)
     if not fm:
         return "Note has no YAML frontmatter block"
 
@@ -164,7 +164,7 @@ def _ensure_closing_frontmatter_delimiter(note_content: str) -> str:
     """
     if not note_content.lstrip().startswith("---"):
         return note_content
-    if vault_common.parse_frontmatter(note_content):
+    if parse_frontmatter(note_content):
         return note_content
 
     lines = note_content.splitlines(keepends=True)
@@ -219,9 +219,7 @@ def _strip_leading_preamble(note_content: str) -> str:
         if line.strip() != "---":
             continue
         candidate = "".join(lines[i:])
-        if vault_common.parse_frontmatter(
-            _ensure_closing_frontmatter_delimiter(candidate)
-        ):
+        if parse_frontmatter(_ensure_closing_frontmatter_delimiter(candidate)):
             return candidate
     return note_content
 
@@ -241,7 +239,7 @@ def _stamp_prompt_version(note_content: str, prompt_version: str) -> str:
     """
     if not prompt_version:
         return note_content
-    fm = vault_common.parse_frontmatter(note_content)
+    fm = parse_frontmatter(note_content)
     if not fm:
         return note_content  # no frontmatter — let validation handle it
     if "prompt_version" in fm:
@@ -341,7 +339,7 @@ def _backfill_tags_if_empty(
     No-op when ``tags`` is already a non-empty list (never clobbers valid
     tags). Mirrors the other pre-validation salvage functions.
     """
-    fm = vault_common.parse_frontmatter(note_content)
+    fm = parse_frontmatter(note_content)
     existing = fm.get("tags") if fm else None
     if isinstance(existing, list) and existing:
         return note_content
@@ -540,7 +538,7 @@ def write_note(
         # SEC-127: route through vault_fs.atomic_write_text so the rewrite is
         # crash-atomic and preserves the existing file's mode.
         try:
-            vault_common.atomic_write_text(target_path, merged)
+            atomic_write_text(target_path, merged)
             print(
                 f"  [dedup] Slug collision: merged into existing "
                 f"{target_path.name} (no duplicate created)",
@@ -554,7 +552,7 @@ def write_note(
     # SEC-127: route through vault_fs.atomic_write_text (the create path was a
     # bare write_text; the merge path now uses the same primitive).
     try:
-        vault_common.atomic_write_text(target_path, note_content)
+        atomic_write_text(target_path, note_content)
         return target_path
     except OSError as e:
         print(f"Error writing {target_path}: {e}", file=sys.stderr)

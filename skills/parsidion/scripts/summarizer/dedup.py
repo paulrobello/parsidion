@@ -16,7 +16,9 @@ import re
 import sys
 from pathlib import Path
 
-import vault_common
+from core.vault_config import get_config
+from core.vault_index import all_vault_notes, parse_frontmatter, read_note_summary
+from core.vault_path import get_embeddings_db_path, resolve_vault
 
 
 def read_project_names(
@@ -37,7 +39,7 @@ def read_project_names(
     Args:
         vault_notes: Pre-collected list of vault note paths. Used only by the
             fallback path. When ``None`` and the fallback runs, calls
-            ``vault_common.all_vault_notes(vault)``.
+            ``all_vault_notes(vault)``.
         vault: Optional vault path used to locate embeddings.db. Defaults to
             ``resolve_vault()``.
 
@@ -50,8 +52,8 @@ def read_project_names(
     try:
         import sqlite3 as _sqlite3
 
-        resolved_vault = vault or vault_common.resolve_vault()
-        db_path = vault_common.get_embeddings_db_path(resolved_vault)
+        resolved_vault = vault or resolve_vault()
+        db_path = get_embeddings_db_path(resolved_vault)
         if db_path.exists():
             conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             try:
@@ -72,16 +74,14 @@ def read_project_names(
     except (OSError, ValueError):
         pass
 
-    notes = (
-        vault_notes if vault_notes is not None else vault_common.all_vault_notes(vault)
-    )
+    notes = vault_notes if vault_notes is not None else all_vault_notes(vault)
     projects: set[str] = set()
     for note_path in notes:
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        fm = vault_common.parse_frontmatter(content)
+        fm = parse_frontmatter(content)
         proj = fm.get("project")
         if isinstance(proj, str) and proj:
             projects.add(proj)
@@ -125,7 +125,7 @@ def _resolve_note_stem(stem: str, vault: Path) -> Path | None:
     Returns:
         Path to the note file, or None if not found.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if db_path.exists():
         try:
             import sqlite3 as _sqlite3
@@ -143,7 +143,7 @@ def _resolve_note_stem(stem: str, vault: Path) -> Path | None:
             print(f"note_index lookup best-effort: {exc}", file=sys.stderr)
             pass
     # Fallback: walk vault notes
-    for note in vault_common.all_vault_notes(vault):
+    for note in all_vault_notes(vault):
         if note.stem == stem:
             return note
     return None
@@ -171,7 +171,7 @@ def _find_dedup_candidates(
         ordered by descending score.  Returns empty list when embeddings.db is
         absent or the in-process search fails.
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return []
 
@@ -185,9 +185,7 @@ def _find_dedup_candidates(
         items = vault_search.search(
             query=topic_query,
             top=top_k,
-            min_score=vault_common.get_config(
-                "embeddings", "min_score", 0.45, vault=vault
-            ),
+            min_score=get_config("embeddings", "min_score", 0.45, vault=vault),
             vault=vault,
         )
     except Exception:  # noqa: BLE001
@@ -209,9 +207,7 @@ def _find_dedup_candidates(
         summary = ""
         if path_str:
             try:
-                summary_lines = vault_common.read_note_summary(
-                    Path(path_str)
-                ).splitlines()
+                summary_lines = read_note_summary(Path(path_str)).splitlines()
                 summary = " ".join(summary_lines[:3]).strip()[:400]
             except (OSError, UnicodeDecodeError):
                 summary = stem

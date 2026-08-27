@@ -16,12 +16,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import vault_common
+from core.vault_fs import flock_exclusive as _flock_exclusive
+from core.vault_fs import funlock as _funlock
+from core.vault_hooks import is_process_running
 
 from summarizer._state_const import _SUMMARIZER_STATE_FILENAME
-
-_flock_exclusive = vault_common.flock_exclusive
-_funlock = vault_common.funlock
 
 
 def _summarizer_state_file(vault_path: Path) -> Path:
@@ -73,7 +72,7 @@ def claim_summarizer_lock(vault_path: Path) -> bool:
             if (
                 existing_pid
                 and existing_pid != os.getpid()
-                and vault_common.is_process_running(existing_pid)
+                and is_process_running(existing_pid)
             ):
                 print(
                     f"summarize_sessions is already running (PID {existing_pid}). Skipping.",

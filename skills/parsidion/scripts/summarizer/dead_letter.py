@@ -18,10 +18,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import vault_common
-
-_flock_exclusive = vault_common.flock_exclusive
-_funlock = vault_common.funlock
+from core.vault_fs import flock_exclusive as _flock_exclusive
+from core.vault_fs import funlock as _funlock
 
 
 def _dead_lettered_ids(vault: Path) -> set[str]:

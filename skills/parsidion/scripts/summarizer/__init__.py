@@ -34,6 +34,5 @@ every symbol so legacy ``import summarize_sessions`` consumers and
 working.
 
 Stdlib-only is NOT required here (unlike the hook scripts): submodules run under
-the PEP-723 entry script's env and MAY ``import anyio`` and ``import
-vault_common``.
+the PEP-723 entry script's env and MAY ``import anyio``.
 """

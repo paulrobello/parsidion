@@ -23,7 +23,8 @@ import sys
 import traceback
 from pathlib import Path
 
-import vault_common
+from core.vault_config import get_config, load_typed_config
+
 from prompt_templates import render
 
 from summarizer._state_const import (
@@ -163,7 +164,7 @@ def preprocess_transcript(
             tail_lines=tail_lines,
             max_bytes=tail_bytes or 0,
             max_line_bytes=int(
-                vault_common.load_typed_config(vault=vault).transcripts.max_line_bytes
+                load_typed_config(vault=vault).transcripts.max_line_bytes
             ),
         )
     except OSError:
@@ -240,9 +241,7 @@ async def _summarize_chunk(
             model=model,
             model_tier="small",
             purpose="summarizer-chunk",
-            timeout=vault_common.get_config(
-                "summarizer", "ai_timeout", None, vault=vault
-            ),
+            timeout=get_config("summarizer", "ai_timeout", None, vault=vault),
             vault=vault,
         )
     except Exception:  # noqa: BLE001

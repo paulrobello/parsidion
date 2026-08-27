@@ -129,8 +129,12 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
         calls.append({"prompt": prompt, **kwargs})
         return "summary text"
 
+    # ARC-103: summarizer.prompt binds the backend module as ``core.ai_backend``,
+    # so the patch must land on the module object that module dereferences.
     monkeypatch.setattr(
-        summarize_sessions.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        sys.modules["summarizer.prompt"].ai_backend,
+        "run_ai_prompt",
+        fake_run_ai_prompt,
     )
 
     result = asyncio.run(
@@ -247,7 +251,9 @@ def test_summarize_chunk_uses_small_tier_backend(
         "_run_summarizer_prompt",
         fake_run_summarizer_prompt,
     )
-    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    # ARC-103: summarizer.transcript imports get_config by name from
+    # core.vault_config, so patch the bound name on the consumer module.
+    monkeypatch.setattr(_transcript_module(), "get_config", fake_get_config)
 
     result = asyncio.run(
         summarize_sessions._summarize_chunk(
@@ -442,8 +448,10 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         "_run_summarizer_prompt_with_cause",
         fake_run_summarizer_prompt,
     )
+    # ARC-103: summarizer.pipeline imports load_typed_config by name from
+    # core.vault_config, so patch the bound name on the consumer module.
     monkeypatch.setattr(
-        summarize_sessions.vault_common,
+        _pipeline_module(),
         "load_typed_config",
         lambda *args, **kwargs: _cfg_stub,
     )
