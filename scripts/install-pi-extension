@@ -36,6 +36,7 @@ SRC_DIR="$REPO_ROOT/extensions/pi/parsidion"
 SRC_TS="$SRC_DIR/parsidion.ts"
 SRC_MD="$SRC_DIR/parsidion.md"
 SRC_STATUS="$SRC_DIR/lib/parsidion-status.ts"
+SRC_RUNNER="$SRC_DIR/lib/scriptRunner.ts"
 
 MODE="copy"
 INSTALL_DOC="yes"
@@ -87,6 +88,7 @@ mkdir -p "$EXT_DIR" "$EXT_DIR/lib"
 DST_TS="$EXT_DIR/parsidion.ts"
 DST_MD="$EXT_DIR/parsidion.md"
 DST_STATUS="$EXT_DIR/lib/parsidion-status.ts"
+DST_RUNNER="$EXT_DIR/lib/scriptRunner.ts"
 
 if [[ "$MODE" == "symlink" ]]; then
     ln -sfn "$SRC_TS" "$DST_TS"
@@ -96,6 +98,9 @@ if [[ "$MODE" == "symlink" ]]; then
     if [[ -f "$SRC_STATUS" ]]; then
         ln -sfn "$SRC_STATUS" "$DST_STATUS"
     fi
+    if [[ -f "$SRC_RUNNER" ]]; then
+        ln -sfn "$SRC_RUNNER" "$DST_RUNNER"
+    fi
 else
     cp "$SRC_TS" "$DST_TS"
     if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
@@ -103,6 +108,9 @@ else
     fi
     if [[ -f "$SRC_STATUS" ]]; then
         cp "$SRC_STATUS" "$DST_STATUS"
+    fi
+    if [[ -f "$SRC_RUNNER" ]]; then
+        cp "$SRC_RUNNER" "$DST_RUNNER"
     fi
 fi
 
@@ -116,6 +124,9 @@ if [[ "$INSTALL_DOC" == "yes" ]]; then
 fi
 if [[ -f "$DST_STATUS" || -L "$DST_STATUS" ]]; then
     echo "  status helper: $DST_STATUS"
+fi
+if [[ -f "$DST_RUNNER" || -L "$DST_RUNNER" ]]; then
+    echo "  script runner: $DST_RUNNER"
 fi
 
 echo
