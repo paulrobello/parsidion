@@ -1297,3 +1297,202 @@ class TestAiBranchGraphEnrichment:
             cwd=str(vault), ai_model="some-model", ai_enabled=True
         )
         assert "neighbor" not in captured["stems"]
+
+
+# ---------------------------------------------------------------------------
+# PRF-101: in-process parsight path for the semantic leg
+# ---------------------------------------------------------------------------
+
+
+class _FakeCommunicateProc:
+    """Minimal Popen stand-in for _run_semantic_search subprocess tests."""
+
+    def __init__(
+        self,
+        stdout: str = "",
+        returncode: int = 0,
+        timeout: bool = False,
+    ) -> None:
+        self.stdout = stdout
+        self.returncode = returncode
+        self._timeout = timeout
+        self.pid = 4242
+        self.waited = False
+
+    def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+        if self._timeout:
+            raise subprocess.TimeoutExpired(cmd="uv", timeout=timeout or 0)
+        return self.stdout, ""
+
+    def wait(self) -> int:
+        self.waited = True
+        return self.returncode
+
+    def kill(self) -> None:  # pragma: no cover - killpg path guard
+        return None
+
+
+class TestSemanticSearchParsightInProcess:
+    """PRF-101: parsight path served in-process; subprocess only as fallback."""
+
+    def _script(self, tmp_path: Path) -> Path:
+        script = tmp_path / "vault_search.py"
+        script.write_text("# stub\n", encoding="utf-8")
+        return script
+
+    def test_inprocess_path_taken_when_parsight_available(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import parsight_backend as _pb
+
+        note = tmp_vault / "Patterns" / "inproc-note.md"
+        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
+        monkeypatch.setattr(
+            _pb,
+            "parsight_search",
+            lambda q, top_k=10, vault=None, timeout=None: [
+                {"path": str(note), "score": 0.9}
+            ],
+        )
+        popen_calls: list[object] = []
+
+        def _fail_popen(*args: object, **kwargs: object) -> None:
+            popen_calls.append(args)
+            raise AssertionError("subprocess must not spawn on the in-process path")
+
+        monkeypatch.setattr(session_start_hook.subprocess, "Popen", _fail_popen)
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert [p.name for p in result] == ["inproc-note.md"]
+        assert session_start_hook._SEMANTIC_SOURCE == "parsight-inproc"
+        assert popen_calls == []
+
+    def test_subprocess_fallback_when_parsight_unavailable(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import parsight_backend as _pb
+
+        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: False)
+        monkeypatch.setattr(
+            _pb,
+            "parsight_search",
+            lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("parsight_search must not run when unavailable")
+            ),
+        )
+        # auto + parsight-unavailable requires embeddings.db to exist before
+        # the subprocess spawns; the fake Popen never opens it.
+        (tmp_vault / "embeddings.db").touch()
+        monkeypatch.setattr(
+            session_start_hook.subprocess,
+            "Popen",
+            lambda *a, **k: _FakeCommunicateProc(stdout='[{"path": "/tmp/n.md"}]'),
+        )
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert [p.name for p in result] == ["n.md"]
+        assert session_start_hook._SEMANTIC_SOURCE == "subprocess"
+
+    def test_timeout_sets_timeout_source(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import parsight_backend as _pb
+
+        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: False)
+        (tmp_vault / "embeddings.db").touch()
+        monkeypatch.setattr(
+            session_start_hook.subprocess,
+            "Popen",
+            lambda *a, **k: _FakeCommunicateProc(timeout=True),
+        )
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert result == []
+        assert session_start_hook._SEMANTIC_SOURCE == "timeout"
+
+    def test_forced_parsight_failure_skips_subprocess(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "search:\n  backend: parsight\n", encoding="utf-8"
+        )
+        import parsight_backend as _pb
+
+        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
+        monkeypatch.setattr(_pb, "parsight_search", lambda *a, **k: None)
+        popen_calls: list[object] = []
+
+        def _fail_popen(*args: object, **kwargs: object) -> None:
+            popen_calls.append(args)
+            raise AssertionError("forced-parsight failure must not spawn a subprocess")
+
+        monkeypatch.setattr(session_start_hook.subprocess, "Popen", _fail_popen)
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert result == []
+        assert popen_calls == []
+
+    def test_auto_backend_parsight_failure_falls_back_to_subprocess(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import parsight_backend as _pb
+
+        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
+        monkeypatch.setattr(_pb, "parsight_search", lambda *a, **k: None)
+        monkeypatch.setattr(
+            session_start_hook.subprocess,
+            "Popen",
+            lambda *a, **k: _FakeCommunicateProc(stdout='[{"path": "/tmp/f.md"}]'),
+        )
+
+        result = session_start_hook._run_semantic_search(
+            "query", 5, self._script(tmp_vault), tmp_vault
+        )
+        assert [p.name for p in result] == ["f.md"]
+        assert session_start_hook._SEMANTIC_SOURCE == "subprocess"
+
+    def test_main_emits_semantic_field_in_hook_event(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "session_start_hook:\n"
+            "  use_embeddings: true\n"
+            "  track_delta: false\n"
+            "  ai_model: null\n",
+            encoding="utf-8",
+        )
+        import parsight_backend as _pb
+
+        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
+        monkeypatch.setattr(
+            _pb,
+            "parsight_search",
+            lambda q, top_k=10, vault=None, timeout=None: [],
+        )
+        events: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            session_start_hook,
+            "write_hook_event",
+            lambda **kwargs: events.append(kwargs),
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend, "spawn_watch", lambda *a: True
+        )
+        monkeypatch.setattr(sys, "argv", ["session_start_hook.py"])
+        monkeypatch.setattr(
+            sys, "stdin", io.StringIO(json.dumps({"cwd": str(tmp_vault)}))
+        )
+        monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+        session_start_hook.main()
+
+        assert events, "SessionStart hook event must be written"
+        assert events[0].get("semantic") == "parsight-inproc"

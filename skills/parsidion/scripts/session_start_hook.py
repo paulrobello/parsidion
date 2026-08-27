@@ -111,6 +111,13 @@ _DEFAULT_MAX_CHARS = 4000
 _VAULT_SEARCH_SCRIPT_NAME: str = "vault_search.py"
 _SEMANTIC_TOP_N: int = 5
 _SEMANTIC_TIMEOUT: int = 10  # seconds
+# PRF-101: how the semantic leg of the last _run_semantic_search call was
+# served — "parsight-inproc" (in-process parsight_search call), "subprocess"
+# (``uv run vault_search.py``), or "timeout" (subprocess killed at
+# _SEMANTIC_TIMEOUT). None when semantic search never ran or failed before
+# choosing a path. Read by main() for the SessionStart hook event so
+# degradation is visible in ``vault-stats --hooks``.
+_SEMANTIC_SOURCE: str | None = None
 # Characters reserved for the vault-context header injected before the AI-selected
 # note content.  Ensures the final output never slightly exceeds max_chars.
 _AI_CONTEXT_HEADER_RESERVE: int = 500
@@ -148,7 +155,15 @@ def _run_semantic_search(
     vault_search_script: Path,
     vault_path: Path,
 ) -> list[Path]:
-    """Run vault_search.py as a subprocess and return matching note paths.
+    """Run the semantic search and return matching note paths.
+
+    PRF-101: when parsight serves retrieval (backend ``auto``/``parsight``
+    and the daemon is available), the query runs in-process via
+    ``parsight_backend.parsight_search`` — a stdlib-only call already
+    imported here. The ``uv run vault_search.py`` subprocess is kept
+    exclusively for the embeddings fallback (parsight unavailable or
+    backend forced to ``embeddings``): the subprocess only ever existed to
+    isolate fastembed, which the parsight path never touches.
 
     Returns an empty list if the script doesn't exist, the DB is missing,
     the subprocess times out, or any other error occurs.
@@ -162,7 +177,29 @@ def _run_semantic_search(
     Returns:
         List of note Paths from the semantic search results.
     """
+    global _SEMANTIC_SOURCE
     import json as _json
+
+    _SEMANTIC_SOURCE = None
+    backend = (
+        (load_typed_config(vault=vault_path).search.backend or "auto").strip().lower()
+    )
+    parsight_available = parsight_backend.resolve_parsight_backend(vault_path)
+
+    if backend in ("auto", "parsight") and parsight_available:
+        # In-process parsight path. parsight_search never raises and returns
+        # None on any failure so the caller can fall back.
+        results = parsight_backend.parsight_search(query, top_k=top, vault=vault_path)
+        if results is not None:
+            _SEMANTIC_SOURCE = "parsight-inproc"
+            return [Path(str(item["path"])) for item in results]
+        if backend == "parsight":
+            # Forced parsight failed in-process; the subprocess routes to the
+            # same backend, so spawning it would only re-pay the tower to
+            # fail again.
+            return []
+        # auto: the parsight query itself failed — fall through to the
+        # embeddings subprocess fallback below.
 
     if not vault_search_script.exists():
         return []
@@ -171,12 +208,7 @@ def _run_semantic_search(
     # embeddings.db for the local-embeddings path: an explicit ``embeddings``
     # backend, or ``auto`` falling back when parsight is unavailable. Matches
     # vault_search.py's own backend routing.
-    backend = (
-        (load_typed_config(vault=vault_path).search.backend or "auto").strip().lower()
-    )
-    if backend == "embeddings" or (
-        backend == "auto" and not parsight_backend.resolve_parsight_backend(vault_path)
-    ):
+    if backend == "embeddings" or (backend == "auto" and not parsight_available):
         db_path = get_embeddings_db_path(vault=vault_path)
         if not db_path.exists():
             return []
@@ -209,6 +241,7 @@ def _run_semantic_search(
             start_new_session=True,  # new process group — enables killpg
             env=env_without_claudecode(),
         )
+        _SEMANTIC_SOURCE = "subprocess"
         try:
             stdout, _ = proc.communicate(timeout=_SEMANTIC_TIMEOUT)
         except subprocess.TimeoutExpired:
@@ -219,6 +252,7 @@ def _run_semantic_search(
             except OSError:
                 proc.kill()
             proc.wait()
+            _SEMANTIC_SOURCE = "timeout"
             return []
         if proc.returncode != 0:
             return []
@@ -634,7 +668,11 @@ def main() -> None:
 
         project_name = get_project_name(cwd)
 
-        # Hook event log (#1)
+        # Hook event log (#1). PRF-101: record how the semantic leg was served
+        # (or that it timed out) so degradation shows up in vault-stats --hooks.
+        extra_event: dict[str, object] = {}
+        if _SEMANTIC_SOURCE:
+            extra_event["semantic"] = _SEMANTIC_SOURCE
         write_hook_event(
             hook="SessionStart",
             project=project_name,
@@ -642,6 +680,7 @@ def main() -> None:
             notes_injected=notes_injected,
             chars=len(context),
             vault=vault_path,
+            **extra_event,
         )
 
         # parsight watch hold: fire-and-forget so live vault edits reindex in
