@@ -76,8 +76,8 @@ def _run_session_stop_main_for_codex(
     )
     _write_codex_config(vault)
 
-    session_stop_hook.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    session_stop_hook.vault_common._clear_config_cache()
+    session_stop_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_common._clear_config_cache()
     # SEC-P001: register vault in a test-local vaults.yaml so the allowlist
     # resolver accepts the CLAUDE_VAULT reference.
     _cfg_dir = tmp_path / ".config" / "parsidion"

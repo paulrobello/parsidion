@@ -1343,12 +1343,15 @@ class TestSemanticSearchParsightInProcess:
     def test_inprocess_path_taken_when_parsight_available(
         self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import parsight_backend as _pb
 
         note = tmp_vault / "Patterns" / "inproc-note.md"
-        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
         monkeypatch.setattr(
-            _pb,
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
             "parsight_search",
             lambda q, top_k=10, vault=None, timeout=None: [
                 {"path": str(note), "score": 0.9}
@@ -1372,11 +1375,14 @@ class TestSemanticSearchParsightInProcess:
     def test_subprocess_fallback_when_parsight_unavailable(
         self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import parsight_backend as _pb
 
-        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: False)
         monkeypatch.setattr(
-            _pb,
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: False,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
             "parsight_search",
             lambda *a, **k: (_ for _ in ()).throw(
                 AssertionError("parsight_search must not run when unavailable")
@@ -1400,9 +1406,12 @@ class TestSemanticSearchParsightInProcess:
     def test_timeout_sets_timeout_source(
         self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import parsight_backend as _pb
 
-        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: False)
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: False,
+        )
         (tmp_vault / "embeddings.db").touch()
         monkeypatch.setattr(
             session_start_hook.subprocess,
@@ -1422,10 +1431,15 @@ class TestSemanticSearchParsightInProcess:
         (tmp_vault / "config.yaml").write_text(
             "search:\n  backend: parsight\n", encoding="utf-8"
         )
-        import parsight_backend as _pb
 
-        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
-        monkeypatch.setattr(_pb, "parsight_search", lambda *a, **k: None)
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend, "parsight_search", lambda *a, **k: None
+        )
         popen_calls: list[object] = []
 
         def _fail_popen(*args: object, **kwargs: object) -> None:
@@ -1443,10 +1457,15 @@ class TestSemanticSearchParsightInProcess:
     def test_auto_backend_parsight_failure_falls_back_to_subprocess(
         self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import parsight_backend as _pb
 
-        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
-        monkeypatch.setattr(_pb, "parsight_search", lambda *a, **k: None)
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend, "parsight_search", lambda *a, **k: None
+        )
         monkeypatch.setattr(
             session_start_hook.subprocess,
             "Popen",
@@ -1469,11 +1488,14 @@ class TestSemanticSearchParsightInProcess:
             "  ai_model: null\n",
             encoding="utf-8",
         )
-        import parsight_backend as _pb
 
-        monkeypatch.setattr(_pb, "resolve_parsight_backend", lambda v=None: True)
         monkeypatch.setattr(
-            _pb,
+            session_start_hook.parsight_backend,
+            "resolve_parsight_backend",
+            lambda v=None: True,
+        )
+        monkeypatch.setattr(
+            session_start_hook.parsight_backend,
             "parsight_search",
             lambda q, top_k=10, vault=None, timeout=None: [],
         )

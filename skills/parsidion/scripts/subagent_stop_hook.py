@@ -33,8 +33,22 @@ import time
 import traceback
 from pathlib import Path
 
-import vault_common
-from vault_hooks import log_hook_error
+from core.vault_config import get_config, load_typed_config
+from core.vault_fs import (
+    append_to_pending,
+    ensure_vault_dirs,
+    write_hook_event,
+)
+from core.vault_hooks import (
+    allowed_transcript_roots,
+    detect_categories,
+    get_project_name,
+    is_allowed_transcript_path,
+    is_pi_transcript_path,
+    log_hook_error,
+    parse_transcript_lines,
+)
+from core.vault_path import resolve_vault
 
 _LOG_PREFIX = "[subagent_stop_hook]"
 _DEFAULT_EXCLUDED_AGENTS = {"vault-explorer", "research-agent"}
@@ -44,7 +58,6 @@ _DEFAULT_MIN_MESSAGES_PI = 1
 # alone does not bound memory when a transcript contains a single
 # newline-free multi-MB line. Mirrors the ``summarizer.transcript_tail_bytes``
 # default used by the main summarizer.
-read_last_n_lines = vault_common.read_last_n_lines
 
 
 def _get_excluded_agents() -> set[str]:
@@ -57,7 +70,7 @@ def _get_excluded_agents() -> set[str]:
     Returns:
         A set of lowercase agent type strings to exclude.
     """
-    raw = vault_common.get_config("subagent_stop_hook", "excluded_agents")
+    raw = get_config("subagent_stop_hook", "excluded_agents")
     if raw is None:
         return _DEFAULT_EXCLUDED_AGENTS
     return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
@@ -93,7 +106,7 @@ def main() -> None:
             return
 
         # Respect enabled config (default: true)
-        if not vault_common.get_config("subagent_stop_hook", "enabled", True):
+        if not get_config("subagent_stop_hook", "enabled", True):
             print(f"{_LOG_PREFIX} disabled via config", file=sys.stderr)
             sys.stdout.write("{}")
             return
@@ -134,10 +147,8 @@ def main() -> None:
 
         # SEC-004: Validate transcript path is under an allowed root
         # (Claude Code ~/.claude, pi ~/.pi, or cwd/.pi).
-        if not vault_common.is_allowed_transcript_path(agent_transcript, cwd=cwd):
-            roots = ", ".join(
-                str(p) for p in vault_common.allowed_transcript_roots(cwd=cwd)
-            )
+        if not is_allowed_transcript_path(agent_transcript, cwd=cwd):
+            roots = ", ".join(str(p) for p in allowed_transcript_roots(cwd=cwd))
             print(
                 f"{_LOG_PREFIX} skipping: transcript outside allowed roots "
                 f"({roots}): {agent_transcript}",
@@ -147,11 +158,11 @@ def main() -> None:
             return
 
         # Resolve vault path from cwd (supports multi-vault)
-        vault_path: Path = vault_common.resolve_vault(cwd=cwd)
+        vault_path: Path = resolve_vault(cwd=cwd)
 
-        vault_common.ensure_vault_dirs(vault=vault_path)
+        ensure_vault_dirs(vault=vault_path)
 
-        project: str = vault_common.get_project_name(cwd) if cwd else "unknown"
+        project: str = get_project_name(cwd) if cwd else "unknown"
         print(
             f"{_LOG_PREFIX} agent_type={agent_type} project={project} "
             f"transcript={agent_transcript.name}",
@@ -166,10 +177,10 @@ def main() -> None:
         # (``subagent_stop_hook.transcript_tail_bytes``) with the default
         # above.
         tail_bytes: int = int(
-            vault_common.get_config(
+            get_config(
                 "subagent_stop_hook",
                 "transcript_tail_bytes",
-                vault_common.load_typed_config().transcripts.tail_bytes,
+                load_typed_config().transcripts.tail_bytes,
             )
         )
         # ENH-018: read through the unified byte-bounded reader so a
@@ -181,9 +192,7 @@ def main() -> None:
             agent_transcript,
             tail_lines=10_000_000,
             max_bytes=tail_bytes,
-            max_line_bytes=int(
-                vault_common.load_typed_config().transcripts.max_line_bytes
-            ),
+            max_line_bytes=int(load_typed_config().transcripts.max_line_bytes),
         ).lines
         if not all_lines:
             # ``read_last_n_lines`` swallows OSError and returns []; detect
@@ -197,17 +206,15 @@ def main() -> None:
                 sys.stdout.write("{}")
                 return
 
-        assistant_texts = vault_common.parse_transcript_lines(all_lines)
+        assistant_texts = parse_transcript_lines(all_lines)
 
         min_messages_default = (
             _DEFAULT_MIN_MESSAGES_PI
-            if vault_common.is_pi_transcript_path(agent_transcript, cwd=cwd)
+            if is_pi_transcript_path(agent_transcript, cwd=cwd)
             else _DEFAULT_MIN_MESSAGES
         )
         min_messages: int = int(
-            vault_common.get_config(
-                "subagent_stop_hook", "min_messages", min_messages_default
-            )
+            get_config("subagent_stop_hook", "min_messages", min_messages_default)
         )
         if len(assistant_texts) < min_messages:
             print(
@@ -223,14 +230,14 @@ def main() -> None:
             file=sys.stderr,
         )
 
-        categories = vault_common.detect_categories(assistant_texts)
+        categories = detect_categories(assistant_texts)
         cats_str = ", ".join(categories.keys()) or "none"
         print(f"{_LOG_PREFIX} detected categories: [{cats_str}]", file=sys.stderr)
 
         # Pass the real transcript path so vault-review can read it.
         # Use agent_id as the explicit dedup key when available so that
         # restarted subagents with the same agent_id are not queued twice.
-        vault_common.append_to_pending(
+        append_to_pending(
             transcript_path=agent_transcript,
             project=project,
             categories=categories,
@@ -250,7 +257,7 @@ def main() -> None:
             )
 
         # Hook event log (#1)
-        vault_common.write_hook_event(
+        write_hook_event(
             hook="SubagentStop",
             project=project,
             duration_ms=(time.monotonic() - _hook_start) * 1000,

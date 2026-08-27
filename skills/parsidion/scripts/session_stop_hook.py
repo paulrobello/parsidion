@@ -31,10 +31,15 @@ import sys
 import traceback
 from pathlib import Path
 
+from core import parsight_backend
+from core.vault_hooks import (
+    allowed_transcript_roots,
+    is_allowed_transcript_path,
+    log_hook_error,
+)
+from core.vault_path import resolve_vault
+
 import agent_adapter
-import parsight_backend
-import vault_common
-from vault_hooks import log_hook_error
 
 
 def _should_skip(input_data: dict[str, object], cwd: str) -> str | None:
@@ -70,10 +75,8 @@ def _should_skip(input_data: dict[str, object], cwd: str) -> str | None:
     # Code ~/.claude, pi ~/.pi, or cwd/.pi). Do not collapse or weaken this
     # guard — it is the only check preventing an attacker-controlled cwd
     # from pointing the hook at an arbitrary filesystem location.
-    if not vault_common.is_allowed_transcript_path(transcript_path, cwd=cwd):
-        roots = ", ".join(
-            str(p) for p in vault_common.allowed_transcript_roots(cwd=cwd)
-        )
+    if not is_allowed_transcript_path(transcript_path, cwd=cwd):
+        roots = ", ".join(str(p) for p in allowed_transcript_roots(cwd=cwd))
         return f"transcript outside allowed roots ({roots}): {transcript_path}"
 
     return None
@@ -126,9 +129,7 @@ def main() -> None:
         # ~/.claude/logs/parsidion-parsight.log, never in the hook.
         session_id = str(input_data.get("session_id", "") or "")
         if session_id:
-            parsight_backend.spawn_unwatch(
-                vault_common.resolve_vault(cwd=cwd), session_id
-            )
+            parsight_backend.spawn_unwatch(resolve_vault(cwd=cwd), session_id)
 
         # QA-004: input-validation + SEC-004 transcript-path security
         # guards lifted to _should_skip so the pipeline below reads as a

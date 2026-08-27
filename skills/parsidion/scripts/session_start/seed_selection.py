@@ -18,9 +18,17 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from vault_adaptive import decay_factor, effective_score, load_usefulness_scores
-from vault_config import get_config
-from vault_index import all_vault_notes, parse_frontmatter, query_note_index
+from core.vault_adaptive import (
+    decay_factor,
+    effective_score,
+    load_usefulness_scores,
+)
+from core.vault_config import get_config
+from core.vault_index import (
+    all_vault_notes,
+    parse_frontmatter,
+    query_note_index,
+)
 
 from .graph_retrieval import _graph_neighbors
 

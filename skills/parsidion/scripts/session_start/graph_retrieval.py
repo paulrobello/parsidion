@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vault_config import get_config
-from vault_index import parse_related_stems
-from vault_path import is_path_inside_vault
+from core.vault_config import get_config
+from core.vault_index import parse_related_stems
+from core.vault_path import is_path_inside_vault
 
 # Graph retrieval (Tier 1 expansion + Tier 2 rerank).  The note_index wikilink
 # graph is maintained by vault_links.py but was historically never traversed at

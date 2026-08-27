@@ -16,8 +16,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from vault_index import all_vault_notes
-from vault_path import secure_log_dir
+from core.vault_index import all_vault_notes
+from core.vault_path import secure_log_dir
 
 _DEBUG_FILE = secure_log_dir() / "parsidion-session-start-debug.log"
 

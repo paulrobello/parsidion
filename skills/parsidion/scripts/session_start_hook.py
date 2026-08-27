@@ -33,23 +33,21 @@ from datetime import date, datetime
 from io import TextIOWrapper
 from pathlib import Path
 
-import ai_backend
-import parsight_backend
-from prompt_templates import render
-from vault_adaptive import (
+from core import ai_backend, parsight_backend
+from core.vault_adaptive import (
     load_last_seen,
     save_injected_notes,
     save_last_seen,
 )
-from vault_config import load_typed_config, validate_config
-from vault_fs import ensure_vault_dirs, today_daily_path
-from vault_hooks import (
+from core.vault_config import load_typed_config, validate_config
+from core.vault_fs import ensure_vault_dirs, today_daily_path
+from core.vault_hooks import (
     env_without_claudecode,
     get_project_name,
     log_hook_error,
     write_hook_event,
 )
-from vault_index import (
+from core.vault_index import (
     build_compact_index,
     build_context_block,
     find_notes_by_project,
@@ -57,10 +55,11 @@ from vault_index import (
     load_graph_metadata,
     read_note_summary,
 )
-from vault_path import (
+from core.vault_path import (
     get_embeddings_db_path,
     resolve_vault,
 )
+from prompt_templates import render
 
 # ARC-006: focused submodules.  These from-imports load the subpackage AND
 # re-export every moved symbol on this module's namespace — that is what lets
