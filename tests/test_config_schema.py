@@ -67,6 +67,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "sandbox": (str, type(None)),
         "ephemeral": (bool,),
         "skip_git_repo_check": (bool,),
+        "minimal_context": (bool,),
         "suppress_notify": (bool,),
         "allow_danger_full_access": (bool,),
     },

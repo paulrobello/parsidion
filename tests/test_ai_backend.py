@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -650,6 +651,9 @@ class TestRunAiPrompt:
         assert "--skip-git-repo-check" in cmd
         assert "--output-last-message" in cmd
         assert cmd[cmd.index("--model") + 1] == "gpt-5.6-terra"
+        # CODEX_HOME has no auth.json -> minimal_context falls back to the
+        # inherited home, no --ignore-rules, cwd passthrough.
+        assert "--ignore-rules" not in cmd
         # SEC-123: prompt is passed on stdin, NOT as the final cmd positional.
         assert "hello" not in cmd
         assert kwargs["stdin"] == "hello"
@@ -661,6 +665,50 @@ class TestRunAiPrompt:
         assert env["CODEX_HOME"] == str(tmp_path / ".codex")
         assert "ANTHROPIC_API_KEY" not in env
         assert output_paths and not output_paths[0].exists()
+
+    def test_codex_minimal_context_uses_scratch_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default minimal_context: scratch CODEX_HOME (auth-only) + clean cwd.
+
+        codex exec otherwise loads the user's config.toml MCP servers,
+        AGENTS.md instructions (~14k input tokens measured 2026-08-28), and
+        the skills catalog into every call. The scratch home carries only an
+        auth.json symlink; --ignore-rules and the clean cwd keep project
+        execpolicy/AGENTS.md out as well.
+        """
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: codex-cli\n")
+        real_home = tmp_path / "real-codex"
+        real_home.mkdir()
+        (real_home / "auth.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("CODEX_HOME", str(real_home))
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr(ai_backend.vault_path, "secure_log_dir", lambda: logs_dir)
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            output_path = Path(cmd[cmd.index("--output-last-message") + 1])
+            output_path.write_text("codex answer\n", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, stdout="noise", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        result = ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault)
+
+        assert result == "codex answer"
+        cmd, kwargs = calls[0]
+        assert "--ignore-rules" in cmd
+        scratch = Path(str(kwargs["env"]["CODEX_HOME"]))
+        assert scratch == logs_dir / "codex-home"
+        auth_link = scratch / "auth.json"
+        assert auth_link.is_symlink()
+        assert Path(os.readlink(auth_link)) == real_home / "auth.json"
+        assert kwargs["cwd"] == str(ai_backend._minimal_context_cwd())
+        assert kwargs["cwd"] != str(tmp_path)
 
     def test_codex_cli_config_controls_command_timeout_and_safety_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

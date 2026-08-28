@@ -63,6 +63,7 @@ codex_cli:
   sandbox: read-only  # read-only | workspace-write | danger-full-access (latter needs allow_danger_full_access)
   ephemeral: true  # Start each prompt with no session state
   skip_git_repo_check: true  # Skip the git-repo check for internal calls
+  minimal_context: true  # Run from a scratch CODEX_HOME (auth-only) and clean cwd so codex loads no MCP servers, AGENTS.md instructions, skills, or execpolicy rules — measured ~27k fewer input tokens per call
   suppress_notify: true  # Suppress user turn-complete notifications for internal calls
   allow_danger_full_access: null  # SEC-117 opt-in required for sandbox: danger-full-access
 

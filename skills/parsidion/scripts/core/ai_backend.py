@@ -199,6 +199,47 @@ def _codex_env() -> dict[str, str]:
     return env
 
 
+def _minimal_codex_home() -> Path | None:
+    """Return a scratch ``CODEX_HOME`` carrying only auth (minimal_context).
+
+    ``codex exec`` loads ``$CODEX_HOME/config.toml`` (MCP servers, features),
+    ``$CODEX_HOME/AGENTS.md`` user instructions, and the skills catalog on
+    every invocation. Measured 2026-08-28 on a one-word task: 40,233 input
+    tokens inherited vs 13,338 with a scratch home (−8.4k MCP/config,
+    −13.7k AGENTS.md, −4.7k skills) — none of it usable by parsidion's
+    self-contained text-transform prompts. The scratch home contains only a
+    symlink to the real ``auth.json`` so the session stays authenticated.
+
+    Mirrors :func:`_minimal_context_cwd`'s SEC-004 hardening. Returns None
+    (caller falls back to the inherited CODEX_HOME) when auth is absent or
+    the scratch dir cannot be secured.
+    """
+    real_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    auth = real_home / "auth.json"
+    if not auth.is_file():
+        return None
+    scratch = vault_path.secure_log_dir() / "codex-home"
+    try:
+        scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
+        st = scratch.lstat()
+        if (
+            scratch.is_symlink()
+            or st.st_uid != os.getuid()
+            or st.st_mode & 0o077  # group/other permission bits
+        ):
+            raise PermissionError(f"untrusted scratch dir: {scratch}")
+        os.chmod(scratch, 0o700)
+        link = scratch / "auth.json"
+        if link.is_symlink() and Path(os.readlink(link)) != auth:
+            link.unlink()
+        if not link.is_symlink():
+            link.unlink(missing_ok=True)  # drop a stale plain file
+            link.symlink_to(auth)
+        return scratch
+    except OSError:
+        return None
+
+
 def _run_prompt_subprocess(
     cmd: list[str],
     *,
@@ -562,11 +603,26 @@ def _run_codex_prompt(
         if model:
             cmd.extend(["--model", model])
 
+        # minimal_context (default true): run from a scratch CODEX_HOME so
+        # codex does not load the user's config.toml (MCP servers), AGENTS.md
+        # instructions, skills catalog, or execpolicy rules — parsidion
+        # prompts are self-contained text transforms (same rationale as
+        # claude_cli/grok_cli minimal_context). Falls back to the inherited
+        # environment when auth cannot be symlinked.
+        env = _codex_env()
+        run_cwd = str(cwd) if cwd is not None else None
+        if _config_bool("codex_cli", "minimal_context", True, vault=vault):
+            scratch_home = _minimal_codex_home()
+            if scratch_home is not None:
+                env["CODEX_HOME"] = str(scratch_home)
+                cmd.append("--ignore-rules")
+                run_cwd = str(_minimal_context_cwd())
+
         result = _run_prompt_subprocess(
             cmd,
             timeout=codex_timeout,
-            cwd=str(cwd) if cwd is not None else None,
-            env=_codex_env(),
+            cwd=run_cwd,
+            env=env,
             stdin=prompt,
         )
         if result is None:

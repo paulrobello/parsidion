@@ -270,6 +270,16 @@ class CodexCliConfig:
             "example": True,
         },
     )
+    minimal_context: bool = field(
+        default=None,
+        metadata={
+            "doc": "Run from a scratch CODEX_HOME (auth-only) and clean cwd so "
+            "codex loads no MCP servers, AGENTS.md instructions, skills, or "
+            "execpolicy rules — measured ~27k fewer input tokens per call",
+            "read_by": "ai_backend.py",
+            "example": True,
+        },
+    )
     suppress_notify: bool = field(
         default=None,
         metadata={
