@@ -92,6 +92,11 @@ docs-api-check:
 		echo "docs/api is stale -- run 'make docs-api' and commit the result" 1>&2; \
 		echo "drifting files:" 1>&2; \
 		diff -rq docs/api $$tmp 1>&2 || true; \
+		first=$$(diff -rq docs/api $$tmp 2>/dev/null | head -1 | sed 's/^Files \(.*\) and .*/\1/'); \
+		if [ -n "$$first" ]; then \
+			echo "first drift unified diff ($$first):" 1>&2; \
+			diff -u "$$first" "$$tmp/$${first#docs/api/}" 1>&2 | head -40 || true; \
+		fi; \
 		rc=1; \
 	fi; \
 	rm -rf $$tmp; exit $$rc
