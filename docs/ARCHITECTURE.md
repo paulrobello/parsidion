@@ -1439,7 +1439,6 @@ parsidion/
 │   ├── api/                         # Generated API reference (pdoc + typedoc; `make docs-api`)
 │   ├── generated/                   # Generated config reference (config-reference.md, config-table.md)
 │   ├── archive/                     # Legacy docs kept for history (MCPL.md)
-│   ├── opus/                        # Enhancement writeups (ENH-0xx design notes)
 │   └── superpowers/                 # Superpowers skill documentation
 ├── agents/
 │   ├── research-agent.md
