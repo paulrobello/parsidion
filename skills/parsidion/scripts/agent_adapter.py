@@ -99,7 +99,7 @@ class InstallerSpec:
     """Ordered event -> hook-script-filename map (e.g. SessionStart -> codex_session_start_hook.py)."""
 
     entry_matcher: str = ""
-    """``matcher`` value for the hook entry ('' codex, '*' gemini/claude)."""
+    """``matcher`` value for the hook entry ('' codex/claude, '*' gemini)."""
 
     entry_timeout: int = 0
     """Numeric ``timeout`` for the hook entry (paired with ``timeout_unit``)."""
