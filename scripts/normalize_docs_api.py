@@ -229,11 +229,20 @@ def build_scrub_rules(repo_roots: list[str], homes: list[str]) -> list[Rule]:
     # a hoisted bun install emits lib/../node_modules/typescript/lib/... while
     # an isolated store emits node_modules/.bun/typescript@X/node_modules/....
     # Collapse any hop through node_modules onto one canonical URL so the
-    # committed snapshot is layout-independent.
+    # committed snapshot is layout-independent. Line anchors into node_modules
+    # d.ts files are dropped too: bun-types is injected by the bun runtime
+    # (not the lockfile), so its line numbers float with the runner's bun
+    # version -- and the links are dead anyway (the files are not in the repo).
     rules.append(
         _regex_rule(
             re.compile(rb'(blob/main/)[^"\'<>#\s]*node_modules/'),
             rb"\1node_modules/",
+        )
+    )
+    rules.append(
+        _regex_rule(
+            re.compile(rb"(node_modules/[^\"'\s<>#]+?)(#L\d+|:\d+)(?=[\"'<\s])"),
+            rb"\1",
         )
     )
     rules.append(_regex_rule(_TOGGLE_INPUT_RE, b""))

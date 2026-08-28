@@ -271,7 +271,10 @@ def test_typedoc_node_modules_hops_canonicalized() -> None:
     A hoisted bun install emits lib/../node_modules/typescript/lib/...; an
     isolated store emits node_modules/.bun/typescript@X/node_modules/....
     Both must canonicalize so the committed snapshot is layout-independent
-    (the recorded CI drift on the Error class pages).
+    (the recorded CI drift on the Error class pages). Line anchors into
+    node_modules d.ts files are stripped as well: bun-types is injected by
+    the bun runtime, so its line numbers float with the runner's bun
+    version (measured +20 drift between bun 1.4.0 and CI's latest).
     """
     hoisted = (
         b'href="https://github.com/paulrobello/parsidion/blob/main/'
@@ -284,10 +287,33 @@ def test_typedoc_node_modules_hops_canonicalized() -> None:
     )
     canonical = (
         b'href="https://github.com/paulrobello/parsidion/blob/main/'
-        b'node_modules/typescript/lib/lib.es5.d.ts#L1080"\n'
+        b'node_modules/typescript/lib/lib.es5.d.ts"\n'
     )
     assert run_python(hoisted) == canonical
     assert run_python(isolated) == canonical
+
+
+def test_node_modules_line_anchors_stripped() -> None:
+    """bun-types line numbers float with the runner's bun runtime version.
+
+    Both the href anchor (#LNN) and the display suffix (:NN) into
+    node_modules d.ts files are dropped so the snapshot is
+    runtime-independent; repo-local source anchors are untouched.
+    """
+    href = (
+        b'href="https://github.com/paulrobello/parsidion/blob/main/'
+        b'node_modules/bun-types/globals.d.ts#L1045"\n'
+    )
+    display = b"<li>Defined in ../node_modules/bun-types/globals.d.ts:1025</li>\n"
+    assert run_python(href) == (
+        b'href="https://github.com/paulrobello/parsidion/blob/main/'
+        b'node_modules/bun-types/globals.d.ts"\n'
+    )
+    assert run_python(display) == (
+        b"<li>Defined in ../node_modules/bun-types/globals.d.ts</li>\n"
+    )
+    local_src = b'href=".../blob/main/visualizer/lib/runScript.ts#L20"\n'
+    assert run_python(local_src) == local_src
 
 
 def test_multiline_display_is_left_alone() -> None:
