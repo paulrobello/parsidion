@@ -173,7 +173,8 @@ A result file is written to `tools/eval/results/prompt-eval-<id>-<timestamp>.jso
 
 ### Cost Controls
 
-- Defaults to the **small** model tier.
+- Defaults to the **small** model tier (`--model-tier large` is the explicit
+  opt-in; `--model` pins a specific model id).
 - Prints the **projected AI call count** before starting and asks for confirmation when it
   reaches the threshold (default 12 uncached calls; override with `--yes`).
 - **Caches** each case's result keyed by `(prompt_id, version, model, case_id)` under
@@ -215,9 +216,13 @@ expected_type: debugging           # the 'type' frontmatter value
 expected_tags_include: [sqlite]    # tags the note SHOULD use (recall)
 expected_tags_exclude: [misc]      # tags the note SHOULD NOT use (precision)
 must_mention: ["WAL", "inode"]     # substrings the note body must contain
-frontmatter_valid: true            # whether the frontmatter should parse
-related_links_min: 1               # minimum [[wikilink]] count in 'related'
+frontmatter_valid: true            # carried in the fixture; not read by the evaluator
+related_links_min: 1               # carried in the fixture; not read by the evaluator
 ```
+
+Only the first five fields feed the rubric — the evaluator derives frontmatter
+validity from the parsed note's `type` against `note_schema`, and does not (yet)
+check `related` link counts.
 
 The other prompts' expected fields:
 
@@ -227,7 +232,7 @@ The other prompts' expected fields:
 | `select-notes`       | `must_select`, `must_not_select` (render vars come from it too)  |
 | `merge-notes`        | `title`, `must_mention_a`, `must_mention_b`, `must_not_duplicate`|
 | `repair-frontmatter` | `rel`, `issues`, `expected_type`, `must_mention`                 |
-| `detect-conflicts`   | `expected_conflicts`, `expect_empty`                             |
+| `detect-conflicts`   | `expected_conflicts`, `expect_empty`, `note_count` (render var with a fallback) |
 
 Aim for 8-12 cases spanning the distribution the summarizer actually sees: debugging sessions,
 refactors, transient runs that should be skipped, knowledge distillation, research, tool
@@ -275,4 +280,6 @@ score in the commit message.
 | `tests/test_prompt_templates.py` | Byte-identical rendering gate + loader contract + ARC-010 convergence. |
 | `tests/test_note_index_prompt_version.py` | `note_index.prompt_version` column + migration. |
 | `tests/test_golden_fixtures_anonymization.py` | Golden-set anonymization gate. |
+| `tests/test_prompt_evaluators.py` | Evaluator render/parse/score unit tests (no AI call). |
+| `tests/test_sec115_merge_prompt.py` | SEC-115 gate: `merge-notes` inlines note bodies as untrusted data + output guard. |
 | `tests/fixtures/prompts/golden/<prompt_id>/` | Per-prompt golden cases: input fixtures + `expected.yaml`. |

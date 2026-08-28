@@ -385,7 +385,7 @@ The binary is not on your `PATH`. Either install via `cargo install agentchrome`
 
 ### Chrome not found
 
-AgentChrome looks for Chrome or Chromium in standard installation paths. If you use a non-standard location, pass `--chrome-path /path/to/chrome` to `agentchrome connect --launch`, or use `--channel` to target a specific release channel (`stable`, `beta`, `dev`, `canary`). You can also set `chrome_path` in the TOML config file (`agentchrome config init` to create one, `agentchrome config show` to inspect).
+AgentChrome looks for Chrome or Chromium in standard installation paths. If you use a non-standard location, pass `--chrome-path /path/to/chrome` to `agentchrome connect --launch`, or use `--channel` to target a specific release channel (`stable`, `beta`, `dev`, `canary`). You can also set `executable` under the `[launch]` section of the TOML config file (`agentchrome config init` to create one, `agentchrome config show` to inspect).
 
 ### Falls back to curl in the research agent
 

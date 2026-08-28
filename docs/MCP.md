@@ -124,7 +124,7 @@ The server entry point in `server.py` creates a `FastMCP` application, registers
 
 Script paths for `rebuild_index`, `vault_doctor`, and `vault_health` resolve from `vault_path.__file__` rather than the module-level `SCRIPTS_DIR` constant. `ops.py` derives its `SCRIPTS_DIR` as `Path(vault_path.__file__).resolve().parent`, so each subprocess runs the same code the MCP server imported via the editable install — not a possibly-drifted `~/.claude/skills/parsidion/scripts/` copy. On Unix this resolves to the same path because the installer symlinks `~/.claude/skills/parsidion` at the repo; on Windows (where the installer copies) the distinction matters.
 
-Every tool except `code_search` also accepts an optional `vault` parameter (ARC-021) — a vault name from `~/.config/parsidion/vaults.yaml` or an absolute path — so multi-vault callers can target a specific vault instead of always hitting the resolver's default. The parameter threads through to `vault_common.resolve_vault(explicit=vault)` for the in-process tools and to a `--vault <path>` argv flag for the subprocess tools.
+Every tool except `code_search` also accepts an optional `vault` parameter (ARC-021) — a vault name from `~/.config/parsidion/vaults.yaml` or a registered vault path (the SEC-P001 allowlist rejects arbitrary absolute paths; only registered vault paths or the default vault path pass) — so multi-vault callers can target a specific vault instead of always hitting the resolver's default. The parameter threads through to `vault_common.resolve_vault(explicit=vault)` for the in-process tools and to a `--vault <path>` argv flag for the subprocess tools.
 
 ## Installation
 

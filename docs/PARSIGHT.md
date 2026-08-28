@@ -40,7 +40,10 @@ as optional external CLIs.
   `related:`, and `sources:` become graph edges, and notes become
   heading-section document nodes searched by hybrid retrieval. Everything
   downstream of `vault_search.py` (vault-explorer agent, parsidion-mcp
-  `vault_search` tool, SessionStart context) inherits the upgrade for free.
+  `vault_search` tool) inherits the upgrade for free, and the SessionStart
+  hook calls the same parsight search in-process — no `vault_search.py`
+  subprocess on the parsight path (that subprocess remains only for the
+  embeddings fallback).
 - **Code-memory bridge:** the vault-explorer agent consults parsight's *code*
   graph for code-shaped questions (`agents/vault-explorer.md`, "Code-Memory
   Bridge" section), and parsidion-mcp exposes a `code_search` tool so Claude

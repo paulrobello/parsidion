@@ -83,7 +83,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault w
 
 The `vault-*` names are global commands installed by `uv tool install --editable ".[tools]"`. The rest are scripts run via `uv run --no-project ~/.claude/skills/parsidion/scripts/<name>.py`.
 
-Two hosted surfaces are vault-aware as well: every `parsidion-mcp` tool except `code_search` takes an optional per-call `vault` argument (a name from `vaults.yaml` or an absolute path), and the visualizer resolves named vaults from the same registry, honoring the `VAULT_ROOT` environment override for its default. See [MCP.md](MCP.md) and [VISUALIZER.md](VISUALIZER.md).
+Two hosted surfaces are vault-aware as well: every `parsidion-mcp` tool except `code_search` takes an optional per-call `vault` argument (a name from `vaults.yaml` or a registered vault path, per the allowlist note below), and the visualizer resolves named vaults from the same registry, honoring the `VAULT_ROOT` environment override for its default. See [MCP.md](MCP.md) and [VISUALIZER.md](VISUALIZER.md).
 
 ## Vault-Aware Hooks
 

@@ -96,7 +96,8 @@ The post-merge hook fires automatically after `git pull`, rebuilding the local
 database so semantic search works immediately.
 
 > **Note:** You do not need to `git commit` manually. When `<vault>/.git`
-> exists, the hooks auto-commit every vault write — `session_stop_hook.py`
+> exists, the hooks auto-commit every vault write (set `git.auto_commit: false`
+> in `config.yaml` to disable) — `session_stop_hook.py`
 > commits the daily note at session end (the pending queue is gitignored,
 > never committed), `pre_compact_hook.py`
 > commits before context compaction, `update_index.py` commits regenerated
@@ -340,9 +341,10 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py --inc
 
 **Symptom:** SQLite errors when searching.
 
-**Fix:** delete and rebuild:
+**Fix:** delete and rebuild (the glob also removes stale WAL siblings — the
+database runs in WAL journal mode):
 ```bash
-rm ~/ParsidionVault/embeddings.db
+rm ~/ParsidionVault/embeddings.db*
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py
 ```
@@ -353,4 +355,5 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — system architecture and hook lifecycle
 - [EMBEDDINGS.md](EMBEDDINGS.md) — semantic search setup and configuration
+- [MULTI_VAULT.md](MULTI_VAULT.md) — running more than one vault on a machine
 - [VISUALIZER.md](VISUALIZER.md) — vault visualization web app
