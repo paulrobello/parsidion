@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.23.0:** the ENH-020..024 enhancement wave — a managed warm embedding service, reverse-link adjacency stored in `note_index` (`incoming_stems`), vec0 ANN search for embeddings, a SessionStart latency benchmark (`make bench-hooks`), and one shared YAML tokenizer (`core/yaml_lite`) — plus AI-backend context lockdown and full audit remediation (25 of 25 findings resolved). See the [Changelog](CHANGELOG.md).
+> **New in 0.23.1:** documentation sync — every doc in `docs/` plus the root `README.md` and `CLAUDE.md` re-verified against the current implementation and corrected where drifted (component counts, the architecture data-flow diagram, the visualizer state surface, the pi manual install's fifth file, SEC-P001 vault-arg wording). See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -669,7 +669,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.23.0** (ENH-020..024 enhancement wave: warm embedding service, `note_index` reverse-link adjacency, vec0 ANN search, `make bench-hooks` latency benchmark, shared `core/yaml_lite` YAML tokenizer; AI-backend context lockdown; 25/25 audit findings resolved). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.23.1** (documentation sync: 17 docs re-verified against the implementation and corrected; no code changes). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-08-28
+
+Documentation sync release: every document in `docs/` plus the root `README.md`
+and `CLAUDE.md` (17 documents) verified against the current implementation and
+corrected where drifted. No code changes.
+
+### Fixed
+
+- **Root `CLAUDE.md`** — four installed agents listed (research-agent, vault-explorer, project-explorer, vault-deduplicator) instead of one; the misattributed `--extension-dir` flag removed from install.py's flags; `vault_new.py` added as the twelfth architecture component.
+- **`README.md`** — release highlights refreshed, missing `--omp-home`/`--purge-config` option rows added, module count corrected to ~130.
+- **`docs/ARCHITECTURE.md`** — `build_graph.py` data flow corrected in the system diagram (reads `embeddings.db`, writes vault-root `graph.json`); file-layout trees completed (architecture PNG, slideshow walkthroughs, `lib/transcript.ts`).
+- **`docs/VISUALIZER.md`** — stale state-surface keys replaced (`fetchNoteContent`, `resolveWikilink`, ~70 keys), force-layout start temperature corrected to `startTemperature` (0.8), `/api/summarize` 409 body documented (ARC-040 shape), file tree completed with 15 missing test files.
+- **`docs/EMBEDDINGS.md`** — `open_embeddings_db()` naming, missing 4th vault-resolution step (the `vaults.yaml` top-level `default:` key), legacy `par-mem` backend alias, in-process parsight semantic leg (PRF-101), `--top` 1–1000 bound.
+- **`docs/USAGE.md`** — `update_index` graph flags and `vault-review --list/--clear` documented.
+- **`docs/PROMPTS.md`** — `frontmatter_valid`/`related_links_min` annotated as fixture fields the evaluator does not read; `note_count` added to detect-conflicts expected fields; `--model-tier` documented.
+- **`docs/PARSIGHT.md`** — SessionStart serves parsight queries in-process (PRF-101); the `vault_search.py` subprocess remains only for the embeddings fallback.
+- **`docs/PI_EXTENSION.md`** — manual install now includes the fifth required file (`lib/transcript.ts`; `parsidion.ts` imports `./lib/transcript`, so a four-file install fails to load — the installer script still ships four files, tracked on the board).
+- **`docs/MULTI_VAULT.md`, `docs/MCP.md`** — the `vault` parameter takes a vault name or a *registered* vault path, not an arbitrary absolute path (SEC-P001 allowlist).
+- **`docs/VAULT_SYNC.md`** — `git.auto_commit: false` off-switch noted; corrupted-`embeddings.db` cleanup now globs WAL siblings.
+- **`docs/AGENTCHROME.md`** — stale `chrome_path` TOML key replaced with `[launch]` `executable` (verified against agentchrome 1.63.0).
+- **`docs/EMBEDDINGS_EVAL.md`** — paragraph-split regex notation (`\n{2,}`), Rich-table-before-files output ordering, 60 s SessionStart timeout wording.
+- **`docs/MCP.md`, `docs/AGENT-ADAPTERS.md`, `docs/README.md`** — style-guide callout normalization and stale index-row/precision fixes.
+
 ## [0.23.0] - 2026-08-27
 
 Audit remediation cycle plus the ENH-020..024 enhancement wave, AI-backend context
