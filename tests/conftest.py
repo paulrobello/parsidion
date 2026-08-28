@@ -112,6 +112,21 @@ def _parsight_isolation(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
         pass
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_xdg_config_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the runner's ``XDG_CONFIG_HOME`` so tests observe the default path.
+
+    CI runners export ``XDG_CONFIG_HOME`` pointing at the real user config,
+    which diverges from each test's monkeypatched ``HOME``. Since the
+    installer resolves vaults.yaml through ``get_vaults_config_path`` (which
+    honors XDG), an ambient value silently redirected those writes to the
+    runner's config dir and broke every HOME-based vaults.yaml test. Tests
+    that exercise XDG resolution set the variable themselves (or via the
+    ``tmp_vault`` fixture), which overrides this deletion.
+    """
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+
 @pytest.fixture()
 def fake_parsight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeParsight:
     """Install a fake `parsight` executable at the front of PATH."""

@@ -89,7 +89,10 @@ docs-api-check:
 	if diff -r docs/api $$tmp >/dev/null; then \
 		echo "docs/api is up to date"; rc=0; \
 	else \
-		echo "docs/api is stale -- run 'make docs-api' and commit the result" 1>&2; rc=1; \
+		echo "docs/api is stale -- run 'make docs-api' and commit the result" 1>&2; \
+		echo "drifting files:" 1>&2; \
+		diff -rq docs/api $$tmp 1>&2 || true; \
+		rc=1; \
 	fi; \
 	rm -rf $$tmp; exit $$rc
 
