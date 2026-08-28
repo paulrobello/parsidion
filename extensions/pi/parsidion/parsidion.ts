@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AssistantMessage, TextContent, ToolCall, ToolResultMessage, UserMessage } from "@mariozechner/pi-ai";
 import {
 	type BeforeAgentStartEvent,
 	type BeforeAgentStartEventResult,
@@ -12,8 +11,6 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	type SessionCompactEvent,
-	type SessionEntry,
-	type SessionMessageEntry,
 	type SessionShutdownEvent,
 	type SessionStartEvent,
 } from "@mariozechner/pi-coding-agent";
@@ -25,6 +22,7 @@ import {
 	readVaultConfigText,
 } from "./lib/parsidion-status";
 import { buildHookEnv, resolveScriptDir, type HookScriptName } from "./lib/scriptRunner";
+import { isRecord, serializeBranchEntries } from "./lib/transcript";
 
 type HookResult = {
 	stdout: string;
@@ -75,68 +73,6 @@ const HOOK_TERMINATE_GRACE_MS = 1_500;
 const MAX_VAULT_CONTEXT_CHARS = 12_000;
 const STATUS_PREVIEW_MAX_CHARS = 1_800;
 
-const PI_TO_CLAUDE_TOOL_MAP: Record<string, { name: string; mapArgs: (args: Record<string, unknown>) => Record<string, unknown> }> = {
-	read: {
-		name: "Read",
-		mapArgs: (args) => ({
-			file_path: typeof args.path === "string" ? args.path : "",
-			offset: args.offset,
-			limit: args.limit,
-		}),
-	},
-	write: {
-		name: "Write",
-		mapArgs: (args) => ({
-			file_path: typeof args.path === "string" ? args.path : "",
-		}),
-	},
-	edit: {
-		name: "Edit",
-		mapArgs: (args) => ({
-			file_path: typeof args.path === "string" ? args.path : "",
-		}),
-	},
-	grep: {
-		name: "Grep",
-		mapArgs: (args) => ({
-			path: typeof args.path === "string" ? args.path : "",
-		}),
-	},
-	find: {
-		name: "Glob",
-		mapArgs: (args) => ({
-			pattern: typeof args.pattern === "string" ? args.pattern : "",
-			path: typeof args.path === "string" ? args.path : "",
-		}),
-	},
-	ls: {
-		name: "LS",
-		mapArgs: (args) => ({
-			path: typeof args.path === "string" ? args.path : "",
-		}),
-	},
-	bash: {
-		name: "Bash",
-		mapArgs: (args) => ({
-			command: typeof args.command === "string" ? args.command : "",
-			timeout: args.timeout,
-		}),
-	},
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function asText(content: string | (TextContent | { type: string })[]): string {
-	if (typeof content === "string") return content;
-	const parts: string[] = [];
-	for (const block of content) {
-		if (block.type === "text") parts.push(block.text);
-	}
-	return parts.join("\n");
-}
-
 function getSessionKey(ctx: ExtensionContext): string {
 	const sessionFile = ctx.sessionManager.getSessionFile() ?? `cwd:${ctx.cwd}`;
 	return createHash("sha1").update(sessionFile).digest("hex").slice(0, 16);
@@ -148,104 +84,36 @@ function getTranscriptPath(ctx: ExtensionContext, suffix?: string): string {
 	return path.join(TRANSCRIPT_DIR, `${base}.jsonl`);
 }
 
-function normalizeUserContent(message: UserMessage): string | Array<{ type: "text"; text: string }> {
-	if (typeof message.content === "string") return message.content;
-	const blocks = message.content
-		.filter((block): block is TextContent => block.type === "text")
-		.map((block) => ({ type: "text" as const, text: block.text }));
-	return blocks.length > 0 ? blocks : "";
-}
+// Ephemeral (--no-session) omp runs can hand session_shutdown an empty or
+// cleared branch (session teardown racing the handler, /clear, a reload).
+// Serializing that state used to write a 0-byte transcript, so those sessions
+// were never summarized. The cache holds the last non-empty serialization
+// taken while the branch was alive (turn_end) and is used when the live
+// branch serializes to nothing.
+let cachedBranchLines: string[] = [];
 
-function normalizeToolCall(block: ToolCall): { type: "tool_use"; name: string; input: Record<string, unknown> } | null {
-	const mapping = PI_TO_CLAUDE_TOOL_MAP[block.name];
-	if (!mapping) return null;
-	return {
-		type: "tool_use",
-		name: mapping.name,
-		input: mapping.mapArgs(block.arguments),
-	};
-}
-
-function normalizeAssistantContent(
-	message: AssistantMessage,
-): Array<{ type: "text"; text: string } | { type: "tool_use"; name: string; input: Record<string, unknown> }> {
-	const content: Array<{ type: "text"; text: string } | { type: "tool_use"; name: string; input: Record<string, unknown> }> = [];
-	for (const block of message.content) {
-		if (block.type === "text") {
-			content.push({ type: "text", text: block.text });
-			continue;
-		}
-		if (block.type === "toolCall") {
-			const toolUse = normalizeToolCall(block);
-			if (toolUse) content.push(toolUse);
-		}
+function snapshotBranchLines(ctx: ExtensionContext): void {
+	try {
+		const lines = serializeBranchEntries(ctx.sessionManager.getBranch());
+		if (lines.length > 0) cachedBranchLines = lines;
+	} catch {
+		// best-effort cache only
 	}
-	return content;
 }
 
-function serializeToolResultMessage(message: ToolResultMessage): string | null {
-	const text = asText(message.content);
-	if (!text.trim()) return null;
-	return JSON.stringify({
-		type: "user",
-		message: {
-			content: [{ type: "text", text: `[tool:${message.toolName}]\n${text}` }],
-		},
-	});
-}
-
-function serializeCustomMessage(entry: CustomMessageEntry): string | null {
-	const text = asText(entry.content as string | (TextContent | { type: string })[]);
-	if (!text.trim()) return null;
-	return JSON.stringify({
-		type: "user",
-		message: {
-			content: [{ type: "text", text }],
-		},
-	});
-}
-
-function serializeEntry(entry: SessionEntry): string | null {
-	if (entry.type === "custom_message") {
-		return serializeCustomMessage(entry as CustomMessageEntry);
-	}
-	if (entry.type !== "message") return null;
-
-	const messageEntry = entry as SessionMessageEntry;
-	const message = messageEntry.message;
-	if (message.role === "user") {
-		return JSON.stringify({
-			type: "user",
-			message: {
-				content: normalizeUserContent(message),
-			},
-		});
-	}
-	if (message.role === "assistant") {
-		return JSON.stringify({
-			type: "assistant",
-			message: {
-				content: normalizeAssistantContent(message),
-			},
-		});
-	}
-	if (message.role === "toolResult") {
-		return serializeToolResultMessage(message);
-	}
-	return null;
-}
-
-function writeSyntheticTranscriptFromEntries(entries: SessionEntry[], transcriptPath: string): string {
-	const lines = entries.map((entry) => serializeEntry(entry)).filter((line): line is string => Boolean(line));
+function writeSyntheticTranscriptFromEntries(lines: string[], transcriptPath: string): string {
 	writeFileSync(transcriptPath, `${lines.join("\n")}${lines.length > 0 ? "\n" : ""}`, "utf8");
 	return transcriptPath;
 }
 
-function writeSyntheticTranscript(ctx: ExtensionContext, suffix?: string): string {
-	return writeSyntheticTranscriptFromEntries(ctx.sessionManager.getBranch(), getTranscriptPath(ctx, suffix));
+function writeSyntheticTranscript(ctx: ExtensionContext, suffix?: string): string | null {
+	const liveLines = serializeBranchEntries(ctx.sessionManager.getBranch());
+	const lines = liveLines.length > 0 ? liveLines : cachedBranchLines;
+	if (lines.length === 0) return null;
+	return writeSyntheticTranscriptFromEntries(lines, getTranscriptPath(ctx, suffix));
 }
 
-function resolveTranscriptPathForHook(ctx: ExtensionContext, suffix?: string): string {
+function resolveTranscriptPathForHook(ctx: ExtensionContext, suffix?: string): string | null {
 	const sessionFile = ctx.sessionManager.getSessionFile();
 	if (sessionFile && existsSync(sessionFile)) return sessionFile;
 	return writeSyntheticTranscript(ctx, suffix);
@@ -571,6 +439,7 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 		if (!scriptDir) return;
 		try {
 			const transcriptPath = resolveTranscriptPathForHook(ctx, "pre-compact");
+			if (!transcriptPath) return;
 			await invokeHook(
 				scriptDir,
 				"pre_compact_hook.py",
@@ -608,6 +477,7 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 		if (!scriptDir) return;
 		try {
 			const transcriptPath = resolveTranscriptPathForHook(ctx, "session-stop");
+			if (!transcriptPath) return;
 			invokeHookDetached(scriptDir, "session_stop_hook.py", {
 				cwd: ctx.cwd,
 				transcript_path: transcriptPath,
@@ -635,6 +505,7 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		pendingContext.length = 0;
+		cachedBranchLines = [];
 		processedSubagentIds = reconstructProcessedSubagents(ctx);
 		void loadStartupContext(event, ctx);
 	});
@@ -650,6 +521,7 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
+		snapshotBranchLines(ctx);
 		void queueSubagentCaptures(ctx).catch(() => {
 			// best-effort only
 		});

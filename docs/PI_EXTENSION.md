@@ -20,8 +20,9 @@ The pi adapter extension source is included in the Parsidion repo at:
 - `extensions/pi/parsidion/parsidion.md`
 - `extensions/pi/parsidion/lib/parsidion-status.ts`
 - `extensions/pi/parsidion/lib/scriptRunner.ts`
+- `extensions/pi/parsidion/lib/transcript.ts`
 
-It registers Parsidion's SessionStart, SessionEnd, PreCompact, PostCompact, and SubagentStop hooks against pi's lifecycle events, then drives the same Python scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`) the other runtimes use. Hook transcripts come from the session file pi assigns; when no session file exists (ephemeral sessions), the extension synthesizes one under `~/.claude/pi-vault-hooks/`. The Python side accepts transcript roots under `~/.claude/`, `~/.pi/` (for example `~/.pi/agent/sessions/`), and `<cwd>/.pi/`.
+It registers Parsidion's SessionStart, SessionEnd, PreCompact, PostCompact, and SubagentStop hooks against pi's lifecycle events, then drives the same Python scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`) the other runtimes use. Hook transcripts come from the session file pi assigns; when no session file exists (ephemeral sessions), the extension synthesizes one under `~/.claude/pi-vault-hooks/` from the session branch (`lib/transcript.ts` maps pi `SessionEntry` shapes to Claude-Code transcript lines; compaction summaries are included so pre-compaction context survives). When the branch serializes to nothing at shutdown, the extension falls back to the last non-empty snapshot taken at `turn_end`, and skips the hook entirely if that is empty too — a 0-byte transcript is never written or queued. The Python side accepts transcript roots under `~/.claude/`, `~/.pi/` (for example `~/.pi/agent/sessions/`), and `<cwd>/.pi/`.
 
 ## Install
 
