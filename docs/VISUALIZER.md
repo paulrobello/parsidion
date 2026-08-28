@@ -795,7 +795,7 @@ The server retains up to 8 historical snapshots per vault in module scope (keyed
 |-----------|------|----------|-------------|
 | `vault` | string | No | Vault name (from vaults.yaml) |
 
-**Response (200):** `{ started: true, pid: number }`. **Response (409):** `{ alreadyRunning: true }` — a summarizer is already running. **Response (400):** invalid vault or vault directory missing.
+**Response (200):** `{ started: true, pid: number }`. **Response (409):** `{ error: "Summarizer already running", alreadyRunning: true }` — a summarizer is already running (ARC-040 `{error, ...}` shape). **Response (400):** invalid vault or vault directory missing.
 
 **`GET /api/summarizer/status`** — Live progress for a running summarizer (polled by `VaultStats` while a run is in flight).
 
@@ -844,7 +844,7 @@ Both history routes path-traverse-protect with `guardPath()` (same pattern as `/
 
 ## State Management
 
-All application state is managed by the `useVisualizerState` hook (`lib/useVisualizerState.ts`) and the `useVaultFiles` hook (`lib/useVaultFiles.ts`). `useVisualizerState` is a thin orchestrator (ARC-037) over three focused slices — `useVaultSelection`, `useNoteTabs`, and `useGraphControls` — composing their state into one `useMemo`-stabilized object whose public surface is ~75 keys. State is split into categories:
+All application state is managed by the `useVisualizerState` hook (`lib/useVisualizerState.ts`) and the `useVaultFiles` hook (`lib/useVaultFiles.ts`). `useVisualizerState` is a thin orchestrator (ARC-037) over three focused slices — `useVaultSelection`, `useNoteTabs`, and `useGraphControls` — composing their state into one `useMemo`-stabilized object whose public surface is ~70 keys. State is split into categories:
 
 **Vault State**
 
@@ -884,7 +884,7 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `contentCache` | `Map<string, string>` | In-memory cache of note content (stem/path → content) |
+| `fetchNoteContent(stem, path?)` | callback | Fetch note content (cache-first; the in-memory cache is a ref internal to `useNoteTabs`) |
 | `invalidateNote(stem, path?)` | callback | Evict cached content when external modification detected |
 | `saveNote(stem, content, lastModified?, path?)` | callback | Save with optional conflict detection |
 | `deleteNote(stem)` | callback | Delete a note by stem |
@@ -926,12 +926,10 @@ All application state is managed by the `useVisualizerState` hook (`lib/useVisua
 
 | Key | Description |
 |-----|-------------|
-| `fileTree` | Nested folder structure derived from nodes |
 | `nodeMap` | `Map<stem, NoteNode>` for O(1) lookup |
-| `stemLookup` | Wikilink resolution map (exact + fuzzy matching) |
+| `resolveWikilink(stem)` | Resolve a wikilink target to a known stem (exact + fuzzy matching, via a lookup map internal to `useNoteTabs`) |
 | `stats` | Visible node/edge counts and average semantic score |
 | `graphStats` | Detailed graph metrics: average degree, max degree, top 5 hub nodes, graph density, connected component count |
-| `selectedNode` | Currently highlighted graph node |
 | `nodeSizeMap` | Betweenness centrality values (only when `nodeSizeMode` is `'betweenness'`; `null` otherwise) |
 | `nodeSizeComputing` | Whether betweenness centrality is currently being computed |
 
@@ -960,7 +958,7 @@ stateDiagram-v2
     end note
 ```
 
-**Cooling:** Temperature decays per frame at `temp *= (1 - 0.002 * slowDown)` and the loop stops when it drops below `stopThreshold`. The simulation starts at temperature 1.0; a drag reheat restarts from `startTemperature` (default 0.8). At `slowDown=1`, convergence takes ~38 seconds at 60 fps; at `slowDown=5`, ~8 seconds.
+**Cooling:** Temperature decays per frame at `temp *= (1 - 0.002 * slowDown)` and the loop stops when it drops below `stopThreshold`. The simulation starts at `startTemperature` (default 0.8), and a drag reheat restarts it from that same value. At `slowDown=1`, convergence takes ~38 seconds at 60 fps; at `slowDown=5`, ~8 seconds.
 
 ### Neighborhood Computation
 
@@ -1029,6 +1027,7 @@ parsidion/
 │   │   ├── HUDPanel.tsx              # Graph controls overlay (edge color, node color/size, density, physics)
 │   │   ├── FileExplorer.tsx          # Sidebar with folder tree + right-click context menu
 │   │   ├── ReadingPane.tsx           # Markdown renderer + HISTORY toolbar button
+│   │   ├── ReadingPane.test.tsx      # Unit tests for ReadingPane
 │   │   ├── reading-pane/             # ReadingPane sub-components (editor, markdown body, link cluster, empty state)
 │   │   ├── HistoryView.tsx           # Split-screen git history viewer
 │   │   ├── CommitList.tsx            # Scrollable commit list with FROM/TO selection
@@ -1043,16 +1042,22 @@ parsidion/
 │   │   ├── ConfirmDialog.tsx         # Reusable confirmation prompt
 │   │   ├── ConflictDialog.tsx        # Edit conflict resolution (take theirs / keep mine / merge)
 │   │   ├── FrontmatterEditor.tsx     # Structured YAML frontmatter editor
+│   │   ├── FrontmatterEditor.test.tsx # Unit tests for FrontmatterEditor
 │   │   └── ViewToggle.tsx            # (unused) Legacy Read/Graph mode toggle — replaced by TabBar Graph tab
 │   ├── lib/
+│   │   ├── __fixtures__/             # Shared test fixtures (graph/ and search/ samples, routeTestHelper.ts)
 │   │   ├── graph.ts                  # Data types and fetch helpers (incl. loadGraphDelta / applyGraphDelta for ARC-015)
+│   │   ├── graph.contract.test.ts    # ARC-038 GraphData contract tests (committed fixture vs the TS interface)
 │   │   ├── graphEdges.ts             # QA-011 shared primary/overlay edge-build helpers for the sigma graph
 │   │   ├── types.ts                  # Shared client/server types
 │   │   ├── env.ts                    # SEC-P002 allowlist env filter for server-spawned subprocesses (drops CLAUDECODE and unrelated vars)
+│   │   ├── env.test.ts               # Unit tests for env
 │   │   ├── useVisualizerState.ts     # Central state orchestrator — thin wrapper over three slices (ARC-037)
 │   │   ├── useVaultSelection.ts      # State slice: persisted selected-vault storage
 │   │   ├── useNoteTabs.ts            # State slice: tabs, content cache, CRUD, view/sidebar/history UI
+│   │   ├── useNoteTabs.test.ts       # Unit tests for useNoteTabs
 │   │   ├── useGraphControls.ts       # State slice: threshold, source, filters, sim settings, betweenness trigger
+│   │   ├── useGraphControls.test.ts  # Unit tests for useGraphControls
 │   │   ├── useSigmaInstance.ts       # Sigma WebGL instance lifecycle
 │   │   ├── useVaultFiles.ts          # SSE / EventSource hook for real-time vault sync
 │   │   ├── useForceLayout.ts         # Custom Newtonian physics loop (gravity + repulsion + edge attraction + damping)
@@ -1061,14 +1066,21 @@ parsidion/
 │   │   ├── useGraphCanvasInteractions.ts # QA-008 node right-click menu actions, path finder (findWikiPath), toast banner
 │   │   ├── useFocusTrap.ts           # Focus-trap hook used by accessible modal dialogs
 │   │   ├── betweenness.ts            # Brandes algorithm for betweenness-centrality node sizing
+│   │   ├── betweenness.test.ts       # Unit tests for betweenness
 │   │   ├── findNote.ts               # Shared async note lookup by stem/path (used by note CRUD + history + diff)
+│   │   ├── findNote.test.ts          # Unit tests for findNote
 │   │   ├── runScript.ts              # Shared subprocess wrapper (timeout, abort-on-client-disconnect, capped stderr)
+│   │   ├── runScript.test.ts         # Unit tests for runScript
 │   │   ├── vaultFile.ts              # VaultFile type (shared client/server)
 │   │   ├── vaultResolver.ts          # Multi-vault path resolution (server-side, with forbidden-prefix guard)
+│   │   ├── vaultResolver.test.ts     # Unit tests for vaultResolver
+│   │   ├── vaultResolver.parity.test.ts # ENH-005/009 vault-resolution parity — end-to-end check of the Python-delegated resolver (shared fixture)
 │   │   ├── vaultBroadcast.server.ts  # Global EventEmitter for server-side graph:rebuilt events
+│   │   ├── vaultBroadcast.server.test.ts # Unit tests for vaultBroadcast.server
 │   │   ├── vaultStatsServer.ts       # Summarizer spawn/status + pending-summary counting (server-side)
 │   │   ├── graphDelta.ts             # Graph diff/merge helpers for incremental updates
 │   │   ├── graphDelta.test.ts        # Unit tests for graphDelta
+│   │   ├── graphDelta.server.test.ts # ARC-015 tests for loadGraphDelta/applyGraphDelta in graph.ts
 │   │   ├── linkedNotes.ts            # Wiki-edge "linked notes" computation (undirected, used by ReadingPane)
 │   │   ├── linkedNotes.test.ts       # Unit tests for linkedNotes
 │   │   ├── searchServer.ts           # Server-side vault_search.py subprocess runner (concurrency-capped)
@@ -1078,6 +1090,7 @@ parsidion/
 │   │   ├── scriptResolver.ts         # Locate parsidion scripts (env override → installed → source repo)
 │   │   ├── scriptResolver.test.ts    # Unit tests for scriptResolver
 │   │   ├── apiAuth.ts                # Shared auth + same-origin guards for mutating/SSE routes
+│   │   ├── apiAuth.test.ts           # Unit tests for apiAuth
 │   │   ├── parseDiff.ts              # Client-side unified diff parser (DiffHunk, DiffLine)
 │   │   ├── parseDiff.test.ts         # Unit tests for parseDiff
 │   │   ├── sigma-colors.ts           # Note type → color mapping, edge coloring, node sizing constants
@@ -1085,6 +1098,7 @@ parsidion/
 │   │   ├── sigma-renderers.ts        # Custom Sigma label/hover renderers
 │   │   ├── frontmatter.ts            # Frontmatter parse/serialize helpers
 │   │   ├── frontmatter.test.ts       # Unit tests for frontmatter
+│   │   ├── frontmatter.parity.test.ts # ARC-005 TS/Python frontmatter serialization parity (shared fixture)
 │   │   └── useLocalStorage.ts        # localStorage persistence hook
 │   ├── public/
 │   │   └── (static assets only — graph.json lives in the vault, not here)

@@ -79,7 +79,7 @@ The harness is split across five modules:
 | `embed_eval_run.py` | Phase 2 — embedding + search evaluation against in-memory sqlite-vec |
 | `embed_eval_report.py` | Phase 3 — Rich terminal table, JSON output, HTML report with charts |
 
-> **📝 Note:** `embed_eval.py` and its sub-scripts are PEP 723 scripts with inline dependency
+> **Note:** `embed_eval.py` and its sub-scripts are PEP 723 scripts with inline dependency
 > declarations. Always invoke with `uv run` so dependencies are installed automatically into an
 > isolated environment.
 
@@ -191,7 +191,7 @@ The first run:
 Results appear in the terminal as a Rich table and are saved as timestamped JSON and HTML files in
 `~/ParsidionVault/`.
 
-> **✅ Tip:** On the first run, use `--notes 20 --queries-per-note 2` to get a quick smoke-test
+> **Tip:** On the first run, use `--notes 20 --queries-per-note 2` to get a quick smoke-test
 > result before committing to a full 100-note evaluation. See [Quick Test Recipe](#quick-test-recipe).
 
 ---
@@ -217,7 +217,7 @@ matches rather than capturing meaning.
 Daily notes are excluded from sampling because they record session activity rather than
 distilled knowledge, making them poor ground-truth candidates.
 
-> **⚠️ Warning:** Ground truth generation makes one AI backend call per note. For 100 notes at 3
+> **Warning:** Ground truth generation makes one AI backend call per note. For 100 notes at 3
 > queries each, expect approximately 100 backend calls. Run with `--eval` on subsequent runs to
 > avoid repeated charges.
 
@@ -346,8 +346,8 @@ For each (model, chunking) combination:
 4. **Aggregate** — compute Recall@1, Recall@5, Recall@K, MRR, `queries_per_sec`, and `chunk_count`
 5. **Store** — append the combo result to the in-memory results list
 
-After all combos complete, the harness writes `embed_eval_YYYYMMDD_HHMMSS.json` and
-`embed_eval_YYYYMMDD_HHMMSS.html`, then renders the Rich terminal table.
+After all combos complete, the harness renders the Rich terminal table, then writes
+`embed_eval_YYYYMMDD_HHMMSS.json` and `embed_eval_YYYYMMDD_HHMMSS.html`.
 
 ---
 
@@ -371,7 +371,7 @@ This is the **current production approach** used by `build_embeddings.py`.
 
 **Strategy name:** `paragraph`
 
-The note body is split on two or more consecutive newlines (`\n\n+`). Each paragraph is embedded
+The note body is split on two or more consecutive newlines (`\n{2,}`). Each paragraph is embedded
 separately with the note title prepended as context (each chunk capped at 1500 characters; a note
 with no paragraph breaks falls back to a single whole-note chunk). A note is considered a match if
 **any** of its paragraph chunks ranks in the top-K results.
@@ -406,7 +406,7 @@ the first occurrence of each stem (i.e., the highest-ranked chunk for that note)
 `top_k` unique stems are collected. This converts chunk-level rankings into note-level rankings,
 which is what Recall and MRR measure.
 
-> **📝 Note:** Deduplication means the effective retrieval list may be shorter than top-K if
+> **Note:** Deduplication means the effective retrieval list may be shorter than top-K if
 > multiple chunks from the same note dominate the raw results. The harness handles this correctly
 > when computing Recall@K.
 
@@ -424,7 +424,7 @@ which is what Recall and MRR measure.
 | **Q/s** | Queries per second during the evaluation phase | Retrieval throughput — queries are fast (brute-force cosine scan over the in-memory index). |
 | **Chunks** | Total number of chunk vectors indexed for this combo | Greater than the note count for paragraph and sliding strategies; equals note count for `whole`. |
 
-> **✅ Tip:** MRR is the most informative single metric for comparing combos. It rewards putting
+> **Tip:** MRR is the most informative single metric for comparing combos. It rewards putting
 > the right answer at rank 1 more than any other position, making it a reliable proxy for
 > real-world search experience.
 
@@ -467,7 +467,7 @@ and a results array:
 }
 ```
 
-> **📝 Note:** The `recall_at_{top_k}` key name is dynamic — it matches the value of `--top-k`.
+> **Note:** The `recall_at_{top_k}` key name is dynamic — it matches the value of `--top-k`.
 > With `--top-k 5`, the key is `recall_at_5`; with `--top-k 20`, it is `recall_at_20`.
 
 | Field | Description |
@@ -536,7 +536,7 @@ to render the charts.
 
 **Default models evaluated:**
 
-> **📝 Note:** The model IDs shown below are the harness defaults at the time of writing.
+> **Note:** The model IDs shown below are the harness defaults at the time of writing.
 > Pass `--models` to override them with any fastembed-compatible model ID. The production
 > embedding model used by `build_embeddings.py` is set via `embeddings.model` in
 > `~/ParsidionVault/config.yaml` (see [EMBEDDINGS.md](EMBEDDINGS.md#configuration-reference)).
@@ -587,7 +587,7 @@ The harness automatically limits each model to `cpu_count // workers` ONNX threa
   and ample RAM.
 - **Increase beyond 3:** Only useful if evaluating more than 3 models.
 
-> **⚠️ Warning:** Running multiple 768-dim models concurrently is memory-intensive. If your machine
+> **Warning:** Running multiple 768-dim models concurrently is memory-intensive. If your machine
 > has less than 16 GB of RAM, keep `--workers 1` when evaluating `bge-base` or `nomic-embed`.
 
 ### Quick Test Recipe
@@ -636,7 +636,7 @@ queries each (6 total), 200-note index with random distractors, `--workers 1`.
   MRR (0.783 vs 0.700) but at 8× the index time. Only worthwhile for long, multi-topic notes.
 - **nomic underperforms** consistently across all strategies vs the BAAI models.
 
-> **📝 Note:** This eval used only 6 queries (3 notes × 2 each). Results are directionally clear
+> **Note:** This eval used only 6 queries (3 notes × 2 each). Results are directionally clear
 > but noisy. Run with `--notes 30 --queries-per-note 3` for more reliable conclusions.
 
 ---
@@ -671,7 +671,7 @@ are high quality but slow; combos in the lower-right are fast but low quality.
 
 For a production session start hook, the hook timeout constrains acceptable Q/s. A combo with
 MRR=0.82 and Q/s=400 is preferable to one with MRR=0.85 and Q/s=40 if the hook must complete
-within a 10-second budget.
+within its 60-second SessionStart timeout.
 
 ### When Paragraph Beats Whole
 
@@ -691,7 +691,7 @@ Paragraph chunking tends to **underperform** when:
 If paragraph chunking consistently outperforms whole-note across your vault, consider running
 `build_embeddings.py` with paragraph chunking as the production strategy.
 
-> **✅ Tip:** After changing the production chunking strategy, run a full rebuild of
+> **Tip:** After changing the production chunking strategy, run a full rebuild of
 > `embeddings.db` without `--incremental`. Old vectors from the previous strategy are not
 > compatible with the new chunking scheme.
 

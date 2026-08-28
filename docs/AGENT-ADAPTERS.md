@@ -174,10 +174,11 @@ comment saying which scale applied).
 
 `agent_adapter.py` and every hook shim import nothing outside the Python standard library (plus the
 stdlib-only `vault_common`). This is the project's hardest constraint and it is enforced by
-`tests/test_stdlib_only.py`, which imports every `core/*` module and hook in a fresh interpreter with
-12 third-party packages poisoned in `sys.modules` (`rich`, `fastembed`, `sqlite_vec`, `anyio`,
-`yaml`, `numpy`, `PIL`, `requests`, `aiohttp`, plus their alias spellings). Any adapter descriptor
-that pulls a third-party import — even transitively — fails the gate.
+`tests/test_stdlib_only.py`, which imports every `core/*` module, every hook, and the adapter
+registry itself in a fresh interpreter with 12 third-party packages poisoned in `sys.modules`
+(`rich`, `fastembed`, `sqlite_vec`, `anyio`, `yaml`, `numpy`, `PIL`, `requests`, `aiohttp`, plus
+their alias spellings). Any adapter descriptor that pulls a third-party import — even transitively —
+fails the gate.
 
 ## Architecture notes
 
@@ -186,10 +187,12 @@ that pulls a third-party import — even transitively — fails the gate.
   `remove_runtime_hooks` take the same adapter and read its `InstallerSpec`
   (`adapter.install`) — the purely installer-side helpers (`_runtime_hooks_file`,
   `_read_runtime_hooks`, `_build_managed_command`, `_build_entry`) type their parameters as
-  `InstallerSpec` + runtime name (ARC-105).
+  `InstallerSpec`, plus the runtime name where a message needs it (`_runtime_hooks_file`,
+  `_read_runtime_hooks`) (ARC-105).
 - **Installer → scripts dependency.** The installer imports `agent_adapter` from
   `skills/parsidion/scripts/`. `installer/__init__.py` puts that directory on `sys.path` at package
-  import (established precedent — `installer/paths.py` already imports `vault_path` the same way).
+  import (established precedent — `installer/paths.py` already imports `core.vault_path` the same
+  way).
   This is safe because `vault_common` is stdlib-only at import time.
 - **Generic core.** `_merge_runtime_hooks(adapter, …)` and `remove_runtime_hooks(adapter, …)` in
   `installer/hooks.py` are the single read-modify-write path for codex/gemini (and any future

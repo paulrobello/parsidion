@@ -46,7 +46,10 @@ cp extensions/pi/parsidion/parsidion.ts ~/.pi/agent/extensions/parsidion.ts
 cp extensions/pi/parsidion/parsidion.md ~/.pi/agent/extensions/parsidion.md
 cp extensions/pi/parsidion/lib/parsidion-status.ts ~/.pi/agent/extensions/lib/parsidion-status.ts
 cp extensions/pi/parsidion/lib/scriptRunner.ts ~/.pi/agent/extensions/lib/scriptRunner.ts
+cp extensions/pi/parsidion/lib/transcript.ts ~/.pi/agent/extensions/lib/transcript.ts
 ```
+
+All five files are required: `parsidion.ts` imports `./lib/transcript`, so an install without `lib/transcript.ts` fails to load.
 
 Then in pi:
 

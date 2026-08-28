@@ -80,7 +80,7 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 | `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, date, staleness, incoming links) for indexed queries |
 | `note_vec` | `build_embeddings.py` | sqlite-vec `vec0` virtual table (cosine-distance KNN mirror of `note_embeddings`, ENH-022) used to resolve query candidates without a full-table scan |
 
-All three are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` and `ensure_note_vec_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` has not run yet.
+All three are created on first open: `build_embeddings.py`'s `open_embeddings_db()` calls `vault_common.ensure_note_index_schema()` and its own module-level `ensure_note_vec_schema()`, so the schema is guaranteed even if `update_index.py` has not run yet.
 
 ```mermaid
 graph TB
@@ -159,8 +159,9 @@ graph TB
 The `vault_common.py` re-export facade (backed by `vault_path.py`) exposes `get_embeddings_db_path(vault=...)` so every script resolves
 the database path consistently without hardcoding it. The optional `vault` parameter supports
 multi-vault setups; when omitted, it falls back to `resolve_vault()` which checks the `--vault`
-flag, project-local `.claude/vault` file, `CLAUDE_VAULT` environment variable, and finally the
-default vault (`~/ParsidionVault/`, or legacy `~/ClaudeVault/` if it already exists).
+flag, project-local `.claude/vault` file, `CLAUDE_VAULT` environment variable, the top-level
+`default:` key in `~/.config/parsidion/vaults.yaml`, and finally the default vault
+(`~/ParsidionVault/`, or legacy `~/ClaudeVault/` if it already exists).
 
 ---
 
@@ -397,7 +398,8 @@ vault-search "sqlite vector search" -B parsight
 vault-search "sqlite vector search" -B none
 ```
 
-Valid values: `auto` (default), `parsight`, `embeddings`, `none`. In `--rich` output the
+Valid values: `auto` (default), `parsight`, `embeddings`, `none` (the legacy spelling
+`par-mem` is accepted as an alias for `parsight`). In `--rich` output the
 chosen backend is printed on stderr (`backend: embeddings`) so you can confirm which path
 served a query. Metadata and grep modes do not consult `--backend` — they always read the
 local `note_index` table.
@@ -508,7 +510,8 @@ environment variable: `VAULT_SEARCH_MIN_SCORE=0.5 vault-search "query"`.
 ### Controlling Result Count
 
 Use `--top N` / `-n N` to control how many results are returned (default is set by `embeddings.top_k` in
-config, which defaults to `10`):
+config, which defaults to `10`; `N` is bounded to 1–1000 and out-of-range values are a usage
+error — the metadata `--limit` / `-l` flag shares the same bound):
 
 ```bash
 uv run ~/.claude/skills/parsidion/scripts/vault_search.py "fastapi middleware" --top 3
@@ -582,10 +585,12 @@ line-input loop when the terminal does not support curses.
 `session_start_hook.py` uses semantic search to blend relevant notes into the context it injects
 at the start of each Claude Code session.
 
-After deduplicating project-specific and recently-active notes, the hook queries
-`vault_search.py` with the current project name as the search term and blends in the top 5
-semantic matches. This surfaces notes from other projects or topic areas that happen to be
-relevant to the current one.
+After deduplicating project-specific and recently-active notes, the hook runs a semantic search
+with the current project name as the query and blends in the top 5 matches. When parsight
+serves retrieval, the query runs in-process (`parsight_backend.parsight_search`); the
+`uv run vault_search.py --json` subprocess is used only for the local-embeddings fallback.
+This surfaces notes from other projects or topic areas that happen to be relevant to the
+current one.
 
 ### Graph Retrieval (Tier 1 + Tier 2)
 
@@ -735,7 +740,7 @@ parsight:
 | `graph_expand` | `session_start_hook` | boolean | `true` | Enable Tier 1 graph retrieval — splice 1-hop wikilink neighbours of selected notes into the candidate pool |
 | `graph_expand_max` | `session_start_hook` | integer | `8` | Max neighbour notes added per session (best-connected first); only applies when `graph_expand` is `true` |
 | `graph_rerank` | `session_start_hook` | boolean | `true` | Enable Tier 2 graph retrieval — re-rank candidates by seed-cluster tag overlap + hubness (incoming-link count) |
-| `backend` | `search` | string | `auto` | Semantic search backend: `auto` (prefer parsight, fall back to embeddings), `parsight`, `embeddings`, or `none` |
+| `backend` | `search` | string | `auto` | Semantic search backend: `auto` (prefer parsight, fall back to embeddings), `parsight`, `embeddings`, or `none` (legacy `par-mem` accepted as a `parsight` alias) |
 | `enabled` | `parsight` | boolean | `true` | Probe for the parsight CLI when available; `false` disables probing entirely |
 | `binary` | `parsight` | string | `parsight` | PATH lookup name or absolute path to the parsight CLI |
 | `timeout_s` | `parsight` | float | `10` | Per-query subprocess timeout for parsight calls |

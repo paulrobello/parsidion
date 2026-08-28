@@ -134,7 +134,7 @@ Every tool except `code_search` also accepts an optional `vault` parameter (ARC-
 - `uv` (the package manager — install from [docs.astral.sh/uv](https://docs.astral.sh/uv))
 - `parsidion` installed as an editable package with the `[search]` extra. The editable install exposes the `vault_common`, `vault_search`, and `parsight_backend` py-modules; the `[search]` extra pulls in `fastembed`, `sqlite-vec`, and `pillow`
 
-> **📝 Note:** Both `parsidion` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion`.
+> **Note:** Both `parsidion` and `parsidion-mcp` must be editable installs. Non-editable installs are not supported due to the `py-modules` layout of `parsidion`.
 
 ### Install from Repository
 
@@ -150,7 +150,7 @@ uv tool install --editable .
 
 `uv tool install` places the `parsidion-mcp` binary in `~/.local/bin/` (or the equivalent `uv` tool bin directory on your platform).
 
-> **📝 Note:** On the first `vault_search` call with a query, `fastembed` downloads the configured ONNX embedding model and caches it. This initial download can take 30–60 seconds. Subsequent calls are fast. If the embeddings database does not yet exist and parsight is unavailable, the tool raises a clear error message prompting you to run `rebuild_index` first.
+> **Note:** On the first `vault_search` call with a query, `fastembed` downloads the configured ONNX embedding model and caches it. This initial download can take 30–60 seconds. Subsequent calls are fast. If the embeddings database does not yet exist and parsight is unavailable, the tool raises a clear error message prompting you to run `rebuild_index` first.
 
 ### Verify Installation
 
