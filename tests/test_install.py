@@ -13,6 +13,7 @@ import installer.hooks as installer_hooks
 import installer.ui as installer_ui
 import installer.paths as installer_paths
 import installer.ui  # noqa: F401 — setattr target
+from core.vault_path import get_vaults_config_path, read_vaults_yaml
 
 
 LEGACY_PROJECT_NAME = "parsidion" + "-cc"
@@ -1835,6 +1836,75 @@ class TestCustomVaultPersistence:
 
         resolved = installer_paths._resolve_vault_root_for_uninstall()
         assert resolved == (home / "ParsidionVault").resolve()
+
+
+class TestVaultsConfigXdgResolution:
+    """XDG_CONFIG_HOME round-trip: installer writes must land on the same
+    file the runtime resolver reads (``get_vaults_config_path``), not a
+    hardcoded ``~/.config`` path. Before the fix the installer-created
+    registry was invisible to every runtime reader whenever XDG pointed
+    elsewhere."""
+
+    def test_record_installed_vault_honors_xdg_config_home(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        xdg = tmp_path / "xdg-config"
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+
+        custom_vault = tmp_path / "WorkVault"
+        custom_vault.mkdir()
+
+        installer_vault.record_installed_vault(custom_vault, dry_run=False)
+
+        xdg_yaml = xdg / "parsidion" / "vaults.yaml"
+        assert xdg_yaml.exists(), "record_installed_vault ignored XDG_CONFIG_HOME"
+        assert not (home / ".config" / "parsidion" / "vaults.yaml").exists(), (
+            "record_installed_vault wrote to hardcoded ~/.config despite XDG_CONFIG_HOME"
+        )
+
+        # Runtime-read round trip: the resolver's own path helper lands on the
+        # file the installer wrote and reads back what it contains.
+        assert get_vaults_config_path() == xdg_yaml
+        named, default_ref = read_vaults_yaml(get_vaults_config_path())
+        assert named.get("WorkVault") == str(custom_vault)
+        assert default_ref == str(custom_vault)
+
+    def test_create_vaults_config_honors_xdg_config_home(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        xdg = tmp_path / "xdg-config"
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+
+        installer_vault.create_vaults_config(dry_run=False)
+
+        assert (xdg / "parsidion" / "vaults.yaml").exists(), (
+            "create_vaults_config ignored XDG_CONFIG_HOME"
+        )
+        assert not (home / ".config" / "parsidion" / "vaults.yaml").exists()
+
+    def test_resolve_vault_root_for_uninstall_reads_xdg_vaults_yaml(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        xdg = tmp_path / "xdg-config"
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+
+        custom_vault = tmp_path / "WorkVault"
+        custom_vault.mkdir()
+
+        installer_vault.record_installed_vault(custom_vault, dry_run=False)
+        resolved = installer_paths._resolve_vault_root_for_uninstall()
+        assert resolved == custom_vault.resolve(), (
+            f"uninstall resolver missed XDG-located vaults.yaml; got {resolved}"
+        )
 
 
 class TestInstallPersistsSettings:

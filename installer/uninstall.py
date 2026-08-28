@@ -28,7 +28,6 @@ from installer.hooks import (
 from installer.paths import (
     AGENT_SRCS,
     LEGACY_SKILL_NAME,
-    PROJECT_NAME,
     SCRIPTS_SRC,
     SKILL_NAME,
     _resolve_vault_root_for_uninstall,
@@ -40,6 +39,11 @@ from installer.schedule import unschedule_summarizer
 from installer.steps import Step, StepList
 from installer.ui import _ok, _step, _warn
 from installer.vault import remove_vault_post_merge_hook
+
+# QA-004 pattern: scripts dir is on sys.path via installer/__init__.py, so the
+# shared vaults.yaml path helper is imported from core.vault_path — the
+# --purge-config removal must target the same file the resolver reads.
+from core.vault_path import get_vaults_config_path
 
 # Local re-import so the CLAUDE.md @import stripping stays alongside the
 # uninstall path that owns it. The constant itself lives in skill.py.
@@ -283,7 +287,7 @@ def _build_uninstall_steps(
 
     # vaults.yaml additionally requires an explicit --purge-config, even under
     # --yes. Without --purge-config it is always preserved.
-    vaults_config = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
+    vaults_config = get_vaults_config_path()
 
     def _remove_or_preserve_vaults_config(purge: bool) -> None:
         if vaults_config.exists() and is_full_teardown and purge:

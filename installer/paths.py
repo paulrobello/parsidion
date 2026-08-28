@@ -18,7 +18,7 @@ from pathlib import Path
 # Importing it here lets installer/paths.py re-export the maps under their
 # historical installer-side names so existing call sites continue to work.
 import agent_adapter as _agent_adapter
-from core.vault_path import read_vaults_yaml
+from core.vault_path import get_vaults_config_path, read_vaults_yaml
 
 # ---------------------------------------------------------------------------
 # Source layout (relative to the install script at repo root)
@@ -259,7 +259,7 @@ def _resolve_vault_root_for_uninstall() -> Path:
       3. ``~/ParsidionVault`` (or legacy ``~/ClaudeVault`` if it exists)
     """
     default = _default_vault_path()
-    config_path = Path.home() / ".config" / PROJECT_NAME / "vaults.yaml"
+    config_path = get_vaults_config_path()
     # QA-004: shared reader from core.vault_path instead of a third
     # hand-rolled vaults.yaml parse.
     named, default_ref = read_vaults_yaml(config_path)

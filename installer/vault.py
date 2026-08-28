@@ -19,7 +19,6 @@ from installer.hooks import _atomic_write_text
 from installer.paths import (
     DEFAULT_VAULT_NAME,
     LEGACY_DEFAULT_VAULT_NAME,
-    PROJECT_NAME,
     SKILL_NAME,
     VAULT_DIRS,
 )
@@ -27,7 +26,7 @@ from installer.ui import _err, _ok, _print, _step, _warn
 
 # QA-004: the shared vaults.yaml reader/writer live in core.vault_path; the
 # scripts dir is on sys.path via installer/__init__.py (ENH-006 pattern).
-from core.vault_path import read_vaults_yaml, render_vaults_yaml
+from core.vault_path import get_vaults_config_path, read_vaults_yaml, render_vaults_yaml
 
 # ---------------------------------------------------------------------------
 # Vault directory creation
@@ -548,14 +547,15 @@ def configure_embeddings(
 def create_vaults_config(dry_run: bool = False) -> None:
     """Create vaults.yaml template with example configuration.
 
-    Creates ``~/.config/parsidion/vaults.yaml`` with commented examples for
-    named vault configuration.
+    Creates the vaults.yaml template (commented examples for named vault
+    configuration) at the resolver's own config path — ``get_vaults_config_path``
+    honors ``$XDG_CONFIG_HOME`` so writes and runtime reads agree.
 
     Args:
         dry_run: If True, print what would be done without writing.
     """
-    config_dir = Path.home() / ".config" / PROJECT_NAME
-    config_path = config_dir / "vaults.yaml"
+    config_path = get_vaults_config_path()
+    config_dir = config_path.parent
 
     if config_path.exists():
         print(f"  ℹ {config_path} already exists, skipping")
@@ -585,7 +585,8 @@ vaults:
 
 
 def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
-    """Persist *vault_root* into ``~/.config/parsidion/vaults.yaml``.
+    """Persist *vault_root* into the resolver's vaults.yaml (honors
+    ``$XDG_CONFIG_HOME`` via ``get_vaults_config_path``).
 
     ARC-019: when ``install.py --vault /custom/path`` populates a non-default
     vault, the chosen path was previously written into *none* of the four
@@ -607,8 +608,8 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
     if vault_root == _default_vault_path():
         return
 
-    config_dir = Path.home() / ".config" / PROJECT_NAME
-    config_path = config_dir / "vaults.yaml"
+    config_path = get_vaults_config_path()
+    config_dir = config_path.parent
 
     # Stable-ish name from the directory stem — what a human would pick.
     vault_name = vault_root.name or "custom"
