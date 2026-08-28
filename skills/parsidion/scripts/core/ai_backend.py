@@ -290,6 +290,47 @@ def _minimal_claude_config_dir() -> Path | None:
         return None
 
 
+def _minimal_grok_home() -> Path | None:
+    """Return a scratch ``GROK_HOME`` for grok CLI calls (minimal_context).
+
+    Grok's user home carries its native skills catalog and session state;
+    a scratch home drops the native skills (measured 2026-08-28: 27,579 →
+    25,657 input tokens on a one-word task) and keeps grok's state writes
+    out of the real home. Auth is the symlinked ``auth.json``. Note grok
+    1.0.5 offers no per-invocation way to suppress its cross-agent
+    discovery of ``~/.claude`` skills (139), Claude MCP servers (5), or the
+    global Claude.md — those stay loaded regardless of home, cwd, env, or
+    per-dir config; re-measure when grok grows suppression flags.
+    Mirrors :func:`_minimal_codex_home`.
+    """
+    real_home = Path(os.environ.get("GROK_HOME") or Path.home() / ".grok")
+    auth = real_home / "auth.json"
+    if not auth.is_file():
+        return None
+    scratch = vault_path.secure_log_dir() / "grok-home"
+    try:
+        if scratch.is_dir():
+            _wipe_scratch_home_if_oversized(scratch, "auth.json", auth)
+        scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
+        st = scratch.lstat()
+        if (
+            scratch.is_symlink()
+            or st.st_uid != os.getuid()
+            or st.st_mode & 0o077  # group/other permission bits
+        ):
+            raise PermissionError(f"untrusted scratch dir: {scratch}")
+        os.chmod(scratch, 0o700)
+        link = scratch / "auth.json"
+        if link.is_symlink() and Path(os.readlink(link)) != auth:
+            link.unlink()
+        if not link.is_symlink():
+            link.unlink(missing_ok=True)  # drop a stale plain file
+            link.symlink_to(auth)
+        return scratch
+    except OSError:
+        return None
+
+
 def _minimal_codex_home() -> Path | None:
     """Return a scratch ``CODEX_HOME`` carrying only auth (minimal_context).
 
@@ -891,11 +932,17 @@ def _run_grok_prompt(
             )
             cmd.extend(["--system-prompt-override", system_prompt])
 
+        env = _grok_env()
+        if minimal_context:
+            scratch_home = _minimal_grok_home()
+            if scratch_home is not None:
+                env["GROK_HOME"] = str(scratch_home)
+
         result = _run_prompt_subprocess(
             cmd,
             timeout=grok_timeout,
             cwd=str(cwd) if cwd is not None else None,
-            env=_grok_env(),
+            env=env,
         )
         if result is None:
             return None, CAUSE_LAUNCH

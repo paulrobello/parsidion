@@ -746,6 +746,42 @@ class TestRunAiPrompt:
         assert (home / "auth.json").is_symlink()
         assert not (home / "state.sqlite").exists()
 
+    def test_grok_minimal_context_uses_scratch_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default minimal_context: scratch GROK_HOME (auth-only symlink).
+
+        Drops grok's native skills catalog (measured −1.9k input tokens) and
+        keeps its session-state writes out of the real home.
+        """
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: grok-cli\n")
+        real_home = tmp_path / "real-grok"
+        real_home.mkdir()
+        (real_home / "auth.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("GROK_HOME", str(real_home))
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr(ai_backend.vault_path, "secure_log_dir", lambda: logs_dir)
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, stdout="grok answer", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        result = ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault)
+
+        assert result == "grok answer"
+        _cmd, kwargs = calls[0]
+        scratch = Path(str(kwargs["env"]["GROK_HOME"]))
+        assert scratch == logs_dir / "grok-home"
+        auth_link = scratch / "auth.json"
+        assert auth_link.is_symlink()
+        assert Path(os.readlink(auth_link)) == real_home / "auth.json"
+
     def test_codex_cli_config_controls_command_timeout_and_safety_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

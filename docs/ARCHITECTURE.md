@@ -1109,7 +1109,10 @@ codex_cli:
 # scratch cwd; ``allow_tools`` is the explicit double opt-in that re-arms
 # them. ``minimal_context`` (default true) overrides the system prompt — grok
 # otherwise appends every CLAUDE.md/AGENTS.md it finds plus its full skill
-# catalog to it.
+# catalog to it — and points ``GROK_HOME`` at a scratch dir (auth-only) to
+# drop grok's native skills and keep its state writes out of the real home.
+# Grok 1.0.5 has no lever against its cross-agent ``~/.claude`` discovery (139
+# skills, 5 MCP servers, global Claude.md) — that layer loads regardless.
 grok_cli:
   command: grok  # PATH lookup or absolute path to the grok CLI
   timeout: 120  # Per-prompt timeout in seconds (grok-4.6 headless runs 17-40 s)
