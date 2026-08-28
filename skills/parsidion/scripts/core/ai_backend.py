@@ -199,9 +199,9 @@ def _codex_env() -> dict[str, str]:
     return env
 
 
-# codex accumulates ~0.5 MB of state db/cache per call inside the scratch
-# home; past this cap it is swapped for a fresh one (see _minimal_codex_home).
-_CODEX_HOME_MAX_BYTES = 50 * 1024 * 1024
+# codex/claude accumulate ~0.5 MB of state db/cache per call inside their
+# scratch homes; past this cap a scratch home is swapped for a fresh one.
+_SCRATCH_HOME_MAX_BYTES = 50 * 1024 * 1024
 
 
 def _dir_size_bytes(path: Path) -> int:
@@ -219,21 +219,25 @@ def _dir_size_bytes(path: Path) -> int:
     return total
 
 
-def _wipe_codex_home_if_oversized(scratch: Path, auth: Path) -> None:
-    """Swap *scratch* for a fresh auth-only dir when it exceeds the cap.
+def _wipe_scratch_home_if_oversized(
+    scratch: Path, link_name: str, link_target: Path | None
+) -> None:
+    """Swap *scratch* for a fresh dir when it exceeds the size cap.
 
-    Build the replacement as a sibling first, then rename-swap: a codex
-    process already running with CODEX_HOME inside the old tree keeps its
-    open fds across the rename, and if a concurrent parsidion call wins the
-    swap first the loser's renames fail and it falls back to the surviving
-    dir (its fresh replacement is removed).
+    Build the replacement as a sibling first, then rename-swap: a subprocess
+    already running with its home inside the old tree keeps its open fds
+    across the rename, and if a concurrent parsidion call wins the swap
+    first the loser's renames fail and it falls back to the surviving dir
+    (its fresh replacement is removed). *link_target* is re-created as a
+    symlink inside the fresh dir when given.
     """
-    if _dir_size_bytes(scratch) <= _CODEX_HOME_MAX_BYTES:
+    if _dir_size_bytes(scratch) <= _SCRATCH_HOME_MAX_BYTES:
         return
-    fresh = Path(tempfile.mkdtemp(prefix="codex-home-", dir=str(scratch.parent)))
-    stale = scratch.with_name(f"codex-home-stale-{os.getpid()}")
+    fresh = Path(tempfile.mkdtemp(prefix="scratch-home-", dir=str(scratch.parent)))
+    stale = scratch.with_name(f"{scratch.name}-stale-{os.getpid()}")
     try:
-        (fresh / "auth.json").symlink_to(auth)
+        if link_target is not None:
+            (fresh / link_name).symlink_to(link_target)
         os.rename(scratch, stale)
         os.rename(fresh, scratch)
     except OSError:
@@ -242,6 +246,48 @@ def _wipe_codex_home_if_oversized(scratch: Path, auth: Path) -> None:
         shutil.rmtree(fresh, ignore_errors=True)
         return
     shutil.rmtree(stale, ignore_errors=True)
+
+
+def _minimal_claude_config_dir() -> Path | None:
+    """Return a scratch ``CLAUDE_CONFIG_DIR`` for ``claude -p`` (lockdown).
+
+    ``claude -p`` otherwise loads the user's global CLAUDE.md, skills
+    catalog, agents, plugins, settings hooks, and MCP servers. Measured
+    2026-08-28 on a one-word task: 108,772 input tokens inherited vs 35,151
+    with a scratch config dir — none of it usable by parsidion's
+    self-contained text-transform prompts. Auth survives via the macOS
+    keychain; where auth is file-based (``.credentials.json``) it is
+    symlinked into the scratch dir. Falls back to the inherited config dir
+    when the real one is absent or the scratch dir cannot be secured.
+    """
+    real_cfg = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    if not real_cfg.is_dir():
+        return None
+    creds = real_cfg / ".credentials.json"
+    creds_target = creds if creds.is_file() else None
+    scratch = vault_path.secure_log_dir() / "claude-config"
+    try:
+        if scratch.is_dir():
+            _wipe_scratch_home_if_oversized(scratch, ".credentials.json", creds_target)
+        scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
+        st = scratch.lstat()
+        if (
+            scratch.is_symlink()
+            or st.st_uid != os.getuid()
+            or st.st_mode & 0o077  # group/other permission bits
+        ):
+            raise PermissionError(f"untrusted scratch dir: {scratch}")
+        os.chmod(scratch, 0o700)
+        link = scratch / ".credentials.json"
+        if creds_target is not None:
+            if link.is_symlink() and Path(os.readlink(link)) != creds_target:
+                link.unlink()
+            if not link.is_symlink():
+                link.unlink(missing_ok=True)  # drop a stale plain file
+                link.symlink_to(creds_target)
+        return scratch
+    except OSError:
+        return None
 
 
 def _minimal_codex_home() -> Path | None:
@@ -271,7 +317,7 @@ def _minimal_codex_home() -> Path | None:
     scratch = vault_path.secure_log_dir() / "codex-home"
     try:
         if scratch.is_dir():
-            _wipe_codex_home_if_oversized(scratch, auth)
+            _wipe_scratch_home_if_oversized(scratch, "auth.json", auth)
         scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
         st = scratch.lstat()
         if (
@@ -416,17 +462,23 @@ def _run_claude_prompt(
     # thinking-dominated responses.
     cmd.extend(["--output-format", "json"])
 
-    # claude_cli.minimal_context (default true): replace the system prompt and
-    # run from a clean scratch cwd so the project's CLAUDE.md chain is not
-    # ingested — parsidion prompts are self-contained text transforms.
+    # claude_cli.minimal_context (default true): replace the system prompt,
+    # run from a clean scratch cwd, and point CLAUDE_CONFIG_DIR at a scratch
+    # dir so neither the project's CLAUDE.md chain nor the user's global
+    # CLAUDE.md / skills / agents / plugins / MCP servers are ingested —
+    # parsidion prompts are self-contained text transforms.
     minimal_context = _config_bool("claude_cli", "minimal_context", True, vault=vault)
     run_cwd: str | None = str(cwd) if cwd is not None else None
+    env = env_without_claudecode(vault=vault)
     if minimal_context:
         system_prompt = _config_str(
             "claude_cli", "system_prompt", _MINIMAL_SYSTEM_PROMPT, vault=vault
         )
         cmd.extend(["--system-prompt", system_prompt])
         run_cwd = str(_minimal_context_cwd())
+        scratch_cfg = _minimal_claude_config_dir()
+        if scratch_cfg is not None:
+            env["CLAUDE_CONFIG_DIR"] = str(scratch_cfg)
 
     try:
         result = _run_prompt_subprocess(
@@ -437,7 +489,7 @@ def _run_claude_prompt(
                 "claude_cli", "timeout", _DEFAULT_CLAUDE_TIMEOUT, vault=vault
             ),
             cwd=run_cwd,
-            env=env_without_claudecode(vault=vault),
+            env=env,
             stdin=prompt,
         )
     except subprocess.TimeoutExpired as exc:

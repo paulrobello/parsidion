@@ -1082,7 +1082,7 @@ ai_models:
 # ``claude -p`` does not ingest the project's CLAUDE.md chain — parsidion
 # prompts are self-contained text transforms.
 claude_cli:
-  minimal_context: true  # Replace the system prompt and run from a clean scratch cwd
+  minimal_context: true  # Replace the system prompt, run from a clean scratch cwd, and point CLAUDE_CONFIG_DIR at a scratch dir so neither the project's CLAUDE.md chain nor the user's global CLAUDE.md/skills/agents/MCP servers load — measured ~73k fewer input tokens per call
   system_prompt: null  # Override the minimal system prompt text
   timeout: null  # Per-prompt timeout in seconds
 

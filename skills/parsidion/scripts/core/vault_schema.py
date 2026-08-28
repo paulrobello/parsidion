@@ -152,7 +152,10 @@ class ClaudeCliConfig:
     minimal_context: bool = field(
         default=None,
         metadata={
-            "doc": "Replace the system prompt and run from a clean scratch cwd",
+            "doc": "Replace the system prompt, run from a clean scratch cwd, and "
+            "point CLAUDE_CONFIG_DIR at a scratch dir so neither the project's "
+            "CLAUDE.md chain nor the user's global CLAUDE.md/skills/agents/MCP "
+            "servers load — measured ~73k fewer input tokens per call",
             "read_by": "ai_backend.py",
             "example": True,
         },

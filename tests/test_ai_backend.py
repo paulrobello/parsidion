@@ -361,6 +361,11 @@ class TestRunAiPrompt:
         without the override and disappear with it.
         """
         vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: claude-cli\n")
+        real_cfg = tmp_path / "real-claude"
+        real_cfg.mkdir()
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(real_cfg))
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr(ai_backend.vault_path, "secure_log_dir", lambda: logs_dir)
         calls: list[tuple[list[str], dict[str, Any]]] = []
 
         def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -378,6 +383,9 @@ class TestRunAiPrompt:
         )
         assert kwargs["cwd"] == str(ai_backend._minimal_context_cwd())
         assert kwargs["cwd"] != str(tmp_path)
+        # Lockdown: scratch CLAUDE_CONFIG_DIR so the user's global CLAUDE.md,
+        # skills, agents, plugins, and MCP servers stay out of the call.
+        assert kwargs["env"]["CLAUDE_CONFIG_DIR"] == str(logs_dir / "claude-config")
 
     def test_claude_cli_timeout_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -729,7 +737,7 @@ class TestRunAiPrompt:
         (scratch / "auth.json").symlink_to(real_home / "auth.json")
         (scratch / "state.sqlite").write_text("x" * 2048, encoding="utf-8")
         monkeypatch.setattr(ai_backend.vault_path, "secure_log_dir", lambda: logs_dir)
-        monkeypatch.setattr(ai_backend, "_CODEX_HOME_MAX_BYTES", 1024)
+        monkeypatch.setattr(ai_backend, "_SCRATCH_HOME_MAX_BYTES", 1024)
 
         home = ai_backend._minimal_codex_home()
 
