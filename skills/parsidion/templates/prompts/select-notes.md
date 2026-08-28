@@ -1,11 +1,11 @@
 ---
 id: select-notes
-version: 1.0.0
+version: 1.1.0
 syntax: format
 variables: [project_name, cwd, output_limit, candidates_text]
 description: AI selector for the session-start hook — picks the most relevant vault notes for session context. Candidate notes are inlined as untrusted data.
 ---
-You are building context for a Claude Code session.
+You are building context for an agentic code session.
 
 Project: {project_name}
 Working directory: {cwd}

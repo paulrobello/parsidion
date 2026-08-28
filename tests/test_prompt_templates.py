@@ -253,7 +253,7 @@ def test_detect_conflicts_renders_byte_identical() -> None:
 
 
 def test_select_notes_renders_byte_identical() -> None:
-    """select-notes.md renders identically to the old session_start_hook f-string."""
+    """select-notes.md renders the expected prompt (v1.1.0 de-branded wording)."""
     reset_cache()
     rendered = render(
         "select-notes",
@@ -263,7 +263,7 @@ def test_select_notes_renders_byte_identical() -> None:
         candidates_text="### Patterns/foo.md\nFoo summary.\n\n",
     )
     baseline = (
-        "You are building context for a Claude Code session.\n\n"
+        "You are building context for an agentic code session.\n\n"
         "Project: parsidion\n"
         "Working directory: /Users/probello/Repos/parsidion\n\n"
         "Below are vault notes with titles and summaries. Select and format the most "

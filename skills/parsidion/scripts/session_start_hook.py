@@ -517,25 +517,26 @@ def build_session_context(
             # adjacency > adaptive usefulness > recency > hubness) so the
             # selector's prompt carries the best subset, not an arbitrary
             # 8000-char prefix.
-            ai_graph_meta = (
-                snapshot.graph_metadata()
-                if snapshot is not None
-                else load_graph_metadata(vault=vault_path)
-            )
-            ai_max_add = 0
-            _cfg = load_typed_config(vault=vault_path)
-            if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
-                ai_max_add = _cfg.session_start_hook.graph_expand_max
-            candidates = _build_candidates(
-                project_name,
-                vault_path,
-                graph_meta=ai_graph_meta,
-                graph_expand_max=ai_max_add,
-                max_candidates=load_typed_config(
-                    vault=vault_path
-                ).session_start_hook.ai_candidates_max,
-                snapshot=snapshot,
-            )
+            with stage_timer("candidates_ms"):
+                ai_graph_meta = (
+                    snapshot.graph_metadata()
+                    if snapshot is not None
+                    else load_graph_metadata(vault=vault_path)
+                )
+                ai_max_add = 0
+                _cfg = load_typed_config(vault=vault_path)
+                if _cfg.session_start_hook.graph_expand and ai_graph_meta is not None:
+                    ai_max_add = _cfg.session_start_hook.graph_expand_max
+                candidates = _build_candidates(
+                    project_name,
+                    vault_path,
+                    graph_meta=ai_graph_meta,
+                    graph_expand_max=ai_max_add,
+                    max_candidates=load_typed_config(
+                        vault=vault_path
+                    ).session_start_hook.ai_candidates_max,
+                    snapshot=snapshot,
+                )
             ai_context = _select_context_with_ai(
                 project_name,
                 cwd,
