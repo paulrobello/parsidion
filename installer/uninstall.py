@@ -46,9 +46,10 @@ from installer.vault import remove_vault_post_merge_hook
 from core.vault_path import get_vaults_config_path
 
 # Local re-import so the CLAUDE.md @import stripping stays alongside the
-# uninstall path that owns it. The constant itself lives in skill.py.
+# uninstall path that owns it. The constants themselves live in skill.py.
 from installer.skill import (
-    _CLAUDE_VAULT_MD_IMPORT,
+    _LEGACY_CLAUDE_VAULT_MD_IMPORT,
+    _PARSIDION_VAULT_MD_IMPORT,
     remove_codex_agents_md,
     remove_gemini_md,
 )
@@ -68,7 +69,7 @@ def _build_hooks_only_steps(
     """Build the hooks-only teardown step list (the ``disconnect`` path).
 
     Each step removes one runtime's managed hook registrations and nothing
-    else — the skill directory, agents, CLAUDE-VAULT.md, and other assets
+    else — the skill directory, agents, PARSIDION-VAULT.md, and other assets
     are left in place. Mirrors install()'s matrix: a step is included only
     when its runtime is selected.
     """
@@ -123,7 +124,7 @@ def _build_uninstall_steps(
     ARC-017: the uninstall flow is decomposed into ordered, individually-
     testable steps driven through the same :class:`StepList` abstraction as
     install(), so the two flows share their execution machinery. Each step
-    is one logical removal (skill dir, agents, hooks, CLAUDE-VAULT.md, a
+    is one logical removal (skill dir, agents, hooks, PARSIDION-VAULT.md, a
     runtime's full integration, shared infra, vaults.yaml); the runtime /
     full-teardown / purge-config gating is evaluated once at build time.
 
@@ -213,35 +214,46 @@ def _build_uninstall_steps(
 
         steps.append(Step("remove_claude_hooks", _remove_claude_hooks))
 
-        claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
+        parsidion_vault_md = claude_dir / "PARSIDION-VAULT.md"
+        legacy_vault_md = claude_dir / "CLAUDE-VAULT.md"
         claude_md = claude_dir / "CLAUDE.md"
 
-        def _remove_claude_vault_md() -> None:
-            if claude_vault_md.exists():
-                _step(f"Remove {claude_vault_md}", dry_run=dry_run)
-                if not dry_run:
-                    claude_vault_md.unlink()
-            else:
-                _warn(f"CLAUDE-VAULT.md not found: {claude_vault_md}")
+        def _remove_parsidion_vault_md() -> None:
+            # Pre-rename installs (<= 0.13.x) carry CLAUDE-VAULT.md instead.
+            for vault_md in (parsidion_vault_md, legacy_vault_md):
+                if vault_md.exists():
+                    _step(f"Remove {vault_md}", dry_run=dry_run)
+                    if not dry_run:
+                        vault_md.unlink()
+            if not parsidion_vault_md.exists() and not legacy_vault_md.exists():
+                _warn(f"PARSIDION-VAULT.md not found: {parsidion_vault_md}")
 
             if claude_md.exists():
                 content = claude_md.read_text(encoding="utf-8")
-                if _CLAUDE_VAULT_MD_IMPORT in content:
+                stale_imports = {
+                    imp.strip()
+                    for imp in (
+                        _PARSIDION_VAULT_MD_IMPORT,
+                        _LEGACY_CLAUDE_VAULT_MD_IMPORT,
+                    )
+                    if imp in content
+                }
+                if stale_imports:
                     _step(
-                        f"Remove @CLAUDE-VAULT.md import from {claude_md}",
+                        f"Remove vault guidance @import(s) from {claude_md}",
                         dry_run=dry_run,
                     )
                     if not dry_run:
                         cleaned = "\n".join(
                             line
                             for line in content.splitlines()
-                            if line.strip() != _CLAUDE_VAULT_MD_IMPORT
+                            if line.strip() not in stale_imports
                         )
                         if content.endswith("\n"):
                             cleaned += "\n"
                         claude_md.write_text(cleaned, encoding="utf-8")
 
-        steps.append(Step("remove_claude_vault_md", _remove_claude_vault_md))
+        steps.append(Step("remove_parsidion_vault_md", _remove_parsidion_vault_md))
 
     if uninstall_codex_runtime:
         # ARC-022 / SEC-116: disconnect must remove the AGENTS.md block too,
@@ -330,7 +342,7 @@ def uninstall(
     By default this is a full uninstall of the Claude integration plus any
     Codex/Gemini runtimes selected via ``runtime``. When ``hooks_only`` is
     True the function instead removes only managed hook entries and leaves
-    the skill directory, agents, CLAUDE-VAULT.md, and other assets in place
+    the skill directory, agents, PARSIDION-VAULT.md, and other assets in place
     — the path used by ``disconnect codex`` / ``disconnect gemini``.
 
     ARC-003 (preserved here when the function moved): ``codex_home``, the

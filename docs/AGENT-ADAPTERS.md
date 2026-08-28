@@ -56,7 +56,7 @@ Held by `AgentAdapter.install`; a standalone frozen dataclass so the installer h
 | | `entry_names` | Per-event `name` values when the runtime's schema requires one (gemini). `None` otherwise. |
 | | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). Reserved: no built-in sets it — the installer's `_read_runtime_hooks` validates inline. |
 | | `build_entry` | Optional `(event, command) -> dict` override for entries that need logic, not just data. Reserved: no built-in sets it — the installer's `_build_entry` builds every entry from `entry_matcher`/`entry_timeout`/`entry_names`. |
-| **Instructions** | `instructions_filename` | File the installer injects agent instructions into (`AGENTS.md`, `GEMINI.md`). `None` for claude (uses `CLAUDE-VAULT.md`) and pi/omp. |
+| **Instructions** | `instructions_filename` | File the installer injects agent instructions into (`AGENTS.md`, `GEMINI.md`). `None` for claude (uses `PARSIDION-VAULT.md`) and pi/omp. |
 
 ### Deprecated flat read-properties
 

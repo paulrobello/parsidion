@@ -34,7 +34,7 @@ from installer.skill import (
     enable_ai_mode,
     install_agents,
     install_cli_tools,
-    install_claude_vault_md,
+    install_parsidion_vault_md,
     install_codex_agents_md,
     install_gemini_md,
     install_scripts,
@@ -264,7 +264,7 @@ def print_install_plan(plan: InstallPlan) -> None:
     print(f"  {dim('Install scripts:')} {plan.claude_dir / 'scripts'}/")
     if plan.install_claude_runtime:
         print(
-            f"  {dim('Install guidance:')} {plan.claude_dir / 'CLAUDE-VAULT.md'} "
+            f"  {dim('Install guidance:')} {plan.claude_dir / 'PARSIDION-VAULT.md'} "
             "(@import into CLAUDE.md)"
         )
     if plan.dry_run:
@@ -413,12 +413,12 @@ def build_install_steps(plan: InstallPlan) -> StepList:
             )
         )
 
-    # 7. Install CLAUDE-VAULT.md and wire @import into CLAUDE.md.
+    # 7. Install PARSIDION-VAULT.md and wire @import into CLAUDE.md.
     if plan.install_claude_runtime:
         steps.append(
             Step(
-                "install_claude_vault_md",
-                lambda: install_claude_vault_md(
+                "install_parsidion_vault_md",
+                lambda: install_parsidion_vault_md(
                     plan.claude_dir, dry_run=plan.dry_run, verbose=plan.verbose
                 ),
             )

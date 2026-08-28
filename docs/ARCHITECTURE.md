@@ -6,7 +6,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
 - [Component Details](#component-details)
-  - [CLAUDE-VAULT.md — Always-On Guidance](#claude-vaultmd--always-on-guidance)
+  - [PARSIDION-VAULT.md — Always-On Guidance](#parsidion-vaultmd--always-on-guidance)
   - [Parsidion vault Skill](#parsidion-vault-skill)
   - [Hook Scripts](#hook-scripts)
   - [SubagentStop Hook](#subagentstop-hook)
@@ -39,7 +39,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 **Purpose:** Provide a structured, searchable, cross-linked knowledge base that persists across Claude Code sessions, replacing the flat auto memory with richly organized markdown notes.
 
 **Key capabilities:**
-- Always-on vault-first rule: check the vault before debugging or implementing (via `CLAUDE-VAULT.md`)
+- Always-on vault-first rule: check the vault before debugging or implementing (via `PARSIDION-VAULT.md`)
 - Automatic context loading at session start — compact one-line-per-note index by default; full summaries opt-in via `verbose_mode`
 - Automatic learning capture at session stop via transcript analysis
 - Automatic learning capture from subagent transcripts via `SubagentStop` hook (vault-explorer and research-agent excluded to prevent recursion)
@@ -71,7 +71,7 @@ graph TB
     end
 
     subgraph "Parsidion"
-        CVG[CLAUDE-VAULT.md]
+        CVG[PARSIDION-VAULT.md]
         Skill[Parsidion vault Skill]
         Agent[Research Agent]
         VE[Vault Explorer Agent]
@@ -189,11 +189,11 @@ graph TB
 
 ## Component Details
 
-### CLAUDE-VAULT.md — Always-On Guidance
+### PARSIDION-VAULT.md — Always-On Guidance
 
-**Location:** `CLAUDE-VAULT.md` (repo root) → installed to `~/.claude/CLAUDE-VAULT.md`
+**Location:** `PARSIDION-VAULT.md` (repo root) → installed to `~/.claude/PARSIDION-VAULT.md`
 
-An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-VAULT.md` import appended to `~/.claude/CLAUDE.md` by the installer. Unlike the parsidion skill (which requires explicit invocation), this file fires on every session with no trigger needed.
+An unconditional guidance file loaded every Claude Code session via an `@PARSIDION-VAULT.md` import appended to `~/.claude/CLAUDE.md` by the installer. Unlike the parsidion skill (which requires explicit invocation), this file fires on every session with no trigger needed.
 
 **What it enforces:**
 
@@ -202,7 +202,7 @@ An unconditional guidance file loaded every Claude Code session via an `@CLAUDE-
 - **Vault organization:** Enforces the subfolder rule (3+ notes sharing a prefix → move to a named subfolder; one level only) and reminds when to rebuild the index.
 - **Saving solutions:** Specifies target folders by solution type (bug fix → `Debugging/`, reusable pattern → `Patterns/`, framework fix → `Frameworks/`, architectural decision → `Projects/<project>/`).
 
-**Install behavior:** `install.py` copies `CLAUDE-VAULT.md` to `~/.claude/` and idempotently appends `@CLAUDE-VAULT.md` to `~/.claude/CLAUDE.md` if the line is not already present. Uninstall removes the file and strips the import line.
+**Install behavior:** `install.py` copies `PARSIDION-VAULT.md` to `~/.claude/` and idempotently appends `@PARSIDION-VAULT.md` to `~/.claude/CLAUDE.md` if the line is not already present. Uninstall removes the file and strips the import line. Pre-rename installs (<= 0.13.x) are migrated on reinstall: the legacy `CLAUDE-VAULT.md` copy and its `@CLAUDE-VAULT.md` import line are removed.
 
 ### Parsidion vault Skill
 
@@ -1400,7 +1400,7 @@ parsidion/
 │   ├── skill.py                     # Skill/agent/script install, AI mode, legacy cleanup
 │   ├── steps.py                     # Multi-step installer orchestration
 │   └── uninstall.py                 # Uninstall logic
-├── CLAUDE-VAULT.md                  # Always-on vault-first guidance (installed to ~/.claude/)
+├── PARSIDION-VAULT.md                  # Always-on vault-first guidance (installed to ~/.claude/)
 ├── pyproject.toml
 ├── Makefile
 ├── extensions/
@@ -1582,8 +1582,8 @@ parsidion/
 
 ```text
 ~/.claude/
-├── CLAUDE.md                        # Global instructions (@imports CLAUDE-VAULT.md)
-├── CLAUDE-VAULT.md                  # Always-on vault-first guidance
+├── CLAUDE.md                        # Global instructions (@imports PARSIDION-VAULT.md)
+├── PARSIDION-VAULT.md                  # Always-on vault-first guidance
 ├── settings.json                    # Hook registrations
 ├── agents/
 │   ├── research-agent.md

@@ -113,7 +113,7 @@ class InstallerSpec:
 
     instructions_filename: str | None = None
     """Instructions file the installer injects into the runtime home
-    ('AGENTS.md' codex, 'GEMINI.md' gemini). None for claude (CLAUDE-VAULT.md,
+    ('AGENTS.md' codex, 'GEMINI.md' gemini). None for claude (PARSIDION-VAULT.md,
     handled separately) and pi."""
 
     config_validator: Callable[[dict[str, object]], dict[str, object] | None] | None = (

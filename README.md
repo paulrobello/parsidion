@@ -235,16 +235,16 @@ For every script, the Obsidian color groups, and how the pieces fit together, se
 - [docs/USAGE.md](docs/USAGE.md) -- the full vault CLI command reference (`vault-search`, `vault-stats`, `vault-doctor`, `vault-merge`, etc.)
 
 
-### CLAUDE-VAULT.md (`~/.claude/CLAUDE-VAULT.md`)
+### PARSIDION-VAULT.md (`~/.claude/PARSIDION-VAULT.md`)
 
-An always-on guidance file loaded every Claude Code session via `@CLAUDE-VAULT.md` in `~/.claude/CLAUDE.md`. It enforces the **vault-first rule** unconditionally -- no explicit invocation needed.
+An always-on guidance file loaded every Claude Code session via `@PARSIDION-VAULT.md` in `~/.claude/CLAUDE.md`. It enforces the **vault-first rule** unconditionally -- no explicit invocation needed.
 
 **What it enforces:**
 - **Debugging:** Search `<resolved vault>/Debugging/` before diagnosing any error. Extract the key signal (exception class, package name, distinctive phrase) and Grep the vault first. If found, apply the documented fix. If not, diagnose then save the solution.
 - **Implementation:** Search `<resolved vault>/Patterns/`, `Frameworks/`, `Languages/`, and `Projects/` before writing non-trivial code. Reuse proven implementations from prior projects rather than writing from scratch.
 - **Saving solutions:** After solving a non-obvious problem, save it to the appropriate vault folder and rebuild the index.
 
-The installer copies `CLAUDE-VAULT.md` from the repo root to `~/.claude/` and ensures the `@CLAUDE-VAULT.md` import line exists in `~/.claude/CLAUDE.md`. Uninstall removes both.
+The installer copies `PARSIDION-VAULT.md` from the repo root to `~/.claude/` and ensures the `@PARSIDION-VAULT.md` import line exists in `~/.claude/CLAUDE.md`. Uninstall removes both. Pre-rename installs are migrated automatically: the legacy `CLAUDE-VAULT.md` copy and its `@CLAUDE-VAULT.md` import line are removed on reinstall.
 
 ### Vault Explorer Agent (`~/.claude/agents/vault-explorer.md`)
 
@@ -523,8 +523,8 @@ If no `.git` directory is present, all git operations are silent no-ops.
 
 ```text
 ~/.claude/
-  CLAUDE.md                          # Global Claude Code instructions (@imports CLAUDE-VAULT.md)
-  CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion)
+  CLAUDE.md                          # Global Claude Code instructions (@imports PARSIDION-VAULT.md)
+  PARSIDION-VAULT.md                    # Always-on vault-first guidance (installed by parsidion)
   settings.json                      # Hooks, permissions, plugins
   agents/
     research-agent.md                # Research agent (vault-integrated)

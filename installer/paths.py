@@ -41,7 +41,9 @@ AGENT_SRCS: list[Path] = [
     REPO_ROOT / "agents" / "vault-deduplicator.md",
 ]
 SCRIPTS_SRC: Path = REPO_ROOT / "scripts"
-CLAUDE_VAULT_MD_SRC: Path = REPO_ROOT / "CLAUDE-VAULT.md"
+PARSIDION_VAULT_MD_SRC: Path = REPO_ROOT / "PARSIDION-VAULT.md"
+# Pre-rename installs (<= 0.13.x) shipped CLAUDE-VAULT.md; cleaned up on reinstall.
+LEGACY_CLAUDE_VAULT_MD = "CLAUDE-VAULT.md"
 AGENT_INSTRUCTIONS_SRC: Path = (
     REPO_ROOT / "skills" / "parsidion" / "AGENT_INSTRUCTIONS.md"
 )

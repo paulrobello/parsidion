@@ -570,7 +570,7 @@ class TestRuntimeFlow:
             "merge_hooks",
             "enable_codex_hooks_config",
             "merge_codex_hooks",
-            "install_claude_vault_md",
+            "install_parsidion_vault_md",
             "rebuild_index",
             "configure_vault_gitignore",
             "init_vault_git",
@@ -864,12 +864,12 @@ class TestUninstallHooksOnly:
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
         skill_dir = claude_dir / "skills" / "parsidion"
-        claude_vault_md = claude_dir / "CLAUDE-VAULT.md"
+        parsidion_vault_md = claude_dir / "PARSIDION-VAULT.md"
         agent_file = claude_dir / "agents" / installer_paths.AGENT_SRCS[0].name
 
         skill_dir.mkdir(parents=True)
-        claude_vault_md.parent.mkdir(parents=True, exist_ok=True)
-        claude_vault_md.write_text("vault guidance\n", encoding="utf-8")
+        parsidion_vault_md.parent.mkdir(parents=True, exist_ok=True)
+        parsidion_vault_md.write_text("vault guidance\n", encoding="utf-8")
         agent_file.parent.mkdir(parents=True, exist_ok=True)
         agent_file.write_text("agent\n", encoding="utf-8")
 
@@ -960,7 +960,7 @@ class TestUninstallHooksOnly:
         ]
 
         assert skill_dir.exists()
-        assert claude_vault_md.exists()
+        assert parsidion_vault_md.exists()
         assert agent_file.exists()
 
 
@@ -1230,6 +1230,49 @@ class TestParsidionRenamePaths:
         assert dest == claude_dir / "skills" / "parsidion"
         assert dest.exists()
         assert (claude_dir / "skills").exists()
+
+
+class TestParsidionVaultMdRename:
+    """Tests for the CLAUDE-VAULT.md -> PARSIDION-VAULT.md rename migration."""
+
+    def test_install_migrates_legacy_claude_vault_md(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        legacy = claude_dir / "CLAUDE-VAULT.md"
+        legacy.write_text("old guidance\n", encoding="utf-8")
+        claude_md = claude_dir / "CLAUDE.md"
+        claude_md.write_text("# instructions\n\n@CLAUDE-VAULT.md\n", encoding="utf-8")
+
+        installer_plan.install_parsidion_vault_md(claude_dir)
+
+        assert (claude_dir / "PARSIDION-VAULT.md").exists()
+        assert not legacy.exists()
+        content = claude_md.read_text(encoding="utf-8")
+        assert "@PARSIDION-VAULT.md" in content
+        assert "@CLAUDE-VAULT.md" not in content
+
+    def test_install_appends_import_when_missing(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        claude_md = claude_dir / "CLAUDE.md"
+        claude_md.write_text("# instructions\n", encoding="utf-8")
+
+        installer_plan.install_parsidion_vault_md(claude_dir)
+
+        content = claude_md.read_text(encoding="utf-8")
+        assert content.count("@PARSIDION-VAULT.md") == 1
+
+    def test_install_is_idempotent(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        claude_md = claude_dir / "CLAUDE.md"
+        claude_md.write_text("# instructions\n", encoding="utf-8")
+
+        installer_plan.install_parsidion_vault_md(claude_dir)
+        installer_plan.install_parsidion_vault_md(claude_dir)
+
+        content = claude_md.read_text(encoding="utf-8")
+        assert content.count("@PARSIDION-VAULT.md") == 1
 
 
 class TestLegacyCleanup:
@@ -1503,7 +1546,7 @@ class TestEmbeddingsPreservedOnYesSync:
             "merge_hooks",
             "enable_codex_hooks_config",
             "merge_codex_hooks",
-            "install_claude_vault_md",
+            "install_parsidion_vault_md",
             "rebuild_index",
             "configure_vault_gitignore",
             "init_vault_git",
@@ -1644,7 +1687,7 @@ class TestInstallFailureHandling:
             "merge_codex_hooks",
             "merge_gemini_hooks",
             "enable_ai_mode",
-            "install_claude_vault_md",
+            "install_parsidion_vault_md",
             "install_codex_agents_md",
             "install_gemini_md",
             "rebuild_index",
@@ -1936,7 +1979,7 @@ class TestInstallPersistsSettings:
             "merge_codex_hooks",
             "merge_gemini_hooks",
             "enable_ai_mode",
-            "install_claude_vault_md",
+            "install_parsidion_vault_md",
             "install_codex_agents_md",
             "install_gemini_md",
             "rebuild_index",
@@ -2039,7 +2082,7 @@ class TestInstallUninstallRoundTrip:
             "merge_codex_hooks",
             "merge_gemini_hooks",
             "enable_ai_mode",
-            "install_claude_vault_md",
+            "install_parsidion_vault_md",
             "install_codex_agents_md",
             "install_gemini_md",
             "rebuild_index",

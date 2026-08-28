@@ -1,7 +1,7 @@
 """Skill, agent, and script installation for the Parsidion installer.
 
 Handles installing the skill (symlink or copy), agents, scripts, CLI tools,
-CLAUDE-VAULT.md, vault index rebuild, AI mode configuration, and legacy
+PARSIDION-VAULT.md, vault index rebuild, AI mode configuration, and legacy
 asset cleanup.
 
 ARC-025: ``uninstall()`` moved to ``installer/uninstall.py`` so this module
@@ -25,8 +25,9 @@ from installer.hooks import _atomic_write_text, remove_legacy_hooks
 from installer.paths import (
     AGENT_INSTRUCTIONS_SRC,
     AGENT_SRCS,
-    CLAUDE_VAULT_MD_SRC,
+    LEGACY_CLAUDE_VAULT_MD,
     LEGACY_SKILL_NAME,
+    PARSIDION_VAULT_MD_SRC,
     SCRIPTS_SRC,
     SKILL_NAME,
     SKILL_SRC,
@@ -236,26 +237,52 @@ def install_cli_tools(
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE-VAULT.md installation
+# PARSIDION-VAULT.md installation
 # ---------------------------------------------------------------------------
 
-_CLAUDE_VAULT_MD_IMPORT = "@CLAUDE-VAULT.md"
+_PARSIDION_VAULT_MD_IMPORT = "@PARSIDION-VAULT.md"
+# Pre-rename installs (<= 0.13.x) imported CLAUDE-VAULT.md; migrated away below.
+_LEGACY_CLAUDE_VAULT_MD_IMPORT = "@CLAUDE-VAULT.md"
 
 
-def install_claude_vault_md(
+def _strip_import_line(claude_md: Path, import_line: str) -> str:
+    """Remove *import_line* from *claude_md*; return the cleaned content."""
+    content = claude_md.read_text(encoding="utf-8")
+    cleaned = "\n".join(
+        line for line in content.splitlines() if line.strip() != import_line
+    )
+    if content.endswith("\n"):
+        cleaned += "\n"
+    return cleaned
+
+
+def install_parsidion_vault_md(
     claude_dir: Path,
     dry_run: bool = False,
     verbose: bool = False,
 ) -> None:
-    """Copy CLAUDE-VAULT.md to claude_dir and ensure CLAUDE.md imports it."""
-    if not CLAUDE_VAULT_MD_SRC.exists():
-        _warn(f"CLAUDE-VAULT.md not found at {CLAUDE_VAULT_MD_SRC} — skipping")
+    """Copy PARSIDION-VAULT.md to claude_dir and ensure CLAUDE.md imports it.
+
+    Also migrates pre-rename installs: removes the legacy CLAUDE-VAULT.md
+    copy and its ``@CLAUDE-VAULT.md`` import line from CLAUDE.md.
+    """
+    if not PARSIDION_VAULT_MD_SRC.exists():
+        _warn(f"PARSIDION-VAULT.md not found at {PARSIDION_VAULT_MD_SRC} — skipping")
         return
 
-    dest = claude_dir / "CLAUDE-VAULT.md"
-    _step(f"Install CLAUDE-VAULT.md → {dest}", dry_run=dry_run)
+    dest = claude_dir / "PARSIDION-VAULT.md"
+    _step(f"Install PARSIDION-VAULT.md → {dest}", dry_run=dry_run)
     if not dry_run:
-        shutil.copy2(CLAUDE_VAULT_MD_SRC, dest)
+        shutil.copy2(PARSIDION_VAULT_MD_SRC, dest)
+
+    legacy_dest = claude_dir / LEGACY_CLAUDE_VAULT_MD
+    if legacy_dest.exists():
+        _step(
+            f"Remove legacy {legacy_dest} (renamed to PARSIDION-VAULT.md)",
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            legacy_dest.unlink()
 
     claude_md = claude_dir / "CLAUDE.md"
     if not claude_md.exists():
@@ -267,18 +294,28 @@ def install_claude_vault_md(
         return
 
     content = claude_md.read_text(encoding="utf-8")
-    if _CLAUDE_VAULT_MD_IMPORT in content:
+    if _LEGACY_CLAUDE_VAULT_MD_IMPORT in content:
+        _step(
+            f"Replace {_LEGACY_CLAUDE_VAULT_MD_IMPORT} import with {_PARSIDION_VAULT_MD_IMPORT} in {claude_md}",
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            content = _strip_import_line(claude_md, _LEGACY_CLAUDE_VAULT_MD_IMPORT)
+
+    if _PARSIDION_VAULT_MD_IMPORT in content:
         _print(
-            dim(f"  {claude_md} already imports @CLAUDE-VAULT.md"),
+            dim(f"  {claude_md} already imports {_PARSIDION_VAULT_MD_IMPORT}"),
             verbose_only=True,
             verbose=verbose,
         )
         return
 
-    _step(f"Append @CLAUDE-VAULT.md import to {claude_md}", dry_run=dry_run)
+    _step(f"Append {_PARSIDION_VAULT_MD_IMPORT} import to {claude_md}", dry_run=dry_run)
     if not dry_run:
         suffix = "" if content.endswith("\n") else "\n"
-        _atomic_write_text(claude_md, content + suffix + _CLAUDE_VAULT_MD_IMPORT + "\n")
+        _atomic_write_text(
+            claude_md, content + suffix + _PARSIDION_VAULT_MD_IMPORT + "\n"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +460,7 @@ def _instructions_dest(runtime_home: Path, runtime: str) -> Path | None:
 
     ``instructions_filename`` is the registry's declaration of which file the
     installer owns (ENH-006); None means the runtime gets no injected
-    instructions file (claude's CLAUDE-VAULT.md path and pi are handled
+    instructions file (claude's PARSIDION-VAULT.md path and pi are handled
     elsewhere), so callers treat a None dest as a no-op.
     """
     adapter = agent_adapter.get(runtime)
