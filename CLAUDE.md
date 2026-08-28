@@ -13,7 +13,7 @@ Parsidion is the source repository for an agent-agnostic markdown knowledge vaul
 | Installer entrypoint | `install.py` | run in-place (`uv run install.py`) |
 | Installer package | `installer/` (Python package: `cli`, `plan`, `steps`, `paths`, `hooks`, `skill`, `schedule`, `vault`, `ui`, `uninstall`, `colors`) | imported by `install.py` |
 | Parsidion vault skill | `skills/parsidion/` | `~/.claude/skills/parsidion/` |
-| Research agent | `agents/research-agent.md` | `~/.claude/agents/` |
+| Agents | `agents/` (`research-agent.md`, `vault-explorer.md`, `project-explorer.md`, `vault-deduplicator.md`) | `~/.claude/agents/` |
 | Hook scripts | `skills/parsidion/scripts/` | referenced from `~/.claude/settings.json` |
 | parsidion-mcp sub-project | `parsidion-mcp/` (own `Makefile`, `pyproject.toml`, `src`, `tests`) | standalone MCP server |
 | Agent extensions | `extensions/<agent>/` (e.g. `extensions/pi/parsidion/`) | agent-specific integrations |
@@ -70,7 +70,7 @@ uv run install.py disconnect codex  # remove codex integration only
 #               compat symlink), --create-vaults-config, --skip-agent, --skip-hooks,
 #               --no-rebuild-graph, --purge-config (with --uninstall), plus per-runtime
 #               target-dir overrides (--claude-dir, --codex-home, --gemini-home,
-#               --omp-home, --extension-dir) and --verbose
+#               --omp-home) and --verbose
 
 # Rebuild the vault index (after creating/renaming/deleting notes)
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
@@ -391,7 +391,7 @@ A failed gitleaks/detect-private-key hook is a hard block — never bypass it. I
 
 ## Architecture
 
-The system has eleven components:
+The system has twelve components:
 
 1. **Hook scripts** — Python scripts fired by Claude Code's lifecycle events, communicating via JSON stdin/stdout:
    - `session_start_hook.py`: Loads relevant vault notes as `additionalContext`. Default mode injects a **compact one-line-per-note index** (title + tags) to minimize token usage; `--verbose` flag or `verbose_mode: true` config switches to full summaries. Optional `--ai [MODEL]` flag uses the configured prompt AI backend (small tier by default, `CLAUDECODE` unset for the claude-cli path) to intelligently select notes — the installer registers a 60 s SessionStart timeout for every runtime, so no manual `settings.json` timeout edit is needed. Also shows a **pending queue warning** when `pending_summaries.jsonl` has entries and prepends a **"Since last time" delta** of new/modified notes per project (controlled by `track_delta` config key). When `adaptive_context.enabled: true`, notes are ranked by historical usefulness and unused notes are deranked over time. **Graph retrieval** (`graph_expand`/`graph_rerank`, both default on) turns the wikilink graph maintained by `vault_links.py` into a retrieval signal: it adds 1-hop neighbours of the selected notes (Tier 1, capped by `graph_expand_max`) and re-ranks by seed-cluster tag overlap + hubness (Tier 2), so the bidirectional backlink graph written at note-creation time is finally traversed at retrieval time. In `--ai` mode the Tier-1 neighbours are instead spliced into the selector's candidate pool (after the project-notes prefix), so the AI sees graph-related prior art; Tier 2 rerank does not apply there because the selector ranks the pool itself.
@@ -422,7 +422,9 @@ The system has eleven components:
 
 10. **`vault_conflicts.py`** — Contradiction detector (`vault-conflicts` global command, companion to `vault-merge`). Where `vault-merge` collapses near-duplicate notes saying the *same* thing, `vault-conflicts` surfaces semantically-similar pairs saying *opposite* things. Default behavior: scan the vault (embedding-similarity candidate clustering) then drop into an interactive TUI for review. Flags: `--threshold` (cosine cutoff), `--top` (max pairs), `--vault`/`-V`, `--scan-only` (write `conflicts/report.json` and exit, no TUI), `--json` (print report and exit), `--no-ai` (cluster only, skip the AI backend — dry run). Read-only: it detects and reports; it does not mutate notes.
 
-11. **`~/ParsidionVault/`** (legacy `~/ClaudeVault/`) — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `History/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
+11. **`vault_new.py`** — Note scaffolding CLI (`vault-new` global command). Creates a new Markdown note in the folder matching its `--type` (e.g. `pattern` → `Patterns/`), generates the required YAML frontmatter, and optionally opens the note in `$EDITOR` (`--open`). Flags: `--type`, `--title`, `--project`, `--tags`, `--open`, `--dry-run`, `--vault`/`-V`.
+
+12. **`~/ParsidionVault/`** (legacy `~/ClaudeVault/`) — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `History/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
 
 ## Vault Note Conventions
 

@@ -97,6 +97,8 @@ graph TB
         Config[config.yaml]
         Index[CLAUDE.md Index]
         Pending[pending_summaries.jsonl]
+        EMB[(embeddings.db)]
+        VG[graph.json]
         Daily[Daily/]
         Projects[Projects/]
         Languages[Languages/]
@@ -159,9 +161,10 @@ graph TB
     CVG -->|always-on vault-first rule| CC
     Skill -->|defines conventions| CC
     EVAL -->|reads description| Skill
-    BG -->|reads| Graph
-    BG -->|reads embeddings| Graph
-    VIZ -->|serves| BG
+    BG -->|reads| EMB
+    BG -->|writes| VG
+    VIZ -->|serves| VG
+    IDX -->|upserts note_index| EMB
     MCP -->|reads/writes| VC
 
     classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
@@ -180,8 +183,8 @@ graph TB
     class Skill,Agent,VE,DD,SUM,MCP external
     class VC,IDX,CGC,BG data
     class PCH,POCH,EVAL warning
-    class Config,Index,Pending database
-    class Daily,Projects,Languages,Frameworks,Patterns,Debugging,Tools,Research,Knowledge,History,Graph neutral
+    class Config,Index,Pending,EMB database
+    class Daily,Projects,Languages,Frameworks,Patterns,Debugging,Tools,Research,Knowledge,History,Graph,VG neutral
     class CVG alwayson
     class STH,ASH sessionwrite
     class VIZ visualizer
@@ -1404,7 +1407,7 @@ parsidion/
 ├── pyproject.toml
 ├── Makefile
 ├── extensions/
-│   └── pi/parsidion/                # pi agent adapter extension (parsidion.ts, parsidion.md, lib/parsidion-status.ts, lib/scriptRunner.ts, plus tests)
+│   └── pi/parsidion/                # pi agent adapter extension (parsidion.ts, parsidion.md, lib/parsidion-status.ts, lib/scriptRunner.ts, lib/transcript.ts, plus tests)
 ├── scripts/
 │   ├── show-context                 # CLI: preview session start context for any project
 │   ├── install-pi-extension        # Install parsidion pi extension into ~/.pi/agent/extensions
@@ -1436,9 +1439,11 @@ parsidion/
 │   ├── VAULT_SYNC.md                # Multi-machine vault sync guide
 │   ├── README.md                    # Documentation index
 │   ├── CLAUDE.md                    # Doc-folder AI guidance
+│   ├── parsidion-architecture.png   # Architecture diagram embedded by the root README
+│   ├── *-slideshow.html             # Self-contained walkthroughs (5) published to GitHub Pages
 │   ├── api/                         # Generated API reference (pdoc + typedoc; `make docs-api`)
 │   ├── generated/                   # Generated config reference (config-reference.md, config-table.md)
-│   ├── archive/                     # Legacy docs kept for history (MCPL.md)
+│   ├── archive/                     # Legacy docs kept for history (MCPL.md, CHANGELOG-0.11-and-older.md)
 │   └── superpowers/                 # Superpowers skill documentation
 ├── agents/
 │   ├── research-agent.md

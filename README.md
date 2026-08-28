@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.22.1:** dead-letter queue notices in SessionStart context are now configurable (`session_start_hook.show_dead_letter_notice`, disabled by default); 0.22.0 made the generated API-docs build deterministic and checkout-path independent. See the [Changelog](CHANGELOG.md).
+> **New in 0.23.0:** the ENH-020..024 enhancement wave — a managed warm embedding service, reverse-link adjacency stored in `note_index` (`incoming_stems`), vec0 ANN search for embeddings, a SessionStart latency benchmark (`make bench-hooks`), and one shared YAML tokenizer (`core/yaml_lite`) — plus AI-backend context lockdown and full audit remediation (25 of 25 findings resolved). See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -137,6 +137,8 @@ uv run install.py disconnect omp      # remove the omp extension only
 | `--claude-dir PATH` | Target Claude config dir (default: `~/.claude`) |
 | `--codex-home PATH` | Target Codex home for hooks/config (default: `$CODEX_HOME` or `~/.codex`) |
 | `--gemini-home PATH` | Target Gemini home for hook settings (default: `~/.gemini`) |
+| `--omp-home PATH` | omp config home for the `connect omp` extension install (default: `$PI_CONFIG_DIR` or `~/.omp`); the extension lands in `<omp-home>/agent/extensions` |
+| `--purge-config` | With `--uninstall`, also remove `~/.config/parsidion/vaults.yaml` (always preserved otherwise; no effect unless the Claude integration is being removed, and required even under `--yes`) |
 | `--runtime {claude,codex,gemini,both,all,none}` | Runtime integration target; interactive installs default to `both` (Claude + Codex), while `--yes` defaults to `claude` for backwards compatibility |
 | `--dry-run / -n` | Preview all actions, no changes made |
 | `--verbose / -v` | Show detailed output |
@@ -210,7 +212,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 
 **Auto-triggering:** The skill includes YAML frontmatter with a description that enables automatic invocation when users mention saving knowledge, checking notes, or persisting findings across sessions.
 
-The skill ships ~120 Python modules (hooks, CLIs, and library code across the flat script layer and the `core`/`summarizer`/`doctor`/`cli`/`session_start` subpackages) and 9 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge). The full per-script catalogue — purpose, public API surface, and which component consumes each one — lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **Component Details**, alongside the vault directory layout, the Obsidian graph color-group table, and the data-flow diagrams.
+The skill ships ~130 Python modules (hooks, CLIs, and library code across the flat script layer and the `core`/`summarizer`/`doctor`/`cli`/`session_start` subpackages) and 9 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge). The full per-script catalogue — purpose, public API surface, and which component consumes each one — lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **Component Details**, alongside the vault directory layout, the Obsidian graph color-group table, and the data-flow diagrams.
 
 The default vault structure:
 
@@ -667,7 +669,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.22.1** (configurable dead-letter notices in SessionStart context; 0.22.0 made the generated API-docs CI deterministic and checkout-path independent). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.23.0** (ENH-020..024 enhancement wave: warm embedding service, `note_index` reverse-link adjacency, vec0 ANN search, `make bench-hooks` latency benchmark, shared `core/yaml_lite` YAML tokenizer; AI-backend context lockdown; 25/25 audit findings resolved). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

@@ -27,6 +27,16 @@ Complete command-line reference for the Parsidion vault tooling: search, scaffol
 
 ```bash
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
+
+# Rebuild the index AND regenerate visualizer graph.json in one pass
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph
+
+# Also include Daily notes in the graph
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph --graph-include-daily
+
+# Graph rebuilds are incremental by default (summarizer.graph_incremental config);
+# --no-graph-incremental forces a full rebuild.
+# Other flags: --vault/-V PATH|NAME
 ```
 
 ## Build semantic search embeddings
@@ -129,6 +139,9 @@ vault-stats --weekly --dry-run     # preview rollup output without writing notes
 
 ```bash
 vault-review                       # interactive TUI: inspect sessions, approve (y) / reject (n) / skip (s)
+vault-review --list                # print pending sessions without launching the TUI
+vault-review --clear               # remove all entries from the queue (with confirmation)
+# Other flags: --vault/-V PATH|NAME
 ```
 
 > **Approval filtering is not yet implemented.** `vault-review` records per-session approve/reject/skip decisions, but `summarize_sessions.py` does not currently consume them — running it processes the full queue regardless. The `--approved-only` flag referenced in older docs does not exist.
