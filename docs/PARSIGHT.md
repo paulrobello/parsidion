@@ -220,8 +220,9 @@ degrading silently, because MCP callers can choose another tool.)
   conflict (`parsight index` run without the daemon while another process
   owns the store), 4 wait-timeout. parsidion treats every nonzero exit as
   "fall back to embeddings".
-- **Custom daemon URL:** set `PARSIGHT_MCP_URL` (it passes through to child
-  processes via parsidion's safe-env allowlist).
+- **Custom daemon URL:** set `PARSIGHT_MCP_URL` (parsight subprocesses receive
+  it via their own minimal env allowlist — `PATH`/`HOME`/`PARSIGHT_MCP_URL` —
+  and it is also on the safe-env allowlist forwarded to prompt-AI children).
 
 ## Graph & Visualization
 

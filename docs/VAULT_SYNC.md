@@ -97,7 +97,8 @@ database so semantic search works immediately.
 
 > **Note:** You do not need to `git commit` manually. When `<vault>/.git`
 > exists, the hooks auto-commit every vault write — `session_stop_hook.py`
-> commits the daily note and pending queue at session end, `pre_compact_hook.py`
+> commits the daily note at session end (the pending queue is gitignored,
+> never committed), `pre_compact_hook.py`
 > commits before context compaction, `update_index.py` commits regenerated
 > `CLAUDE.md` / `TAGS.md` / `MANIFEST.md`, and `summarize_sessions.py` commits
 > new notes. Your only manual step is `git push`.

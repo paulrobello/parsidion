@@ -63,6 +63,14 @@ uv run install.py connect gemini    # wires ~/.gemini/GEMINI.md + gemini hooks
 uv run install.py connect pi        # installs the pi TypeScript extension (~/.pi/agent/extensions)
 uv run install.py connect omp       # installs the same extension for omp (~/.omp/agent/extensions)
 uv run install.py disconnect codex  # remove codex integration only
+# Other flags: --runtime RUNTIME (limit the run to one runtime), --vault PATH,
+#               --vault-username NAME, --enable-ai / --enable-embeddings (write the
+#               matching keys into vault config.yaml), --migrate-vault (rename legacy
+#               ~/ClaudeVault -> ~/ParsidionVault; --no-legacy-vault-symlink skips the
+#               compat symlink), --create-vaults-config, --skip-agent, --skip-hooks,
+#               --no-rebuild-graph, --purge-config (with --uninstall), plus per-runtime
+#               target-dir overrides (--claude-dir, --codex-home, --gemini-home,
+#               --omp-home, --extension-dir) and --verbose
 
 # Rebuild the vault index (after creating/renaming/deleting notes)
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
@@ -158,7 +166,7 @@ vault-conflicts                    # scan for contradictions, then interactive T
 vault-conflicts --scan-only        # scan + write conflicts/report.json, no TUI
 vault-conflicts --json             # emit JSON report to stdout and exit
 vault-conflicts --no-ai            # clustering only, skip the AI backend (dry run)
-vault-conflicts --threshold 0.80   # cosine threshold for candidate pairs
+vault-conflicts --threshold 0.75   # cosine threshold for candidate pairs (default 0.75)
 vault-conflicts --top 50           # limit to top N candidate pairs
 
 # Vault doctor — individual fix modes
@@ -334,7 +342,7 @@ python skills/parsidion/scripts/subagent_stop_hook.py <<'EOF'
 EOF
 ```
 
-**stdlib-only rule**: `install.py`, the `installer/` package, and the hook layer — the hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, the codex/gemini adapter hooks, `session_stop_wrapper.sh`), the `scripts/core/` subpackage (including `core/ai_backend.py` and `core/parsight_backend.py` since ARC-006), the flat re-export shims (`vault_common.py`, `vault_path.py`, `vault_config.py`, `vault_fs.py`, `vault_hooks.py`, `vault_index.py`, `vault_metrics.py`, `vault_adaptive.py`, `vault_tui.py`, `vault_links.py`, `vault_constants.py`, `vault_health.py`, `subproc_util.py`, `ai_backend.py`, `parsight_backend.py`), the subpackages `session_start/`, `summarizer/`, `doctor/`, and `cli/`, plus `agent_adapter.py`, `prompt_templates.py`, and `note_schema.py` — must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. `pyproject.toml` declares **no required runtime dependencies** (`dependencies = []`); optional-dependency extras (`search`, `tools`, `eval`, `docs`) are reserved for the search/embeddings/CLI/API-doc tools that genuinely need them. ARC-004 makes this constraint executable: `tests/test_stdlib_only.py` imports every in-scope module in a fresh interpreter with 12 third-party modules (`rich`, `fastembed`, `sqlite_vec`/`sqlitevec`, `anyio`, `yaml`/`pyyaml`, `numpy`, `PIL`/`pillow`, `requests`, `aiohttp`) poisoned in `sys.modules`, so a forbidden import — even a transitive one — fails the gate. The CLI/build tools (`vault_stats.py`, `vault_search.py`, `build_graph.py`, `build_embeddings.py`, `vault_embed_serve.py`, `update_index.py`, `html-to-md.py`, `run_trigger_eval.py`) are outside the enforced scope but remain stdlib-first with guarded optional extras.
+**stdlib-only rule**: `install.py`, the `installer/` package, and the hook layer — the hook scripts (`session_start_hook.py`, `session_stop_hook.py`, `subagent_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, the codex/gemini adapter hooks, `session_stop_wrapper.sh`), the `scripts/core/` subpackage (including `core/ai_backend.py` and `core/parsight_backend.py` since ARC-006), the flat re-export shims (`vault_common.py`, `vault_path.py`, `vault_config.py`, `vault_fs.py`, `vault_hooks.py`, `vault_index.py`, `vault_metrics.py`, `vault_adaptive.py`, `vault_tui.py`, `vault_links.py`, `vault_constants.py`, `vault_health.py`, `subproc_util.py`, `ai_backend.py`, `parsight_backend.py`, `transcript_reader.py`), the subpackages `session_start/`, `summarizer/`, `doctor/`, and `cli/`, plus `agent_adapter.py`, `prompt_templates.py`, and `note_schema.py` — must use Python stdlib exclusively (or POSIX shell builtins) — no `pip install`, no `uv add`. `pyproject.toml` declares **no required runtime dependencies** (`dependencies = []`); optional-dependency extras (`search`, `tools`, `eval`, `docs`) are reserved for the search/embeddings/CLI/API-doc tools that genuinely need them. ARC-004 makes this constraint executable: `tests/test_stdlib_only.py` imports every in-scope module in a fresh interpreter with 12 third-party modules (`rich`, `fastembed`, `sqlite_vec`/`sqlitevec`, `anyio`, `yaml`/`pyyaml`, `numpy`, `PIL`/`pillow`, `requests`, `aiohttp`) poisoned in `sys.modules`, so a forbidden import — even a transitive one — fails the gate. The CLI/build tools (`vault_stats.py`, `vault_search.py`, `build_graph.py`, `build_embeddings.py`, `vault_embed_serve.py`, `update_index.py`, `html-to-md.py`, `run_trigger_eval.py`) are outside the enforced scope but remain stdlib-first with guarded optional extras.
 
 **Exceptions**:
 - `summarize_sessions.py` is a PEP 723 script with an inline `anyio` dependency. Run it with `uv run` — deps are installed automatically into an isolated environment. It uses Parsidion's configured prompt AI backend (`claude -p`, `codex exec`, or `grok --prompt-file`), not the Claude Agent SDK.
@@ -367,6 +375,7 @@ A failed gitleaks/detect-private-key hook is a hard block — never bypass it. I
 | `make config-docs-check` | `uv run python scripts/gen_config_docs.py --check` | ENH-017 drift gate — regenerate in-memory and diff against the committed files; exits 1 on drift. Part of `make checkall` and CI. |
 | `make docs-api` | regenerate `docs/api/` (pdoc for Python docstrings, typedoc for visualizer TS) | Rebuild the committed generated API reference; needs the `docs` extra (`uv run --extra docs`) and visualizer devDeps. Commit the result. |
 | `make docs-api-check` | regenerate to a temp dir and diff against `docs/api/` | DOC-003 drift gate — exits 1 when the committed reference is stale; wired as its own CI job. |
+| `make docs-api-gen` | internal generator shared by `docs-api` / `docs-api-check` | Renders pdoc from a sanitized /tmp copy of the sources (fixed `HOME`/`PYTHONPATH`) and normalizes machine-specific paths so the committed snapshot is reproducible; not called directly. |
 | `make checkall` | fmt-check + lint + typecheck + test + test-graph + test-search + visualizer-check + checkall-mcp + config-docs-check | Full quality gate. Non-mutating (uses `fmt-check`, not `fmt`); CI runs the same targets via separate jobs (see `.github/workflows/ci.yml`). |
 | `make checkall-mcp` | `$(MAKE) -C parsidion-mcp checkall` | parsidion-mcp sub-project gate |
 | `make visualizer-check` | `cd visualizer && bunx tsc --noEmit && bun run lint && bun test && bun run build` | Visualizer typecheck + lint + unit tests + production build (the build catches RSC server/client boundary violations tsc alone misses) |
@@ -466,7 +475,7 @@ Throughout this section `<vault>` is the resolved vault root (`~/ParsidionVault/
 
 - `VAULT_ROOT` = module-level constant in `vault_path.py` holding the *default* vault path (used as a fallback by `resolve_vault()`). Re-exported from `vault_common.py` for backwards compatibility with external callers (e.g. parsidion-mcp, tests). **Not patched by the installer** (ARC-001) — code should call `resolve_vault()` / `resolve_templates_dir()` rather than reading the constant directly.
 - `TEMPLATES_DIR` = module-level constant in `vault_path.py` defaulting to `~/.claude/skills/parsidion/templates/`. Re-exported from `vault_common.py`. **Not patched by the installer** (ARC-001) — code should call `resolve_templates_dir()`.
-- `pending_summaries.jsonl` = `<vault>/pending_summaries.jsonl` — queue of sessions awaiting AI summarization. Each line: `{"session_id": "...", "transcript_path": "...", "project": "...", "categories": [...], "timestamp": "..."}`. Deduplicated by `session_id`.
+- `pending_summaries.jsonl` = `<vault>/pending_summaries.jsonl` — queue of sessions awaiting AI summarization. Each line: `{"session_id": "...", "transcript_path": "...", "project": "...", "categories": [...], "timestamp": "...", "source": "session"|"subagent"}` (plus `agent_type` on subagent entries). Deduplicated by `session_id`.
 - `embeddings.db` = `<vault>/embeddings.db` — SQLite database with two tables: `note_embeddings` (384-dim float32 vectors built by `build_embeddings.py`) and `note_index` (per-note metadata built by `update_index.py`: outgoing `related` links, the `incoming_links` count, and `incoming_stems` — a JSON array of source stems holding the reverse-link adjacency inverted at index time, ENH-021; empty on pre-ENH-021 rows, where consumers fall back to deriving the inversion from `related`). Queried by `vault_search.py` (both modes) and `vault_common.query_note_index()`. All callers fall back gracefully when absent.
 - `EXCLUDE_DIRS` = set of folder names skipped by the indexer and vault traversal (defined in `vault_path.py`, re-exported from `vault_common.py`). Currently: `.obsidian`, `Templates`, `.git`, `.trash`, `TagsRoutes`.
 - `hook_events.log` = `<vault>/hook_events.log` — structured JSON log of hook executions. Each line: `{"hook": "SessionStart", "ts": "...", "project": "...", "notes_injected": 5, "chars": 2800, "duration_ms": 320}`. Rotated at `event_log.max_lines` (default 10,000). Written by `vault_common.write_hook_event()`. Read by `vault-stats --hooks N`.

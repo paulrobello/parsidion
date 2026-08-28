@@ -552,13 +552,14 @@ make stop-visualizer          # Kill the process on port 3999
 
 ### Authentication and Network Exposure
 
-The visualizer is the only network-facing component in the project. It binds to loopback (`127.0.0.1`) in dev (`bun dev`) and listens on port 3999. Every API route is wrapped by `withApi` (`lib/apiAuth.ts`), which applies three guards in this order:
+The visualizer is the only network-facing component in the project. It binds to loopback (`127.0.0.1`) in both dev and production (`bun dev` / `bun start` scripts pin `-H 127.0.0.1 --port 3999`). Every API route is wrapped by `withApi` (`lib/apiAuth.ts`), which applies four guards in this order:
 
 | Guard | What it covers | Default behaviour |
 |---|---|---|
+| `requireLocalHost` | Every method | SEC-001 DNS-rebinding defence: rejects requests whose `Host` header is not a loopback name (`127.0.0.1`, `localhost`, `::1`) on the expected port (`PORT`, default 3999). Returns 403. An absent `Host` header (non-browser client) is allowed through to the token guard. |
 | `requireToken` | Every method (GET and mutation) | No-op unless `VISUALIZER_TOKEN` is set at server start. When set, every request must carry `Authorization: Bearer <token>`; comparison is constant-time. Returns 401 on missing/mismatched token. |
 | `requireSameOrigin` | Every method | Rejects any request with `Sec-Fetch-Site: cross-site` (a drive-by page cannot trigger server-side side effects like recursive directory walks). Returns 403. Non-browser clients typically omit the header and are allowed through (then gated by `requireToken` if a token is configured). |
-| `requireAuth` (mutation methods only) | POST/PUT/DELETE/PATCH | Rejects the request if `Content-Type` is not `application/json` (defeats cross-site form CSRF that would bypass the preflight). Returns 415. |
+| `requireAuth` (mutation methods only) | POST/PUT/DELETE/PATCH | Rejects the request if `Content-Type` is not `application/json` (defeats cross-site form CSRF that would bypass the preflight). Returns 415. Mutations are additionally capped at a 10 MiB body (`Content-Length` check, SEC-030) — returns 413 when exceeded. |
 
 **SEC-102 note:** `requireToken` runs on GET handlers as well as mutations — earlier releases only checked the token inside `requireAuth`, which read routes did not call. Setting `VISUALIZER_TOKEN` now gates both reads and writes.
 
@@ -570,7 +571,7 @@ VISUALIZER_TOKEN=<long-random-string>
 VAULT_ROOT=/Users/yourname/ParsidionVault
 ```
 
-The shipped example file is `visualizer/.env.local.example`. Note that its `VAULT_ROOT` default is `~/ParsidionVault` (the legacy `~/ClaudeVault` value shown in older copies is stale — the resolved vault is `~/ParsidionVault` for new installs, with legacy fallback handled in code).
+The resolved vault is `~/ParsidionVault` for new installs, with the legacy `~/ClaudeVault` fallback handled in code.
 
 If you expose the visualizer beyond loopback (LAN, tunnel), set `VISUALIZER_TOKEN`. The same-origin guard prevents browser drive-by attacks; the token prevents non-browser clients from reading or mutating the vault.
 
@@ -605,6 +606,7 @@ Options:
   --no-schema            Skip writing graph.schema.json alongside graph.json (ARC-038)
   --min-threshold FLOAT  Minimum cosine similarity floor for semantic edges (default: 0.70)
   --max-neighbors INT    Maximum semantic edges kept per note, strongest first (default: 15; 0 disables the cap and emits every pair above --min-threshold)
+  --incremental          Reuse the previous graph.json and recompute only notes whose mtime changed since meta.generated; falls back to a full rebuild when the previous graph is missing or was built with different parameters (schema_version, min_semantic_threshold, max_neighbors, include_daily)
   --output PATH          Output path for graph.json (default: {vault}/graph.json)
   --vault PATH           Custom vault root path
 ```
@@ -717,18 +719,18 @@ Returns the Markdown content for a note identified by its stem ID.
 | `path` | string | No | Vault-relative path (for disambiguation when multiple notes share the same stem) |
 | `vault` | string | No | Vault name (from vaults.yaml) |
 
-**Response (200):** JSON `{ content: string, path: string }` — raw Markdown and vault-relative path
+**Response (200):** JSON `{ content: string, path: string, mtimeMs: number }` — raw Markdown, vault-relative path, and the file's modification time (used as the `baseMtimeMs` conflict baseline when saving)
 
 **Response (404):** JSON error — note not found
 
-**`POST /api/note`** — Update (overwrite) an existing note. Accepts `vault` query parameter.
+**`POST /api/note`** — Update (overwrite) an existing note. Accepts `vault` from the query string or the JSON body (query wins; ARC-002).
 Body: `{ stem: string, content: string, baseMtimeMs?: number, vault?: string }`
 - If `baseMtimeMs` is provided, the server compares it to the file's current `mtimeMs`. If the file's mtime is strictly greater, the note was modified externally and the save is refused with HTTP 409.
 - Response (200): `{ ok: true, mtimeMs: number }` — save succeeded; the returned `mtimeMs` becomes the caller's next `baseMtimeMs`.
-- Response (409): `{ error: "...", conflict: true, serverContent: string, mtimeMs: number }` — conflict detected. The client should offer to merge or overwrite using `serverContent` as the new base. (Per ARC-040, the body is being normalized to the `{error, ...}` shape across all conflict responses.)
+- Response (409): `{ error: "...", conflict: true, serverContent: string, mtimeMs: number }` — conflict detected. The client should offer to merge or overwrite using `serverContent` as the new base. All conflict responses use the `{error, ...}` shape (ARC-040).
 
 **`PUT /api/note`** — Create a new note at a vault-relative path.
-Body: `{ path: string, content: string }`. Returns 409 (`{ error: "Note already exists" }`) if the note already exists. Only `.md` files may be created.
+Body: `{ path: string, content: string, vault?: string }` (vault also accepted as a query parameter). Returns 409 (`{ error: "Note already exists" }`) if the note already exists. Only `.md` files may be created, and never inside hidden or excluded directories (`Templates`, `TagsRoutes` — SEC-002).
 
 **`DELETE /api/note?stem=<stem>`** — Delete a note by stem.
 
@@ -842,7 +844,7 @@ Both history routes path-traverse-protect with `guardPath()` (same pattern as `/
 
 ## State Management
 
-All application state is managed by the `useVisualizerState` hook (`lib/useVisualizerState.ts`) and the `useVaultFiles` hook (`lib/useVaultFiles.ts`). `useVisualizerState` is a thin orchestrator (ARC-037) over three focused slices — `useVaultSelection`, `useNoteTabs`, and `useGraphControls` — composing their state into one `useMemo`-stabilized object whose public surface (~55 keys) is unchanged. State is split into categories:
+All application state is managed by the `useVisualizerState` hook (`lib/useVisualizerState.ts`) and the `useVaultFiles` hook (`lib/useVaultFiles.ts`). `useVisualizerState` is a thin orchestrator (ARC-037) over three focused slices — `useVaultSelection`, `useNoteTabs`, and `useGraphControls` — composing their state into one `useMemo`-stabilized object whose public surface is ~75 keys. State is split into categories:
 
 **Vault State**
 
@@ -958,7 +960,7 @@ stateDiagram-v2
     end note
 ```
 
-**Cooling:** Temperature decays per frame at `temp *= (1 - 0.002 * slowDown)`. At `slowDown=1`, convergence takes ~29 seconds at 60 fps; at `slowDown=5`, ~6 seconds.
+**Cooling:** Temperature decays per frame at `temp *= (1 - 0.002 * slowDown)` and the loop stops when it drops below `stopThreshold`. The simulation starts at temperature 1.0; a drag reheat restarts from `startTemperature` (default 0.8). At `slowDown=1`, convergence takes ~38 seconds at 60 fps; at `slowDown=5`, ~8 seconds.
 
 ### Neighborhood Computation
 

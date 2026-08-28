@@ -137,7 +137,6 @@ graph TB
     VE -->|searches| Research
     PE -->|dispatches| VE
     PE -->|writes to| Projects
-    PE -->|writes to| Patterns
     DD -->|scans| VC
 
     SSH -->|loads context from| Daily
@@ -425,7 +424,7 @@ The note-writing and chunk-summarizer prompts are externalized versioned templat
 | `transcript_tail_lines` | `400` | Transcript lines to read per entry |
 | `transcript_tail_bytes` | `262144` | Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts) so cleaning/chunking cannot explode |
 | `max_cleaned_chars` | `12000` | Maximum characters after cleaning |
-| `ai_timeout` | `120` | Per-summarizer-prompt timeout in seconds (`null` = the backend's own default) |
+| `ai_timeout` | `null` | Per-summarizer-prompt timeout in seconds (`null` = the backend's own default) |
 | `cluster_model` | `null` | Chunk-model for hierarchical summarization; `null` falls back to `ai_models.<backend>.small` |
 | `dedup_threshold` | `0.80` | Cosine similarity above which a note is considered a near-duplicate and skipped |
 | `dead_letter_retention_days` | `7` | Prune `dead_letters.jsonl` entries older than N days each run (write-gate skips are retried up to `_MAX_SKIPS` (2) before becoming sticky, so the file grows without this); `<=0` disables pruning |
@@ -574,7 +573,7 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
 **Workflow (7 steps):**
 1. **Semantic search** — runs `vault_search.py` with the full query; if 3+ results with score ≥ 0.35, skips to step 6
 2. **Metadata search** — infers filters from the query (`--folder`, `--type`, `--tag`, `--project`, `--recent-days`) and runs `vault-search` with those flags; if 3+ results, skips to step 6; gracefully handles absent DB
-3. **Orient** — reads `~/ParsidionVault/CLAUDE.md` for stats and folder pointers, then reads specific `MANIFEST.md` files for detailed note listings
+3. **Orient** — reads `~/ParsidionVault/CLAUDE.md` for stats and folder pointers
 4. **Extract signals** — identifies key search terms (exception class, package name, feature keyword)
 5. **Search by priority folder** — Grep search across folders in priority order by query type:
 
@@ -584,11 +583,14 @@ A read-only Claude Code agent (runs on Haiku) that searches the vault for releva
    | Feature / pattern / integration | `Patterns/` → `Frameworks/` → `Projects/` |
    | Cross-project / prior art | `Projects/` → `Patterns/` |
    | Library / tool / CLI | `Tools/` → `Frameworks/` |
-   | Research / concepts | `Research/` → `Knowledge/` → all folders |
-   | General knowledge / reference | `Knowledge/` → `Research/` → all folders |
+   | Research / concepts | `Research/` → all folders |
 
 6. **Rank and read** — ranks candidates by semantic score, then folder priority, then signal frequency; reads top 5 files
 7. **Synthesize and return** — returns exactly two sections: `## Answer` (3–7 sentences) and `## Sources` (absolute paths with one-line relevance notes)
+
+**Code-memory bridge (parsight):** When the query is code-shaped — it names a symbol, function, or error string tied to a specific repository, or asks where/how something is implemented — the agent also probes the parsight code-memory graph (gated by `parsight.enabled`/`parsight.binary` config; skipped silently when the daemon is unavailable) and merges code hits into `## Answer` and `## Sources` alongside the vault notes. It never indexes new repos; it is read-only.
+
+**Conflicting guidance:** When recall surfaces notes that give conflicting guidance on the same point, the agent points the caller at `vault-conflicts` for resolution.
 
 **Relationship to other agents:** When the vault has no relevant information, the agent recommends dispatching `research-agent` to research the topic externally and save findings to the vault.
 
@@ -600,18 +602,19 @@ A Claude Code agent definition (runs on Opus) that deeply analyzes a software pr
 
 **Trigger phrases:** "explore project", "analyze project", "document this project", "save project to vault", "catalog project features", "document project features".
 
-**Scope:** Read-only analysis followed by vault writes. Does not modify project source files. Writes exclusively to `~/ParsidionVault/Projects/` and `~/ParsidionVault/Patterns/`.
+**Scope:** Read-only analysis followed by vault writes. Does not modify project source files. Writes exclusively to `~/ParsidionVault/Projects/{project-slug}/` — a dedicated subfolder holding the project root note and all its feature notes.
 
-**Workflow (9 steps):**
-1. **Vault check** — semantic search + dispatches `vault-explorer` with `"project {name} architecture features"`; if notes exist, reads them, fills gaps, and cleans up outdated info (updates or deletes)
+**Workflow (10 steps):**
+1. **Vault check** — semantic search + dispatches `vault-explorer` with `"project {name} architecture features"`; if a project folder already exists, reads the notes, fills gaps, cleans up outdated info (update or remove), and moves orphaned flat `Projects/` files prefixed with the slug into the subfolder
 2. **Metadata discovery** — reads `README.md`, `CLAUDE.md`, `pyproject.toml`/`Cargo.toml`/`package.json`/`go.mod`, and `Makefile` to extract project name, language, frameworks, key deps, and entry points
 3. **Architecture exploration** — Glob + Read to map top-level directory structure, identify key modules and their responsibilities, locate main entry points, note distinctive structural choices
 4. **Feature extraction** — identifies 3–8 reusable features via README sections, `{binary} --help`, module filenames, and Makefile targets; for each: what it does, which files implement it, why it's reusable
 5. **Pattern identification** — looks for project-level patterns: config handling, error handling, logging, design patterns (plugin, event-driven, strategy), testing approach, CLI conventions
-6. **Write overview note** → `~/ParsidionVault/Projects/{project-slug}-overview.md` (creates or updates): summary, tech stack, 2-level architecture tree, features with wikilinks, key conventions
-7. **Write feature pattern notes** → `~/ParsidionVault/Patterns/{feature-slug}.md` for each reusable feature (minimum 3): summary, implementation with file:line refs, replication steps, key learnings
-8. **Rebuild index** — runs `update_index.py` so all new notes are immediately searchable via `vault-search`
-9. **Summary report** — paths created/updated, skipped features with reasons, index status
+6. **Load existing tags** — reads the `## Existing Tags` section of the vault `CLAUDE.md` and reuses existing tags wherever possible to avoid tag sprawl
+7. **Write project root note** → `~/ParsidionVault/Projects/{project-slug}/{project-slug}.md` (creates or updates; legacy `{project-slug}-overview.md` / `overview.md` files are renamed to this shape): summary, tech stack, 2-level architecture tree, features with wikilinks, key conventions
+8. **Write feature pattern notes** → `~/ParsidionVault/Projects/{project-slug}/{feature-slug}.md` for each reusable feature (minimum 3; no project-name prefix — the subfolder provides that context): summary, implementation with file:line refs, replication steps, key learnings
+9. **Rebuild index** — runs `update_index.py` so all new notes are immediately searchable via `vault-search`
+10. **Summary report** — paths created/updated, skipped features with reasons, index status
 
 **Quality rules enforced:**
 - No orphan notes — every `related` field must contain at least one `[[wikilink]]`
@@ -620,7 +623,7 @@ A Claude Code agent definition (runs on Opus) that deeply analyzes a software pr
 - Kebab-case filenames without date suffixes (date goes in frontmatter)
 - Search before create — updates existing pattern notes rather than creating duplicates
 
-**Relationship to other agents:** Dispatches `vault-explorer` as sub-step 1 for the vault check. Pattern notes written in step 7 become available to future `vault-explorer` queries, closing the cross-project knowledge loop.
+**Relationship to other agents:** Dispatches `vault-explorer` as sub-step 1 for the vault check. Feature pattern notes written in step 8 become available to future `vault-explorer` queries, closing the cross-project knowledge loop.
 
 ### Vault Deduplicator Agent
 
@@ -708,7 +711,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 - No external dependencies (stdlib only) for maximum portability in hook contexts
 - Custom YAML parser via regex rather than importing `pyyaml`; the config parser (`_parse_config_yaml`) is similarly stdlib-only
 - File walking excludes `.obsidian/`, `Templates/`, `.git/`, `.trash/`, `TagsRoutes/`
-- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 15 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_schema`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`, plus `ai_backend`, `parsight_backend`, `transcript_reader`) to reduce per-file LOC and improve maintainability
+- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 16 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_schema`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`, `yaml_lite`, plus `ai_backend`, `parsight_backend`, `transcript_reader`) to reduce per-file LOC and improve maintainability
 
 ### Index Generator
 
@@ -1370,8 +1373,8 @@ sequenceDiagram
     VE-->>PE: Answer + Sources
     PE->>P: Read README, pyproject.toml, Makefile, key modules
     P-->>PE: Project metadata + source structure
-    PE->>V: Write Projects/{slug}-overview.md
-    PE->>V: Write Patterns/{feature-slug}.md (min 3)
+    PE->>V: Write Projects/{slug}/{slug}.md (root note)
+    PE->>V: Write Projects/{slug}/{feature-slug}.md (min 3)
     PE->>IDX: Rebuild vault index
     IDX->>V: Write updated CLAUDE.md + TAGS.md + MANIFEST.md files
     PE-->>CC: Summary report (notes created, skipped features)
@@ -1443,7 +1446,7 @@ parsidion/
 │   ├── vault-explorer.md                # Read-only vault search agent (Haiku)
 │   ├── project-explorer.md              # Project analysis + vault pattern capture (Opus)
 │   └── vault-deduplicator.md            # Near-duplicate note scanner and merger (Haiku)
-├── tests/                          # Pytest suite (90+ test modules; run `ls tests/` for the full inventory)
+├── tests/                          # Pytest suite (100+ test modules; run `ls tests/` for the full inventory)
 │   ├── conftest.py                 # Shared fixtures (vault factory, fake parsight)
 │   ├── fake_parsight.py            # Stub parsight CLI used by backend/search tests
 │   ├── fixtures/                   # Graph-schema + vault-resolution parity fixtures (ENH-005/ENH-009)
@@ -1453,6 +1456,8 @@ parsidion/
 ├── tools/                          # Standalone CLIs and eval harnesses (not installed into ~/.claude/)
 │   ├── migrate_memory.py           # One-time legacy memory migration
 │   ├── migrate_research.py         # One-time legacy research migration
+│   ├── _migrate_common.py          # Shared helpers for the legacy migration scripts
+│   ├── bench/                      # ENH-023 hook-latency bench (bench_session_start.py + gen_bench_vault.py)
 │   └── eval/                       # Embedding + prompt eval harness (ENH-007/ENH-008)
 │       ├── embed_eval.py           # Evaluates embedding search quality
 │       ├── embed_eval_common.py    # Shared eval utilities
@@ -1464,7 +1469,7 @@ parsidion/
 └── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── core/                    # ARC-004 stdlib implementations (15 modules) behind the flat shims below
+    │   ├── core/                    # ARC-004 stdlib implementations (16 modules) behind the flat shims below
     │   │   ├── vault_config.py      # Config loading, YAML parsing, validation
     │   │   ├── vault_schema.py      # Typed config schema — single source of truth for defaults (ARC-007)
     │   │   ├── vault_constants.py   # Shared constants
@@ -1477,6 +1482,7 @@ parsidion/
     │   │   ├── vault_metrics.py     # Stdlib-only data layer for vault analytics
     │   │   ├── vault_health.py      # Composite vault health-score data layer (ENH-007)
     │   │   ├── subproc_util.py      # Shared subprocess helpers
+    │   │   ├── yaml_lite.py         # Shared YAML-subset tokenizer (ENH-024: config, frontmatter, vaults.yaml)
     │   │   ├── ai_backend.py        # Backend-neutral prompt AI helpers (ARC-006 moved under the stdlib gate)
     │   │   ├── parsight_backend.py  # Optional parsight code-memory bridge (ARC-006)
     │   │   └── transcript_reader.py # Unified byte-bounded transcript tail reader (ENH-018)
@@ -1504,10 +1510,10 @@ parsidion/
     │   │   └── worker.py            # Per-note repair worker
     │   ├── summarizer/              # ARC-009 summarize_sessions helpers (11 modules: _state_const, dead_letter, dedup, failure, lock, notes, pipeline, progress, prompt, queue, transcript)
     │   ├── cli/                     # ARC-005 decomposed CLI implementations (one subpackage per God-file CLI)
-    │   │   ├── index/               # update_index.py split (parse, build, render, db, graph)
-    │   │   ├── merge/               # vault_merge.py split (scan, lookup, preview, frontmatter, ai_helpers)
+    │   │   ├── index/               # update_index.py split (parse, build, render, db, graph, models, cli)
+    │   │   ├── merge/               # vault_merge.py split (scan, lookup, preview, frontmatter, ai_helpers, display, index)
     │   │   ├── search/              # vault_search.py split (embeddings, metadata, format)
-    │   │   └── stats/               # vault_stats.py split (health, rollups, dashboard, operations)
+    │   │   └── stats/               # vault_stats.py split (health, rollups, dashboard, operations, graph, overview, summary, cli)
     │   ├── vault_common.py          # Re-export facade over core/ (ARC-004/ARC-005)
     │   ├── vault_config.py          # Thin shim → core/vault_config.py
     │   ├── vault_path.py            # Thin shim → core/vault_path.py
@@ -1655,20 +1661,23 @@ stateDiagram-v2
 
 > **Optional:** The graph view requires [Obsidian](https://obsidian.md/). It is not needed for any core functionality.
 
-The graph view uses domain-based color groups configured in `.obsidian/graph.json`. Since Obsidian applies **first-match-wins** coloring and 57% of vault notes have multiple tags, colors represent semantic categories rather than individual tags.
+The graph view uses domain-based color groups configured in `.obsidian/graph.json`. Since Obsidian applies **first-match-wins** coloring and roughly two-thirds of vault notes carry multiple tags, colors represent semantic categories rather than individual tags.
 
 ### Color Groups (Priority Order)
 
-| Priority | Category | Color | Hex | Tags |
+Each group's query matches many tags; the samples below are representative, and `.obsidian/graph.json` holds the full tag lists.
+
+| Priority | Category | Color | Hex | Sample tags |
 |----------|----------|-------|-----|------|
-| 1 | Projects | Cyan | `#00BCD4` | synknot, fractal-flythroughs, parvitar, parsistant, termflix, parvault, cctmux, parsidion |
-| 2 | Debugging | Red/Orange | `#FF5722` | debugging |
-| 3 | Patterns | Green | `#4CAF50` | memory, migration, sync |
-| 4 | Research | Purple | `#9C27B0` | research, e2b, qdrant, pkm-apps-comparison |
-| 5 | Tools & SDKs | Blue | `#2196F3` | claude-code, claude-agent-sdk, claude, rich, mcp, ollama, maturin, redis, websockets, sentry, mermaid-cli, custom-tools, acp-protocol, tool, api, encryption |
-| 6 | Languages | Amber | `#FFC107` | rust, python, swift, swiftui, typescript, nextjs, react, macos, macos-26, rust-packages |
-| 7 | Terminal | Teal | `#009688` | terminal, par-term, par-term-emu-core-rust |
-| 8 | Graphics / 3D | Pink | `#E91E63` | wgpu, sdf, sdf-terrain, voxel, fractals, mandel, vrm, avatar, face-tracking |
+| 1 | Projects | Cyan | `#00BCD4` | synknot, parvitar, parsistant, termflix, parvault, parsidion-cc, cctmux, par-ai-core, pkm, vault |
+| 2 | Debugging | Red/Orange | `#FF5722` | debugging, error-handling, error-fix, lock-contention, circuit-breaker |
+| 3 | Patterns | Green | `#4CAF50` | memory, migration, sync, architecture, pattern, automation, pipeline, config |
+| 4 | Research | Purple | `#9C27B0` | research, qdrant, vector-database, fastembed, knowledge-graph, graph, bm25, clustering |
+| 5 | Tools & SDKs | Blue | `#2196F3` | claude-code, claude, claude-sdk, rich, mcp, ollama, maturin, redis, sentry, mermaid-cli, api, encryption |
+| 6 | Languages | Amber | `#FFC107` | rust, python, swift, swift-ui, typescript, next-js, react, macos, macos-26, rust-packages |
+| 7 | Terminal | Teal | `#009688` | terminal, tmux, par-term, par-term-emu-core-rust, tui, vte, pty |
+| 8 | Graphics / 3D | Pink | `#E91E63` | wgpu, sdf, sdf-terrain, voxel, fractal, mandel, vrm, avatar, face-tracking, gaussian-splatting |
+| 9 | Daily | Orange | `#FF8000` | daily |
 
 Nodes with no matching tags remain the default gray. The priority order means a debugging note tagged with a project name appears as Cyan (project), since project membership is the highest-priority grouping. RGB colors are stored as decimal integers in `graph.json` (e.g., `int("FF5722", 16)` → `16733986`).
 

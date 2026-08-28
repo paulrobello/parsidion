@@ -64,10 +64,10 @@ note for a given query against this specific vault?**
 `tools/eval/` also holds the sibling **prompt-eval harness** (`prompt_eval_run.py` plus the
 per-prompt `evaluators/` package), which scores Parsidion's six externalized AI prompts against
 golden cases under `tests/fixtures/prompts/golden/<prompt>/`. The two harnesses share conventions
-(PEP 723 scripts, Rich tables, timestamped JSON results under `tools/eval/results/`) but answer
-different questions: this one benchmarks **retrieval quality** (which embedding + chunking combo
-best surfaces a note); the prompt-eval harness scores **prompt quality**. See
-[PROMPTS.md](PROMPTS.md) for the latter.
+(PEP 723 scripts, Rich tables, timestamped JSON results — under `tools/eval/results/` for the
+prompt-eval harness, in the vault root for this one) but answer different questions: this one
+benchmarks **retrieval quality** (which embedding + chunking combo best surfaces a note); the
+prompt-eval harness scores **prompt quality**. See [PROMPTS.md](PROMPTS.md) for the latter.
 
 The harness is split across five modules:
 
@@ -372,8 +372,9 @@ This is the **current production approach** used by `build_embeddings.py`.
 **Strategy name:** `paragraph`
 
 The note body is split on two or more consecutive newlines (`\n\n+`). Each paragraph is embedded
-separately with the note title prepended as context. A note is considered a match if **any** of its
-paragraph chunks ranks in the top-K results.
+separately with the note title prepended as context (each chunk capped at 1500 characters; a note
+with no paragraph breaks falls back to a single whole-note chunk). A note is considered a match if
+**any** of its paragraph chunks ranks in the top-K results.
 
 - Multiple vectors per note (one per paragraph)
 - Better precision for notes covering multiple distinct techniques
@@ -385,7 +386,8 @@ paragraph chunks ranks in the top-K results.
 
 The full note text (title + tags + body) is concatenated into a single string, then segmented into
 overlapping windows of SIZE characters with OVERLAP characters of context carried over between
-windows. A note matches if any window ranks in the top-K results.
+windows (a note shorter than one window becomes a single chunk). A note matches if any window
+ranks in the top-K results.
 
 Common configurations:
 

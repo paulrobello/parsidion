@@ -61,8 +61,8 @@ Held by `AgentAdapter.install`; a standalone frozen dataclass so the installer h
 ### Deprecated flat read-properties
 
 The eleven `InstallerSpec` field names survive on `AgentAdapter` as **read-only properties** that
-delegate to `install` (returning each field's old default — `None`/`""`/`{}` — when `install` is
-`None`). This is a one-release compat shim so `adapter.event_scripts`,
+delegate to `install` (returning each field's old default — `None`/`""`/`{}`/`0`/`"s"` — when
+`install` is `None`). This is a one-release compat shim so `adapter.event_scripts`,
 `adapter.instructions_filename`, … keep reading correctly at unchanged call sites; setting any of
 them raises `AttributeError`. New code should read `adapter.install.<field>` (and construct via
 `install=InstallerSpec(...)`).
@@ -106,7 +106,7 @@ effects at zero):
 | `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`. Timeout in **seconds**. |
 | `gemini` | `~/.gemini/settings.json` | `install()`/`uninstall()` | Generic core. Requires per-event `name`; timeout in **ms**. |
 | `pi` | none | `connect pi` runs `scripts/install-pi-extension` | Extension-only: ships a TypeScript extension that shells out to claude's hook scripts at runtime (preferring `uv run --no-project`). |
-| `omp` | none | `connect omp` runs `scripts/install-pi-extension --extension-dir <omp-home>/agent/extensions` | Extension-only, same source as pi. omp resolves its agent dir from `$PI_CONFIG_DIR` (default `~/.omp`); `--omp-home` overrides. omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every event it uses; subagent capture is a no-op under omp (no `subagent:result` messages). |
+| `omp` | none | `connect omp` runs `scripts/install-pi-extension --extension-dir <omp-home>/agent/extensions --agent-name omp` | Extension-only, same source as pi. omp resolves its agent dir from `$PI_CONFIG_DIR` (default `~/.omp`); `--omp-home` overrides. omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every event it uses; subagent capture is a no-op under omp (no `subagent:result` messages). |
 
 ## Adding a runtime
 
@@ -154,7 +154,9 @@ Loading arbitrary Python is **code execution**, so three guards (mirroring the S
 `codex_cli.command`):
 
 1. **Off by default.** `adapters.load_external` is `false` unless explicitly set.
-2. **Permission check.** Each file is refused if it is group- or world-writable.
+2. **Permission check.** The adapters directory itself and each `*.py` file must pass the full
+   SEC-007 trust check (`vault_fs.is_trusted_executable`): owned by the current user, with no
+   group- or world-writable bits (SEC-205 — planting a module only needs write access to the dir).
 3. **Load-time logging.** Every externally-loaded adapter (and every refusal/failure) is logged to
    stderr by path.
 

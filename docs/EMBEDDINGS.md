@@ -72,14 +72,15 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 
 `vault_common.py` has been split into focused sub-modules (ARC-005): `vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, and `vault_adaptive`. The original module remains as a re-export facade so all existing `import vault_common` calls continue to work. `vault_search.py` followed the same pattern: its embeddings backend, metadata query, and output formatters live in the `cli.search` package (`cli/search/embeddings.py`, `cli/search/metadata.py`, `cli/search/format.py`), with `vault_search.py` remaining as the CLI entry point and re-export shim for Python callers.
 
-`embeddings.db` is a single SQLite file that stores two tables:
+`embeddings.db` is a single SQLite file that stores two tables plus one virtual table:
 
 | Table | Populated by | Purpose |
 |-------|-------------|---------|
 | `note_embeddings` | `build_embeddings.py` | 384-dim float32 vectors with metadata (stem, path, folder, title, tags, mtime) for cosine similarity search |
 | `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, date, staleness, incoming links) for indexed queries |
+| `note_vec` | `build_embeddings.py` | sqlite-vec `vec0` virtual table (cosine-distance KNN mirror of `note_embeddings`, ENH-022) used to resolve query candidates without a full-table scan |
 
-Both tables are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` has not run yet.
+All three are created on first open: `build_embeddings.py` calls `vault_common.ensure_note_index_schema()` and `ensure_note_vec_schema()` in `open_db()`, so the schema is guaranteed even if `update_index.py` has not run yet.
 
 ```mermaid
 graph TB
@@ -97,7 +98,7 @@ graph TB
     end
 
     subgraph "Storage"
-        DB[(embeddings.db<br/>note_embeddings + note_index)]
+        DB[(embeddings.db<br/>note_embeddings + note_index + note_vec)]
     end
 
     subgraph "Search Layer"
@@ -149,7 +150,7 @@ graph TB
 
 **Data flow:**
 
-1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and upserts the vector into `note_embeddings` via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
+1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and dual-writes the vector into `note_embeddings` and the `note_vec` vec0 KNN mirror via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
 3. `vault_search.py`'s `search()` function routes a semantic query according to the `search.backend` config key (default `auto`): when parsight is installed and its daemon is healthy, the query is served by parsight's hybrid BM25+vector+graph retrieval; otherwise it loads the same `fastembed` model, encodes the query, and runs a `vec0` KNN lookup against the `note_vec` index via `sqlite-vec` (falling back to an exact cosine scan of `note_embeddings` on databases without a synced index), returning ranked results as a JSON array. Both backends return identically shaped result dicts. When `decay_enabled` is `true` (the default), raw cosine scores from the embeddings backend are multiplied by an exponential decay factor based on note age, so newer notes rank higher. (`min_score` gates only the embeddings backend; parsight RRF scores are rank-fusion values and gate by rank/`top` instead.) `vault_search.py` also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model, and a `--grep` body-search mode — neither involves a backend choice.
 4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking. The facade also re-exports `load_graph_metadata()` and `parse_related_stems()`, which read the `related`/`incoming_links`/`tags` columns to drive the session start hook's graph retrieval passes.
@@ -187,12 +188,13 @@ CREATE TABLE note_index (
     is_stale       INTEGER NOT NULL DEFAULT 0,
     incoming_links INTEGER NOT NULL DEFAULT 0,
     date           TEXT    NOT NULL DEFAULT '',     -- YYYY-MM-DD from frontmatter (lexicographically sortable)
-    prompt_version TEXT    NOT NULL DEFAULT ''      -- prompt version that produced an AI-generated note (ENH-008)
+    prompt_version TEXT    NOT NULL DEFAULT '',     -- prompt version that produced an AI-generated note (ENH-008)
+    incoming_stems TEXT    NOT NULL DEFAULT ''      -- JSON array of source stems linking to this note (ENH-021)
 );
 -- Secondary indexes: idx_ni_folder, idx_ni_note_type, idx_ni_project, idx_ni_mtime, idx_ni_tags, idx_ni_date
 ```
 
-The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The `prompt_version` column records which summarizer prompt version produced an AI-generated note, so note quality can be sliced by prompt. Both schema migrations (`ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''` and the matching `prompt_version` addition) run automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open.
+The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The `prompt_version` column records which summarizer prompt version produced an AI-generated note, so note quality can be sliced by prompt. The `incoming_stems` column holds the reverse-link adjacency — a JSON array of source stems that link to the note, inverted from every note's outgoing `related` links at index time — and drives the session start hook's graph retrieval. All three schema migrations (`ALTER TABLE note_index ADD COLUMN date ...`, the matching `prompt_version` addition, and the `incoming_stems` addition) run automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open. `incoming_stems` is empty on pre-ENH-021 rows until the next index rebuild; readers treat empty as "not populated" and fall back to deriving the inversion from `related`.
 
 ### Querying via CLI
 
@@ -621,9 +623,9 @@ each new vault note is written.
 
 The function `vault_links.find_related_by_semantic()` calls `vault_search.search()` in-process
 (ENH-003: it shares the process-cached embedding model instead of spawning `vault_search.py` as a
-subprocess on every note), passing the new note's title and tags as the query. Any returned notes
-with a score above `embeddings.min_score` are injected as bidirectional wikilinks in the `related`
-frontmatter field.
+subprocess on every note), passing the new note's stem (hyphens replaced by spaces) and tags as
+the query. Any returned notes with a score above `embeddings.min_score` are injected as
+bidirectional wikilinks in the `related` frontmatter field.
 
 If the semantic search returns no results (or if `embeddings.db` is absent), the summarizer falls
 back to `vault_links.find_related_by_tags()`, which performs the existing tag-overlap scan. The two
@@ -813,10 +815,12 @@ For a personal vault this is not a bottleneck.
 
 ### Database not found
 
-**Symptom:** `vault_search.py` exits with an error referencing a missing `embeddings.db`, or the
-session start hook silently loads fewer notes than expected.
+**Symptom:** `vault_search.py` prints `embeddings.db not found — run build_embeddings.py first`
+to stderr (and exits without results), or the session start hook silently loads fewer notes than
+expected.
 
-**Cause:** The index has not been built yet, or `embeddings.db` was deleted.
+**Cause:** The index has not been built yet, or `embeddings.db` was deleted — and parsight is not
+installed or not serving retrieval for the query.
 
 **Fix:**
 

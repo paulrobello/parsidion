@@ -216,9 +216,11 @@ The default vault structure:
 
 ```text
 ~/ParsidionVault/            # Or legacy ~/ClaudeVault/ when upgrading
-  CLAUDE.md                  # Auto-generated index (tag cloud + Existing Tags list)
+  CLAUDE.md                  # Auto-generated lean index (stats, conventions, recent activity)
+  TAGS.md                    # Auto-generated tag cloud for summarizer tag reuse
   config.yaml                # Optional -- hook/summarizer settings (see Configuration)
   pending_summaries.jsonl    # Queue of sessions awaiting AI summarization
+  dead_letters.jsonl         # Sessions that repeatedly failed summarization (gitignored)
   embeddings.db              # SQLite: note embeddings + note_index metadata
   hook_events.log            # Structured JSON log of hook executions
   graph.json                 # Pre-built knowledge graph for the visualizer (gitignored)
@@ -461,6 +463,7 @@ search:                # backend: auto | parsight | embeddings | none
 git:                   # auto_commit
 event_log:             # enabled, max_lines, path
 adaptive_context:      # enabled, decay_days
+transcripts:           # tail_lines, tail_bytes, max_line_bytes (transcript reading)
 vault:                 # username (Daily/YYYY-MM/DD-{username}.md suffix)
 adapters:              # load_external (opt-in ~/.config/parsidion/adapters/*.py drop-ins, ENH-006)
 ```
@@ -497,7 +500,7 @@ vault-stats --summary --vault personal
 
 The vault supports optional git version control. When `<resolved vault>/.git` exists, scripts automatically stage and commit changes after every write (daily notes, index rebuilds, session notes). Controlled by `git.auto_commit` in config.
 
-The installer initialises the vault as a git repo on first install and writes a `.gitignore` covering every machine-local and secret-bearing file: `.obsidian/`, `embeddings.db`, `pending_summaries.jsonl`, `dead_letters.jsonl`, `hook_events.log`, `graph.json`, `summarizer_state.json`, `doctor_state.json`, and (since 0.12.0) `config.yaml` / `config.local.yaml` so API keys never enter git history. The auto-commit pathspec explicitly skips the vault-root `config.yaml`. Do **not** overwrite the installer-managed `.gitignore` with `echo "..." > .gitignore` — that truncates the protective list and lets `git add -A` stage secrets. Append with `>>` if you need extra entries.
+The installer initialises the vault as a git repo on first install and writes a `.gitignore` covering machine-local and secret-bearing files, including: `.obsidian/`, `embeddings.db`, `pending_summaries.jsonl`, `dead_letters.jsonl`, `hook_events.log`, `graph.json`, `summarizer_state.json`, `doctor_state.json`, `conflicts/`, and (since 0.12.0) `config.yaml` / `config.local.yaml` so API keys never enter git history. The auto-commit pathspec explicitly skips the vault-root `config.yaml`. Do **not** overwrite the installer-managed `.gitignore` with `echo "..." > .gitignore` — that truncates the protective list and lets `git add -A` stage secrets. Append with `>>` if you need extra entries.
 
 ```bash
 cd ~/ParsidionVault
@@ -524,8 +527,10 @@ If no `.git` directory is present, all git operations are silent no-ops.
   CLAUDE-VAULT.md                    # Always-on vault-first guidance (installed by parsidion)
   settings.json                      # Hooks, permissions, plugins
   agents/
-    research-agent.md  # Research agent (vault-integrated)
+    research-agent.md                # Research agent (vault-integrated)
     vault-explorer.md                # Read-only Haiku vault search agent (7-step)
+    project-explorer.md              # Read-only project note writer (architecture recaps)
+    vault-deduplicator.md            # Near-duplicate note scan/merge orchestrator
   skills/parsidion/
     SKILL.md                         # Vault skill definition
     scripts/                         # Hook scripts, utilities, and html-to-md.py
@@ -539,7 +544,7 @@ If no `.git` directory is present, all git operations are silent no-ops.
 
 ## Usage
 
-The vault ships eleven CLIs and scripts. The full command-by-command reference (every `vault-stats` mode, every `vault-doctor` flag, every `vault-merge`/`vault-conflicts`/`vault-export` option, the `VAULT_SEARCH_*` env-var table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands) lives in a dedicated guide:
+The vault ships seven global CLI tools (installed by `--install-tools`) plus the maintenance scripts under `skills/parsidion/scripts/`. The full command-by-command reference (every `vault-stats` mode, every `vault-doctor` flag, every `vault-merge`/`vault-conflicts`/`vault-export` option, the `VAULT_SEARCH_*` env-var table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands) lives in a dedicated guide:
 
 ➜ **[docs/USAGE.md](docs/USAGE.md)**
 

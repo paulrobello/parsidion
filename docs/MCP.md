@@ -150,7 +150,7 @@ uv tool install --editable .
 
 `uv tool install` places the `parsidion-mcp` binary in `~/.local/bin/` (or the equivalent `uv` tool bin directory on your platform).
 
-> **📝 Note:** On the first `vault_search` call with a query, `fastembed` downloads the configured ONNX embedding model and caches it. This initial download can take 30–60 seconds. Subsequent calls are fast. If the embeddings database does not yet exist, the tool returns a clear error message prompting you to run `rebuild_index` first.
+> **📝 Note:** On the first `vault_search` call with a query, `fastembed` downloads the configured ONNX embedding model and caches it. This initial download can take 30–60 seconds. Subsequent calls are fast. If the embeddings database does not yet exist and parsight is unavailable, the tool raises a clear error message prompting you to run `rebuild_index` first.
 
 ### Verify Installation
 
@@ -192,8 +192,8 @@ All tools return plain strings on success. On failure, tools raise typed excepti
 | Content exceeds 10 MB (`vault_write`) | `VaultToolError` | `Content exceeds 10 MB limit` |
 | Non-.md path (`vault_read`) | `VaultToolError` | `Only .md files are readable` |
 | Non-.md extension (`vault_write`) | `VaultToolError` | `Only .md files are allowed` |
-| Hidden path segment (`vault_read`) | `VaultToolError` | `Hidden paths are not readable` |
-| Excluded top-level directory (`vault_read`) | `VaultToolError` | `Excluded directory: <dir>` |
+| Hidden path segment (`vault_read` / `vault_write`) | `VaultToolError` | `Hidden paths are not readable` / `Hidden paths are not writable` |
+| Excluded top-level directory (`vault_read` / `vault_write`) | `VaultToolError` | `Excluded directory: <dir>` |
 | Embeddings DB missing and parsight unavailable (semantic search) | `ValueError` | `embeddings DB not found and parsight unavailable -- run rebuild_index first, or install/start parsight` |
 | parsight unavailable (`code_search`) | `ValueError` | `parsight unavailable -- install parsight and start its daemon (see docs/PARSIGHT.md)` |
 | `code_search` repo_path missing | `ValueError` | `repo_path does not exist: <path>` |
@@ -205,7 +205,7 @@ All tools return plain strings on success. On failure, tools raise typed excepti
 
 Searches vault notes using semantic vector similarity or structured metadata filtering.
 
-**Semantic mode** activates when `query` is provided. It calls the fastembed cosine similarity search against `embeddings.db`, transparently falling back to the parsight backend when it is available and has indexed the vault (configurable via the `search.backend` config key; default `auto`). **Metadata mode** activates when `query` is omitted; it runs a SQL query against the `note_index` table filtered by whichever metadata parameters are supplied.
+**Semantic mode** activates when `query` is provided. It is served by the parsight backend when parsight is available and has indexed the vault, silently falling back to the local fastembed cosine similarity search against `embeddings.db` otherwise (configurable via the `search.backend` config key; default `auto`). **Metadata mode** activates when `query` is omitted; it runs a SQL query against the `note_index` table filtered by whichever metadata parameters are supplied.
 
 #### Parameters
 
@@ -255,7 +255,7 @@ Reads a vault note by path and returns its full content including YAML frontmatt
 
 Full note content as a string. Raises `VaultToolError` if the path escapes the vault root, the note does not exist, or an OS error occurs.
 
-Reads are restricted to markdown notes (SEC-008), mirroring the write rules: the path must end in `.md`, must not contain any dot-segment (`.git/config`, `.trash/...`), and must not live under an excluded top-level directory (`Templates`, `TagsRoutes`). Files over 10 MB are refused, and non-UTF-8 (binary) content raises `VaultToolError("not a text note")` — so configuration files such as `config.yaml`, `config.local.yaml`, and `pending_summaries.jsonl` are not readable through this tool.
+Reads are restricted to markdown notes (SEC-008). Reads and writes share one segment gate (SEC-201): the path must end in `.md`, must not contain any dot-segment (`.git/config`, `.trash/...`), and must not live under an excluded top-level directory (`Templates`, `TagsRoutes`). Files over 10 MB are refused, and non-UTF-8 (binary) content raises `VaultToolError("not a text note")` — so configuration files such as `config.yaml`, `config.local.yaml`, and `pending_summaries.jsonl` are not readable through this tool.
 
 #### Example
 
@@ -284,6 +284,7 @@ The tool does not validate frontmatter. The caller is responsible for supplying 
 
 - Content must not exceed 10 MB (enforced before any file system write)
 - Only `.md` file extensions are allowed
+- Hidden path segments (dot-prefixed files or directories such as `.git/`, `.trash/`) and excluded top-level directories (`Templates`, `TagsRoutes`) are rejected — the same segment gate `vault_read` enforces (SEC-201), so writes cannot land in `.trash/backup/` pre-mutation backups or `.obsidian/`
 
 #### Return Value
 
@@ -387,15 +388,15 @@ rebuild_index()
 
 ### vault_doctor
 
-Scans all vault notes for structural issues — missing frontmatter fields, invalid note types, broken wikilinks, orphan notes, and similar problems. Optionally repairs repairable issues using Claude haiku.
+Scans all vault notes for structural issues — missing frontmatter fields, invalid note types, broken wikilinks, orphan notes, and similar problems. Optionally repairs repairable issues using the configured prompt AI backend (`claude -p` by default; `codex exec` or `grok` per the `ai.backend` config key).
 
-> **Note:** When `fix=True`, `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — the same behaviour as running `vault_doctor.py` manually from the terminal. The MCP server passes through `--fix`, `--errors-only`, and `--limit`; all other flags use the script's defaults.
+> **Note:** When `fix=True`, `vault_doctor.py` itself invokes the configured prompt AI backend for repairs (`claude` by default, using the system's existing credentials) — the same behaviour as running `vault_doctor.py` manually from the terminal. The MCP server passes through `--fix`, `--errors-only`, and `--limit`; all other flags use the script's defaults.
 
 #### Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `fix` | `bool` | `False` | When `True`, attempt repairs via Claude haiku; when `False`, scan and report only |
+| `fix` | `bool` | `False` | When `True`, attempt repairs via the configured prompt AI backend; when `False`, scan and report only |
 | `errors_only` | `bool` | `False` | When `True`, suppress warnings and report errors only |
 | `limit` | `int \| None` | `None` | Maximum notes to repair (only relevant when `fix=True`) |
 | `vault` | `str \| None` | `None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
@@ -428,7 +429,7 @@ vault_doctor(fix=True, errors_only=True)
 
 Returns the composite vault health report as JSON (ENH-007). Eight scored dimensions — index freshness, queue health, graph connectivity, metadata quality, embedding coverage, tag hygiene, file hygiene, and hook latency (ENH-019) — are combined into a weighted overall grade. Each dimension carries a concrete `action` command when unhealthy, or `null` when healthy.
 
-Read-only: the tool never mutates the vault. It subprocesses `vault-stats --health --json` so the import and subprocess layers see the same code (the same pattern used by `rebuild_index` and `vault_doctor`).
+Read-only: the tool never mutates the vault. It subprocesses `vault_stats.py --health --json` via `uv run --no-project` so the import and subprocess layers see the same code (the same pattern used by `rebuild_index` and `vault_doctor`).
 
 #### Parameters
 
@@ -497,9 +498,9 @@ The tool first calls `parsight_backend.resolve_parsight_backend()`. If parsight 
 
 `parsidion-mcp` enforces two security boundaries.
 
-**Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against the vault root (obtained via `vault_common.resolve_vault()`) using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — raises `VaultToolError("path escapes vault root")` immediately. No file system access occurs for rejected paths.
+**Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against the vault root (obtained via `vault_common.resolve_vault()`) using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — raises `VaultToolError("path escapes vault root")` immediately. No file system access occurs for rejected paths. On `vault_write`, containment and the segment gate are re-run against the fully resolved path after parent-directory creation, and the leaf file is opened with `O_NOFOLLOW`, so a vault-internal symlink swap between validation and the write cannot redirect the bytes (SEC-P003).
 
-**No external network calls.** The server and all eight tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself contacts the Claude API using the system's existing Claude credentials — this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local parsight daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
+**No external network calls.** The server and all eight tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself invokes the configured prompt AI backend — `claude` by default, or `codex`/`grok` per the `ai.backend` config key — using the system's existing credentials; this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local parsight daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
 
 The server has no authentication layer of its own because it is transport-bound to stdio. Only Claude Desktop (or another local process with stdio access) can communicate with it.
 
@@ -553,3 +554,5 @@ The `parsidion[search]` editable path dependency (declared in `pyproject.toml` u
 ## Related Documentation
 
 - [CLAUDE.md](../CLAUDE.md) — project instructions, vault conventions, hook architecture, and script paths
+- [PARSIGHT.md](PARSIGHT.md) — the optional parsight code-memory backend that serves `code_search` and vault semantic search when available
+- [MULTI_VAULT.md](MULTI_VAULT.md) — named vaults, `vaults.yaml`, and the per-call `vault` parameter every tool except `code_search` accepts

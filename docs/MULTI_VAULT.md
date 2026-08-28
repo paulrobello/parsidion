@@ -28,7 +28,7 @@ Use `--create-vaults-config` to generate a vaults configuration file:
 uv run install.py --create-vaults-config
 ```
 
-This creates `~/.config/parsidion/vaults.yaml` (the location honors `$XDG_CONFIG_HOME`) with commented examples. Edit it to register each vault's name and path:
+This creates `~/.config/parsidion/vaults.yaml` with commented examples. Edit it to register each vault's name and path. At lookup time the registry is read through `get_vaults_config_path()` in `core/vault_path.py`, which honors `$XDG_CONFIG_HOME` and falls back to `~/.config`:
 
 ```yaml
 vaults:
@@ -39,11 +39,11 @@ vaults:
 
 Each name is then accepted wherever a vault reference is: the `--vault` flag, the `CLAUDE_VAULT` environment variable, or a project's `.claude/vault` file.
 
-Installing to a custom path also registers the vault: `uv run install.py --vault ~/WorkVault` records the path as a named entry plus a top-level `default:` line, so subsequent runtime resolution (order in [Default Vault Resolution](#default-vault-resolution)) lands on that vault with no extra env var. The uninstaller reads the same line to locate that vault.
+Installing to a custom path also registers the vault: `uv run install.py --vault ~/WorkVault` records the path as a named entry (named after the directory stem, e.g. `WorkVault`) plus a top-level `default:` line, so subsequent runtime resolution (order in [Default Vault Resolution](#default-vault-resolution)) lands on that vault with no extra env var. The uninstaller reads the same line to locate that vault.
 
 ## Using Multiple Vaults
 
-All vault tools support a `--vault` flag to specify the target vault:
+All vault tools accept a `--vault` flag specifying the target vault; every tool except the two path-only scripts at the end of the table below also accepts the short form `-V`:
 
 ```bash
 # Search in a specific vault
@@ -83,6 +83,8 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault w
 
 The `vault-*` names are global commands installed by `uv tool install --editable ".[tools]"`. The rest are scripts run via `uv run --no-project ~/.claude/skills/parsidion/scripts/<name>.py`.
 
+Two hosted surfaces are vault-aware as well: every `parsidion-mcp` tool except `code_search` takes an optional per-call `vault` argument (a name from `vaults.yaml` or an absolute path), and the visualizer resolves named vaults from the same registry, honoring the `VAULT_ROOT` environment override for its default. See [MCP.md](MCP.md) and [VISUALIZER.md](VISUALIZER.md).
+
 ## Vault-Aware Hooks
 
 Hooks take no `--vault` flag. Each one resolves its vault with the order in [Default Vault Resolution](#default-vault-resolution), using the session's project directory as the lookup context. To bind a project to a specific vault, write the vault name (or a registered path) into a `.claude/vault` file at the project root:
@@ -117,4 +119,6 @@ When no explicit vault is specified, tools use this resolution order:
 
 - [VAULT_SYNC.md](VAULT_SYNC.md) — Multi-machine and team vault sync via git
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture and configuration reference
+- [MCP.md](MCP.md) — MCP server tools and their per-call `vault` argument
+- [VISUALIZER.md](VISUALIZER.md) — Visualizer vault resolution and named-vault setup
 - [README.md](../README.md) — Project overview, installation, and quick start

@@ -70,7 +70,7 @@ uv run install.py connect omp
 uv run install.py disconnect omp
 ```
 
-The extension lands in `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; override with `install.py connect omp --omp-home <dir>`). omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`). omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. Verified against omp 17.3.8 (0.19.0 release notes).
+The extension lands in `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; override with `install.py connect omp --omp-home <dir>`). omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`). omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. Verified against the installed omp (`@oh-my-pi/pi-coding-agent` 18.x) extension API: all six bound events are declared in its type definitions, and no `subagent:result` message type exists in the package.
 
 ## Effective Anthropic / GLM Configuration
 

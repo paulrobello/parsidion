@@ -36,9 +36,10 @@ mkdir -p ~/.pi/agent/extensions/lib
 cp extensions/pi/parsidion/parsidion.ts ~/.pi/agent/extensions/parsidion.ts
 cp extensions/pi/parsidion/parsidion.md ~/.pi/agent/extensions/parsidion.md
 cp extensions/pi/parsidion/lib/parsidion-status.ts ~/.pi/agent/extensions/lib/parsidion-status.ts
+cp extensions/pi/parsidion/lib/scriptRunner.ts ~/.pi/agent/extensions/lib/scriptRunner.ts
 ```
 
-The third copy is required: `parsidion.ts` imports `./lib/parsidion-status`, so omitting `lib/parsidion-status.ts` produces a broken extension that fails to load.
+The lib copies are required: `parsidion.ts` imports `./lib/parsidion-status` and `./lib/scriptRunner`, so omitting either lib file produces a broken extension that fails to load.
 
 If the extension cannot find Parsidion scripts automatically, set one of:
 
@@ -105,9 +106,9 @@ The extension looks for Parsidion scripts in this order:
 
 1. `PARSIDION_SCRIPTS_DIR`
 2. `PARSIDION_DIR/skills/parsidion/scripts`
-3. `../parsidion/skills/parsidion/scripts`
-4. `../parsidion/scripts`
-5. `~/.claude/skills/parsidion/scripts`
+3. `~/.claude/skills/parsidion/scripts`
+
+Candidates are deliberately free of cwd-relative entries (SEC-003): repo-local development uses `PARSIDION_SCRIPTS_DIR` or `PARSIDION_DIR` instead.
 
 ## Commands
 
@@ -136,7 +137,7 @@ Anthropic / GLM status reports these keys when present:
 Precedence per key:
 
 1. real environment variable
-2. `~/ClaudeVault/config.yaml` → `anthropic_env`
+2. vault `config.yaml` → `anthropic_env` (vault resolved via `CLAUDE_VAULT`, else `~/ParsidionVault`, with `~/ClaudeVault` as legacy fallback)
 3. unset
 
 Secret values such as `ANTHROPIC_AUTH_TOKEN` are masked in status output.

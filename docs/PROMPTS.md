@@ -61,7 +61,7 @@ The frontmatter fields:
 | `version`     | yes      | Semantic version (see [Version Bump Rules](#version-bump-rules)). |
 | `variables`   | yes      | Declared variable names; enforced bidirectionally (see below). |
 | `syntax`      | no       | `format` (default, `str.format`-style) or `template` (`string.Template`). |
-| `description` | yes      | One-line summary for docs and the `--prompt` chooser.         |
+| `description` | yes      | One-line summary for docs; asserted non-empty by the loader test. |
 
 ### The Strict Variable Contract
 
@@ -177,14 +177,15 @@ A result file is written to `tools/eval/results/prompt-eval-<id>-<timestamp>.jso
 - Prints the **projected AI call count** before starting and asks for confirmation when it
   reaches the threshold (default 12 uncached calls; override with `--yes`).
 - **Caches** each case's result keyed by `(prompt_id, version, model, case_id)` under
-  `~/.cache/parsidion/prompt-eval/`, so re-running after editing one case does not re-bill the
-  rest.
+  `~/.cache/parsidion/prompt-eval/` (`$XDG_CACHE_HOME` is honored), so re-running after editing
+  one case does not re-bill the rest.
 
 ### Result Caching
 
 Each cached result is a JSON file named
-`<prompt_id>-<version>-<model>-<case_id>-<hash>.json`. Delete the cache directory to force a
-full re-run, or pass `--no-cache` for a single uncached run.
+`<prompt_id>-<version>-<model>-<case_id>-<hash>.json` (`default` when `--model` is unset).
+Delete the cache directory to force a full re-run, or pass `--no-cache` for a single uncached
+run.
 
 ## Adding a Golden Case
 
@@ -205,7 +206,8 @@ the prompt's render variables, named `<stem>.<variable>.md`:
 | `repair-frontmatter`| `<stem>.content.md` (other vars derived from `expected.yaml`)    |
 | `detect-conflicts`  | `<stem>.note_block.md`                                           |
 
-The expected YAML fields:
+Each prompt scores a different field set in its expected file; the
+`summarize-session` shape (the one the rubric above exercises) is:
 
 ```yaml
 should_produce_note: true          # the write-gate decision the case expects
@@ -216,6 +218,16 @@ must_mention: ["WAL", "inode"]     # substrings the note body must contain
 frontmatter_valid: true            # whether the frontmatter should parse
 related_links_min: 1               # minimum [[wikilink]] count in 'related'
 ```
+
+The other prompts' expected fields:
+
+| Prompt               | Fields                                                           |
+|----------------------|------------------------------------------------------------------|
+| `summarize-chunk`    | `sentence_min`, `sentence_max`, `must_mention`                   |
+| `select-notes`       | `must_select`, `must_not_select` (render vars come from it too)  |
+| `merge-notes`        | `title`, `must_mention_a`, `must_mention_b`, `must_not_duplicate`|
+| `repair-frontmatter` | `rel`, `issues`, `expected_type`, `must_mention`                 |
+| `detect-conflicts`   | `expected_conflicts`, `expect_empty`                             |
 
 Aim for 8-12 cases spanning the distribution the summarizer actually sees: debugging sessions,
 refactors, transient runs that should be skipped, knowledge distillation, research, tool
