@@ -30,7 +30,7 @@ eval = [
 # is never pulled in by `make install` or `uv sync --group dev`. Materialized
 # on demand by the Makefile via `uv run --extra docs`.
 docs = [
-    "pdoc>=14.0.0",
+    "pdoc>=16.0.0",
 ]
 
 [project.scripts]
@@ -201,7 +201,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-timeout>=2.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.16.4",
+    "ruff>=0.16.5",
     "pyright>=1.1.411",
     "rich>=15.0.0",
 ]
