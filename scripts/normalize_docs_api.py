@@ -224,6 +224,18 @@ def build_scrub_rules(repo_roots: list[str], homes: list[str]) -> list[Rule]:
         )
     for needle in homes:
         rules.append(_regex_rule(re.compile(re.escape(needle.encode())), HOME_TOKEN))
+    # typedoc "Defined in" URLs for base types resolved through node_modules
+    # (e.g. Error from the TS lib) embed the installer's node_modules layout:
+    # a hoisted bun install emits lib/../node_modules/typescript/lib/... while
+    # an isolated store emits node_modules/.bun/typescript@X/node_modules/....
+    # Collapse any hop through node_modules onto one canonical URL so the
+    # committed snapshot is layout-independent.
+    rules.append(
+        _regex_rule(
+            re.compile(rb'(blob/main/)[^"\'<>#\s]*node_modules/'),
+            rb"\1node_modules/",
+        )
+    )
     rules.append(_regex_rule(_TOGGLE_INPUT_RE, b""))
     rules.append(_regex_rule(_TOGGLE_LABEL_RE, b""))
     rules.append(_regex_rule(_DEFAULT_VALUE_LEN_RE, b'"default_value": 1'))

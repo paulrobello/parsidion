@@ -265,6 +265,31 @@ def test_toggle_markup_stripped() -> None:
     assert run_python(src) == b"tail\n"
 
 
+def test_typedoc_node_modules_hops_canonicalized() -> None:
+    """typedoc "Defined in" URLs through node_modules collapse to one form.
+
+    A hoisted bun install emits lib/../node_modules/typescript/lib/...; an
+    isolated store emits node_modules/.bun/typescript@X/node_modules/....
+    Both must canonicalize so the committed snapshot is layout-independent
+    (the recorded CI drift on the Error class pages).
+    """
+    hoisted = (
+        b'href="https://github.com/paulrobello/parsidion/blob/main/'
+        b'visualizer/lib/../node_modules/typescript/lib/lib.es5.d.ts#L1080"\n'
+    )
+    isolated = (
+        b'href="https://github.com/paulrobello/parsidion/blob/main/'
+        b"visualizer/node_modules/.bun/typescript@6.0.3/node_modules/"
+        b'typescript/lib/lib.es5.d.ts#L1080"\n'
+    )
+    canonical = (
+        b'href="https://github.com/paulrobello/parsidion/blob/main/'
+        b'node_modules/typescript/lib/lib.es5.d.ts#L1080"\n'
+    )
+    assert run_python(hoisted) == canonical
+    assert run_python(isolated) == canonical
+
+
 def test_multiline_display_is_left_alone() -> None:
     """Records are lines: a display spanning a newline is not a match."""
     src = b"frozenset({'zeta',\n'alpha'})\n"
