@@ -59,14 +59,12 @@ _DEFAULT_CLAUDE_MODELS: dict[ModelTier, str] = {
     "small": "claude-haiku-4-5-20251001",
     "large": "claude-sonnet-4-6",
 }
-# ARC-013: Both Codex tiers intentionally map to the same model identifier.
-# The Codex CLI (``codex exec``) does not currently expose a public API for
-# selecting a tier/size variant, so the ``small``/``large`` distinction is a
-# no-op here.  When Codex adds tiered model selection, update this dict and
-# add a config key under ``ai_models.codex`` in config.yaml.
+# Codex tiers map to distinct models (small = fast/cheap selector work,
+# large = summarization/repair). Override per tier via
+# ``ai_models.codex.{small,large}`` in config.yaml.
 _DEFAULT_CODEX_MODELS: dict[ModelTier, str] = {
-    "small": "gpt-5.5",
-    "large": "gpt-5.5",
+    "small": "gpt-5.6-luna",
+    "large": "gpt-5.6-terra",
 }
 # Both tiers map to grok-4.6 today (the tier split is a no-op, mirroring the
 # Codex default); override per tier via ``ai_models.grok.{small,large}``.

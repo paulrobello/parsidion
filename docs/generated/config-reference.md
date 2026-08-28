@@ -22,8 +22,8 @@ ai_models:
     large: claude-sonnet-4-6
   # {small, large} model ids for the codex-cli backend
   codex:
-    small: gpt-5.5
-    large: gpt-5.5
+    small: gpt-5.6-luna
+    large: gpt-5.6-terra
   # {small, large} model ids for the grok-cli backend
   grok:
     small: grok-4.6

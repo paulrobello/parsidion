@@ -522,7 +522,7 @@ cp ~/.claude/skills/parsidion/templates/config.yaml ~/ParsidionVault/config.yaml
 ### Config Sections
 
 > **📝 Note:** Model IDs shown in the config block below (e.g. `claude-sonnet-4-6`,
-> `claude-haiku-4-5-20251001`, `gpt-5.5`, `BAAI/bge-small-en-v1.5`) are the hardcoded defaults.
+> `claude-haiku-4-5-20251001`, `gpt-5.6-luna`/`gpt-5.6-terra`, `BAAI/bge-small-en-v1.5`) are the hardcoded defaults.
 > They can be changed via the corresponding keys in `<resolved vault>/config.yaml` without
 > modifying any scripts. See the template at
 > `~/.claude/skills/parsidion/templates/config.yaml` for all available keys.
@@ -570,8 +570,8 @@ ai_models:
     small: claude-haiku-4-5-20251001
     large: claude-sonnet-4-6
   codex:
-    small: gpt-5.5
-    large: gpt-5.5
+    small: gpt-5.6-luna
+    large: gpt-5.6-terra
 
 codex_cli:
   command: codex

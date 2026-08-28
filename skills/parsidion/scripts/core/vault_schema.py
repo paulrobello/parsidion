@@ -128,7 +128,7 @@ class AIModelsConfig:
         metadata={
             "doc": "{small, large} model ids for the codex-cli backend",
             "read_by": "ai_backend.py",
-            "example": {"small": "gpt-5.5", "large": "gpt-5.5"},
+            "example": {"small": "gpt-5.6-luna", "large": "gpt-5.6-terra"},
         },
     )
     grok: dict = field(

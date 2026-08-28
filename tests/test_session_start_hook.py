@@ -288,7 +288,7 @@ class TestAiSelectionSafety:
         calls = _run_session_start_main_for_codex(monkeypatch, tmp_path, ["--ai"])
 
         cmd = calls[0]
-        assert cmd[cmd.index("--model") + 1] == "gpt-5.5"
+        assert cmd[cmd.index("--model") + 1] == "gpt-5.6-luna"
         assert "claude-haiku-4-5-20251001" not in cmd
 
     def test_main_explicit_ai_model_overrides_codex_backend_default(

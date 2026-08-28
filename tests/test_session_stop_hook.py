@@ -152,7 +152,7 @@ def test_main_no_arg_ai_uses_codex_backend_default_model(
     calls = _run_session_stop_main_for_codex(monkeypatch, tmp_path, ["--ai"])
 
     cmd = calls[0]
-    assert cmd[cmd.index("--model") + 1] == "gpt-5.5"
+    assert cmd[cmd.index("--model") + 1] == "gpt-5.6-luna"
     assert "claude-haiku-4-5-20251001" not in cmd
 
 

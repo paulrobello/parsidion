@@ -163,18 +163,18 @@ class TestResolveAiBackend:
 
 
 class TestResolveAiModel:
-    def test_codex_defaults_use_gpt_5_5(
+    def test_codex_defaults_use_gpt_5_6_tiers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         vault = _reset_config(monkeypatch, tmp_path)
 
         assert (
             ai_backend.resolve_ai_model("codex-cli", model_tier="small", vault=vault)
-            == "gpt-5.5"
+            == "gpt-5.6-luna"
         )
         assert (
             ai_backend.resolve_ai_model("codex-cli", model_tier="large", vault=vault)
-            == "gpt-5.5"
+            == "gpt-5.6-terra"
         )
 
     def test_grok_defaults_use_grok_4_6(
@@ -649,7 +649,7 @@ class TestRunAiPrompt:
         assert cmd[cmd.index("--sandbox") + 1] == "read-only"
         assert "--skip-git-repo-check" in cmd
         assert "--output-last-message" in cmd
-        assert cmd[cmd.index("--model") + 1] == "gpt-5.5"
+        assert cmd[cmd.index("--model") + 1] == "gpt-5.6-terra"
         # SEC-123: prompt is passed on stdin, NOT as the final cmd positional.
         assert "hello" not in cmd
         assert kwargs["stdin"] == "hello"
