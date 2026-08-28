@@ -710,6 +710,34 @@ class TestRunAiPrompt:
         assert kwargs["cwd"] == str(ai_backend._minimal_context_cwd())
         assert kwargs["cwd"] != str(tmp_path)
 
+    def test_minimal_codex_home_wipes_when_oversized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Past the size cap the scratch home is swapped for a fresh one.
+
+        codex accumulates ~0.5 MB of state per call; the rename swap keeps
+        the auth symlink and drops the accumulated files.
+        """
+        real_home = tmp_path / "real-codex"
+        real_home.mkdir()
+        (real_home / "auth.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("CODEX_HOME", str(real_home))
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        scratch = logs_dir / "codex-home"
+        scratch.mkdir()
+        (scratch / "auth.json").symlink_to(real_home / "auth.json")
+        (scratch / "state.sqlite").write_text("x" * 2048, encoding="utf-8")
+        monkeypatch.setattr(ai_backend.vault_path, "secure_log_dir", lambda: logs_dir)
+        monkeypatch.setattr(ai_backend, "_CODEX_HOME_MAX_BYTES", 1024)
+
+        home = ai_backend._minimal_codex_home()
+
+        assert home is not None
+        assert home == scratch
+        assert (home / "auth.json").is_symlink()
+        assert not (home / "state.sqlite").exists()
+
     def test_codex_cli_config_controls_command_timeout_and_safety_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

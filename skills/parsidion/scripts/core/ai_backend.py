@@ -199,6 +199,51 @@ def _codex_env() -> dict[str, str]:
     return env
 
 
+# codex accumulates ~0.5 MB of state db/cache per call inside the scratch
+# home; past this cap it is swapped for a fresh one (see _minimal_codex_home).
+_CODEX_HOME_MAX_BYTES = 50 * 1024 * 1024
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Sum file sizes under *path*; 0 on any traversal error (skip the wipe)."""
+    total = 0
+    try:
+        for _root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += (Path(_root) / name).stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
+def _wipe_codex_home_if_oversized(scratch: Path, auth: Path) -> None:
+    """Swap *scratch* for a fresh auth-only dir when it exceeds the cap.
+
+    Build the replacement as a sibling first, then rename-swap: a codex
+    process already running with CODEX_HOME inside the old tree keeps its
+    open fds across the rename, and if a concurrent parsidion call wins the
+    swap first the loser's renames fail and it falls back to the surviving
+    dir (its fresh replacement is removed).
+    """
+    if _dir_size_bytes(scratch) <= _CODEX_HOME_MAX_BYTES:
+        return
+    fresh = Path(tempfile.mkdtemp(prefix="codex-home-", dir=str(scratch.parent)))
+    stale = scratch.with_name(f"codex-home-stale-{os.getpid()}")
+    try:
+        (fresh / "auth.json").symlink_to(auth)
+        os.rename(scratch, stale)
+        os.rename(fresh, scratch)
+    except OSError:
+        # Concurrent swap won, or rename unavailable — keep whatever
+        # survives at `scratch` and drop our replacement.
+        shutil.rmtree(fresh, ignore_errors=True)
+        return
+    shutil.rmtree(stale, ignore_errors=True)
+
+
 def _minimal_codex_home() -> Path | None:
     """Return a scratch ``CODEX_HOME`` carrying only auth (minimal_context).
 
@@ -210,6 +255,11 @@ def _minimal_codex_home() -> Path | None:
     self-contained text-transform prompts. The scratch home contains only a
     symlink to the real ``auth.json`` so the session stays authenticated.
 
+    codex writes its own runtime state (~0.5 MB of sqlite/cache per call)
+    into the home, so past ``_CODEX_HOME_MAX_BYTES`` the dir is swapped for
+    a fresh one: rename-based, so a concurrently running codex keeps its
+    open files, and a losing concurrent swap falls back to the existing dir.
+
     Mirrors :func:`_minimal_context_cwd`'s SEC-004 hardening. Returns None
     (caller falls back to the inherited CODEX_HOME) when auth is absent or
     the scratch dir cannot be secured.
@@ -220,6 +270,8 @@ def _minimal_codex_home() -> Path | None:
         return None
     scratch = vault_path.secure_log_dir() / "codex-home"
     try:
+        if scratch.is_dir():
+            _wipe_codex_home_if_oversized(scratch, auth)
         scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
         st = scratch.lstat()
         if (
