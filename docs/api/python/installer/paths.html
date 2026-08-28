@@ -122,7 +122,7 @@ Stdlib-only — no third-party dependencies.</p>
 </span><span id="L-18"><a href="#L-18"><span class="linenos"> 18</span></a><span class="c1"># Importing it here lets installer/paths.py re-export the maps under their</span>
 </span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a><span class="c1"># historical installer-side names so existing call sites continue to work.</span>
 </span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">agent_adapter</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_agent_adapter</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">core.vault_path</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_vaults_yaml</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">core.vault_path</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_vaults_config_path</span><span class="p">,</span> <span class="n">read_vaults_yaml</span>
 </span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a>
 </span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
 </span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a><span class="c1"># Source layout (relative to the install script at repo root)</span>
@@ -363,7 +363,7 @@ Stdlib-only — no third-party dependencies.</p>
 </span><span id="L-259"><a href="#L-259"><span class="linenos">259</span></a><span class="sd">      3. ``~/ParsidionVault`` (or legacy ``~/ClaudeVault`` if it exists)</span>
 </span><span id="L-260"><a href="#L-260"><span class="linenos">260</span></a><span class="sd">    """</span>
 </span><span id="L-261"><a href="#L-261"><span class="linenos">261</span></a>    <span class="n">default</span> <span class="o">=</span> <span class="n">_default_vault_path</span><span class="p">()</span>
-</span><span id="L-262"><a href="#L-262"><span class="linenos">262</span></a>    <span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".config"</span> <span class="o">/</span> <span class="n">PROJECT_NAME</span> <span class="o">/</span> <span class="s2">"vaults.yaml"</span>
+</span><span id="L-262"><a href="#L-262"><span class="linenos">262</span></a>    <span class="n">config_path</span> <span class="o">=</span> <span class="n">get_vaults_config_path</span><span class="p">()</span>
 </span><span id="L-263"><a href="#L-263"><span class="linenos">263</span></a>    <span class="c1"># QA-004: shared reader from core.vault_path instead of a third</span>
 </span><span id="L-264"><a href="#L-264"><span class="linenos">264</span></a>    <span class="c1"># hand-rolled vaults.yaml parse.</span>
 </span><span id="L-265"><a href="#L-265"><span class="linenos">265</span></a>    <span class="n">named</span><span class="p">,</span> <span class="n">default_ref</span> <span class="o">=</span> <span class="n">read_vaults_yaml</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>

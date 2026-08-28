@@ -7,12 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Audit remediation cycle. 23 of 25 findings from the 2026-08-26 audit are resolved
+## [0.23.0] - 2026-08-27
+
+Audit remediation cycle plus the ENH-020..024 enhancement wave, AI-backend context
+lockdown, and gate-hole fixes. 23 of 25 findings from the 2026-08-26 audit are resolved
 (architecture/performance-heavy, security and doc fixes included); 2 remain skipped
 pending open backlog decisions. Full report: `AUDIT-REMEDIATION.md` in the merge commit.
 2026-08-27 follow-up: both decisions were made ("wire" in both cases) and the two
 skipped findings (ARC-105, QA-104) are now resolved too — 25 of 25. See the addendum
 in `AUDIT-REMEDIATION.md`.
+
+### Added
+
+- **Managed warm embedding service** (ENH-020) — `embeddings.service_enabled` now drives a supervised lifecycle for `vault_embed_serve` (idle exit, per-connection stall bounds), callers try the warm socket before spawning, and the service gate honours a per-call `-B` backend override.
+- **Reverse-link adjacency in `note_index`** (ENH-021) — `incoming_stems` persists the inverted `related` graph at index time so consumers stop deriving it from outgoing links.
+- **vec0 ANN table for embeddings search** (ENH-022) — sqlite-vec ANN lookup with exact-scan parity and fallback, wired behind the search extra.
+- **SessionStart latency benchmark** (ENH-023) — `make bench-hooks` runs the ENH-023 harness with a budget gate at N=500/5000.
+- **AI-backend context lockdown** — `codex_cli.minimal_context` runs `codex exec` against a scratch auth-only `CODEX_HOME` (auto-wiped past 50 MB), `claude_cli.minimal_context` against a scratch `CLAUDE_CONFIG_DIR`, and `grok_cli.minimal_context` against a scratch `GROK_HOME`; codex-cli model tiers default to gpt-5.6-luna/terra. Measured to cut selector-prompt token bloat from cross-agent state discovery.
+- **`candidates_ms` stage timing** in SessionStart hook events, and a de-branded select-notes prompt for the AI note selector.
+- **Hook event on `git_commit_vault` failure** (ARC-110) — vault git failures surface in `hook_events.log` instead of passing silently.
 
 ### Fixed
 
@@ -24,6 +37,10 @@ in `AUDIT-REMEDIATION.md`.
 - **In-process parsight semantic search** (PRF-101) — SessionStart calls `parsight_search` directly instead of shelling out through `uv run`, cutting a 0.5-8s subprocess tower on every session.
 - **Embeddings decay ordering** (ARC-102) — the embeddings search backend now applies decay before sorting/truncating, matching its documented "sorted by score descending" contract.
 - **Doctor locking, health dimensions, and dead-letter documentation** (DOC-101..109) — corrected stale claims about a PID-based doctor lock (it's an flock), seven vs. eight health dimensions, dead-letter reason codes, and six missing docstrings.
+- **Pi/omp extension never writes 0-byte synthetic session-stop transcripts** — ephemeral omp sessions (`--no-session`) could hand `session_shutdown` a branch that serializes to nothing; the transcript was written anyway as 0 bytes, so those sessions were never summarized (~89 empty transcripts since ~Apr 2026). The `SessionEntry` serialization now lives in `lib/transcript.ts` with a union-pinned regression suite, compaction summaries are included, a `turn_end` snapshot backs up cleared branches, and the hook is skipped when there is no content.
+- **Installer honors `XDG_CONFIG_HOME` for `vaults.yaml`** — all four installer-side sites (template creation, install recording, uninstall resolution, `--purge-config` removal) now resolve through the same `get_vaults_config_path()` the runtime resolver uses, instead of a hardcoded `~/.config`.
+- **Pi/omp installer file lists** — `lib/scriptRunner.ts` (and now `lib/transcript.ts`) are included in extension installs; the pi extension resolves the default vault as `ParsidionVault` before legacy `ClaudeVault`.
+- **Dead-letter arc013 test join race** — the concurrency test's join race is closed and inode-retry exhaustion now warns.
 
 ### Changed
 
@@ -31,6 +48,9 @@ in `AUDIT-REMEDIATION.md`.
 - **Import surface collapsed onto `core/`** (ARC-103) — `session_start/`, `summarizer/`, `cli/`, and `agent_adapter.py` now import via `from core import X` instead of the flat `vault_common`-style shims; the shims themselves remain as the external compatibility surface.
 - **`docs-api` scrub ported from Makefile perl to Python** (ARC-104) — `scripts/normalize_docs_api.py` now owns all normalization rules, verified byte-exact against the prior perl output and with a hard failure on an empty needle instead of a silent no-op.
 - **Per-run `note_index` snapshot for SessionStart** (PRF-104) — one DB read per hook run instead of one per query, plus a precomputed reverse-link adjacency for graph neighbor lookups.
+- **YAML dialects consolidated onto `core/yaml_lite`** (ENH-024) — key/value splitting and quote stripping come from one shared tokenizer used by the config parser, the vaults.yaml reader, and the frontmatter parser.
+- **CI gates close two test-coverage holes** — the sqlite_vec-gated search suites now run via `make test-search` (a CI gate had silently skipped every search-extra suite, hiding 6 vacuous decay tests), and the pi-extension CI job runs the full `bun test` suite instead of a single file.
+- Documentation synced to the current implementation across all docs, and dependencies plus GitHub Actions updated to latest stable.
 - Removed completed audit artifacts after this remediation cycle.
 
 ## [0.22.1] - 2026-08-27
