@@ -122,8 +122,9 @@ _SKIP_PREFIXES: tuple[str, ...] = (
     "reply with exactly",  # grind reply-probe smokes (x7)
     "use the write tool to create ./perm_probe",  # file-creation probe (x7)
 )
-# Pure menu selections: "1", "1,2,3", "2.", "3)".
-_SELECTION_RE = re.compile(r"^[\d\s,.\-()]+$")
+# Menu selections only ("1", "1,2,3", "2.", "3)") — deliberately NOT dates
+# ("2026-08-29") or versions ("1.2.3"), which are real retrieval queries.
+_SELECTION_RE = re.compile(r"^\d+(?:\s*,\s*\d+)*[.)]?$")
 
 
 def is_noise_prompt(prompt: str) -> bool:
