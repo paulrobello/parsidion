@@ -623,17 +623,17 @@ class TestCodexTranscriptHelpers:
 class TestAntigravityTranscriptHelpers:
     def test_antigravity_home_env_precedence(self, monkeypatch, tmp_path: Path) -> None:
         home = tmp_path / "home"
-        gemini = tmp_path / "gemini"
         ag = tmp_path / "antigravity"
         home.mkdir()
-        gemini.mkdir()
         ag.mkdir()
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.delenv("ANTIGRAVITY_HOME", raising=False)
         monkeypatch.delenv("GEMINI_HOME", raising=False)
         assert vault_common.antigravity_home() == (home / ".gemini").resolve()
-        monkeypatch.setenv("GEMINI_HOME", str(gemini))
-        assert vault_common.antigravity_home() == gemini.resolve()
+        # The legacy GEMINI_HOME knob is gone from the cutover: setting it
+        # must NOT redirect the antigravity root.
+        monkeypatch.setenv("GEMINI_HOME", str(tmp_path / "legacy"))
+        assert vault_common.antigravity_home() == (home / ".gemini").resolve()
         monkeypatch.setenv("ANTIGRAVITY_HOME", str(ag))
         assert vault_common.antigravity_home() == ag.resolve()
 
@@ -648,8 +648,11 @@ class TestAntigravityTranscriptHelpers:
 
         roots = vault_common.allowed_transcript_roots(cwd=str(project))
 
-        assert (home / ".gemini").resolve() in roots
-        assert (project / ".gemini").resolve() in roots
+        assert (home / ".gemini" / "antigravity-cli" / "brain").resolve() in roots
+        # No broad ~/.gemini root and no project-local .gemini root exist
+        # post-cutover.
+        assert (home / ".gemini").resolve() not in roots
+        assert (project / ".gemini").resolve() not in roots
 
     def test_is_antigravity_transcript_path_user_root_documented_shape_only(
         self, monkeypatch, tmp_path: Path
@@ -688,9 +691,9 @@ class TestAntigravityTranscriptHelpers:
         )
         assert not vault_common.is_antigravity_transcript_path(legacy, cwd=str(project))
         assert not vault_common.is_antigravity_transcript_path(local, cwd=str(project))
-        # The umbrella read-allowlist still covers both transcript roots.
+        # The umbrella read-allowlist covers the home-rooted transcript only.
         assert vault_common.is_allowed_transcript_path(good, cwd=str(project))
-        assert vault_common.is_allowed_transcript_path(local, cwd=str(project))
+        assert not vault_common.is_allowed_transcript_path(local, cwd=str(project))
 
     def test_parse_antigravity_transcript_lines_extracts_model_text(self) -> None:
         lines = [

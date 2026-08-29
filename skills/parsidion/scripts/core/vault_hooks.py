@@ -324,29 +324,26 @@ def codex_home() -> Path:
 def antigravity_home() -> Path:
     """Return the Antigravity (ex-Gemini CLI) config root — ``~/.gemini``."""
     return (
-        Path(
-            os.environ.get("ANTIGRAVITY_HOME", "")
-            or os.environ.get("GEMINI_HOME", "~/.gemini")
-        )
-        .expanduser()
-        .resolve()
+        Path(os.environ.get("ANTIGRAVITY_HOME") or "~/.gemini").expanduser().resolve()
     )
 
 
 def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
     """Return allowed root directories for transcript files.
 
-    Supports Claude Code, pi, Codex, and Gemini transcript locations:
+    Supports Claude Code, pi, Codex, and Antigravity transcript locations:
 
     - ``~/.claude/`` (Claude Code transcripts)
     - ``~/.pi/`` (pi global transcripts, e.g. ``~/.pi/agent/sessions``)
     - ``<cwd>/.pi/`` (project-local pi transcripts, e.g. ``.pi/agent-sessions``)
     - ``$CODEX_HOME/sessions`` or ``~/.codex/sessions`` (Codex transcripts)
-    - ``$GEMINI_HOME`` or ``~/.gemini`` (user Gemini transcripts)
-    - ``<cwd>/.gemini/`` (project-local Gemini transcripts)
+    - ``antigravity_home()/antigravity-cli/brain`` — the ONLY documented
+      Antigravity transcript location. No project-local root exists and the
+      rest of the ``~/.gemini`` tree (settings, MCP configs, legacy IDE
+      data) must never be readable as a transcript.
 
     Args:
-        cwd: Optional working directory for project-local ``.pi``/``.gemini`` roots.
+        cwd: Optional working directory for the project-local ``.pi`` root.
 
     Returns:
         De-duplicated list of resolved root paths.
@@ -355,14 +352,13 @@ def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
         Path.home() / ".claude",
         Path.home() / ".pi",
         codex_home() / "sessions",
-        antigravity_home(),
+        antigravity_home() / "antigravity-cli" / "brain",
     ]
 
     if cwd:
         try:
             cwd_path = Path(cwd).resolve()
             roots.append(cwd_path / ".pi")
-            roots.append(cwd_path / ".gemini")
         except OSError:
             pass
 
