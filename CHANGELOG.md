@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **pi/omp extension installer** — `scripts/install-pi-extension` and the `disconnect` removal list now ship/remove all six extension files, including `lib/transcript.ts` and `lib/promptRecall.ts`; fresh `connect pi` / `connect omp` installs no longer fail on a missing module.
+- **prompt-AI failure logs** — `_log_backend_failure` preserves the stderr *tail* (codex exec echoes the prompt before the terminal error), so `no_result_backend` failures name the failing call instead of hiding it behind a head-truncated snippet.
+
+### Changed
+
+- **summarize-session eval rubric** — the golden-fixture fields `frontmatter_valid` and `related_links_min` are now consumed by the evaluator instead of carried unread (weights: write-gate 25, tags 20, type 15, frontmatter 15, must-mention 15, related links 10).
+
 ## [0.23.1] - 2026-08-28
 
 Documentation sync release: every document in `docs/` plus the root `README.md`

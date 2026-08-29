@@ -15,22 +15,28 @@ from typing import Any
 
 from ._base import BaseEvaluator, CaseInput
 
-# Rubric weights — must sum to 100 (matches the original driver).
+# Rubric weights — must sum to 100. frontmatter_valid and related_links_min
+# are read from the fixture: frontmatter validity is derived from the parsed
+# type via note_schema and compared to the expected flag; related links are
+# counted in the generated frontmatter and compared to the expected minimum.
 WEIGHT_WRITE_GATE = 25
-WEIGHT_TYPE = 20
-WEIGHT_FRONTMATTER = 20
+WEIGHT_TYPE = 15
+WEIGHT_FRONTMATTER = 15
 WEIGHT_TAGS = 20
 WEIGHT_MUST_MENTION = 15
+WEIGHT_RELATED_LINKS = 10
 assert (
     WEIGHT_WRITE_GATE
     + WEIGHT_TYPE
     + WEIGHT_FRONTMATTER
     + WEIGHT_TAGS
     + WEIGHT_MUST_MENTION
+    + WEIGHT_RELATED_LINKS
     == 100
 )
 
 _SKIP_JSON_RE = re.compile(r'\{"decision"\s*:\s*"skip"', re.IGNORECASE)
+_FM_RELATED_RE = re.compile(r"^related:\s*\[(.*?)\]", re.MULTILINE)
 _FM_TYPE_RE = re.compile(r"^type:\s*(\S+)", re.MULTILINE)
 _FM_TAGS_RE = re.compile(r"^tags:\s*\[(.*?)\]", re.MULTILINE)
 
@@ -78,10 +84,15 @@ class SummarizeSessionEvaluator(BaseEvaluator):
                 for t in tags_match.group(1).split(",")
                 if t.strip()
             ]
+        related_match = _FM_RELATED_RE.search(raw)
+        related_count = (
+            len(re.findall(r"\[\[", related_match.group(1))) if related_match else 0
+        )
         return {
             "decision": decision,
             "type": type_match.group(1).strip() if type_match else "",
             "tags": tags,
+            "related_count": related_count,
             "raw": raw,
         }
 
@@ -101,6 +112,14 @@ class SummarizeSessionEvaluator(BaseEvaluator):
         frontmatter_valid = True
         if should_produce and parsed["decision"] != "skip":
             frontmatter_valid = parsed["type"] in note_schema.VALID_NOTE_TYPES
+        # The fixture's frontmatter_valid is the expected verdict; the check
+        # passes when derivation agrees with it.
+        frontmatter_ok = frontmatter_valid == bool(
+            expected.get("frontmatter_valid", True)
+        )
+
+        related_min = int(expected.get("related_links_min", 0) or 0)
+        related_ok = int(parsed.get("related_count", 0)) >= related_min
 
         expected_include = set(
             str(t) for t in expected.get("expected_tags_include") or []
@@ -134,7 +153,8 @@ class SummarizeSessionEvaluator(BaseEvaluator):
         # checks are vacuously satisfied.
         if not should_produce and parsed["decision"] == "skip":
             type_correct = True
-            frontmatter_valid = True
+            frontmatter_ok = True
+            related_ok = True
             tag_recall = 1.0
             tag_precision = 1.0
             must_mention_frac = 1.0
@@ -143,9 +163,10 @@ class SummarizeSessionEvaluator(BaseEvaluator):
         checks = {
             "write_gate": 1.0 if write_gate_correct else 0.0,
             "type": 1.0 if type_correct else 0.0,
-            "frontmatter": 1.0 if frontmatter_valid else 0.0,
+            "frontmatter": 1.0 if frontmatter_ok else 0.0,
             "tags": tags_frac,
             "must_mention": must_mention_frac,
+            "related_links": 1.0 if related_ok else 0.0,
         }
         score = (
             WEIGHT_WRITE_GATE * checks["write_gate"]
@@ -153,5 +174,6 @@ class SummarizeSessionEvaluator(BaseEvaluator):
             + WEIGHT_FRONTMATTER * checks["frontmatter"]
             + WEIGHT_TAGS * checks["tags"]
             + WEIGHT_MUST_MENTION * checks["must_mention"]
+            + WEIGHT_RELATED_LINKS * checks["related_links"]
         )
         return round(score, 1), checks

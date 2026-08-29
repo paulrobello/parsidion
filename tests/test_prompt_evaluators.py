@@ -144,7 +144,39 @@ class TestSummarizeSessionScore:
         assert checks["type"] == 1.0
         assert checks["frontmatter"] == 1.0
         assert checks["must_mention"] == 1.0
+        assert checks["related_links"] == 1.0
         assert score == 100.0
+
+    def test_related_links_min_enforced(
+        self, summarizer: SummarizeSessionEvaluator
+    ) -> None:
+        case = CaseInput(
+            case_id="synthetic",
+            inputs={},
+            expected={
+                "should_produce_note": True,
+                "expected_type": "debugging",
+                "related_links_min": 2,
+            },
+        )
+        parsed = summarizer.parse(self._good_note())  # has exactly 1 wikilink
+        score, checks = summarizer.score(parsed, case)
+        assert checks["related_links"] == 0.0
+        assert score == 90.0  # only the 10-point related-links check fails
+
+    def test_frontmatter_valid_mismatch_fails(
+        self, summarizer: SummarizeSessionEvaluator
+    ) -> None:
+        case = CaseInput(
+            case_id="synthetic",
+            inputs={},
+            expected={"should_produce_note": True, "frontmatter_valid": True},
+        )
+        parsed = summarizer.parse(
+            self._good_note().replace("type: debugging", "type: bogus-type")
+        )
+        _, checks = summarizer.score(parsed, case)
+        assert checks["frontmatter"] == 0.0  # derived invalid != expected valid
 
     def test_skip_when_none_expected_scores_full(
         self, summarizer: SummarizeSessionEvaluator

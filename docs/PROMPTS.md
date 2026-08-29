@@ -163,10 +163,11 @@ Each prompt has its own rubric in its evaluator module (weights always sum to 10
 | Check                       | Weight | How                                            |
 |-----------------------------|:------:|------------------------------------------------|
 | Write-gate decision correct | 25     | matches `should_produce_note`                  |
-| Note type correct           | 20     | matches `expected_type`                        |
-| Frontmatter valid           | 20     | `note_schema` validator                        |
+| Note type correct           | 15     | matches `expected_type`                        |
+| Frontmatter valid           | 15     | derived from `type` via `note_schema`, compared to `frontmatter_valid` |
 | Tag precision/recall        | 20     | against `expected_tags_include` / `_exclude`   |
 | Required content present    | 15     | `must_mention` substring checks                |
+| Related links meet minimum  | 10     | `[[wikilink]]` count in `related` vs `related_links_min` |
 
 A result file is written to `tools/eval/results/prompt-eval-<id>-<timestamp>.json`
 (matching the `embed_eval` harness's output convention).
@@ -216,13 +217,14 @@ expected_type: debugging           # the 'type' frontmatter value
 expected_tags_include: [sqlite]    # tags the note SHOULD use (recall)
 expected_tags_exclude: [misc]      # tags the note SHOULD NOT use (precision)
 must_mention: ["WAL", "inode"]     # substrings the note body must contain
-frontmatter_valid: true            # carried in the fixture; not read by the evaluator
-related_links_min: 1               # carried in the fixture; not read by the evaluator
+frontmatter_valid: true            # expected validity of the generated frontmatter
+related_links_min: 1               # minimum [[wikilinks]] in the note's related field
 ```
 
-Only the first five fields feed the rubric — the evaluator derives frontmatter
-validity from the parsed note's `type` against `note_schema`, and does not (yet)
-check `related` link counts.
+All seven fields feed the rubric — frontmatter validity is derived from the
+parsed note's `type` against `note_schema` and compared to `frontmatter_valid`,
+and the `related` wikilink count must reach `related_links_min` (vacuously
+satisfied for skip cases).
 
 The other prompts' expected fields:
 
