@@ -222,6 +222,35 @@ class TestRecall:
             if line.startswith("  "):
                 assert len(line) <= 2 + 350
 
+    def test_tiny_budget_skips_empty_context_and_event(
+        self,
+        hook_env: dict[str, list[object]],
+        tmp_vault: Path,
+        _isolated_logs: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            user_prompt_submit_hook,
+            "load_typed_config",
+            lambda vault=None: SimpleNamespace(
+                user_prompt_submit_hook=SimpleNamespace(max_chars=1)
+            ),
+        )
+        monkeypatch.setattr(
+            user_prompt_submit_hook,
+            "write_hook_event",
+            lambda **kwargs: events.append(kwargs),
+        )
+
+        result = user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT})
+        # Prove the fixture drove the path (patched probe + search ran) and
+        # the tiny budget still produced no injection and no event.
+        assert hook_env["probe"] != []
+        assert hook_env["search"] == [MATCHED_PROMPT]
+        assert result == {}
+        assert events == []
+
     def test_malformed_stdin_prints_empty_exit_zero(
         self,
         tmp_vault: Path,
