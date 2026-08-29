@@ -319,7 +319,7 @@ def install_parsidion_vault_md(
 
 
 # ---------------------------------------------------------------------------
-# Agent instructions injection (codex AGENTS.md / gemini GEMINI.md)
+# Agent instructions injection (codex AGENTS.md / antigravity GEMINI.md)
 # ---------------------------------------------------------------------------
 
 _BEGIN_MARKER = "<!-- BEGIN parsidion -->"
@@ -384,7 +384,7 @@ def _inject_instructions_block(dest: Path, dry_run: bool, verbose: bool) -> None
 def _remove_instructions_block(dest: Path, dry_run: bool = False) -> bool:
     """Strip the parsidion instructions block from *dest* if present.
 
-    ARC-022 / SEC-116: closes the uninstall asymmetry where Codex/Gemini
+    ARC-022 / SEC-116: closes the uninstall asymmetry where Codex/Antigravity
     disconnect removed hooks but left the injected ``AGENTS.md`` /
     ``GEMINI.md`` instruction block loading on every session. Returns
     True when the file was changed, False when there was nothing to
@@ -479,12 +479,11 @@ def install_codex_agents_md(
         _inject_instructions_block(dest, dry_run, verbose)
 
 
-def install_gemini_md(
-    gemini_home: Path, dry_run: bool = False, verbose: bool = False
+def install_antigravity_md(
+    antigravity_home: Path, dry_run: bool = False, verbose: bool = False
 ) -> None:
-    """Inject parsidion instructions into the gemini instructions file
-    (``GEMINI.md`` per the registry's ``instructions_filename``)."""
-    dest = _instructions_dest(gemini_home, "gemini")
+    """Inject parsidion instructions into Antigravity's GEMINI.md file."""
+    dest = _instructions_dest(antigravity_home, "antigravity")
     if dest is not None:
         _inject_instructions_block(dest, dry_run, verbose)
 
@@ -500,14 +499,9 @@ def remove_codex_agents_md(codex_home: Path, dry_run: bool = False) -> bool:
     return _remove_instructions_block(dest, dry_run) if dest is not None else False
 
 
-def remove_gemini_md(gemini_home: Path, dry_run: bool = False) -> bool:
-    """Strip the parsidion instructions block from the gemini instructions
-    file.
-
-    Called by ``disconnect gemini`` / full uninstall so the Gemini
-    integration stops loading parsidion instructions every session.
-    """
-    dest = _instructions_dest(gemini_home, "gemini")
+def remove_antigravity_md(antigravity_home: Path, dry_run: bool = False) -> bool:
+    """Strip the parsidion instructions block from Antigravity's GEMINI.md."""
+    dest = _instructions_dest(antigravity_home, "antigravity")
     return _remove_instructions_block(dest, dry_run) if dest is not None else False
 
 

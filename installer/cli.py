@@ -25,7 +25,7 @@ from installer.paths import (
     _default_vault_path,
     _wants_claude_runtime,
     _wants_codex_runtime,
-    _wants_gemini_runtime,
+    _wants_antigravity_runtime,
     validate_vault_path,
 )
 from installer.plan import InstallPlan, build_install_steps, collect_install_options
@@ -86,10 +86,10 @@ def install(args: argparse.Namespace) -> int:
         args.runtime, yes=args.yes, interactive=not args.yes
     )
     codex_home: Path = Path(args.codex_home).expanduser().resolve()
-    gemini_home: Path = Path(args.gemini_home).expanduser().resolve()
+    antigravity_home: Path = Path(args.antigravity_home).expanduser().resolve()
     install_claude_runtime = _wants_claude_runtime(runtime)
     install_codex_runtime = _wants_codex_runtime(runtime)
-    install_gemini_runtime = _wants_gemini_runtime(runtime)
+    install_antigravity_runtime = _wants_antigravity_runtime(runtime)
     install_runtime_hooks = runtime != "none" and not args.skip_hooks
 
     # --- Interactive option prompts (CLI tools, AI mode, embeddings,
@@ -107,11 +107,11 @@ def install(args: argparse.Namespace) -> int:
             runtime=runtime,
             install_claude_runtime=install_claude_runtime,
             install_codex_runtime=install_codex_runtime,
-            install_gemini_runtime=install_gemini_runtime,
+            install_antigravity_runtime=install_antigravity_runtime,
             install_runtime_hooks=install_runtime_hooks,
             claude_dir=claude_dir,
             codex_home=codex_home,
-            gemini_home=gemini_home,
+            antigravity_home=antigravity_home,
             settings_file=settings_file,
             vault_root=vault_root,
             vault_username=vault_username,
@@ -151,11 +151,11 @@ def install(args: argparse.Namespace) -> int:
         runtime=runtime,
         install_claude_runtime=install_claude_runtime,
         install_codex_runtime=install_codex_runtime,
-        install_gemini_runtime=install_gemini_runtime,
+        install_antigravity_runtime=install_antigravity_runtime,
         install_runtime_hooks=install_runtime_hooks,
         claude_dir=claude_dir,
         codex_home=codex_home,
-        gemini_home=gemini_home,
+        antigravity_home=antigravity_home,
         settings_file=settings_file,
         vault_root=vault_root,
         vault_username=vault_username,
@@ -195,14 +195,14 @@ def install(args: argparse.Namespace) -> int:
 
     # Restore settings.json if any settings-mutating step failed. The names
     # match the steps that call into hooks.* (the only steps that RMW
-    # settings.json or codex/gemini hook config).
+    # settings.json or codex/antigravity hook config).
     _SETTINGS_MUTATING_STEPS = frozenset(
         {
             "cleanup_legacy_assets",
             "merge_hooks",
             "enable_codex_hooks_config",
             "merge_codex_hooks",
-            "merge_gemini_hooks",
+            "merge_antigravity_hooks",
         }
     )
     if settings_snapshot_bytes is not None and any(
@@ -274,7 +274,7 @@ def _connectable_runtimes() -> list[str]:
     """Runtimes accepted by ``connect``/``disconnect``.
 
     Data-driven from the agent_adapter registry (ENH-006): every registered
-    runtime is accepted. claude/codex/gemini wire hooks via install()/uninstall();
+    runtime is accepted. claude/codex/antigravity wire hooks via install()/uninstall();
     pi installs its TypeScript extension via the dedicated installer.
     """
     import agent_adapter  # noqa: PLC0415
@@ -388,7 +388,7 @@ def parse_args() -> argparse.Namespace:
         choices=_RUNTIME_CHOICES,
         default=None,
         help=(
-            "Runtime integration target: claude, codex, gemini, both, all, or none. "
+            "Runtime integration target: claude, codex, antigravity, both, all, or none. "
             "Interactive default is both; --yes default is claude for backwards compatibility."
         ),
     )
@@ -399,9 +399,9 @@ def parse_args() -> argparse.Namespace:
         help="Codex home directory for hooks/config (default: $CODEX_HOME or ~/.codex)",
     )
     parser.add_argument(
-        "--gemini-home",
+        "--antigravity-home",
         default="~/.gemini",
-        help="Gemini CLI home directory for hook settings (default: ~/.gemini)",
+        help="Antigravity CLI home directory for hook config (default: ~/.gemini)",
     )
     parser.add_argument(
         "--omp-home",
@@ -621,7 +621,7 @@ def main() -> None:
                 args.runtime, yes=args.yes, interactive=not args.yes
             )
             codex_home = Path(args.codex_home).expanduser().resolve()
-            gemini_home = Path(args.gemini_home).expanduser().resolve()
+            antigravity_home = Path(args.antigravity_home).expanduser().resolve()
             uninstall(
                 claude_dir,
                 settings_file,
@@ -630,7 +630,7 @@ def main() -> None:
                 hooks_only=False,
                 runtime=runtime,
                 codex_home=codex_home,
-                gemini_home=gemini_home,
+                antigravity_home=antigravity_home,
                 purge_config=args.purge_config,
             )
             return
@@ -685,7 +685,7 @@ def main() -> None:
             interactive=not args.yes,
         )
         codex_home = Path(args.codex_home).expanduser().resolve()
-        gemini_home = Path(args.gemini_home).expanduser().resolve()
+        antigravity_home = Path(args.antigravity_home).expanduser().resolve()
         if not args.yes and not args.dry_run:
             print()
             print(
@@ -699,8 +699,8 @@ def main() -> None:
             print(f"  {dim('Claude dir:')} {claude_dir}")
             if _wants_codex_runtime(runtime):
                 print(f"  {dim('Codex home:')} {codex_home}")
-            if _wants_gemini_runtime(runtime):
-                print(f"  {dim('Gemini home:')} {gemini_home}")
+            if _wants_antigravity_runtime(runtime):
+                print(f"  {dim('Antigravity home:')} {antigravity_home}")
             prompt = (
                 "Proceed with hook uninstall?"
                 if args.uninstall_hooks
@@ -717,7 +717,7 @@ def main() -> None:
             hooks_only=args.uninstall_hooks,
             runtime=runtime,
             codex_home=codex_home,
-            gemini_home=gemini_home,
+            antigravity_home=antigravity_home,
             purge_config=args.purge_config,
         )
         sys.exit(0)

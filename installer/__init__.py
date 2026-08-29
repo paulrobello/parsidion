@@ -4,7 +4,7 @@ Sub-modules:
   colors   — ANSI colour helpers
   ui       — interactive print/prompt helpers
   paths    — path constants, VAULT_DIRS, runtime predicates
-  hooks    — hook merge/remove for Claude, Codex, Gemini
+  hooks    — hook merge/remove for Claude, Codex, Antigravity
   schedule — launchd/cron nightly-summarizer scheduler
   vault    — vault dir creation, git setup, config.yaml, vaults.yaml
   skill    — skill/agent/script install, AI mode, legacy cleanup, uninstall

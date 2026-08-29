@@ -165,9 +165,9 @@ def resolve_runtime_choice(
         dim(
             "  1. Claude only — ~/.claude settings, skills, agents, and hooks.\n"
             "  2. Codex only — ~/.codex hooks for SessionStart and Stop.\n"
-            "  3. Gemini only — ~/.gemini settings hooks for SessionStart and SessionEnd.\n"
+            "  3. Antigravity only — ~/.gemini/config/hooks.json hooks for PreInvocation and Stop.\n"
             "  4. Claude + Codex.\n"
-            "  5. All runtimes — Claude + Codex + Gemini.\n"
+            "  5. All runtimes — Claude + Codex + Antigravity.\n"
             "  6. Shared tooling only — no runtime hooks."
         )
     )
@@ -178,9 +178,9 @@ def resolve_runtime_choice(
         return "claude"
     if answer in ("2", "codex", "codex only"):
         return "codex"
-    if answer in ("3", "gemini", "gemini only"):
-        return "gemini"
-    if answer in ("5", "all", "all runtimes", "claude+codex+gemini"):
+    if answer in ("3", "antigravity", "antigravity only"):
+        return "antigravity"
+    if answer in ("5", "all", "all runtimes", "claude+codex+antigravity"):
         return "all"
     if answer in ("6", "none", "shared", "shared tooling only"):
         return "none"

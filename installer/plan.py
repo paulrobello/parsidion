@@ -25,7 +25,7 @@ from installer.paths import (
     REPO_ROOT,
     SKILL_NAME,
     _CODEX_HOOK_SCRIPTS,
-    _GEMINI_HOOK_SCRIPTS,
+    _ANTIGRAVITY_HOOK_SCRIPTS,
     _HOOK_SCRIPTS,
 )
 from installer.schedule import schedule_summarizer
@@ -36,7 +36,7 @@ from installer.skill import (
     install_cli_tools,
     install_parsidion_vault_md,
     install_codex_agents_md,
-    install_gemini_md,
+    install_antigravity_md,
     install_scripts,
     install_skill,
     rebuild_index,
@@ -58,7 +58,7 @@ from installer.vault import (
 from installer.hooks import (
     enable_codex_hooks_config,
     merge_codex_hooks,
-    merge_gemini_hooks,
+    merge_antigravity_hooks,
     merge_hooks,
 )
 
@@ -75,11 +75,11 @@ class InstallPlan:
     runtime: str
     install_claude_runtime: bool
     install_codex_runtime: bool
-    install_gemini_runtime: bool
+    install_antigravity_runtime: bool
     install_runtime_hooks: bool
     claude_dir: Path
     codex_home: Path
-    gemini_home: Path
+    antigravity_home: Path
     settings_file: Path
     vault_root: Path
     vault_username: str
@@ -223,8 +223,8 @@ def print_install_plan(plan: InstallPlan) -> None:
         print(f"  {dim('Claude dir   :')} {plan.claude_dir}")
     if plan.install_codex_runtime:
         print(f"  {dim('Codex home  :')} {plan.codex_home}")
-    if plan.install_gemini_runtime:
-        print(f"  {dim('Gemini home :')} {plan.gemini_home}")
+    if plan.install_antigravity_runtime:
+        print(f"  {dim('Antigravity home :')} {plan.antigravity_home}")
     print(f"  {dim('Vault path   :')} {plan.vault_root}")
     if plan.install_tools:
         print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
@@ -256,8 +256,10 @@ def print_install_plan(plan: InstallPlan) -> None:
             print(f"  {dim('Claude hooks:')} {', '.join(_HOOK_SCRIPTS.keys())}")
         if plan.install_codex_runtime:
             print(f"  {dim('Codex hooks :')} {', '.join(_CODEX_HOOK_SCRIPTS.keys())}")
-        if plan.install_gemini_runtime:
-            print(f"  {dim('Gemini hooks:')} {', '.join(_GEMINI_HOOK_SCRIPTS.keys())}")
+        if plan.install_antigravity_runtime:
+            print(
+                f"  {dim('Antigravity hooks:')} {', '.join(_ANTIGRAVITY_HOOK_SCRIPTS.keys())}"
+            )
     else:
         reason = "runtime none" if plan.runtime == "none" else "--skip-hooks"
         print(f"  {dim('Runtime hooks:')} skipped ({reason})")
@@ -390,12 +392,12 @@ def build_install_steps(plan: InstallPlan) -> StepList:
             )
         )
 
-    if plan.install_gemini_runtime and not plan.skip_hooks:
+    if plan.install_antigravity_runtime and not plan.skip_hooks:
         steps.append(
             Step(
-                "merge_gemini_hooks",
-                lambda: merge_gemini_hooks(
-                    plan.gemini_home,
+                "merge_antigravity_hooks",
+                lambda: merge_antigravity_hooks(
+                    plan.antigravity_home,
                     plan.claude_dir,
                     dry_run=plan.dry_run,
                     verbose=plan.verbose,
@@ -424,7 +426,7 @@ def build_install_steps(plan: InstallPlan) -> StepList:
             )
         )
 
-    # 7b. Inject parsidion instructions into codex/gemini config dirs.
+    # 7b. Inject parsidion instructions into codex/antigravity config dirs.
     if plan.install_codex_runtime:
         steps.append(
             Step(
@@ -434,12 +436,12 @@ def build_install_steps(plan: InstallPlan) -> StepList:
                 ),
             )
         )
-    if plan.install_gemini_runtime:
+    if plan.install_antigravity_runtime:
         steps.append(
             Step(
-                "install_gemini_md",
-                lambda: install_gemini_md(
-                    plan.gemini_home, dry_run=plan.dry_run, verbose=plan.verbose
+                "install_antigravity_md",
+                lambda: install_antigravity_md(
+                    plan.antigravity_home, dry_run=plan.dry_run, verbose=plan.verbose
                 ),
             )
         )

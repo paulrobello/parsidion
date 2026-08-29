@@ -58,8 +58,8 @@ AGENT_INSTRUCTIONS_SRC: Path = (
 # these are the same object so drift cannot be reintroduced.
 _HOOK_SCRIPTS: dict[str, str] = _agent_adapter._CLAUDE_HOOK_SCRIPTS
 _CODEX_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._CODEX_HOOK_SCRIPTS
-_GEMINI_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._GEMINI_HOOK_SCRIPTS
-_GEMINI_HOOK_NAMES: dict[str, str] = _agent_adapter._GEMINI_HOOK_NAMES
+_ANTIGRAVITY_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
+_ANTIGRAVITY_HOOK_NAMES: dict[str, str] = _agent_adapter._ANTIGRAVITY_HOOK_NAMES
 
 # Per-event hook options merged into the hook handler entry in settings.json.
 # Installer-only data — no equivalent on AgentAdapter today, so this stays
@@ -74,7 +74,7 @@ _HOOK_OPTIONS: dict[str, dict] = {
     "SessionStart": {"timeout": 60000},
 }
 
-_RUNTIME_CHOICES = ("claude", "codex", "gemini", "both", "all", "none")
+_RUNTIME_CHOICES = ("claude", "codex", "antigravity", "both", "all", "none")
 
 
 def _wants_claude_runtime(runtime: str) -> bool:
@@ -87,9 +87,9 @@ def _wants_codex_runtime(runtime: str) -> bool:
     return runtime in {"codex", "both", "all"}
 
 
-def _wants_gemini_runtime(runtime: str) -> bool:
-    """Return True when Gemini integration is included in *runtime*."""
-    return runtime in {"gemini", "all"}
+def _wants_antigravity_runtime(runtime: str) -> bool:
+    """Return True when Antigravity integration is included in *runtime*."""
+    return runtime in {"antigravity", "all"}
 
 
 # ---------------------------------------------------------------------------

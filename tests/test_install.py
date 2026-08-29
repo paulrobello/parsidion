@@ -73,10 +73,10 @@ class TestParseArgs:
         assert args.runtime == "both"
         assert args.codex_home == "~/CustomCodex"
 
-    def test_parse_args_supports_gemini_and_all_runtime(self, monkeypatch) -> None:
-        monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "gemini"])
+    def test_parse_args_supports_antigravity_and_all_runtime(self, monkeypatch) -> None:
+        monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "antigravity"])
         args = installer_cli.parse_args()
-        assert args.runtime == "gemini"
+        assert args.runtime == "antigravity"
 
         monkeypatch.setattr(sys, "argv", ["install.py", "--runtime", "all"])
         args = installer_cli.parse_args()
@@ -116,7 +116,7 @@ class TestParseArgs:
             == "both"
         )
 
-    def test_resolve_runtime_interactive_accepts_gemini_and_all(
+    def test_resolve_runtime_interactive_accepts_antigravity_and_all(
         self, monkeypatch
     ) -> None:
         monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "3")
@@ -124,7 +124,7 @@ class TestParseArgs:
             installer_ui.resolve_runtime_choice(
                 runtime=None, yes=False, interactive=True
             )
-            == "gemini"
+            == "antigravity"
         )
 
         monkeypatch.setattr(installer.ui, "_ask", lambda prompt, default="": "5")
@@ -135,13 +135,15 @@ class TestParseArgs:
             == "all"
         )
 
-    def test_runtime_predicates_include_all_without_cross_wiring_gemini(self) -> None:
+    def test_runtime_predicates_include_all_without_cross_wiring_antigravity(
+        self,
+    ) -> None:
         assert installer_paths._wants_claude_runtime("all") is True
         assert installer_paths._wants_codex_runtime("all") is True
-        assert installer_paths._wants_gemini_runtime("all") is True
-        assert installer_paths._wants_gemini_runtime("gemini") is True
-        assert installer_paths._wants_claude_runtime("gemini") is False
-        assert installer_paths._wants_codex_runtime("gemini") is False
+        assert installer_paths._wants_antigravity_runtime("all") is True
+        assert installer_paths._wants_antigravity_runtime("antigravity") is True
+        assert installer_paths._wants_claude_runtime("antigravity") is False
+        assert installer_paths._wants_codex_runtime("antigravity") is False
 
 
 class TestCodexHooks:
@@ -350,110 +352,77 @@ class TestCodexHooks:
         )
 
 
-class TestGeminiHooks:
-    def test_merge_gemini_hooks_creates_settings_json(self, tmp_path: Path) -> None:
-        gemini_home = tmp_path / ".gemini"
+class TestAntigravityHooks:
+    def test_merge_antigravity_hooks_creates_named_key(self, tmp_path: Path) -> None:
+        antigravity_home = tmp_path / ".gemini"
         claude_dir = tmp_path / ".claude"
-
-        installer_hooks.merge_gemini_hooks(
-            gemini_home, claude_dir, dry_run=False, verbose=False
+        installer_hooks.merge_antigravity_hooks(
+            antigravity_home, claude_dir, dry_run=False, verbose=False
         )
-
-        settings = json.loads(
-            (gemini_home / "settings.json").read_text(encoding="utf-8")
-        )
-        assert "SessionStart" in settings["hooks"]
-        assert "SessionEnd" in settings["hooks"]
+        hooks_file = antigravity_home / "config" / "hooks.json"
+        config = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert "parsidion" in config
+        assert set(config["parsidion"]) == {"PreInvocation", "Stop"}
         commands = [
             hook["command"]
-            for group in settings["hooks"].values()
-            for entry in group
+            for entries in config["parsidion"].values()
+            for entry in entries
             for hook in entry["hooks"]
         ]
-        assert any("gemini_session_start_hook.py" in command for command in commands)
-        assert any("gemini_session_end_hook.py" in command for command in commands)
+        assert any(
+            "antigravity_session_start_hook.py" in command for command in commands
+        )
+        assert any("antigravity_session_end_hook.py" in command for command in commands)
+        entries = [
+            entry
+            for event_entries in config["parsidion"].values()
+            for entry in event_entries
+        ]
+        assert all(entry["matcher"] == "" for entry in entries)
+        assert all(
+            hook["timeout"] == 60 for entry in entries for hook in entry["hooks"]
+        )
 
-    def test_merge_gemini_hooks_preserves_existing_settings_and_is_idempotent(
+    def test_merge_antigravity_hooks_preserves_foreign_named_hooks(
         self, tmp_path: Path
     ) -> None:
-        gemini_home = tmp_path / ".gemini"
+        antigravity_home = tmp_path / ".gemini"
         claude_dir = tmp_path / ".claude"
-        settings_file = gemini_home / "settings.json"
-        settings_file.parent.mkdir(parents=True)
-        settings_file.write_text(
-            json.dumps(
+        hooks_file = antigravity_home / "config" / "hooks.json"
+        foreign = {
+            "PreInvocation": [
                 {
-                    "theme": "dark",
-                    "hooks": {
-                        "SessionStart": [
-                            {
-                                "matcher": "startup",
-                                "hooks": [
-                                    {"type": "command", "command": "echo existing"}
-                                ],
-                            }
-                        ]
-                    },
+                    "matcher": "x",
+                    "hooks": [{"type": "command", "command": "echo foreign"}],
                 }
-            )
-            + "\n",
+            ]
+        }
+        hooks_file.parent.mkdir(parents=True)
+        hooks_file.write_text(
+            json.dumps({"foreign": foreign, "other": {"enabled": True}}),
             encoding="utf-8",
         )
+        installer_hooks.merge_antigravity_hooks(antigravity_home, claude_dir)
+        config = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert config["foreign"] == foreign
+        assert config["other"] == {"enabled": True}
+        assert "parsidion" in config
 
-        installer_hooks.merge_gemini_hooks(
-            gemini_home, claude_dir, dry_run=False, verbose=False
-        )
-        installer_hooks.merge_gemini_hooks(
-            gemini_home, claude_dir, dry_run=False, verbose=False
-        )
-
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-        assert settings["theme"] == "dark"
-        commands = [
-            hook["command"]
-            for entry in settings["hooks"]["SessionStart"]
-            if isinstance(entry, dict)
-            for hook in entry.get("hooks", [])
-            if isinstance(hook, dict)
-        ]
-        assert commands.count("echo existing") == 1
-        assert (
-            sum("gemini_session_start_hook.py" in command for command in commands) == 1
-        )
-
-    def test_remove_gemini_hooks_only_removes_managed_commands(
-        self, tmp_path: Path
-    ) -> None:
-        gemini_home = tmp_path / ".gemini"
+    def test_disconnect_removes_only_parsidion_key(self, tmp_path: Path) -> None:
+        antigravity_home = tmp_path / ".gemini"
         claude_dir = tmp_path / ".claude"
-        installer_hooks.merge_gemini_hooks(
-            gemini_home, claude_dir, dry_run=False, verbose=False
-        )
-        settings_file = gemini_home / "settings.json"
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-        settings["hooks"].setdefault("SessionEnd", []).append(
-            {"matcher": "*", "hooks": [{"type": "command", "command": "echo user"}]}
-        )
-        settings_file.write_text(
-            json.dumps(settings, indent=2) + "\n", encoding="utf-8"
-        )
-
-        changed = installer_hooks.remove_gemini_hooks(
-            gemini_home, claude_dir, dry_run=False
-        )
-
-        updated = json.loads(settings_file.read_text(encoding="utf-8"))
-        assert changed is True
-        commands = [
-            hook["command"]
-            for entries in updated["hooks"].values()
-            for entry in entries
-            if isinstance(entry, dict)
-            for hook in entry.get("hooks", [])
-            if isinstance(hook, dict)
-        ]
-        assert "echo user" in commands
-        assert not any("gemini_session_" in command for command in commands)
+        installer_hooks.merge_antigravity_hooks(antigravity_home, claude_dir)
+        hooks_file = antigravity_home / "config" / "hooks.json"
+        config = json.loads(hooks_file.read_text(encoding="utf-8"))
+        config["foreign"] = {"Stop": []}
+        hooks_file.write_text(json.dumps(config), encoding="utf-8")
+        assert installer_hooks.remove_antigravity_hooks(antigravity_home, claude_dir)
+        updated = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert "parsidion" not in updated
+        assert updated["foreign"] == {"Stop": []}
+        hooks_file.write_text(json.dumps({"parsidion": {}}), encoding="utf-8")
+        assert installer_hooks.remove_antigravity_hooks(antigravity_home, claude_dir)
+        assert not hooks_file.exists()
 
 
 class TestClaudeHooks:
@@ -710,7 +679,7 @@ class TestRuntimeFlow:
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
         codex_home = tmp_path / ".codex"
-        gemini_home = tmp_path / ".gemini"
+        antigravity_home = tmp_path / ".gemini"
         monkeypatch.setattr(
             sys,
             "argv",
@@ -726,8 +695,8 @@ class TestRuntimeFlow:
                 str(claude_dir),
                 "--codex-home",
                 str(codex_home),
-                "--gemini-home",
-                str(gemini_home),
+                "--antigravity-home",
+                str(antigravity_home),
             ],
         )
         args = installer_cli.parse_args()
@@ -739,23 +708,23 @@ class TestRuntimeFlow:
         assert "Runtime     : all" in output
         assert f"Claude dir   : {claude_dir}" in output
         assert f"Codex home  : {codex_home}" in output
-        assert f"Gemini home : {gemini_home}" in output
+        assert f"Antigravity home : {antigravity_home}" in output
         assert (
             "Claude hooks: SessionStart, SessionEnd, PreCompact, PostCompact, SubagentStop"
             in output
         )
         assert "Codex hooks : SessionStart, Stop" in output
-        assert "Gemini hooks: SessionStart, SessionEnd" in output
+        assert "Antigravity hooks: PreInvocation, Stop" in output
         assert not (codex_home / "hooks.json").exists()
-        assert not (gemini_home / "settings.json").exists()
+        assert not (antigravity_home / "config" / "hooks.json").exists()
 
-    def test_runtime_gemini_dry_run_install_prints_gemini_plan(
+    def test_runtime_antigravity_dry_run_install_prints_antigravity_plan(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
         monkeypatch.setattr(installer_paths, "_FORBIDDEN_PREFIXES", ())
         vault = tmp_path / "ClaudeVault"
         claude_dir = tmp_path / ".claude"
-        gemini_home = tmp_path / ".gemini"
+        antigravity_home = tmp_path / ".gemini"
         monkeypatch.setattr(
             sys,
             "argv",
@@ -763,14 +732,14 @@ class TestRuntimeFlow:
                 "install.py",
                 "--yes",
                 "--runtime",
-                "gemini",
+                "antigravity",
                 "--dry-run",
                 "--vault",
                 str(vault),
                 "--claude-dir",
                 str(claude_dir),
-                "--gemini-home",
-                str(gemini_home),
+                "--antigravity-home",
+                str(antigravity_home),
             ],
         )
         args = installer_cli.parse_args()
@@ -779,12 +748,12 @@ class TestRuntimeFlow:
 
         output = capsys.readouterr().out
         assert result == 0
-        assert "Runtime     : gemini" in output
-        assert f"Gemini home : {gemini_home}" in output
-        assert "Gemini hooks: SessionStart, SessionEnd" in output
+        assert "Runtime     : antigravity" in output
+        assert f"Antigravity home : {antigravity_home}" in output
+        assert "Antigravity hooks: PreInvocation, Stop" in output
         assert "Claude hooks:" not in output
         assert "Codex hooks :" not in output
-        assert not (gemini_home / "settings.json").exists()
+        assert not (antigravity_home / "config" / "hooks.json").exists()
 
     def test_uninstall_codex_runtime_removes_codex_hooks_only(
         self, tmp_path: Path
@@ -836,18 +805,18 @@ class TestRuntimeFlow:
         assert codex_hooks["hooks"] == {}
         assert "SessionStart" in claude_settings["hooks"]
 
-    def test_uninstall_gemini_runtime_removes_gemini_hooks_only(
+    def test_uninstall_antigravity_runtime_removes_antigravity_hooks_only(
         self, tmp_path: Path
     ) -> None:
         claude_dir = tmp_path / ".claude"
         settings_file = claude_dir / "settings.json"
         codex_home = tmp_path / ".codex"
-        gemini_home = tmp_path / ".gemini"
+        antigravity_home = tmp_path / ".gemini"
         installer_hooks.merge_codex_hooks(
             codex_home, claude_dir, dry_run=False, verbose=False
         )
-        installer_hooks.merge_gemini_hooks(
-            gemini_home, claude_dir, dry_run=False, verbose=False
+        installer_hooks.merge_antigravity_hooks(
+            antigravity_home, claude_dir, dry_run=False, verbose=False
         )
         settings_file.parent.mkdir(parents=True)
         settings_file.write_text(json.dumps({"hooks": {}}), encoding="utf-8")
@@ -859,15 +828,13 @@ class TestRuntimeFlow:
             dry_run=False,
             yes=True,
             hooks_only=True,
-            runtime="gemini",
+            runtime="antigravity",
             codex_home=codex_home,
-            gemini_home=gemini_home,
+            antigravity_home=antigravity_home,
         )
 
-        gemini_settings = json.loads(
-            (gemini_home / "settings.json").read_text(encoding="utf-8")
-        )
-        assert gemini_settings["hooks"] == {}
+        antigravity_hooks_file = antigravity_home / "config" / "hooks.json"
+        assert not antigravity_hooks_file.exists()
         assert (codex_home / "hooks.json").read_text(encoding="utf-8") == codex_before
 
     def test_uninstall_claude_runtime_leaves_codex_hooks(self, tmp_path: Path) -> None:
@@ -1033,7 +1000,7 @@ class TestFullUninstall:
 
 
 class TestUninstallGuardsSharedInfrastructure:
-    """ARC-003: 'disconnect codex|gemini' must not tear down shared global
+    """ARC-003: 'disconnect codex|antigravity' must not tear down shared global
     infrastructure that the still-connected Claude install depends on.
 
     Three teardown actions used to fire at function-body indentation outside
@@ -1093,7 +1060,7 @@ class TestUninstallGuardsSharedInfrastructure:
             hooks_only=False,
             runtime="codex",
             codex_home=tmp_path / ".codex",
-            gemini_home=tmp_path / ".gemini",
+            antigravity_home=tmp_path / ".gemini",
             purge_config=True,  # even with purge_config, codex disconnect must not fire
         )
 
@@ -1107,7 +1074,7 @@ class TestUninstallGuardsSharedInfrastructure:
             "disconnect codex must not delete vaults.yaml even with --purge-config"
         )
 
-    def test_disconnect_gemini_does_not_touch_shared_infrastructure(
+    def test_disconnect_antigravity_does_not_touch_shared_infrastructure(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -1128,9 +1095,9 @@ class TestUninstallGuardsSharedInfrastructure:
             dry_run=False,
             yes=True,
             hooks_only=False,
-            runtime="gemini",
+            runtime="antigravity",
             codex_home=tmp_path / ".codex",
-            gemini_home=tmp_path / ".gemini",
+            antigravity_home=tmp_path / ".gemini",
             purge_config=True,
         )
 
@@ -1722,11 +1689,11 @@ class TestInstallFailureHandling:
             "cleanup_legacy_assets",
             "enable_codex_hooks_config",
             "merge_codex_hooks",
-            "merge_gemini_hooks",
+            "merge_antigravity_hooks",
             "enable_ai_mode",
             "install_parsidion_vault_md",
             "install_codex_agents_md",
-            "install_gemini_md",
+            "install_antigravity_md",
             "rebuild_index",
             "configure_vault_gitignore",
             "init_vault_git",
@@ -2014,11 +1981,11 @@ class TestInstallPersistsSettings:
             "cleanup_legacy_assets",
             "enable_codex_hooks_config",
             "merge_codex_hooks",
-            "merge_gemini_hooks",
+            "merge_antigravity_hooks",
             "enable_ai_mode",
             "install_parsidion_vault_md",
             "install_codex_agents_md",
-            "install_gemini_md",
+            "install_antigravity_md",
             "rebuild_index",
             "configure_vault_gitignore",
             "init_vault_git",
@@ -2117,11 +2084,11 @@ class TestInstallUninstallRoundTrip:
             "cleanup_legacy_assets",
             "enable_codex_hooks_config",
             "merge_codex_hooks",
-            "merge_gemini_hooks",
+            "merge_antigravity_hooks",
             "enable_ai_mode",
             "install_parsidion_vault_md",
             "install_codex_agents_md",
-            "install_gemini_md",
+            "install_antigravity_md",
             "rebuild_index",
             "configure_vault_gitignore",
             "init_vault_git",
@@ -2167,7 +2134,7 @@ class TestInstallUninstallRoundTrip:
             hooks_only=False,
             runtime="claude",
             codex_home=codex_home,
-            gemini_home=tmp_path / ".gemini",
+            antigravity_home=tmp_path / ".gemini",
             purge_config=True,
         )
 

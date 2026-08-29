@@ -21,7 +21,7 @@ from installer.colors import bold
 from installer.hooks import (
     disable_codex_hooks_config,
     remove_codex_hooks,
-    remove_gemini_hooks,
+    remove_antigravity_hooks,
     remove_installed_hooks,
     remove_legacy_hooks,
 )
@@ -33,7 +33,7 @@ from installer.paths import (
     _resolve_vault_root_for_uninstall,
     _wants_claude_runtime,
     _wants_codex_runtime,
-    _wants_gemini_runtime,
+    _wants_antigravity_runtime,
 )
 from installer.schedule import unschedule_summarizer
 from installer.steps import Step, StepList
@@ -51,7 +51,7 @@ from installer.skill import (
     _LEGACY_CLAUDE_VAULT_MD_IMPORT,
     _PARSIDION_VAULT_MD_IMPORT,
     remove_codex_agents_md,
-    remove_gemini_md,
+    remove_antigravity_md,
 )
 
 
@@ -60,11 +60,11 @@ def _build_hooks_only_steps(
     claude_dir: Path,
     settings_file: Path,
     codex_home: Path,
-    gemini_home: Path,
+    antigravity_home: Path,
     dry_run: bool,
     uninstall_claude_runtime: bool,
     uninstall_codex_runtime: bool,
-    uninstall_gemini_runtime: bool,
+    uninstall_antigravity_runtime: bool,
 ) -> StepList:
     """Build the hooks-only teardown step list (the ``disconnect`` path).
 
@@ -96,11 +96,13 @@ def _build_hooks_only_steps(
                 lambda: remove_codex_hooks(codex_home, claude_dir, dry_run=dry_run),
             )
         )
-    if uninstall_gemini_runtime:
+    if uninstall_antigravity_runtime:
         steps.append(
             Step(
-                "remove_gemini_hooks",
-                lambda: remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run),
+                "remove_antigravity_hooks",
+                lambda: remove_antigravity_hooks(
+                    antigravity_home, claude_dir, dry_run=dry_run
+                ),
             )
         )
     return steps
@@ -111,12 +113,12 @@ def _build_uninstall_steps(
     claude_dir: Path,
     settings_file: Path,
     codex_home: Path,
-    gemini_home: Path,
+    antigravity_home: Path,
     dry_run: bool,
     runtime: str,
     uninstall_claude_runtime: bool,
     uninstall_codex_runtime: bool,
-    uninstall_gemini_runtime: bool,
+    uninstall_antigravity_runtime: bool,
     purge_config: bool,
 ) -> StepList:
     """Build the full-uninstall step list (``--uninstall`` path).
@@ -134,7 +136,7 @@ def _build_uninstall_steps(
     uses: a step is included iff its runtime is selected. ``is_full_teardown``
     (shared infrastructure — post-merge hook, summarizer schedule,
     vaults.yaml) only fires when the Claude integration itself is being
-    removed (ARC-003), so a targeted ``disconnect codex``/``gemini`` does
+    removed (ARC-003), so a targeted ``disconnect codex``/``antigravity`` does
     not touch it.
 
     Unlike install(), the vault directory and its config (embeddings,
@@ -272,20 +274,22 @@ def _build_uninstall_steps(
         # same point (where the codex block would have run).
         _warn("Runtime selection is none; no runtime hooks will be removed.")
 
-    if uninstall_gemini_runtime:
-        # ARC-022 / SEC-116: same instruction-block removal for Gemini.
+    if uninstall_antigravity_runtime:
+        # ARC-022 / SEC-116: same instruction-block removal for Antigravity.
 
-        def _remove_gemini_integration() -> None:
-            remove_gemini_hooks(gemini_home, claude_dir, dry_run=dry_run)
-            remove_gemini_md(gemini_home, dry_run=dry_run)
+        def _remove_antigravity_integration() -> None:
+            remove_antigravity_hooks(antigravity_home, claude_dir, dry_run=dry_run)
+            remove_antigravity_md(antigravity_home, dry_run=dry_run)
 
-        steps.append(Step("remove_gemini_integration", _remove_gemini_integration))
+        steps.append(
+            Step("remove_antigravity_integration", _remove_antigravity_integration)
+        )
 
     # ARC-003: the post-merge hook, summarizer schedule, and vaults.yaml are
     # shared global infrastructure that the Claude install depends on. Only
     # tear them down when the Claude integration itself is being removed
     # (runtime contains "claude"). A targeted 'disconnect codex' or 'disconnect
-    # gemini' must not touch them.
+    # antigravity' must not touch them.
     is_full_teardown = uninstall_claude_runtime
 
     if is_full_teardown:
@@ -334,23 +338,23 @@ def uninstall(
     hooks_only: bool = False,
     runtime: str = "claude",
     codex_home: Path | None = None,
-    gemini_home: Path | None = None,
+    antigravity_home: Path | None = None,
     purge_config: bool = False,
 ) -> None:
     """Remove installed Parsidion assets, or only managed hook registrations.
 
     By default this is a full uninstall of the Claude integration plus any
-    Codex/Gemini runtimes selected via ``runtime``. When ``hooks_only`` is
+    Codex/Antigravity runtimes selected via ``runtime``. When ``hooks_only`` is
     True the function instead removes only managed hook entries and leaves
     the skill directory, agents, PARSIDION-VAULT.md, and other assets in place
-    — the path used by ``disconnect codex`` / ``disconnect gemini``.
+    — the path used by ``disconnect codex`` / ``disconnect antigravity``.
 
     ARC-003 (preserved here when the function moved): ``codex_home``, the
     post-merge hook, the summarizer schedule, and ``vaults.yaml`` are shared
     global infrastructure that the Claude install depends on. They are only
     torn down when the Claude integration itself is being removed
     (``is_full_teardown``). A targeted ``disconnect codex`` or
-    ``disconnect gemini`` must not touch them.
+    ``disconnect antigravity`` must not touch them.
 
     ARC-003 (also preserved): ``vaults.yaml`` additionally requires an
     explicit ``--purge-config`` (``purge_config=True``) — under ``--yes``
@@ -366,16 +370,16 @@ def uninstall(
             imply ``purge_config`` — see below.
         hooks_only: When True, remove only Parsidion-managed hook
             registrations (Claude ``settings.json``, Codex ``hooks.json``,
-            Gemini ``settings.json``) and leave the skill, agents, scripts,
+            Antigravity ``config/hooks.json``) and leave the skill, agents, scripts,
             and vault untouched.
         runtime: Selector controlling which runtime integrations to tear
-            down: ``"claude"``, ``"codex"``, ``"gemini"``, ``"both"``
+            down: ``"claude"``, ``"codex"``, ``"antigravity"``, ``"both"``
             (Claude + Codex), ``"all"`` (every runtime), or ``"none"``.
             Accepts the same vocabulary as ``install.py connect``.
         codex_home: Path to the Codex config directory (``~/.codex``); when
             None, resolved from the ``CODEX_HOME`` env var (default
             ``~/.codex``).
-        gemini_home: Path to the Gemini config directory (``~/.gemini``);
+        antigravity_home: Path to the Antigravity config directory (``~/.gemini``);
             when None, defaults to ``~/.gemini``.
         purge_config: When True and a full Claude teardown is selected,
             also remove ``~/.config/parsidion/vaults.yaml``. Always
@@ -385,10 +389,10 @@ def uninstall(
         codex_home
         or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser().resolve()
     )
-    gemini_home = gemini_home or (Path.home() / ".gemini")
+    antigravity_home = antigravity_home or (Path.home() / ".gemini")
     uninstall_claude_runtime = _wants_claude_runtime(runtime)
     uninstall_codex_runtime = _wants_codex_runtime(runtime)
-    uninstall_gemini_runtime = _wants_gemini_runtime(runtime)
+    uninstall_antigravity_runtime = _wants_antigravity_runtime(runtime)
 
     if hooks_only:
         print(bold("\nRemoving Parsidion hooks..."))
@@ -398,11 +402,11 @@ def uninstall(
             claude_dir=claude_dir,
             settings_file=settings_file,
             codex_home=codex_home,
-            gemini_home=gemini_home,
+            antigravity_home=antigravity_home,
             dry_run=dry_run,
             uninstall_claude_runtime=uninstall_claude_runtime,
             uninstall_codex_runtime=uninstall_codex_runtime,
-            uninstall_gemini_runtime=uninstall_gemini_runtime,
+            uninstall_antigravity_runtime=uninstall_antigravity_runtime,
         )
         steps.run_all()
         if not dry_run:
@@ -416,12 +420,12 @@ def uninstall(
         claude_dir=claude_dir,
         settings_file=settings_file,
         codex_home=codex_home,
-        gemini_home=gemini_home,
+        antigravity_home=antigravity_home,
         dry_run=dry_run,
         runtime=runtime,
         uninstall_claude_runtime=uninstall_claude_runtime,
         uninstall_codex_runtime=uninstall_codex_runtime,
-        uninstall_gemini_runtime=uninstall_gemini_runtime,
+        uninstall_antigravity_runtime=uninstall_antigravity_runtime,
         purge_config=purge_config,
     )
     steps.run_all()

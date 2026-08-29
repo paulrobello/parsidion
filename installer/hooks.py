@@ -3,7 +3,7 @@
 Handles merging and removing Parsidion-managed hooks in:
   - Claude Code settings.json
   - Codex hooks.json
-  - Gemini settings.json
+  - Antigravity config/hooks.json
 
 Stdlib-only — no third-party dependencies.
 """
@@ -250,7 +250,7 @@ def _filter_hook_entries(
 # ---------------------------------------------------------------------------
 # _merge_runtime_hooks drives one read-modify-write pass over a runtime's hook
 # config, adapter-driven (ENH-006). The per-runtime merge/remove wrappers below
-# delegate here; the codex/gemini file-helper + entry-shape code that used to
+# delegate here; the codex/antigravity file-helper + entry-shape code that used to
 # live here collapsed into _read_runtime_hooks / _build_entry / the adapter.
 
 
@@ -408,7 +408,7 @@ def _read_runtime_hooks(
 ) -> dict | None:
     """Read + validate a runtime hook config; None when unsafe to edit.
 
-    Ensures a ``hooks`` sub-dict exists (matching the codex/gemini readers).
+    Ensures a ``hooks`` sub-dict exists (matching the codex/antigravity readers).
     """
     label = spec.display_name or runtime_name
     if not hooks_file.exists():
@@ -453,9 +453,9 @@ def _build_managed_command(
 def _build_entry(spec: agent_adapter.InstallerSpec, event: str, command: str) -> dict:
     """Build the per-event hook entry dict from the spec's declarative fields.
 
-    Matches the former ``_build_codex_entry`` / ``_build_gemini_entry`` output
+    Matches the former ``_build_codex_entry`` / ``_build_antigravity_entry`` output
     exactly (key order included): a ``matcher`` + ``hooks`` list whose hook
-    carries an optional ``name`` (Gemini schema), ``type``, ``command``,
+    carries an optional ``name`` (Antigravity schema), ``type``, ``command``,
     ``timeout``.
     """
     hook: dict[str, object] = {"type": "command", "command": command}
@@ -474,7 +474,7 @@ def remove_runtime_hooks(
 ) -> bool:
     """Remove Parsidion-managed hook commands for *adapter* from its config.
 
-    Generic collapse of remove_codex_hooks / remove_gemini_hooks /
+    Generic collapse of remove_codex_hooks / remove_antigravity_hooks /
     remove_installed_hooks — identical behaviour, driven by the adapter's config
     filename, event scripts, and managed-command builder.
     """
@@ -532,47 +532,134 @@ def remove_codex_hooks(
 
 
 # ---------------------------------------------------------------------------
-# Gemini hook management
+# Antigravity hook management
 # ---------------------------------------------------------------------------
 
 
-def merge_gemini_hooks(
-    gemini_home: Path,
+def _antigravity_hooks_file(home: Path) -> Path:
+    """Return the Antigravity global named-hooks configuration path."""
+    return home / "config" / "hooks.json"
+
+
+def _antigravity_safe_to_edit(home: Path, hooks_file: Path) -> bool:
+    """Reject config paths whose symlink resolution escapes *home* (SEC-116)."""
+    try:
+        resolved_home = home.resolve()
+        resolved_file = hooks_file.resolve()
+    except OSError as exc:
+        _warn(f"Cannot resolve Antigravity hook path {hooks_file} ({exc}); skipping.")
+        return False
+    if not resolved_file.is_relative_to(resolved_home):
+        _warn(
+            f"Refusing to follow symlink {hooks_file} -> {resolved_file}: "
+            f"target is outside {resolved_home}."
+        )
+        return False
+    return True
+
+
+def _read_named_hooks(hooks_file: Path) -> dict | None:
+    """Read a named-hooks JSON object, returning None for unsafe input."""
+    if not hooks_file.exists():
+        return {}
+    try:
+        data = json.loads(hooks_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _warn(f"Could not read {hooks_file}: {exc}; skipping Antigravity hook update")
+        return None
+    if not isinstance(data, dict):
+        _warn(f"{hooks_file} is not a JSON object; skipping Antigravity hook update")
+        return None
+    return data
+
+
+def merge_antigravity_hooks(
+    antigravity_home: Path,
     claude_dir: Path,
     dry_run: bool = False,
     verbose: bool = False,
 ) -> None:
-    """Merge Parsidion-managed Gemini hooks into ``GEMINI_HOME/settings.json``.
+    """Merge Parsidion's named hook into Antigravity's global hooks.json."""
+    adapter = _adapter("antigravity")
+    spec = _spec(adapter)
+    hooks_file = _antigravity_hooks_file(antigravity_home)
+    if not _antigravity_safe_to_edit(antigravity_home, hooks_file):
+        return
+    with _file_lock(hooks_file):
+        data = _read_named_hooks(hooks_file)
+        if data is None:
+            return
+        named = data.get("parsidion", {})
+        if not isinstance(named, dict):
+            _warn(f"{hooks_file} has a non-object parsidion hook; skipping update")
+            return
+        added: list[str] = []
+        skipped: list[str] = []
+        for event in spec.event_scripts:
+            command = _build_managed_command(spec, claude_dir, event)
+            event_hooks = named.setdefault(event, [])
+            if not isinstance(event_hooks, list):
+                _warn(f"Antigravity hook event {event} is not a list; skipping")
+                continue
+            if _hook_already_registered(event_hooks, command):
+                skipped.append(event)
+                _print(
+                    f"  Antigravity hook {event} already registered",
+                    verbose_only=True,
+                    verbose=verbose,
+                )
+                continue
+            _step(
+                f"Register Antigravity hook {bold(event)}: {dim(command)}",
+                dry_run=dry_run,
+            )
+            if not dry_run:
+                event_hooks.append(_build_entry(spec, event, command))
+            added.append(event)
+        if dry_run:
+            return
+        if added:
+            data["parsidion"] = named
+            try:
+                _atomic_write_json(hooks_file, data)
+                _ok(f"Updated {hooks_file}")
+            except OSError as exc:
+                _err(f"Could not write {hooks_file}: {exc}")
+        elif skipped:
+            _ok("All Antigravity hooks already registered")
 
-    Thin wrapper over the shared ``_merge_runtime_hooks`` core; all
-    per-runtime behaviour (file path, reader, entry shape, timeout units)
-    lives on the gemini AgentAdapter (ENH-006).
 
-    Args:
-        gemini_home: Path to the Gemini config directory (``~/.gemini`` on
-            a default install). ``settings.json`` is created or appended
-            inside.
-        claude_dir: Path to the Claude Code config directory (``~/.claude``)
-            — used to resolve the managed hook command paths under
-            ``skills/parsidion/scripts/``.
-        dry_run: When True, print the registrations that would be made but
-            leave ``settings.json`` untouched.
-        verbose: When True, emit a line per already-registered hook;
-            otherwise already-registered events are silent.
-    """
-    _merge_runtime_hooks(_adapter("gemini"), gemini_home, claude_dir, dry_run, verbose)
-
-
-def remove_gemini_hooks(
-    gemini_home: Path,
+def remove_antigravity_hooks(
+    antigravity_home: Path,
     claude_dir: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Remove only Parsidion-managed Gemini hook commands from settings.json.
-
-    Thin wrapper over the shared ``remove_runtime_hooks`` core (ENH-006).
-    """
-    return remove_runtime_hooks(_adapter("gemini"), gemini_home, claude_dir, dry_run)
+    """Remove only Parsidion's named Antigravity hook key."""
+    del claude_dir  # retained for the common runtime-helper call signature
+    hooks_file = _antigravity_hooks_file(antigravity_home)
+    if not _antigravity_safe_to_edit(antigravity_home, hooks_file):
+        return False
+    with _file_lock(hooks_file):
+        data = _read_named_hooks(hooks_file)
+        if data is None or not hooks_file.exists():
+            return False
+        if "parsidion" not in data:
+            _warn("No Parsidion Antigravity hook registrations found.")
+            return False
+        _step("Remove Antigravity parsidion hooks", dry_run=dry_run)
+        if dry_run:
+            return True
+        del data["parsidion"]
+        try:
+            if data:
+                _atomic_write_json(hooks_file, data)
+            else:
+                hooks_file.unlink()
+            _ok(f"Updated {hooks_file}")
+        except OSError as exc:
+            _err(f"Could not update {hooks_file}: {exc}")
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -778,7 +865,7 @@ def merge_hooks(
                 settings = json.loads(original_bytes.decode("utf-8"))
             except (json.JSONDecodeError, OSError) as exc:
                 # Bail out: do NOT reset to {} and do NOT write. Mirrors the
-                # Codex/Gemini readers at _read_codex_hooks/_read_gemini_settings
+                # Codex/Antigravity readers at _read_codex_hooks/_read_antigravity_settings
                 # and remove_installed_hooks. SEC-105.
                 _err(
                     f"Could not parse {settings_file}: {exc}\n"

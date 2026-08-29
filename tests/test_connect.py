@@ -83,17 +83,17 @@ class TestInstructionsInjection:
         # the monkeypatched path, not the real file.
         assert "parsidion-test-sentinel-9f2a" in text
 
-    def test_gemini_md_injection_is_idempotent(self, tmp_path, monkeypatch):
+    def test_antigravity_md_injection_is_idempotent(self, tmp_path, monkeypatch):
         # See test_codex_agents_md_injects_section: must patch skill, not paths.
         monkeypatch.setattr(
             skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
         )
-        gemini_home = tmp_path / ".gemini"
-        gemini_home.mkdir()
-        skill.install_gemini_md(gemini_home)
-        before = (gemini_home / "GEMINI.md").read_text(encoding="utf-8")
-        skill.install_gemini_md(gemini_home)  # second call must not duplicate
-        after = (gemini_home / "GEMINI.md").read_text(encoding="utf-8")
+        antigravity_home = tmp_path / ".gemini"
+        antigravity_home.mkdir()
+        skill.install_antigravity_md(antigravity_home)
+        before = (antigravity_home / "GEMINI.md").read_text(encoding="utf-8")
+        skill.install_antigravity_md(antigravity_home)  # second call must not duplicate
+        after = (antigravity_home / "GEMINI.md").read_text(encoding="utf-8")
         assert before.count(_BEGIN) == 1
         assert after == before
 
@@ -126,16 +126,18 @@ class TestConnectVerbs:
         install_mod.main()
         assert called["runtime"] == "codex"
 
-    def test_connect_gemini_calls_install_with_gemini_runtime(self, monkeypatch):
+    def test_connect_antigravity_calls_install_with_antigravity_runtime(
+        self, monkeypatch
+    ):
         called: dict = {}
 
         def fake_install(args):
             called["runtime"] = args.runtime
 
         monkeypatch.setattr(installer_cli, "install", fake_install)
-        monkeypatch.setattr(sys, "argv", ["install.py", "connect", "gemini"])
+        monkeypatch.setattr(sys, "argv", ["install.py", "connect", "antigravity"])
         install_mod.main()
-        assert called["runtime"] == "gemini"
+        assert called["runtime"] == "antigravity"
 
     def test_disconnect_codex_calls_uninstall_with_codex_runtime(self, monkeypatch):
         called: dict = {}
@@ -295,7 +297,7 @@ class TestInstallPiExtensionScript:
 
 
 # ---------------------------------------------------------------------------
-# SEC-116: connect codex/gemini must refuse symlinks that escape the agent
+# SEC-116: connect codex/antigravity must refuse symlinks that escape the agent
 # config dir, and disconnect must remove the instructions block + revert
 # the [features] hooks flag.
 # ---------------------------------------------------------------------------
@@ -363,19 +365,19 @@ class TestSec116RemoveInstructionsBlock:
         monkeypatch.setattr(
             skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
         )
-        gemini_home = tmp_path / ".gemini"
-        gemini_home.mkdir()
-        skill.install_gemini_md(gemini_home)
+        antigravity_home = tmp_path / ".gemini"
+        antigravity_home.mkdir()
+        skill.install_antigravity_md(antigravity_home)
         # User appends their own content after install.
-        gemini_md = gemini_home / "GEMINI.md"
-        gemini_md.write_text(
-            gemini_md.read_text(encoding="utf-8") + "\n# my rules\n",
+        antigravity_md = antigravity_home / "GEMINI.md"
+        antigravity_md.write_text(
+            antigravity_md.read_text(encoding="utf-8") + "\n# my rules\n",
             encoding="utf-8",
         )
 
-        removed = skill.remove_gemini_md(gemini_home)
+        removed = skill.remove_antigravity_md(antigravity_home)
         assert removed is True
-        text = gemini_md.read_text(encoding="utf-8")
+        text = antigravity_md.read_text(encoding="utf-8")
         assert _BEGIN not in text
         assert _END not in text
         assert "parsidion-test-sentinel-9f2a" not in text
@@ -387,17 +389,17 @@ class TestSec116RemoveInstructionsBlock:
         monkeypatch.setattr(
             skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
         )
-        gemini_home = tmp_path / ".gemini"
-        gemini_home.mkdir()
-        skill.install_gemini_md(gemini_home)
-        assert skill.remove_gemini_md(gemini_home) is True
+        antigravity_home = tmp_path / ".gemini"
+        antigravity_home.mkdir()
+        skill.install_antigravity_md(antigravity_home)
+        assert skill.remove_antigravity_md(antigravity_home) is True
         # Second call: nothing to remove.
-        assert skill.remove_gemini_md(gemini_home) is False
+        assert skill.remove_antigravity_md(antigravity_home) is False
 
     def test_missing_file_returns_false(self, tmp_path: Path) -> None:
-        gemini_home = tmp_path / ".gemini"
-        gemini_home.mkdir()
-        assert skill.remove_gemini_md(gemini_home) is False
+        antigravity_home = tmp_path / ".gemini"
+        antigravity_home.mkdir()
+        assert skill.remove_antigravity_md(antigravity_home) is False
 
     def test_removing_block_via_symlink_that_escapes_is_refused(
         self, tmp_path: Path, monkeypatch
