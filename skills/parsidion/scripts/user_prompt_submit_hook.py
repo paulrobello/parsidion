@@ -55,7 +55,7 @@ _DEFAULTS: dict[str, Any] = {
     "max_chars": 1500,  # total body budget for the injected context
     "per_note_chars": 350,  # per-note excerpt budget
     "min_term_matches": 2,  # relevance gate; 0 disables the gate
-    "min_prompt_chars": 4,  # shorter prompts skip retrieval entirely
+    "min_prompt_chars": 9,  # shorter prompts skip retrieval ("continue" = 8 chars)
     "probe_cache_seconds": 300,
     "debug": False,
 }

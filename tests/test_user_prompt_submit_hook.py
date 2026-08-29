@@ -131,6 +131,16 @@ class TestRecall:
         assert hook_env["search"] == []
         assert hook_env["probe"] == []  # gate fires before any probe
 
+    def test_continue_prompt_skips_retrieval(
+        self, hook_env: dict[str, list[object]]
+    ) -> None:
+        # Regression: "continue" (8 chars) must stay under the default-9
+        # length gate — no probe, no search, empty output.
+        result = user_prompt_submit_hook.run_recall({"prompt": "continue"})
+        assert result == {}
+        assert hook_env["probe"] == []
+        assert hook_env["search"] == []
+
     def test_search_none_yields_empty(
         self, tmp_vault: Path, _isolated_logs: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

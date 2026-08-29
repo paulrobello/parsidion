@@ -556,9 +556,9 @@ class UserPromptSubmitHookConfig:
         },
     )
     min_prompt_chars: int = field(
-        default=4,
+        default=9,
         metadata={
-            "doc": "Prompts shorter than this skip retrieval",
+            "doc": "Prompts shorter than this skip retrieval (9 keeps short goads like 'continue' quiet)",
             "read_by": "user_prompt_submit_hook.py",
             "section_read": True,
         },

@@ -1169,7 +1169,7 @@ user_prompt_submit_hook:
   max_chars: 1500  # Total additionalContext character budget
   per_note_chars: 350  # Per-note excerpt character budget
   min_term_matches: 2  # Relevance gate — distinct tokens shared between prompt and note title/tags/stem, 0 disables
-  min_prompt_chars: 4  # Prompts shorter than this skip retrieval
+  min_prompt_chars: 9  # Prompts shorter than this skip retrieval (9 keeps short goads like 'continue' quiet)
   probe_cache_seconds: 300  # Negative-cache freshness for the parsight availability probe
   debug: false  # Append injected context + metadata to a debug log in $TMPDIR
 
