@@ -44,7 +44,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
 - **[uv](https://docs.astral.sh/uv/)** -- Python package runner and manager
 - **[bun](https://bun.sh/)** -- JavaScript runtime and package manager for the Vault Visualizer and its quality gate (`make visualizer-check` is part of `make checkall`)
 - **[Obsidian](https://obsidian.md/)** (optional) -- for vault browsing and graph view
-- **Claude Code, Codex CLI, and/or Gemini CLI** -- runtime integration target(s) selected during install
+- **Claude Code, Codex CLI, and/or Antigravity CLI (`agy`)** -- runtime integration target(s) selected during install
 - **[jq](https://jqlang.github.io/jq/)** (optional) -- required by the `scripts/show-context` preview script; install via `brew install jq` (macOS) or your system package manager
 - **[mcpl](https://github.com/kenneth-liao/mcp-launchpad)** (optional, legacy) -- MCP Launchpad, a unified CLI for discovering and calling tools from any MCP server. Not installed by Parsidion; the research agent only considers it when already on `PATH` (see [docs/archive/MCPL.md](docs/archive/MCPL.md))
 - **[agentchrome](https://github.com/Nunley-Media-Group/AgentChrome)** (optional, recommended) -- native CLI for browser control via Chrome DevTools Protocol; used by the research agent to fetch fully-rendered pages for higher-quality markdown conversion (see [docs/AGENTCHROME.md](docs/AGENTCHROME.md)); falls back to `curl` when unavailable
@@ -64,7 +64,7 @@ Parsidion replaces fragile, tool-specific memory with a richly organized markdow
    ```bash
    uv run install.py
    ```
-   The installer prompts for runtime integrations. Depending on your selection, it may configure Claude Code assets under `~/.claude/`, Codex CLI hooks under `~/.codex/`, and Gemini CLI hooks under `~/.gemini/settings.json`.
+   The installer prompts for runtime integrations. Google shut down Gemini CLI for consumers on 2026-06-18; Antigravity CLI (`agy`) is the successor (enterprise licenses are unaffected). Depending on your selection, it may configure Claude Code assets under `~/.claude/`, Codex CLI hooks under `~/.codex/`, and Antigravity CLI (`agy`) hooks under `~/.gemini/config/hooks.json`.
 
 3. **Restart the selected runtime(s)** to activate the hooks.
 
@@ -120,14 +120,14 @@ uv run install.py --uninstall --purge-config --yes
 # Friendly multi-agent verbs — install or remove one runtime integration
 uv run install.py connect claude      # install Claude Code integration only
 uv run install.py connect codex       # install Codex CLI integration (hooks + AGENTS.md)
-uv run install.py connect gemini      # install Gemini CLI integration (hooks + GEMINI.md)
+uv run install.py connect antigravity      # install Antigravity CLI (`agy`) integration (hooks + GEMINI.md)
 uv run install.py connect pi          # install the pi TypeScript extension (~/.pi/agent/extensions)
 uv run install.py connect omp         # install the same extension for omp (~/.omp/agent/extensions)
 uv run install.py disconnect codex    # remove Codex CLI integration
 uv run install.py disconnect omp      # remove the omp extension only
 ```
 
-`connect <claude|codex|gemini|pi|omp>` is a friendlier alias for `--runtime <agent>` that installs only one integration (`connect pi` / `connect omp` install the shared TypeScript extension into the runtime's extensions directory instead of hooks). `disconnect <...>` removes that agent's full Parsidion integration (equivalent to a targeted `--uninstall --runtime <agent>`; `disconnect pi` / `disconnect omp` remove just the extension files).
+`connect <claude|codex|antigravity|pi|omp>` is a friendlier alias for `--runtime <agent>` that installs only one integration (`connect pi` / `connect omp` install the shared TypeScript extension into the runtime's extensions directory instead of hooks). `disconnect <...>` removes that agent's full Parsidion integration (equivalent to a targeted `--uninstall --runtime <agent>`; `disconnect pi` / `disconnect omp` remove just the extension files).
 
 **Options:**
 
@@ -136,15 +136,15 @@ uv run install.py disconnect omp      # remove the omp extension only
 | `--vault PATH` | Vault path (skips interactive prompt) |
 | `--claude-dir PATH` | Target Claude config dir (default: `~/.claude`) |
 | `--codex-home PATH` | Target Codex home for hooks/config (default: `$CODEX_HOME` or `~/.codex`) |
-| `--gemini-home PATH` | Target Gemini home for hook settings (default: `~/.gemini`) |
+| `--gemini-home PATH` | Target Antigravity/Gemini config home for hook settings (default: `~/.gemini`) |
 | `--omp-home PATH` | omp config home for the `connect omp` extension install (default: `$PI_CONFIG_DIR` or `~/.omp`); the extension lands in `<omp-home>/agent/extensions` |
 | `--purge-config` | With `--uninstall`, also remove `~/.config/parsidion/vaults.yaml` (always preserved otherwise; no effect unless the Claude integration is being removed, and required even under `--yes`) |
-| `--runtime {claude,codex,gemini,both,all,none}` | Runtime integration target; interactive installs default to `both` (Claude + Codex), while `--yes` defaults to `claude` for backwards compatibility |
+| `--runtime {claude,codex,antigravity,both,all,none}` | Runtime integration target; interactive installs default to `both` (Claude + Codex), while `--yes` defaults to `claude` for backwards compatibility |
 | `--dry-run / -n` | Preview all actions, no changes made |
 | `--verbose / -v` | Show detailed output |
 | `--force / -f` | Overwrite existing skill files without prompting |
 | `--yes / -y` | Skip all confirmation prompts; uses `~/ParsidionVault` if `--vault` not given, or legacy `~/ClaudeVault` when it already exists |
-| `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/settings.json`) |
+| `--skip-hooks` | Do not modify runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/config/hooks.json`) |
 | `--skip-agent` | Do not install any agents |
 | `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml` and uses the configured prompt AI backend (SessionStart timeout is 60 s for every install regardless) |
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
@@ -159,7 +159,7 @@ uv run install.py disconnect omp      # remove the omp extension only
 | `--migrate-vault` | Rename legacy `~/ClaudeVault` to `~/ParsidionVault` and leave `~/ClaudeVault` as a compatibility symlink |
 | `--no-legacy-vault-symlink` | With `--migrate-vault`, skip creating the compatibility symlink |
 | `--uninstall` | Remove installed skill, agents, hook registrations, and launchd plist / cron job |
-| `--uninstall-hooks` | Remove only installed hook registrations from runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/settings.json`) |
+| `--uninstall-hooks` | Remove only installed hook registrations from runtime hook files (`~/.claude/settings.json`, `~/.codex/hooks.json`, or `~/.gemini/config/hooks.json`) |
 
 ### Runtime integrations
 
@@ -167,9 +167,9 @@ Interactive installs ask which runtime integrations to configure:
 
 - `claude` — Claude Code skill, agents, and hooks under `~/.claude`
 - `codex` — Codex CLI hooks under `~/.codex`
-- `gemini` — Gemini CLI `SessionStart` and `SessionEnd` hooks under `~/.gemini/settings.json`
+- `antigravity` — Antigravity CLI (`agy`) `PreInvocation` and `Stop` hooks under `~/.gemini/config/hooks.json`
 - `both` — Claude Code and Codex CLI integrations
-- `all` — Claude Code, Codex CLI, and Gemini CLI integrations
+- `all` — Claude Code, Codex CLI, and Antigravity CLI (`agy`) integrations
 - `none` — shared vault tooling only; do not register runtime hooks
 
 Non-interactive installs keep the historical Claude-only default unless you pass `--runtime` explicitly:
@@ -178,13 +178,13 @@ Non-interactive installs keep the historical Claude-only default unless you pass
 uv run install.py --yes --runtime claude
 uv run install.py --yes --runtime both
 uv run install.py --yes --runtime codex
-uv run install.py --yes --runtime gemini
+uv run install.py --yes --runtime antigravity
 uv run install.py --yes --runtime all
 ```
 
 Codex integration uses native Codex hooks for session lifecycle events (`SessionStart`, `Stop`, `SubagentStop`) and requires `hooks = true` in `~/.codex/config.toml`. Parsidion can enable this during install and registers hooks in `~/.codex/hooks.json`. Parsidion does not manage Codex auth or copy `~/.codex/auth.json`.
 
-Gemini runtime hooks are separate from prompt AI backend selection. `--runtime gemini` or `--runtime all` registers Gemini CLI `SessionStart` and `SessionEnd` commands in `~/.gemini/settings.json`; it does not add a Gemini prompt AI backend. Gemini has no native subagent lifecycle hook in this first pass, so subagent-style capture remains Claude/pi-specific.
+Antigravity runtime hooks are separate from prompt AI backend selection. `--runtime antigravity` or `--runtime all` registers Antigravity CLI (`agy`) `PreInvocation` and `Stop` commands in `~/.gemini/config/hooks.json`; it does not add an Antigravity prompt AI backend. Antigravity has no native subagent lifecycle hook, so subagent-style capture remains Claude/pi-specific.
 
 During interactive installation, the installer prompts for three optional features:
 
@@ -318,13 +318,13 @@ All hooks read `<resolved vault>/config.yaml` for settings (see [Configuration](
 Transcript compatibility for stop hooks:
 - Claude Code JSONL (`type: "assistant" | "user"`)
 - pi JSONL (`type: "message"` + `message.role`)
-- Gemini JSONL model output records (`role: "model"`, `message.role: "model"`, or `llm_response.candidates[].content.parts`)
+- Antigravity JSONL model output records (`role: "model"`, `message.role: "model"`, or `llm_response.candidates[].content.parts`)
 - Accepted roots: `~/.claude/`, `~/.pi/`, `<cwd>/.pi/`, `~/.codex/sessions/`, `~/.gemini/`, and `<cwd>/.gemini/`
 
 
 ### pi runtime integration
 
-The pi adapter ships as a TypeScript extension that shells out to Parsidion's Python hook scripts, so pi sessions use the same vault and queue path as Claude Code, Codex CLI, and Gemini CLI. Install, Anthropic/GLM configuration, and the full smoke-test walkthrough have moved to a dedicated guide:
+The pi adapter ships as a TypeScript extension that shells out to Parsidion's Python hook scripts, so pi sessions use the same vault and queue path as Claude Code, Codex CLI, and Antigravity CLI (`agy`). Install, Anthropic/GLM configuration, and the full smoke-test walkthrough have moved to a dedicated guide:
 
 ➜ **[docs/PI_EXTENSION.md](docs/PI_EXTENSION.md)** — install (`scripts/install-pi-extension --symlink`), the `/parsidion` status command, effective `anthropic_env` precedence, and the three-step pi SessionEnd/SubagentStop/summarizer validation.
 
@@ -586,7 +586,7 @@ For the per-tool flag reference and the install/uninstall commands, see [docs/US
 
 ### Hooks not firing
 
-- Verify hooks are registered in the selected runtime config: `~/.claude/settings.json` for Claude Code, `~/.codex/hooks.json` for Codex CLI, or `~/.gemini/settings.json` for Gemini CLI. Look for entries pointing to the hook scripts.
+- Verify hooks are registered in the selected runtime config: `~/.claude/settings.json` for Claude Code, `~/.codex/hooks.json` for Codex CLI, or `~/.gemini/config/hooks.json` for Antigravity CLI (`agy`). Look for entries pointing to the hook scripts.
 - Re-run `uv run install.py --force --yes --runtime all` (or your selected `--runtime`) to re-register hooks.
 - Check that the script paths in the runtime hook config are correct and the files exist at those paths.
 - Restart the selected runtime after any hook config change.

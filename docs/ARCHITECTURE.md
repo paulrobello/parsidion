@@ -1,6 +1,6 @@
 # Parsidion Architecture
 
-An agent-agnostic markdown knowledge vault that gives coding assistants persistent memory, cross-session context, and a searchable store of everything they learn. Claude Code is the primary adapter; Codex CLI, Gemini CLI, pi, and omp are also supported. The system is augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
+An agent-agnostic markdown knowledge vault that gives coding assistants persistent memory, cross-session context, and a searchable store of everything they learn. Claude Code is the primary adapter; Codex CLI, Antigravity CLI (`agy`), pi, and omp are also supported. The system is augmented by lifecycle hooks, a research agent, a graph-colorized vault explorer, and a project explorer that catalogs cross-project patterns. [Obsidian](https://obsidian.md/) is **not required** — it is an optional viewer for graph visualization and note browsing.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -52,7 +52,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks. Since ENH-021 each row also carries `incoming_stems` (JSON array of source stems, the reverse-link adjacency inverted from every note's `related` field at index time), so graph retrieval reads incoming links per note instead of re-deriving them; empty values (pre-ENH-021 indexes) fall back to deriving the inversion from `related`
 - Graph retrieval at session start: Tier 1 expands the injected note set with 1-hop wikilink neighbours of selected notes; Tier 2 re-ranks by seed-cluster tag overlap + hubness (default on, configurable via `graph_expand`/`graph_expand_max`/`graph_rerank`)
 - Obsidian graph view with domain-based color grouping
-- Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), pi agent (`extensions/pi/parsidion/`), and omp (`install.py connect omp` — reuses the pi extension, installed into `~/.omp/agent/extensions`)
+- Multi-runtime adapter support: Claude Code (primary), Codex CLI (`~/.codex/hooks.json`), Antigravity CLI (`agy`) (`~/.gemini/config/hooks.json`), pi agent (`extensions/pi/parsidion/`), and omp (`install.py connect omp` — reuses the pi extension, installed into `~/.omp/agent/extensions`)
 
 **Runtime requirements:**
 - Python 3.13+ (stdlib only -- no third-party packages)
@@ -224,21 +224,21 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop`/`SubagentStop` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Gemini runtime hooks provide `SessionStart` and `SessionEnd` wrappers registered in `~/.gemini/settings.json` with `--runtime gemini` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → config.local.yaml → CLI args). Gemini runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
+Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop`/`SubagentStop` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Antigravity runtime hooks provide `PreInvocation` and `Stop` wrappers registered in `~/.gemini/config/hooks.json` with `--runtime antigravity` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → config.local.yaml → CLI args). Antigravity runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
 
 Transcript compatibility:
 - Claude Code JSONL (`type: "assistant" | "user"`)
 - Codex JSONL under `~/.codex/sessions/`
-- Gemini JSONL under `~/.gemini/` or `<cwd>/.gemini/`
+- Antigravity JSONL under `~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl`
 - pi JSONL (`type: "message"` with `message.role: "assistant" | "user"`)
 
 #### SessionStart Hook
 
 **Script:** `skills/parsidion/scripts/session_start_hook.py`
 
-**Runtime wrappers:** `codex_session_start_hook.py` and `gemini_session_start_hook.py` set runtime hints and reuse the same context builder for Codex and Gemini `SessionStart` events.
+**Runtime wrappers:** `codex_session_start_hook.py` and `antigravity_session_start_hook.py` set runtime hints and reuse the same context builder for Codex and Antigravity `SessionStart` events.
 
-Fires when a Claude Code, Codex, or Gemini session begins. Loads relevant vault context into the conversation so the assistant has prior knowledge available immediately.
+Fires when a Claude Code, Codex, or Antigravity session begins. Loads relevant vault context into the conversation so the assistant has prior knowledge available immediately.
 
 **CLI flags:** `--ai [MODEL]`, `--max-chars N`, `--verbose`, `--debug`
 
@@ -302,9 +302,9 @@ Default model: the configured backend's small tier (`ai_models.<backend>.small` 
 
 **Script:** `skills/parsidion/scripts/session_stop_wrapper.sh` + `session_stop_hook.py`
 
-**Runtime wrappers:** `codex_stop_hook.py` handles Codex `Stop`; `gemini_session_end_hook.py` handles Gemini `SessionEnd` and parses Gemini model transcript records.
+**Runtime wrappers:** `codex_stop_hook.py` handles Codex `Stop`; `antigravity_session_end_hook.py` handles Antigravity `Stop` and parses Antigravity model transcript records.
 
-Registered under the Claude `SessionEnd` hook event — fires once when the session terminates (unlike `Stop`, which fires after every agent turn). The shell wrapper reads stdin, outputs `{}` immediately (so Claude Code does not cancel it during fast exits), then spawns the Python script detached via `nohup`. Since ARC-002 the Python script is a thin shim: it keeps Claude's invocation guards and delegates to `agent_adapter.run_session_end`, the single session-end pipeline shared by every runtime (byte-bounded transcript tail, optional AI classification, daily-note update, queue append, `git_commit_vault`, auto-summarizer launch). Runtime-specific wrappers apply equivalent lifecycle handling for Codex and Gemini.
+Registered under the Claude `SessionEnd` hook event — fires once when the session terminates (unlike `Stop`, which fires after every agent turn). The shell wrapper reads stdin, outputs `{}` immediately (so Claude Code does not cancel it during fast exits), then spawns the Python script detached via `nohup`. Since ARC-002 the Python script is a thin shim: it keeps Claude's invocation guards and delegates to `agent_adapter.run_session_end`, the single session-end pipeline shared by every runtime (byte-bounded transcript tail, optional AI classification, daily-note update, queue append, `git_commit_vault`, auto-summarizer launch). Runtime-specific wrappers apply equivalent lifecycle handling for Codex and Antigravity.
 
 **Configurable options** (section `session_stop_hook` in `config.yaml`):
 
@@ -321,7 +321,7 @@ Registered under the Claude `SessionEnd` hook event — fires once when the sess
 **Behavior:**
 1. Reads a configurable transcript tail (`transcript_tail_lines`, default `200`)
 2. Extracts assistant message text (Claude and pi JSONL formats)
-3. If no assistant text is found and the transcript is under a pi root (`~/.pi` or `<cwd>/.pi`), retries with `pi_transcript_tail_lines` (default `1000`). Gemini transcript parsing extracts model text from direct `role: "model"` records, message wrappers, content arrays, and `llm_response.candidates[].content.parts`.
+3. If no assistant text is found and the transcript is under a pi root (`~/.pi` or `<cwd>/.pi`), retries with `pi_transcript_tail_lines` (default `1000`). Antigravity transcript parsing extracts model text from direct `role: "model"` records, message wrappers, content arrays, and `llm_response.candidates[].content.parts`.
 4. Resolves AI model: CLI `--ai` → `session_stop_hook.ai_model` config → `null` (disabled)
 5. Runs keyword-based heuristics to detect four categories:
    - **Error fixes** (keywords: "fixed", "root cause", "the fix", etc.)
@@ -412,7 +412,7 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 
 **Location:** `skills/parsidion/scripts/summarize_sessions.py`
 
-An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. `claude-cli` runs use `claude -p`; `codex-cli` runs use `codex exec`; `grok-cli` runs use `grok --prompt-file` with the CLI's own OAuth login (credentials under `~/.grok`). Gemini runtime hooks can queue transcripts, but there is no Gemini prompt backend yet. No Claude Agent SDK, Codex SDK, or Grok SDK is required for this path.
+An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summaries.jsonl` queue and generates structured vault notes using the configured prompt AI backend. `claude-cli` runs use `claude -p`; `codex-cli` runs use `codex exec`; `grok-cli` runs use `grok --prompt-file` with the CLI's own OAuth login (credentials under `~/.grok`). Antigravity runtime hooks can queue transcripts, but there is no Antigravity prompt backend yet. No Claude Agent SDK, Codex SDK, or Grok SDK is required for this path.
 
 The note-writing and chunk-summarizer prompts are externalized versioned templates under `skills/parsidion/templates/prompts/`, rendered through the strict-variable loader in `prompt_templates.py`, and every AI-generated note is stamped with a `prompt_version: <id>@<semver>` field in its frontmatter. See [docs/PROMPTS.md](PROMPTS.md) for the template format, the variable contract, and the opt-in eval harness that scores a prompt edit against a golden transcript set.
 
@@ -1408,7 +1408,7 @@ parsidion/
 │   ├── colors.py                    # ANSI colour helpers (NO_COLOR-aware)
 │   ├── ui.py                        # Interactive print/prompt helpers
 │   ├── paths.py                     # Path constants, VAULT_DIRS, runtime predicates
-│   ├── hooks.py                     # Hook merge/remove for Claude, Codex, Gemini
+│   ├── hooks.py                     # Hook merge/remove for Claude, Codex, Antigravity
 │   ├── schedule.py                  # launchd/cron nightly-summarizer scheduler
 │   ├── vault.py                     # Vault dir creation, git setup, config.yaml, vaults.yaml
 │   ├── skill.py                     # Skill/agent/script install, AI mode, legacy cleanup
@@ -1553,7 +1553,7 @@ parsidion/
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── ai_backend.py            # Thin shim → core/ai_backend.py (claude-cli, codex-cli, grok-cli)
     │   ├── parsight_backend.py      # Thin shim → core/parsight_backend.py (availability probe + subprocess transport)
-    │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/gemini/pi/omp + opt-in external drop-ins (ARC-020, ENH-006)
+    │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/antigravity/pi/omp + opt-in external drop-ins (ARC-020, ENH-006)
     │   ├── note_schema.py           # Single source of truth for note types, folders, required fields (ENH-008)
     │   ├── prompt_templates.py      # Strict-variable loader for versioned prompt templates under templates/prompts/
     │   ├── vault_embed_serve.py     # Optional persistent embedding service (ENH-003; AF_UNIX socket, opt-in via embeddings.service_enabled)
@@ -1564,8 +1564,8 @@ parsidion/
     │   ├── codex_session_start_hook.py # Codex SessionStart wrapper
     │   ├── codex_stop_hook.py       # Codex Stop wrapper
     │   ├── codex_subagent_stop_hook.py # Codex SubagentStop wrapper (mirrors codex_stop_hook.py)
-    │   ├── gemini_session_start_hook.py # Gemini SessionStart wrapper
-    │   ├── gemini_session_end_hook.py # Gemini SessionEnd wrapper
+    │   ├── antigravity_session_start_hook.py # Antigravity PreInvocation wrapper
+    │   ├── antigravity_session_end_hook.py # Antigravity Stop wrapper
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)
     │   ├── pre_compact_hook.py      # PreCompact hook
     │   ├── post_compact_hook.py     # PostCompact hook (restores Pre-Compact Snapshot as additionalContext)
@@ -1704,7 +1704,7 @@ Nodes with no matching tags remain the default gray. The priority order means a 
 - [PI_EXTENSION.md](PI_EXTENSION.md) - pi and omp extension install, smoke tests, and troubleshooting
 - [VISUALIZER.md](VISUALIZER.md) - Vault Visualizer: architecture, features, and running instructions
 - [MCP.md](MCP.md) - parsidion-mcp: MCP server tools reference and installation
-- [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) - Agent adapter registry contract: how to add a runtime (claude/codex/gemini/pi + external drop-ins)
+- [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) - Agent adapter registry contract: how to add a runtime (claude/codex/antigravity/pi + external drop-ins)
 - [PROMPTS.md](PROMPTS.md) - Versioned prompt templates: format, variable contract, and eval harness
 - [AGENTCHROME.md](AGENTCHROME.md) - AgentChrome browser CLI: installation and integration with the research agent
 - [EMBEDDINGS.md](EMBEDDINGS.md) - Embedding system: build pipeline, search, and evaluation

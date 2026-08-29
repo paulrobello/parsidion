@@ -324,7 +324,7 @@ Variables Parsidion reads at runtime. Real environment variables always win over
 | `USER` / `USERNAME` | `core/vault_fs.py` (`get_vault_username`) | Daily-note filename suffix when `vault.username` is blank | `$USER` (Windows: `$USERNAME`) |
 | `CODEX_HOME` | `core/vault_hooks.py` | Codex config/sessions root (transcript allowlist) | `~/.codex` |
 | `CODEX_SANDBOX`, `CODEX_SESSION_ID` | `core/ai_backend.py` | Runtime hints: auto-select the `codex-cli` prompt backend | unset |
-| `GEMINI_HOME` | `core/vault_hooks.py` | Gemini config root (transcript allowlist) | `~/.gemini` |
+| `ANTIGRAVITY_HOME` | `core/vault_hooks.py` | Antigravity config/transcript root (falls back to `$GEMINI_HOME` or `~/.gemini`) | `~/.gemini` |
 | `PARSIDION_RUNTIME` | `core/ai_backend.py` | Runtime hint for `ai.backend: auto` (`grok` selects grok-cli, `codex` codex-cli, `claude` claude-cli) | unset |
 | `CLAUDECODE` | `core/ai_backend.py` | Runtime hint (claude-cli); stripped from child environments via `env_without_claudecode()` | unset |
 | `CLAUDE_VAULT_STOP_ACTIVE` | `session_stop_hook.py`, `subagent_stop_hook.py` | Recursion guard: set while a Parsidion-launched summarizer runs so nested session-end hooks do not re-queue | unset |
