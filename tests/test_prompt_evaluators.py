@@ -147,6 +147,23 @@ class TestSummarizeSessionScore:
         assert checks["related_links"] == 1.0
         assert score == 100.0
 
+    def test_block_style_frontmatter_lists_parsed(self, summarizer):
+        raw = (
+            "---\n"
+            "type: debugging\n"
+            "tags:\n"
+            "  - sqlite\n"
+            "  - locking\n"
+            "related:\n"
+            '  - "[[sqlite]]"\n'
+            '  - "[[wal]]"\n'
+            "---\n"
+            "# note\n"
+        )
+        parsed = summarizer.parse(raw)
+        assert parsed["tags"] == ["sqlite", "locking"]
+        assert parsed["related_count"] == 2
+
     def test_related_links_min_enforced(
         self, summarizer: SummarizeSessionEvaluator
     ) -> None:

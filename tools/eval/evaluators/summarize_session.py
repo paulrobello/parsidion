@@ -36,9 +36,31 @@ assert (
 )
 
 _SKIP_JSON_RE = re.compile(r'\{"decision"\s*:\s*"skip"', re.IGNORECASE)
-_FM_RELATED_RE = re.compile(r"^related:\s*\[(.*?)\]", re.MULTILINE)
 _FM_TYPE_RE = re.compile(r"^type:\s*(\S+)", re.MULTILINE)
-_FM_TAGS_RE = re.compile(r"^tags:\s*\[(.*?)\]", re.MULTILINE)
+
+
+def _fm_list_items(raw: str, field: str) -> list[str]:
+    """Extract a frontmatter list field in inline (``[a, b]``) or block form.
+
+    The summarizer model emits either YAML shape for ``tags`` / ``related``;
+    both must parse or the rubric silently scores real hits as misses.
+    """
+    m = re.search(
+        rf"^{field}:[ \t]*(.*?)(?=\n[a-zA-Z_][\w-]*:|\n---|\Z)",
+        raw,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not m:
+        return []
+    blob = m.group(1).strip()
+    if blob.startswith("["):
+        inner = blob.strip("[]")
+        return [t.strip().strip("\"'") for t in inner.split(",") if t.strip()]
+    return [
+        line.strip()[2:].strip().strip("\"'")
+        for line in blob.splitlines()
+        if line.strip().startswith("- ")
+    ]
 
 
 class SummarizeSessionEvaluator(BaseEvaluator):
@@ -76,17 +98,9 @@ class SummarizeSessionEvaluator(BaseEvaluator):
         if _SKIP_JSON_RE.search(raw):
             decision = "skip"
         type_match = _FM_TYPE_RE.search(raw)
-        tags_match = _FM_TAGS_RE.search(raw)
-        tags: list[str] = []
-        if tags_match:
-            tags = [
-                t.strip().strip("\"'")
-                for t in tags_match.group(1).split(",")
-                if t.strip()
-            ]
-        related_match = _FM_RELATED_RE.search(raw)
-        related_count = (
-            len(re.findall(r"\[\[", related_match.group(1))) if related_match else 0
+        tags = _fm_list_items(raw, "tags")
+        related_count = sum(
+            1 for item in _fm_list_items(raw, "related") if "[[" in item
         )
         return {
             "decision": decision,

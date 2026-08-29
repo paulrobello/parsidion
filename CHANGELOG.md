@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **summarize-session eval rubric** — the golden-fixture fields `frontmatter_valid` and `related_links_min` are now consumed by the evaluator instead of carried unread (weights: write-gate 25, tags 20, type 15, frontmatter 15, must-mention 15, related links 10).
+- **summarize-session eval rubric** — the golden-fixture fields `frontmatter_valid` and `related_links_min` are now consumed by the evaluator instead of carried unread (weights: write-gate 25, tags 20, type 15, frontmatter 15, must-mention 15, related links 10). The rubric's frontmatter list parsing now accepts both inline (`[a, b]`) and YAML block-style (`- item`) `tags:`/`related:` shapes — block-style outputs previously scored as empty (golden-set mean 73.1 → 87.5 with the fix).
 
 ## [0.23.1] - 2026-08-28
 
