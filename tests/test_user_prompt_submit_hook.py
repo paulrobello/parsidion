@@ -329,6 +329,9 @@ class TestNoisePromptFilter:
             ("not responding", True),
             ("/compact", True),  # slash commands (corpus: x76)
             ("/work-loop until done", True),
+            # Path-led prompts are real queries — only /commands filter.
+            ("/etc/hosts is wrong, fix it", False),
+            ("/Users/probello/Repos/parsidion has the bug", False),
             ("1", True),  # pure selection
             ("1,2,3", True),
             ("2.", True),

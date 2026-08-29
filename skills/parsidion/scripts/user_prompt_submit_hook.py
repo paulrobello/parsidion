@@ -125,12 +125,16 @@ _SKIP_PREFIXES: tuple[str, ...] = (
 # Menu selections only ("1", "1,2,3", "2.", "3)") — deliberately NOT dates
 # ("2026-08-29") or versions ("1.2.3"), which are real retrieval queries.
 _SELECTION_RE = re.compile(r"^\d+(?:\s*,\s*\d+)*[.)]?$")
+# Slash COMMANDS only ("/compact", "/work-loop until done"): a leading "/"
+# followed by a command name and whitespace/end. Path-led prompts
+# ("/etc/hosts is wrong") keep flowing to retrieval.
+_SLASH_COMMAND_RE = re.compile(r"^/[A-Za-z0-9][A-Za-z0-9_-]*(?:\s|$)")
 
 
 def is_noise_prompt(prompt: str) -> bool:
     """True when *prompt* carries no retrieval signal and must not run."""
     text = prompt.strip()
-    if not text or text.startswith("/"):
+    if not text or _SLASH_COMMAND_RE.match(text):
         return True
     lowered = text.lower()
     return bool(
