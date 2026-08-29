@@ -82,6 +82,63 @@ _STOPWORDS = frozenset(
     )
 )
 
+# Noise-prompt filter, derived from the real prompt corpus (2026-08-29:
+# 1,493 Claude Code session files, 2,054 unique prompts). Acks, goads,
+# slash commands, menu selections, and harness artifacts carry no retrieval
+# signal; genuine questions flow to the relevance gate. Applied before the
+# vault is resolved so noise costs nothing.
+_SKIP_EXACT: frozenset[str] = frozenset(
+    {
+        "continue",  # x185 in the corpus
+        "yes",  # x72
+        "ready",  # x46
+        "push",  # x40
+        "do it",  # x24
+        "status",  # x13
+        "do the follow up",  # x11 (+ variants x13)
+        "do the follow ups",
+        "do the followups",
+        "deploy",  # x9
+        "both",  # x5
+        "not responding",  # x4
+        "no",
+        "ok",
+        "okay",
+        "go",
+        "go on",
+        "proceed",
+        "more",
+        "again",
+        "next",
+        "same",
+        "done",
+        "stop",
+        "skip",
+    }
+)
+_SKIP_PREFIXES: tuple[str, ...] = (
+    "[request interrupted",  # Claude interruption markers logged as user turns (x42)
+    "goal set:",  # grind overseer work-loop goads (x8)
+    "reply with exactly",  # grind reply-probe smokes (x7)
+    "use the write tool to create ./perm_probe",  # file-creation probe (x7)
+)
+# Pure menu selections: "1", "1,2,3", "2.", "3)".
+_SELECTION_RE = re.compile(r"^[\d\s,.\-()]+$")
+
+
+def is_noise_prompt(prompt: str) -> bool:
+    """True when *prompt* carries no retrieval signal and must not run."""
+    text = prompt.strip()
+    if not text or text.startswith("/"):
+        return True
+    lowered = text.lower()
+    return bool(
+        lowered in _SKIP_EXACT
+        or lowered.startswith(_SKIP_PREFIXES)
+        or _SELECTION_RE.match(text)
+    )
+
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 _PROBE_STAMP_NAME = "parsidion-ups-probe"
@@ -204,6 +261,8 @@ def run_recall(payload: dict) -> dict:
             payload = {}
         prompt = str(payload.get("prompt") or "")
         cwd = str(payload.get("cwd") or os.getcwd())
+        if is_noise_prompt(prompt):
+            return {}
 
         try:
             vault = resolve_vault(cwd=cwd)

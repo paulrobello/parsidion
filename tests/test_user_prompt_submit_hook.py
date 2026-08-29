@@ -272,6 +272,57 @@ class TestRecall:
         assert user_prompt_submit_hook.main() == 0
         assert json.loads(capsys.readouterr().out.strip()) == {}
 
+
+class TestNoisePromptFilter:
+    """Rule set derived from the 2026-08-29 prompt corpus (1,493 sessions,
+    2,054 unique prompts): acks, goads, slash commands, selections, and
+    harness artifacts must never drive retrieval; real questions must."""
+
+    @pytest.mark.parametrize(
+        ("prompt", "expected"),
+        [
+            ("continue", True),
+            (" Continue ", True),  # case + whitespace normalize
+            ("READY", True),
+            ("push", True),
+            ("do the follow ups", True),
+            ("not responding", True),
+            ("/compact", True),  # slash commands (corpus: x76)
+            ("/work-loop until done", True),
+            ("1", True),  # pure selection
+            ("1,2,3", True),
+            ("2.", True),
+            ("[Request interrupted by user]", True),  # system artifact (x42)
+            ("[request interrupted by user for tool use]", True),
+            ("Goal set: use /work-loop until backlog is cleared", True),
+            ("Reply with EXACTLY this text and nothing else: ok", True),
+            ("reply with exactly: GRIND_SMOKE_OK", True),
+            ("Use the Write tool to create ./perm_probe.txt containing OK.", True),
+            ("", True),
+            ("   ", True),
+            # Real questions and instructions flow through.
+            ("whats in our backlog", False),
+            ("does this project have anything in its backlog", False),
+            ("work on next backlog item", False),
+            ("update your overseer doc", False),
+            ("grind restarted", False),
+            ("merge to main", False),
+        ],
+    )
+    def test_noise_rules(self, prompt: str, expected: bool) -> None:
+        assert user_prompt_submit_hook.is_noise_prompt(prompt) is expected
+
+    def test_noise_prompt_returns_before_vault_resolution(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Noise is filtered before the vault is resolved at all: a raising
+        # resolve_vault proves the code path never got there.
+        def _boom(**_kwargs: object) -> Path:
+            raise AssertionError("resolve_vault must not run for noise prompts")
+
+        monkeypatch.setattr(user_prompt_submit_hook, "resolve_vault", _boom)
+        assert user_prompt_submit_hook.run_recall({"prompt": "/compact"}) == {}
+
     def test_write_hook_event_failure_never_blocks(
         self,
         tmp_vault: Path,
