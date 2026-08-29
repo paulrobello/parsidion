@@ -315,6 +315,8 @@ def _disconnect_extension_runtime(
         "parsidion.md",
         "lib/parsidion-status.ts",
         "lib/scriptRunner.ts",
+        "lib/transcript.ts",
+        "lib/promptRecall.ts",
     ):
         candidate = ext_dir / name
         if candidate.is_symlink() or candidate.exists():

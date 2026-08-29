@@ -37,6 +37,8 @@ SRC_TS="$SRC_DIR/parsidion.ts"
 SRC_MD="$SRC_DIR/parsidion.md"
 SRC_STATUS="$SRC_DIR/lib/parsidion-status.ts"
 SRC_RUNNER="$SRC_DIR/lib/scriptRunner.ts"
+SRC_TRANSCRIPT="$SRC_DIR/lib/transcript.ts"
+SRC_PROMPT_RECALL="$SRC_DIR/lib/promptRecall.ts"
 
 MODE="copy"
 INSTALL_DOC="yes"
@@ -89,6 +91,8 @@ DST_TS="$EXT_DIR/parsidion.ts"
 DST_MD="$EXT_DIR/parsidion.md"
 DST_STATUS="$EXT_DIR/lib/parsidion-status.ts"
 DST_RUNNER="$EXT_DIR/lib/scriptRunner.ts"
+DST_TRANSCRIPT="$EXT_DIR/lib/transcript.ts"
+DST_PROMPT_RECALL="$EXT_DIR/lib/promptRecall.ts"
 
 if [[ "$MODE" == "symlink" ]]; then
     ln -sfn "$SRC_TS" "$DST_TS"
@@ -101,6 +105,12 @@ if [[ "$MODE" == "symlink" ]]; then
     if [[ -f "$SRC_RUNNER" ]]; then
         ln -sfn "$SRC_RUNNER" "$DST_RUNNER"
     fi
+    if [[ -f "$SRC_TRANSCRIPT" ]]; then
+        ln -sfn "$SRC_TRANSCRIPT" "$DST_TRANSCRIPT"
+    fi
+    if [[ -f "$SRC_PROMPT_RECALL" ]]; then
+        ln -sfn "$SRC_PROMPT_RECALL" "$DST_PROMPT_RECALL"
+    fi
 else
     cp "$SRC_TS" "$DST_TS"
     if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
@@ -111,6 +121,12 @@ else
     fi
     if [[ -f "$SRC_RUNNER" ]]; then
         cp "$SRC_RUNNER" "$DST_RUNNER"
+    fi
+    if [[ -f "$SRC_TRANSCRIPT" ]]; then
+        cp "$SRC_TRANSCRIPT" "$DST_TRANSCRIPT"
+    fi
+    if [[ -f "$SRC_PROMPT_RECALL" ]]; then
+        cp "$SRC_PROMPT_RECALL" "$DST_PROMPT_RECALL"
     fi
 fi
 
@@ -127,6 +143,12 @@ if [[ -f "$DST_STATUS" || -L "$DST_STATUS" ]]; then
 fi
 if [[ -f "$DST_RUNNER" || -L "$DST_RUNNER" ]]; then
     echo "  script runner: $DST_RUNNER"
+fi
+if [[ -f "$DST_TRANSCRIPT" || -L "$DST_TRANSCRIPT" ]]; then
+    echo "  transcript:    $DST_TRANSCRIPT"
+fi
+if [[ -f "$DST_PROMPT_RECALL" || -L "$DST_PROMPT_RECALL" ]]; then
+    echo "  prompt recall: $DST_PROMPT_RECALL"
 fi
 
 echo

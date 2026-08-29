@@ -1418,7 +1418,7 @@ parsidion/
 ├── pyproject.toml
 ├── Makefile
 ├── extensions/
-│   └── pi/parsidion/                # pi agent adapter extension (parsidion.ts, parsidion.md, lib/parsidion-status.ts, lib/scriptRunner.ts, lib/transcript.ts, plus tests)
+│   └── pi/parsidion/                # pi agent adapter extension (parsidion.ts, parsidion.md, lib/parsidion-status.ts, lib/scriptRunner.ts, lib/transcript.ts, lib/promptRecall.ts, plus tests)
 ├── scripts/
 │   ├── show-context                 # CLI: preview session start context for any project
 │   ├── install-pi-extension        # Install parsidion pi extension into ~/.pi/agent/extensions

@@ -37,9 +37,11 @@ cp extensions/pi/parsidion/parsidion.ts ~/.pi/agent/extensions/parsidion.ts
 cp extensions/pi/parsidion/parsidion.md ~/.pi/agent/extensions/parsidion.md
 cp extensions/pi/parsidion/lib/parsidion-status.ts ~/.pi/agent/extensions/lib/parsidion-status.ts
 cp extensions/pi/parsidion/lib/scriptRunner.ts ~/.pi/agent/extensions/lib/scriptRunner.ts
+cp extensions/pi/parsidion/lib/transcript.ts ~/.pi/agent/extensions/lib/transcript.ts
+cp extensions/pi/parsidion/lib/promptRecall.ts ~/.pi/agent/extensions/lib/promptRecall.ts
 ```
 
-The lib copies are required: `parsidion.ts` imports `./lib/parsidion-status` and `./lib/scriptRunner`, so omitting either lib file produces a broken extension that fails to load.
+The lib copies are required: `parsidion.ts` imports `./lib/parsidion-status`, `./lib/scriptRunner`, `./lib/transcript`, and `./lib/promptRecall`, so omitting any lib file produces a broken extension that fails to load.
 
 If the extension cannot find Parsidion scripts automatically, set one of:
 

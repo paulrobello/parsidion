@@ -201,7 +201,14 @@ class TestConnectOmp:
     def test_disconnect_omp_removes_only_extension_files(self, monkeypatch, tmp_path):
         ext_dir = tmp_path / "agent" / "extensions"
         (ext_dir / "lib").mkdir(parents=True)
-        for name in ("parsidion.ts", "parsidion.md", "lib/parsidion-status.ts"):
+        for name in (
+            "parsidion.ts",
+            "parsidion.md",
+            "lib/parsidion-status.ts",
+            "lib/scriptRunner.ts",
+            "lib/transcript.ts",
+            "lib/promptRecall.ts",
+        ):
             (ext_dir / name).write_text("x", encoding="utf-8")
         decoy = ext_dir / "herdr-omp-agent-state.ts"
         decoy.write_text("keep me", encoding="utf-8")
@@ -213,9 +220,15 @@ class TestConnectOmp:
         )
         install_mod.main()
 
-        assert not (ext_dir / "parsidion.ts").exists()
-        assert not (ext_dir / "parsidion.md").exists()
-        assert not (ext_dir / "lib" / "parsidion-status.ts").exists()
+        for name in (
+            "parsidion.ts",
+            "parsidion.md",
+            "lib/parsidion-status.ts",
+            "lib/scriptRunner.ts",
+            "lib/transcript.ts",
+            "lib/promptRecall.ts",
+        ):
+            assert not (ext_dir / name).exists(), name
         assert decoy.read_text(encoding="utf-8") == "keep me"
 
 
