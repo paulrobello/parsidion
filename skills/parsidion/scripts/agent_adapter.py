@@ -408,12 +408,15 @@ _CLAUDE_HOOK_SCRIPTS: dict[str, str] = {
     "PreCompact": "pre_compact_hook.py",
     "PostCompact": "post_compact_hook.py",
     "SubagentStop": "subagent_stop_hook.py",
+    "UserPromptSubmit": "user_prompt_submit_hook.py",
 }
 _CODEX_HOOK_SCRIPTS: dict[str, str] = {
     "SessionStart": "codex_session_start_hook.py",
     "Stop": "codex_stop_hook.py",
     "SubagentStop": "codex_subagent_stop_hook.py",
+    "UserPromptSubmit": "user_prompt_submit_hook.py",
 }
+# Gemini defines no UserPromptSubmit event; only claude/codex wire it.
 _GEMINI_HOOK_SCRIPTS: dict[str, str] = {
     "SessionStart": "gemini_session_start_hook.py",
     "SessionEnd": "gemini_session_end_hook.py",

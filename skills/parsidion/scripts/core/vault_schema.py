@@ -53,6 +53,7 @@ __all__ = [
     "SessionStartHookConfig",
     "SessionStopHookConfig",
     "SubagentStopHookConfig",
+    "UserPromptSubmitHookConfig",
     "PreCompactHookConfig",
     "SummarizerConfig",
     "EmbeddingsConfig",
@@ -506,6 +507,76 @@ class SubagentStopHookConfig:
         metadata={
             "doc": "Byte ceiling on the subagent transcript tail; bounds huge-line rollouts",
             "read_by": "subagent_stop_hook.py",
+        },
+    )
+
+
+@dataclass
+class UserPromptSubmitHookConfig:
+    """User prompt submit hook (user_prompt_submit_hook.py)."""
+
+    enabled: bool = field(
+        default=True,
+        metadata={
+            "doc": "Set false to disable per-prompt vault recall injection",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    top_k: int = field(
+        default=3,
+        metadata={
+            "doc": "Notes to retrieve per prompt",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    max_chars: int = field(
+        default=1500,
+        metadata={
+            "doc": "Total additionalContext character budget",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    per_note_chars: int = field(
+        default=350,
+        metadata={
+            "doc": "Per-note excerpt character budget",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    min_term_matches: int = field(
+        default=2,
+        metadata={
+            "doc": "Relevance gate — distinct tokens shared between prompt and note title/tags/stem, 0 disables",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    min_prompt_chars: int = field(
+        default=4,
+        metadata={
+            "doc": "Prompts shorter than this skip retrieval",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    probe_cache_seconds: int = field(
+        default=300,
+        metadata={
+            "doc": "Negative-cache freshness for the parsight availability probe",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
+    debug: bool = field(
+        default=False,
+        metadata={
+            "doc": "Append injected context + metadata to a debug log in $TMPDIR",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
         },
     )
 
@@ -1030,6 +1101,9 @@ class VaultAppConfig:
     )
     subagent_stop_hook: SubagentStopHookConfig = field(
         default_factory=lambda: SubagentStopHookConfig()
+    )
+    user_prompt_submit_hook: UserPromptSubmitHookConfig = field(
+        default_factory=lambda: UserPromptSubmitHookConfig()
     )
     pre_compact_hook: PreCompactHookConfig = field(
         default_factory=lambda: PreCompactHookConfig()

@@ -482,6 +482,17 @@ class TestHookScriptMapsSingleSource:
 
         assert installer.paths._GEMINI_HOOK_NAMES is agent_adapter._GEMINI_HOOK_NAMES
 
+    def test_user_prompt_submit_wired_for_claude_and_codex_only(self) -> None:
+        assert (
+            agent_adapter._CLAUDE_HOOK_SCRIPTS["UserPromptSubmit"]
+            == "user_prompt_submit_hook.py"
+        )
+        assert (
+            agent_adapter._CODEX_HOOK_SCRIPTS["UserPromptSubmit"]
+            == "user_prompt_submit_hook.py"
+        )
+        assert "UserPromptSubmit" not in agent_adapter._GEMINI_HOOK_SCRIPTS
+
     def test_hook_script_maps_defined_only_in_agent_adapter(self) -> None:
         """Grep-style guard: the dict literals for the four hook-script maps
         must appear in ``agent_adapter.py`` and NOWHERE else. Catches the

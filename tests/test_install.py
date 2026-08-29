@@ -165,6 +165,24 @@ class TestCodexHooks:
         assert any("codex_session_start_hook.py" in command for command in commands)
         assert any("codex_stop_hook.py" in command for command in commands)
 
+    def test_merge_codex_hooks_registers_user_prompt_submit(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
+
+        hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+        entries = hooks["hooks"]["UserPromptSubmit"]
+        handlers = [hook for entry in entries for hook in entry["hooks"]]
+        managed = next(
+            hook for hook in handlers if "user_prompt_submit_hook.py" in hook["command"]
+        )
+        assert managed["timeout"] == 60
+
     def test_merge_codex_hooks_preserves_existing_hooks_and_is_idempotent(
         self, tmp_path: Path
     ) -> None:
@@ -436,6 +454,25 @@ class TestGeminiHooks:
         ]
         assert "echo user" in commands
         assert not any("gemini_session_" in command for command in commands)
+
+
+class TestClaudeHooks:
+    def test_merge_hooks_registers_user_prompt_submit(self, tmp_path: Path) -> None:
+        claude_dir = tmp_path / ".claude"
+        settings_file = claude_dir / "settings.json"
+
+        installer_hooks.merge_hooks(
+            claude_dir, settings_file, dry_run=False, verbose=False
+        )
+
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        entries = settings["hooks"]["UserPromptSubmit"]
+        handlers = [hook for entry in entries for hook in entry["hooks"]]
+        managed = next(
+            hook for hook in handlers if "user_prompt_submit_hook.py" in hook["command"]
+        )
+        assert managed["type"] == "command"
+        assert managed["timeout"] == 10000
 
 
 class TestDefaultVaultPath:

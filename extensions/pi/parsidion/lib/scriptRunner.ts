@@ -13,7 +13,8 @@ export type HookScriptName =
 	| "session_stop_hook.py"
 	| "pre_compact_hook.py"
 	| "post_compact_hook.py"
-	| "subagent_stop_hook.py";
+	| "subagent_stop_hook.py"
+	| "user_prompt_submit_hook.py";
 
 export const SCRIPT_REQUIRED_FILES: HookScriptName[] = [
 	"session_start_hook.py",

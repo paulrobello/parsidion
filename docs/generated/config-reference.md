@@ -109,6 +109,17 @@ subagent_stop_hook:
   excluded_agents: vault-explorer,research-agent  # Comma-separated agent-type skip list (config parser limitation: a string, not a list)
   transcript_tail_bytes: 1500000  # Byte ceiling on the subagent transcript tail; bounds huge-line rollouts
 
+# User prompt submit hook (user_prompt_submit_hook.py).
+user_prompt_submit_hook:
+  enabled: true  # Set false to disable per-prompt vault recall injection
+  top_k: 3  # Notes to retrieve per prompt
+  max_chars: 1500  # Total additionalContext character budget
+  per_note_chars: 350  # Per-note excerpt character budget
+  min_term_matches: 2  # Relevance gate — distinct tokens shared between prompt and note title/tags/stem, 0 disables
+  min_prompt_chars: 4  # Prompts shorter than this skip retrieval
+  probe_cache_seconds: 300  # Negative-cache freshness for the parsight availability probe
+  debug: false  # Append injected context + metadata to a debug log in $TMPDIR
+
 # Pre-compact hook (pre_compact_hook.py).
 pre_compact_hook:
   lines: 200  # Transcript lines to analyse

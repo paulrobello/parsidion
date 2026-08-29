@@ -21,6 +21,7 @@ import {
 	formatAnthropicStatusLines,
 	readVaultConfigText,
 } from "./lib/parsidion-status";
+import { buildRecallPayload, recallResponseToContent, shouldRecall } from "./lib/promptRecall";
 import { buildHookEnv, resolveScriptDir, type HookScriptName } from "./lib/scriptRunner";
 import { isRecord, serializeBranchEntries } from "./lib/transcript";
 
@@ -69,6 +70,7 @@ const SUBAGENT_RESULT_MESSAGE_TYPE = "subagent:result";
 const HOOK_TIMEOUT_SESSION_START_MS = 60_000;
 const HOOK_TIMEOUT_PRE_COMPACT_MS = 8_000;
 const HOOK_TIMEOUT_POST_COMPACT_MS = 6_000;
+const HOOK_TIMEOUT_USER_PROMPT_MS = 10_000;
 const HOOK_TERMINATE_GRACE_MS = 1_500;
 const MAX_VAULT_CONTEXT_CHARS = 12_000;
 const STATUS_PREVIEW_MAX_CHARS = 1_800;
@@ -500,8 +502,44 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 			},
 		};
 	}
+	async function runPromptRecall(event: BeforeAgentStartEvent, ctx: ExtensionContext): Promise<BeforeAgentStartEventResult | void> {
+		if (!shouldRecall(event.prompt)) return;
+		const scriptDir = resolveScriptDir(ctx.cwd);
+		if (!scriptDir) return;
+		try {
+			const result = await invokeHook(
+				scriptDir,
+				"user_prompt_submit_hook.py",
+				buildRecallPayload(event.prompt, ctx.cwd, ctx.sessionManager.getSessionFile() ?? undefined),
+				HOOK_TIMEOUT_USER_PROMPT_MS,
+			);
+			const content = recallResponseToContent(result.stdout)?.trim();
+			if (content) {
+				return {
+					message: {
+						customType: VAULT_CONTEXT_MESSAGE_TYPE,
+						content,
+						display: true,
+						details: { sources: ["user_prompt"] },
+					},
+				};
+			}
+			if (result.code !== 0) {
+				const stderr = result.stderr.trim();
+				if (/timed out/i.test(stderr)) {
+					notify(ctx, `${EXTENSION_NAME}: UserPromptSubmit hook timed out after ${HOOK_TIMEOUT_USER_PROMPT_MS}ms`, "warning");
+				} else if (!/No such file|not found/i.test(stderr)) {
+					notify(ctx, `${EXTENSION_NAME}: UserPromptSubmit hook exited with code ${result.code}`, "warning");
+				}
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			notify(ctx, `${EXTENSION_NAME}: UserPromptSubmit hook failed: ${message}`, "warning");
+		}
+	}
 
 	registerRenderers();
+
 
 	pi.on("session_start", async (event, ctx) => {
 		pendingContext.length = 0;
@@ -511,6 +549,7 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => consumePendingContext(event, ctx));
+	pi.on("before_agent_start", async (event, ctx) => runPromptRecall(event, ctx));
 
 	pi.on("session_before_compact", async (_event, ctx) => {
 		await runPreCompact(ctx);

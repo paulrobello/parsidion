@@ -77,6 +77,7 @@ py-modules = [
     "subproc_util",
     "summarize_sessions",
     "update_index",
+    "user_prompt_submit_hook",
     "vault_adaptive",
     "vault_common",
     "vault_config",
