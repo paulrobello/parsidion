@@ -431,7 +431,9 @@ def _log_backend_failure(
     """
     snippet = (stderr or "").strip()
     if len(snippet) > 500:
-        snippet = snippet[:500] + "…"
+        # Keep the TAIL: codex exec echoes the prompt before the terminal
+        # error line, so a head-truncated snippet hides the actionable error.
+        snippet = "…" + snippet[-500:]
     parts = [
         f"[ai_backend] {label} yielded no usable result",
         f"rc={returncode}",

@@ -1158,3 +1158,25 @@ class TestSec117CodexSandboxAllowlist:
         ai_backend.run_ai_prompt("hi", vault=vault)
         assert "--sandbox" in captured
         assert captured[captured.index("--sandbox") + 1] == "danger-full-access"
+
+
+class TestLogBackendFailure:
+    """``_log_backend_failure`` must preserve the stderr TAIL.
+
+    Codex ``exec`` echoes the prompt to stderr before the terminal error
+    line, so a head-truncated snippet hides the actionable failure (the
+    dead-letter cohort of 2026-08-28 was undiagnosable for exactly this
+    reason).
+    """
+
+    def test_long_stderr_keeps_tail_not_head(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        head_sentinel = "HEAD-SENTINEL-START"
+        filler = "P" * 2000  # codex echoes the prompt before the error line
+        stderr = f"{head_sentinel} {filler}\nerror: unknown option '--ignore-rules'"
+        ai_backend._log_backend_failure("codex exec", 2, "", stderr)
+        out = capsys.readouterr().err
+        assert "unknown option '--ignore-rules'" in out  # tail preserved
+        assert head_sentinel not in out  # head (prompt echo) is dropped
+        assert "rc=2" in out
