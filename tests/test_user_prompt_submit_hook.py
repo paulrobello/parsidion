@@ -354,6 +354,24 @@ class TestNoisePromptFilter:
             ("update your overseer doc", False),
             ("grind restarted", False),
             ("merge to main", False),
+            # Cross-runtime goads (omp/pi/codex corpora 2026-08-29).
+            ("commit all", True),
+            ("commit and push", True),
+            ("commit all work", True),
+            ("commit and push all", True),
+            ("update changelog and commit", True),
+            ("do it all", True),
+            ("do all next steps", True),
+            ("try again", True),
+            ("whats next", True),
+            ("remove completed items from ideas.md", True),
+            (
+                "Complete assignment thoroughly:\n\nCall hub wait with a 180 second timeout",
+                True,
+            ),
+            # Operational reports stay retrievable.
+            ("same issue, fresh logs created", False),
+            ("read resize_refactor.md and continue work", False),
         ],
     )
     def test_noise_rules(self, prompt: str, expected: bool) -> None:

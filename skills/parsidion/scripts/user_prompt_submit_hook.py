@@ -114,6 +114,18 @@ _SKIP_EXACT: frozenset[str] = frozenset(
         "done",
         "stop",
         "skip",
+        # Cross-runtime goads (omp/pi/codex corpora 2026-08-29): all >=9
+        # chars, so they pass the length gate and need explicit rules.
+        "commit all",  # x31
+        "commit and push",  # x20
+        "commit all work",  # x8
+        "commit and push all",  # x5
+        "update changelog and commit",  # x5
+        "do it all",  # x15
+        "do all next steps",  # x4
+        "try again",
+        "whats next",  # x8
+        "remove completed items from ideas.md",  # x11 routine housekeeping goad
     }
 )
 _SKIP_PREFIXES: tuple[str, ...] = (
@@ -121,6 +133,7 @@ _SKIP_PREFIXES: tuple[str, ...] = (
     "goal set:",  # grind overseer work-loop goads (x8)
     "reply with exactly",  # grind reply-probe smokes (x7)
     "use the write tool to create ./perm_probe",  # file-creation probe (x7)
+    "complete assignment thoroughly:",  # automated assignment runner (x7)
 )
 # Menu selections only ("1", "1,2,3", "2.", "3)") — deliberately NOT dates
 # ("2026-08-29") or versions ("1.2.3"), which are real retrieval queries.
