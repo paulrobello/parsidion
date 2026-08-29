@@ -274,6 +274,15 @@ def run_recall(payload: dict) -> dict:
     def _mark(name: str) -> None:
         stages[name] = round((time.perf_counter() - started) * 1000.0, 1)
 
+    def _stage_deltas() -> dict[str, float]:
+        """Convert cumulative stage marks into per-stage milliseconds."""
+        deltas: dict[str, float] = {}
+        prev = 0.0
+        for name, cumulative in stages.items():
+            deltas[name] = round(cumulative - prev, 1)
+            prev = cumulative
+        return deltas
+
     try:
         if not isinstance(payload, dict):
             payload = {}
@@ -358,6 +367,7 @@ def run_recall(payload: dict) -> dict:
                 notes_injected=len(notes),
                 chars=len(context),
                 session_id=str(payload.get("session_id") or ""),
+                stages_ms=_stage_deltas(),
             )
         except Exception:  # noqa: BLE001
             pass  # observability is best-effort

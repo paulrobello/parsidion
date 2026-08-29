@@ -100,6 +100,36 @@ class TestRecall:
         )
         assert "<content>" in ctx and "</content>" in ctx
 
+    def test_injection_event_carries_stage_deltas(
+        self,
+        tmp_vault: Path,
+        hook_env: dict[str, list[object]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from typing import cast
+
+        events: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            user_prompt_submit_hook,
+            "write_hook_event",
+            lambda **kwargs: events.append(kwargs),
+        )
+        user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT})
+        assert len(events) == 1
+        event = events[0]
+        stages = cast(dict[str, float], event["stages_ms"])
+        assert set(stages) == {
+            "resolve_vault",
+            "load_settings",
+            "probe",
+            "search",
+            "filter",
+            "format",
+        }
+        total = cast(float, event["duration_ms"])
+        assert sum(stages.values()) <= total + 1.0
+        assert all(v >= 0.0 for v in stages.values())
+
     def test_unrelated_prompt_gated_out(
         self, hook_env: dict[str, list[object]]
     ) -> None:
