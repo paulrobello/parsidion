@@ -157,7 +157,7 @@ class TestConnectOmp:
 
     omp is extension-only like pi: connect must shell out to
     scripts/install-pi-extension with the omp extensions dir, never merge
-    hooks, and disconnect must remove exactly the three extension files.
+    hooks, and disconnect must remove exactly the six extension files.
     """
 
     def test_connect_omp_runs_extension_installer(self, monkeypatch):
@@ -230,6 +230,68 @@ class TestConnectOmp:
         ):
             assert not (ext_dir / name).exists(), name
         assert decoy.read_text(encoding="utf-8") == "keep me"
+
+
+class TestInstallPiExtensionScript:
+    """The helper script itself must ship every file parsidion.ts imports.
+
+    Regression gate for the 4-of-6 file-list omission: connect pi/omp both
+    delegate here, so a short SRC/DST list breaks every fresh install with a
+    module-not-found at extension load.
+    """
+
+    SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "install-pi-extension"
+    EXPECTED = (
+        "parsidion.ts",
+        "parsidion.md",
+        "lib/parsidion-status.ts",
+        "lib/scriptRunner.ts",
+        "lib/transcript.ts",
+        "lib/promptRecall.ts",
+    )
+
+    def test_copy_mode_installs_all_files(self, tmp_path):
+        import subprocess  # noqa: PLC0415
+
+        ext = tmp_path / "ext"
+        subprocess.run(
+            ["bash", str(self.SCRIPT), "--extension-dir", str(ext)],
+            check=True,
+            capture_output=True,
+        )
+        for name in self.EXPECTED:
+            assert (ext / name).is_file(), name
+
+    def test_symlink_mode_installs_all_files(self, tmp_path):
+        import subprocess  # noqa: PLC0415
+
+        ext = tmp_path / "ext"
+        subprocess.run(
+            ["bash", str(self.SCRIPT), "--symlink", "--extension-dir", str(ext)],
+            check=True,
+            capture_output=True,
+        )
+        for name in self.EXPECTED:
+            target = ext / name
+            assert target.is_symlink() or target.is_file(), name
+
+    def test_round_trip_install_then_disconnect(self, monkeypatch, tmp_path):
+        import subprocess  # noqa: PLC0415
+
+        ext = tmp_path / "agent" / "extensions"
+        subprocess.run(
+            ["bash", str(self.SCRIPT), "--extension-dir", str(ext)],
+            check=True,
+            capture_output=True,
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["install.py", "disconnect", "omp", "--omp-home", str(tmp_path)],
+        )
+        install_mod.main()
+        for name in self.EXPECTED:
+            assert not (ext / name).exists(), name
 
 
 # ---------------------------------------------------------------------------
