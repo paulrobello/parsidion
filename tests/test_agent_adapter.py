@@ -1,6 +1,6 @@
 """QA-008 / ARC-020: parameterized test for the agent-adapter registry.
 
-The five codex/gemini hook shims delegate to ``agent_adapter.run_session_start``
+The five codex/antigravity hook shims delegate to ``agent_adapter.run_session_start``
 and ``run_session_end``; this test pins the contract for every registered
 runtime in one place, replacing the five copies a per-runtime test would
 otherwise require.
@@ -31,15 +31,15 @@ import agent_adapter  # noqa: E402
 
 
 class TestRegistry:
-    """The two built-in adapters (codex, gemini) must be registered with the
+    """The two built-in adapters (codex, antigravity) must be registered with the
     expected descriptor fields. A new adapter added to agent_adapter.py
     without updating this test would surface here."""
 
-    def test_registry_has_codex_and_gemini(self) -> None:
+    def test_registry_has_codex_and_antigravity(self) -> None:
         names = {a.name for a in agent_adapter.all_adapters()}
-        assert {"codex", "gemini"}.issubset(names)
+        assert {"codex", "antigravity"}.issubset(names)
 
-    @pytest.mark.parametrize("name", ["codex", "gemini"])
+    @pytest.mark.parametrize("name", ["codex", "antigravity"])
     def test_get_returns_adapter_for_each_runtime(self, name: str) -> None:
         adapter = agent_adapter.get(name)
         assert adapter is not None
@@ -49,7 +49,7 @@ class TestRegistry:
 
     def test_get_is_case_insensitive(self) -> None:
         assert agent_adapter.get("CODEX") is agent_adapter.get("codex")
-        assert agent_adapter.get("Gemini") is agent_adapter.get("gemini")
+        assert agent_adapter.get("Antigravity") is agent_adapter.get("antigravity")
 
     def test_get_unknown_returns_none(self) -> None:
         assert agent_adapter.get("does-not-exist") is None
@@ -104,7 +104,7 @@ def patched_stdin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> io.StringI
     return stdin
 
 
-@pytest.mark.parametrize("name", ["codex", "gemini"])
+@pytest.mark.parametrize("name", ["codex", "antigravity"])
 class TestRunSessionStartAcrossRuntimes:
     """ARC-020 step 6: one parameterized test covers every runtime's
     SessionStart entrypoint. The contract is uniform — emit valid JSON,
@@ -158,7 +158,7 @@ class TestRunSessionStartAcrossRuntimes:
         )
 
 
-@pytest.mark.parametrize("name", ["codex", "gemini"])
+@pytest.mark.parametrize("name", ["codex", "antigravity"])
 class TestRunSessionEndAcrossRuntimes:
     """ARC-020 step 6: SessionEnd parameterized across runtimes."""
 
@@ -215,9 +215,9 @@ class TestShimsResolveAdapter:
         "module_name,expected_adapter_name",
         [
             ("codex_session_start_hook", "codex"),
-            ("gemini_session_start_hook", "gemini"),
+            ("antigravity_session_start_hook", "antigravity"),
             ("codex_stop_hook", "codex"),
-            ("gemini_session_end_hook", "gemini"),
+            ("antigravity_session_end_hook", "antigravity"),
             ("codex_subagent_stop_hook", "codex"),
         ],
     )
@@ -242,14 +242,14 @@ class TestShimsResolveAdapter:
 
 
 class TestRegistryCompleteness:
-    """ENH-006: claude and pi are registered alongside codex/gemini, and the
+    """ENH-006: claude and pi are registered alongside codex/antigravity, and the
     descriptor carries the installer-side fields the generic core reads."""
 
     def test_all_five_builtins_registered(self) -> None:
         assert set(agent_adapter.known_runtimes()) >= {
             "claude",
             "codex",
-            "gemini",
+            "antigravity",
             "pi",
             "omp",
         }
@@ -258,16 +258,16 @@ class TestRegistryCompleteness:
         hooky = {
             a.name for a in agent_adapter.all_adapters() if a.hooks_config_filename
         }
-        assert {"claude", "codex", "gemini"} <= hooky
+        assert {"claude", "codex", "antigravity"} <= hooky
         assert {"pi", "omp"}.isdisjoint(hooky)  # pi/omp are extension-only
 
     def test_timeout_unit_is_explicit_per_runtime(self) -> None:
-        # ARC-048a: codex is seconds; gemini/claude are milliseconds.
+        # ARC-048a: codex is seconds; antigravity are seconds; claude is milliseconds.
         codex = agent_adapter.get("codex")
-        gemini = agent_adapter.get("gemini")
+        antigravity = agent_adapter.get("antigravity")
         claude = agent_adapter.get("claude")
         assert codex is not None and codex.timeout_unit == "s"
-        assert gemini is not None and gemini.timeout_unit == "ms"
+        assert antigravity is not None and antigravity.timeout_unit == "s"
         assert claude is not None and claude.timeout_unit == "ms"
 
 
@@ -466,21 +466,25 @@ class TestHookScriptMapsSingleSource:
             is agent_adapter._CODEX_HOOK_SCRIPTS
         )
 
-    def test_gemini_hook_scripts_are_the_same_object(self) -> None:
+    def test_antigravity_hook_scripts_are_the_same_object(self) -> None:
         import installer.paths
 
         assert (
-            installer.paths._GEMINI_HOOK_SCRIPTS is agent_adapter._GEMINI_HOOK_SCRIPTS
+            installer.paths._ANTIGRAVITY_HOOK_SCRIPTS
+            is agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
         )
         assert (
-            agent_adapter.get("gemini").event_scripts  # type: ignore[union-attr]
-            is agent_adapter._GEMINI_HOOK_SCRIPTS
+            agent_adapter.get("antigravity").event_scripts  # type: ignore[union-attr]
+            is agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
         )
 
-    def test_gemini_hook_names_are_the_same_object(self) -> None:
+    def test_antigravity_hook_names_are_the_same_object(self) -> None:
         import installer.paths
 
-        assert installer.paths._GEMINI_HOOK_NAMES is agent_adapter._GEMINI_HOOK_NAMES
+        assert (
+            installer.paths._ANTIGRAVITY_HOOK_NAMES
+            is agent_adapter._ANTIGRAVITY_HOOK_NAMES
+        )
 
     def test_user_prompt_submit_wired_for_claude_and_codex_only(self) -> None:
         assert (
@@ -491,7 +495,7 @@ class TestHookScriptMapsSingleSource:
             agent_adapter._CODEX_HOOK_SCRIPTS["UserPromptSubmit"]
             == "user_prompt_submit_hook.py"
         )
-        assert "UserPromptSubmit" not in agent_adapter._GEMINI_HOOK_SCRIPTS
+        assert "UserPromptSubmit" not in agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
 
     def test_hook_script_maps_defined_only_in_agent_adapter(self) -> None:
         """Grep-style guard: the dict literals for the four hook-script maps
@@ -505,8 +509,8 @@ class TestHookScriptMapsSingleSource:
         canonical_names = {
             "_CLAUDE_HOOK_SCRIPTS",
             "_CODEX_HOOK_SCRIPTS",
-            "_GEMINI_HOOK_SCRIPTS",
-            "_GEMINI_HOOK_NAMES",
+            "_ANTIGRAVITY_HOOK_SCRIPTS",
+            "_ANTIGRAVITY_HOOK_NAMES",
         }
         # The installer/paths.py back-compat re-export imports these names
         # from agent_adapter — that is the allowed alias site.
@@ -591,18 +595,20 @@ class TestInstallerSpecSplit:
         assert codex.install.entry_names is None
         assert codex.install.instructions_filename == "AGENTS.md"
 
-    def test_gemini_spec_matches_former_flat_values(self) -> None:
-        gemini = agent_adapter.get("gemini")
-        assert gemini is not None and gemini.install is not None
-        assert gemini.install.display_name == "Gemini"
-        assert gemini.install.runtime_env_value == "gemini"
-        assert gemini.install.hooks_config_filename == "settings.json"
-        assert gemini.install.event_scripts is agent_adapter._GEMINI_HOOK_SCRIPTS
-        assert gemini.install.entry_matcher == "*"
-        assert gemini.install.entry_timeout == 60000
-        assert gemini.install.timeout_unit == "ms"
-        assert gemini.install.entry_names is agent_adapter._GEMINI_HOOK_NAMES
-        assert gemini.install.instructions_filename == "GEMINI.md"
+    def test_antigravity_spec_matches_former_flat_values(self) -> None:
+        antigravity = agent_adapter.get("antigravity")
+        assert antigravity is not None and antigravity.install is not None
+        assert antigravity.install.display_name == "Antigravity"
+        assert antigravity.install.runtime_env_value == "antigravity"
+        assert antigravity.install.hooks_config_filename == "config/hooks.json"
+        assert (
+            antigravity.install.event_scripts is agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
+        )
+        assert antigravity.install.entry_matcher == ""
+        assert antigravity.install.entry_timeout == 60
+        assert antigravity.install.timeout_unit == "s"
+        assert antigravity.install.entry_names is agent_adapter._ANTIGRAVITY_HOOK_NAMES
+        assert antigravity.install.instructions_filename == "GEMINI.md"
 
     def test_claude_spec_matches_former_flat_values(self) -> None:
         claude = agent_adapter.get("claude")
@@ -626,9 +632,9 @@ class TestInstallerSpecSplit:
         assert codex.timeout_unit == codex.install.timeout_unit
         assert codex.entry_names == codex.install.entry_names
         assert codex.instructions_filename == codex.install.instructions_filename
-        gemini = agent_adapter.get("gemini")
-        assert gemini is not None and gemini.install is not None
-        assert gemini.entry_names is gemini.install.entry_names
+        antigravity = agent_adapter.get("antigravity")
+        assert antigravity is not None and antigravity.install is not None
+        assert antigravity.entry_names is antigravity.install.entry_names
 
     def test_flat_properties_safe_without_spec(self) -> None:
         pi = agent_adapter.get("pi")
@@ -711,7 +717,7 @@ class TestRuntimeEnvValueWired:
     ) -> None:
         import dataclasses
 
-        adapter = agent_adapter.get("gemini")
+        adapter = agent_adapter.get("antigravity")
         assert adapter is not None and adapter.install is not None
         bare = dataclasses.replace(
             adapter,
@@ -720,4 +726,4 @@ class TestRuntimeEnvValueWired:
         runtime = self._run_capturing_runtime(
             bare, monkeypatch, patched_stdin, tmp_path
         )
-        assert runtime == "gemini"
+        assert runtime == "antigravity"

@@ -98,8 +98,8 @@ _ENFORCEMENT_SCOPE = [
     "codex_session_start_hook",
     "codex_stop_hook",
     "codex_subagent_stop_hook",
-    "gemini_session_start_hook",
-    "gemini_session_end_hook",
+    "antigravity_session_start_hook",
+    "antigravity_session_end_hook",
     "agent_adapter",
     # ENH-007: vault_health scoring is imported by vault_stats + the MCP
     # server, so it is held to the same stdlib-only contract as the rest of

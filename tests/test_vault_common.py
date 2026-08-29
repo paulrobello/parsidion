@@ -620,8 +620,24 @@ class TestCodexTranscriptHelpers:
         ]
 
 
-class TestGeminiTranscriptHelpers:
-    def test_allowed_transcript_roots_includes_gemini_roots(
+class TestAntigravityTranscriptHelpers:
+    def test_antigravity_home_env_precedence(self, monkeypatch, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        gemini = tmp_path / "gemini"
+        ag = tmp_path / "antigravity"
+        home.mkdir()
+        gemini.mkdir()
+        ag.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("ANTIGRAVITY_HOME", raising=False)
+        monkeypatch.delenv("GEMINI_HOME", raising=False)
+        assert vault_common.antigravity_home() == (home / ".gemini").resolve()
+        monkeypatch.setenv("GEMINI_HOME", str(gemini))
+        assert vault_common.antigravity_home() == gemini.resolve()
+        monkeypatch.setenv("ANTIGRAVITY_HOME", str(ag))
+        assert vault_common.antigravity_home() == ag.resolve()
+
+    def test_allowed_transcript_roots_includes_antigravity_roots(
         self, monkeypatch, tmp_path: Path
     ) -> None:
         home = tmp_path / "home"
@@ -635,31 +651,48 @@ class TestGeminiTranscriptHelpers:
         assert (home / ".gemini").resolve() in roots
         assert (project / ".gemini").resolve() in roots
 
-    def test_is_gemini_transcript_path_accepts_user_and_project_roots(
+    def test_is_antigravity_transcript_path_user_root_documented_shape_only(
         self, monkeypatch, tmp_path: Path
     ) -> None:
         home = tmp_path / "home"
         project = tmp_path / "project"
-        user_transcript = home / ".gemini" / "tmp" / "session.jsonl"
-        project_transcript = project / ".gemini" / "tmp" / "session.jsonl"
-        user_transcript.parent.mkdir(parents=True)
-        project_transcript.parent.mkdir(parents=True)
-        user_transcript.write_text("", encoding="utf-8")
-        project_transcript.write_text("", encoding="utf-8")
+        good = (
+            home
+            / ".gemini"
+            / "antigravity-cli"
+            / "brain"
+            / "conv-7"
+            / ".system_generated"
+            / "logs"
+            / "transcript.jsonl"
+        )
+        good.parent.mkdir(parents=True)
+        good.write_text("", encoding="utf-8")
         monkeypatch.setenv("HOME", str(home))
 
-        assert vault_common.is_gemini_transcript_path(user_transcript, cwd=str(project))
-        assert vault_common.is_gemini_transcript_path(
-            project_transcript, cwd=str(project)
+        assert vault_common.is_antigravity_transcript_path(good, cwd=str(project))
+        # Arbitrary files under the home root (legacy layout, configs) and
+        # project-local .gemini trees are NOT antigravity transcripts.
+        legacy = home / ".gemini" / "tmp" / "session.jsonl"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("", encoding="utf-8")
+        local = (
+            project
+            / ".gemini"
+            / "antigravity-cli"
+            / "brain"
+            / "conv-7"
+            / ".system_generated"
+            / "logs"
+            / "transcript.jsonl"
         )
-        assert vault_common.is_allowed_transcript_path(
-            user_transcript, cwd=str(project)
-        )
-        assert vault_common.is_allowed_transcript_path(
-            project_transcript, cwd=str(project)
-        )
+        assert not vault_common.is_antigravity_transcript_path(legacy, cwd=str(project))
+        assert not vault_common.is_antigravity_transcript_path(local, cwd=str(project))
+        # The umbrella read-allowlist still covers both transcript roots.
+        assert vault_common.is_allowed_transcript_path(good, cwd=str(project))
+        assert vault_common.is_allowed_transcript_path(local, cwd=str(project))
 
-    def test_parse_gemini_transcript_lines_extracts_model_text(self) -> None:
+    def test_parse_antigravity_transcript_lines_extracts_model_text(self) -> None:
         lines = [
             '{"role":"model","content":"Fixed the parser bug"}',
             '{"role":"user","content":"hello"}',
@@ -667,12 +700,12 @@ class TestGeminiTranscriptHelpers:
             "not json",
         ]
 
-        assert vault_common.parse_gemini_transcript_lines(lines) == [
+        assert vault_common.parse_antigravity_transcript_lines(lines) == [
             "Fixed the parser bug",
             "Root cause was config",
         ]
 
-    def test_parse_gemini_transcript_lines_extracts_message_wrapper_and_llm_response(
+    def test_parse_antigravity_transcript_lines_extracts_message_wrapper_and_llm_response(
         self,
     ) -> None:
         lines = [
@@ -693,7 +726,7 @@ class TestGeminiTranscriptHelpers:
             ),
         ]
 
-        assert vault_common.parse_gemini_transcript_lines(lines) == [
+        assert vault_common.parse_antigravity_transcript_lines(lines) == [
             "Pattern was useful",
             "First part\nSecond part",
         ]

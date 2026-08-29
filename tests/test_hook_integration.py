@@ -682,119 +682,136 @@ class TestCodexHookIntegration:
 
 
 # ---------------------------------------------------------------------------
-# gemini hooks
+# antigravity hooks
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.timeout(15)
-class TestGeminiHookIntegration:
-    """Integration tests for Gemini hook wrapper scripts."""
+class TestAntigravityHookIntegration:
+    """Integration tests for Antigravity hook wrapper scripts."""
 
-    def test_gemini_session_start_sets_runtime_hint_and_outputs_context(
+    def test_antigravity_session_start_outputs_inject_steps(
         self, tmp_path: Path
     ) -> None:
         result = _run_hook(
-            "gemini_session_start_hook.py",
+            "antigravity_session_start_hook.py",
             {
-                "cwd": str(tmp_path),
-                "hook_event_name": "SessionStart",
-                "source": "startup",
+                "invocationNum": 0,
+                "workspacePaths": [str(tmp_path)],
+                "conversationId": "conv-start",
             },
             tmp_path,
         )
-
         assert result.returncode == 0
         parsed = json.loads(result.stdout)
-        hook_output = parsed["hookSpecificOutput"]
-        assert hook_output["hookEventName"] == "SessionStart"
-        assert "additionalContext" in hook_output
+        assert len(parsed["injectSteps"]) == 1
+        assert "ephemeralMessage" in parsed["injectSteps"][0]
 
-    def test_gemini_session_start_skips_internal_sessions(self, tmp_path: Path) -> None:
+    def test_antigravity_session_start_skips_internal_sessions(
+        self, tmp_path: Path
+    ) -> None:
         result = _run_hook(
-            "gemini_session_start_hook.py",
+            "antigravity_session_start_hook.py",
             {
-                "cwd": str(tmp_path),
-                "hook_event_name": "SessionStart",
-                "source": "startup",
+                "invocationNum": 0,
+                "workspacePaths": [str(tmp_path)],
+                "conversationId": "conv-internal",
             },
             tmp_path,
             extra_env={"PARSIDION_INTERNAL": "1"},
         )
-
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
 
-    def test_gemini_session_end_missing_transcript_exits_cleanly(
+    def test_antigravity_session_end_missing_transcript_exits_cleanly(
         self, tmp_path: Path
     ) -> None:
         result = _run_hook(
-            "gemini_session_end_hook.py",
-            {"cwd": str(tmp_path), "transcript_path": "/missing/session.jsonl"},
+            "antigravity_session_end_hook.py",
+            {
+                "fullyIdle": True,
+                "workspacePaths": [str(tmp_path)],
+                "transcriptPath": "/missing/transcript.jsonl",
+            },
             tmp_path,
         )
-
         assert result.returncode == 0
-        assert json.loads(result.stdout) == {}
+        assert json.loads(result.stdout) == {"decision": ""}
 
-    def test_gemini_session_end_with_real_transcript_queues_pending(
+    def test_antigravity_session_end_with_real_transcript_queues_pending(
         self, tmp_path: Path
     ) -> None:
         project = tmp_path / "project"
-        transcript = project / ".gemini" / "sessions" / "gemini-session.jsonl"
+        transcript = (
+            tmp_path
+            / ".gemini"
+            / "antigravity-cli"
+            / "brain"
+            / "conversation-1"
+            / ".system_generated"
+            / "logs"
+            / "transcript.jsonl"
+        )
         transcript.parent.mkdir(parents=True)
         transcript.write_text(
-            json.dumps(
-                {
-                    "role": "model",
-                    "content": "Root cause was a missing environment variable.",
-                }
-            )
-            + "\n",
+            '{"role":"model","content":"Root cause was a missing environment variable."}\n',
             encoding="utf-8",
         )
-
         result = _run_hook(
-            "gemini_session_end_hook.py",
+            "antigravity_session_end_hook.py",
             {
-                "cwd": str(project),
-                "transcript_path": str(transcript),
-                "session_id": "gemini-session",
-                "reason": "exit",
+                "workspacePaths": [str(project)],
+                "transcriptPath": str(transcript),
+                "conversationId": "conversation-1",
+                "fullyIdle": True,
             },
             tmp_path,
             extra_env={"HOME": str(tmp_path)},
         )
-
         assert result.returncode == 0
-        assert json.loads(result.stdout) == {}
+        assert json.loads(result.stdout) == {"decision": ""}
         pending = tmp_path / "pending_summaries.jsonl"
         assert pending.exists()
         entry = json.loads(pending.read_text(encoding="utf-8").strip())
         assert entry["transcript_path"] == str(transcript)
+        assert entry["session_id"] == "conversation-1"
         assert "error_fix" in entry["categories"]
 
-    def test_gemini_session_end_skips_internal_sessions(self, tmp_path: Path) -> None:
+    def test_antigravity_session_end_skips_internal_sessions(
+        self, tmp_path: Path
+    ) -> None:
         project = tmp_path / "project"
-        transcript = project / ".gemini" / "sessions" / "gemini-session.jsonl"
+        transcript = (
+            tmp_path
+            / ".gemini"
+            / "antigravity-cli"
+            / "brain"
+            / "conversation-1"
+            / ".system_generated"
+            / "logs"
+            / "transcript.jsonl"
+        )
         transcript.parent.mkdir(parents=True)
         transcript.write_text(
             '{"role":"model","content":"Root cause was a missing env var."}\n',
             encoding="utf-8",
         )
-
         result = _run_hook(
-            "gemini_session_end_hook.py",
-            {"cwd": str(project), "transcript_path": str(transcript)},
+            "antigravity_session_end_hook.py",
+            {
+                "workspacePaths": [str(project)],
+                "transcriptPath": str(transcript),
+                "conversationId": "conversation-1",
+                "fullyIdle": True,
+            },
             tmp_path,
             extra_env={"HOME": str(tmp_path), "PARSIDION_INTERNAL": "1"},
         )
-
         assert result.returncode == 0
-        assert json.loads(result.stdout) == {}
+        assert json.loads(result.stdout) == {"decision": ""}
         assert not (tmp_path / "pending_summaries.jsonl").exists()
 
 
-# ---------------------------------------------------------------------------
 # pre_compact_hook
 # ---------------------------------------------------------------------------
 
