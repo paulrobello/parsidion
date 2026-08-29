@@ -39,10 +39,10 @@ __all__: list[str] = [
     "extract_text_from_content",
     "allowed_transcript_roots",
     "codex_home",
-    "gemini_home",
+    "antigravity_home",
     "is_allowed_transcript_path",
     "is_codex_transcript_path",
-    "is_gemini_transcript_path",
+    "is_antigravity_transcript_path",
     "is_pi_transcript_path",
     # Project detection
     "get_project_name",
@@ -53,7 +53,7 @@ __all__: list[str] = [
     "TRANSCRIPT_CATEGORY_LABELS",
     "parse_transcript_lines",
     "parse_codex_transcript_lines",
-    "parse_gemini_transcript_lines",
+    "parse_antigravity_transcript_lines",
     "detect_categories",
 ]
 
@@ -321,9 +321,16 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser().resolve()
 
 
-def gemini_home() -> Path:
-    """Return the configured Gemini CLI home directory."""
-    return Path(os.environ.get("GEMINI_HOME", "~/.gemini")).expanduser().resolve()
+def antigravity_home() -> Path:
+    """Return the Antigravity (ex-Gemini CLI) config root — ``~/.gemini``."""
+    return (
+        Path(
+            os.environ.get("ANTIGRAVITY_HOME", "")
+            or os.environ.get("GEMINI_HOME", "~/.gemini")
+        )
+        .expanduser()
+        .resolve()
+    )
 
 
 def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
@@ -348,7 +355,7 @@ def allowed_transcript_roots(cwd: str | None = None) -> list[Path]:
         Path.home() / ".claude",
         Path.home() / ".pi",
         codex_home() / "sessions",
-        gemini_home(),
+        antigravity_home(),
     ]
 
     if cwd:
@@ -435,29 +442,40 @@ def is_pi_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool
     return False
 
 
-def is_gemini_transcript_path(transcript_path: Path, cwd: str | None = None) -> bool:
-    """Return True when *transcript_path* belongs to a Gemini transcript root."""
+def is_antigravity_transcript_path(
+    transcript_path: Path,
+    cwd: str | None = None,  # noqa: ARG001
+) -> bool:
+    """True when *transcript_path* is an Antigravity CLI conversation transcript.
+
+    Antigravity (the Gemini CLI successor) writes conversation logs ONLY at
+    ``<root>/antigravity-cli/brain/<conversationId>/.system_generated/logs/
+    transcript.jsonl`` where ``<root>`` is ``$ANTIGRAVITY_HOME`` /
+    ``$GEMINI_HOME`` / ``~/.gemini``. The path must match that exact shape —
+    the ``~/.gemini`` tree also holds settings, MCP configs, and legacy
+    Gemini IDE data that must never be treated as transcripts, and no
+    project-local transcript location is documented.
+    """
     try:
         resolved = transcript_path.expanduser().resolve()
     except OSError:
         return False
 
-    roots: list[Path] = [gemini_home()]
-    if cwd:
-        try:
-            roots.append(Path(cwd).resolve() / ".gemini")
-        except OSError:
-            pass
+    try:
+        rel = resolved.relative_to(antigravity_home().resolve())
+    except (ValueError, OSError):
+        return False
 
-    for root in roots:
-        try:
-            root_resolved = root.resolve()
-            if resolved == root_resolved or resolved.is_relative_to(root_resolved):
-                return True
-        except (ValueError, OSError):
-            continue
-
-    return False
+    parts = rel.parts
+    return (
+        len(parts) == 6
+        and parts[0] == "antigravity-cli"
+        and parts[1] == "brain"
+        and bool(parts[2])
+        and parts[3] == ".system_generated"
+        and parts[4] == "logs"
+        and parts[5] == "transcript.jsonl"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -662,7 +680,7 @@ def parse_codex_transcript_lines(lines: list[str]) -> list[str]:
     return texts
 
 
-def _extract_gemini_parts(parts: object) -> str:
+def _extract_antigravity_parts(parts: object) -> str:
     """Extract text from Gemini ``parts`` arrays or string-like fields."""
     if isinstance(parts, str):
         return parts.strip()
@@ -680,15 +698,15 @@ def _extract_gemini_parts(parts: object) -> str:
     return "\n".join(chunks)
 
 
-def _extract_gemini_content(content: object) -> str:
+def _extract_antigravity_content(content: object) -> str:
     """Extract assistant/model text from Gemini content shapes."""
     text = extract_text_from_content(content).strip()
     if text:
         return text
-    return _extract_gemini_parts(content)
+    return _extract_antigravity_parts(content)
 
 
-def parse_gemini_transcript_lines(lines: list[str]) -> list[str]:
+def parse_antigravity_transcript_lines(lines: list[str]) -> list[str]:
     """Parse Gemini transcript JSONL lines and extract model/assistant text."""
     texts: list[str] = []
     for raw_line in lines:
@@ -704,7 +722,7 @@ def parse_gemini_transcript_lines(lines: list[str]) -> list[str]:
 
         message = record.get("message")
         if isinstance(message, dict) and message.get("role") in {"model", "assistant"}:
-            text = _extract_gemini_content(message.get("content"))
+            text = _extract_antigravity_content(message.get("content"))
             if text:
                 texts.append(text)
             continue
@@ -712,7 +730,7 @@ def parse_gemini_transcript_lines(lines: list[str]) -> list[str]:
         role = record.get("role")
         record_type = record.get("type")
         if role in {"model", "assistant"} or record_type in {"model", "assistant"}:
-            text = _extract_gemini_content(record.get("content"))
+            text = _extract_antigravity_content(record.get("content"))
             if text:
                 texts.append(text)
             continue
@@ -731,7 +749,7 @@ def parse_gemini_transcript_lines(lines: list[str]) -> list[str]:
                 continue
             if content.get("role") not in {"model", "assistant", None}:
                 continue
-            text = _extract_gemini_parts(content.get("parts"))
+            text = _extract_antigravity_parts(content.get("parts"))
             if text:
                 texts.append(text)
 

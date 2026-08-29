@@ -59,10 +59,10 @@ from core.vault_hooks import (
     get_project_name,
     is_allowed_transcript_path,
     is_codex_transcript_path,
-    is_gemini_transcript_path,
+    is_antigravity_transcript_path,
     is_pi_transcript_path,
     parse_codex_transcript_lines,
-    parse_gemini_transcript_lines,
+    parse_antigravity_transcript_lines,
     parse_transcript_lines,
     write_hook_event,
 )
@@ -159,14 +159,14 @@ class AgentAdapter:
         default=None, repr=False
     )
     """Optional validator — ``is_codex_transcript_path`` /
-    ``is_gemini_transcript_path``. None for runtimes without a custom
+    ``is_antigravity_transcript_path``. None for runtimes without a custom
     validator (the entrypoint skips the extra check)."""
 
     parse_transcript_lines: Callable[[list[str]], list[str]] | None = field(
         default=None, repr=False
     )
     """Optional parser — ``parse_codex_transcript_lines`` /
-    ``parse_gemini_transcript_lines``. None means fall back to the
+    ``parse_antigravity_transcript_lines``. None means fall back to the
     shape-agnostic ``parse_transcript_lines``."""
 
     read_transcript_tail: Callable[[Path, int], list[str]] | None = field(
@@ -416,14 +416,16 @@ _CODEX_HOOK_SCRIPTS: dict[str, str] = {
     "SubagentStop": "codex_subagent_stop_hook.py",
     "UserPromptSubmit": "user_prompt_submit_hook.py",
 }
-# Gemini defines no UserPromptSubmit event; only claude/codex wire it.
-_GEMINI_HOOK_SCRIPTS: dict[str, str] = {
-    "SessionStart": "gemini_session_start_hook.py",
-    "SessionEnd": "gemini_session_end_hook.py",
+# Antigravity defines no UserPromptSubmit event; only claude/codex wire it.
+# Session-start maps to PreInvocation (invocationNum==0 gate in the shim),
+# session-end to Stop (fullyIdle gate in the shim).
+_ANTIGRAVITY_HOOK_SCRIPTS: dict[str, str] = {
+    "PreInvocation": "antigravity_session_start_hook.py",
+    "Stop": "antigravity_session_end_hook.py",
 }
-_GEMINI_HOOK_NAMES: dict[str, str] = {
-    "SessionStart": "parsidion-session-start",
-    "SessionEnd": "parsidion-session-end",
+_ANTIGRAVITY_HOOK_NAMES: dict[str, str] = {
+    "PreInvocation": "parsidion-session-start",
+    "Stop": "parsidion-session-end",
 }
 
 
@@ -480,20 +482,22 @@ def _register_builtin_adapters() -> None:
     )
     register(
         AgentAdapter(
-            name="gemini",
-            hook_event_name_start="GeminiSessionStart",
-            hook_event_name_end="GeminiSessionEnd",
-            is_transcript_path=lambda p, cwd: is_gemini_transcript_path(p, cwd=cwd),
-            parse_transcript_lines=parse_gemini_transcript_lines,
+            name="antigravity",
+            hook_event_name_start="AntigravityPreInvocation",
+            hook_event_name_end="AntigravityStop",
+            is_transcript_path=lambda p, cwd: is_antigravity_transcript_path(
+                p, cwd=cwd
+            ),
+            parse_transcript_lines=parse_antigravity_transcript_lines,
             install=InstallerSpec(
-                display_name="Gemini",
-                runtime_env_value="gemini",
-                hooks_config_filename="settings.json",
-                event_scripts=_GEMINI_HOOK_SCRIPTS,
-                entry_matcher="*",
-                entry_timeout=60000,
-                timeout_unit="ms",
-                entry_names=_GEMINI_HOOK_NAMES,
+                display_name="Antigravity",
+                runtime_env_value="antigravity",
+                hooks_config_filename="config/hooks.json",
+                event_scripts=_ANTIGRAVITY_HOOK_SCRIPTS,
+                entry_matcher="",
+                entry_timeout=60,
+                timeout_unit="s",
+                entry_names=_ANTIGRAVITY_HOOK_NAMES,
                 instructions_filename="GEMINI.md",
             ),
         )
@@ -942,11 +946,17 @@ def _persist_and_report(
             append_session_to_daily(project, categories, first_summary, vault_path)
             print(f"{log_prefix} daily note updated", file=sys.stderr)
         if force_queue is not None:
+            # Prefer the payload's session_id (Claude/Codex/Antigravity all
+            # send one) over the transcript-stem fallback: Antigravity
+            # transcripts are ALL named transcript.jsonl, so the stem would
+            # collapse every session onto one dedup key.
+            payload_session_id = str(payload.get("session_id") or "") or None
             append_to_pending(
                 transcript_path,
                 project,
                 categories,
                 force=force_queue,
+                session_id=payload_session_id,
                 vault=vault_path,
             )
         if queued:
@@ -998,20 +1008,32 @@ def _persist_and_report(
         pass
 
 
-def run_session_start(adapter: AgentAdapter) -> None:
+def run_session_start(
+    adapter: AgentAdapter,
+    *,
+    payload: dict[str, object] | None = None,
+    wrap_output: Callable[[str], dict[str, object]] | None = None,
+) -> None:
     """SessionStart entrypoint shared across all adapters.
 
-    Reads a JSON payload from stdin, builds non-AI session context using the
-    Parsidion SessionStart implementation, and emits valid JSON for the
-    runtime. All errors are reported to stderr while stdout remains valid
-    JSON so the hook never blocks startup.
+    Reads a JSON payload from stdin (or takes a pre-parsed *payload*, for
+    runtimes whose shim must translate the wire format first), builds
+    non-AI session context using the Parsidion SessionStart implementation,
+    and emits valid JSON for the runtime. All errors are reported to stderr
+    while stdout remains valid JSON so the hook never blocks startup.
+
+    *wrap_output* converts the built context string into the runtime's
+    output envelope; the default emits the Claude-style
+    ``hookSpecificOutput.additionalContext`` shape. Antigravity's shim
+    passes an ``injectSteps`` wrapper instead.
     """
     # Lazy import: session_start_hook pulls in vault_search/vault_links and
-    # is heavy. Codex/Gemini session-start is the only path that needs it.
+    # is heavy. Codex/Antigravity session-start is the only path that needs it.
     from session_start_hook import build_session_context
 
     try:
-        payload: dict[str, object] = _read_stdin_payload()
+        if payload is None:
+            payload = _read_stdin_payload()
 
         if os.environ.get("PARSIDION_INTERNAL"):
             sys.stdout.write("{}")
@@ -1039,16 +1061,17 @@ def run_session_start(adapter: AgentAdapter) -> None:
             else:
                 os.environ["PARSIDION_RUNTIME"] = old_runtime
 
-        sys.stdout.write(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "SessionStart",
-                        "additionalContext": context,
-                    }
+        output = (
+            wrap_output(context)
+            if wrap_output is not None
+            else {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": context,
                 }
-            )
+            }
         )
+        sys.stdout.write(json.dumps(output))
         # ARC-020 step 4: emit a hook event so vault-stats --hooks surfaces
         # Codex/Gemini sessions too.
         try:
@@ -1144,6 +1167,7 @@ def run_session_end(
     subagent: bool = False,
     payload: dict[str, object] | None = None,
     ai_cli_arg: str | None = None,
+    final_output: str = "{}",
 ) -> None:
     """SessionEnd / Stop / SubagentStop entrypoint shared across adapters (ARC-002).
 
@@ -1175,12 +1199,12 @@ def run_session_end(
             payload = _read_stdin_payload()
 
         if os.environ.get("PARSIDION_INTERNAL"):
-            sys.stdout.write("{}")
+            sys.stdout.write(final_output)
             return
 
         cwd, transcript_path = _resolve_transcript(adapter, payload, subagent)
         if transcript_path is None:
-            sys.stdout.write("{}")
+            sys.stdout.write(final_output)
             return
 
         vault_path = resolve_vault(cwd=cwd)
@@ -1244,7 +1268,7 @@ def run_session_end(
                 "transcript tail",
                 file=sys.stderr,
             )
-            sys.stdout.write("{}")
+            sys.stdout.write(final_output)
             return
 
         print(
@@ -1295,7 +1319,7 @@ def run_session_end(
             payload=payload,
         )
 
-        sys.stdout.write("{}")
+        sys.stdout.write(final_output)
     except Exception:  # noqa: BLE001 - hooks must not fail closed
         traceback.print_exc(file=sys.stderr)
-        sys.stdout.write("{}")
+        sys.stdout.write(final_output)
