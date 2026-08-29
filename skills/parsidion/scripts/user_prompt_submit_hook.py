@@ -167,6 +167,10 @@ def _build_context(
     """Format matched notes into the bounded, untrusted-framed context body."""
     per_note_chars = int(settings["per_note_chars"])
     max_chars = int(settings["max_chars"])
+    preamble = UNTRUSTED_PREAMBLE + "<content>\n"
+    suffix = "\n</content>\n"
+    if max_chars < len(preamble) + len(suffix):
+        return ""
     lines = [f"Vault recall — {len(notes)} note(s) relevant to this prompt:"]
     for note in notes:
         title = str(note.get("title") or note.get("stem") or "untitled")
@@ -177,9 +181,10 @@ def _build_context(
         lines.append(f"- **{title}** [{loc}] ({tags})")
         lines.append(f"  {_excerpt(note, per_note_chars)}")
     body = "\n".join(lines)
-    if len(body) > max_chars:
-        body = body[:max_chars]
-    return UNTRUSTED_PREAMBLE + f"<content>\n{body}\n</content>\n"
+    available_body_chars = max_chars - len(preamble) - len(suffix)
+    if len(body) > available_body_chars:
+        body = body[:available_body_chars]
+    return preamble + body + suffix
 
 
 def run_recall(payload: dict) -> dict:
@@ -264,6 +269,8 @@ def run_recall(payload: dict) -> dict:
 
         context = _build_context(notes, vault, settings)
         _mark("format")
+        if not context:
+            return {}
 
         try:
             write_hook_event(

@@ -216,8 +216,8 @@ class TestRecall:
         )
         result = user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT})
         ctx = result["hookSpecificOutput"]["additionalContext"]
+        assert len(ctx) <= 1500
         body = ctx.split("<content>\n", 1)[1].rsplit("\n</content>", 1)[0]
-        assert len(body) <= 1500
         for line in body.splitlines():
             if line.startswith("  "):
                 assert len(line) <= 2 + 350
