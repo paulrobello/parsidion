@@ -221,6 +221,68 @@ class TestRecall:
         )
         assert user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT}) == {}
 
+    def test_budget_burning_failure_stamps_cooldown_and_skips_next_prompt(
+        self,
+        tmp_vault: Path,
+        _isolated_logs: Path,
+        hook_env: dict[str, list[object]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed search that burned real budget writes the cooldown stamp;
+        the next prompt within the window skips retrieval entirely (<1s, no
+        search subprocess) instead of re-burning the budget."""
+        stamp = user_prompt_submit_hook._search_cooldown_stamp_path()
+        monkeypatch.setattr(user_prompt_submit_hook, "_SEARCH_COOLDOWN_MIN_BURN_S", 0.0)
+
+        def failing_search(*args: object, **kwargs: object) -> None:
+            hook_env["search"].append(args[0] if args else kwargs.get("query"))
+            return None
+
+        monkeypatch.setattr(parsight_backend, "parsight_search", failing_search)
+
+        assert user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT}) == {}
+        assert len(hook_env["search"]) == 1
+        assert stamp.exists(), "budget-burning failure must write the stamp"
+
+        started = time.monotonic()
+        assert user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT}) == {}
+        assert time.monotonic() - started < 1.0
+        assert len(hook_env["search"]) == 1, "cooldown must skip the second search"
+
+    def test_fast_failure_does_not_stamp_cooldown(
+        self,
+        tmp_vault: Path,
+        _isolated_logs: Path,
+        hook_env: dict[str, list[object]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A cheap fast failure (bad json, early exit) burns < MIN_BURN_S and
+        must not suppress recall for the window."""
+        stamp = user_prompt_submit_hook._search_cooldown_stamp_path()
+
+        def failing_search(*args: object, **kwargs: object) -> None:
+            hook_env["search"].append(args[0] if args else kwargs.get("query"))
+            return None
+
+        monkeypatch.setattr(parsight_backend, "parsight_search", failing_search)
+
+        assert user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT}) == {}
+        assert not stamp.exists()
+        assert user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT}) == {}
+        assert len(hook_env["search"]) == 2, "no stamp -> search retried"
+
+    def test_successful_search_writes_no_cooldown_stamp(
+        self,
+        tmp_vault: Path,
+        _isolated_logs: Path,
+        hook_env: dict[str, list[object]],
+    ) -> None:
+        """Healthy-daemon recall is untouched: a successful search never
+        writes the cooldown stamp."""
+        result = user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT})
+        assert result["hookSpecificOutput"]["additionalContext"]
+        assert not user_prompt_submit_hook._search_cooldown_stamp_path().exists()
+
     def test_probe_negative_cache(
         self, tmp_vault: Path, _isolated_logs: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

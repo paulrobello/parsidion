@@ -24,7 +24,9 @@ decided by a distinct-token overlap gate between the prompt and each note's
 title/tags/stem — ``min_score`` deliberately does not apply (see
 ``core.parsight_backend.parsight_search``). A failed availability probe is
 negative-cached via a stamp file in ``~/.claude/logs`` for
-``probe_cache_seconds``.
+``probe_cache_seconds``; a budget-burning failed search (daemon busy, e.g.
+mid-reindex) writes its own cooldown stamp for the same window so subsequent
+prompts skip retrieval instantly instead of re-burning the budget.
 
 Config section: ``user_prompt_submit_hook`` (see ``core.vault_schema``);
 every key falls back to the default below when absent.
@@ -68,6 +70,13 @@ _DEFAULTS: dict[str, Any] = {
 # SIGTERM→SIGKILL grace for the search child. Kept short so a wedged child
 # cannot push total hook wall time past the host's 10s UserPromptSubmit kill.
 _SEARCH_KILL_GRACE_S: float = 1.0
+
+_SEARCH_COOLDOWN_STAMP_NAME = "parsidion-ups-search-cooldown"
+# A failed search stamps the cooldown only when it burned at least this much
+# wall time — a timeout burns the full recall_timeout_s by definition, while
+# cheap fast failures (bad json, early exit) cost nothing and must not
+# suppress recall for the window.
+_SEARCH_COOLDOWN_MIN_BURN_S = 3.0
 
 # ~15 high-frequency English words that carry no topical signal; excluded
 # from the token-overlap gate so boilerplate prompt words cannot satisfy it.
@@ -213,6 +222,11 @@ def _probe_stamp_fresh(stamp: Path, max_age_s: int) -> bool:
         return False
 
 
+def _search_cooldown_stamp_path() -> Path:
+    """Negative-cache stamp for a budget-burning failed search."""
+    return secure_log_dir() / _SEARCH_COOLDOWN_STAMP_NAME
+
+
 def _note_tags(note: dict[str, object]) -> str:
     """Space-joined string tags; non-list/​non-str shapes collapse to ""."""
     raw = note.get("tags")
@@ -335,6 +349,14 @@ def run_recall(payload: dict) -> dict:
         except OSError:
             pass
 
+        cooldown = _search_cooldown_stamp_path()
+        if _probe_stamp_fresh(
+            cooldown,
+            int(settings["probe_cache_seconds"]),  # type: ignore[arg-type]
+        ):
+            return {}
+
+        search_started = time.monotonic()
         try:
             results = parsight_backend.parsight_search(
                 prompt,
@@ -346,6 +368,15 @@ def run_recall(payload: dict) -> dict:
         except Exception:  # noqa: BLE001
             results = None
         _mark("search")
+        if (
+            results is None
+            and (time.monotonic() - search_started) >= _SEARCH_COOLDOWN_MIN_BURN_S
+        ):
+            try:
+                cooldown.parent.mkdir(parents=True, exist_ok=True)
+                cooldown.touch()
+            except OSError:
+                pass
         notes: list[dict[str, object]] = []
         if results:
             min_matches = int(settings["min_term_matches"])  # type: ignore[arg-type]
