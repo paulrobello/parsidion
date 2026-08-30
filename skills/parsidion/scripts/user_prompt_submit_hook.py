@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from core import parsight_backend
-from core.vault_config import load_typed_config
+from core.vault_config import clamp_timeout, load_typed_config
 from core.vault_hooks import get_project_name, write_hook_event
 from core.vault_index import read_note_summary
 from core.vault_path import resolve_vault, secure_log_dir
@@ -206,6 +206,17 @@ def _load_settings(vault: Path) -> dict[str, object]:
         return settings
     for key, default in _DEFAULTS.items():
         settings[key] = getattr(section, key, default)
+    # The omp/pi host still kills UserPromptSubmit at 10s; startup + probe
+    # (~1.5s) plus the 1s kill grace leave ~7s of safe search budget — the
+    # default IS the ceiling. A configured value above it recreates the
+    # host-kill bug, and NaN/negative would reach communicate(timeout=...)
+    # as "no timeout" (SEC-024 shape), so clamp regardless of source.
+    settings["recall_timeout_s"] = clamp_timeout(
+        settings["recall_timeout_s"],  # type: ignore[arg-type]
+        default=_DEFAULTS["recall_timeout_s"],
+        lo=1.0,
+        hi=float(_DEFAULTS["recall_timeout_s"]),  # type: ignore[arg-type]
+    )
     return settings
 
 

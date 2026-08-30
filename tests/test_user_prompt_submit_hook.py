@@ -138,6 +138,53 @@ class TestRecall:
         kwargs = cast(dict[str, object], hook_env["kwargs"][0])
         assert kwargs["timeout"] == 2.5
 
+    def test_recall_timeout_oversized_config_clamped_to_safe_max(
+        self,
+        tmp_vault: Path,
+        _isolated_logs: Path,
+        hook_env: dict[str, list[object]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A configured budget above the safe ceiling is clamped to 7s — the
+        omp/pi host still kills UserPromptSubmit at 10s, so an oversized
+        value would recreate the host-kill bug through config."""
+        from typing import cast
+
+        monkeypatch.setattr(
+            user_prompt_submit_hook,
+            "load_typed_config",
+            lambda vault=None: SimpleNamespace(
+                user_prompt_submit_hook=SimpleNamespace(recall_timeout_s=60.0)
+            ),
+        )
+        user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT})
+        kwargs = cast(dict[str, object], hook_env["kwargs"][0])
+        assert kwargs["timeout"] == 7.0
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -5.0, "7", None])
+    def test_recall_timeout_invalid_config_falls_back(
+        self,
+        tmp_vault: Path,
+        _isolated_logs: Path,
+        hook_env: dict[str, list[object]],
+        monkeypatch: pytest.MonkeyPatch,
+        bad: object,
+    ) -> None:
+        """NaN/negative/inf/non-numeric budgets fall back to the 7s default —
+        NaN or <=0 reaching communicate(timeout=...) means NO timeout."""
+        from typing import cast
+
+        monkeypatch.setattr(
+            user_prompt_submit_hook,
+            "load_typed_config",
+            lambda vault=None: SimpleNamespace(
+                user_prompt_submit_hook=SimpleNamespace(recall_timeout_s=bad)
+            ),
+        )
+        user_prompt_submit_hook.run_recall({"prompt": MATCHED_PROMPT})
+        kwargs = cast(dict[str, object], hook_env["kwargs"][0])
+        assert kwargs["timeout"] == 7.0
+
     def test_injection_event_carries_stage_deltas(
         self,
         tmp_vault: Path,
