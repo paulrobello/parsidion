@@ -571,6 +571,14 @@ class UserPromptSubmitHookConfig:
             "section_read": True,
         },
     )
+    recall_timeout_s: float = field(
+        default=7.0,
+        metadata={
+            "doc": "Per-prompt parsight search budget; must stay below the 10s UserPromptSubmit host timeout including the 1s kill grace",
+            "read_by": "user_prompt_submit_hook.py",
+            "section_read": True,
+        },
+    )
     debug: bool = field(
         default=False,
         metadata={

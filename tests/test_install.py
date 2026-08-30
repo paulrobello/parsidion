@@ -441,7 +441,7 @@ class TestClaudeHooks:
             hook for hook in handlers if "user_prompt_submit_hook.py" in hook["command"]
         )
         assert managed["type"] == "command"
-        assert managed["timeout"] == 10000
+        assert managed["timeout"] == 15000
 
 
 class TestDefaultVaultPath:

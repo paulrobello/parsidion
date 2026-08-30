@@ -77,6 +77,39 @@ def test_run_with_pgkill_returns_timeout_and_kills_process_group(
         pass  # expected — the process is gone
 
 
+def test_run_with_pgkill_short_grace_bounds_wedged_child(tmp_path: Path) -> None:
+    """A child that ignores SIGTERM is SIGKILLed after *kill_grace_secs*, not
+    the 5s default — the bound the per-prompt recall path depends on to stay
+    under its 10s host timeout."""
+    pid_file = tmp_path / "stubborn_pid.txt"
+    child_script = (
+        f"import os, signal, time; "
+        f"signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"open({str(pid_file)!r},'w').write(str(os.getpid())); "
+        f"time.sleep(30)"
+    )
+    start = time.monotonic()
+    reason, proc = subproc_util.run_with_pgkill(
+        [sys.executable, "-c", child_script],
+        cwd=tmp_path,
+        timeout=0.5,
+        kill_grace_secs=0.5,
+    )
+    elapsed = time.monotonic() - start
+    assert reason == "timeout"
+    assert proc is None
+    # timeout(0.5) + grace(0.5) + interpreter startup slack — far below the
+    # 5s default grace, and absolutely below 10s.
+    assert elapsed < 5.0, f"wedged child stalled the caller for {elapsed:.2f}s"
+    child_pid = int(pid_file.read_text().strip())
+    time.sleep(0.2)
+    try:
+        os.kill(child_pid, 0)
+        pytest.fail(f"SIGTERM-ignoring child {child_pid} survived SIGKILL")
+    except (ProcessLookupError, OSError):
+        pass  # expected — SIGKILL is not ignorable
+
+
 def test_run_with_pgkill_zero_timeout_means_no_timeout(tmp_path: Path) -> None:
     """``timeout <= 0`` is treated as 'no timeout' (communicate(timeout=None))."""
     reason, proc = subproc_util.run_with_pgkill(

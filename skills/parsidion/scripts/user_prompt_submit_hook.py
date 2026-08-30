@@ -57,8 +57,17 @@ _DEFAULTS: dict[str, Any] = {
     "min_term_matches": 2,  # relevance gate; 0 disables the gate
     "min_prompt_chars": 9,  # shorter prompts skip retrieval ("continue" = 8 chars)
     "probe_cache_seconds": 300,
+    # Per-prompt parsight search budget. Must stay below the 10s
+    # UserPromptSubmit host kill (pi extension HOOK_TIMEOUT_USER_PROMPT_MS)
+    # with room for interpreter startup, the ≤1s availability probe, and the
+    # SIGTERM→SIGKILL grace (_SEARCH_KILL_GRACE_S).
+    "recall_timeout_s": 7.0,
     "debug": False,
 }
+
+# SIGTERM→SIGKILL grace for the search child. Kept short so a wedged child
+# cannot push total hook wall time past the host's 10s UserPromptSubmit kill.
+_SEARCH_KILL_GRACE_S: float = 1.0
 
 # ~15 high-frequency English words that carry no topical signal; excluded
 # from the token-overlap gate so boilerplate prompt words cannot satisfy it.
@@ -331,11 +340,12 @@ def run_recall(payload: dict) -> dict:
                 prompt,
                 top_k=int(settings["top_k"]),  # type: ignore[arg-type]
                 vault=vault,  # type: ignore[arg-type]
+                timeout=float(settings["recall_timeout_s"]),  # type: ignore[arg-type]
+                kill_grace_secs=_SEARCH_KILL_GRACE_S,
             )
         except Exception:  # noqa: BLE001
             results = None
         _mark("search")
-
         notes: list[dict[str, object]] = []
         if results:
             min_matches = int(settings["min_term_matches"])  # type: ignore[arg-type]

@@ -113,6 +113,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "min_term_matches": (int,),
         "min_prompt_chars": (int,),
         "probe_cache_seconds": (int,),
+        "recall_timeout_s": (float,),
         "debug": (bool,),
     },
     "pre_compact_hook": {"lines": (int,), "transcript_tail_bytes": (int,)},

@@ -23,6 +23,31 @@ from pathlib import Path
 import installer.hooks as installer_hooks
 from installer import hooks as hooks_mod
 
+import sys
+
+from installer.paths import _HOOK_OPTIONS
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import user_prompt_submit_hook  # noqa: E402
+
+
+def test_user_prompt_submit_host_timeout_exceeds_hook_self_budget() -> None:
+    """The registered Claude Code UserPromptSubmit timeout must clear the
+    hook's self-bound (search budget + kill grace + interpreter/probe slack)
+    so the hook's graceful ``{}`` exit always beats the host kill."""
+    budget = float(user_prompt_submit_hook._DEFAULTS["recall_timeout_s"])
+    grace = user_prompt_submit_hook._SEARCH_KILL_GRACE_S
+    startup_slack_s = 2.5  # interpreter start + config load + availability probe
+    registered_ms = _HOOK_OPTIONS["UserPromptSubmit"]["timeout"]
+    assert registered_ms > (budget + grace + startup_slack_s) * 1000, (
+        "UserPromptSubmit host timeout no longer clears the hook's self-bound "
+        f"({registered_ms}ms vs {(budget + grace + startup_slack_s) * 1000:.0f}ms) "
+        "— the host would kill the hook before its graceful {} exit"
+    )
+
 
 def _make_settings(tmp_path: Path, body: str) -> Path:
     """Create a settings.json with *body* (raw bytes) and return its path."""

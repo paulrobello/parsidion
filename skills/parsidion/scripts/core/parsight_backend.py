@@ -374,6 +374,7 @@ def _run_parsight(
     cwd: Path,
     timeout: float,
     vault: Path | None,
+    kill_grace_secs: float | None = None,
 ) -> tuple[str, subprocess.CompletedProcess[str] | None]:
     """Run the parsight CLI; returns ``(reason, proc)``.
 
@@ -402,6 +403,7 @@ def _run_parsight(
         cwd=cwd,
         timeout=timeout,
         env=_parsight_env(),
+        kill_grace_secs=kill_grace_secs,
     )
 
 
@@ -422,6 +424,7 @@ def find_code_raw(
     cwd: Path | None = None,
     timeout: float | None = None,
     vault: Path | None = None,
+    kill_grace_secs: float | None = None,
 ) -> list[dict[str, Any]] | None:
     """Run ``parsight find-code <query> --json --diagnostics --limit <top_k>``.
 
@@ -453,6 +456,7 @@ def find_code_raw(
             cwd=cwd,
             timeout=eff_timeout,
             vault=vault,
+            kill_grace_secs=kill_grace_secs,
         )
         if result is None:
             _log_event(vault, "find-code", reason, started)
@@ -669,6 +673,7 @@ def parsight_search(
     top_k: int = 10,
     vault: Path | None = None,
     timeout: float | None = None,
+    kill_grace_secs: float | None = None,
 ) -> list[dict[str, object]] | None:
     """Vault semantic search served by parsight's hybrid retrieval.
 
@@ -689,7 +694,12 @@ def parsight_search(
     try:
         vault = vault or resolve_vault()
         hits = find_code_raw(
-            query, top_k=min(top_k * 3, 1000), cwd=vault, timeout=timeout, vault=vault
+            query,
+            top_k=min(top_k * 3, 1000),
+            cwd=vault,
+            timeout=timeout,
+            vault=vault,
+            kill_grace_secs=kill_grace_secs,
         )
         if hits is None:
             return None

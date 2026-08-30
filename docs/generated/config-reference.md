@@ -118,6 +118,7 @@ user_prompt_submit_hook:
   min_term_matches: 2  # Relevance gate — distinct tokens shared between prompt and note title/tags/stem, 0 disables
   min_prompt_chars: 9  # Prompts shorter than this skip retrieval (9 keeps short goads like 'continue' quiet)
   probe_cache_seconds: 300  # Negative-cache freshness for the parsight availability probe
+  recall_timeout_s: 7.0  # Per-prompt parsight search budget; must stay below the 10s UserPromptSubmit host timeout including the 1s kill grace
   debug: false  # Append injected context + metadata to a debug log in $TMPDIR
 
 # Pre-compact hook (pre_compact_hook.py).

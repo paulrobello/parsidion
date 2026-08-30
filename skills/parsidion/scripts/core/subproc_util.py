@@ -49,6 +49,7 @@ def run_with_pgkill(
     timeout: float,
     env: Mapping[str, str] | None = None,
     stdin: Any = None,
+    kill_grace_secs: float | None = None,
 ) -> tuple[str, subprocess.CompletedProcess[str] | None]:
     """Run *cmd* in a new session; on timeout, kill the whole process group.
 
@@ -104,7 +105,7 @@ def run_with_pgkill(
     try:
         stdout, stderr = proc.communicate(input=stdin, timeout=communicate_timeout)
     except subprocess.TimeoutExpired:
-        _kill_process_group(proc)
+        _kill_process_group(proc, kill_grace_secs)
         return "timeout", None
     except Exception:  # noqa: BLE001 — contract: never raises
         # Defensive: any unexpected error from communicate() (e.g. a closed
@@ -123,9 +124,13 @@ def run_with_pgkill(
     )
 
 
-def _kill_process_group(proc: subprocess.Popen[str]) -> None:
-    """SIGTERM → wait PGKILL_GRACE_SECS → SIGKILL the process group of *proc*.
+def _kill_process_group(
+    proc: subprocess.Popen[str],
+    kill_grace_secs: float | None = None,
+) -> None:
+    """SIGTERM → wait *kill_grace_secs* → SIGKILL the process group of *proc*.
 
+    Defaults to :data:`PGKILL_GRACE_SECS` when *kill_grace_secs* is None.
     Best-effort: every OSError (process already gone, EPERM, ESRCH) is
     swallowed because a failed cleanup must never mask the original timeout.
     """
@@ -139,7 +144,11 @@ def _kill_process_group(proc: subprocess.Popen[str]) -> None:
         except (ProcessLookupError, OSError):
             return
         try:
-            proc.wait(timeout=PGKILL_GRACE_SECS)
+            proc.wait(
+                timeout=PGKILL_GRACE_SECS
+                if kill_grace_secs is None
+                else kill_grace_secs
+            )
             return
         except subprocess.TimeoutExpired:
             continue

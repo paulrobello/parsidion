@@ -72,6 +72,11 @@ _HOOK_OPTIONS: dict[str, dict] = {
     # budget the codex (60s) and omp/pi (60s) runtimes allow. Kept here so
     # the merge path raises existing 10s installs to it on reinstall.
     "SessionStart": {"timeout": 60000},
+    # UserPromptSubmit self-bounds (user_prompt_submit_hook.recall_timeout_s
+    # 7s search budget + 1s kill grace + startup/probe) to ~9.5s; the 15s
+    # host timeout exists so the hook's own graceful {} exit always beats the
+    # host kill. Merge path raises existing 10s installs on reinstall.
+    "UserPromptSubmit": {"timeout": 15000},
 }
 
 _RUNTIME_CHOICES = ("claude", "codex", "antigravity", "both", "all", "none")
