@@ -461,16 +461,20 @@ def _related_field_spans(fm_lines: list[str]) -> list[tuple[int, int]]:
             continue
         value = match.group(1).strip()
         j = i + 1
-        if value.startswith("[") and value.count("[") > value.count("]"):
-            # Inline list opened but not closed on this line. Consume until the
-            # brackets balance -- wikilinks are themselves balanced, so they do
-            # not perturb the count.
-            depth = value.count("[") - value.count("]")
-            while j < n and depth > 0:
-                line = fm_lines[j]
-                if not line.strip() or _FM_TOP_LEVEL_KEY_RE.match(line):
-                    break  # never closed -- stop before the next field
-                depth += line.count("[") - line.count("]")
+        if value.startswith("["):
+            if value.count("[") > value.count("]"):
+                depth = value.count("[") - value.count("]")
+                while j < n and depth > 0:
+                    line = fm_lines[j]
+                    if not line.strip() or _FM_TOP_LEVEL_KEY_RE.match(line):
+                        break
+                    depth += line.count("[") - line.count("]")
+                    j += 1
+            while (
+                j < n
+                and fm_lines[j][:1] in " \t"
+                and fm_lines[j].strip().startswith("- ")
+            ):
                 j += 1
         elif not value:
             while (

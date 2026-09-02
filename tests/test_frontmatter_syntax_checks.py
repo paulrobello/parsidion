@@ -210,6 +210,24 @@ class TestScalarWhereListExpected:
         )
         assert "SCALAR_LIST_FIELD" not in _codes(vault, note, [anchor])
 
+    def test_inline_list_with_stray_continuation_is_not_swallowed_as_key(
+        self, vault: Path
+    ) -> None:
+        anchor = _anchor(vault)
+        note = _write(
+            vault,
+            "Patterns/inline_continuation.md",
+            "---\n"
+            "date: 2026-08-31\n"
+            "type: pattern\n"
+            'related: ["[[anchor]]"]\n'
+            '  - "stray-tag"\n'
+            "confidence: high\n"
+            "---\n\n# Inline Continuation\n",
+        )
+        codes = _codes(vault, note, [anchor])
+        assert "NESTED_FM_KEY" not in codes
+        assert "UNTERMINATED_FM_LIST" not in codes
     def test_empty_list_is_not_reported(self, vault: Path) -> None:
         anchor = _anchor(vault)
         note = _write(

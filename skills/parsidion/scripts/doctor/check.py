@@ -100,7 +100,7 @@ def _scan_frontmatter_lines(
 
         if not stripped or stripped.startswith("#"):
             continue
-        if in_list and stripped.startswith("- "):
+        if stripped.startswith("- "):
             continue
 
         key_match = _FM_KEY_LINE_RE.match(line)

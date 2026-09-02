@@ -76,6 +76,11 @@ DAILY_PLACEHOLDER = (
             ["related: [", '  "[[old-note]]",', '  "[[other-note]]"]'],
             ["[[new-note]]"],
         ),
+        (
+            "inline-with-indented-continuation",
+            ['related: ["[[old-note]]"]', '  - "stray-tag"'],
+            ["[[old-note]]", "[[new-note]]"],
+        ),
     ],
 )
 def test_related_field_is_replaced_not_appended(
