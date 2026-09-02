@@ -74,7 +74,6 @@ def _scan_frontmatter_lines(
     """
     issues: list[Issue] = []
     in_block_scalar = False
-    in_list = False
     # Key whose inline `[` never closed, and the depth still outstanding.
     open_list_key: str | None = None
     depth = 0
@@ -123,10 +122,8 @@ def _scan_frontmatter_lines(
 
         seen_keys[key] = seen_keys.get(key, 0) + 1
 
-        in_list = not value
         if value in _BLOCK_SCALAR_VALUES:
             in_block_scalar = True
-            in_list = False
             continue
         if value.startswith("[") and value.count("[") > value.count("]"):
             open_list_key = key

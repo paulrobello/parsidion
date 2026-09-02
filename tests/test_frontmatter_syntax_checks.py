@@ -228,6 +228,7 @@ class TestScalarWhereListExpected:
         codes = _codes(vault, note, [anchor])
         assert "NESTED_FM_KEY" not in codes
         assert "UNTERMINATED_FM_LIST" not in codes
+
     def test_empty_list_is_not_reported(self, vault: Path) -> None:
         anchor = _anchor(vault)
         note = _write(
