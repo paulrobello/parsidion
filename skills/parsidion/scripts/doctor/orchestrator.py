@@ -225,9 +225,9 @@ def _run_deterministic_frontmatter_fixes(
     today_str: str,
     report: RuleReport | None = None,
 ) -> None:
-    """Deterministic (Python-only) repair for the two detection-only codes that
-    have a safe mechanical fix: ``NESTED_FM_KEY`` (a ``metadata:`` wrapper) and
-    ``SCALAR_LIST_FIELD``.
+    """Deterministic (Python-only) repair for the three detection-only codes that
+    have a safe mechanical fix: ``NESTED_FM_KEY`` (a ``metadata:`` wrapper),
+    ``SCALAR_LIST_FIELD``, and ``STRAY_FM_LIST_ITEM``.
 
     Runs before issue classification so fixed notes drop out of the AI-repair
     candidate set. A fixed note is re-scanned: if any codes remain they stay in
@@ -250,7 +250,7 @@ def _run_deterministic_frontmatter_fixes(
             changed |= _auto_fix_stray_list_items(note_path)
         if not changed:
             continue
-        # ENH-015: both codes belong to the frontmatter-syntax rule.
+        # ENH-015: these codes belong to the frontmatter-syntax rule.
         if report is not None:
             report.record_fixed(
                 "frontmatter-syntax",
@@ -273,7 +273,7 @@ def _run_deterministic_frontmatter_fixes(
                 "issues": [],
             }
         print(
-            f"  ✓ {rel}: flattened metadata/scalar frontmatter (deterministic)",
+            f"  ✓ {rel}: normalized frontmatter structure/scalars (deterministic)",
             flush=True,
         )
 
