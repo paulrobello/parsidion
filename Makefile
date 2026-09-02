@@ -76,7 +76,7 @@ PDOC_MODULES := core installer vault_common vault_config vault_path vault_fs \
 	vault_embed_serve parsight_backend note_schema agent_adapter prompt_templates \
 	session_start_hook session_stop_hook pre_compact_hook post_compact_hook \
 	subagent_stop_hook codex_session_start_hook codex_stop_hook codex_subagent_stop_hook \
-	gemini_session_start_hook gemini_session_end_hook vault_search \
+	antigravity_session_start_hook antigravity_session_end_hook vault_search \
 	vault_review vault_export vault_merge vault_conflicts vault_doctor vault_stats \
 	update_index check_graph_coverage run_trigger_eval
 

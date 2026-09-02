@@ -1,16 +1,17 @@
 """Shared adapter registry for the agent-extension hook shims (QA-008 / ARC-020).
 
-The five codex/gemini hook scripts (codex_session_start_hook, gemini_session_start_hook,
-codex_stop_hook, gemini_session_end_hook, codex_subagent_stop_hook) were ~90%
+The five codex/gemini hook scripts (codex_session_start_hook,
+gemini_session_start_hook, codex_stop_hook, gemini_session_end_hook,
+codex_subagent_stop_hook) were ~90%
 copy-paste — 469 lines whose only real variation was three symbols per runtime
 (``PARSIDION_RUNTIME``, ``is_<runtime>_transcript_path``, ``parse_<runtime>_transcript_lines``).
-Adding a fourth agent today requires 2-3 near-identical scripts plus matching
-installer copies; the "agent-agnostic" goal is asserted but not architected.
+Adding a fourth agent then required 2-3 near-identical scripts plus matching
+installer copies; the "agent-agnostic" goal was asserted but not yet architected.
 
 This module gives the registry a single home. Each ``AgentAdapter`` is a static
 descriptor of one runtime's hook behaviour. Two generic entrypoints —
 ``run_session_start`` and ``run_session_end`` — carry the shared logic; the
-five codex/gemini scripts reduce to three-line shims that import the relevant
+five codex/antigravity scripts reduce to three-line shims that import the relevant
 adapter and call the entrypoint.
 
 ARC-002: ``run_session_end`` is now the single session-end pipeline for every
@@ -85,36 +86,36 @@ class InstallerSpec:
     """
 
     display_name: str = ""
-    """User-facing label for installer messaging ('Codex', 'Gemini')."""
+    """User-facing label for installer messaging ('Codex', 'Antigravity')."""
 
     runtime_env_value: str = ""
     """Value set for the PARSIDION_RUNTIME env var when the runtime's hook runs."""
 
     hooks_config_filename: str | None = None
     """File the runtime stores hook registrations in, relative to its home dir
-    ('hooks.json' codex, 'settings.json' gemini/claude). None for runtimes with
-    no hook config (pi)."""
+    ('hooks.json' codex, 'config/hooks.json' antigravity, 'settings.json'
+    claude). None for runtimes with no hook config (pi)."""
 
     event_scripts: dict[str, str] = field(default_factory=dict)
     """Ordered event -> hook-script-filename map (e.g. SessionStart -> codex_session_start_hook.py)."""
 
     entry_matcher: str = ""
-    """``matcher`` value for the hook entry ('' codex/claude, '*' gemini)."""
+    """``matcher`` value for the hook entry ('' for all current runtimes)."""
 
     entry_timeout: int = 0
     """Numeric ``timeout`` for the hook entry (paired with ``timeout_unit``)."""
 
     timeout_unit: Literal["ms", "s"] = "s"
-    """Unit of ``entry_timeout`` — 's' (codex) or 'ms' (gemini/claude). ARC-048a."""
+    """Unit of ``entry_timeout`` — 's' (codex/antigravity) or 'ms' (claude). ARC-048a."""
 
     entry_names: dict[str, str] | None = None
     """Per-event ``name`` values when the runtime's schema requires a name
-    (gemini). None otherwise."""
+    (antigravity). None otherwise."""
 
     instructions_filename: str | None = None
     """Instructions file the installer injects into the runtime home
-    ('AGENTS.md' codex, 'GEMINI.md' gemini). None for claude (PARSIDION-VAULT.md,
-    handled separately) and pi."""
+    ('AGENTS.md' codex, 'GEMINI.md' antigravity). None for claude
+    (PARSIDION-VAULT.md, handled separately) and pi."""
 
     config_validator: Callable[[dict[str, object]], dict[str, object] | None] | None = (
         field(default=None, repr=False)
@@ -146,7 +147,7 @@ class AgentAdapter:
     """
 
     name: str
-    """Lowercase runtime identifier — 'codex', 'gemini', 'pi'."""
+    """Lowercase runtime identifier — 'codex', 'antigravity', 'pi'."""
 
     hook_event_name_start: str = ""
     """Hook event name emitted to hook_events.log on session start
@@ -430,9 +431,9 @@ _ANTIGRAVITY_HOOK_NAMES: dict[str, str] = {
 
 
 def _register_builtin_adapters() -> None:
-    """Register the built-in runtimes: claude, codex, gemini, pi, omp.
+    """Register the built-in runtimes: claude, codex, antigravity, pi, omp.
 
-    codex/gemini drive the hook shims via this registry (QA-008/ARC-020) and
+    codex/antigravity drive the hook shims via this registry (QA-008/ARC-020) and
     the installer reads their hook-registration data from the same descriptors
     (ENH-006). Since ARC-002, claude's SessionEnd runs the same shared
     pipeline: ``session_stop_hook.py`` is a shim that adds Claude's invocation
@@ -592,7 +593,7 @@ def _read_transcript_tail(
     Shared default ``AgentAdapter.read_transcript_tail`` implementation
     (ARC-002 step 3, ENH-018): every runtime's session-end read goes through
     ``core.transcript_reader.read_tail``, so the byte bound and huge-line
-    chunking behave identically for Claude, Codex, Gemini, pi, and omp.
+    chunking behave identically for Claude, Codex, Antigravity, pi, and omp.
     Byte budget: the per-hook ``session_stop_hook.transcript_tail_bytes``
     override when explicitly set, else the ``transcripts.tail_bytes`` key,
     else the built-in default.
@@ -1186,7 +1187,7 @@ def run_session_end(
             metadata, and skip the daily-note update (subagents fire too
             frequently for daily-note entries to be useful).
         payload: Parsed stdin JSON. When None, stdin is read here (the
-            codex/gemini shims rely on that; Claude's shim pre-parses stdin
+            codex/antigravity shims rely on that; Claude's shim pre-parses stdin
             so it can run its own guards first).
         ai_cli_arg: The ``--ai`` argument value from the runtime's CLI, if
             any: ``_BACKEND_DEFAULT_AI_MODEL`` for a bare ``--ai`` (backend

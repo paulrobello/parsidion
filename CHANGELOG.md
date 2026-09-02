@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-09-02
+
 ### Fixed
 
 - **pi/omp extension installer** — `scripts/install-pi-extension` and the `disconnect` removal list now ship/remove all six extension files, including `lib/transcript.ts` and `lib/promptRecall.ts`; fresh `connect pi` / `connect omp` installs no longer fail on a missing module.
 - **prompt-AI failure logs** — `_log_backend_failure` preserves the stderr *tail* (codex exec echoes the prompt before the terminal error), so `no_result_backend` failures name the failing call instead of hiding it behind a head-truncated snippet.
+- **doctor frontmatter list-boundary detection** — `vault_doctor.py`'s frontmatter-syntax scan now reports `STRAY_FM_LIST_ITEM` for an indented `- item` line that trails a closed inline list, a blank/comment line, or any other non-continuation line — matching `parse_frontmatter`'s own list-termination semantics instead of silently accepting orphaned list items. `_auto_fix_stray_list_items` deterministically repairs the immediately-adjacent case (a `- item` line directly following a balanced inline list), preserving any `[[wikilinks]]` found in the stray lines; a blank/comment/non-key line interrupting the sequence is detection-only and still requires manual repair.
+- **vault_links wikilink continuation preservation** — `inject_related_links` now recovers `[[wikilinks]]` from an immediately-adjacent malformed indented continuation trailing an inline `related:` list before rewriting the field, instead of silently discarding them.
 
 ### Changed
 
@@ -350,7 +354,10 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.22.1...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.23.2...HEAD
+[0.23.2]: https://github.com/paulrobello/parsidion/compare/v0.23.1...v0.23.2
+[0.23.1]: https://github.com/paulrobello/parsidion/compare/v0.23.0...v0.23.1
+[0.23.0]: https://github.com/paulrobello/parsidion/compare/v0.22.1...v0.23.0
 [0.22.1]: https://github.com/paulrobello/parsidion/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/paulrobello/parsidion/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/paulrobello/parsidion/compare/v0.20.0...v0.21.0
