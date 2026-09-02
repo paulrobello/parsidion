@@ -28,7 +28,11 @@ from cli.stats import operations as stats_ops  # noqa: E402
 from vault_constants import HOOK_TIMEOUTS_MS  # noqa: E402
 
 
-def _event(hook: str, duration_ms: int, ts: str = "2026-08-25T12:00:00") -> dict:
+def _event(hook: str, duration_ms: int, ts: str | None = None) -> dict:
+    from datetime import datetime
+
+    if ts is None:
+        ts = datetime.now().isoformat(timespec="seconds")
     return {"hook": hook, "ts": ts, "project": "p", "duration_ms": duration_ms}
 
 

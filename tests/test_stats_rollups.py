@@ -43,9 +43,13 @@ def week_vault(tmp_path: Path) -> Path:
     vault = tmp_path / "vault"
     vault.mkdir()
     today = date.today()
-    monday = today - timedelta(days=today.isocalendar().weekday)
-    _make_daily(vault, monday)
-    _make_daily(vault, monday + timedelta(days=1), username="other")
+    monday = today - timedelta(days=today.weekday())
+    _make_daily(vault, today)
+    _make_daily(
+        vault,
+        monday if monday != today else monday + timedelta(days=1),
+        username="other",
+    )
     return vault
 
 
@@ -103,12 +107,11 @@ def test_daily_note_read_errors_are_skipped(week_vault: Path) -> None:
     # Corrupt one daily note into an unreadable file (permission-denied
     # on POSIX) — the rollup must still cover the other note.
     today = date.today()
-    monday = today - timedelta(days=today.isocalendar().weekday)
     bad = (
         week_vault
         / "Daily"
-        / f"{monday.year:04d}-{monday.month:02d}"
-        / f"{monday.day:02d}-tester.md"
+        / f"{today.year:04d}-{today.month:02d}"
+        / f"{today.day:02d}-tester.md"
     )
     bad.chmod(0o000)
     try:

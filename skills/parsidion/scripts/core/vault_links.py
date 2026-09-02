@@ -51,6 +51,8 @@ __all__ = [
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
+_WIKILINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
+
 
 def _iter_unprotected_spans(content: str) -> list[tuple[int, int]]:
     """Return (start, end) offsets of *content* that are safe to rewrite.
@@ -540,10 +542,21 @@ def inject_related_links(note_path: Path, new_links: list[str]) -> None:
     existing_related = fm.get("related") or []
     if not isinstance(existing_related, list):
         existing_related = []
-    # Normalise existing entries to strings
     existing_strs: list[str] = [str(r) for r in existing_related]
-
-    # Deduplicate existing + new, preserving order
+    match = _FRONTMATTER_RE.match(content)
+    if match is not None:
+        fm_lines = content[match.start(1) : match.end(1)].splitlines()
+        for start, end in _related_field_spans(fm_lines):
+            val_line = fm_lines[start]
+            m_val = _RELATED_KEY_RE.match(val_line)
+            if (
+                m_val
+                and m_val.group(1).strip().startswith("[")
+                and m_val.group(1).count("[") == m_val.group(1).count("]")
+            ):
+                for line in fm_lines[start + 1 : end]:
+                    for item in _WIKILINK_RE.findall(line):
+                        existing_strs.append(f"[[{item}]]")
     merged = list(dict.fromkeys(existing_strs + new_links))
 
     # Remove self-references
