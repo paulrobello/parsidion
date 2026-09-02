@@ -99,6 +99,7 @@ def _scan_frontmatter_lines(
             in_block_scalar = False
 
         if not stripped or stripped.startswith("#"):
+            in_block_list = False
             continue
         if stripped.startswith("- "):
             if not in_block_list:

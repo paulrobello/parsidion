@@ -230,6 +230,38 @@ class TestScalarWhereListExpected:
         assert "NESTED_FM_KEY" not in codes
         assert "UNTERMINATED_FM_LIST" not in codes
 
+    def test_block_list_interrupted_by_blank_or_comment_reports_stray_item(
+        self, vault: Path
+    ) -> None:
+        anchor = _anchor(vault)
+        note_blank = _write(
+            vault,
+            "Patterns/interrupted_blank.md",
+            "---\n"
+            "date: 2026-08-31\n"
+            "type: pattern\n"
+            "sources:\n"
+            "\n"
+            '  - "https://example.com"\n'
+            f"{_TAIL}"
+            "---\n\n# Interrupted Blank\n",
+        )
+        assert "STRAY_FM_LIST_ITEM" in _codes(vault, note_blank, [anchor])
+
+        note_comment = _write(
+            vault,
+            "Patterns/interrupted_comment.md",
+            "---\n"
+            "date: 2026-08-31\n"
+            "type: pattern\n"
+            "sources:\n"
+            "# a comment in between\n"
+            '  - "https://example.com"\n'
+            f"{_TAIL}"
+            "---\n\n# Interrupted Comment\n",
+        )
+        assert "STRAY_FM_LIST_ITEM" in _codes(vault, note_comment, [anchor])
+
     def test_empty_list_is_not_reported(self, vault: Path) -> None:
         anchor = _anchor(vault)
         note = _write(
