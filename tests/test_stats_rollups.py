@@ -40,7 +40,7 @@ def _make_daily(vault: Path, day: date, username: str = "tester") -> Path:
 @pytest.fixture()
 def week_vault(tmp_path: Path) -> Path:
     """Vault with two daily notes in the current ISO week."""
-    vault = tmp_path / "vault"
+    vault = tmp_path / "week_vault"
     vault.mkdir()
     today = date.today()
     monday = today - timedelta(days=today.weekday())
@@ -50,6 +50,19 @@ def week_vault(tmp_path: Path) -> Path:
         monday if monday != today else monday + timedelta(days=1),
         username="other",
     )
+    return vault
+
+
+@pytest.fixture()
+def month_vault(tmp_path: Path) -> Path:
+    """Vault with two daily notes guaranteed inside the current month."""
+    vault = tmp_path / "month_vault"
+    vault.mkdir()
+    today = date.today()
+    day1 = date(today.year, today.month, 1)
+    day2 = date(today.year, today.month, 2)
+    _make_daily(vault, day1)
+    _make_daily(vault, day2, username="other")
     return vault
 
 
@@ -80,17 +93,17 @@ def test_run_weekly_dry_run_writes_nothing(week_vault: Path, capsys) -> None:
     assert not (month_dir / f"week-{today.isocalendar().week:02d}.md").exists()
 
 
-def test_run_monthly_writes_rollup_with_days_covered(week_vault: Path) -> None:
-    run_monthly(vault=week_vault)
+def test_run_monthly_writes_rollup_with_days_covered(month_vault: Path) -> None:
+    run_monthly(vault=month_vault)
 
     today = date.today()
-    month_dir = week_vault / "Daily" / f"{today.year:04d}-{today.month:02d}"
+    month_dir = month_vault / "Daily" / f"{today.year:04d}-{today.month:02d}"
     out = month_dir / "monthly.md"
     assert out.exists(), "monthly rollup note was not written"
     text = out.read_text(encoding="utf-8")
     assert "tags: [monthly-rollup]" in text
     assert "Monthly Rollup" in text
-    assert "of 2 days covered" not in text or True  # count depends on week position
+    assert "2 of " in text and "days covered" in text
     assert "- parsight" in text
 
 

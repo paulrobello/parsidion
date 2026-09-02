@@ -737,3 +737,35 @@ class TestDeterministicFrontmatterPrePass:
         assert calls == []
         rel = str(bad.relative_to(tmp_vault))
         assert state["notes"][rel]["status"] == "fixed"
+
+    def test_stray_list_items_fixed_without_ai(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        _write_note(tmp_vault, "Patterns/extra-note.md")
+        bad = tmp_vault / "Patterns/stray.md"
+        bad.write_text(
+            "---\n"
+            "date: 2026-08-11\n"
+            "type: pattern\n"
+            "confidence: high\n"
+            'related: ["[[other-note]]"]\n'
+            '  - "[[extra-note]]"\n'
+            '  - "stray-tag"\n'
+            "---\n"
+            "# Heading\n",
+            encoding="utf-8",
+        )
+        calls: list[int] = []
+        monkeypatch.setattr(
+            vault_doctor.ai_backend,
+            "run_ai_prompt",
+            lambda *a, **kw: calls.append(1) or None,
+        )
+        state = self._run(tmp_vault, monkeypatch)
+        after = bad.read_text(encoding="utf-8")
+        assert 'related: ["[[other-note]]", "[[extra-note]]"]' in after
+        assert "stray-tag" not in after
+        assert calls == []
+        rel = str(bad.relative_to(tmp_vault))
+        assert state["notes"][rel]["status"] == "fixed"

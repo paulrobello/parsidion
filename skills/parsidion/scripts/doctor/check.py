@@ -74,12 +74,13 @@ def _scan_frontmatter_lines(
     """
     issues: list[Issue] = []
     in_block_scalar = False
+    in_block_list = False
+    last_key: str | None = None
     # Key whose inline `[` never closed, and the depth still outstanding.
     open_list_key: str | None = None
     depth = 0
     unterminated: set[str] = set()
     seen_keys: dict[str, int] = {}
-
     for line in lines:
         stripped = line.strip()
 
@@ -100,8 +101,16 @@ def _scan_frontmatter_lines(
         if not stripped or stripped.startswith("#"):
             continue
         if stripped.startswith("- "):
+            if not in_block_list:
+                issues.append(
+                    Issue(
+                        path,
+                        "warning",
+                        "STRAY_FM_LIST_ITEM",
+                        f"Indented list item '{stripped}' follows inline or scalar field '{last_key or 'unknown'}' and is ignored by YAML parser",
+                    )
+                )
             continue
-
         key_match = _FM_KEY_LINE_RE.match(line)
         if key_match is None:
             continue
@@ -121,13 +130,16 @@ def _scan_frontmatter_lines(
             continue
 
         seen_keys[key] = seen_keys.get(key, 0) + 1
-
+        last_key = key
+        in_block_list = not value
         if value in _BLOCK_SCALAR_VALUES:
             in_block_scalar = True
+            in_block_list = False
             continue
         if value.startswith("[") and value.count("[") > value.count("]"):
             open_list_key = key
             depth = value.count("[") - value.count("]")
+            in_block_list = False
 
     if open_list_key is not None:
         unterminated.add(open_list_key)

@@ -42,6 +42,7 @@ from doctor.protocol import (
 from doctor.frontmatter import (  # noqa: F401 — _note_is_daily re-export parity
     _auto_fix_metadata_wrapper,
     _auto_fix_scalar_list_field,
+    _auto_fix_stray_list_items,
     _note_is_daily,
 )
 from doctor.graph import _run_reindex, commit_stale_files
@@ -236,7 +237,7 @@ def _run_deterministic_frontmatter_fixes(
     """
     for note_path in list(issues_by_note.keys()):
         codes = {i.code for i in issues_by_note[note_path]}
-        if not (codes & {"NESTED_FM_KEY", "SCALAR_LIST_FIELD"}):
+        if not (codes & {"NESTED_FM_KEY", "SCALAR_LIST_FIELD", "STRAY_FM_LIST_ITEM"}):
             continue
         changed = False
         # metadata-wrapper first: it lifts nested fields to top level, which
@@ -245,6 +246,8 @@ def _run_deterministic_frontmatter_fixes(
             changed |= _auto_fix_metadata_wrapper(note_path)
         if "SCALAR_LIST_FIELD" in codes:
             changed |= _auto_fix_scalar_list_field(note_path)
+        if "STRAY_FM_LIST_ITEM" in codes:
+            changed |= _auto_fix_stray_list_items(note_path)
         if not changed:
             continue
         # ENH-015: both codes belong to the frontmatter-syntax rule.
@@ -254,7 +257,8 @@ def _run_deterministic_frontmatter_fixes(
                 sum(
                     1
                     for i in issues_by_note[note_path]
-                    if i.code in {"NESTED_FM_KEY", "SCALAR_LIST_FIELD"}
+                    if i.code
+                    in {"NESTED_FM_KEY", "SCALAR_LIST_FIELD", "STRAY_FM_LIST_ITEM"}
                 ),
             )
         rel = note_path.relative_to(vault)

@@ -75,6 +75,7 @@ DETECTION_ONLY_CODES = frozenset(
         "UNTERMINATED_FM_LIST",
         "ORPHAN_FM_BRACKET",
         "SCALAR_LIST_FIELD",
+        "STRAY_FM_LIST_ITEM",
         "DUPLICATE_FM_KEY",
     }
 )

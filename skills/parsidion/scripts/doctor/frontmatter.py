@@ -469,3 +469,78 @@ def _auto_fix_scalar_list_field(path: Path) -> bool:
     _backup_note(_active_vault(), path)
     vault_fs.atomic_write_text(path, new_content)
     return True
+
+
+def _auto_fix_stray_list_items(path: Path) -> bool:
+    """Normalize fields having stray indented list items after an inline list.
+
+    Preserves any [[wikilinks]] inside stray continuations of `related:` and
+    merges them into the inline list, while dropping invalid syntax.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    lines = content.split("\n")
+    if not lines or _FM_DELIM_RE.match(lines[0]) is None:
+        return False
+    closers = [i for i in range(1, len(lines)) if _FM_DELIM_RE.match(lines[i])]
+    if not closers:
+        return False
+    closer = closers[0]
+
+    fm_lines = lines[1:closer]
+    new_fm_lines: list[str] = []
+    i = 0
+    changed = False
+
+    while i < len(fm_lines):
+        line = fm_lines[i]
+        if ":" in line and not line[:1].isspace() and _FM_KEY_RE.match(line):
+            key, val = line.split(":", 1)
+            key = key.strip()
+            val = val.strip()
+            # Check if this line is an inline list
+            if val.startswith("[") and val.count("[") == val.count("]"):
+                j = i + 1
+                continuation_lines: list[str] = []
+                while (
+                    j < len(fm_lines)
+                    and fm_lines[j][:1].isspace()
+                    and fm_lines[j].strip().startswith("- ")
+                ):
+                    continuation_lines.append(fm_lines[j].strip())
+                    j += 1
+                if continuation_lines:
+                    changed = True
+                    if key == "related":
+                        stems = re.findall(r"\[\[([^\[\]]+)\]\]", val)
+                        for cln in continuation_lines:
+                            stems.extend(re.findall(r"\[\[([^\[\]]+)\]\]", cln))
+                        # Deduplicate
+                        seen: set[str] = set()
+                        deduped: list[str] = []
+                        for s in stems:
+                            clean_s = s.split("|")[0].split("#")[0]
+                            if clean_s not in seen:
+                                seen.add(clean_s)
+                                deduped.append(clean_s)
+                        items = ", ".join(f'"[[{s}]]"' for s in deduped)
+                        new_fm_lines.append(f"{key}: [{items}]")
+                    else:
+                        new_fm_lines.append(line)
+                    i = j
+                    continue
+        new_fm_lines.append(line)
+        i += 1
+
+    if not changed:
+        return False
+
+    new_lines = lines[:1] + new_fm_lines + lines[closer:]
+    new_content = "\n".join(new_lines)
+    if new_content == content:
+        return False
+    _backup_note(_active_vault(), path)
+    vault_fs.atomic_write_text(path, new_content)
+    return True
