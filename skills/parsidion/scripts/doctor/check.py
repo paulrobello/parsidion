@@ -114,6 +114,7 @@ def _scan_frontmatter_lines(
             continue
         key_match = _FM_KEY_LINE_RE.match(line)
         if key_match is None:
+            in_block_list = False
             continue
         indent, key, value = key_match.group(1), key_match.group(2), key_match.group(3)
         value = value.strip()

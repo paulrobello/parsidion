@@ -262,6 +262,20 @@ class TestScalarWhereListExpected:
         )
         assert "STRAY_FM_LIST_ITEM" in _codes(vault, note_comment, [anchor])
 
+        note_unparseable = _write(
+            vault,
+            "Patterns/interrupted_unparseable.md",
+            "---\n"
+            "date: 2026-08-31\n"
+            "type: pattern\n"
+            "sources:\n"
+            "ignored unparseable text\n"
+            '  - "https://example.com"\n'
+            f"{_TAIL}"
+            "---\n\n# Interrupted Unparseable\n",
+        )
+        assert "STRAY_FM_LIST_ITEM" in _codes(vault, note_unparseable, [anchor])
+
     def test_empty_list_is_not_reported(self, vault: Path) -> None:
         anchor = _anchor(vault)
         note = _write(
