@@ -486,6 +486,83 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
     assert calls[0]["model_tier"] == "large"
     assert calls[0]["purpose"] == "summarizer-note"
     assert calls[0]["timeout"] == 77
+
+
+def test_summarize_one_falls_back_to_default_timeout_when_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    transcript_path = tmp_path / "transcript.jsonl"
+    transcript_path.write_text('{"type": "user", "text": "hello"}\n', encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
+        calls.append({"prompt": prompt, **kwargs})
+        return (
+            "---\n"
+            "date: 2026-04-27\n"
+            "type: debugging\n"
+            "tags:\n"
+            "  - debugging\n"
+            "confidence: high\n"
+            "---\n"
+            "# Test Note\n\nUseful note."
+        ), None
+
+    import types as _types
+
+    _cfg_stub = _types.SimpleNamespace(
+        summarizer=_types.SimpleNamespace(ai_timeout=None, dedup_threshold=0.80)
+    )
+
+    monkeypatch.setattr(
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
+    )
+    monkeypatch.setattr(
+        _pipeline_module(),
+        "load_typed_config",
+        lambda *args, **kwargs: _cfg_stub,
+    )
+    monkeypatch.setattr(
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
+    )
+
+    entry = {
+        "transcript_path": str(transcript_path),
+        "project": "parsidion",
+        "categories": ["error_fix"],
+        "session_id": "session-1234",
+    }
+
+    result_entry, written = asyncio.run(
+        summarize_sessions.summarize_one(
+            entry,
+            None,
+            True,
+            summarize_sessions.anyio.Semaphore(1),
+            ["debugging"],
+            False,
+            vault,
+            cluster_model=None,
+        )
+    )
+
+    assert result_entry == entry
+    assert written is None
+    assert len(calls) == 1
+    assert calls[0]["timeout"] == summarize_sessions._DEFAULT_SUMMARIZER_AI_TIMEOUT
+    assert calls[0]["timeout"] == 180
     assert calls[0]["vault"] == vault
 
 

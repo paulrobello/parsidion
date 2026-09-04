@@ -651,7 +651,7 @@ class SummarizerConfig:
     ai_timeout: int | float | None = field(
         default=None,
         metadata={
-            "doc": "Per-summarizer-prompt timeout in seconds (null = backend default)",
+            "doc": "Per-summarizer-prompt timeout in seconds (null = default 180s fallback window)",
             "read_by": "summarize_sessions.py",
         },
     )
@@ -828,6 +828,13 @@ class SearchConfig:
         metadata={
             "doc": "ENH-004: read note metadata from the note_index DB; false forces filesystem walks (index builders always walk)",
             "read_by": "vault_search.py, vault_index.py",
+        },
+    )
+    max_index_age_seconds: float | int | None = field(
+        default=None,
+        metadata={
+            "doc": "Max note_index age in seconds before falling back to filesystem walk (null disables staleness fallback)",
+            "read_by": "core/vault_index.py",
         },
     )
 

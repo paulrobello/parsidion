@@ -270,7 +270,7 @@ Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_do
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental`, `persist` (reserved) | summarize_sessions.py, summarizer/transcript.py |
 | `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled`, `service_idle_exit` | build_embeddings.py, vault_search.py, vault_embed_serve.py |
 | `parsight` | `enabled`, `binary`, `timeout_s` | parsight_backend.py, vault_search.py |
-| `search` | `backend`, `use_note_index` | vault_search.py, vault_index.py |
+| `search` | `backend`, `use_note_index`, `max_index_age_seconds` | vault_search.py, vault_index.py, core/vault_index.py |
 | `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` | vault_hooks.py |
 | `git` | `auto_commit` | vault_common.py (vault_fs.git_commit_vault) |
 | `defaults` | `haiku_model` | ai_backend.py |

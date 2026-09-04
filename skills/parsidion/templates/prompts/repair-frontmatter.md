@@ -20,7 +20,7 @@ Rules:
 - Valid values for 'confidence': high | medium | low
 - 'date' must be YYYY-MM-DD
 - Emit exactly ONE YAML frontmatter block: a '---' line, the fields, then a '---' line.
-- Every non-daily note needs: date, type, confidence, related in its frontmatter
+- Every non-daily note needs: date, type, confidence, related, tags in its frontmatter
 - 'sources' should be [] if unknown
 {related_rule}{candidate_section}
 

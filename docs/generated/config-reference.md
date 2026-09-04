@@ -133,7 +133,7 @@ summarizer:
   transcript_tail_lines: 400  # Transcript tail lines to parse
   transcript_tail_bytes: 262144  # Byte ceiling on the raw tail; bounds huge-line transcripts (e.g. codex subagent rollouts)
   max_cleaned_chars: 12000  # Cleaned-transcript char budget; longer transcripts are chunk-summarized first
-  ai_timeout: null  # Per-summarizer-prompt timeout in seconds (null = backend default)
+  ai_timeout: null  # Per-summarizer-prompt timeout in seconds (null = default 180s fallback window)
   cluster_model: null  # Small model for hierarchical chunk summarization (null = ai_models.<backend>.small)
   dedup_threshold: 0.8  # Cosine similarity above which a near-duplicate note is detected and skipped (1.0 disables)
   dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days each run (<=0 disables)
@@ -170,6 +170,7 @@ parsight:
 search:
   backend: auto  # auto | parsight | embeddings | none (legacy 'par-mem' accepted as an alias for parsight)
   use_note_index: true  # ENH-004: read note metadata from the note_index DB; false forces filesystem walks (index builders always walk)
+  max_index_age_seconds: null  # Max note_index age in seconds before falling back to filesystem walk (null disables staleness fallback)
 
 # Anthropic-compatible transport/env settings. Keys mirror real env var names
 # so values can be copied directly from env-based configs. Precedence: real

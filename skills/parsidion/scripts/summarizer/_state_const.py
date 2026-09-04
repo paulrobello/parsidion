@@ -72,6 +72,11 @@ _MAX_SKIPS = 2
 # summarizer.dead_letter_retention_days.
 _DEAD_LETTER_RETENTION_DAYS = 7
 
+#: Default AI call timeout (seconds) for summarization prompts when
+#: ``summarizer.ai_timeout`` is unset. Provides an adequate window (180s)
+#: for large transcripts rather than falling back to the 30s hook timeout.
+_DEFAULT_SUMMARIZER_AI_TIMEOUT = 180
+
 # ---------------------------------------------------------------------------
 # Failure classification (ARC-030)
 # ---------------------------------------------------------------------------

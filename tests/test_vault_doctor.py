@@ -330,15 +330,56 @@ class TestCheckNote:
         codes = [i.code for i in issues]
         assert "HEADING_MISMATCH" in codes
 
-    def test_daily_note_fewer_requirements(self, vault: Path) -> None:
-        """Daily notes only require date and type, not confidence/related."""
+    def test_missing_tags_field(self, vault: Path) -> None:
+        """Knowledge notes missing tags must be reported as MISSING_FIELD."""
         content = (
-            "---\ndate: 2026-03-25\ntype: daily\ntags: [daily]\n---\n\n## Sessions\n"
+            "---\n"
+            "date: 2026-03-25\n"
+            "type: pattern\n"
+            "confidence: high\n"
+            'related: ["[[x]]"]\n'
+            "---\n\n# Test\n"
         )
+        x = _write_note(
+            vault,
+            "Patterns/x.md",
+            "---\ndate: 2026-01-01\ntype: pattern\ntags: [t]\n---\n",
+        )
+        note = _write_note(vault, "Patterns/no-tags.md", content)
+        note_map = vault_doctor.build_note_map([note, x])
+        issues = vault_doctor.check_note(note, note_map, vault)
+        missing_issues = [i for i in issues if i.code == "MISSING_FIELD"]
+        assert any("tags" in i.message for i in missing_issues)
+
+    def test_empty_tags_list(self, vault: Path) -> None:
+        """Knowledge notes with empty tags list must be reported as MISSING_FIELD."""
+        content = (
+            "---\n"
+            "date: 2026-03-25\n"
+            "type: pattern\n"
+            "tags: []\n"
+            "confidence: high\n"
+            'related: ["[[x]]"]\n'
+            "---\n\n# Test\n"
+        )
+        x = _write_note(
+            vault,
+            "Patterns/x.md",
+            "---\ndate: 2026-01-01\ntype: pattern\ntags: [t]\n---\n",
+        )
+        note = _write_note(vault, "Patterns/empty-tags.md", content)
+        note_map = vault_doctor.build_note_map([note, x])
+        issues = vault_doctor.check_note(note, note_map, vault)
+        missing_issues = [i for i in issues if i.code == "MISSING_FIELD"]
+        assert any("tags" in i.message for i in missing_issues)
+
+    def test_daily_note_fewer_requirements(self, vault: Path) -> None:
+        """Daily notes only require date and type, not confidence/related/tags."""
+        content = "---\ndate: 2026-03-25\ntype: daily\n---\n\n## Sessions\n"
         note = _write_note(vault, "Daily/2026-03/25-testuser.md", content)
         note_map = vault_doctor.build_note_map([note])
         issues = vault_doctor.check_note(note, note_map, vault)
-        # Should not have MISSING_FIELD for confidence/related
+        # Should not have MISSING_FIELD for confidence/related/tags
         codes = [i.code for i in issues]
         assert "MISSING_FIELD" not in codes
 

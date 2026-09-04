@@ -71,6 +71,7 @@ _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
     ("embeddings", "service_idle_exit", 600),
     ("search", "backend", "auto"),
     ("search", "use_note_index", True),
+    ("search", "max_index_age_seconds", None),
     ("git", "auto_commit", True),
     ("defaults", "haiku_model", "claude-haiku-4-5-20251001"),
     ("event_log", "enabled", True),

@@ -75,6 +75,7 @@ def _write_note(
             "---\n"
             "date: 2026-07-28\n"
             "type: pattern\n"
+            "tags: [test]\n"
             "confidence: high\n"
             'related: ["[[other-note]]"]\n'
             "---\n"
@@ -186,6 +187,7 @@ class TestScanExecuteAppliesPythonOnlyFixes:
             "---\n"
             "date: 2026-07-28\n"
             "type: pattern\n"
+            "tags: [test]\n"
             "confidence: high\n"
             'related: ["[[other-note]]"]\n'
             "---\n"
@@ -748,6 +750,7 @@ class TestDeterministicFrontmatterPrePass:
             "---\n"
             "date: 2026-08-11\n"
             "type: pattern\n"
+            "tags: [test]\n"
             "confidence: high\n"
             'related: ["[[other-note]]"]\n'
             '  - "[[extra-note]]"\n'

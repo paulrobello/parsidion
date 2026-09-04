@@ -144,7 +144,11 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "service_idle_exit": (int,),
     },
     "parsight": {"enabled": (bool,), "binary": (str,), "timeout_s": (int, float)},
-    "search": {"backend": (str,), "use_note_index": (bool,)},
+    "search": {
+        "backend": (str,),
+        "use_note_index": (bool,),
+        "max_index_age_seconds": (float, int, type(None)),
+    },
     "anthropic_env": {
         "ANTHROPIC_API_KEY": (str, type(None)),
         "ANTHROPIC_AUTH_TOKEN": (str, type(None)),

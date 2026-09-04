@@ -321,7 +321,8 @@ def _load_config_cached(vault: Path | None = None) -> dict[str, Any]:
     """
     if vault is None:
         vault = resolve_vault()
-
+    else:
+        vault = Path(vault)
     config: dict[str, Any] = {}
     config_path = vault / "config.yaml"
     if config_path.is_file():

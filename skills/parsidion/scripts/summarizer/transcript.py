@@ -31,6 +31,7 @@ from summarizer._state_const import (
     _DEFAULT_MAX_CLEANED_CHARS,
     _DEFAULT_TRANSCRIPT_TAIL_BYTES,
     _DEFAULT_TRANSCRIPT_TAIL_LINES,
+    _DEFAULT_SUMMARIZER_AI_TIMEOUT,
 )
 from summarizer.prompt import _run_summarizer_prompt
 
@@ -241,7 +242,11 @@ async def _summarize_chunk(
             model=model,
             model_tier="small",
             purpose="summarizer-chunk",
-            timeout=get_config("summarizer", "ai_timeout", None, vault=vault),
+            timeout=(
+                get_config("summarizer", "ai_timeout", None, vault=vault)
+                if get_config("summarizer", "ai_timeout", None, vault=vault) is not None
+                else _DEFAULT_SUMMARIZER_AI_TIMEOUT
+            ),
             vault=vault,
         )
     except Exception:  # noqa: BLE001

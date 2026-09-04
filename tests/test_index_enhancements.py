@@ -513,3 +513,84 @@ class TestNoteIndexDbFirst:
         assert vault_common.get_embeddings_db_path(tmp_vault) == (
             vault_common.get_embeddings_db_path(str(tmp_vault))
         )
+
+    def test_note_index_enabled_falls_back_when_embeddings_disabled(
+        self, tmp_vault: Path
+    ) -> None:
+        """_note_index_enabled falls back to walk when embeddings are disabled
+        (unless search.use_note_index is explicitly True)."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        new_note = tmp_vault / "Patterns" / "unembedded.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+        )
+        _write_config(tmp_vault, "embeddings:\n  enabled: false\n")
+        assert not vault_index._note_index_enabled(tmp_vault)
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert new_note in result
+
+    def test_note_index_enabled_explicit_use_note_index_wins_over_disabled_embeddings(
+        self, tmp_vault: Path
+    ) -> None:
+        """When search.use_note_index is explicitly True, DB-first reads remain
+        active even when embeddings are disabled."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        new_note = tmp_vault / "Patterns" / "unembedded-db.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+        )
+        _write_config(
+            tmp_vault,
+            "embeddings:\n  enabled: false\nsearch:\n  use_note_index: true\n",
+        )
+        assert vault_index._note_index_enabled(tmp_vault)
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert new_note not in result
+
+    def test_note_index_enabled_falls_back_when_staleness_exceeds_threshold(
+        self, tmp_vault: Path
+    ) -> None:
+        """When search.max_index_age_seconds is configured, _note_index_enabled
+        falls back to walk when note_index_age() exceeds the threshold."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        new_note = tmp_vault / "Patterns" / "stale-fallback.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+            mtime=time.time() + 500,
+        )
+        _write_config(tmp_vault, "search:\n  max_index_age_seconds: 60.0\n")
+        assert not vault_index._note_index_enabled(tmp_vault)
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert new_note in result
+
+    def test_note_index_enabled_active_when_age_within_threshold(
+        self, tmp_vault: Path
+    ) -> None:
+        """When note_index_age() is within max_index_age_seconds, DB reads
+        remain active."""
+        _seed_vault(tmp_vault)
+        _build_index(tmp_vault)
+        new_note = tmp_vault / "Patterns" / "fresh-within-threshold.md"
+        _make_note(
+            new_note,
+            note_type="pattern",
+            project="parsidion",
+            tags=["python"],
+            mtime=time.time() + 10,
+        )
+        _write_config(tmp_vault, "search:\n  max_index_age_seconds: 3600.0\n")
+        assert vault_index._note_index_enabled(tmp_vault)
+        result = set(vault_index.find_notes_by_type("pattern", vault=tmp_vault))
+        assert new_note not in result

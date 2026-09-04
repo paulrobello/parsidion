@@ -50,7 +50,7 @@ VALID_TYPES = _note_schema.VALID_NOTE_TYPES
 # Fields required for all notes
 REQUIRED_FIELDS_ALL = ("date", "type")
 # Additional fields required for knowledge notes (not daily)
-REQUIRED_FIELDS_KNOWLEDGE = ("confidence", "related")
+REQUIRED_FIELDS_KNOWLEDGE = ("confidence", "related", "tags")
 REPAIRABLE_CODES = frozenset(
     {
         "MISSING_FRONTMATTER",

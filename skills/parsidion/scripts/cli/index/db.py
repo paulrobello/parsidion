@@ -13,7 +13,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from core.vault_config import get_config
 from core.vault_path import get_embeddings_db_path
 
 from cli.index.models import NoteEntry
@@ -23,17 +22,14 @@ def _write_note_index_to_db(
     db_rows: list[NoteEntry], current_stems: set[str], vault: Path
 ) -> None:
     """Write per-note metadata rows to the note_index table in embeddings.db.
-
-    No-op if embeddings are disabled or the DB file does not exist. Errors are
-    printed to stderr so DB failures are visible without crashing the indexer.
+    No-op if the DB file does not exist. Errors are printed to stderr so DB
+    failures are visible without crashing the indexer.
 
     Args:
         db_rows: List of NoteEntry records to upsert into note_index.
         current_stems: Set of stems currently in the vault (used to prune deleted notes).
         vault: Path to the vault directory.
     """
-    if not get_config("embeddings", "enabled", True):
-        return
     try:
         import sqlite3 as _sqlite3
         from core.vault_index import ensure_note_index_schema

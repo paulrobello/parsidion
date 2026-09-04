@@ -40,6 +40,7 @@ from summarizer._state_const import (
     _DEAD,
     _DEFAULT_MAX_CLEANED_CHARS,
     _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+    _DEFAULT_SUMMARIZER_AI_TIMEOUT,
     _DEFAULT_TRANSCRIPT_TAIL_LINES,
     _DEFERRED,
     _SKIPPED,
@@ -435,7 +436,11 @@ async def summarize_one(
                 model=model,
                 model_tier="large",
                 purpose="summarizer-note",
-                timeout=load_typed_config(vault=vault).summarizer.ai_timeout,
+                timeout=(
+                    load_typed_config(vault=vault).summarizer.ai_timeout
+                    if load_typed_config(vault=vault).summarizer.ai_timeout is not None
+                    else _DEFAULT_SUMMARIZER_AI_TIMEOUT
+                ),
                 vault=vault,
             )
         except Exception as e:  # noqa: BLE001

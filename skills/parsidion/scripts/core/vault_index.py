@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from .subproc_util import run_with_pgkill
-from .vault_config import get_config
+from .vault_config import get_config, load_config
 from .vault_hooks import env_without_claudecode
 from .vault_path import (
     EXCLUDE_DIRS,
@@ -92,6 +92,7 @@ __all__: list[str] = [
     "_find_notes_by_type_walk",
     "_find_recent_notes_walk",
     "_walk_vault_notes",
+    "_note_index_enabled",
 ]
 
 # ---------------------------------------------------------------------------
@@ -510,7 +511,7 @@ def _paths_from_rows(rows: list[Any], vault_root_resolved: Path) -> list[Path]:
     return result
 
 
-def _note_index_enabled(vault: str | Path | None = None) -> bool:  # noqa: ARG001
+def _note_index_enabled(vault: str | Path | None = None) -> bool:
     """Whether DB-first note reads are enabled.
 
     Reads ``search.use_note_index`` (default ``true``). When false, every
@@ -520,8 +521,35 @@ def _note_index_enabled(vault: str | Path | None = None) -> bool:  # noqa: ARG00
     with the callers; ``get_config`` resolves the vault via the cached
     ``load_config()`` (CLAUDE_VAULT-aware, so tests with ``tmp_vault`` see the
     right config without an explicit thread).
+
+    Additionally falls back to filesystem walk when:
+    - ``embeddings.enabled`` is False (unless ``search.use_note_index`` is explicitly True),
+      because the embeddings pipeline does not maintain ``note_index``.
+    - ``note_index_age()`` exceeds ``search.max_index_age_seconds`` (default 300s).
     """
-    return bool(get_config("search", "use_note_index", True))
+    vault_path: Path | None = Path(vault) if vault is not None else None
+    if not get_config("search", "use_note_index", True, vault=vault_path):
+        return False
+
+    # When embeddings are disabled, note_index is not maintained by the embeddings
+    # pipeline unless search.use_note_index is explicitly set to True.
+    if not get_config("embeddings", "enabled", True, vault=vault_path):
+        raw_config = load_config(vault=vault_path)
+        search_cfg = raw_config.get("search", {})
+        explicit_true = (
+            isinstance(search_cfg, dict) and search_cfg.get("use_note_index") is True
+        )
+        if not explicit_true:
+            return False
+
+    # Check staleness: if note_index_age exceeds threshold, fall back to walk
+    max_age = get_config("search", "max_index_age_seconds", None, vault=vault_path)
+    if max_age is not None and float(max_age) > 0:
+        age = note_index_age(vault_path)
+        if age > float(max_age):
+            return False
+
+    return True
 
 
 def _build_note_index_where(

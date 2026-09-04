@@ -168,7 +168,7 @@ def test_repair_frontmatter_renders_byte_identical() -> None:
         "- Valid values for 'confidence': high | medium | low\n"
         "- 'date' must be YYYY-MM-DD\n"
         "- Emit exactly ONE YAML frontmatter block: a '---' line, the fields, then a '---' line.\n"
-        "- Every non-daily note needs: date, type, confidence, related in its frontmatter\n"
+        "- Every non-daily note needs: date, type, confidence, related, tags in its frontmatter\n"
         "- 'sources' should be [] if unknown\n"
         "- 'related' MUST be a single-line inline YAML array\n"
         "\n"

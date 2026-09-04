@@ -393,6 +393,7 @@ class TestPerfectlyHealthyVault:
                 "date: 2026-07-31\n"
                 "type: pattern\n"
                 "confidence: high\n"
+                "tags: [alpha, beta]\n"
                 f'related: ["[[{other}]]"]\n'
                 "---\n"
                 f"# {stem.title()}\n"
