@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.23.2:** doctor frontmatter list-boundary detection — `STRAY_FM_LIST_ITEM` now catches an indented `- item` line trailing a closed inline list, a blank/comment line, or any other non-continuation line; the immediately-adjacent case (directly after a balanced inline list) gets a deterministic, wikilink-preserving auto-fix, while a blank/comment/non-key interruption is detection-only. `vault_links.inject_related_links` recovers `[[wikilinks]]` from the same immediately-adjacent malformed continuation instead of discarding them. See the [Changelog](CHANGELOG.md).
+> **New in 0.23.3:** summarizer timeout fallback (180s default window prevents premature transcript dead-letters), doctor required-fields rule aligned with `note_schema.py` to enforce `tags` on knowledge notes, and staleness/embeddings-disabled fallback for DB-first note reads with decoupled metadata table writes. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -669,7 +669,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.23.2** (doctor frontmatter list-boundary detection, fixes for the pi/omp extension installer and prompt-AI failure logs). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.23.3** (summarizer timeout fallback, doctor tags rule alignment, and note_index staleness/embeddings-disabled fallback). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

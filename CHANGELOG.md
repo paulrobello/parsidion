@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-09-04
+
+### Fixed
+
+- **summarizer prompt timeout fallback** — `_DEFAULT_SUMMARIZER_AI_TIMEOUT = 180s` in `summarizer/_state_const.py`, used as the default fallback in `summarizer/pipeline.py` and `summarizer/transcript.py` when `summarizer.ai_timeout` is unset or `None`, preventing large transcripts from prematurely timing out against the 30s hook default into `dead_letters.jsonl`.
+- **doctor required-fields tags rule** — aligned `doctor/_state.py:REQUIRED_FIELDS_KNOWLEDGE` with `note_schema.py:68` to include `tags`, ensuring `vault_doctor` flags missing or empty tags on non-daily knowledge notes as `MISSING_FIELD` (Daily notes remain exempt).
+- **note_index staleness and disabled embeddings fallback** — `_note_index_enabled` in `core/vault_index.py` now falls back to filesystem walk when `embeddings.enabled` is false (unless `search.use_note_index: true` is explicitly configured) or when `note_index_age()` exceeds `search.max_index_age_seconds` (configurable, default `None`).
+- **note_index metadata write decoupling** — removed `embeddings.enabled` guard in `cli/index/db.py:_write_note_index_to_db`, allowing metadata-only `note_index` table writes to keep `embeddings.db` fresh whenever the file exists even if vector generation is disabled.
+- **vault path string tolerance in config cache** — `_load_config_cached` in `core/vault_config.py` now explicitly coerces string vault arguments to `Path` objects, preventing `TypeError` on string path arguments.
+
 ## [0.23.2] - 2026-09-02
 
 ### Fixed
@@ -354,7 +364,8 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.23.2...HEAD
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.23.3...HEAD
+[0.23.3]: https://github.com/paulrobello/parsidion/compare/v0.23.2...v0.23.3
 [0.23.2]: https://github.com/paulrobello/parsidion/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/paulrobello/parsidion/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/paulrobello/parsidion/compare/v0.22.1...v0.23.0
