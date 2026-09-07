@@ -44,7 +44,7 @@ from .yaml_lite import (
 
 # ARC-005: the canonical frontmatter key order lives in the note contract
 # module (a leaf with no imports, so this cannot cycle).
-from note_schema import FRONTMATTER_FIELD_ORDER
+from note_schema import FRONTMATTER_FIELD_ORDER, STATUS_SUPERSEDED
 
 __all__: list[str] = [
     # Constants (re-exported from vault_path for convenience)
@@ -451,7 +451,8 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
             incoming_links INTEGER NOT NULL DEFAULT 0,
             date           TEXT    NOT NULL DEFAULT '',
             prompt_version TEXT    NOT NULL DEFAULT '',
-            incoming_stems TEXT    NOT NULL DEFAULT ''
+            incoming_stems TEXT    NOT NULL DEFAULT '',
+            status         TEXT    NOT NULL DEFAULT 'live'
         )
         """
     )
@@ -460,6 +461,12 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
     if "date" not in cols:
         conn.execute("ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''")
+    # Supersession (note retirement): status column; pre-existing rows are
+    # 'live' by definition (an unmarked note was never retired).
+    if "status" not in cols:
+        conn.execute(
+            "ALTER TABLE note_index ADD COLUMN status TEXT NOT NULL DEFAULT 'live'"
+        )
     # ENH-008 Step 3: prompt_version column for slicing note quality by the
     # prompt that produced each AI-generated note.
     if "prompt_version" not in cols:
@@ -562,6 +569,8 @@ def _build_note_index_where(
     recent_days: int | None = None,
     changed_since: str | None = None,
     as_of: str | None = None,
+    has_status: bool = True,
+    include_superseded: bool = False,
 ) -> tuple[str, list[object]]:
     """Build the note_index metadata-filter WHERE clause (QA-009).
 
@@ -573,9 +582,9 @@ def _build_note_index_where(
     SECURITY: The SQL WHERE clause is assembled from literal condition
     fragments only -- no column names are ever derived from external input.
     All filter values are passed as bound parameters (?). Column names used
-    form a static whitelist: tags, folder, note_type, project, mtime, date.
-    Any future addition of a user-supplied column name must be added to
-    this whitelist and reviewed for injection risk.
+    form a static whitelist: tags, folder, note_type, project, mtime, date,
+    status. Any future addition of a user-supplied column name must be added
+    to this whitelist and reviewed for injection risk.
 
     Args:
         tag: Exact tag token to match in the comma-separated tags column.
@@ -586,6 +595,9 @@ def _build_note_index_where(
         changed_since: Only return notes modified on/after this ISO datetime.
         as_of: Only return notes whose frontmatter date is on/before this
             ISO date (empty dates excluded).
+        include_superseded: When False (the default), retired notes
+            (``status: superseded``) are excluded from every query. Pass
+            True only for explicit history queries.
 
     Returns:
         ``(where, params)`` -- ``where`` is "" or "WHERE c1 AND c2 ...";
@@ -593,6 +605,9 @@ def _build_note_index_where(
     """
     conditions: list[str] = []
     params: list[object] = []
+
+    if not include_superseded and has_status:
+        conditions.append("status != 'superseded'")
 
     if tag is not None:
         # 4-pattern exact-token match to avoid partial hits (e.g. "python"
@@ -642,6 +657,7 @@ def query_note_index(
     recent_days: int | None = None,
     limit: int = 200,
     vault: str | Path | None = None,
+    include_superseded: bool = False,
 ) -> list[Path] | None:
     """Query the note_index table in embeddings.db for fast metadata filtering.
 
@@ -683,13 +699,18 @@ def query_note_index(
             return None
 
         # QA-009: shared WHERE builder (see _build_note_index_where for the
-        # injection-safety contract).
+        # injection-safety contract). A pre-migration index lacks the status
+        # column (ro connections cannot ALTER); the filter then drops out
+        # instead of failing the whole query.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
         where, params = _build_note_index_where(
             tag=tag,
             folder=folder,
             note_type=note_type,
             project=project,
             recent_days=recent_days,
+            has_status="status" in cols,
+            include_superseded=include_superseded,
         )
         sql = f"SELECT path FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
         params.append(limit)
@@ -810,17 +831,23 @@ def _walk_vault_notes(vault: str | Path | None = None) -> list[Path]:
 
 
 def _find_notes_by_field(
-    field: str, value: str, vault: str | Path | None = None
+    field: str,
+    value: str,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
 ) -> list[Path]:
     """Find all notes where a frontmatter *field* matches *value* (case-insensitive).
 
     For scalar fields (``project``, ``type``), matches the value directly.
     For list fields (``tags``), matches if any element equals *value*.
+    Superseded notes are skipped unless *include_superseded* — the walk path
+    mirrors the SQL path's default exclusion (see query_note_index).
 
     Args:
         field: The frontmatter field name to search (e.g. ``"project"``).
         value: The target value to match (compared case-insensitively).
         vault: Optional vault path. Defaults to resolve_vault().
+        include_superseded: Include retired notes in the result.
 
     Returns:
         List of matching note paths.
@@ -833,6 +860,8 @@ def _find_notes_by_field(
         except (OSError, UnicodeDecodeError):
             continue
         fm = parse_frontmatter(content)
+        if not include_superseded and fm.get("status") == STATUS_SUPERSEDED:
+            continue
         field_val = fm.get(field)
         if isinstance(field_val, str) and field_val.lower() == target:
             matches.append(note_path)
@@ -855,26 +884,42 @@ def _find_notes_by_field(
 
 
 def _find_notes_by_project_walk(
-    project: str, vault: str | Path | None = None
+    project: str,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
 ) -> list[Path]:
     """Walk fallback for :func:`find_notes_by_project`."""
-    return _find_notes_by_field("project", project, vault=vault)
+    return _find_notes_by_field(
+        "project", project, vault=vault, include_superseded=include_superseded
+    )
 
 
-def _find_notes_by_tag_walk(tag: str, vault: str | Path | None = None) -> list[Path]:
+def _find_notes_by_tag_walk(
+    tag: str,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
+) -> list[Path]:
     """Walk fallback for :func:`find_notes_by_tag`."""
-    return _find_notes_by_field("tags", tag, vault=vault)
+    return _find_notes_by_field(
+        "tags", tag, vault=vault, include_superseded=include_superseded
+    )
 
 
 def _find_notes_by_type_walk(
-    note_type: str, vault: str | Path | None = None
+    note_type: str,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
 ) -> list[Path]:
     """Walk fallback for :func:`find_notes_by_type`."""
-    return _find_notes_by_field("type", note_type, vault=vault)
+    return _find_notes_by_field(
+        "type", note_type, vault=vault, include_superseded=include_superseded
+    )
 
 
 def _find_recent_notes_walk(
-    days: int = 3, vault: str | Path | None = None
+    days: int = 3,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
 ) -> list[Path]:
     """Walk fallback for :func:`find_recent_notes`."""
     cutoff = datetime.now() - timedelta(days=days)
@@ -886,6 +931,8 @@ def _find_recent_notes_walk(
             mtime = note_path.stat().st_mtime
         except OSError:
             continue
+        if not include_superseded and _is_superseded_note(note_path):
+            continue
         if mtime >= cutoff_ts:
             recent.append((mtime, note_path))
 
@@ -893,16 +940,31 @@ def _find_recent_notes_walk(
     return [path for _, path in recent]
 
 
+def _is_superseded_note(note_path: Path) -> bool:
+    """True when the note's frontmatter carries ``status: superseded``.
+
+    Read failure counts as not superseded (fail-open for retrieval — a
+    broken file must not vanish from every surface).
+    """
+    try:
+        content = note_path.read_text(encoding="utf-8")
+        return parse_frontmatter(content).get("status") == STATUS_SUPERSEDED
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def find_notes_by_project(
     project: str,
     vault: str | Path | None = None,
     snapshot: SessionIndexSnapshot | None = None,
+    include_superseded: bool = False,
 ) -> list[Path]:
     """Find all notes with a matching ``project`` field in frontmatter.
 
     Reads ``note_index`` when available and ``search.use_note_index`` is true
     (default); falls back to a filesystem walk so behaviour is unchanged on a
-    vault with no embeddings.db.
+    vault with no embeddings.db. Superseded notes are excluded unless
+    *include_superseded*.
 
     Args:
         project: Exact project value to match.
@@ -910,40 +972,74 @@ def find_notes_by_project(
         snapshot: PRF-104 -- serve the query from an already-loaded snapshot
             instead of a fresh one. Honours ``search.use_note_index`` the same
             way, so the escape hatch still forces the walk.
+        include_superseded: Include retired notes in the result.
     """
     if _note_index_enabled(vault):
         if snapshot is not None:
-            return snapshot.paths_where(project=project, limit=_FIND_ALL_LIMIT)
-        result = query_note_index(project=project, vault=vault, limit=_FIND_ALL_LIMIT)
-        if result is not None:
-            return result
-    return _find_notes_by_project_walk(project, vault=vault)
-
-
-def find_notes_by_tag(tag: str, vault: str | Path | None = None) -> list[Path]:
-    """Find all notes containing the given tag in their ``tags`` list.
-
-    DB-first with walk fallback; see :func:`find_notes_by_project`.
-    """
-    if _note_index_enabled(vault):
-        result = query_note_index(tag=tag, vault=vault, limit=_FIND_ALL_LIMIT)
-        if result is not None:
-            return result
-    return _find_notes_by_tag_walk(tag, vault=vault)
-
-
-def find_notes_by_type(note_type: str, vault: str | Path | None = None) -> list[Path]:
-    """Find all notes with a matching ``type`` field in frontmatter.
-
-    DB-first with walk fallback; see :func:`find_notes_by_project`.
-    """
-    if _note_index_enabled(vault):
+            return snapshot.paths_where(
+                project=project,
+                limit=_FIND_ALL_LIMIT,
+                include_superseded=include_superseded,
+            )
         result = query_note_index(
-            note_type=note_type, vault=vault, limit=_FIND_ALL_LIMIT
+            project=project,
+            vault=vault,
+            limit=_FIND_ALL_LIMIT,
+            include_superseded=include_superseded,
         )
         if result is not None:
             return result
-    return _find_notes_by_type_walk(note_type, vault=vault)
+    return _find_notes_by_project_walk(
+        project, vault=vault, include_superseded=include_superseded
+    )
+
+
+def find_notes_by_tag(
+    tag: str,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
+) -> list[Path]:
+    """Find all notes containing the given tag in their ``tags`` list.
+
+    DB-first with walk fallback; see :func:`find_notes_by_project`.
+    Superseded notes are excluded unless *include_superseded*.
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(
+            tag=tag,
+            vault=vault,
+            limit=_FIND_ALL_LIMIT,
+            include_superseded=include_superseded,
+        )
+        if result is not None:
+            return result
+    return _find_notes_by_tag_walk(
+        tag, vault=vault, include_superseded=include_superseded
+    )
+
+
+def find_notes_by_type(
+    note_type: str,
+    vault: str | Path | None = None,
+    include_superseded: bool = False,
+) -> list[Path]:
+    """Find all notes with a matching ``type`` field in frontmatter.
+
+    DB-first with walk fallback; see :func:`find_notes_by_project`.
+    Superseded notes are excluded unless *include_superseded*.
+    """
+    if _note_index_enabled(vault):
+        result = query_note_index(
+            note_type=note_type,
+            vault=vault,
+            limit=_FIND_ALL_LIMIT,
+            include_superseded=include_superseded,
+        )
+        if result is not None:
+            return result
+    return _find_notes_by_type_walk(
+        note_type, vault=vault, include_superseded=include_superseded
+    )
 
 
 def find_recent_notes(
@@ -951,6 +1047,7 @@ def find_recent_notes(
     vault: str | Path | None = None,
     limit: int = _FIND_ALL_LIMIT,
     snapshot: SessionIndexSnapshot | None = None,
+    include_superseded: bool = False,
 ) -> list[Path]:
     """Find notes modified within the last *days* days, sorted by mtime descending.
 
@@ -964,14 +1061,26 @@ def find_recent_notes(
             explicit cap because its injected-context budget is 4,000 chars and
             fetching thousands of rows serves nothing.
         snapshot: PRF-104 -- serve the query from an already-loaded snapshot.
+        include_superseded: Include retired notes in the result.
     """
     if _note_index_enabled(vault):
         if snapshot is not None:
-            return snapshot.paths_where(recent_days=days, limit=limit)
-        result = query_note_index(recent_days=days, vault=vault, limit=limit)
+            return snapshot.paths_where(
+                recent_days=days,
+                limit=limit,
+                include_superseded=include_superseded,
+            )
+        result = query_note_index(
+            recent_days=days,
+            vault=vault,
+            limit=limit,
+            include_superseded=include_superseded,
+        )
         if result is not None:
             return result
-    return _find_recent_notes_walk(days, vault=vault)[:limit]
+    return _find_recent_notes_walk(
+        days, vault=vault, include_superseded=include_superseded
+    )[:limit]
 
 
 def read_note_summary(path: Path, max_lines: int = 5) -> str:
@@ -1162,6 +1271,7 @@ class SessionIndexRow(NamedTuple):
     incoming_links: int
     mtime: float
     incoming_stems: str = ""
+    status: str = "live"
 
 
 def _incoming_stems_from_column(
@@ -1215,9 +1325,12 @@ class SessionIndexSnapshot:
 
     def __init__(self, vault: Path, rows: list[SessionIndexRow]) -> None:
         self.vault = vault
+        # Supersession: self.rows keeps every row (paths_where's
+        # include_superseded escape hatch needs them); the retrieval-only
+        # derived views below are built from the LIVE subset.
         self.rows = rows
+        live_rows = [r for r in rows if r.status != STATUS_SUPERSEDED]
         self.by_stem: dict[str, SessionIndexRow] = {r.stem: r for r in rows}
-
         self._graph_meta: dict[str, dict[str, object]] = {
             r.stem: {
                 "path": r.path,
@@ -1225,10 +1338,10 @@ class SessionIndexSnapshot:
                 "incoming_links": r.incoming_links,
                 "tags": r.tags,
             }
-            for r in rows
+            for r in live_rows
         }
         self._compact: dict[str, tuple[str, str, str]] = {
-            r.stem: (r.title, r.tags, r.folder) for r in rows
+            r.stem: (r.title, r.tags, r.folder) for r in live_rows
         }
         # Reverse adjacency. ENH-021: read the inversion persisted at index
         # time in the ``incoming_stems`` column; only when the column is not
@@ -1260,11 +1373,13 @@ class SessionIndexSnapshot:
         project: str | None = None,
         recent_days: int | None = None,
         limit: int = 200,
+        include_superseded: bool = False,
     ) -> list[Path]:
         """Rows matching the filters, newest first, as validated Paths.
 
         Mirrors ``query_note_index``'s filtering, ordering, containment guard
         and limit semantics -- against the snapshot instead of a fresh query.
+        Superseded rows are excluded unless *include_superseded* is set.
         """
         cutoff = (
             (datetime.now() - timedelta(days=recent_days)).timestamp()
@@ -1274,7 +1389,8 @@ class SessionIndexSnapshot:
         matched = [
             row
             for row in self.rows
-            if (project is None or row.project == project)
+            if (include_superseded or row.status != STATUS_SUPERSEDED)
+            and (project is None or row.project == project)
             and (cutoff is None or row.mtime >= cutoff)
         ]
         matched.sort(key=lambda r: r.mtime, reverse=True)
@@ -1321,9 +1437,10 @@ def load_session_index_snapshot(
         incoming_sel = (
             "incoming_stems" if "incoming_stems" in cols else "'' AS incoming_stems"
         )
+        status_sel = "status" if "status" in cols else "'live' AS status"
         raw = conn.execute(
             f"SELECT stem, path, title, tags, folder, project, related, "
-            f"incoming_links, mtime, {incoming_sel} FROM note_index"
+            f"incoming_links, mtime, {incoming_sel}, {status_sel} FROM note_index"
         ).fetchall()
     except sqlite3.Error:
         return None
@@ -1341,6 +1458,7 @@ def load_session_index_snapshot(
             incoming_links=int(r[7] or 0),
             mtime=float(r[8] or 0.0),
             incoming_stems=str(r[9] or ""),
+            status=str(r[10] or "live"),
         )
         for r in raw
     ]

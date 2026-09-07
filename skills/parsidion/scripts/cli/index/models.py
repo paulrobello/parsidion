@@ -40,6 +40,8 @@ class NoteEntry(NamedTuple):
         incoming_stems: ENH-021 -- JSON array of the sorted stems whose
             ``related`` field links to this note (the reverse-link adjacency,
             inverted at index time). ``"[]"`` when no note links here.
+        status: Supersession — ``"superseded"`` for retired notes, ``"live"``
+            otherwise (frontmatter ``status`` value, default ``live``).
     """
 
     stem: str
@@ -58,6 +60,7 @@ class NoteEntry(NamedTuple):
     date: str = ""
     prompt_version: str = ""
     incoming_stems: str = ""
+    status: str = "live"
 
 
 class NoteRecord(NamedTuple):

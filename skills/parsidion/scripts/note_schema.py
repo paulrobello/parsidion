@@ -82,6 +82,8 @@ FRONTMATTER_FIELD_ORDER: tuple[str, ...] = (
     "sources",
     "related",
     "provenance",
+    "status",
+    "superseded_by",
     "session_id",
 )
 
@@ -96,6 +98,73 @@ VALID_PROVENANCE_VALUES: frozenset[str] = frozenset(
 
 #: Valid values for the ``confidence`` frontmatter field.
 VALID_CONFIDENCE_VALUES: frozenset[str] = frozenset({"high", "medium", "low"})
+
+# ---------------------------------------------------------------------------
+# Supersession (note retirement) contract
+# ---------------------------------------------------------------------------
+
+#: Valid values for the optional ``status`` frontmatter field. A note without
+#: ``status`` (or with ``status: live``) is a normal, retrievable note;
+#: ``status: superseded`` retires it from every retrieval surface while the
+#: file, its wikilinks, and its embeddings stay in place for audit.
+VALID_STATUS_VALUES: frozenset[str] = frozenset({"live", "superseded"})
+
+#: The retired-note status value every retrieval filter tests for.
+STATUS_SUPERSEDED: str = "superseded"
+
+
+def validate_status_fields(fields: dict[str, object]) -> list[str]:
+    """Validate the status/superseded_by frontmatter pair; return error strings.
+
+    The consistency rule behind the ``superseded-consistency`` doctor rule:
+    ``status: superseded`` requires at least one resolvable-looking
+    ``superseded_by`` entry (the retirement must point at its replacement),
+    and ``superseded_by`` on a live note is a contradiction. Wikilink
+    *resolution* (the target note existing) is checked by the doctor rule,
+    not here — this function sees frontmatter only.
+
+    Returns an empty list when the pair is consistent.
+    """
+    errors: list[str] = []
+    status = fields.get("status")
+    if status is not None and not isinstance(status, str):
+        errors.append(f"status must be a string, got {type(status).__name__}")
+        return errors
+    if status is not None and status not in VALID_STATUS_VALUES:
+        errors.append(
+            f"status must be one of {sorted(VALID_STATUS_VALUES)}, got {status!r}"
+        )
+        return errors
+
+    superseded_by = fields.get("superseded_by")
+    if superseded_by is not None and not isinstance(superseded_by, (list, str)):
+        errors.append(
+            f"superseded_by must be a list or wikilink string, got "
+            f"{type(superseded_by).__name__}"
+        )
+        return errors
+
+    if status == STATUS_SUPERSEDED:
+        entries = _superseded_by_entries(superseded_by)
+        if not entries:
+            errors.append(
+                "status: superseded requires at least one superseded_by wikilink"
+            )
+    elif superseded_by is not None:
+        errors.append("superseded_by set but status is not 'superseded'")
+    return errors
+
+
+def _superseded_by_entries(value: object) -> list[str]:
+    """Non-empty wikilink entries from a superseded_by field value."""
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = [v for v in value if isinstance(v, str)]
+    else:
+        return []
+    return [item for item in items if item.strip() and "[[" in item]
+
 
 # ---------------------------------------------------------------------------
 # Tag rules (shared by every prompt that instructs the model on tags)

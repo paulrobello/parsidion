@@ -40,6 +40,7 @@ def query(
     as_of: str | None = None,
     limit: int = 50,
     vault: Path | None = None,
+    include_superseded: bool = False,
 ) -> list[dict[str, object]]:
     """Query the note_index table for metadata-filtered results.
 
@@ -92,6 +93,10 @@ def query(
                 file=sys.stderr,
             )
             return []
+        # Supersession: a note_index predating the status migration lacks the
+        # column; the filter is then vacuously satisfied (nothing can be
+        # retired yet) instead of breaking every metadata query.
+        has_status = "status" in columns
 
         # QA-009: shared WHERE builder — the condition assembly that was
         # duplicated with query_note_index lives once in
@@ -105,6 +110,8 @@ def query(
             recent_days=recent_days,
             changed_since=changed_since,
             as_of=as_of,
+            has_status=has_status,
+            include_superseded=include_superseded,
         )
         date_col = ", date" if has_date else ""
         sql = (

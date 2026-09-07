@@ -35,6 +35,8 @@ _CANONICAL_ORDER = (
     "sources",
     "related",
     "provenance",
+    "status",
+    "superseded_by",
     "session_id",
 )
 
@@ -58,8 +60,8 @@ def _model_to_fields(model: dict[str, Any]) -> dict[str, Any]:
         "sources": list(model["sources"]),
         "related": [f"[[{stem}]]" for stem in model["related"]],
     }
-    for key in ("project", "provenance", "session_id"):
-        if model[key]:
+    for key in ("project", "provenance", "status", "superseded_by", "session_id"):
+        if model.get(key):
             fields[key] = model[key]
     return fields
 

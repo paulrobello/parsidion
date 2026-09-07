@@ -33,6 +33,8 @@ interface FixtureVector {
     sources: string[]
     related: string[]
     provenance: string
+    status?: string
+    superseded_by?: string[]
     session_id: string
   }
   expected: string
@@ -43,10 +45,21 @@ const fixture = JSON.parse(fs.readFileSync(FIXTURE, 'utf-8')) as {
   vectors: FixtureVector[]
 }
 
-function modelToFields(v: FixtureVector): FrontmatterFields {
+function expectedExtraLines(v: FixtureVector): string[] {
   const extraLines: string[] = []
   if (v.fields.provenance) extraLines.push(`provenance: ${v.fields.provenance}`)
+  if (v.fields.status) extraLines.push(`status: ${v.fields.status}`)
+  if (v.fields.superseded_by) {
+    // Fixture values carry wikilink brackets but no quote characters; the
+    // emitters quote each list item (same rule as `related`).
+    const formatted = v.fields.superseded_by.map(s => `"${s}"`).join(', ')
+    extraLines.push(`superseded_by: [${formatted}]`)
+  }
   if (v.fields.session_id) extraLines.push(`session_id: ${v.fields.session_id}`)
+  return extraLines
+}
+
+function modelToFields(v: FixtureVector): FrontmatterFields {
   return {
     date: v.fields.date,
     type: v.fields.type,
@@ -55,7 +68,7 @@ function modelToFields(v: FixtureVector): FrontmatterFields {
     project: v.fields.project,
     sources: [...v.fields.sources],
     related: [...v.fields.related],
-    extra: extraLines.join('\n'),
+    extra: expectedExtraLines(v).join('\n'),
   }
 }
 
@@ -85,10 +98,7 @@ describe('frontmatter parity fixture (ARC-005)', () => {
       expect(fields.project).toBe(vector.fields.project)
       expect(fields.sources).toEqual(vector.fields.sources)
       expect(fields.related).toEqual(vector.fields.related)
-      const extraLines: string[] = []
-      if (vector.fields.provenance) extraLines.push(`provenance: ${vector.fields.provenance}`)
-      if (vector.fields.session_id) extraLines.push(`session_id: ${vector.fields.session_id}`)
-      expect(fields.extra).toBe(extraLines.join('\n'))
+      expect(fields.extra).toBe(expectedExtraLines(vector).join('\n'))
     })
   }
 })

@@ -111,6 +111,7 @@ def _build_note_db_rows(
                 incoming_links=incoming,
                 date=str(fm.get("date", "") or ""),
                 prompt_version=str(fm.get("prompt_version", "") or ""),
+                status=str(fm.get("status", "") or "live"),
                 # ENH-021: persisted reverse-link adjacency (sorted source
                 # stems as a JSON array) -- see _compute_incoming_link_stems.
                 incoming_stems=json.dumps(incoming_stems.get(stem, [])),

@@ -1,5 +1,5 @@
 {
-  "$comment": "ARC-005: frontmatter serialization vectors shared by Python (tests/test_frontmatter_parity.py, via core.vault_index.serialize_frontmatter/parse_frontmatter) and TypeScript (visualizer/lib/frontmatter.parity.test.ts, via lib/frontmatter.ts). fields is the shared model: related holds BARE stems (the Python emitter wraps them as [[wikilinks]]; the TS editor stores stems and quotes them on serialize); project/provenance/session_id are '' when absent (project is omitted, provenance/session_id ride the TS extra round-trip and the Python canonical key order — both emit them after related). expected is the full --- block including the trailing newline. Both suites assert serialize(model) == expected and parse(expected) == model. Vector values stay within the shared YAML subset (no item containing both quote characters, no trailing empty items).",
+  "$comment": "ARC-005: frontmatter serialization vectors shared by Python (tests/test_frontmatter_parity.py, via core.vault_index.serialize_frontmatter/parse_frontmatter) and TypeScript (visualizer/lib/frontmatter.parity.test.ts, via lib/frontmatter.ts). fields is the shared model: related holds BARE stems (the Python emitter wraps them as [[wikilinks]]; the TS editor stores stems and quotes them on serialize); project/provenance/session_id are '' when absent (project is omitted, provenance/session_id ride the TS extra round-trip and the Python canonical key order \u2014 both emit them after related). expected is the full --- block including the trailing newline. Both suites assert serialize(model) == expected and parse(expected) == model. Vector values stay within the shared YAML subset (no item containing both quote characters, no trailing empty items).",
   "version": 1,
   "vectors": [
     {
@@ -140,17 +140,17 @@
         "date": "2026-08-23",
         "type": "pattern",
         "tags": [
-          "héllo",
-          "wörld-✓"
+          "h\u00e9llo",
+          "w\u00f6rld-\u2713"
         ],
-        "project": "naïve-proj",
+        "project": "na\u00efve-proj",
         "confidence": "medium",
         "sources": [],
         "related": [],
         "provenance": "",
         "session_id": ""
       },
-      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: [héllo, wörld-✓]\nproject: naïve-proj\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+      "expected": "---\ndate: 2026-08-23\ntype: pattern\ntags: [h\u00e9llo, w\u00f6rld-\u2713]\nproject: na\u00efve-proj\nconfidence: medium\nsources: []\nrelated: []\n---\n"
     },
     {
       "name": "provenance-session-extras",
@@ -187,6 +187,31 @@
         "session_id": ""
       },
       "expected": "---\ndate: 2026-08-23\ntype: daily\ntags: [daily]\nconfidence: medium\nsources: []\nrelated: []\n---\n"
+    },
+    {
+      "name": "supersession-fields",
+      "description": "Retired note: status + superseded_by serialize in canonical order between provenance and session_id.",
+      "fields": {
+        "date": "2026-09-07",
+        "type": "pattern",
+        "tags": [
+          "vault",
+          "supersession"
+        ],
+        "project": "",
+        "confidence": "high",
+        "sources": [],
+        "related": [
+          "replacement-note"
+        ],
+        "provenance": "corrected",
+        "status": "superseded",
+        "superseded_by": [
+          "[[replacement-note]]"
+        ],
+        "session_id": ""
+      },
+      "expected": "---\ndate: 2026-09-07\ntype: pattern\ntags: [vault, supersession]\nconfidence: high\nsources: []\nrelated: [\"[[replacement-note]]\"]\nprovenance: corrected\nstatus: superseded\nsuperseded_by: [\"[[replacement-note]]\"]\n---\n"
     }
   ]
 }
