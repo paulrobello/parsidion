@@ -17,6 +17,7 @@ const TYPE_TO_FOLDER: Record<string, string> = {
   language:  'Languages',
   framework: 'Frameworks',
   knowledge: 'Knowledge',
+  rule:      'Rules',
 }
 
 function toStem(title: string): string {

@@ -52,6 +52,7 @@ export const TYPE_COLORS: Record<string, string> = {
   language:  '#a855f7',
   framework: '#f97316',
   knowledge: '#ec4899',
+  rule:      '#14b8a6',
   daily:     '#4b5563',
 }
 
