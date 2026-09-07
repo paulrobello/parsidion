@@ -400,6 +400,70 @@ class TestPerFileCache:
         assert len(list(cache_dir.glob("*.json"))) == 1
 
 
+class TestCodexPatchTarget:
+    """Codex apply_patch payloads resolve to their first touched file."""
+
+    def test_update_target_resolved_against_cwd(self) -> None:
+        path = pre_tool_use_hook._extract_file_path(
+            "apply_patch",
+            {"command": "*** Begin Patch\n*** Update File: src/app.py\n@@\n"},
+            cwd="/repo",
+        )
+        assert path == Path("/repo/src/app.py")
+
+    def test_absolute_target_not_rejoined(self) -> None:
+        path = pre_tool_use_hook._extract_file_path(
+            "apply_patch",
+            {"command": "*** Begin Patch\n*** Add File: /abs/x.py\n"},
+            cwd="/repo",
+        )
+        assert path == Path("/abs/x.py")
+
+    def test_move_patch_first_target_is_updated_source(self) -> None:
+        # Realistic V4A move: Update + Move-to. The source file is the first
+        # touched path in patch order, so recall keys on it.
+        path = pre_tool_use_hook._extract_file_path(
+            "apply_patch",
+            {
+                "command": (
+                    "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n"
+                )
+            },
+            cwd="/repo",
+        )
+        assert path == Path("/repo/old.txt")
+
+    def test_delete_only_patch_yields_none(self) -> None:
+        assert (
+            pre_tool_use_hook._extract_file_path(
+                "apply_patch",
+                {"command": "*** Begin Patch\n*** Delete File: a.txt\n"},
+                cwd="/repo",
+            )
+            is None
+        )
+
+    def test_non_patch_command_yields_none(self) -> None:
+        assert (
+            pre_tool_use_hook._extract_file_path(
+                "apply_patch", {"command": "echo hi"}, cwd="/repo"
+            )
+            is None
+        )
+
+    def test_run_injection_survives_apply_patch_payload(self) -> None:
+        assert (
+            pre_tool_use_hook.run_injection(
+                {
+                    "tool_name": "apply_patch",
+                    "tool_input": {"command": "*** Update File: src/x.py\n"},
+                    "cwd": "/repo",
+                }
+            )
+            == {}
+        )
+
+
 class TestMainContract:
     def test_malformed_stdin_prints_empty_exit_zero(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

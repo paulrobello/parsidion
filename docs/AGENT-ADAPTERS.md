@@ -52,6 +52,7 @@ Held by `AgentAdapter.install`; a standalone frozen dataclass so the installer h
 | **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi, omp). |
 | | `event_scripts` | Ordered `event -> hook-script-filename` map (e.g. `SessionStart -> codex_session_start_hook.py`). |
 | | `entry_matcher` | the `matcher` for the hook entry (always `""` for codex/claude/antigravity). |
+| | `event_matchers` | Per-event `matcher` overrides when one event needs a tool filter others must not carry (codex `PreToolUse -> "apply_patch"`). Events absent from the map fall back to `entry_matcher`. |
 | | `entry_timeout` + `timeout_unit` | Numeric timeout and its unit — **`"s"` (codex/antigravity) or `"ms"` (claude)**. See [Timeout units](#timeout-units). |
 | | `entry_names` | Per-event `name` values when the runtime's schema requires one (antigravity). `None` otherwise. |
 | | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). Reserved: no built-in sets it — the installer's `_read_runtime_hooks` validates inline. |
@@ -102,7 +103,7 @@ effects at zero):
 
 | Runtime | Hooks | Connect path | Notes |
 |---|---|---|---|
-| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (unified 60 s SessionStart timeout raise via `installer.paths._HOOK_OPTIONS`, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). |
+| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (unified 60 s SessionStart timeout raise via `installer.paths._HOOK_OPTIONS`, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). Since the fork/PreToolUse work of 2026-09-07, codex wires `PreToolUse -> pre_tool_use_hook.py` with the `apply_patch` matcher via the spec's `event_matchers`; antigravity cannot wire PreToolUse (its output is decision-only, no context channel). |
 | `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`. Timeout in **seconds**. |
 | `antigravity` | `~/.gemini/config/hooks.json` | `install()`/`uninstall()` | Generic core. Named hooks (`parsidion-session-start` / `parsidion-session-end`) use `PreInvocation` + `Stop`, with empty matchers and 60-second timeouts. The `agy` binary receives session-start context as an `ephemeralMessage` via `injectSteps`; transcripts are under `~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl`. `GEMINI.md` remains the instructions file. |
 

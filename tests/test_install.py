@@ -185,6 +185,29 @@ class TestCodexHooks:
         )
         assert managed["timeout"] == 60
 
+    def test_merge_codex_hooks_registers_pre_tool_use_with_matcher(
+        self, tmp_path: Path
+    ) -> None:
+        codex_home = tmp_path / ".codex"
+        claude_dir = tmp_path / ".claude"
+
+        installer_hooks.merge_codex_hooks(
+            codex_home, claude_dir, dry_run=False, verbose=False
+        )
+
+        hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+        entries = hooks["hooks"]["PreToolUse"]
+        managed = [
+            entry
+            for entry in entries
+            if any(
+                "pre_tool_use_hook.py" in hook.get("command", "")
+                for hook in entry["hooks"]
+            )
+        ]
+        assert len(managed) == 1
+        assert managed[0]["matcher"] == "apply_patch"
+
     def test_merge_codex_hooks_preserves_existing_hooks_and_is_idempotent(
         self, tmp_path: Path
     ) -> None:

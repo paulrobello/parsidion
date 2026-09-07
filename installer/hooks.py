@@ -484,7 +484,8 @@ def _build_entry(spec: agent_adapter.InstallerSpec, event: str, command: str) ->
         hook = {"name": spec.entry_names[event], **hook}
     if spec.entry_timeout:
         hook["timeout"] = spec.entry_timeout
-    return {"matcher": spec.entry_matcher, "hooks": [hook]}
+    matcher = spec.event_matchers.get(event, spec.entry_matcher)
+    return {"matcher": matcher, "hooks": [hook]}
 
 
 def remove_runtime_hooks(

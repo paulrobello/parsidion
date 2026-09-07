@@ -102,6 +102,12 @@ class InstallerSpec:
     entry_matcher: str = ""
     """``matcher`` value for the hook entry ('' for all current runtimes)."""
 
+    event_matchers: dict[str, str] = field(default_factory=dict)
+    """Per-event ``matcher`` overrides when one runtime event needs a tool
+    filter others must not carry (codex PreToolUse fires only for file tools;
+    the runtime regex-matches the tool name against this value). Events
+    absent from the map fall back to :attr:`entry_matcher`."""
+
     entry_timeout: int = 0
     """Numeric ``timeout`` for the hook entry (paired with ``timeout_unit``)."""
 
@@ -417,8 +423,15 @@ _CODEX_HOOK_SCRIPTS: dict[str, str] = {
     "Stop": "codex_stop_hook.py",
     "SubagentStop": "codex_subagent_stop_hook.py",
     "UserPromptSubmit": "user_prompt_submit_hook.py",
+    # Codex payloads are Claude-shaped (tool_name + tool_input); apply_patch
+    # is the one file tool, with its targets inside the V4A patch body under
+    # tool_input.command — pre_tool_use_hook.py extracts them itself.
+    "PreToolUse": "pre_tool_use_hook.py",
 }
 # Antigravity defines no UserPromptSubmit event; only claude/codex wire it.
+# Codex wires PreToolUse (apply_patch matcher); Antigravity cannot — its PreToolUse
+# output is decision/reason only with no context-injection channel (context
+# rides PreInvocation/PostInvocation injectSteps per antigravity.google/docs/hooks).
 # Session-start maps to PreInvocation (invocationNum==0 gate in the shim),
 # session-end to Stop (fullyIdle gate in the shim).
 _ANTIGRAVITY_HOOK_SCRIPTS: dict[str, str] = {
@@ -476,6 +489,7 @@ def _register_builtin_adapters() -> None:
                 hooks_config_filename="hooks.json",
                 event_scripts=_CODEX_HOOK_SCRIPTS,
                 entry_matcher="",
+                event_matchers={"PreToolUse": "apply_patch"},
                 entry_timeout=60,
                 timeout_unit="s",
                 instructions_filename="AGENTS.md",

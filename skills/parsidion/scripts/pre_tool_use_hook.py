@@ -7,10 +7,13 @@ Debugging note covering exactly the file about to be read or edited. This
 hook pushes file-scoped recall at that moment — the agent never needs a
 tool call to see it.
 
-Contract (registered under PreToolUse with matcher ``Read|Edit``):
+Contract (registered under PreToolUse with matcher ``Read|Edit`` for
+Claude Code and ``apply_patch`` for Codex):
 
 - stdin carries a JSON payload with ``tool_name``, ``tool_input``
-  (``file_path`` is extracted from it) and the common ``cwd`` /
+  (``file_path`` is extracted from it; Codex ``apply_patch`` instead
+  carries a V4A patch under ``tool_input.command``, whose first
+  Add/Update/Move-to target is used) and the common ``cwd`` /
   ``session_id`` keys.
 - stdout carries exactly one JSON object: ``{}`` when nothing is injected,
   else ``{"hookSpecificOutput": {"hookEventName": "PreToolUse",
@@ -89,6 +92,25 @@ _CACHE_MAX_ENTRIES = 512
 # registration to Read|Edit; this set keeps the script itself correct if a
 # user widens the matcher.
 _FILE_PATH_TOOLS = frozenset({"Read", "Edit", "Write", "MultiEdit", "NotebookEdit"})
+
+# Codex apply_patch carries a V4A patch under tool_input.command; the files it
+# touches live in the patch headers. Only Add/Update/Move-to matter for recall
+# (Delete targets are being removed, not worked on). Patch paths are
+# repo-relative and resolve against the payload cwd.
+_PATCH_TARGET_RE = re.compile(r"^\*\*\* (?:Add|Update) File: (.+)$", re.MULTILINE)
+_PATCH_MOVE_RE = re.compile(r"^\*\*\* Move to: (.+)$", re.MULTILINE)
+
+
+def _patch_targets(command: str) -> list[str]:
+    """V4A patch target paths from an apply_patch body, in patch order.
+
+    Shallow line scan (mirrors parsight's codex hook): Add/Update headers
+    plus Move-to destinations; Delete targets are deliberately skipped.
+    """
+    targets = _PATCH_TARGET_RE.findall(command)
+    targets.extend(_PATCH_MOVE_RE.findall(command))
+    return targets
+
 
 # Words so common in directory paths that they carry no topical signal
 # when deriving tokens from a file location.
@@ -169,12 +191,36 @@ def _load_settings(vault: Path) -> dict[str, object]:
     return settings
 
 
-def _extract_file_path(tool_name: object, tool_input: object) -> Path | None:
+def _extract_file_path(
+    tool_name: object, tool_input: object, cwd: str = ""
+) -> Path | None:
     """The file a Read/Edit-style call is about to touch, or None.
 
-    Anything but a plain string path (or a missing tool_input) yields None
-    — the payload is external input, never trusted to be well-shaped.
+    Claude-style tools name the file in ``file_path`` (``notebook_path``
+    for NotebookEdit). Codex ``apply_patch`` embeds a V4A patch under
+    ``tool_input.command``; its first Add/Update/Move-to target is used,
+    resolved against the payload ``cwd`` (codex patch paths are
+    repo-relative). Multi-file patches recall for the first target only.
+    Anything but a plain string path yields None — the payload is external
+    input, never trusted to be well-shaped.
     """
+    if isinstance(tool_name, str) and tool_name == "apply_patch":
+        if not isinstance(tool_input, dict):
+            return None
+        command = tool_input.get("command")
+        if not isinstance(command, str):
+            return None
+        targets = _patch_targets(command)
+        if not targets:
+            return None
+        raw = targets[0].strip()
+        candidate = Path(raw)
+        if not candidate.is_absolute() and cwd:
+            candidate = Path(cwd) / candidate
+        try:
+            return candidate.expanduser()
+        except (OSError, ValueError, RuntimeError):
+            return None
     if not isinstance(tool_name, str) or tool_name not in _FILE_PATH_TOOLS:
         return None
     if not isinstance(tool_input, dict):
@@ -453,12 +499,12 @@ def run_injection(payload: dict) -> dict:
     try:
         if not isinstance(payload, dict):
             payload = {}
+        cwd = str(payload.get("cwd") or os.getcwd())
         file_path = _extract_file_path(
-            payload.get("tool_name"), payload.get("tool_input")
+            payload.get("tool_name"), payload.get("tool_input"), cwd=cwd
         )
         if file_path is None:
             return {}
-        cwd = str(payload.get("cwd") or os.getcwd())
 
         try:
             vault = resolve_vault(cwd=cwd)

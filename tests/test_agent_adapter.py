@@ -497,6 +497,26 @@ class TestHookScriptMapsSingleSource:
         )
         assert "UserPromptSubmit" not in agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
 
+    def test_pre_tool_use_wired_for_claude_and_codex_only(self) -> None:
+        assert (
+            agent_adapter._CLAUDE_HOOK_SCRIPTS["PreToolUse"] == "pre_tool_use_hook.py"
+        )
+        assert agent_adapter._CODEX_HOOK_SCRIPTS["PreToolUse"] == "pre_tool_use_hook.py"
+        # Antigravity's PreToolUse output is decision/reason only — no
+        # context-injection channel (antigravity.google/docs/hooks), so no
+        # parsidion hook can wire there.
+        assert "PreToolUse" not in agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
+
+    def test_codex_pre_tool_use_matcher_is_apply_patch(self) -> None:
+        codex = agent_adapter.get("codex")
+        assert codex is not None and codex.install is not None
+        assert codex.install.event_matchers == {"PreToolUse": "apply_patch"}
+        # Events absent from the per-event map fall back to entry_matcher.
+        fallback = codex.install.event_matchers.get(
+            "SessionStart", codex.install.entry_matcher
+        )
+        assert fallback == ""
+
     def test_hook_script_maps_defined_only_in_agent_adapter(self) -> None:
         """Grep-style guard: the dict literals for the four hook-script maps
         must appear in ``agent_adapter.py`` and NOWHERE else. Catches the
