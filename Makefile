@@ -1,4 +1,4 @@
-.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen bench-hooks
+.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen bench-hooks grind-start grind-start-anthropic grind-start-zai grind-start-grok grind-start-codex grind-start-omp grind-stop grind-clean-logs
 
 # Format code with ruff
 fmt:
@@ -244,3 +244,64 @@ build-visualizer:
 
 visualizer-setup:
 	cd visualizer && bun install
+
+# ==== Grind loop (grind.sh, lives in ~/Repos/par-grind) =====================
+# Pasted from par-grind's examples/Makefile.grind (paste-not-include keeps
+# help output clean; the fragment is the canonical copy). The loop runner is
+# project-agnostic; this repo's knobs (prompt, clean command, post-iter
+# check) would live in .grind.local.json, and every GRIND_* env var overrides
+# a config key. See the par-grind README's config table.
+#
+# Invoked via `bash` on purpose: `ps` then shows `bash …/grind.sh <repo>`,
+# the command shape grind's overseer recipes and probes match on. A
+# shebang-direct invocation puts the script at a different ps field and reads
+# as grind GONE to them.
+GRIND_SH := $(HOME)/Repos/par-grind/grind.sh
+
+grind-start: ## Run the grind loop against this repo (foreground; backend = GRIND_BACKEND or .grind.local.json)
+	bash $(GRIND_SH) "$(CURDIR)"
+
+grind-start-anthropic: ## Run the grind loop against the Anthropic backend (foreground)
+	GRIND_BACKEND=anthropic bash $(GRIND_SH) "$(CURDIR)"
+
+grind-start-zai: ## Run the grind loop against the z.ai backend (foreground; needs ZAI_API_KEY)
+	GRIND_BACKEND=zai bash $(GRIND_SH) "$(CURDIR)"
+
+grind-start-grok: ## Run the grind loop against the Grok backend (foreground; needs grok CLI login)
+	GRIND_BACKEND=grok bash $(GRIND_SH) "$(CURDIR)"
+
+grind-start-codex: ## Run the grind loop against the Codex backend (foreground; needs codex CLI login)
+	GRIND_BACKEND=codex bash $(GRIND_SH) "$(CURDIR)"
+
+# The omp arm is the only one with NO default model: OMP v18 applies
+# --provider during explicit model resolution, so grind.sh derives omp's
+# --provider from the exact model id (glm-5.3/glm-5.3-flash -> zai,
+# gpt-5.6-terra/gpt-5.6-luna -> openai-codex, grok-4.6 -> xai-oauth).
+# Refuse to launch without one rather than guess a provider.
+grind-start-omp: ## Run the grind loop against the OMP backend (foreground; GRIND_MODEL required — provider derived from the exact model id)
+	@test -n "$(GRIND_MODEL)" || { echo "grind-start-omp: GRIND_MODEL is required, e.g. GRIND_MODEL=glm-5.3 — the omp arm derives omp's --provider from the exact model id (glm-5.3/glm-5.3-flash->zai, gpt-5.6-terra/gpt-5.6-luna->openai-codex, grok-4.6->xai-oauth)" >&2; exit 2; }
+	GRIND_BACKEND=omp GRIND_MODEL="$(GRIND_MODEL)" bash $(GRIND_SH) "$(CURDIR)"
+
+grind-stop: ## Ask a running grind loop to stop after the current iteration
+	@touch .exit-grind
+	@echo "wrote .exit-grind — the loop stops after the current iteration finishes"
+
+# .exit-grind is checked only at the top of each iteration: a stop takes
+# effect once the in-flight session ends, and grind removes the file itself
+# on exit — a grind-stop with nothing running just clears a stale sentinel.
+# grind-start runs in the FOREGROUND (it owns the terminal); grind-stop runs
+# from a second shell.
+
+# 2*/ matches only the date-named run dirs — the latest symlink, the run.jsonl
+# ledger, and stdout logs live at the root and never match. The newest 2 by
+# mtime are kept (the active run is always newest, and the latest symlink's
+# own target is excluded from removal as a belt-and-braces guard).
+grind-clean-logs: ## Delete all but the newest 2 grind run dirs (latest symlink, run.jsonl kept)
+	@latest=$$(readlink .grind-logs/latest 2>/dev/null | xargs basename 2>/dev/null); \
+	old=$$(ls -dt .grind-logs/2*/ 2>/dev/null | tail -n +3 | sed 's:/$$::'); \
+	[ -n "$$old" ] || { echo "grind-clean-logs: nothing to remove (<= 2 run dirs)"; exit 0; }; \
+	if [ -n "$$latest" ]; then old=$$(echo "$$old" | grep -v "/$$latest$$"); fi; \
+	[ -n "$$old" ] || { echo "grind-clean-logs: nothing to remove"; exit 0; }; \
+	echo "$$old" | sed 's/^/  removing /'; \
+	echo "$$old" | xargs rm -rf; \
+	echo "grind-clean-logs: $$(ls -d .grind-logs/2*/ 2>/dev/null | wc -l | tr -d ' ') run dir(s) remain"
