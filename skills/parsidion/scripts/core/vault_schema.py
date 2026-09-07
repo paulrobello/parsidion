@@ -590,6 +590,84 @@ class UserPromptSubmitHookConfig:
 
 
 @dataclass
+class PreToolUseHookConfig:
+    """PreToolUse hook (pre_tool_use_hook.py) — file-scoped vault recall."""
+
+    enabled: bool = field(
+        default=True,
+        metadata={
+            "doc": "Set false to disable per-file vault recall injection on Read/Edit",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    top_k: int = field(
+        default=3,
+        metadata={
+            "doc": "Notes to retrieve per file",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    max_chars: int = field(
+        default=1500,
+        metadata={
+            "doc": "Total additionalContext character budget",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    per_note_chars: int = field(
+        default=350,
+        metadata={
+            "doc": "Per-note excerpt character budget",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    min_term_matches: int = field(
+        default=2,
+        metadata={
+            "doc": "Relevance gate — distinct tokens shared between the file and note title/tags/stem, 0 disables",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    cache_seconds: int = field(
+        default=300,
+        metadata={
+            "doc": "Per-file result cache freshness (positive and negative) and parsight probe negative-cache window",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    parsight: bool = field(
+        default=True,
+        metadata={
+            "doc": "Also run the parsight semantic search leg when the daemon is available (local note_index scan always runs)",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    recall_timeout_s: float = field(
+        default=4.0,
+        metadata={
+            "doc": "Per-file parsight search budget; must stay below the 10s PreToolUse host timeout including the 1s kill grace",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+    debug: bool = field(
+        default=False,
+        metadata={
+            "doc": "Print per-stage timing to stderr",
+            "read_by": "pre_tool_use_hook.py",
+            "section_read": True,
+        },
+    )
+
+
+@dataclass
 class PreCompactHookConfig:
     """Pre-compact hook (pre_compact_hook.py)."""
 
@@ -1119,6 +1197,9 @@ class VaultAppConfig:
     )
     user_prompt_submit_hook: UserPromptSubmitHookConfig = field(
         default_factory=lambda: UserPromptSubmitHookConfig()
+    )
+    pre_tool_use_hook: PreToolUseHookConfig = field(
+        default_factory=lambda: PreToolUseHookConfig()
     )
     pre_compact_hook: PreCompactHookConfig = field(
         default_factory=lambda: PreCompactHookConfig()

@@ -77,6 +77,19 @@ _HOOK_OPTIONS: dict[str, dict] = {
     # host timeout exists so the hook's own graceful {} exit always beats the
     # host kill. Merge path raises existing 10s installs on reinstall.
     "UserPromptSubmit": {"timeout": 15000},
+    # PreToolUse self-bounds (pre_tool_use_hook.recall_timeout_s 4s search
+    # budget + 1s kill grace + startup/probe + local scan) to ~7s; the 10s
+    # host timeout keeps the hook's graceful {} exit ahead of the kill.
+    # Merge path raises existing default 10s installs on reinstall (no-op).
+    "PreToolUse": {"timeout": 10000},
+}
+
+# Per-event matcher for the hook ENTRY in settings.json (sibling of
+# "hooks", outside the handler dict _HOOK_OPTIONS merges into). Empty
+# string = match every invocation of the event, the historical default.
+_HOOK_MATCHERS: dict[str, str] = {
+    # Only file-touching tool calls pay the retrieval latency.
+    "PreToolUse": "Read|Edit",
 }
 
 _RUNTIME_CHOICES = ("claude", "codex", "antigravity", "both", "all", "none")

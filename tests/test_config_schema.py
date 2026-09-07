@@ -116,6 +116,17 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "recall_timeout_s": (float,),
         "debug": (bool,),
     },
+    "pre_tool_use_hook": {
+        "enabled": (bool,),
+        "top_k": (int,),
+        "max_chars": (int,),
+        "per_note_chars": (int,),
+        "min_term_matches": (int,),
+        "cache_seconds": (int,),
+        "parsight": (bool,),
+        "recall_timeout_s": (float,),
+        "debug": (bool,),
+    },
     "pre_compact_hook": {"lines": (int,), "transcript_tail_bytes": (int,)},
     "summarizer": {
         "model": (str, type(None)),
@@ -237,7 +248,7 @@ class TestSchemaEquivalence:
         assert vault_config._CONFIG_SCHEMA == vault_config.schema_dict()
 
     def test_section_count_matches(self) -> None:
-        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 22
+        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 23
 
     def test_no_schema_key_dropped_or_added(self) -> None:
         derived = vault_config.schema_dict()

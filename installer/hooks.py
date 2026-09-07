@@ -19,6 +19,7 @@ from pathlib import Path
 
 from installer.colors import bold, dim
 from installer.paths import (
+    _HOOK_MATCHERS,
     _HOOK_OPTIONS,
     _HOOK_SCRIPTS,
     LEGACY_SKILL_NAME,
@@ -204,6 +205,26 @@ def _find_hook_handler(hooks_list: list[dict], command: str) -> dict | None:
         for hook in hooks:
             if isinstance(hook, dict) and hook.get("command", "") == command:
                 return hook
+    return None
+
+
+def _find_hook_entry(hooks_list: list[dict], command: str) -> dict | None:
+    """Return the hook ENTRY (the ``matcher``/``hooks`` wrapper) matching *command*.
+
+    The matcher lives on the entry, not the handler, so the merge path needs
+    the wrapper to compare and upgrade it on reinstall.
+    """
+    for entry in hooks_list:
+        if not isinstance(entry, dict):
+            continue
+        hooks = entry.get("hooks", [])
+        if not isinstance(hooks, list):
+            continue
+        if any(
+            isinstance(hook, dict) and hook.get("command", "") == command
+            for hook in hooks
+        ):
+            return entry
     return None
 
 
@@ -887,11 +908,23 @@ def merge_hooks(
             command = _build_managed_command(claude_spec, claude_dir, event)
             event_hooks: list[dict] = hooks_section.setdefault(event, [])
             desired_options = _HOOK_OPTIONS.get(event, {})
+            desired_matcher = _HOOK_MATCHERS.get(event, "")
 
-            existing_handler = _find_hook_handler(event_hooks, command)
-            if existing_handler is not None:
+            existing_entry = _find_hook_entry(event_hooks, command)
+            existing_handler = (
+                None
+                if existing_entry is None
+                else _find_hook_handler(event_hooks, command)
+            )
+            if existing_handler is not None and existing_entry is not None:
                 needs_update = any(
                     existing_handler.get(k) != v for k, v in desired_options.items()
+                )
+                # The matcher is entry-level (PreToolUse carries "Read|Edit");
+                # a pre-existing entry registered before matchers existed is
+                # raised to its event's desired matcher on reinstall.
+                needs_update = needs_update or (
+                    existing_entry.get("matcher") != desired_matcher
                 )
                 if not needs_update:
                     _print(
@@ -903,11 +936,17 @@ def merge_hooks(
                     continue
                 _step(
                     f"Update hook {bold(event)} options: "
-                    f"{dim(', '.join(f'{k}={v}' for k, v in desired_options.items()))}",
+                    f"{dim(', '.join(f'{k}={v}' for k, v in desired_options.items()))}"
+                    + (
+                        f", matcher={desired_matcher}"
+                        if existing_entry.get("matcher") != desired_matcher
+                        else ""
+                    ),
                     dry_run=dry_run,
                 )
                 if not dry_run:
                     existing_handler.update(desired_options)
+                    existing_entry["matcher"] = desired_matcher
                 added.append(event)
                 continue
             hook_handler: dict = {
@@ -918,7 +957,7 @@ def merge_hooks(
             hook_handler.update(desired_options)
 
             new_entry: dict = {
-                "matcher": "",
+                "matcher": desired_matcher,
                 "hooks": [hook_handler],
             }
             _step(f"Register hook {bold(event)}: {dim(command)}", dry_run=dry_run)

@@ -410,6 +410,7 @@ _CLAUDE_HOOK_SCRIPTS: dict[str, str] = {
     "PostCompact": "post_compact_hook.py",
     "SubagentStop": "subagent_stop_hook.py",
     "UserPromptSubmit": "user_prompt_submit_hook.py",
+    "PreToolUse": "pre_tool_use_hook.py",
 }
 _CODEX_HOOK_SCRIPTS: dict[str, str] = {
     "SessionStart": "codex_session_start_hook.py",

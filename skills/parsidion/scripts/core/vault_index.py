@@ -75,6 +75,7 @@ __all__: list[str] = [
     # DB helpers
     "ensure_note_index_schema",
     "query_note_index",
+    "load_note_index_metadata",
     "load_graph_metadata",
     # Per-run note_index snapshot (PRF-104)
     "SessionIndexRow",
@@ -699,6 +700,64 @@ def query_note_index(
         # inject reads outside the vault.
         vault_root_resolved = (vault or resolve_vault()).resolve()
         return _paths_from_rows(rows, vault_root_resolved)
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
+def load_note_index_metadata(
+    vault: str | Path | None = None,
+    limit: int = 5000,
+) -> list[dict[str, Any]] | None:
+    """Return note_index metadata rows for term-scoring consumers.
+
+    Unlike :func:`query_note_index` (metadata FILTERS returning paths) this
+    is a bounded full scan returning the raw per-note metadata the
+    pre-tool-use hook scores in Python against file-derived tokens. Returns
+    None (not []) when the DB or the table is absent, matching
+    :func:`query_note_index`'s fall-back contract; [] means an empty index.
+
+    SECURITY: rows carry DB-sourced ``path`` strings; a consumer that reads
+    files from them must re-validate containment (``is_path_inside_vault``)
+    first — same contract as SEC-005/SEC-130 on ``query_note_index``.
+
+    Args:
+        vault: Optional vault path used to locate embeddings.db. Defaults to
+            resolve_vault().
+        limit: Row cap so a corrupt/pathological index cannot balloon the
+            hook's latency.
+
+    Returns:
+        List of row dicts (stem, path, folder, title, summary, tags,
+        note_type, project, mtime) or None when the DB/table is missing.
+    """
+    if isinstance(vault, str):  # be liberal: accept str paths from callers
+        vault = Path(vault)
+    db_path = get_embeddings_db_path(vault)
+    if not db_path.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+
+    try:
+        conn.row_factory = sqlite3.Row
+        if (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+            ).fetchone()
+            is None
+        ):
+            return None
+        rows = conn.execute(
+            "SELECT stem, path, folder, title, summary, tags, note_type, project, "
+            "mtime FROM note_index ORDER BY mtime DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
     except sqlite3.Error:
         return None
     finally:

@@ -266,6 +266,7 @@ Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_do
 | `session_stop_hook` | `ai_model`, `ai_timeout`, `auto_summarize`, `auto_summarize_after`, `transcript_tail_lines`, `pi_transcript_tail_lines`, `transcript_tail_bytes` | session_stop_hook.py, agent_adapter.py |
 | `subagent_stop_hook` | `enabled`, `min_messages`, `excluded_agents`, `transcript_tail_bytes` | subagent_stop_hook.py |
 | `user_prompt_submit_hook` | `enabled`, `top_k`, `max_chars`, `per_note_chars`, `min_term_matches`, `min_prompt_chars`, `probe_cache_seconds`, `recall_timeout_s`, `debug` | user_prompt_submit_hook.py |
+| `pre_tool_use_hook` | `enabled`, `top_k`, `max_chars`, `per_note_chars`, `min_term_matches`, `cache_seconds`, `parsight`, `recall_timeout_s`, `debug` | pre_tool_use_hook.py |
 | `pre_compact_hook` | `lines`, `transcript_tail_bytes` | pre_compact_hook.py |
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental`, `persist` (reserved) | summarize_sessions.py, summarizer/transcript.py |
 | `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled`, `service_idle_exit` | build_embeddings.py, vault_search.py, vault_embed_serve.py |

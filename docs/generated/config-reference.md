@@ -121,6 +121,18 @@ user_prompt_submit_hook:
   recall_timeout_s: 7.0  # Per-prompt parsight search budget; must stay below the 10s UserPromptSubmit host timeout including the 1s kill grace
   debug: false  # Append injected context + metadata to a debug log in $TMPDIR
 
+# PreToolUse hook (pre_tool_use_hook.py) — file-scoped vault recall.
+pre_tool_use_hook:
+  enabled: true  # Set false to disable per-file vault recall injection on Read/Edit
+  top_k: 3  # Notes to retrieve per file
+  max_chars: 1500  # Total additionalContext character budget
+  per_note_chars: 350  # Per-note excerpt character budget
+  min_term_matches: 2  # Relevance gate — distinct tokens shared between the file and note title/tags/stem, 0 disables
+  cache_seconds: 300  # Per-file result cache freshness (positive and negative) and parsight probe negative-cache window
+  parsight: true  # Also run the parsight semantic search leg when the daemon is available (local note_index scan always runs)
+  recall_timeout_s: 4.0  # Per-file parsight search budget; must stay below the 10s PreToolUse host timeout including the 1s kill grace
+  debug: false  # Print per-stage timing to stderr
+
 # Pre-compact hook (pre_compact_hook.py).
 pre_compact_hook:
   lines: 200  # Transcript lines to analyse
