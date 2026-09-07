@@ -1447,6 +1447,141 @@ def test_write_note_normalizes_malformed_related(
     assert '[["real-note"]' not in written
 
 
+def test_write_note_with_reason_reports_frontmatter_refusal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Card 01a07c9f134c: a refused note must carry its specific reason."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = (
+        "---\ndate: 2026-06-16\ntype: bogus\ntags: [debugging]\n"
+        'related: ["[[real-note]]"]\n'
+        "---\n# Bad Type\n\nBody.\n"
+    )
+
+    path, reason = summarize_sessions.write_note_with_reason(note, False, vault)
+
+    assert path is None
+    assert "invalid value: 'bogus'" in reason
+    # The public write_note wrapper keeps its None contract.
+    assert summarize_sessions.write_note(note, False, vault) is None
+
+
+def test_write_note_with_reason_success_dry_run_and_daily_skip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    from datetime import date as _date
+
+    valid = (
+        "---\ndate: 2026-06-16\ntype: debugging\ntags: [debugging]\n"
+        'related: ["[[real-note]]"]\n'
+        "---\n# Good Note\n\nBody.\n"
+    )
+    path, reason = summarize_sessions.write_note_with_reason(valid, False, vault)
+    assert path is not None
+    assert reason == ""
+
+    # Dry-run is a mode, not a refusal — empty reason.
+    dry_path, dry_reason = summarize_sessions.write_note_with_reason(valid, True, vault)
+    assert (dry_path, dry_reason) == (None, "")
+
+    daily = (
+        f"---\ndate: {_date.today().isoformat()}\ntype: daily\ntags: [daily]\n"
+        'related: ["[[real-note]]"]\n'
+        "---\n# Today\n\nBody.\n"
+    )
+    d_path, d_reason = summarize_sessions.write_note_with_reason(daily, False, vault)
+    assert d_path is None
+    assert "still being built" in d_reason
+
+
+def test_note_validation_failure_detail_carries_specific_refusal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Card 01a07c9f134c: the note_validation dead-letter record must carry the
+    specific write_note refusal, not the generic "write_note returned None"."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    from summarizer._state_const import _FAILURE_REASON_KEY
+
+    transcript_path = tmp_path / "session.jsonl"
+    transcript_path.write_text(
+        '{"type":"assistant","message":{"content":"fixed bug"}}\n',
+        encoding="utf-8",
+    )
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    async def fake_preprocess(*args: object, **kwargs: object) -> str:
+        return "cleaned transcript"
+
+    async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
+        # Invalid note type: no salvage helper repairs it, so write_note
+        # refuses — the exact shape that dead-lettered a par-factory session
+        # on 2026-09-07 with only the opaque "write_note returned None".
+        return (
+            "---\n"
+            "date: 2026-04-27\n"
+            "type: bogus\n"
+            "tags:\n"
+            "  - debugging\n"
+            "confidence: high\n"
+            "---\n"
+            "# Test Note\n\nUseful note."
+        ), None
+
+    import types as _types
+
+    _cfg_stub = _types.SimpleNamespace(
+        summarizer=_types.SimpleNamespace(ai_timeout=77, dedup_threshold=0.80)
+    )
+
+    monkeypatch.setattr(
+        _pipeline_module(), "preprocess_transcript_hierarchical", fake_preprocess
+    )
+    monkeypatch.setattr(
+        _pipeline_module(),
+        "_run_summarizer_prompt_with_cause",
+        fake_run_summarizer_prompt,
+    )
+    monkeypatch.setattr(
+        _pipeline_module(),
+        "load_typed_config",
+        lambda *args, **kwargs: _cfg_stub,
+    )
+    monkeypatch.setattr(
+        _pipeline_module(), "_find_dedup_candidates", lambda *a, **k: []
+    )
+
+    entry = {
+        "transcript_path": str(transcript_path),
+        "project": "parsidion",
+        "categories": ["error_fix"],
+        "session_id": "session-9999",
+    }
+
+    result_entry, written = asyncio.run(
+        summarize_sessions.summarize_one(
+            entry,
+            None,
+            False,
+            summarize_sessions.anyio.Semaphore(1),
+            ["debugging"],
+            False,
+            vault,
+        )
+    )
+
+    assert written is None
+    record = result_entry.get(_FAILURE_REASON_KEY)
+    assert record is not None
+    assert record["kind"] == "note_validation"
+    assert "invalid value: 'bogus'" in record["detail"]
+
+
 def test_prune_dead_letters_respects_retention_window(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

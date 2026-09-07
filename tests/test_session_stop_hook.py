@@ -483,3 +483,72 @@ class TestAppendToPending:
             if ln.strip()
         ]
         assert len(lines) == 3
+
+
+class TestLaunchSummarizerLogging:
+    """Card 01a07c9f134c: the detached auto-summarizer must capture its output
+    to a durable log file instead of DEVNULL, so a write_note refusal remains
+    diagnosable after the process exits."""
+
+    def test_output_captured_to_durable_log(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "pending_summaries.jsonl").write_text(
+            '{"session_id": "s1", "transcript_path": "/tmp/x.jsonl"}\n',
+            encoding="utf-8",
+        )
+        log_dir = tmp_path / "logs"
+
+        def fake_secure_log_dir() -> Path:
+            # Honor secure_log_dir's contract: create the directory.
+            log_dir.mkdir(parents=True, exist_ok=True)
+            return log_dir
+
+        monkeypatch.setattr(agent_adapter, "secure_log_dir", fake_secure_log_dir)
+
+        captured: dict[str, Any] = {}
+
+        def fake_popen(cmd: list[str], **kwargs: Any) -> None:
+            captured["cmd"] = cmd
+            stdout = kwargs.get("stdout")
+            captured["stdout"] = stdout
+            captured["stderr"] = kwargs.get("stderr")
+            captured["log_name"] = getattr(stdout, "name", None)
+
+        monkeypatch.setattr(agent_adapter.subprocess, "Popen", fake_popen)
+
+        agent_adapter._launch_summarizer_if_pending(vault)
+
+        assert captured["log_name"] == str(log_dir / "parsidion-summarizer.log")
+        # Both streams land in the one durable file — stderr is merged.
+        assert captured["stderr"] is subprocess.STDOUT
+        assert captured["stdout"] is not subprocess.DEVNULL
+        assert captured["cmd"][:3] == ["uv", "run", "--no-project"]
+        assert captured["cmd"][-1].endswith("summarize_sessions.py")
+        assert (log_dir / "parsidion-summarizer.log").exists()
+
+    def test_unwritable_log_skips_launch_without_raising(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "pending_summaries.jsonl").write_text(
+            '{"session_id": "s1", "transcript_path": "/tmp/x.jsonl"}\n',
+            encoding="utf-8",
+        )
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        # A directory at the log path forces open() to fail with IsADirectoryError.
+        (log_dir / "parsidion-summarizer.log").mkdir()
+        monkeypatch.setattr(agent_adapter, "secure_log_dir", lambda: log_dir)
+
+        def no_popen(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Popen must not be called when the log is unwritable")
+
+        monkeypatch.setattr(agent_adapter.subprocess, "Popen", no_popen)
+
+        # Must not raise; launch is simply skipped this cycle (retried at the
+        # next session end while the queue still meets the threshold).
+        agent_adapter._launch_summarizer_if_pending(vault)
