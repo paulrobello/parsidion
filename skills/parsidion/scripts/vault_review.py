@@ -673,24 +673,24 @@ def main() -> None:
             if args.list:
                 _cmd_list()
                 return
-    
+
             if args.clear:
                 _cmd_clear(vault_path=vault_path)
                 return
-    
+
             # Auto-migrate on every startup (silent — fixes old entries in-place)
             vault_common.migrate_pending_paths(dry_run=False, vault=vault_path)
-    
+
             # Check for pending sessions before attempting curses
             entries = _read_entries()
             if not entries:
                 print("No pending sessions.")
                 return
-    
+
             # Try curses; fall back to --list mode if terminal doesn't support it
             try:
                 import curses
-    
+
                 curses.wrapper(lambda stdscr: _run_tui(stdscr, vault_path=vault_path))
             except Exception:  # noqa: BLE001
                 print(
@@ -698,7 +698,7 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 _cmd_list()
-    
+
         except KeyboardInterrupt:
             print("\nInterrupted.", file=sys.stderr)
             sys.exit(0)

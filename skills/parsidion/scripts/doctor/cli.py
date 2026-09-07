@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 import vault_common
+from vault_path import active_vault_scope
 import vault_fs
 
 from doctor._state import (
@@ -334,91 +335,86 @@ def main() -> None:
     globals()["_vault_path"] = _state._vault_path
     vault_common.apply_configured_env_defaults(vault=_state._vault_path)
 
-    # QA-001/QA-003: Restore VAULT_ROOT on exit to prevent cross-contamination
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = _state._vault_path
-    # ARC-001: clear caches so lru_cache-memoized load_config() and
-    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
-    vault_common.clear_config_cache()
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
+    # calls in helper code land on the resolved vault without patching the
+    # module global (branch 4 of resolve_vault reads that patch only to
+    # warn). The scope flushes the config cache on both boundaries. The
+    # doctor's own _state._vault_path mechanism (tests patch
+    # vault_doctor._vault_path) stays as-is.
+    with active_vault_scope(_state._vault_path):
+        # Load persistent state
+        state = (
+            load_state(_state._vault_path)
+            if not args.no_state
+            else {"last_run": None, "notes": {}}
+        )
 
-    def _restore_vault_root() -> None:
-        vault_common.VAULT_ROOT = original_vault_root
-        # ARC-001: flush caches on restore so subsequent code sees the original vault.
-        vault_common.clear_config_cache()
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        # Singleton guard — only one doctor may run at a time.
+        # SEC-016: the old PID-JSON read-check-write was unlocked (two doctors
+        # could both pass the check before either wrote its pid), and
+        # is_process_running's True-on-PermissionError let a stale `pid: 1`
+        # block doctor runs forever. flock is released by the kernel when the
+        # holder dies, so there is no stale-PID state to recover from at all.
+        doctor_lock_fd = vault_fs.try_singleton_lock(
+            _state._vault_path / ".doctor.lock"
+        )
+        if doctor_lock_fd is None:
+            print("vault_doctor is already running. Exiting.", file=sys.stderr)
+            sys.exit(1)
+        atexit.register(vault_fs.release_singleton_lock, doctor_lock_fd)
 
-    atexit.register(_restore_vault_root)
+        # --fix-all implies every fix-mode flag + execute.  Adding a new mode is
+        # one line here + its argparse declaration + its entry in _build_fix_modes;
+        # the dispatch loop in run_fix_modes picks it up automatically.
+        if args.fix_all:
+            args.fix_frontmatter = True
+            args.fix_tags = True
+            args.strip_prefixes = True
+            args.migrate_subfolders = True
+            args.migrate_daily_notes = True
+            args.fix_permissions = True
+            args.execute = True
 
-    # Load persistent state
-    state = (
-        load_state(_state._vault_path)
-        if not args.no_state
-        else {"last_run": None, "notes": {}}
-    )
+        # Per-mode dispatch via the registry.  Standalone modes (selected without
+        # --fix-all) run once and skip scan-and-repair; --fix-all runs every
+        # selected mode in sequence and then falls through to scan-and-repair.
+        # ENH-015: --only/--skip filter the registry by rule name, and deselecting
+        # frontmatter-repair switches off the AI repair stage below.
+        enabled = select_rules(args.only, args.skip)
+        modes = _build_fix_modes(args)
+        if enabled is not None:
+            rule_for_flag = {
+                spec.target: spec.name for spec in RULE_SPECS if spec.kind == "mode"
+            }
+            modes = tuple(
+                m for m in modes if rule_enabled(enabled, rule_for_flag[m.flag])
+            )
+        standalone_ran = run_fix_modes(modes, args, _state._vault_path)
+        if standalone_ran:
+            # Standalone-mode runs never reach scan-and-repair, so the
+            # end-of-run report (and its deselected line) is printed here.
+            deselected = deselected_rules(enabled)
+            if deselected:
+                print(f"\nDeselected by --only/--skip: {', '.join(deselected)}")
+            return
 
-    # Singleton guard — only one doctor may run at a time.
-    # SEC-016: the old PID-JSON read-check-write was unlocked (two doctors
-    # could both pass the check before either wrote its pid), and
-    # is_process_running's True-on-PermissionError let a stale `pid: 1`
-    # block doctor runs forever. flock is released by the kernel when the
-    # holder dies, so there is no stale-PID state to recover from at all.
-    doctor_lock_fd = vault_fs.try_singleton_lock(_state._vault_path / ".doctor.lock")
-    if doctor_lock_fd is None:
-        print("vault_doctor is already running. Exiting.", file=sys.stderr)
-        sys.exit(1)
-    atexit.register(vault_fs.release_singleton_lock, doctor_lock_fd)
-
-    # --fix-all implies every fix-mode flag + execute.  Adding a new mode is
-    # one line here + its argparse declaration + its entry in _build_fix_modes;
-    # the dispatch loop in run_fix_modes picks it up automatically.
-    if args.fix_all:
-        args.fix_frontmatter = True
-        args.fix_tags = True
-        args.strip_prefixes = True
-        args.migrate_subfolders = True
-        args.migrate_daily_notes = True
-        args.fix_permissions = True
-        args.execute = True
-
-    # Per-mode dispatch via the registry.  Standalone modes (selected without
-    # --fix-all) run once and skip scan-and-repair; --fix-all runs every
-    # selected mode in sequence and then falls through to scan-and-repair.
-    # ENH-015: --only/--skip filter the registry by rule name, and deselecting
-    # frontmatter-repair switches off the AI repair stage below.
-    enabled = select_rules(args.only, args.skip)
-    modes = _build_fix_modes(args)
-    if enabled is not None:
-        rule_for_flag = {
-            spec.target: spec.name for spec in RULE_SPECS if spec.kind == "mode"
-        }
-        modes = tuple(m for m in modes if rule_enabled(enabled, rule_for_flag[m.flag]))
-    standalone_ran = run_fix_modes(modes, args, _state._vault_path)
-    if standalone_ran:
-        # Standalone-mode runs never reach scan-and-repair, so the
-        # end-of-run report (and its deselected line) is printed here.
-        deselected = deselected_rules(enabled)
-        if deselected:
-            print(f"\nDeselected by --only/--skip: {', '.join(deselected)}")
-        return
-
-    run_scan_and_repair(
-        _state._vault_path,
-        state,
-        notes=list(args.notes),
-        options=DoctorOptions(
-            dry_run=args.dry_run,
-            fix_frontmatter=(
-                args.fix_frontmatter and rule_enabled(enabled, "frontmatter-repair")
+        run_scan_and_repair(
+            _state._vault_path,
+            state,
+            notes=list(args.notes),
+            options=DoctorOptions(
+                dry_run=args.dry_run,
+                fix_frontmatter=(
+                    args.fix_frontmatter and rule_enabled(enabled, "frontmatter-repair")
+                ),
+                fix_sessions=args.fix_sessions,
+                errors_only=args.errors_only,
+                no_state=args.no_state,
+                model=args.model,
+                limit=args.limit,
+                jobs=args.jobs,
+                timeout=args.timeout,
+                fix_headings=args.fix_headings,
+                enabled_rules=enabled,
             ),
-            fix_sessions=args.fix_sessions,
-            errors_only=args.errors_only,
-            no_state=args.no_state,
-            model=args.model,
-            limit=args.limit,
-            jobs=args.jobs,
-            timeout=args.timeout,
-            fix_headings=args.fix_headings,
-            enabled_rules=enabled,
-        ),
-    )
+        )

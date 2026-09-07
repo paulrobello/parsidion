@@ -163,15 +163,16 @@ def _active_vault() -> Path:
 
     Single resolution point: prefers the module-level ``_vault_path`` set by
     ``main()`` (or by tests via monkeypatch on the vault_doctor shim), falling
-    back to ``vault_common.VAULT_ROOT``.  Replaces the repeated inline ternary
-    ``_vault_path if _vault_path else vault_common.VAULT_ROOT``.
+    back to ``resolve_vault()`` (which honors the entry point's
+    ``active_vault_scope`` and the CLAUDE_VAULT env pin). Replaces the earlier
+    fallback chain that ended in the deprecated mutable ``VAULT_ROOT`` global.
     """
     shim_vp = _resolve_shim_vault_path()
     if shim_vp is not None:
         return shim_vp
     if _vault_path is not None:
         return _vault_path
-    return vault_common.VAULT_ROOT  # type: ignore[no-any-return]
+    return vault_common.resolve_vault()
 
 
 def _get_state_file(vault_path: Path) -> Path:

@@ -44,6 +44,7 @@ except ImportError:
     sys.exit(1)
 
 import vault_common
+from vault_path import active_vault_scope
 import vault_metrics
 
 _DEFAULT_MODEL: str = "BAAI/bge-small-en-v1.5"
@@ -270,6 +271,7 @@ def embed_and_write(
     model_name: str,
     conn: sqlite3.Connection,
     dry_run: bool,
+    vault_root: Path,
     clear_existing: bool = False,
 ) -> int:
     """Embed a batch of notes and write them to the database.
@@ -279,6 +281,7 @@ def embed_and_write(
         model_name: fastembed model ID to use.
         conn: Open database connection.
         dry_run: If True, print actions without writing.
+        vault_root: Vault the notes belong to (folder column derivation).
         clear_existing: If True, delete all existing rows in the same
             transaction as the inserts (used by full rebuild).
 
@@ -327,11 +330,7 @@ def embed_and_write(
             # format written by update_index.py for consistent LIKE matching.
             tags_str = ", ".join(sorted(str(t) for t in tags)) if tags else ""
             title = _note_title(note_path, content)
-            folder = (
-                note_path.parent.name
-                if note_path.parent != vault_common.VAULT_ROOT
-                else ""
-            )
+            folder = note_path.parent.name if note_path.parent != vault_root else ""
             try:
                 mtime = note_path.stat().st_mtime
             except OSError:
@@ -460,7 +459,12 @@ def full_rebuild(vault_root: Path, model_name: str, dry_run: bool) -> None:
     # embedding model has loaded, so a model-load/network failure cannot
     # leave the semantic index permanently empty.
     written = embed_and_write(
-        notes, model_name, conn, dry_run=False, clear_existing=True
+        notes,
+        model_name,
+        conn,
+        dry_run=False,
+        vault_root=vault_root,
+        clear_existing=True,
     )
     conn.close()
     print(f"Full rebuild: embedded {written} notes")
@@ -537,7 +541,9 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
 
     print(f"{changed_count} changed, {new_count} new, {len(deleted_stems)} deleted")
 
-    written = embed_and_write(to_embed, model_name, conn, dry_run)
+    written = embed_and_write(
+        to_embed, model_name, conn, dry_run, vault_root=vault_root
+    )
     conn.close()
 
     if not dry_run and written:
@@ -633,15 +639,11 @@ def main() -> None:
                 )
                 args.incremental = False
 
-    # QA-001: Replace VAULT_ROOT with try/finally restore pattern
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = vault_path
-    # ARC-001: clear caches so lru_cache-memoized load_config() and
-    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
-    vault_common.clear_config_cache()
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-
-    try:
+    # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
+    # calls in helper code land on the resolved vault without patching the
+    # module global (branch 4 of resolve_vault reads that patch only to
+    # warn). The scope flushes the config cache on both boundaries.
+    with active_vault_scope(vault_path):
         start = time.time()
         if args.incremental:
             incremental_update(vault_path, args.model, args.dry_run)
@@ -651,11 +653,6 @@ def main() -> None:
         elapsed = time.time() - start
         if not args.dry_run:
             print(f"Done in {elapsed:.1f}s using {args.model}")
-    finally:
-        vault_common.VAULT_ROOT = original_vault_root
-        # ARC-001: flush caches on restore so subsequent code sees the original vault.
-        vault_common.clear_config_cache()
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":

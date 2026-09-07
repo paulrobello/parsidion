@@ -591,11 +591,13 @@ def _resolve_vault_reference(reference: str) -> Path:
     )
 
 
-_active_vault: ContextVar[Path | None] = ContextVar("parsidion_active_vault", default=None)
+_active_vault: ContextVar[Path | None] = ContextVar(
+    "parsidion_active_vault", default=None
+)
 
 
 @contextmanager
-def active_vault_scope(vault: Path | str) -> Generator[Path, None, None]:
+def active_vault_scope(vault: Path | str) -> Generator[Path]:
     """Scope argument-less ``resolve_vault()`` calls to *vault* (ARC-001).
 
     CLI entry points resolve ``--vault`` once and enter this scope instead of

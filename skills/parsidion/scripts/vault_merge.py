@@ -562,11 +562,11 @@ def main() -> None:
                     print(f"Error: {exc}", file=sys.stderr)
                     sys.exit(1)
                 return
-    
+
             # Require NOTE_A and NOTE_B when not scanning
             if not args.note_a or not args.note_b:
                 parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
-    
+
             # Resolve notes. SEC-011: LookupError means the query resolved to an
             # existing path outside the vault — refuse rather than merge it.
             try:
@@ -577,7 +577,7 @@ def main() -> None:
             if path_a is None:
                 print(f"Error: note not found: {args.note_a}", file=sys.stderr)
                 sys.exit(1)
-    
+
             try:
                 path_b = _find_note(args.note_b, vault_path)
             except LookupError as exc:
@@ -586,11 +586,11 @@ def main() -> None:
             if path_b is None:
                 print(f"Error: note not found: {args.note_b}", file=sys.stderr)
                 sys.exit(1)
-    
+
             if path_a.resolve() == path_b.resolve():
                 print("Error: NOTE_A and NOTE_B are the same file.", file=sys.stderr)
                 sys.exit(1)
-    
+
             # Only the mutating (--execute, non-dry-run) path needs to serialize
             # against other invocations; a preview is read-only w.r.t. the vault
             # notes themselves (it only ever writes to its own cache file).
@@ -601,12 +601,12 @@ def main() -> None:
             with lock_cm:
                 content_a = path_a.read_text(encoding="utf-8")
                 content_b = path_b.read_text(encoding="utf-8")
-    
+
                 # Show diff summary
                 _print_diff_summary(
                     path_a, content_a, path_b, content_b, vault_path=vault_path
                 )
-    
+
                 precomputed_ai_body: str | None = None
                 if is_execute and args.from_preview:
                     precomputed_ai_body = _load_fresh_preview(
@@ -624,7 +624,7 @@ def main() -> None:
                             "back to a fresh AI merge.",
                             file=sys.stderr,
                         )
-    
+
                 # Build merged content
                 ai_body_out: dict[str, str] = {}
                 try:
@@ -646,7 +646,7 @@ def main() -> None:
                         file=sys.stderr,
                     )
                     sys.exit(1)
-    
+
                 if args.dry_run or not args.execute:
                     print("=== Proposed merged content ===\n")
                     print(merged)
@@ -667,7 +667,7 @@ def main() -> None:
                     if not args.execute:
                         print("(dry-run — pass --execute to apply changes)")
                     return
-    
+
                 # --execute: write merged note via sibling tmp + atomic replace so a
                 # kill mid-write can never leave the keeper truncated. NOTE_B is only
                 # trashed after the replace succeeds.
@@ -687,7 +687,7 @@ def main() -> None:
                     tmp_path.unlink(missing_ok=True)
                     raise
                 print(f"Merged note written to: {output_path}")
-    
+
                 # Move NOTE_B to .trash/
                 trash_dir = vault_path / ".trash"
                 trash_dir.mkdir(exist_ok=True)
@@ -695,12 +695,14 @@ def main() -> None:
                 # Avoid clobbering existing trash file
                 if trash_dest.exists():
                     suffix = 1
-                    while (trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}").exists():
+                    while (
+                        trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
+                    ).exists():
                         suffix += 1
                     trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
                 shutil.move(str(path_b), str(trash_dest))
                 print(f"Moved {path_b.name} to .trash/")
-    
+
                 # Update wikilinks
                 n_updated = _update_wikilinks_in_vault(
                     path_b.stem, output_path.stem, vault_path
@@ -709,20 +711,20 @@ def main() -> None:
                     print(
                         f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
                     )
-    
+
                 # This pair's cached preview (if any) has now been applied.
                 _delete_preview(vault_path, path_a, path_b)
-    
+
                 # Commit
                 vault_common.git_commit_vault(
                     f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
                     vault=vault_path,
                 )
-    
+
                 # Rebuild index
                 if not args.no_index:
                     _rebuild_index()
-    
+
         except KeyboardInterrupt:
             print("\nInterrupted.", file=sys.stderr)
             sys.exit(0)

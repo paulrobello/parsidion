@@ -18,7 +18,7 @@ from typing import Any
 
 import vault_common
 from prompt_templates import render
-from vault_path import is_path_inside_vault
+from vault_path import active_vault_scope, is_path_inside_vault
 
 # SEC-020: one stderr note per process when DB-sourced paths get skipped.
 _skipped_outside_warned = False
@@ -519,18 +519,13 @@ def main() -> None:
 
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=str(Path.cwd()))
 
-    # QA-001/ARC-001: swap VAULT_ROOT so lru-cached resolvers observe the new root.
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = vault_path
     vault_common.apply_configured_env_defaults(vault=vault_path)
-    vault_common.clear_config_cache()
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    try:
+
+    # ARC-001: the scope covers exactly the span the old patch spanned (the
+    # scan): argument-less resolve_vault() calls in scan helpers land on the
+    # resolved vault, and the config cache is flushed on both boundaries.
+    with active_vault_scope(vault_path):
         conflicts = _run_scan(vault_path, args.threshold, args.top, no_ai=args.no_ai)
-    finally:
-        vault_common.VAULT_ROOT = original_vault_root
-        vault_common.clear_config_cache()
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
     if args.json:
         print(json.dumps(conflicts, indent=2))
