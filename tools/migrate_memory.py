@@ -28,8 +28,8 @@ from _migrate_common import (
     write_note_file,
 )
 from vault_common import (
-    VAULT_ROOT,
     ensure_vault_dirs,
+    resolve_vault,
     serialize_frontmatter,
     slugify,
 )
@@ -401,7 +401,7 @@ def _process_memory_file(
         name_parts.append(section.heading)
         filename: str = slugify("-".join(name_parts)) + ".md"
 
-        dest: Path = VAULT_ROOT / vault_folder / filename
+        dest: Path = resolve_vault() / vault_folder / filename
         dest = _resolve_dest_collision(dest)
 
         note_content: str = _build_note_content(
@@ -456,7 +456,7 @@ def _print_report(
                 except ValueError:
                     src_rel = str(note.source)
                 try:
-                    dst_rel: str = str(note.dest.relative_to(VAULT_ROOT))
+                    dst_rel: str = str(note.dest.relative_to(resolve_vault()))
                 except ValueError:
                     dst_rel = str(note.dest)
 
@@ -588,7 +588,9 @@ def main() -> None:
 
         print("Writing vault notes...")
         written: int = _execute_migration(all_notes, sources_to_backup)
-        print(f"\nMigration complete. {written} vault notes written to {VAULT_ROOT}")
+        print(
+            f"\nMigration complete. {written} vault notes written to {resolve_vault()}"
+        )
 
 
 if __name__ == "__main__":

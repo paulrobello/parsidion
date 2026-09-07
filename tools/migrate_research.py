@@ -27,10 +27,10 @@ from _migrate_common import (
     write_note_file,
 )
 from vault_common import (
-    VAULT_ROOT,
     ensure_vault_dirs,
     get_body,
     parse_frontmatter,
+    resolve_vault,
     serialize_frontmatter,
     slugify,
 )
@@ -329,7 +329,7 @@ def _discover_single_files() -> list[MigrationEntry]:
             continue
 
         dest_name: str = _dest_filename(stem)
-        dst: Path = VAULT_ROOT / vault_folder / dest_name
+        dst: Path = resolve_vault() / vault_folder / dest_name
 
         entry = MigrationEntry(
             src=item,
@@ -392,14 +392,14 @@ def _discover_directory_files() -> list[MigrationEntry]:
                     if len(rel.parts) > 1:
                         intermediate: Path = Path(*rel.parts[:-1])
                         dst = (
-                            VAULT_ROOT
+                            resolve_vault()
                             / vault_folder
                             / subdir_name
                             / intermediate
                             / dest_name
                         )
                     else:
-                        dst = VAULT_ROOT / vault_folder / subdir_name / dest_name
+                        dst = resolve_vault() / vault_folder / subdir_name / dest_name
                 else:
                     # Flatten: prefix with source dir name to avoid collisions
                     # For files already prefixed with dir name, don't double-prefix
@@ -429,7 +429,7 @@ def _discover_directory_files() -> list[MigrationEntry]:
                         if dest_name.startswith(slug_dir + "-" + slug_dir + "-"):
                             dest_name = dest_name[len(slug_dir) + 1 :]
 
-                    dst = VAULT_ROOT / vault_folder / dest_name
+                    dst = resolve_vault() / vault_folder / dest_name
 
                 entry = MigrationEntry(
                     src=src_path,
@@ -592,7 +592,7 @@ def _print_report(
             except ValueError:
                 src_rel = str(entry.src)
             try:
-                dst_rel: str = str(entry.dst.relative_to(VAULT_ROOT))
+                dst_rel: str = str(entry.dst.relative_to(resolve_vault()))
             except ValueError:
                 dst_rel = str(entry.dst)
 
@@ -723,7 +723,7 @@ def main() -> None:
     if args.execute:
         print("Writing files to vault...")
         written: int = _execute_migration(entries)
-        print(f"\nMigration complete. {written} files written to {VAULT_ROOT}")
+        print(f"\nMigration complete. {written} files written to {resolve_vault()}")
 
 
 if __name__ == "__main__":

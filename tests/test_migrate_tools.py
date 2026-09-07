@@ -46,7 +46,6 @@ def test_migrate_memory_happy_path(
     monkeypatch.setattr(
         migrate_memory, "PROJECTS_DIR", claude_home / "projects"
     )  # absent -> no per-project dirs discovered
-    monkeypatch.setattr(migrate_memory, "VAULT_ROOT", tmp_vault)
     monkeypatch.setattr(sys, "argv", ["migrate_memory.py", "--execute"])
 
     migrate_memory.main()
@@ -85,7 +84,6 @@ def test_migrate_research_happy_path(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(migrate_research, "VAULT_ROOT", tmp_vault)
     monkeypatch.setattr(
         sys, "argv", ["migrate_research.py", str(research), "--execute"]
     )
