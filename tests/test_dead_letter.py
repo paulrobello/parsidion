@@ -413,12 +413,22 @@ def test_build_dead_letter_notice_swallows_read_errors(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
-    """Point vault_common at *vault* and clear the resolver/config caches."""
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
+def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path, tmp_path: Path) -> None:
+    """Point resolve_vault() at *vault* via the public CLAUDE_VAULT channel.
+
+    SEC-P001: the vault is registered in a test-local vaults.yaml (via
+    XDG_CONFIG_HOME) so the allowlist resolver accepts the reference.
+    """
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
     vault_common.clear_config_cache()
     vault_common._clear_config_cache()
+    cfg_dir = tmp_path / ".config" / "parsidion"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {vault}\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    monkeypatch.setenv("CLAUDE_VAULT", str(vault))
 
 
 def test_dead_letter_notice_included_in_session_context(
@@ -435,7 +445,7 @@ def test_dead_letter_notice_included_in_session_context(
         "  graph_expand: false\n",
         encoding="utf-8",
     )
-    _use_vault(monkeypatch, vault)
+    _use_vault(monkeypatch, vault, tmp_path)
     monkeypatch.setattr(
         session_start_hook,
         "find_notes_by_project",
@@ -475,7 +485,7 @@ def test_dead_letter_notice_suppressed_by_default(
         "  graph_expand: false\n",
         encoding="utf-8",
     )
-    _use_vault(monkeypatch, vault)
+    _use_vault(monkeypatch, vault, tmp_path)
     monkeypatch.setattr(
         session_start_hook,
         "find_notes_by_project",
@@ -510,7 +520,7 @@ def test_no_dead_letter_notice_when_file_absent(
         "  graph_expand: false\n",
         encoding="utf-8",
     )
-    _use_vault(monkeypatch, vault)
+    _use_vault(monkeypatch, vault, tmp_path)
     monkeypatch.setattr(
         session_start_hook,
         "find_notes_by_project",
@@ -561,7 +571,7 @@ def test_selected_vault_config_loaded_under_different_cwd(
         encoding="utf-8",
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", default_vault)
+    monkeypatch.setenv("CLAUDE_VAULT", str(default_vault))
 
     # Set up project directory pointing to project_vault
     project_dir = tmp_path / "my_project"

@@ -33,10 +33,8 @@ vault_stats = importlib.import_module("vault_stats")
 
 
 @pytest.fixture(autouse=True)
-def _patch_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_path)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+def _patch_vault(tmp_vault: Path) -> None:
+    """Redirect resolve_vault() to the tmp vault via the public CLAUDE_VAULT channel."""
 
 
 @pytest.fixture()

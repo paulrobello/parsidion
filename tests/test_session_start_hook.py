@@ -633,12 +633,22 @@ class TestBuildForksSection:
 # ---------------------------------------------------------------------------
 
 
-def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path) -> None:
-    """Point vault_common at *vault* and clear the resolver/config caches."""
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", vault)
+def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path, tmp_path: Path) -> None:
+    """Point resolve_vault() at *vault* via the public CLAUDE_VAULT channel.
+
+    SEC-P001: the vault is registered in a test-local vaults.yaml (via
+    XDG_CONFIG_HOME) so the allowlist resolver accepts the reference.
+    """
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
     vault_common.clear_config_cache()
     vault_common._clear_config_cache()
+    cfg_dir = tmp_path / ".config" / "parsidion"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "vaults.yaml").write_text(
+        f"vaults:\n  test: {vault}\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    monkeypatch.setenv("CLAUDE_VAULT", str(vault))
 
 
 def _make_note_index(vault: Path) -> sqlite3.Connection:
@@ -707,20 +717,20 @@ class TestLoadGraphMetadata:
     def test_returns_none_when_db_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _use_vault(monkeypatch, tmp_path)
+        _use_vault(monkeypatch, tmp_path, tmp_path)
         assert session_start_hook.load_graph_metadata() is None
 
     def test_returns_none_when_table_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _use_vault(monkeypatch, tmp_path)
+        _use_vault(monkeypatch, tmp_path, tmp_path)
         sqlite3.connect(str(tmp_path / "embeddings.db")).close()
         assert session_start_hook.load_graph_metadata() is None
 
     def test_loads_related_incoming_links_and_tags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _use_vault(monkeypatch, tmp_path)
+        _use_vault(monkeypatch, tmp_path, tmp_path)
         conn = _make_note_index(tmp_path)
         _index_row(
             conn,
@@ -892,7 +902,7 @@ class TestGraphExpansionIntegration:
             "  graph_rerank: false\n",
             encoding="utf-8",
         )
-        _use_vault(monkeypatch, vault)
+        _use_vault(monkeypatch, vault, tmp_path)
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
@@ -1063,7 +1073,7 @@ class TestGraphRerankIntegration:
             "  graph_rerank: true\n",
             encoding="utf-8",
         )
-        _use_vault(monkeypatch, vault)
+        _use_vault(monkeypatch, vault, tmp_path)
         monkeypatch.setattr(
             session_start_hook,
             "find_notes_by_project",
@@ -1136,7 +1146,7 @@ def _setup_graph_vault(
         mtime=2_000_000_000.0,
     )
     conn.close()
-    _use_vault(monkeypatch, vault)
+    _use_vault(monkeypatch, vault, tmp_path)
     return vault, proj, nbr, recent
 
 
@@ -1208,7 +1218,7 @@ class TestBuildCandidatesGraphEnrichment:
             mtime=2_000_000_000.0,  # recent -> already in base
         )
         conn.close()
-        _use_vault(monkeypatch, vault)
+        _use_vault(monkeypatch, vault, tmp_path)
         meta = session_start_hook.load_graph_metadata()
         result = session_start_hook._build_candidates(
             "vault", vault, graph_meta=meta, graph_expand_max=8
@@ -1778,7 +1788,7 @@ class TestSessionIndexSnapshot:
         vault -- so pin the two against each other on a fresh index.
         """
         vault = self._vault_with_rows(tmp_path)
-        _use_vault(monkeypatch, vault)
+        _use_vault(monkeypatch, vault, tmp_path)
         # Re-index against the real file mtimes rather than the fixture's
         # synthetic ones, so the two sources are directly comparable.
         conn = _make_note_index(vault)
@@ -1821,7 +1831,7 @@ class TestSessionIndexSnapshot:
         metadata, and another load inside build_compact_index).
         """
         vault = self._vault_with_rows(tmp_path)
-        _use_vault(monkeypatch, vault)
+        _use_vault(monkeypatch, vault, tmp_path)
         monkeypatch.setattr(
             session_start_hook, "_run_semantic_search", lambda *a, **k: []
         )

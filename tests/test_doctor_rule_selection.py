@@ -74,19 +74,17 @@ def _write_note(vault: Path, rel: str, body: str = "") -> Path:
 
 
 def _run_cli(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
-    """Invoke doctor.cli.main() with in-process state restored afterwards.
+    """Invoke doctor.cli.main() with in-process caches cleared afterwards.
 
-    main() swaps the process-wide ``vault_common.VAULT_ROOT`` and clears the
-    ``resolve_vault``/``load_config`` caches, restoring them only via atexit
-    (process end). Without this finally block the tmp-vault resolution stays
-    cached and pollutes every later vault-resolution test in the session.
+    main() resolves the vault through the SEC-P001 allowlist and enters an
+    ``active_vault_scope`` (ARC-001), so it leaves no process-wide residue.
+    The trailing cache clears keep any resolution cached during the run
+    from polluting later vault-resolution tests in the session.
     """
     monkeypatch.setattr(sys, "argv", ["vault_doctor", *argv])
-    saved_root = vault_doctor.vault_common.VAULT_ROOT
     try:
         doctor_cli.main()
     finally:
-        vault_doctor.vault_common.VAULT_ROOT = saved_root
         vault_doctor.vault_common.clear_config_cache()
         vault_doctor.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
