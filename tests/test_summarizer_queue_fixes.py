@@ -369,7 +369,7 @@ def test_merge_with_unresolvable_target_fails_with_real_reason(
     # The generic write path must never be reached with raw decision JSON
     monkeypatch.setattr(
         _pipeline_module(),
-        "write_note",
+        "write_note_with_reason",
         lambda *a, **k: pytest.fail("fell through to generic write path"),
     )
 
@@ -400,7 +400,7 @@ def test_merge_with_missing_fields_fails_with_real_reason(
     entry = _prepare_merge_test(mod, monkeypatch, tmp_path, {"decision": "merge"})
     monkeypatch.setattr(
         _pipeline_module(),
-        "write_note",
+        "write_note_with_reason",
         lambda *a, **k: pytest.fail("fell through to generic write path"),
     )
 
