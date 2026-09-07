@@ -170,6 +170,15 @@ GRAPH_JSON_SCHEMA: dict = {
                         "minimum": 0,
                         "description": "Note modification time as a unix timestamp.",
                     },
+                    "status": {
+                        "type": "string",
+                        "enum": ["live", "superseded"],
+                        "description": (
+                            "Supersession state. Absent means live (pre-feature "
+                            "incremental graphs may carry status-less carried-over "
+                            "nodes; the next full rebuild populates every node)."
+                        ),
+                    },
                 },
             },
         },
@@ -308,16 +317,32 @@ def get_vault_root(args: argparse.Namespace) -> Path:
 def load_note_metadata(conn: sqlite3.Connection, include_daily: bool) -> list[dict]:
     """Load all rows from note_index table."""
     cursor = conn.cursor()
+    # Supersession: the status column is absent on pre-migration indexes;
+    # select a literal 'live' there so the graph build never fails on an
+    # old embeddings.db.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
+    status_sel = "status" if "status" in cols else "'live' AS status"
     cursor.execute(
-        """
-        SELECT stem, title, note_type, folder, tags, incoming_links, related, mtime, path
+        f"""
+        SELECT stem, title, note_type, folder, tags, incoming_links, related, mtime, path, {status_sel}
         FROM note_index
         """
     )
     rows = cursor.fetchall()
     notes = []
     for row in rows:
-        stem, title, note_type, folder, tags, incoming_links, related, mtime, path = row
+        (
+            stem,
+            title,
+            note_type,
+            folder,
+            tags,
+            incoming_links,
+            related,
+            mtime,
+            path,
+            status,
+        ) = row
         if not include_daily and folder == "Daily":
             continue
         notes.append(
@@ -331,6 +356,7 @@ def load_note_metadata(conn: sqlite3.Connection, include_daily: bool) -> list[di
                 "related": related or "",
                 "mtime": mtime or 0,
                 "path": path or "",
+                "status": status or "live",
             }
         )
     return notes
@@ -996,6 +1022,7 @@ def main() -> None:
                 "tags": parse_tags(note["tags"]),
                 "incoming_links": note["incoming_links"],
                 "mtime": note["mtime"],
+                "status": note.get("status", "live"),
             }
         )
 

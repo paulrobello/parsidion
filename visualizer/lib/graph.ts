@@ -7,6 +7,8 @@ export interface NoteNode {
   tags: string[]
   incoming_links: number
   mtime: number
+  /** Supersession state; absent means live (pre-feature incremental graphs). */
+  status?: 'live' | 'superseded'
 }
 
 export interface GraphEdge {

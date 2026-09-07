@@ -19,6 +19,7 @@ from pathlib import Path
 from .vault_config import get_config
 from .vault_index import _FRONTMATTER_RE, all_vault_notes_walk, parse_frontmatter
 from .vault_path import get_embeddings_db_path, resolve_vault
+from note_schema import STATUS_SUPERSEDED
 
 __all__ = [
     "find_related_by_tags",
@@ -343,6 +344,9 @@ def find_related_by_tags(
             continue
 
         fm = parse_frontmatter(content)
+        # Supersession: retired notes are never suggested as related.
+        if fm.get("status") == STATUS_SUPERSEDED:
+            continue
         existing_tags = fm.get("tags")
         if not isinstance(existing_tags, list):
             continue
@@ -640,6 +644,14 @@ def add_backlinks_to_existing(
         stem = stem_match.group(1)
         target_path = stem_index.get(stem)
         if target_path is None or target_path == new_note_path:
+            continue
+        # Supersession: never mutate a retired note's frontmatter with new
+        # backlinks — it stays frozen pointing at its replacement.
+        try:
+            target_fm = parse_frontmatter(target_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if target_fm.get("status") == STATUS_SUPERSEDED:
             continue
         inject_related_links(target_path, [new_link])
         modified.append(target_path)

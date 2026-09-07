@@ -316,6 +316,7 @@ class TestTypeScriptInterfaceParity:
             "tags",
             "incoming_links",
             "mtime",
+            "status",
         }
 
     def test_graph_edge_fields_and_kind_union(self) -> None:

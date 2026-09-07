@@ -150,6 +150,30 @@ def fetch_all(
 # ---------------------------------------------------------------------------
 
 
+def _live_filter(conn: sqlite3.Connection) -> str:
+    """SQL fragment excluding superseded notes when the status column exists.
+
+    An empty string on pre-migration indexes (nothing can be retired yet), so
+    analytics never break on an old embeddings.db.
+    """
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
+        return " AND status != 'superseded'" if "status" in cols else ""
+    except sqlite3.Error:
+        return ""
+
+
+def collect_superseded_count(conn: sqlite3.Connection) -> int:
+    """Number of retired notes (0 on pre-migration indexes)."""
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM note_index WHERE status = 'superseded'"
+        ).fetchone()
+        return int(row[0]) if row is not None else 0
+    except sqlite3.Error:
+        return 0
+
+
 def collect_summary(conn: sqlite3.Connection) -> dict:
     """Return note counts by folder and by type.
 
@@ -161,16 +185,22 @@ def collect_summary(conn: sqlite3.Connection) -> dict:
         by_type (list of {note_type, n}).
     """
     total = fetch_all(conn, "SELECT COUNT(*) AS n FROM note_index")[0]["n"]
+    superseded = collect_superseded_count(conn)
     folder_rows = fetch_all(
         conn,
-        "SELECT folder, COUNT(*) AS n FROM note_index GROUP BY folder ORDER BY n DESC",
+        "SELECT folder, COUNT(*) AS n FROM note_index"
+        + _live_filter(conn)
+        + " GROUP BY folder ORDER BY n DESC",
     )
     type_rows = fetch_all(
         conn,
-        "SELECT note_type, COUNT(*) AS n FROM note_index GROUP BY note_type ORDER BY n DESC",
+        "SELECT note_type, COUNT(*) AS n FROM note_index"
+        + _live_filter(conn)
+        + " GROUP BY note_type ORDER BY n DESC",
     )
     return {
         "total": total,
+        "superseded": superseded,
         "by_folder": [dict(r) for r in folder_rows],
         "by_type": [dict(r) for r in type_rows],
     }
@@ -187,7 +217,8 @@ def collect_stale(conn: sqlite3.Connection) -> list[dict]:
     """
     rows = fetch_all(
         conn,
-        "SELECT stem, title, folder, mtime FROM note_index WHERE is_stale = 1 ORDER BY mtime ASC",
+        "SELECT stem, title, folder, mtime FROM note_index"
+        " WHERE is_stale = 1" + _live_filter(conn) + " ORDER BY mtime ASC",
     )
     results = []
     for row in rows:
@@ -221,8 +252,9 @@ def collect_top_linked(conn: sqlite3.Connection, top_n: int = 10) -> list[dict]:
     rows = fetch_all(
         conn,
         "SELECT stem, title, folder, incoming_links FROM note_index "
-        "WHERE incoming_links > 0 "
-        "ORDER BY incoming_links DESC LIMIT ?",
+        "WHERE incoming_links > 0"
+        + _live_filter(conn)
+        + " ORDER BY incoming_links DESC LIMIT ?",
         (top_n,),
     )
     return [dict(r) for r in rows]
@@ -240,8 +272,9 @@ def collect_by_project(conn: sqlite3.Connection) -> dict:
     rows = fetch_all(
         conn,
         "SELECT project, COUNT(*) AS n FROM note_index "
-        "WHERE project != '' "
-        "GROUP BY project ORDER BY n DESC",
+        "WHERE project != ''"
+        + _live_filter(conn)
+        + " GROUP BY project ORDER BY n DESC",
     )
     untagged = fetch_all(
         conn,

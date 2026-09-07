@@ -28,8 +28,15 @@ def run_summary(conn: sqlite3.Connection) -> None:
     data = vault_metrics.collect_summary(conn)
     console = _get_console()
 
+    superseded_note = (
+        f" · {data['superseded']} superseded (excluded from retrieval)"
+        if data.get("superseded")
+        else ""
+    )
     console.print(
-        f"\n[bold cyan]Vault Summary[/bold cyan] — {data['total']} notes total\n"
+        f"\n[bold cyan]Vault Summary[/bold cyan] — {data['total']} notes total"
+        + superseded_note
+        + "\n"
     )
 
     t = Table(title="Notes by Folder", box=box.SIMPLE_HEAD, show_lines=False)

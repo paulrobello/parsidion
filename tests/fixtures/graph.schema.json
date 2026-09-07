@@ -124,6 +124,14 @@
             "description": "Vault-relative path to the note file.",
             "type": "string"
           },
+          "status": {
+            "description": "Supersession state. Absent means live (pre-feature incremental graphs may carry status-less carried-over nodes; the next full rebuild populates every node).",
+            "enum": [
+              "live",
+              "superseded"
+            ],
+            "type": "string"
+          },
           "tags": {
             "items": {
               "type": "string"
