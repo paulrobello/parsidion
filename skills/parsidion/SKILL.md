@@ -92,6 +92,7 @@ Saving after a successful solve is as important as searching before. Every unsav
 ├── Tools/               # CLI tools, libraries, packages
 ├── Research/            # Deep-dive research documents
 ├── Knowledge/           # General knowledge, concepts, reference material
+├── Rules/               # Trigger-scoped behavioral rules (auto-injected on match)
 ├── History/             # Historical notes
 └── Templates/           # Symlinked to skill templates (read-only)
 ```
@@ -142,6 +143,7 @@ Research/
 | CLI tools, libraries, package notes | `Tools/` |
 | Long-form research and analysis | `Research/` |
 | General knowledge, concepts, reference material | `Knowledge/` |
+| Behavioral rules auto-injected when a prompt/file trigger matches | `Rules/` |
 | Per-project decisions, architecture, key paths | `Projects/` |
 | Daily session summaries | `Daily/YYYY-MM/DD-{username}.md` (e.g. `Daily/2026-03/13-probello.md`; username from `vault.username`, default `$USER`) |
 

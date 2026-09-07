@@ -141,6 +141,13 @@ RULE_SPECS: tuple[RuleSpec, ...] = (
         "SUPERSEDED_CONSISTENCY",
     ),
     RuleSpec(
+        "rule-triggers",
+        "check",
+        "safe",
+        "type: rule notes carry valid triggers; triggers only on rule notes",
+        "RULE_TRIGGERS",
+    ),
+    RuleSpec(
         "broken-wikilinks",
         "check",
         "safe",

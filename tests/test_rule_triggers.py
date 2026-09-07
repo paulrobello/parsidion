@@ -210,6 +210,41 @@ class TestPromptSubmitInjection:
         )
 
 
+class TestDoctorRule:
+    def test_catalog_lists_the_rule(self) -> None:
+        from doctor.protocol import RULE_SPECS
+
+        assert any(s.name == "rule-triggers" for s in RULE_SPECS)
+
+    def test_check_flags_missing_triggers(self, tmp_vault: Path) -> None:
+        from doctor.check import check_note
+
+        note = _write_rule(vault=tmp_vault, stem="bad-rule", triggers="[]")
+        issues = check_note(note, {}, tmp_vault)
+        assert any(i.code == "RULE_TRIGGERS" for i in issues)
+
+    def test_check_flags_triggers_on_non_rule(self, tmp_vault: Path) -> None:
+        from doctor.check import check_note
+
+        note = _write_rule(
+            vault=tmp_vault,
+            stem="pattern-with-triggers",
+            type_="pattern",
+            triggers="[sqlite]",
+        )
+        issues = check_note(note, {}, tmp_vault)
+        assert any(
+            i.code == "RULE_TRIGGERS" and "not 'rule'" in i.message for i in issues
+        )
+
+    def test_check_clean_for_valid_rule(self, tmp_vault: Path) -> None:
+        from doctor.check import check_note
+
+        note = _write_rule(vault=tmp_vault, stem="good-rule")
+        issues = check_note(note, {}, tmp_vault)
+        assert not [i for i in issues if i.code == "RULE_TRIGGERS"]
+
+
 class TestPreToolUseInjection:
     def _isolate(self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         logs = tmp_vault / "logs"

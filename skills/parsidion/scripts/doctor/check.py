@@ -26,6 +26,7 @@ from note_schema import (
     STATUS_SUPERSEDED,
     _superseded_by_entries,
     validate_status_fields,
+    validate_triggers,
 )
 
 # ---------------------------------------------------------------------------
@@ -436,6 +437,44 @@ PRE_FM_RULES: tuple[Rule, ...] = (
 )
 
 
+def _check_rule_triggers(
+    path: Path, content: str, fm: dict, ctx: NoteCheckContext
+) -> list[Issue]:
+    """RULE_TRIGGERS: ``type: rule`` notes must carry valid triggers.
+
+    A rule note requires a ``triggers`` list (kebab-case keywords, fnmatch
+    path patterns, or ``always`` alone — syntax lives once in
+    ``note_schema.validate_triggers``). A rule with empty or missing
+    triggers can never inject, so it is an error, and ``triggers`` on a
+    non-rule note is a contradiction.
+    """
+    issues: list[Issue] = []
+    triggers = fm.get("triggers")
+    if fm.get("type") == "rule":
+        if triggers is None:
+            issues.append(
+                Issue(
+                    path,
+                    "error",
+                    "RULE_TRIGGERS",
+                    "type: rule requires a triggers list",
+                )
+            )
+        else:
+            for err in validate_triggers(triggers):
+                issues.append(Issue(path, "error", "RULE_TRIGGERS", err))
+    elif triggers is not None:
+        issues.append(
+            Issue(
+                path,
+                "error",
+                "RULE_TRIGGERS",
+                "triggers set but type is not 'rule'",
+            )
+        )
+    return issues
+
+
 def _check_superseded_consistency(
     path: Path, content: str, fm: dict, ctx: NoteCheckContext
 ) -> list[Issue]:
@@ -478,6 +517,11 @@ RULES: tuple[Rule, ...] = (
         "SUPERSEDED_CONSISTENCY",
         _check_superseded_consistency,
         slug="superseded-consistency",
+    ),
+    Rule(
+        "RULE_TRIGGERS",
+        _check_rule_triggers,
+        slug="rule-triggers",
     ),
 )
 
