@@ -12,6 +12,9 @@ from __future__ import annotations
 import functools
 import os
 import sys
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +35,7 @@ __all__: list[str] = [
     "rotate_log_file",
     # Vault resolver
     "VaultConfigError",
+    "active_vault_scope",
     "get_vaults_config_path",
     "list_named_vaults",
     "read_vaults_yaml",
@@ -587,8 +591,54 @@ def _resolve_vault_reference(reference: str) -> Path:
     )
 
 
+_active_vault: ContextVar[Path | None] = ContextVar("parsidion_active_vault", default=None)
+
+
+@contextmanager
+def active_vault_scope(vault: Path | str) -> Generator[Path, None, None]:
+    """Scope argument-less ``resolve_vault()`` calls to *vault* (ARC-001).
+
+    CLI entry points resolve ``--vault`` once and enter this scope instead of
+    mutating ``vault_common.VAULT_ROOT`` (the ARC-003-deprecated mechanism
+    that ``resolve_vault()`` branch 4 reads only to warn about). Inside the
+    scope, argument-less ``resolve_vault()`` calls deep in helper code return
+    the scoped vault; an explicit argument still wins, and a nested scope
+    restores the outer value on exit.
+
+    The config cache is flushed on enter and exit: argument-less
+    ``load_config()`` caches under key ``None`` and resolves the vault inside
+    the cached call, so a pre-scope entry would otherwise keep serving the
+    pre-scope vault's config after the scope is active.
+    """
+    vault_path = Path(vault)
+    token = _active_vault.set(vault_path)
+    _flush_config_cache_for_scope()
+    try:
+        yield vault_path
+    finally:
+        _active_vault.reset(token)
+        _flush_config_cache_for_scope()
+
+
+def _flush_config_cache_for_scope() -> None:
+    """Flush the config cache if its owning module is imported.
+
+    Indirect through ``sys.modules`` rather than importing ``vault_config``
+    here: ``vault_config`` imports this module (its argument-less
+    ``load_config()`` calls ``resolve_vault()``), so a direct import would be
+    circular. Mirrors the indirection ``resolve_vault()`` branch 4 already
+    uses for ``vault_common``. Both import spellings are checked because the
+    flat root shim and ``core.vault_config`` register under different names.
+    """
+    for module_name in ("vault_config", "core.vault_config"):
+        module = sys.modules.get(module_name)
+        clear = getattr(module, "clear_config_cache", None)
+        if clear is not None:
+            clear()
+
+
 def resolve_vault(
-    explicit: str | None = None,
+    explicit: str | Path | None = None,
     cwd: str | Path | None = None,
 ) -> Path:
     """Resolve which vault to use based on precedence order.
@@ -612,6 +662,11 @@ def resolve_vault(
        path; ARC-019), then the filesystem default ~/ParsidionVault, or
        legacy ~/ClaudeVault if it already exists
 
+    ARC-001: when :func:`active_vault_scope` is active, argument-less calls
+    return the scoped vault ahead of branches 2-4 (an explicit argument
+    still wins), so a CLI that resolved ``--vault`` once can let helper code
+    resolve without passing the value through every signature.
+
     Args:
         explicit: Optional explicit vault reference (name or path).
         cwd: Optional working directory for project-local vault lookup.
@@ -627,6 +682,15 @@ def resolve_vault(
         cache lookup so that ``Path("/x")`` and ``"/x"`` produce the
         same cache entry.
     """
+    # ARC-001: an active explicit-vault scope answers argument-less calls
+    # directly — the scope value is the entry point's already-resolved
+    # vault, so no cache entry is consulted or created for it. An explicit
+    # argument still wins: a direct request must not be overridden by the
+    # ambient scope.
+    if explicit is None:
+        scoped = _active_vault.get()
+        if scoped is not None:
+            return scoped
     # ARC-009: Normalize cwd to a resolved str for consistent cache keys
     normalized_cwd: str | None = None
     if cwd is not None:
