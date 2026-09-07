@@ -22,6 +22,9 @@ stdlib-only contract as the ``core/`` package and is covered by
 
 from __future__ import annotations
 
+import re
+from fnmatch import fnmatch
+
 # ---------------------------------------------------------------------------
 # Note types
 # ---------------------------------------------------------------------------
@@ -40,6 +43,7 @@ VALID_NOTE_TYPES: frozenset[str] = frozenset(
         "project",
         "daily",
         "knowledge",
+        "rule",
     }
 )
 
@@ -55,6 +59,7 @@ TYPE_FOLDERS: dict[str, str] = {
     "project": "Projects",
     "daily": "Daily",
     "knowledge": "Knowledge",
+    "rule": "Rules",
 }
 
 #: Fallback folder when a note's type is unrecognized or missing.
@@ -111,6 +116,120 @@ VALID_STATUS_VALUES: frozenset[str] = frozenset({"live", "superseded"})
 
 #: The retired-note status value every retrieval filter tests for.
 STATUS_SUPERSEDED: str = "superseded"
+
+
+# ---------------------------------------------------------------------------
+# Rule-note triggers (``type: rule`` notes)
+# ---------------------------------------------------------------------------
+
+#: Sentinel trigger value: a rule carrying exactly ``[always]`` matches every
+#: prompt and every file path. Mixing it with other triggers is a validation
+#: error (an always-on rule scoped by keywords would be a contradiction).
+TRIGGER_ALWAYS: str = "always"
+
+#: Keyword triggers: lowercase kebab-case tokens, 2-40 chars. Matched as
+#: whole words against the prompt (prompt-submit hook) or the file path
+#: (pre-tool-use hook); hyphens in a keyword match either a hyphen or
+#: whitespace in the text, so ``prompt-cache`` matches "prompt cache".
+_TRIGGER_KEYWORD_RE: re.Pattern[str] = re.compile(
+    r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"
+)
+
+#: Path-pattern triggers: fnmatch globs applied to the file path. An entry
+#: counts as a path pattern when it contains ``/`` or ``*``; everything else
+#: must be a keyword.
+_TRIGGER_MAX_COUNT = 32
+_TRIGGER_MAX_LEN = 120
+
+
+def is_path_trigger(trigger: str) -> bool:
+    """True when *trigger* is a path pattern (contains ``/`` or ``*``)."""
+    return "/" in trigger or "*" in trigger
+
+
+def parse_triggers(fields: dict[str, object]) -> list[str]:
+    """Normalized trigger strings from a note's frontmatter, empty when absent.
+
+    Tolerates both the list form (``triggers: [a, b]``) and the inline
+    comma-string form (``triggers: a, b``); non-string entries are dropped.
+    """
+    raw = fields.get("triggers")
+    if isinstance(raw, str):
+        return [t.strip() for t in raw.split(",") if t.strip()]
+    if not isinstance(raw, list):
+        return []
+    return [t.strip() for t in raw if isinstance(t, str) and t.strip()]
+
+
+def validate_triggers(triggers: object) -> list[str]:
+    """Validate a ``triggers`` frontmatter value; return error strings.
+
+    Syntax contract: a list of 1-32 entries, each a kebab-case keyword
+    (``[a-z0-9-]``, 2-120 chars) or an fnmatch path pattern (contains ``/``
+    or ``*``); ``always`` must be the only entry when present. Empty when
+    the value is valid — the doctor ``rule-triggers`` check surfaces these
+    strings verbatim.
+    """
+    if not isinstance(triggers, list):
+        return [
+            "triggers must be a list of keywords/path patterns, "
+            f"got {type(triggers).__name__}"
+        ]
+    if not triggers:
+        return ["triggers must be a non-empty list (use [always] for always-on)"]
+    if len(triggers) > _TRIGGER_MAX_COUNT:
+        return [f"triggers has more than {_TRIGGER_MAX_COUNT} entries"]
+    errors: list[str] = []
+    entries: list[str] = []
+    for entry in triggers:
+        if not isinstance(entry, str) or not entry.strip():
+            errors.append(f"triggers entry {entry!r} is not a non-empty string")
+            continue
+        entry = entry.strip()
+        entries.append(entry)
+        if len(entry) > _TRIGGER_MAX_LEN:
+            patterns: list[str] = [
+                f"trigger {entry!r} exceeds {_TRIGGER_MAX_LEN} chars"
+            ]
+            errors.extend(patterns)
+            continue
+        if entry.lower() == TRIGGER_ALWAYS:
+            continue
+        if is_path_trigger(entry):
+            continue
+        if not _TRIGGER_KEYWORD_RE.match(entry):
+            errors.append(
+                f"trigger {entry!r} is not a kebab-case keyword or a path "
+                "pattern (path patterns contain / or *)"
+            )
+    if "always" in [e.lower() for e in entries] and len(entries) > 1:
+        errors.append("trigger 'always' must be the only entry")
+    return errors
+
+
+def match_trigger(
+    trigger: str,
+    prompt: str | None = None,
+    path: str | None = None,
+) -> bool:
+    """True when a single trigger fires for the given context.
+
+    Keyword triggers match as whole words against the prompt (or the path
+    text, for the pre-tool-use hook); hyphens in a keyword may correspond to
+    a hyphen or whitespace in the text, so ``prompt-cache`` matches "prompt
+    cache". Path patterns fnmatch the lowercased path. Give exactly one of
+    *prompt*/*path*.
+    """
+    if trigger.lower() == TRIGGER_ALWAYS:
+        return True
+    if is_path_trigger(trigger):
+        return bool(path) and fnmatch(path.lower(), trigger.lower())
+    parts = [p for p in re.split(r"[-\s]", trigger.lower()) if p]
+    text = prompt if prompt is not None else path
+    if not parts or text is None:
+        return False
+    toks = {t for t in re.findall(r"[a-z0-9]+", text.lower()) if len(t) >= 2}
+    return all(p in toks for p in parts)
 
 
 def validate_status_fields(fields: dict[str, object]) -> list[str]:

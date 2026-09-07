@@ -79,6 +79,11 @@ def _build_frontmatter(
         "related": ["[[vault-index]]"],
         "provenance": "inferred",
     }
+    if note_type == "rule":
+        # Empty triggers are invalid by contract (the doctor rule-triggers
+        # check reports them); the scaffold must be completed by the author
+        # before the rule can ever inject.
+        fields["triggers"] = []
     if project:
         fields["project"] = project
     return serialize_frontmatter(fields)

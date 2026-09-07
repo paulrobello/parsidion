@@ -70,6 +70,7 @@ _ENFORCEMENT_SCOPE = [
     "core.vault_path",
     "core.vault_fs",
     "core.vault_index",
+    "core.rule_triggers",
     "core.vault_hooks",
     "core.vault_adaptive",
     "core.vault_links",
