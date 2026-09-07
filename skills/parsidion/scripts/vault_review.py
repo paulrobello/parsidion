@@ -25,16 +25,17 @@ from datetime import datetime
 from pathlib import Path
 
 import vault_common
+from vault_path import active_vault_scope
 
 
 def _pending_path() -> Path:
-    """Return the pending summaries path resolved against the current VAULT_ROOT.
+    """Return the pending-summaries path for the active vault.
 
-    ARC-005: call-time resolution ensures that monkey-patches to
-    ``vault_common.VAULT_ROOT`` (ARC-001) are reflected correctly instead of
-    baking the path at import time.
+    ARC-001: resolves through ``resolve_vault()`` at call time so the entry
+    point's ``active_vault_scope`` (or the CLAUDE_VAULT env pin) governs the
+    answer, instead of reading the deprecated mutable global.
     """
-    return vault_common.VAULT_ROOT / "pending_summaries.jsonl"
+    return vault_common.resolve_vault() / "pending_summaries.jsonl"
 
 
 _EXCERPT_LINES: int = 20
@@ -663,52 +664,44 @@ def main() -> None:
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
-    # QA-001: Replace module-level VAULT_ROOT with try/finally restore pattern
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = vault_path
-    # ARC-001: clear caches so lru_cache-memoized load_config() and
-    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
-    vault_common.clear_config_cache()
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-
-    try:
-        if args.list:
-            _cmd_list()
-            return
-
-        if args.clear:
-            _cmd_clear(vault_path=vault_path)
-            return
-
-        # Auto-migrate on every startup (silent — fixes old entries in-place)
-        vault_common.migrate_pending_paths(dry_run=False, vault=vault_path)
-
-        # Check for pending sessions before attempting curses
-        entries = _read_entries()
-        if not entries:
-            print("No pending sessions.")
-            return
-
-        # Try curses; fall back to --list mode if terminal doesn't support it
+    # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
+    # calls in helper code land on the resolved vault without patching the
+    # module global (branch 4 of resolve_vault reads that patch only to
+    # warn). The scope flushes the config cache on both boundaries.
+    with active_vault_scope(vault_path):
         try:
-            import curses
-
-            curses.wrapper(lambda stdscr: _run_tui(stdscr, vault_path=vault_path))
-        except Exception:  # noqa: BLE001
-            print(
-                "Warning: terminal does not support curses, falling back to --list mode.",
-                file=sys.stderr,
-            )
-            _cmd_list()
-
-    except KeyboardInterrupt:
-        print("\nInterrupted.", file=sys.stderr)
-        sys.exit(0)
-    finally:
-        vault_common.VAULT_ROOT = original_vault_root
-        # ARC-001: flush caches on restore so subsequent code sees the original vault.
-        vault_common.clear_config_cache()
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+            if args.list:
+                _cmd_list()
+                return
+    
+            if args.clear:
+                _cmd_clear(vault_path=vault_path)
+                return
+    
+            # Auto-migrate on every startup (silent — fixes old entries in-place)
+            vault_common.migrate_pending_paths(dry_run=False, vault=vault_path)
+    
+            # Check for pending sessions before attempting curses
+            entries = _read_entries()
+            if not entries:
+                print("No pending sessions.")
+                return
+    
+            # Try curses; fall back to --list mode if terminal doesn't support it
+            try:
+                import curses
+    
+                curses.wrapper(lambda stdscr: _run_tui(stdscr, vault_path=vault_path))
+            except Exception:  # noqa: BLE001
+                print(
+                    "Warning: terminal does not support curses, falling back to --list mode.",
+                    file=sys.stderr,
+                )
+                _cmd_list()
+    
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import zipfile
 from pathlib import Path
 
 import vault_common
+from vault_path import active_vault_scope
 
 # ---------------------------------------------------------------------------
 # Note filtering
@@ -534,47 +535,39 @@ def main() -> None:
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
-    # QA-001: Replace module-level VAULT_ROOT with try/finally restore pattern
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = vault_path
-    # ARC-001: clear caches so lru_cache-memoized load_config() and
-    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
-    vault_common.clear_config_cache()
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-
-    try:
-        if args.html is not None:
-            _cmd_html(
-                Path(args.html),
-                project=args.project,
-                folder=args.folder,
-                tag=args.tag,
-                vault_path=vault_path,
-            )
-        elif args.zip is not None:
-            _cmd_zip(
-                Path(args.zip),
-                project=args.project,
-                folder=args.folder,
-                tag=args.tag,
-                vault_path=vault_path,
-            )
-        else:
-            # Default: --list
-            _cmd_list(
-                project=args.project,
-                folder=args.folder,
-                tag=args.tag,
-                vault_path=vault_path,
-            )
-    except KeyboardInterrupt:
-        print("\nInterrupted.", file=sys.stderr)
-        sys.exit(0)
-    finally:
-        vault_common.VAULT_ROOT = original_vault_root
-        # ARC-001: flush caches on restore so subsequent code sees the original vault.
-        vault_common.clear_config_cache()
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
+    # calls in helper code land on the resolved vault without patching the
+    # module global (branch 4 of resolve_vault reads that patch only to
+    # warn). The scope flushes the config cache on both boundaries.
+    with active_vault_scope(vault_path):
+        try:
+            if args.html is not None:
+                _cmd_html(
+                    Path(args.html),
+                    project=args.project,
+                    folder=args.folder,
+                    tag=args.tag,
+                    vault_path=vault_path,
+                )
+            elif args.zip is not None:
+                _cmd_zip(
+                    Path(args.zip),
+                    project=args.project,
+                    folder=args.folder,
+                    tag=args.tag,
+                    vault_path=vault_path,
+                )
+            else:
+                # Default: --list
+                _cmd_list(
+                    project=args.project,
+                    folder=args.folder,
+                    tag=args.tag,
+                    vault_path=vault_path,
+                )
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            sys.exit(0)
 
 
 if __name__ == "__main__":

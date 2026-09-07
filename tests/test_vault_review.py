@@ -24,19 +24,17 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
 import vault_review  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_vault(tmp_vault: Path) -> None:
     """Point vault_review at the tmp vault.
 
-    vault_review reads via vault_common.VAULT_ROOT (the module-level constant
-    that resolve_vault() also re-points at). Patch that, not vault_review.
+    vault_review resolves at call time through resolve_vault(); the
+    ``tmp_vault`` fixture pins CLAUDE_VAULT, which is the public override
+    path (ARC-009). No constant patching needed since ARC-001.
     """
-    monkeypatch.setattr(vault_common, "VAULT_ROOT", tmp_vault)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 
 @pytest.fixture()

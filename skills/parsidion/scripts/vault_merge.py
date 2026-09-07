@@ -65,7 +65,7 @@ import vault_common  # re-exported (vault_merge.vault_common) for tests
 import vault_config  # re-exported (vault_merge.vault_config) for tests
 import vault_fs  # re-exported (vault_merge.vault_fs) for tests
 import vault_links  # re-exported (vault_merge.vault_links) for tests
-from vault_path import is_path_inside_vault
+from vault_path import active_vault_scope, is_path_inside_vault
 from core.vault_index import serialize_frontmatter
 from prompt_templates import render  # re-exported (vault_merge.render)
 
@@ -545,195 +545,187 @@ def main() -> None:
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
     vault_common.apply_configured_env_defaults(vault=vault_path)
 
-    # QA-001: Replace module-level VAULT_ROOT with try/finally restore pattern
-    original_vault_root = vault_common.VAULT_ROOT
-    vault_common.VAULT_ROOT = vault_path
-    # ARC-001: clear caches so lru_cache-memoized load_config() and
-    # resolve_vault() observe the new VAULT_ROOT instead of stale values.
-    vault_common.clear_config_cache()
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-
-    try:
-        # --scan mode: find near-duplicate pairs across the whole vault
-        if args.scan:
+    # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
+    # calls in helper code land on the resolved vault without patching the
+    # module global (branch 4 of resolve_vault reads that patch only to
+    # warn). The scope flushes the config cache on both boundaries.
+    with active_vault_scope(vault_path):
+        try:
+            # --scan mode: find near-duplicate pairs across the whole vault
+            if args.scan:
+                try:
+                    _scan_duplicates(
+                        threshold=args.threshold, top=args.top, vault_path=vault_path
+                    )
+                except MergeScanError as exc:
+                    # QA-016: the scan library raises; only the CLI exits.
+                    print(f"Error: {exc}", file=sys.stderr)
+                    sys.exit(1)
+                return
+    
+            # Require NOTE_A and NOTE_B when not scanning
+            if not args.note_a or not args.note_b:
+                parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
+    
+            # Resolve notes. SEC-011: LookupError means the query resolved to an
+            # existing path outside the vault — refuse rather than merge it.
             try:
-                _scan_duplicates(
-                    threshold=args.threshold, top=args.top, vault_path=vault_path
-                )
-            except MergeScanError as exc:
-                # QA-016: the scan library raises; only the CLI exits.
+                path_a = _find_note(args.note_a, vault_path)
+            except LookupError as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(1)
-            return
-
-        # Require NOTE_A and NOTE_B when not scanning
-        if not args.note_a or not args.note_b:
-            parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
-
-        # Resolve notes. SEC-011: LookupError means the query resolved to an
-        # existing path outside the vault — refuse rather than merge it.
-        try:
-            path_a = _find_note(args.note_a, vault_path)
-        except LookupError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        if path_a is None:
-            print(f"Error: note not found: {args.note_a}", file=sys.stderr)
-            sys.exit(1)
-
-        try:
-            path_b = _find_note(args.note_b, vault_path)
-        except LookupError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        if path_b is None:
-            print(f"Error: note not found: {args.note_b}", file=sys.stderr)
-            sys.exit(1)
-
-        if path_a.resolve() == path_b.resolve():
-            print("Error: NOTE_A and NOTE_B are the same file.", file=sys.stderr)
-            sys.exit(1)
-
-        # Only the mutating (--execute, non-dry-run) path needs to serialize
-        # against other invocations; a preview is read-only w.r.t. the vault
-        # notes themselves (it only ever writes to its own cache file).
-        is_execute = args.execute and not args.dry_run
-        lock_cm: contextlib.AbstractContextManager[None] = (
-            _merge_lock(vault_path) if is_execute else contextlib.nullcontext()
-        )
-        with lock_cm:
-            content_a = path_a.read_text(encoding="utf-8")
-            content_b = path_b.read_text(encoding="utf-8")
-
-            # Show diff summary
-            _print_diff_summary(
-                path_a, content_a, path_b, content_b, vault_path=vault_path
+            if path_a is None:
+                print(f"Error: note not found: {args.note_a}", file=sys.stderr)
+                sys.exit(1)
+    
+            try:
+                path_b = _find_note(args.note_b, vault_path)
+            except LookupError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            if path_b is None:
+                print(f"Error: note not found: {args.note_b}", file=sys.stderr)
+                sys.exit(1)
+    
+            if path_a.resolve() == path_b.resolve():
+                print("Error: NOTE_A and NOTE_B are the same file.", file=sys.stderr)
+                sys.exit(1)
+    
+            # Only the mutating (--execute, non-dry-run) path needs to serialize
+            # against other invocations; a preview is read-only w.r.t. the vault
+            # notes themselves (it only ever writes to its own cache file).
+            is_execute = args.execute and not args.dry_run
+            lock_cm: contextlib.AbstractContextManager[None] = (
+                _merge_lock(vault_path) if is_execute else contextlib.nullcontext()
             )
-
-            precomputed_ai_body: str | None = None
-            if is_execute and args.from_preview:
-                precomputed_ai_body = _load_fresh_preview(
-                    vault_path, path_a, content_a, path_b, content_b
+            with lock_cm:
+                content_a = path_a.read_text(encoding="utf-8")
+                content_b = path_b.read_text(encoding="utf-8")
+    
+                # Show diff summary
+                _print_diff_summary(
+                    path_a, content_a, path_b, content_b, vault_path=vault_path
                 )
-                if precomputed_ai_body is not None:
-                    print(
-                        "Reusing cached preview merge from a prior dry-run "
-                        "(source notes unchanged) — skipping AI call."
+    
+                precomputed_ai_body: str | None = None
+                if is_execute and args.from_preview:
+                    precomputed_ai_body = _load_fresh_preview(
+                        vault_path, path_a, content_a, path_b, content_b
                     )
-                else:
-                    print(
-                        "No matching cached preview for this pair (or a "
-                        "source note changed since the preview) — falling "
-                        "back to a fresh AI merge.",
-                        file=sys.stderr,
-                    )
-
-            # Build merged content
-            ai_body_out: dict[str, str] = {}
-            try:
-                merged = _merge_notes(
-                    path_a,
-                    content_a,
-                    path_b,
-                    content_b,
-                    no_ai=args.no_ai,
-                    vault_path=vault_path,
-                    precomputed_ai_body=precomputed_ai_body,
-                    ai_body_out=ai_body_out,
-                )
-            except AIMergeOutputError as exc:
-                print(f"Error: {exc}", file=sys.stderr)
-                print(
-                    "Merge aborted — no files were modified. "
-                    "Re-run with --no-ai to merge by concatenation.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            if args.dry_run or not args.execute:
-                print("=== Proposed merged content ===\n")
-                print(merged)
-                if "body" in ai_body_out:
-                    _write_preview(
-                        vault_path,
+                    if precomputed_ai_body is not None:
+                        print(
+                            "Reusing cached preview merge from a prior dry-run "
+                            "(source notes unchanged) — skipping AI call."
+                        )
+                    else:
+                        print(
+                            "No matching cached preview for this pair (or a "
+                            "source note changed since the preview) — falling "
+                            "back to a fresh AI merge.",
+                            file=sys.stderr,
+                        )
+    
+                # Build merged content
+                ai_body_out: dict[str, str] = {}
+                try:
+                    merged = _merge_notes(
                         path_a,
                         content_a,
                         path_b,
                         content_b,
-                        ai_body_out["body"],
+                        no_ai=args.no_ai,
+                        vault_path=vault_path,
+                        precomputed_ai_body=precomputed_ai_body,
+                        ai_body_out=ai_body_out,
                     )
+                except AIMergeOutputError as exc:
+                    print(f"Error: {exc}", file=sys.stderr)
                     print(
-                        "\nPreview cached — re-run with "
-                        "--execute --from-preview to apply this exact merge "
-                        "without another AI call."
+                        "Merge aborted — no files were modified. "
+                        "Re-run with --no-ai to merge by concatenation.",
+                        file=sys.stderr,
                     )
-                if not args.execute:
-                    print("(dry-run — pass --execute to apply changes)")
-                return
-
-            # --execute: write merged note via sibling tmp + atomic replace so a
-            # kill mid-write can never leave the keeper truncated. NOTE_B is only
-            # trashed after the replace succeeds.
-            # SEC-011: --output must land inside the vault.
-            output_path = Path(args.output).expanduser() if args.output else path_a
-            if not is_path_inside_vault(output_path, vault_path):
-                print(
-                    f"Error: --output path is outside the vault: {args.output}",
-                    file=sys.stderr,
+                    sys.exit(1)
+    
+                if args.dry_run or not args.execute:
+                    print("=== Proposed merged content ===\n")
+                    print(merged)
+                    if "body" in ai_body_out:
+                        _write_preview(
+                            vault_path,
+                            path_a,
+                            content_a,
+                            path_b,
+                            content_b,
+                            ai_body_out["body"],
+                        )
+                        print(
+                            "\nPreview cached — re-run with "
+                            "--execute --from-preview to apply this exact merge "
+                            "without another AI call."
+                        )
+                    if not args.execute:
+                        print("(dry-run — pass --execute to apply changes)")
+                    return
+    
+                # --execute: write merged note via sibling tmp + atomic replace so a
+                # kill mid-write can never leave the keeper truncated. NOTE_B is only
+                # trashed after the replace succeeds.
+                # SEC-011: --output must land inside the vault.
+                output_path = Path(args.output).expanduser() if args.output else path_a
+                if not is_path_inside_vault(output_path, vault_path):
+                    print(
+                        f"Error: --output path is outside the vault: {args.output}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                tmp_path = output_path.with_name(output_path.name + ".tmp")
+                try:
+                    tmp_path.write_text(merged, encoding="utf-8")
+                    tmp_path.replace(output_path)
+                except OSError:
+                    tmp_path.unlink(missing_ok=True)
+                    raise
+                print(f"Merged note written to: {output_path}")
+    
+                # Move NOTE_B to .trash/
+                trash_dir = vault_path / ".trash"
+                trash_dir.mkdir(exist_ok=True)
+                trash_dest = trash_dir / path_b.name
+                # Avoid clobbering existing trash file
+                if trash_dest.exists():
+                    suffix = 1
+                    while (trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}").exists():
+                        suffix += 1
+                    trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
+                shutil.move(str(path_b), str(trash_dest))
+                print(f"Moved {path_b.name} to .trash/")
+    
+                # Update wikilinks
+                n_updated = _update_wikilinks_in_vault(
+                    path_b.stem, output_path.stem, vault_path
                 )
-                sys.exit(1)
-            tmp_path = output_path.with_name(output_path.name + ".tmp")
-            try:
-                tmp_path.write_text(merged, encoding="utf-8")
-                tmp_path.replace(output_path)
-            except OSError:
-                tmp_path.unlink(missing_ok=True)
-                raise
-            print(f"Merged note written to: {output_path}")
-
-            # Move NOTE_B to .trash/
-            trash_dir = vault_path / ".trash"
-            trash_dir.mkdir(exist_ok=True)
-            trash_dest = trash_dir / path_b.name
-            # Avoid clobbering existing trash file
-            if trash_dest.exists():
-                suffix = 1
-                while (trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}").exists():
-                    suffix += 1
-                trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
-            shutil.move(str(path_b), str(trash_dest))
-            print(f"Moved {path_b.name} to .trash/")
-
-            # Update wikilinks
-            n_updated = _update_wikilinks_in_vault(
-                path_b.stem, output_path.stem, vault_path
-            )
-            if n_updated:
-                print(
-                    f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
+                if n_updated:
+                    print(
+                        f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
+                    )
+    
+                # This pair's cached preview (if any) has now been applied.
+                _delete_preview(vault_path, path_a, path_b)
+    
+                # Commit
+                vault_common.git_commit_vault(
+                    f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
+                    vault=vault_path,
                 )
-
-            # This pair's cached preview (if any) has now been applied.
-            _delete_preview(vault_path, path_a, path_b)
-
-            # Commit
-            vault_common.git_commit_vault(
-                f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
-                vault=vault_path,
-            )
-
-            # Rebuild index
-            if not args.no_index:
-                _rebuild_index()
-
-    except KeyboardInterrupt:
-        print("\nInterrupted.", file=sys.stderr)
-        sys.exit(0)
-    finally:
-        vault_common.VAULT_ROOT = original_vault_root
-        # ARC-001: flush caches on restore so subsequent code sees the original vault.
-        vault_common.clear_config_cache()
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    
+                # Rebuild index
+                if not args.no_index:
+                    _rebuild_index()
+    
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            sys.exit(0)
 
 
 if __name__ == "__main__":  # pragma: no cover — entry shim
