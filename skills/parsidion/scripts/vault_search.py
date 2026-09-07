@@ -124,6 +124,7 @@ def search_with_meta(
     model_name: str = _DEFAULT_MODEL,
     vault: Path | None = None,
     backend: str | None = None,
+    include_superseded: bool = False,
 ) -> SearchResultEnvelope:
     """Search the vault and return ``(results, backend, score_kind)``.
 
@@ -161,7 +162,7 @@ def search_with_meta(
         available = parsight_backend.resolve_parsight_backend(vault)
         if available and parsight_backend.ensure_vault_indexed(vault):
             parsight_results = parsight_backend.parsight_search(
-                query, top_k=top, vault=vault
+                query, top_k=top, vault=vault, include_superseded=include_superseded
             )
             if parsight_results is not None:
                 return SearchResultEnvelope(parsight_results, "parsight", "rrf")
@@ -176,6 +177,7 @@ def search_with_meta(
         model_name=model_name,
         vault=vault,
         backend=selected,
+        include_superseded=include_superseded,
     )
     return SearchResultEnvelope(embeddings_results, "embeddings", "cosine")
 
@@ -187,6 +189,7 @@ def search(
     model_name: str = _DEFAULT_MODEL,
     vault: Path | None = None,
     backend: str | None = None,
+    include_superseded: bool = False,
 ) -> list[dict[str, object]]:
     """Search the vault for notes semantically similar to *query*.
 
@@ -222,6 +225,7 @@ def search(
         model_name=model_name,
         vault=vault,
         backend=backend,
+        include_superseded=include_superseded,
     ).results
 
 
@@ -383,6 +387,15 @@ def main() -> None:
         default=False,
         help="Full-text: disable case-insensitive matching for --grep.",
     )
+    parser.add_argument(
+        "--include-superseded",
+        action="store_true",
+        default=False,
+        help=(
+            "Include retired notes (status: superseded) in semantic and "
+            "metadata results — for explicit history queries."
+        ),
+    )
 
     _eff_limit = _clamp_default_count(_env_int("LIMIT", 50))
     parser.add_argument(
@@ -496,6 +509,7 @@ def main() -> None:
             model_name=args.model,
             vault=vault_path,
             backend=args.backend,
+            include_superseded=args.include_superseded,
         )
         results = envelope.results
     else:
@@ -509,6 +523,7 @@ def main() -> None:
             as_of=args.as_of,
             limit=args.limit,
             vault=vault_path,
+            include_superseded=args.include_superseded,
         )
 
     # --grep post-filter: applied after semantic or metadata results, or standalone

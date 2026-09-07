@@ -386,6 +386,19 @@ def _fetch_candidate_rows(
     return conn.execute(_SCAN_SQL, (query_blob, fetch_k)).fetchall()
 
 
+def _superseded_stems(conn: sqlite3.Connection) -> set[str]:
+    """The set of retired stems in *conn*'s note_index (empty pre-migration)."""
+    try:
+        return {
+            row[0]
+            for row in conn.execute(
+                "SELECT stem FROM note_index WHERE status = 'superseded'"
+            ).fetchall()
+        }
+    except Exception:  # noqa: BLE001 -- pre-migration index: no status column
+        return set()
+
+
 def _search_embeddings(
     query: str,
     top: int = 10,
@@ -393,6 +406,7 @@ def _search_embeddings(
     model_name: str = _DEFAULT_MODEL,
     vault: Path | None = None,
     backend: str | None = None,
+    include_superseded: bool = False,
 ) -> list[dict[str, object]]:
     """Embeddings-backend semantic search (the always-on fallback path).
 
@@ -433,6 +447,7 @@ def _search_embeddings(
     # the config tree) for every scored row.
     half_life, min_factor = resolve_decay_params(vault)
 
+    retired: set[str] = set()
     try:
         conn = _open_db_semantic(db_path)
         rows = _fetch_candidate_rows(
@@ -443,6 +458,8 @@ def _search_embeddings(
             # would never fetch better-decayed rows just outside it.
             top * 3,
         )
+        if not include_superseded:
+            retired = _superseded_stems(conn, db_path)
         conn.close()
     except Exception:  # noqa: BLE001 — graceful fallback
         return []
@@ -452,6 +469,8 @@ def _search_embeddings(
     # sort on the unrounded decayed score, then truncate to top.
     scored: list[tuple[float, dict[str, object]]] = []
     for stem, path, folder, title, tags_str, score, mtime in rows:
+        if stem in retired:
+            continue
         if decay_enabled and mtime:
             score = _apply_decay(
                 score, mtime, now, half_life_days=half_life, min_factor=min_factor

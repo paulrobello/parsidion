@@ -30,6 +30,7 @@ from .subproc_util import run_with_pgkill
 from .vault_config import apply_decay_score, resolve_decay_params
 from .vault_hooks import write_hook_event
 from .vault_path import get_embeddings_db_path, is_path_inside_vault, resolve_vault
+from note_schema import STATUS_SUPERSEDED
 
 __all__: list[str] = [
     "daemon_watches_vault",
@@ -578,9 +579,11 @@ def _load_note_index_rows(
         ):
             return None
         placeholders = ",".join("?" for _ in stems)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
+        status_sel = "status" if "status" in cols else "'' AS status"
         rows = conn.execute(
             f"SELECT stem, path, folder, title, summary, tags, note_type, project, "
-            f"confidence, mtime, related, is_stale, incoming_links "
+            f"confidence, mtime, related, is_stale, incoming_links, {status_sel} "
             f"FROM note_index WHERE stem IN ({placeholders})",
             list(stems),
         ).fetchall()
@@ -668,12 +671,53 @@ def _result_from_path(
     }
 
 
+def _is_superseded_stem(
+    stem: str,
+    index_rows: dict[str, dict[str, Any]] | None,
+    vault: Path,
+) -> bool:
+    """True when *stem* is retired (``status: superseded``).
+
+    Trust order: the note_index status column (authoritative as of the last
+    reindex) first; an empty status (pre-migration index) falls back to
+    reading the note's frontmatter, containment-guarded. A stem absent from
+    the index reads False — the scoring loop drops unindexed stems anyway.
+    """
+    if index_rows is not None:
+        row = index_rows.get(stem)
+        if row is None:
+            return False
+        status = str(row.get("status") or "")
+        if status == "superseded":
+            return True
+        if status == "live":
+            return False
+        row_path = Path(str(row.get("path") or ""))
+        if not row_path.name or not is_path_inside_vault(row_path, vault):
+            return False
+        note_path = row_path
+    else:
+        note_path = vault / f"{stem}.md"
+        if not is_path_inside_vault(note_path, vault) or not note_path.is_file():
+            return False
+    try:
+        from core.vault_index import parse_frontmatter  # noqa: PLC0415
+
+        return (
+            parse_frontmatter(note_path.read_text(encoding="utf-8")).get("status")
+            == STATUS_SUPERSEDED
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def parsight_search(
     query: str,
     top_k: int = 10,
     vault: Path | None = None,
     timeout: float | None = None,
     kill_grace_secs: float | None = None,
+    include_superseded: bool = False,
 ) -> list[dict[str, object]] | None:
     """Vault semantic search served by parsight's hybrid retrieval.
 
@@ -735,6 +779,17 @@ def parsight_search(
         if not best:
             return []
         index_rows = _load_note_index_rows(list(best.keys()), vault)
+        # Supersession: retired notes never surface through parsight recall.
+        # This one point covers prompt-submit recall and the pre-tool-use
+        # semantic leg, which both route through parsight_search. Pre-migration
+        # indexes carry no status column (rows read status ""); a file-read
+        # frontmatter check catches notes the index has not seen yet.
+        if not include_superseded:
+            best = {
+                stem: pair
+                for stem, pair in best.items()
+                if not _is_superseded_stem(stem, index_rows, vault)
+            }
         # PRF-103: resolve the decay configuration once per search —
         # previously _decayed_score re-read config for every scored row.
         decay_enabled = (
@@ -765,6 +820,8 @@ def parsight_search(
             else:
                 note_path = vault / rel
                 if note_path.name in _GENERATED_NOTE_NAMES or not note_path.is_file():
+                    continue
+                if not include_superseded and _is_superseded_stem(stem, None, vault):
                     continue
                 try:
                     file_mtime: float | None = note_path.stat().st_mtime
