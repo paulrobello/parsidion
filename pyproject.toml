@@ -41,6 +41,7 @@ vault-review = "vault_review:main"
 vault-export = "vault_export:main"
 vault-merge = "vault_merge:main"
 vault-conflicts = "vault_conflicts:main"
+vault-supersede = "vault_supersede:main"
 
 [build-system]
 requires = [
@@ -98,6 +99,7 @@ py-modules = [
     "vault_path",
     "vault_resolve",
     "vault_review",
+    "vault_supersede",
     "vault_search",
     "vault_stats",
     "vault_tui",

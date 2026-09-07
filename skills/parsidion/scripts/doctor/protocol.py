@@ -134,6 +134,13 @@ RULE_SPECS: tuple[RuleSpec, ...] = (
         "HEADING_MISMATCH",
     ),
     RuleSpec(
+        "superseded-consistency",
+        "check",
+        "safe",
+        "status/superseded_by pairs consistent; superseded_by targets resolve",
+        "SUPERSEDED_CONSISTENCY",
+    ),
+    RuleSpec(
         "broken-wikilinks",
         "check",
         "safe",

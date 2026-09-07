@@ -459,7 +459,7 @@ def _search_embeddings(
             top * 3,
         )
         if not include_superseded:
-            retired = _superseded_stems(conn, db_path)
+            retired = _superseded_stems(conn)
         conn.close()
     except Exception:  # noqa: BLE001 — graceful fallback
         return []

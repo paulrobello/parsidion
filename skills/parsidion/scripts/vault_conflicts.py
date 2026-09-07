@@ -342,23 +342,44 @@ def read_conflict_report(vault: Path) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
-def _apply_resolution(conflict: dict[str, Any], choice: str) -> str:
-    """Return a short description of the applied resolution.
+def _apply_resolution(
+    conflict: dict[str, Any], choice: str, execute: bool = False
+) -> str:
+    """Apply (or preview) the chosen resolution; return a short description.
 
-    The TUI (Task 4.6) collects *choice* ∈ {keep_a, keep_b, merge, skip} and
-    calls this. Actual note mutation (deleting/merging files) is intentionally
-    NOT done here — this version records the decision; users perform the edit
-    in their editor or via vault-merge. (Keeps vault-conflicts read-only-safe.)
+    The TUI collects *choice* ∈ {keep_a, keep_b, merge, skip}. keep_a/keep_b
+    now RESOLVE the pair via the supersession contract: the losing side gets
+    ``status: superseded`` + ``superseded_by: ["[[winner]]"]`` + a body line,
+    removing it from every retrieval surface (card 01a07c86). Without
+    *execute* the resolution is only described. merge/skip stay record-only
+    (merge flows through vault-merge).
     """
-    a = conflict.get("a", "?")
-    b = conflict.get("b", "?")
+    a = str(conflict.get("a", "?"))
+    b = str(conflict.get("b", "?"))
     if choice == "keep_a":
-        return f"keep {a}; review {b} for staleness"
+        return _supersede_pair(winner=a, loser=b, execute=execute)
     if choice == "keep_b":
-        return f"keep {b}; review {a} for staleness"
+        return _supersede_pair(winner=b, loser=a, execute=execute)
     if choice == "merge":
         return f"merge {a} + {b} via vault-merge"
     return "skipped"
+
+
+def _supersede_pair(winner: str, loser: str, execute: bool) -> str:
+    """Retire *loser* in favour of *winner* (or describe when not executing)."""
+    import vault_supersede  # noqa: PLC0415
+
+    loser_path = Path(loser)
+    winner_path = Path(winner)
+    if not loser_path.is_file() or not winner_path.is_file():
+        return f"skip supersession: {loser} or {winner} not on disk"
+    reason = f"contradiction resolution: {winner_path.stem} kept"
+    vault_supersede._supersede(loser_path, winner_path, reason, dry_run=not execute)
+    return (
+        f"marked {loser_path.stem} superseded by {winner_path.stem}"
+        if execute
+        else f"would mark {loser_path.stem} superseded by {winner_path.stem}"
+    )
 
 
 def _run_scan(
@@ -374,16 +395,19 @@ def _run_scan(
     return all_conflicts
 
 
-def _run_tui(conflicts: list[dict[str, Any]], vault: Path) -> None:  # pragma: no cover
+def _run_tui(
+    conflicts: list[dict[str, Any]], vault: Path, execute: bool = False
+) -> None:  # pragma: no cover
     """Interactive curses walkthrough (mirrors vault_review._show_popup).
 
     ARC-013: the loop machinery lives in ``vault_tui.run_list_view``; the
     selected "row" renders that conflict's A/B block (non-selected rows stay
     blank, preserving the one-conflict-at-a-time view). For each conflict:
-    show a_says vs b_says, collect a choice (a=keep_a, b=keep_b, m=merge,
-    s=skip, q=quit). Decisions are collected during the curses loop and
-    printed AFTER the wrapper returns (curses owns the screen while active,
-    so stdout is not visible mid-loop).
+    show a_says vs b_says, collect a choice (a=keep A → supersede B,
+    b=keep B → supersede A, m=merge via vault-merge, s=skip, q=quit).
+    Decisions are collected during the curses loop and printed AFTER the
+    wrapper returns (curses owns the screen while active, so stdout is not
+    visible mid-loop).
     """
     import curses
 
@@ -402,14 +426,16 @@ def _run_tui(conflicts: list[dict[str, Any]], vault: Path) -> None:  # pragma: n
             return
         stdscr.addstr(y, 2, f"[A] {c.get('a')}: {c.get('a_says', '')}"[: w - 1])
         stdscr.addstr(y + 1, 2, f"[B] {c.get('b')}: {c.get('b_says', '')}"[: w - 1])
-        stdscr.addstr(y + 3, 2, "a=keep A  b=keep B  m=merge  s=skip  q=quit")
+        stdscr.addstr(y + 3, 2, "a=keep A (supersede B)  b=keep B (supersede A)  m=merge  s=skip  q=quit")
 
     def _on_key(key: int, selected: int) -> str | int | None:
         if key in (ord("q"), 27):  # q or ESC
             return "quit"
         choice = mapping.get(key)
         if choice:
-            decisions.append(_apply_resolution(conflicts[selected], choice))
+            decisions.append(
+                _apply_resolution(conflicts[selected], choice, execute=execute)
+            )
             # Advance to the next conflict; deciding the last one exits
             # (the original walkthrough ended when idx passed the end).
             if selected + 1 >= len(conflicts):
@@ -477,6 +503,14 @@ def main() -> None:
         action="store_true",
         help="Run clustering only; do not call the AI backend (useful for dry runs).",
     )
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help=(
+            "Apply keep_a/keep_b resolutions via the supersession contract "
+            "(without this flag they are previewed only)."
+        ),
+    )
     args = parser.parse_args()
 
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=str(Path.cwd()))
@@ -505,7 +539,15 @@ def main() -> None:
     print(f"Detected {len(conflicts)} potential contradiction(s).")
     print(f"Report written to {vault_path / 'conflicts' / 'report.json'}")
     if not args.scan_only:
-        _run_tui(conflicts, vault_path)
+        _run_tui(conflicts, vault_path, execute=args.execute)
+        if args.execute:
+            vault_common.git_commit_vault(
+                "docs(vault): resolve detected contradictions via supersession",
+                vault=vault_path,
+            )
+            from cli.merge.index import _rebuild_index  # noqa: PLC0415
+
+            _rebuild_index()
 
 
 if __name__ == "__main__":

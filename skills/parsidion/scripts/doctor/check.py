@@ -22,6 +22,11 @@ from doctor._state import (
 )
 from doctor.links import resolve_wikilink
 from doctor.protocol import NoteCheckContext, Rule
+from note_schema import (
+    STATUS_SUPERSEDED,
+    _superseded_by_entries,
+    validate_status_fields,
+)
 
 # ---------------------------------------------------------------------------
 # Frontmatter syntax checks
@@ -430,6 +435,36 @@ PRE_FM_RULES: tuple[Rule, ...] = (
     Rule("FLAT_DAILY", _check_flat_daily, slug="flat-daily"),
 )
 
+
+def _check_superseded_consistency(
+    path: Path, content: str, fm: dict, ctx: NoteCheckContext
+) -> list[Issue]:
+    """SUPERSEDED_CONSISTENCY: status/superseded_by pairs must be consistent.
+
+    ``status: superseded`` requires at least one ``superseded_by`` wikilink
+    that resolves to a vault note (a retired note pointing at nothing is
+    worse than the staleness it replaced); ``superseded_by`` on a live note
+    is a contradiction; an unknown status value is a typo guard. Frontmatter
+    shape rules live once in ``note_schema.validate_status_fields``.
+    """
+    issues: list[Issue] = []
+    for err in validate_status_fields(fm):
+        issues.append(Issue(path, "error", "SUPERSEDED_CONSISTENCY", err))
+    if fm.get("status") == STATUS_SUPERSEDED:
+        for entry in _superseded_by_entries(fm.get("superseded_by")):
+            clean = entry.split("|")[0].split("#")[0].strip().strip("[]")
+            if clean and not resolve_wikilink(clean, ctx.note_map):
+                issues.append(
+                    Issue(
+                        path,
+                        "error",
+                        "SUPERSEDED_CONSISTENCY",
+                        f"superseded_by {entry!r} does not resolve to any vault note",
+                    )
+                )
+    return issues
+
+
 RULES: tuple[Rule, ...] = (
     Rule("FRONTMATTER_SYNTAX", _check_frontmatter_syntax, slug="frontmatter-syntax"),
     Rule("REQUIRED_FIELDS", _check_required_fields, slug="required-fields"),
@@ -439,6 +474,11 @@ RULES: tuple[Rule, ...] = (
     Rule("SELF_REF", _check_self_ref, slug="self-ref"),
     Rule("HEADING_MISMATCH", _check_heading_mismatch, slug="headings"),
     Rule("BROKEN_WIKILINKS", _check_broken_wikilinks, slug="broken-wikilinks"),
+    Rule(
+        "SUPERSEDED_CONSISTENCY",
+        _check_superseded_consistency,
+        slug="superseded-consistency",
+    ),
 )
 
 
