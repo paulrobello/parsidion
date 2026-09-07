@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from core import parsight_backend
+from core.rule_triggers import load_rule_notes, match_rules
 from core.vault_config import clamp_timeout, load_typed_config
 from core.vault_hooks import get_project_name, write_hook_event
 from core.vault_index import load_note_index_metadata, read_note_summary
@@ -292,16 +293,42 @@ def _excerpt(note: dict[str, object], per_note_chars: int) -> str:
 
 
 def _build_context(
-    notes: list[dict[str, object]], file_path: Path, settings: dict[str, Any]
+    notes: list[dict[str, object]],
+    file_path: Path,
+    settings: dict[str, Any],
+    rules: list[dict[str, object]] | None = None,
 ) -> str:
-    """Format matched notes into the bounded, untrusted-framed context body."""
+    """Format matched notes into the bounded, untrusted-framed context body.
+
+    Triggered ``type: rule`` notes lead the body when present — directives,
+    not recall — and share the same char budget. Each rule line names the
+    triggers that fired.
+    """
     per_note_chars = int(settings["per_note_chars"])
     max_chars = int(settings["max_chars"])
     preamble = UNTRUSTED_PREAMBLE + "<content>\n"
     suffix = "\n</content>\n"
-    if max_chars < len(preamble) + len(suffix):
+    available_body_chars = max_chars - len(preamble) - len(suffix)
+    if available_body_chars < 1:
         return ""
-    lines = [f"Vault recall — {len(notes)} note(s) relevant to {file_path.name}:"]
+    lines: list[str] = []
+    if rules:
+        lines.append(f"Vault rules — {len(rules)} rule(s) triggered:")
+        for rule in rules:
+            title = str(rule.get("title") or rule.get("stem") or "untitled")
+            folder = str(rule.get("folder") or "")
+            stem = str(rule.get("stem") or "")
+            loc = f"{folder}/{stem}" if folder else stem
+            matched = rule.get("matched")
+            matched_list = matched if isinstance(matched, list) else []
+            trig = ", ".join(str(t) for t in matched_list)
+            lines.append(f"- **{title}** [{loc}] (triggered: {trig})")
+            lines.append(f"  {_excerpt(rule, per_note_chars)}")
+        lines.append("")
+    if notes:
+        lines.append(
+            f"Vault recall — {len(notes)} note(s) relevant to {file_path.name}:"
+        )
     for note in notes:
         title = str(note.get("title") or note.get("stem") or "untitled")
         folder = str(note.get("folder") or "")
@@ -470,16 +497,27 @@ def run_injection(payload: dict) -> dict:
         file_tokens = _file_tokens(file_path, project)
         query = _file_query(file_path, project)
 
+        # Rules leg: match triggers against the file path — push, not
+        # retrieval, and independent of the parsight leg's health. Matched
+        # rules ride the per-file result cache like the recall body.
+        try:
+            matched_rules = match_rules(load_rule_notes(vault), path=str(file_path))
+        except Exception:  # noqa: BLE001
+            matched_rules = []
+        _mark("rules")
+
         local = _load_local_matches(vault, file_tokens, settings)
         _mark("local_scan")
         semantic = _load_semantic_matches(vault, query, settings)
         _mark("semantic_search")
         notes = _merge_notes(local, semantic)[: int(settings["top_k"])]  # type: ignore[arg-type]
-        if not notes:
+        if not notes and not matched_rules:
             _cache_write(cache_key, "")
             return {}
 
-        context = _build_context(notes, file_path, settings)
+        context = _build_context(
+            notes, file_path, settings, rules=matched_rules or None
+        )
         _mark("format")
         _cache_write(cache_key, context)
         if not context:
@@ -491,7 +529,8 @@ def run_injection(payload: dict) -> dict:
                 project=get_project_name(cwd),
                 duration_ms=(time.perf_counter() - started) * 1000.0,
                 vault=vault,
-                notes_injected=len(notes),
+                notes_injected=len(notes) + len(matched_rules),
+                rules_injected=len(matched_rules),
                 chars=len(context),
                 session_id=str(payload.get("session_id") or ""),
                 stages_ms=_stage_deltas(),

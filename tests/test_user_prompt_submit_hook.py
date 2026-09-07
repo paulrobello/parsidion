@@ -206,6 +206,7 @@ class TestRecall:
         assert set(stages) == {
             "resolve_vault",
             "load_settings",
+            "rules",
             "probe",
             "search",
             "filter",

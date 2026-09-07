@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from core import parsight_backend
+from core.rule_triggers import load_rule_notes, match_rules
 from core.vault_config import clamp_timeout, load_typed_config
 from core.vault_hooks import get_project_name, write_hook_event
 from core.vault_index import read_note_summary
@@ -271,24 +272,48 @@ def _excerpt(note: dict[str, object], per_note_chars: int) -> str:
 
 
 def _build_context(
-    notes: list[dict[str, object]], vault: Path, settings: dict[str, Any]
+    notes: list[dict[str, object]],
+    vault: Path,
+    settings: dict[str, Any],
+    rules: list[dict[str, object]] | None = None,
 ) -> str:
-    """Format matched notes into the bounded, untrusted-framed context body."""
+    """Format matched notes into the bounded, untrusted-framed context body.
+
+    Triggered ``type: rule`` notes lead the body when present — they are
+    directives, not recall — and share the same char budget. Each rule line
+    names the triggers that fired.
+    """
     per_note_chars = int(settings["per_note_chars"])
     max_chars = int(settings["max_chars"])
     preamble = UNTRUSTED_PREAMBLE + "<content>\n"
     suffix = "\n</content>\n"
-    if max_chars < len(preamble) + len(suffix):
+    available_body_chars = max_chars - len(preamble) - len(suffix)
+    if available_body_chars < 1:
         return ""
-    lines = [f"Vault recall — {len(notes)} note(s) relevant to this prompt:"]
-    for note in notes:
-        title = str(note.get("title") or note.get("stem") or "untitled")
-        folder = str(note.get("folder") or "")
-        stem = str(note.get("stem") or "")
-        loc = f"{folder}/{stem}" if folder else stem
-        tags = ", ".join(t for t in _note_tags(note).split() if t)
-        lines.append(f"- **{title}** [{loc}] ({tags})")
-        lines.append(f"  {_excerpt(note, per_note_chars)}")
+    lines: list[str] = []
+    if rules:
+        lines.append(f"Vault rules — {len(rules)} rule(s) triggered:")
+        for rule in rules:
+            title = str(rule.get("title") or rule.get("stem") or "untitled")
+            folder = str(rule.get("folder") or "")
+            stem = str(rule.get("stem") or "")
+            loc = f"{folder}/{stem}" if folder else stem
+            matched = rule.get("matched")
+            matched_list = matched if isinstance(matched, list) else []
+            trig = ", ".join(str(t) for t in matched_list)
+            lines.append(f"- **{title}** [{loc}] (triggered: {trig})")
+            lines.append(f"  {_excerpt(rule, per_note_chars)}")
+        lines.append("")
+    if notes:
+        lines.append(f"Vault recall — {len(notes)} note(s) relevant to this prompt:")
+        for note in notes:
+            title = str(note.get("title") or note.get("stem") or "untitled")
+            folder = str(note.get("folder") or "")
+            stem = str(note.get("stem") or "")
+            loc = f"{folder}/{stem}" if folder else stem
+            tags = ", ".join(t for t in _note_tags(note).split() if t)
+            lines.append(f"- **{title}** [{loc}] ({tags})")
+            lines.append(f"  {_excerpt(note, per_note_chars)}")
     body = "\n".join(lines)
     available_body_chars = max_chars - len(preamble) - len(suffix)
     if len(body) > available_body_chars:
@@ -317,6 +342,35 @@ def run_recall(payload: dict) -> dict:
             prev = cumulative
         return deltas
 
+    def _emit(notes: list[dict[str, object]]) -> dict:
+        """Compose rules + recall into one bounded, framed injection."""
+        if not notes and not matched_rules:
+            return {}
+        context = _build_context(notes, vault, settings, rules=matched_rules or None)
+        _mark("format")
+        if not context:
+            return {}
+        try:
+            write_hook_event(
+                hook="UserPromptSubmit",
+                project=get_project_name(cwd),
+                duration_ms=(time.perf_counter() - started) * 1000.0,
+                vault=vault,
+                notes_injected=len(notes) + len(matched_rules),
+                rules_injected=len(matched_rules),
+                chars=len(context),
+                session_id=str(payload.get("session_id") or ""),
+                stages_ms=_stage_deltas(),
+            )
+        except Exception:  # noqa: BLE001
+            pass  # observability is best-effort
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": context,
+            }
+        }
+
     try:
         if not isinstance(payload, dict):
             payload = {}
@@ -338,6 +392,15 @@ def run_recall(payload: dict) -> dict:
         if len(prompt) < int(settings["min_prompt_chars"]):  # type: ignore[arg-type]
             return {}
 
+        # Rules leg: trigger-scoped rule notes are push, not retrieval —
+        # they inject independent of parsight health, before the probe gate,
+        # so a daemon outage never suppresses a directive.
+        try:
+            matched_rules = match_rules(load_rule_notes(vault), prompt=prompt)
+        except Exception:  # noqa: BLE001
+            matched_rules = []
+        _mark("rules")
+
         # Probe gate with negative cache: a recent failed probe skips both
         # the probe and the search silently.
         stamp = _probe_stamp_path()
@@ -354,7 +417,7 @@ def run_recall(payload: dict) -> dict:
                 stamp.touch()
             except OSError:
                 pass
-            return {}
+            return _emit([])
         try:
             stamp.unlink(missing_ok=True)
         except OSError:
@@ -365,7 +428,7 @@ def run_recall(payload: dict) -> dict:
             cooldown,
             int(settings["probe_cache_seconds"]),  # type: ignore[arg-type]
         ):
-            return {}
+            return _emit([])
 
         search_started = time.monotonic()
         try:
@@ -401,28 +464,13 @@ def run_recall(payload: dict) -> dict:
                     if isinstance(r, dict)
                     and _term_overlap(prompt_tokens, r) >= min_matches
                 ]
-        if not notes:
+        if not notes and not matched_rules:
             return {}
         _mark("filter")
 
-        context = _build_context(notes, vault, settings)
-        _mark("format")
-        if not context:
+        result = _emit(notes)
+        if not result:
             return {}
-
-        try:
-            write_hook_event(
-                hook="UserPromptSubmit",
-                project=get_project_name(cwd),
-                duration_ms=(time.perf_counter() - started) * 1000.0,
-                vault=vault,
-                notes_injected=len(notes),
-                chars=len(context),
-                session_id=str(payload.get("session_id") or ""),
-                stages_ms=_stage_deltas(),
-            )
-        except Exception:  # noqa: BLE001
-            pass  # observability is best-effort
         _mark("event")
 
         if bool(settings["debug"]):
@@ -431,12 +479,7 @@ def run_recall(payload: dict) -> dict:
                 + json.dumps(stages, sort_keys=True),
                 file=sys.stderr,
             )
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": context,
-            }
-        }
+        return result
     except Exception as exc:  # noqa: BLE001 -- never-block guarantee
         print(f"[user_prompt_submit_hook] recall skipped: {exc}", file=sys.stderr)
         return {}
