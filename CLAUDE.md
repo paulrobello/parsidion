@@ -442,6 +442,8 @@ confidence: high|medium|low
 sources: []
 related: ["[[note-one]]", "[[note-two]]"]  # inline quoted array; must contain at least one [[wikilink]]
 provenance: explicit|inferred|corrected|observed|imported   # optional — how the knowledge was obtained
+status: live|superseded   # optional — `superseded` retires the note from every retrieval surface
+superseded_by: ["[[replacement-note]]"]  # required when status: superseded; must resolve
 session_id: <uuid>      # optional — set by summarize_sessions.py on AI-generated notes
 ---
 ```
@@ -450,6 +452,7 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 - **Daily notes**: stored as `Daily/YYYY-MM/DD-{username}.md` (e.g. `Daily/2026-03/23-probello.md`) — the hook writes them there automatically using the `vault.username` from `config.yaml` (defaults to `$USER`). Never create flat `Daily/YYYY-MM-DD.md` files. Legacy un-namespaced `DD.md` files can be migrated with `vault_doctor.py --migrate-daily-notes`.
 - No orphan notes — every note must link to at least one other note via `related`
 - Search before create — update existing notes rather than creating duplicates
+- **Note retirement (supersession)**: when a note's facts are wrong or replaced, do NOT delete it and do not edit it into a redirect — retire it: add `status: superseded` + `superseded_by: ["[[replacement-note]]"]` (the target must exist) and a body line `> Superseded by [[X]] on YYYY-MM-DD: <reason>`. Retired notes stay on disk for audit, keep their wikilinks (no BROKEN_WIKILINK findings), and are excluded from every retrieval surface (note_index, walks, semantic search, session-start/prompt-submit recall, backlink suggestions, analytics). Write the replacement note with `provenance: corrected`. Retire via `vault-supersede NOTE REPLACEMENT --reason ... --execute`, or `vault-conflicts --execute` (keep-A/keep-B), or hand-edit + `update_index.py`; un-retire by removing the fields (`vault-supersede NOTE --revert`). History queries: `vault-search --include-superseded`.
 - **Tag brevity**: prefer short singular kebab-case tags — e.g. `voxel` not `voxel-engine`, `hook` not `hooks`, `fractal` not `fractals`. **Never use underscores** in tags or the `project` field — convert repo names like `par_ai_core` to `par-ai-core`. Use a longer form only when the short form would be genuinely ambiguous.
 - `Templates/` is a symlink to `skills/parsidion/templates/` — never edit template files directly from the vault side
 - **Subfolder rule**: when 3 or more notes share a common subject prefix, move them into a subfolder named after that subject. Drop the redundant prefix from filenames inside the subfolder. Only one level of subfolder is allowed — never nest subfolders within subfolders. Update all wikilinks and run `update_index.py` after reorganizing.

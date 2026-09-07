@@ -426,7 +426,11 @@ def _run_tui(
             return
         stdscr.addstr(y, 2, f"[A] {c.get('a')}: {c.get('a_says', '')}"[: w - 1])
         stdscr.addstr(y + 1, 2, f"[B] {c.get('b')}: {c.get('b_says', '')}"[: w - 1])
-        stdscr.addstr(y + 3, 2, "a=keep A (supersede B)  b=keep B (supersede A)  m=merge  s=skip  q=quit")
+        stdscr.addstr(
+            y + 3,
+            2,
+            "a=keep A (supersede B)  b=keep B (supersede A)  m=merge  s=skip  q=quit",
+        )
 
     def _on_key(key: int, selected: int) -> str | int | None:
         if key in (ord("q"), 27):  # q or ESC

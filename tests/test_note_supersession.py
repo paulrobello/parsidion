@@ -8,7 +8,6 @@ rule, and the vault-supersede CLI round trip.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -28,7 +27,6 @@ from core.vault_index import (  # noqa: E402
     query_note_index,
 )
 from note_schema import (  # noqa: E402
-    STATUS_SUPERSEDED,
     validate_status_fields,
 )
 
