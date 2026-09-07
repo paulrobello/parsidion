@@ -28,6 +28,13 @@ If transient (skip), respond with ONLY this JSON (no other text):
 
 If learnable (save), write the full vault note as specified below.
 
+Fork check: if the session surfaced a concrete improvement worth building — a forward-
+looking build idea that is NOT a debugging fix, NOT a reusable pattern, and NOT already
+completed in this session — classify the note as type: fork, and structure the body as
+## What to Build (the concrete change), ## Why (the value once built), ## Where (repo,
+module, or file entry points). Forks are additive build specs surfaced at the next
+session start; they are not groomed backlog items.
+
 Write a complete markdown vault note. Requirements:
 - YAML frontmatter: date ($today), type (one of: $valid_types),
 $tags_instruction,

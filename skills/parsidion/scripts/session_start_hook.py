@@ -83,6 +83,7 @@ from session_start.context import (
     _assemble_context,
     _build_dead_letter_notice,
     _build_delta_section,
+    _build_forks_section,
     _build_pending_notice,
     _debug_file,
     _write_debug_log,
@@ -507,6 +508,13 @@ def build_session_context(
         # Update last-seen timestamp for this project
         save_last_seen(project_name, vault=vault_path)
 
+    # --- Improvement forks (basemode F4) ---
+    # Additive build specs captured by the summarizer surface at session start
+    # so mid-session "worth building" ideas are not lost between sessions.
+    forks_section = ""
+    with stage_timer("forks_ms"):
+        forks_section = _build_forks_section(project_name, snapshot)
+
     notes_injected = 0
 
     if ai_enabled or ai_model is not None:
@@ -550,7 +558,7 @@ def build_session_context(
                     1 if ai_context.startswith("### ") else 0
                 )
                 context = _assemble_context(
-                    header, ai_context, pending_notice, delta_section
+                    header, ai_context, pending_notice, delta_section, forks_section
                 )
                 return context, notes_injected
             # AI failed — fall through to standard behaviour
@@ -592,7 +600,11 @@ def build_session_context(
 
     if not all_notes:
         context = _assemble_context(
-            header, "_No relevant vault notes found._", pending_notice, delta_section
+            header,
+            "_No relevant vault notes found._",
+            pending_notice,
+            delta_section,
+            forks_section,
         )
         return context, 0
 
@@ -608,7 +620,11 @@ def build_session_context(
 
     if not context_body:
         context = _assemble_context(
-            header, "_No relevant vault notes found._", pending_notice, delta_section
+            header,
+            "_No relevant vault notes found._",
+            pending_notice,
+            delta_section,
+            forks_section,
         )
         return context, 0
 
@@ -617,7 +633,9 @@ def build_session_context(
         injected_stems = [p.stem for p in all_notes]
         save_injected_notes(project_name, injected_stems)
 
-    context = _assemble_context(header, context_body, pending_notice, delta_section)
+    context = _assemble_context(
+        header, context_body, pending_notice, delta_section, forks_section
+    )
     return context, notes_injected
 
 

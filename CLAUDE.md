@@ -427,7 +427,7 @@ The system has twelve components:
 
 11. **`vault_new.py`** — Note scaffolding CLI (`vault-new` global command). Creates a new Markdown note in the folder matching its `--type` (e.g. `pattern` → `Patterns/`), generates the required YAML frontmatter, and optionally opens the note in `$EDITOR` (`--open`). Flags: `--type`, `--title`, `--project`, `--tags`, `--open`, `--dry-run`, `--vault`/`-V`.
 
-12. **`~/ParsidionVault/`** (legacy `~/ClaudeVault/`) — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `History/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
+12. **`~/ParsidionVault/`** (legacy `~/ClaudeVault/`) — The Obsidian vault itself. Auto-generated lean `CLAUDE.md` index (stats, conventions, recent activity, folder pointers) and `TAGS.md` (full tag cloud for summarizer tag reuse) at the root. Subfolders: `Daily/`, `Projects/`, `Languages/`, `Frameworks/`, `Patterns/`, `Debugging/`, `Tools/`, `Research/`, `Knowledge/`, `Rules/`, `Forks/`, `History/`, `Templates/` (symlink to skill templates). Per-folder `MANIFEST.md` files contain detailed note listings (table format). `embeddings.db` contains `note_embeddings` (vectors) and `note_index` (metadata). `hook_events.log` records structured JSON hook execution events.
 
 ## Vault Note Conventions
 
@@ -435,7 +435,7 @@ Every note **must** have YAML frontmatter:
 ```yaml
 ---
 date: YYYY-MM-DD
-type: pattern|debugging|research|project|daily|tool|language|framework|knowledge|rule
+type: pattern|debugging|research|project|daily|tool|language|framework|knowledge|rule|fork
 tags: [tag1, tag2]
 project: project-name   # optional
 confidence: high|medium|low
@@ -457,6 +457,7 @@ session_id: <uuid>      # optional — set by summarize_sessions.py on AI-genera
 - **Tag brevity**: prefer short singular kebab-case tags — e.g. `voxel` not `voxel-engine`, `hook` not `hooks`, `fractal` not `fractals`. **Never use underscores** in tags or the `project` field — convert repo names like `par_ai_core` to `par-ai-core`. Use a longer form only when the short form would be genuinely ambiguous.
 - **Rule notes (`type: rule`)**: behavioral directives injected into agent context **only when a trigger fires**. `triggers` frontmatter (required, non-empty) is a list of kebab-case keywords (`sqlite`, `prompt-cache` — hyphens match hyphen or space), fnmatch path patterns (`*.py`, `skills/`), or the `always` sentinel (must be the only entry). The prompt-submit hook matches keywords against the user's prompt; the pre-tool-use hook matches against the file path being read/edited. Matched rules lead the injection body within the hook's existing char budget and untrusted-content framing; non-matching rules are never injected, and rules push even when parsight is down. A rule with empty/missing triggers never injects; `vault_doctor`'s `rule-triggers` check reports it. Scaffold with `vault-new --type rule`.
 - `Templates/` is a symlink to `skills/parsidion/templates/` — never edit template files directly from the vault side
+- **Fork notes (`type: fork`)**: additive build specs — mid-session "improvement worth building" ideas the summarizer captures with a What-to-Build / Why / Where body, surfaced at session start for the current project (`Forks/`). Not groomed backlog items; promotion to tracked work is a human/agent decision. Scaffold with `vault-new --type fork`.
 - **Subfolder rule**: when 3 or more notes share a common subject prefix, move them into a subfolder named after that subject. Drop the redundant prefix from filenames inside the subfolder. Only one level of subfolder is allowed — never nest subfolders within subfolders. Update all wikilinks and run `update_index.py` after reorganizing.
 
 ## Skill SKILL.md Structure

@@ -7,7 +7,7 @@ import { TYPE_COLORS } from '@/lib/sigma-colors'
 
 // 'daily' intentionally excluded — daily notes follow the Daily/YYYY-MM/DD-user.md
 // convention and are written by hooks, not created/retyped through this editor.
-const TYPES = ['pattern', 'debugging', 'research', 'project', 'tool', 'language', 'framework', 'knowledge', 'rule']
+const TYPES = ['pattern', 'debugging', 'research', 'project', 'tool', 'language', 'framework', 'knowledge', 'rule', 'fork']
 const CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const
 const CONFIDENCE_COLORS: Record<string, string> = { low: '#6b7a99', medium: '#f59e0b', high: '#10b981' }
 

@@ -521,6 +521,114 @@ class TestBuildDeltaSection:
 
 
 # ---------------------------------------------------------------------------
+# Improvement forks section (_build_forks_section, basemode F4)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildForksSection:
+    """Forks surface for the current project, live-only, newest first, capped."""
+
+    def _vault_with_forks(self, tmp_path: Path) -> Path:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "Forks").mkdir()
+        conn = _make_note_index(vault)
+        for stem, title, project, mtime in (
+            ("fork-two", "Fork Two", "proj", 6000.0),
+            ("fork-one", "Fork One", "proj", 5000.0),
+            ("fork-other", "Fork Other", "other", 4000.0),
+        ):
+            note = vault / "Forks" / f"{stem}.md"
+            note.write_text(f"# {title}\n", encoding="utf-8")
+            _index_row(
+                conn,
+                stem=stem,
+                path=note,
+                folder="Forks",
+                note_type="fork",
+                title=title,
+                project=project,
+                mtime=mtime,
+            )
+        conn.close()
+        return vault
+
+    def test_lists_live_project_forks_newest_first(self, tmp_path: Path) -> None:
+        vault = self._vault_with_forks(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        result = session_start_hook._build_forks_section("proj", snapshot)
+        assert result == (
+            "Fork ideas for proj (2 open):\n  FORK: Fork Two\n  FORK: Fork One"
+        )
+
+    def test_excludes_other_projects_and_superseded(self, tmp_path: Path) -> None:
+        vault = self._vault_with_forks(tmp_path)
+        conn = _make_note_index(vault)
+        note = vault / "Forks" / "fork-old.md"
+        note.write_text("# Fork Old\n", encoding="utf-8")
+        _index_row(
+            conn,
+            stem="fork-old",
+            path=note,
+            folder="Forks",
+            note_type="fork",
+            title="Fork Old",
+            project="proj",
+            mtime=7000.0,
+        )
+        conn.execute("UPDATE note_index SET status='superseded' WHERE stem='fork-old'")
+        conn.commit()
+        conn.close()
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        result = session_start_hook._build_forks_section("proj", snapshot)
+        assert "Fork Old" not in result
+        assert "(2 open)" in result
+
+    def test_returns_empty_without_snapshot(self, tmp_path: Path) -> None:
+        assert session_start_hook._build_forks_section("proj", None) == ""
+
+    def test_returns_empty_when_no_forks_match(self, tmp_path: Path) -> None:
+        vault = self._vault_with_forks(tmp_path)
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        assert session_start_hook._build_forks_section("no-such", snapshot) == ""
+
+    def test_caps_at_five_with_showing_note(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "Forks").mkdir()
+        conn = _make_note_index(vault)
+        for i in range(7):
+            note = vault / "Forks" / f"fork-{i}.md"
+            note.write_text(f"# Fork {i}\n", encoding="utf-8")
+            _index_row(
+                conn,
+                stem=f"fork-{i}",
+                path=note,
+                folder="Forks",
+                note_type="fork",
+                title=f"Fork {i}",
+                project="proj",
+                mtime=1000.0 + i,
+            )
+        conn.close()
+        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        assert snapshot is not None
+        result = session_start_hook._build_forks_section("proj", snapshot)
+        assert "(7 open, showing 5)" in result
+        fork_lines = [ln for ln in result.splitlines() if ln.startswith("  FORK:")]
+        assert len(fork_lines) == 5
+
+    def test_assemble_context_places_forks_between_delta_and_body(self) -> None:
+        out = session_start_hook._assemble_context(
+            "# H\n", "BODY", "", "DELTA\n", "FORKS\n"
+        )
+        assert "<content>\nDELTA\n\nFORKS\n\nBODY\n</content>\n" in out
+
+
+# ---------------------------------------------------------------------------
 # Tier 1: graph neighborhood expansion (load_graph_metadata + _graph_neighbors)
 # ---------------------------------------------------------------------------
 

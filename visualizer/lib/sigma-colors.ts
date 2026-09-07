@@ -53,6 +53,7 @@ export const TYPE_COLORS: Record<string, string> = {
   framework: '#f97316',
   knowledge: '#ec4899',
   rule:      '#14b8a6',
+  fork:      '#eab308',
   daily:     '#4b5563',
 }
 

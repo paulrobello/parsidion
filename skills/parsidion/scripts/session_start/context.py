@@ -20,8 +20,12 @@ from pathlib import Path
 
 from core.vault_index import SessionIndexSnapshot, all_vault_notes
 from core.vault_path import secure_log_dir
+from note_schema import STATUS_SUPERSEDED
 
 _DEBUG_FILE_NAME = "parsidion-session-start-debug.log"
+
+#: Fork titles shown in the session-start forks section before an ellipsis.
+_FORKS_SECTION_MAX = 5
 
 
 @functools.cache
@@ -207,6 +211,52 @@ def _build_delta_section(
     return "\n".join(lines)
 
 
+def _build_forks_section(
+    project_name: str,
+    snapshot: SessionIndexSnapshot | None,
+) -> str:
+    """Build a 'Fork ideas' section from live fork notes for *project_name*.
+
+    Improvement forks (``type: fork`` notes in ``Forks/``) are additive build
+    specs surfaced at session start so mid-session "worth building" ideas do
+    not die in scrollback. DB-first like every other consumer here: derived
+    from the run's ``note_index`` snapshot, and skipped when no snapshot is
+    available (no ``embeddings.db``) -- the same graceful degradation the
+    graph metadata applies. Superseded forks (a built or replaced idea) are
+    excluded via the standard retirement filter.
+
+    Args:
+        project_name: Current project name; only forks tagged with this
+            ``project`` frontmatter value are listed.
+        snapshot: The run's ``note_index`` snapshot, or ``None``.
+
+    Returns:
+        A formatted section string, or empty string when there are no open
+        forks for the project (or no snapshot).
+    """
+    if snapshot is None:
+        return ""
+    forks = [
+        row
+        for row in snapshot.rows
+        if row.folder == "Forks"
+        and row.project == project_name
+        and row.status != STATUS_SUPERSEDED
+    ]
+    if not forks:
+        return ""
+    forks.sort(key=lambda row: -row.mtime)
+    shown = forks[:_FORKS_SECTION_MAX]
+    lines = [
+        f"Fork ideas for {project_name} ({len(forks)} open"
+        + (f", showing {len(shown)}" if len(forks) > len(shown) else "")
+        + "):"
+    ]
+    for row in shown:
+        lines.append(f"  FORK: {row.title.strip() or row.stem}")
+    return "\n".join(lines)
+
+
 # SEC-108: the untrusted-data preamble prepended to every <content> block
 # that reaches the agent with additionalContext authority. Module-level so
 # the UserPromptSubmit vault-recall hook (user_prompt_submit_hook.py) can
@@ -224,6 +274,7 @@ def _assemble_context(
     body: str,
     pending_notice: str,
     delta_section: str,
+    forks_section: str = "",
 ) -> str:
     """Combine context parts into the final injected string.
 
@@ -242,6 +293,8 @@ def _assemble_context(
         body: Main note content block.
         pending_notice: Optional pending queue warning.
         delta_section: Optional cross-session delta block.
+        forks_section: Optional open-fork listing for the current project;
+            vault-derived, so it shares the delta block's untrusted framing.
 
     Returns:
         Assembled context string.
@@ -251,10 +304,12 @@ def _assemble_context(
         parts.append(pending_notice + "\n\n")
 
     content_body = body
+    if forks_section:
+        content_body = forks_section.rstrip() + "\n\n" + content_body
     if delta_section:
         # The delta section is derived from note metadata (titles/stems),
         # so it is grouped inside the same untrusted framing.
-        content_body = delta_section.rstrip() + "\n\n" + body
+        content_body = delta_section.rstrip() + "\n\n" + content_body
     parts.append(UNTRUSTED_PREAMBLE)
     parts.append(f"<content>\n{content_body}\n</content>\n")
     return "".join(parts)

@@ -89,6 +89,7 @@ VAULT_DIRS: list[str] = [
     "Research",
     "Knowledge",
     "Rules",
+    "Forks",
     "Templates",
     "History",
 ]

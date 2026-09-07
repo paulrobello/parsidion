@@ -44,6 +44,7 @@ VALID_NOTE_TYPES: frozenset[str] = frozenset(
         "daily",
         "knowledge",
         "rule",
+        "fork",
     }
 )
 
@@ -60,6 +61,7 @@ TYPE_FOLDERS: dict[str, str] = {
     "daily": "Daily",
     "knowledge": "Knowledge",
     "rule": "Rules",
+    "fork": "Forks",
 }
 
 #: Fallback folder when a note's type is unrecognized or missing.
