@@ -169,6 +169,22 @@ class TestIndexExclusion:
         assert retired not in tagged
         assert tmp_vault / "Patterns" / "live-note.md" in tagged
 
+    def test_recent_walk_excludes(self, tmp_vault: Path) -> None:
+        """find_recent_notes' walk path skips retired notes too."""
+        live = _write_note(tmp_vault, "live-note")
+        retired = _write_note(
+            tmp_vault,
+            "retired-note",
+            superseded_by="live-note",
+        )
+        from core.vault_index import _find_recent_notes_walk, all_vault_notes
+
+        recent = _find_recent_notes_walk(30, vault=tmp_vault)
+        assert retired not in recent
+        assert live in recent
+        # all_vault_notes stays complete — index rebuilds must see every file.
+        assert retired in all_vault_notes(vault=tmp_vault)
+
     def test_pre_migration_db_degrades_gracefully(self, tmp_vault: Path) -> None:
         """An index without the status column must not fail the query."""
         conn = sqlite3.connect(str(tmp_vault / "embeddings.db"))
