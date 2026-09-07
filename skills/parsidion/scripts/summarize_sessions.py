@@ -135,6 +135,7 @@ from summarizer.notes import (  # re-exported for tests
     parse_note_title_slug,
     parse_note_type,
     write_note,
+    write_note_with_reason,
 )
 
 

@@ -426,6 +426,33 @@ def write_note(
     Returns:
         Path where the note was written, or None on dry-run/error.
     """
+    path, _ = write_note_with_reason(
+        note_content, dry_run, vault, project=project, categories=categories
+    )
+    return path
+
+
+def write_note_with_reason(
+    note_content: str,
+    dry_run: bool,
+    vault: Path,
+    project: str = "",
+    categories: list[str] | None = None,
+) -> tuple[Path | None, str]:
+    """Write a generated vault note, also reporting why a write was refused.
+
+    Args:
+        note_content: Full markdown note content.
+        dry_run: If True, print without writing.
+        vault: Path to the vault directory.
+
+    Returns:
+        (path, reason) — the path where the note was written (or None on
+        dry-run/error) and the specific refusal reason when the write was
+        refused ("" on success and dry-run). The pipeline records the reason
+        in the note_validation dead-letter entry so a dead-lettered session
+        is diagnosable without the summarizer's stderr.
+    """
     # Strip outer code fence if the model wrapped the entire note.
     # Only strip when the content after the opening fence starts with "---"
     # (YAML frontmatter), so inner ```python fences are left untouched.
@@ -465,7 +492,7 @@ def write_note(
     fm_error = _validate_frontmatter(note_content)
     if fm_error:
         print(f"  Refusing to write note: {fm_error}", file=sys.stderr)
-        return None
+        return None, fm_error
 
     note_type = parse_note_type(note_content)
     folder_name = _TYPE_FOLDERS.get(note_type, _DEFAULT_FOLDER)
@@ -481,7 +508,7 @@ def write_note(
                 f"  Skipping Daily note for today ({today}) — still being built.",
                 file=sys.stderr,
             )
-            return None
+            return None, f"daily note for today ({today}) is still being built"
 
     # SEC-001: Guard against empty slug and path traversal outside vault root.
     if not slug:
@@ -503,7 +530,7 @@ def write_note(
         print("---")
         print(note_content[:500])
         print("...")
-        return None
+        return None, ""
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -524,7 +551,9 @@ def write_note(
                 f"{target_path}: {backup_err}",
                 file=sys.stderr,
             )
-            return None
+            return None, (
+                f"slug-collision backup failed for {target_path}: {backup_err}"
+            )
         try:
             existing = target_path.read_text(encoding="utf-8")
         except OSError:
@@ -544,16 +573,16 @@ def write_note(
                 f"{target_path.name} (no duplicate created)",
                 file=sys.stderr,
             )
-            return target_path
+            return target_path, ""
         except OSError as e:
             print(f"Error merging {target_path}: {e}", file=sys.stderr)
-            return None
+            return None, f"merge of existing {target_path.name} failed: {e}"
 
     # SEC-127: route through vault_fs.atomic_write_text (the create path was a
     # bare write_text; the merge path now uses the same primitive).
     try:
         atomic_write_text(target_path, note_content)
-        return target_path
+        return target_path, ""
     except OSError as e:
         print(f"Error writing {target_path}: {e}", file=sys.stderr)
-        return None
+        return None, f"write failed for {target_path.name}: {e}"

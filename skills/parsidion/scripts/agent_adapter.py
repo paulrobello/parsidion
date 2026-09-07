@@ -67,7 +67,7 @@ from core.vault_hooks import (
     parse_transcript_lines,
     write_hook_event,
 )
-from core.vault_path import resolve_vault
+from core.vault_path import resolve_vault, rotate_log_file, secure_log_dir
 
 # ---------------------------------------------------------------------------
 # Adapter descriptor
@@ -772,14 +772,21 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
         return
 
     try:
-        subprocess.Popen(
-            ["uv", "run", "--no-project", str(summarizer)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=env_without_claudecode(),
-        )
+        # The summarizer's output used to go to DEVNULL, so a write_note
+        # refusal (frontmatter validation, write failure) was unrecoverable
+        # once the detached process exited. Capture both streams into a
+        # durable, rotated log so dead-lettered sessions stay diagnosable.
+        log_path = secure_log_dir() / "parsidion-summarizer.log"
+        rotate_log_file(log_path)
+        with open(log_path, "ab") as log_file:
+            subprocess.Popen(
+                ["uv", "run", "--no-project", str(summarizer)],
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                env=env_without_claudecode(),
+            )
     except (OSError, ValueError):
         pass
 

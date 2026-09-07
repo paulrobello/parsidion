@@ -56,7 +56,7 @@ from summarizer.notes import (
     _stamp_prompt_version,
     _validate_frontmatter,
     inject_project_tag,
-    write_note,
+    write_note_with_reason,
 )
 from summarizer.prompt import (
     _run_summarizer_prompt_with_cause,
@@ -479,12 +479,17 @@ async def summarize_one(
         result_text = _stamp_prompt_version(
             result_text, load_prompt("summarize-session").version_stamp
         )
-        written = write_note(result_text, dry_run, vault, project, categories)
+        written, refusal = write_note_with_reason(
+            result_text, dry_run, vault, project, categories
+        )
         if written is None and not dry_run:
             # write_note already printed the specific refusal (frontmatter
-            # validation, daily-note skip, ...) to stderr.
+            # validation, daily-note skip, ...) to stderr; the reason now also
+            # lands in the dead-letter record so it survives the process.
             _mark_failure(
-                entry, FailureReason.NOTE_VALIDATION, "write_note returned None"
+                entry,
+                FailureReason.NOTE_VALIDATION,
+                refusal or "write_note returned None",
             )
 
         # Automated backlink suggestion
