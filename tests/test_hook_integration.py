@@ -204,6 +204,39 @@ class TestInternalHookDisable:
         assert json.loads(result.stdout) == {}
         assert not (tmp_path / "pending_summaries.jsonl").exists()
 
+    def test_session_stop_wrapper_falls_back_to_tmp_when_tmpdir_broken(
+        self, tmp_path: Path
+    ) -> None:
+        # Live-observed 103 times: a stale $TMPDIR at SessionEnd silently
+        # dropped the payload. The wrapper must fall back to /tmp and only
+        # log the drop line when BOTH attempts fail.
+        script_path = _SCRIPTS_DIR / "session_stop_wrapper.sh"
+        env = {
+            **os.environ,
+            "TMPDIR": str(tmp_path / "does-not-exist"),
+            "HOME": str(tmp_path),  # isolates the wrapper's ~/.claude/logs
+            "CLAUDE_VAULT": str(tmp_path),
+            "CLAUDE_VAULT_STOP_ACTIVE": "",
+            "PARSIDION_INTERNAL": "",
+        }
+
+        result = subprocess.run(
+            [str(script_path)],
+            input=json.dumps({"cwd": str(tmp_path), "transcript_path": ""}),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {}
+        wrapper_log = tmp_path / ".claude" / "logs" / "session_stop_hook.log"
+        assert wrapper_log.exists(), "wrapper must create its log dir under HOME"
+        assert "mktemp failed" not in wrapper_log.read_text(encoding="utf-8"), (
+            "fallback succeeded, so the payload was saved, not dropped"
+        )
+
     def test_stop_hooks_skip_internal_sessions_with_valid_transcripts(
         self, tmp_path: Path
     ) -> None:

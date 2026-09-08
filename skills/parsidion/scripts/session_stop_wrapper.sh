@@ -38,16 +38,31 @@ LOG_FILE="$LOG_DIR/session_stop_hook.log"
 # SEC-003: prefer $TMPDIR (user-specific on macOS) over the world-accessible /tmp.
 old_umask=$(umask)
 umask 077
-TMPFILE=$(mktemp "${TMPDIR:-/tmp}/session_stop_hook_XXXXXX.json") || TMPFILE=""
+# mktemp stderr is captured (never silenced) so a total failure can name its
+# cause; $LOG_DIR is 0700, so the capture file stays owner-only.
+errfile="$LOG_DIR/.mktemp_err.$$"
+# BSD mktemp randomizes only TRAILING X's — a suffixed template creates a file
+# literally named `…_XXXXXX.json`, so any concurrent session-end (or any copy
+# left by a crashed wrapper) collides on EEXIST and, pre-fix, silently dropped
+# its payload (103 live drops, 2026-08-25..09-07). Trailing X's only.
+TMPFILE=$(mktemp "${TMPDIR:-/tmp}/session_stop_hook_XXXXXX" 2>"$errfile") || TMPFILE=""
+if [ -z "$TMPFILE" ] && [ -n "${TMPDIR:-}" ] && [ "$TMPDIR" != "/tmp" ]; then
+  # Fall back to /tmp if the resolved TMPDIR is stale/unwritable at hook time;
+  # a broken TMPDIR must cost a /tmp temp file, not the session's payload.
+  TMPFILE=$(mktemp "/tmp/session_stop_hook_XXXXXX" 2>>"$errfile") || TMPFILE=""
+fi
 umask "$old_umask"
 # An unchecked mktemp failure would silently drop the session's stdin JSON.
 # Still acknowledge Claude Code with {} (never break the host session), but
-# leave a diagnostic line in the log before exiting.
+# leave a diagnostic line (resolved TMPDIR + mktemp's own stderr) in the log
+# before exiting.
 if [ -z "$TMPFILE" ]; then
   printf '{}'
-  echo "$(date '+%Y-%m-%d %H:%M:%S') session_stop_wrapper: mktemp failed; SessionEnd payload dropped" >> "$LOG_FILE" 2>/dev/null
+  echo "$(date '+%Y-%m-%d %H:%M:%S') session_stop_wrapper: mktemp failed; SessionEnd payload dropped (TMPDIR=${TMPDIR:-unset}; $(tr '\n' ' ' < "$errfile" 2>/dev/null))" >> "$LOG_FILE" 2>/dev/null
+  rm -f "$errfile"
   exit 0
 fi
+rm -f "$errfile"
 # QA-015: Do NOT trap EXIT here — a trap 'rm -f "$TMPFILE"' EXIT would fire
 # when the foreground wrapper exits, which races with the background subshell
 # that reads the file.  The background subshell does its own 'rm -f "$TMPFILE"'
