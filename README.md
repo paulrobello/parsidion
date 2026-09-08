@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.23.3:** summarizer timeout fallback (180s default window prevents premature transcript dead-letters), doctor required-fields rule aligned with `note_schema.py` to enforce `tags` on knowledge notes, and staleness/embeddings-disabled fallback for DB-first note reads with decoupled metadata table writes. See the [Changelog](CHANGELOG.md).
+> **New in 0.24.0:** PreToolUse file-scoped vault recall on Read/Edit, trigger-scoped rule notes injected when keywords or file paths match, improvement forks surfaced at session start, and the note supersession contract (`status: superseded` + `vault-supersede`). See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -669,7 +669,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.23.3** (summarizer timeout fallback, doctor tags rule alignment, and note_index staleness/embeddings-disabled fallback). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.24.0** (PreToolUse file-scoped recall, trigger-scoped rule notes, improvement forks at session start, note supersession contract, and the SessionStart AI budget clamp). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-08
+
+### Added
+
+- **PreToolUse file-scoped vault recall** — new `pre_tool_use_hook.py` (registered at a 10s timeout) injects vault recall scoped to the file being read or edited, inside SEC-108 untrusted-content framing with fail-open `{}` when nothing matches; also wired into the codex runtime via `install.py connect codex`.
+- **Trigger-scoped rule notes** — new `type: rule` notes with a required `triggers` frontmatter list (kebab-case keywords, fnmatch path patterns, or the `always` sentinel). Matched rules lead the injection body on prompt-submit (keyword match against the prompt) and pre-tool-use (pattern match against the file path); non-matching rules are never injected. `vault_doctor` gains a `rule-triggers` check and the visualizer threads the rule type through its TS type lists.
+- **Improvement forks** — new `type: fork` notes (What-to-Build / Why / Where) captured by the summarizer into `Forks/` and surfaced at session start for the current project; scaffold with `vault-new --type fork`.
+- **Note supersession contract** — `status: superseded` plus `superseded_by` frontmatter retires a wrong-or-replaced note across every retrieval surface (`note_index` status filter, semantic search, session-start and prompt-submit recall, backlink suggestions, graph and analytics) while keeping it on disk for audit. Ship-side: `vault-supersede NOTE REPLACEMENT --execute`, `vault-conflicts --execute` keep-A/keep-B resolution, a doctor rule, and `vault-search --include-superseded` for history queries.
+- **`active_vault_scope` (ARC-001)** — explicit `--vault` scoping mechanism routed through conflicts, `build_embeddings`, doctor, merge, export, and review tools; tests migrate from `VAULT_ROOT` constant patches to the public vault channels.
+
+### Fixed
+
+- **SessionStart AI selector budget** — the selector's AI timeout is clamped under the registered hook timeout (50% share, configurable stage timing emitted as `stages_ms`), preventing silent runtime cancellation at the hook deadline.
+- **SessionEnd payload drops** — the stop wrapper's suffixed `mktemp` template created literal-name files that EEXIST-collided and dropped session-end payloads; it now uses a plain `mktemp` template.
+- **hook latency windowing** — `vault_health` windows `hook_latency` at the hook's last timeout breach instead of an unbounded window.
+- **parsight `find_code` cap** — queries are clamped to the daemon's 4096-character boundary instead of failing the whole call.
+- **summarizer dead letters** — dead-lettered entries carry the specific `write_note` refusal reason instead of an opaque failure kind.
+
+### Changed
+
+- **Makefile** — adopts the par-grind target conventions (`checkall` composition unchanged).
+- **Docs** — reference documentation synced to the current implementation.
+
 ## [0.23.3] - 2026-09-04
 
 ### Fixed
