@@ -57,6 +57,30 @@
                     <a class="variable" href="#VALID_CONFIDENCE_VALUES">VALID_CONFIDENCE_VALUES</a>
             </li>
             <li>
+                    <a class="variable" href="#VALID_STATUS_VALUES">VALID_STATUS_VALUES</a>
+            </li>
+            <li>
+                    <a class="variable" href="#STATUS_SUPERSEDED">STATUS_SUPERSEDED</a>
+            </li>
+            <li>
+                    <a class="variable" href="#TRIGGER_ALWAYS">TRIGGER_ALWAYS</a>
+            </li>
+            <li>
+                    <a class="function" href="#is_path_trigger">is_path_trigger</a>
+            </li>
+            <li>
+                    <a class="function" href="#parse_triggers">parse_triggers</a>
+            </li>
+            <li>
+                    <a class="function" href="#validate_triggers">validate_triggers</a>
+            </li>
+            <li>
+                    <a class="function" href="#match_trigger">match_trigger</a>
+            </li>
+            <li>
+                    <a class="function" href="#validate_status_fields">validate_status_fields</a>
+            </li>
+            <li>
                     <a class="variable" href="#TAG_RULES">TAG_RULES</a>
             </li>
             <li>
@@ -128,98 +152,288 @@ stdlib-only contract as the <code>core/</code> package and is covered by
 </span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a>
 </span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 </span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a>
-</span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-26"><a href="#L-26"><span class="linenos"> 26</span></a><span class="c1"># Note types</span>
-</span><span id="L-27"><a href="#L-27"><span class="linenos"> 27</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a>
-</span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a><span class="c1">#: Every valid value for the ``type`` frontmatter field. The single source;</span>
-</span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a><span class="c1">#: ``summarizer._state_const._VALID_NOTE_TYPES`` and</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a><span class="c1">#: ``doctor._state.VALID_TYPES`` are aliases over this set.</span>
-</span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="n">VALID_NOTE_TYPES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
-</span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a>    <span class="p">{</span>
-</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a>        <span class="s2">"debugging"</span><span class="p">,</span>
-</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a>        <span class="s2">"research"</span><span class="p">,</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a>        <span class="s2">"pattern"</span><span class="p">,</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a>        <span class="s2">"tool"</span><span class="p">,</span>
-</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a>        <span class="s2">"framework"</span><span class="p">,</span>
-</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a>        <span class="s2">"language"</span><span class="p">,</span>
-</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a>        <span class="s2">"project"</span><span class="p">,</span>
-</span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a>        <span class="s2">"daily"</span><span class="p">,</span>
-</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a>        <span class="s2">"knowledge"</span><span class="p">,</span>
-</span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a>    <span class="p">}</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a><span class="p">)</span>
-</span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a>
-</span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a><span class="c1">#: Map each note type to the vault folder that holds it. Keys are exactly</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a><span class="c1">#: :data:`VALID_NOTE_TYPES`; every type routes somewhere.</span>
-</span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a><span class="n">TYPE_FOLDERS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>    <span class="s2">"debugging"</span><span class="p">:</span> <span class="s2">"Debugging"</span><span class="p">,</span>
-</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a>    <span class="s2">"research"</span><span class="p">:</span> <span class="s2">"Research"</span><span class="p">,</span>
-</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a>    <span class="s2">"pattern"</span><span class="p">:</span> <span class="s2">"Patterns"</span><span class="p">,</span>
-</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a>    <span class="s2">"tool"</span><span class="p">:</span> <span class="s2">"Tools"</span><span class="p">,</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a>    <span class="s2">"framework"</span><span class="p">:</span> <span class="s2">"Frameworks"</span><span class="p">,</span>
-</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a>    <span class="s2">"language"</span><span class="p">:</span> <span class="s2">"Languages"</span><span class="p">,</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>    <span class="s2">"project"</span><span class="p">:</span> <span class="s2">"Projects"</span><span class="p">,</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>    <span class="s2">"daily"</span><span class="p">:</span> <span class="s2">"Daily"</span><span class="p">,</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>    <span class="s2">"knowledge"</span><span class="p">:</span> <span class="s2">"Knowledge"</span><span class="p">,</span>
-</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="p">}</span>
-</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a>
-</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a><span class="c1">#: Fallback folder when a note's type is unrecognized or missing.</span>
-</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a><span class="n">DEFAULT_FOLDER</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"Research"</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a>
-</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="c1"># Frontmatter field contract</span>
-</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos"> 26</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">fnmatch</span><span class="w"> </span><span class="kn">import</span> <span class="n">fnmatch</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos"> 27</span></a>
+</span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a><span class="c1"># Note types</span>
+</span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a>
+</span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="c1">#: Every valid value for the ``type`` frontmatter field. The single source;</span>
+</span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a><span class="c1">#: ``summarizer._state_const._VALID_NOTE_TYPES`` and</span>
+</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a><span class="c1">#: ``doctor._state.VALID_TYPES`` are aliases over this set.</span>
+</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a><span class="n">VALID_NOTE_TYPES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a>    <span class="p">{</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a>        <span class="s2">"debugging"</span><span class="p">,</span>
+</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a>        <span class="s2">"research"</span><span class="p">,</span>
+</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a>        <span class="s2">"pattern"</span><span class="p">,</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a>        <span class="s2">"tool"</span><span class="p">,</span>
+</span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a>        <span class="s2">"framework"</span><span class="p">,</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a>        <span class="s2">"language"</span><span class="p">,</span>
+</span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a>        <span class="s2">"project"</span><span class="p">,</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a>        <span class="s2">"daily"</span><span class="p">,</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a>        <span class="s2">"knowledge"</span><span class="p">,</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a>        <span class="s2">"rule"</span><span class="p">,</span>
+</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a>        <span class="s2">"fork"</span><span class="p">,</span>
+</span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a>    <span class="p">}</span>
+</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a><span class="p">)</span>
+</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a>
+</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a><span class="c1">#: Map each note type to the vault folder that holds it. Keys are exactly</span>
+</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="c1">#: :data:`VALID_NOTE_TYPES`; every type routes somewhere.</span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a><span class="n">TYPE_FOLDERS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a>    <span class="s2">"debugging"</span><span class="p">:</span> <span class="s2">"Debugging"</span><span class="p">,</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a>    <span class="s2">"research"</span><span class="p">:</span> <span class="s2">"Research"</span><span class="p">,</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a>    <span class="s2">"pattern"</span><span class="p">:</span> <span class="s2">"Patterns"</span><span class="p">,</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>    <span class="s2">"tool"</span><span class="p">:</span> <span class="s2">"Tools"</span><span class="p">,</span>
+</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a>    <span class="s2">"framework"</span><span class="p">:</span> <span class="s2">"Frameworks"</span><span class="p">,</span>
+</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a>    <span class="s2">"language"</span><span class="p">:</span> <span class="s2">"Languages"</span><span class="p">,</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a>    <span class="s2">"project"</span><span class="p">:</span> <span class="s2">"Projects"</span><span class="p">,</span>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a>    <span class="s2">"daily"</span><span class="p">:</span> <span class="s2">"Daily"</span><span class="p">,</span>
+</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a>    <span class="s2">"knowledge"</span><span class="p">:</span> <span class="s2">"Knowledge"</span><span class="p">,</span>
+</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a>    <span class="s2">"rule"</span><span class="p">:</span> <span class="s2">"Rules"</span><span class="p">,</span>
+</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a>    <span class="s2">"fork"</span><span class="p">:</span> <span class="s2">"Forks"</span><span class="p">,</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="p">}</span>
 </span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a>
-</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="c1">#: Fields required on every note, of any type.</span>
-</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="n">REQUIRED_FRONTMATTER_FIELDS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"type"</span><span class="p">,</span> <span class="s2">"tags"</span><span class="p">})</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a><span class="c1">#: Fallback folder when a note's type is unrecognized or missing.</span>
+</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="n">DEFAULT_FOLDER</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"Research"</span>
 </span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="c1">#: Canonical serialization order for the known frontmatter fields (ARC-005).</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="c1">#: ``core.vault_index.serialize_frontmatter`` emits these keys first (when</span>
-</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="c1">#: present), then any extra fields in insertion order. Mirrors the field order</span>
-</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="c1">#: in the note-template frontmatter and ``visualizer/lib/frontmatter.ts``;</span>
-</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="c1">#: the parity fixture ``tests/fixtures/parity/frontmatter.json`` pins the</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="c1">#: Python and TS emitters to this order.</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="n">FRONTMATTER_FIELD_ORDER</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a>    <span class="s2">"date"</span><span class="p">,</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a>    <span class="s2">"type"</span><span class="p">,</span>
-</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>    <span class="s2">"tags"</span><span class="p">,</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a>    <span class="s2">"project"</span><span class="p">,</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>    <span class="s2">"confidence"</span><span class="p">,</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a>    <span class="s2">"sources"</span><span class="p">,</span>
-</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>    <span class="s2">"related"</span><span class="p">,</span>
-</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>    <span class="s2">"provenance"</span><span class="p">,</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>    <span class="s2">"session_id"</span><span class="p">,</span>
-</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="p">)</span>
-</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>
-</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a><span class="c1">#: Fields required on knowledge notes (i.e. non-daily). Daily notes are exempt</span>
-</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="c1">#: from ``confidence`` and ``related``.</span>
-</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="n">REQUIRED_KNOWLEDGE_FIELDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"confidence"</span><span class="p">,</span> <span class="s2">"related"</span><span class="p">)</span>
-</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>
-</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="c1">#: Valid values for the optional ``provenance`` frontmatter field.</span>
-</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="n">VALID_PROVENANCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
-</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>    <span class="p">{</span><span class="s2">"explicit"</span><span class="p">,</span> <span class="s2">"inferred"</span><span class="p">,</span> <span class="s2">"corrected"</span><span class="p">,</span> <span class="s2">"observed"</span><span class="p">,</span> <span class="s2">"imported"</span><span class="p">}</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="c1"># Frontmatter field contract</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="c1">#: Fields required on every note, of any type.</span>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="n">REQUIRED_FRONTMATTER_FIELDS</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"type"</span><span class="p">,</span> <span class="s2">"tags"</span><span class="p">})</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="c1">#: Canonical serialization order for the known frontmatter fields (ARC-005).</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="c1">#: ``core.vault_index.serialize_frontmatter`` emits these keys first (when</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a><span class="c1">#: present), then any extra fields in insertion order. Mirrors the field order</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a><span class="c1">#: in the note-template frontmatter and ``visualizer/lib/frontmatter.ts``;</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a><span class="c1">#: the parity fixture ``tests/fixtures/parity/frontmatter.json`` pins the</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="c1">#: Python and TS emitters to this order.</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a><span class="n">FRONTMATTER_FIELD_ORDER</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a>    <span class="s2">"date"</span><span class="p">,</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>    <span class="s2">"type"</span><span class="p">,</span>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a>    <span class="s2">"tags"</span><span class="p">,</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a>    <span class="s2">"project"</span><span class="p">,</span>
+</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a>    <span class="s2">"confidence"</span><span class="p">,</span>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a>    <span class="s2">"sources"</span><span class="p">,</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a>    <span class="s2">"related"</span><span class="p">,</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a>    <span class="s2">"provenance"</span><span class="p">,</span>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>    <span class="s2">"status"</span><span class="p">,</span>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>    <span class="s2">"superseded_by"</span><span class="p">,</span>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>    <span class="s2">"session_id"</span><span class="p">,</span>
 </span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="p">)</span>
 </span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
-</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="c1">#: Valid values for the ``confidence`` frontmatter field.</span>
-</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="n">VALID_CONFIDENCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"high"</span><span class="p">,</span> <span class="s2">"medium"</span><span class="p">,</span> <span class="s2">"low"</span><span class="p">})</span>
-</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a>
-</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="c1"># Tag rules (shared by every prompt that instructs the model on tags)</span>
-</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
-</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>
-</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="c1">#: The kebab-case / short-singular tag rule, stated once. Both branches of the</span>
-</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="c1">#: summarizer's tag instruction (existing-tags vs. fresh-vault) interpolate</span>
-</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="c1">#: this so a single edit updates both. Prompt templates that mention tags also</span>
-</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="c1">#: interpolate ``{tag_rules}`` from this constant.</span>
-</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a><span class="n">TAG_RULES</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="s2">"  NEVER use underscores — always kebab-case (hyphens);</span><span class="se">\n</span><span class="s2">"</span>
-</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="s2">"  prefer short singular tags: 'voxel' not 'voxel-engine', 'hook' not 'hooks')"</span>
-</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a><span class="p">)</span>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="c1">#: Fields required on knowledge notes (i.e. non-daily). Daily notes are exempt</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="c1">#: from ``confidence`` and ``related``.</span>
+</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a><span class="n">REQUIRED_KNOWLEDGE_FIELDS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"confidence"</span><span class="p">,</span> <span class="s2">"related"</span><span class="p">)</span>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="c1">#: Valid values for the optional ``provenance`` frontmatter field.</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="n">VALID_PROVENANCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>    <span class="p">{</span><span class="s2">"explicit"</span><span class="p">,</span> <span class="s2">"inferred"</span><span class="p">,</span> <span class="s2">"corrected"</span><span class="p">,</span> <span class="s2">"observed"</span><span class="p">,</span> <span class="s2">"imported"</span><span class="p">}</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="p">)</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="c1">#: Valid values for the ``confidence`` frontmatter field.</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="n">VALID_CONFIDENCE_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"high"</span><span class="p">,</span> <span class="s2">"medium"</span><span class="p">,</span> <span class="s2">"low"</span><span class="p">})</span>
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a><span class="c1"># Supersession (note retirement) contract</span>
+</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
 </span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>
-</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a><span class="c1">#: Comma-separated, sorted list of valid note types — the form prompts inject</span>
-</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a><span class="c1">#: as ``{note_types}``. Pre-computed so prompt rendering does not have to import</span>
-</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="c1">#: the frozenset at render time (the loader stays free of domain knowledge).</span>
-</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
+</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a><span class="c1">#: Valid values for the optional ``status`` frontmatter field. A note without</span>
+</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a><span class="c1">#: ``status`` (or with ``status: live``) is a normal, retrievable note;</span>
+</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a><span class="c1">#: ``status: superseded`` retires it from every retrieval surface while the</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a><span class="c1">#: file, its wikilinks, and its embeddings stay in place for audit.</span>
+</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a><span class="n">VALID_STATUS_VALUES</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">"live"</span><span class="p">,</span> <span class="s2">"superseded"</span><span class="p">})</span>
+</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a>
+</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a><span class="c1">#: The retired-note status value every retrieval filter tests for.</span>
+</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a><span class="n">STATUS_SUPERSEDED</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"superseded"</span>
+</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>
+</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a>
+</span><span id="L-123"><a href="#L-123"><span class="linenos">123</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-124"><a href="#L-124"><span class="linenos">124</span></a><span class="c1"># Rule-note triggers (``type: rule`` notes)</span>
+</span><span id="L-125"><a href="#L-125"><span class="linenos">125</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-126"><a href="#L-126"><span class="linenos">126</span></a>
+</span><span id="L-127"><a href="#L-127"><span class="linenos">127</span></a><span class="c1">#: Sentinel trigger value: a rule carrying exactly ``[always]`` matches every</span>
+</span><span id="L-128"><a href="#L-128"><span class="linenos">128</span></a><span class="c1">#: prompt and every file path. Mixing it with other triggers is a validation</span>
+</span><span id="L-129"><a href="#L-129"><span class="linenos">129</span></a><span class="c1">#: error (an always-on rule scoped by keywords would be a contradiction).</span>
+</span><span id="L-130"><a href="#L-130"><span class="linenos">130</span></a><span class="n">TRIGGER_ALWAYS</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"always"</span>
+</span><span id="L-131"><a href="#L-131"><span class="linenos">131</span></a>
+</span><span id="L-132"><a href="#L-132"><span class="linenos">132</span></a><span class="c1">#: Keyword triggers: lowercase kebab-case tokens, 2-40 chars. Matched as</span>
+</span><span id="L-133"><a href="#L-133"><span class="linenos">133</span></a><span class="c1">#: whole words against the prompt (prompt-submit hook) or the file path</span>
+</span><span id="L-134"><a href="#L-134"><span class="linenos">134</span></a><span class="c1">#: (pre-tool-use hook); hyphens in a keyword match either a hyphen or</span>
+</span><span id="L-135"><a href="#L-135"><span class="linenos">135</span></a><span class="c1">#: whitespace in the text, so ``prompt-cache`` matches "prompt cache".</span>
+</span><span id="L-136"><a href="#L-136"><span class="linenos">136</span></a><span class="n">_TRIGGER_KEYWORD_RE</span><span class="p">:</span> <span class="n">re</span><span class="o">.</span><span class="n">Pattern</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+</span><span id="L-137"><a href="#L-137"><span class="linenos">137</span></a>    <span class="sa">r</span><span class="s2">"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"</span>
+</span><span id="L-138"><a href="#L-138"><span class="linenos">138</span></a><span class="p">)</span>
+</span><span id="L-139"><a href="#L-139"><span class="linenos">139</span></a>
+</span><span id="L-140"><a href="#L-140"><span class="linenos">140</span></a><span class="c1">#: Path-pattern triggers: fnmatch globs applied to the file path. An entry</span>
+</span><span id="L-141"><a href="#L-141"><span class="linenos">141</span></a><span class="c1">#: counts as a path pattern when it contains ``/`` or ``*``; everything else</span>
+</span><span id="L-142"><a href="#L-142"><span class="linenos">142</span></a><span class="c1">#: must be a keyword.</span>
+</span><span id="L-143"><a href="#L-143"><span class="linenos">143</span></a><span class="n">_TRIGGER_MAX_COUNT</span> <span class="o">=</span> <span class="mi">32</span>
+</span><span id="L-144"><a href="#L-144"><span class="linenos">144</span></a><span class="n">_TRIGGER_MAX_LEN</span> <span class="o">=</span> <span class="mi">120</span>
+</span><span id="L-145"><a href="#L-145"><span class="linenos">145</span></a>
+</span><span id="L-146"><a href="#L-146"><span class="linenos">146</span></a>
+</span><span id="L-147"><a href="#L-147"><span class="linenos">147</span></a><span class="k">def</span><span class="w"> </span><span class="nf">is_path_trigger</span><span class="p">(</span><span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="L-148"><a href="#L-148"><span class="linenos">148</span></a><span class="w">    </span><span class="sd">"""True when *trigger* is a path pattern (contains ``/`` or ``*``)."""</span>
+</span><span id="L-149"><a href="#L-149"><span class="linenos">149</span></a>    <span class="k">return</span> <span class="s2">"/"</span> <span class="ow">in</span> <span class="n">trigger</span> <span class="ow">or</span> <span class="s2">"*"</span> <span class="ow">in</span> <span class="n">trigger</span>
+</span><span id="L-150"><a href="#L-150"><span class="linenos">150</span></a>
+</span><span id="L-151"><a href="#L-151"><span class="linenos">151</span></a>
+</span><span id="L-152"><a href="#L-152"><span class="linenos">152</span></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_triggers</span><span class="p">(</span><span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="L-153"><a href="#L-153"><span class="linenos">153</span></a><span class="w">    </span><span class="sd">"""Normalized trigger strings from a note's frontmatter, empty when absent.</span>
+</span><span id="L-154"><a href="#L-154"><span class="linenos">154</span></a>
+</span><span id="L-155"><a href="#L-155"><span class="linenos">155</span></a><span class="sd">    Tolerates both the list form (``triggers: [a, b]``) and the inline</span>
+</span><span id="L-156"><a href="#L-156"><span class="linenos">156</span></a><span class="sd">    comma-string form (``triggers: a, b``); non-string entries are dropped.</span>
+</span><span id="L-157"><a href="#L-157"><span class="linenos">157</span></a><span class="sd">    """</span>
+</span><span id="L-158"><a href="#L-158"><span class="linenos">158</span></a>    <span class="n">raw</span> <span class="o">=</span> <span class="n">fields</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"triggers"</span><span class="p">)</span>
+</span><span id="L-159"><a href="#L-159"><span class="linenos">159</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="L-160"><a href="#L-160"><span class="linenos">160</span></a>        <span class="k">return</span> <span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">raw</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">","</span><span class="p">)</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+</span><span id="L-161"><a href="#L-161"><span class="linenos">161</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span id="L-162"><a href="#L-162"><span class="linenos">162</span></a>        <span class="k">return</span> <span class="p">[]</span>
+</span><span id="L-163"><a href="#L-163"><span class="linenos">163</span></a>    <span class="k">return</span> <span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">raw</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+</span><span id="L-164"><a href="#L-164"><span class="linenos">164</span></a>
+</span><span id="L-165"><a href="#L-165"><span class="linenos">165</span></a>
+</span><span id="L-166"><a href="#L-166"><span class="linenos">166</span></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_triggers</span><span class="p">(</span><span class="n">triggers</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="L-167"><a href="#L-167"><span class="linenos">167</span></a><span class="w">    </span><span class="sd">"""Validate a ``triggers`` frontmatter value; return error strings.</span>
+</span><span id="L-168"><a href="#L-168"><span class="linenos">168</span></a>
+</span><span id="L-169"><a href="#L-169"><span class="linenos">169</span></a><span class="sd">    Syntax contract: a list of 1-32 entries, each a kebab-case keyword</span>
+</span><span id="L-170"><a href="#L-170"><span class="linenos">170</span></a><span class="sd">    (``[a-z0-9-]``, 2-120 chars) or an fnmatch path pattern (contains ``/``</span>
+</span><span id="L-171"><a href="#L-171"><span class="linenos">171</span></a><span class="sd">    or ``*``); ``always`` must be the only entry when present. Empty when</span>
+</span><span id="L-172"><a href="#L-172"><span class="linenos">172</span></a><span class="sd">    the value is valid — the doctor ``rule-triggers`` check surfaces these</span>
+</span><span id="L-173"><a href="#L-173"><span class="linenos">173</span></a><span class="sd">    strings verbatim.</span>
+</span><span id="L-174"><a href="#L-174"><span class="linenos">174</span></a><span class="sd">    """</span>
+</span><span id="L-175"><a href="#L-175"><span class="linenos">175</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">triggers</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span id="L-176"><a href="#L-176"><span class="linenos">176</span></a>        <span class="k">return</span> <span class="p">[</span>
+</span><span id="L-177"><a href="#L-177"><span class="linenos">177</span></a>            <span class="s2">"triggers must be a list of keywords/path patterns, "</span>
+</span><span id="L-178"><a href="#L-178"><span class="linenos">178</span></a>            <span class="sa">f</span><span class="s2">"got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">triggers</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+</span><span id="L-179"><a href="#L-179"><span class="linenos">179</span></a>        <span class="p">]</span>
+</span><span id="L-180"><a href="#L-180"><span class="linenos">180</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">triggers</span><span class="p">:</span>
+</span><span id="L-181"><a href="#L-181"><span class="linenos">181</span></a>        <span class="k">return</span> <span class="p">[</span><span class="s2">"triggers must be a non-empty list (use [always] for always-on)"</span><span class="p">]</span>
+</span><span id="L-182"><a href="#L-182"><span class="linenos">182</span></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">triggers</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_TRIGGER_MAX_COUNT</span><span class="p">:</span>
+</span><span id="L-183"><a href="#L-183"><span class="linenos">183</span></a>        <span class="k">return</span> <span class="p">[</span><span class="sa">f</span><span class="s2">"triggers has more than </span><span class="si">{</span><span class="n">_TRIGGER_MAX_COUNT</span><span class="si">}</span><span class="s2"> entries"</span><span class="p">]</span>
+</span><span id="L-184"><a href="#L-184"><span class="linenos">184</span></a>    <span class="n">errors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="L-185"><a href="#L-185"><span class="linenos">185</span></a>    <span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="L-186"><a href="#L-186"><span class="linenos">186</span></a>    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">triggers</span><span class="p">:</span>
+</span><span id="L-187"><a href="#L-187"><span class="linenos">187</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">entry</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+</span><span id="L-188"><a href="#L-188"><span class="linenos">188</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"triggers entry </span><span class="si">{</span><span class="n">entry</span><span class="si">!r}</span><span class="s2"> is not a non-empty string"</span><span class="p">)</span>
+</span><span id="L-189"><a href="#L-189"><span class="linenos">189</span></a>            <span class="k">continue</span>
+</span><span id="L-190"><a href="#L-190"><span class="linenos">190</span></a>        <span class="n">entry</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+</span><span id="L-191"><a href="#L-191"><span class="linenos">191</span></a>        <span class="n">entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+</span><span id="L-192"><a href="#L-192"><span class="linenos">192</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_TRIGGER_MAX_LEN</span><span class="p">:</span>
+</span><span id="L-193"><a href="#L-193"><span class="linenos">193</span></a>            <span class="n">patterns</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-194"><a href="#L-194"><span class="linenos">194</span></a>                <span class="sa">f</span><span class="s2">"trigger </span><span class="si">{</span><span class="n">entry</span><span class="si">!r}</span><span class="s2"> exceeds </span><span class="si">{</span><span class="n">_TRIGGER_MAX_LEN</span><span class="si">}</span><span class="s2"> chars"</span>
+</span><span id="L-195"><a href="#L-195"><span class="linenos">195</span></a>            <span class="p">]</span>
+</span><span id="L-196"><a href="#L-196"><span class="linenos">196</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">patterns</span><span class="p">)</span>
+</span><span id="L-197"><a href="#L-197"><span class="linenos">197</span></a>            <span class="k">continue</span>
+</span><span id="L-198"><a href="#L-198"><span class="linenos">198</span></a>        <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">TRIGGER_ALWAYS</span><span class="p">:</span>
+</span><span id="L-199"><a href="#L-199"><span class="linenos">199</span></a>            <span class="k">continue</span>
+</span><span id="L-200"><a href="#L-200"><span class="linenos">200</span></a>        <span class="k">if</span> <span class="n">is_path_trigger</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+</span><span id="L-201"><a href="#L-201"><span class="linenos">201</span></a>            <span class="k">continue</span>
+</span><span id="L-202"><a href="#L-202"><span class="linenos">202</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">_TRIGGER_KEYWORD_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+</span><span id="L-203"><a href="#L-203"><span class="linenos">203</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="L-204"><a href="#L-204"><span class="linenos">204</span></a>                <span class="sa">f</span><span class="s2">"trigger </span><span class="si">{</span><span class="n">entry</span><span class="si">!r}</span><span class="s2"> is not a kebab-case keyword or a path "</span>
+</span><span id="L-205"><a href="#L-205"><span class="linenos">205</span></a>                <span class="s2">"pattern (path patterns contain / or *)"</span>
+</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a>            <span class="p">)</span>
+</span><span id="L-207"><a href="#L-207"><span class="linenos">207</span></a>    <span class="k">if</span> <span class="s2">"always"</span> <span class="ow">in</span> <span class="p">[</span><span class="n">e</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">]</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+</span><span id="L-208"><a href="#L-208"><span class="linenos">208</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"trigger 'always' must be the only entry"</span><span class="p">)</span>
+</span><span id="L-209"><a href="#L-209"><span class="linenos">209</span></a>    <span class="k">return</span> <span class="n">errors</span>
+</span><span id="L-210"><a href="#L-210"><span class="linenos">210</span></a>
+</span><span id="L-211"><a href="#L-211"><span class="linenos">211</span></a>
+</span><span id="L-212"><a href="#L-212"><span class="linenos">212</span></a><span class="k">def</span><span class="w"> </span><span class="nf">match_trigger</span><span class="p">(</span>
+</span><span id="L-213"><a href="#L-213"><span class="linenos">213</span></a>    <span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="L-214"><a href="#L-214"><span class="linenos">214</span></a>    <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="L-215"><a href="#L-215"><span class="linenos">215</span></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="L-217"><a href="#L-217"><span class="linenos">217</span></a><span class="w">    </span><span class="sd">"""True when a single trigger fires for the given context.</span>
+</span><span id="L-218"><a href="#L-218"><span class="linenos">218</span></a>
+</span><span id="L-219"><a href="#L-219"><span class="linenos">219</span></a><span class="sd">    Keyword triggers match as whole words against the prompt (or the path</span>
+</span><span id="L-220"><a href="#L-220"><span class="linenos">220</span></a><span class="sd">    text, for the pre-tool-use hook); hyphens in a keyword may correspond to</span>
+</span><span id="L-221"><a href="#L-221"><span class="linenos">221</span></a><span class="sd">    a hyphen or whitespace in the text, so ``prompt-cache`` matches "prompt</span>
+</span><span id="L-222"><a href="#L-222"><span class="linenos">222</span></a><span class="sd">    cache". Path patterns fnmatch the lowercased path. Give exactly one of</span>
+</span><span id="L-223"><a href="#L-223"><span class="linenos">223</span></a><span class="sd">    *prompt*/*path*.</span>
+</span><span id="L-224"><a href="#L-224"><span class="linenos">224</span></a><span class="sd">    """</span>
+</span><span id="L-225"><a href="#L-225"><span class="linenos">225</span></a>    <span class="k">if</span> <span class="n">trigger</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">TRIGGER_ALWAYS</span><span class="p">:</span>
+</span><span id="L-226"><a href="#L-226"><span class="linenos">226</span></a>        <span class="k">return</span> <span class="kc">True</span>
+</span><span id="L-227"><a href="#L-227"><span class="linenos">227</span></a>    <span class="k">if</span> <span class="n">is_path_trigger</span><span class="p">(</span><span class="n">trigger</span><span class="p">):</span>
+</span><span id="L-228"><a href="#L-228"><span class="linenos">228</span></a>        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="ow">and</span> <span class="n">fnmatch</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">lower</span><span class="p">(),</span> <span class="n">trigger</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+</span><span id="L-229"><a href="#L-229"><span class="linenos">229</span></a>    <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="sa">r</span><span class="s2">"[-\s]"</span><span class="p">,</span> <span class="n">trigger</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span> <span class="k">if</span> <span class="n">p</span><span class="p">]</span>
+</span><span id="L-230"><a href="#L-230"><span class="linenos">230</span></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">prompt</span> <span class="k">if</span> <span class="n">prompt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">path</span>
+</span><span id="L-231"><a href="#L-231"><span class="linenos">231</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">parts</span> <span class="ow">or</span> <span class="n">text</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-232"><a href="#L-232"><span class="linenos">232</span></a>        <span class="k">return</span> <span class="kc">False</span>
+</span><span id="L-233"><a href="#L-233"><span class="linenos">233</span></a>    <span class="n">toks</span> <span class="o">=</span> <span class="p">{</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="sa">r</span><span class="s2">"[a-z0-9]+"</span><span class="p">,</span> <span class="n">text</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">}</span>
+</span><span id="L-234"><a href="#L-234"><span class="linenos">234</span></a>    <span class="k">return</span> <span class="nb">all</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">toks</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">)</span>
+</span><span id="L-235"><a href="#L-235"><span class="linenos">235</span></a>
+</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a>
+</span><span id="L-237"><a href="#L-237"><span class="linenos">237</span></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_status_fields</span><span class="p">(</span><span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="L-238"><a href="#L-238"><span class="linenos">238</span></a><span class="w">    </span><span class="sd">"""Validate the status/superseded_by frontmatter pair; return error strings.</span>
+</span><span id="L-239"><a href="#L-239"><span class="linenos">239</span></a>
+</span><span id="L-240"><a href="#L-240"><span class="linenos">240</span></a><span class="sd">    The consistency rule behind the ``superseded-consistency`` doctor rule:</span>
+</span><span id="L-241"><a href="#L-241"><span class="linenos">241</span></a><span class="sd">    ``status: superseded`` requires at least one resolvable-looking</span>
+</span><span id="L-242"><a href="#L-242"><span class="linenos">242</span></a><span class="sd">    ``superseded_by`` entry (the retirement must point at its replacement),</span>
+</span><span id="L-243"><a href="#L-243"><span class="linenos">243</span></a><span class="sd">    and ``superseded_by`` on a live note is a contradiction. Wikilink</span>
+</span><span id="L-244"><a href="#L-244"><span class="linenos">244</span></a><span class="sd">    *resolution* (the target note existing) is checked by the doctor rule,</span>
+</span><span id="L-245"><a href="#L-245"><span class="linenos">245</span></a><span class="sd">    not here — this function sees frontmatter only.</span>
+</span><span id="L-246"><a href="#L-246"><span class="linenos">246</span></a>
+</span><span id="L-247"><a href="#L-247"><span class="linenos">247</span></a><span class="sd">    Returns an empty list when the pair is consistent.</span>
+</span><span id="L-248"><a href="#L-248"><span class="linenos">248</span></a><span class="sd">    """</span>
+</span><span id="L-249"><a href="#L-249"><span class="linenos">249</span></a>    <span class="n">errors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="L-250"><a href="#L-250"><span class="linenos">250</span></a>    <span class="n">status</span> <span class="o">=</span> <span class="n">fields</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"status"</span><span class="p">)</span>
+</span><span id="L-251"><a href="#L-251"><span class="linenos">251</span></a>    <span class="k">if</span> <span class="n">status</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="L-252"><a href="#L-252"><span class="linenos">252</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"status must be a string, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">status</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="L-253"><a href="#L-253"><span class="linenos">253</span></a>        <span class="k">return</span> <span class="n">errors</span>
+</span><span id="L-254"><a href="#L-254"><span class="linenos">254</span></a>    <span class="k">if</span> <span class="n">status</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">status</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">VALID_STATUS_VALUES</span><span class="p">:</span>
+</span><span id="L-255"><a href="#L-255"><span class="linenos">255</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="L-256"><a href="#L-256"><span class="linenos">256</span></a>            <span class="sa">f</span><span class="s2">"status must be one of </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_STATUS_VALUES</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">status</span><span class="si">!r}</span><span class="s2">"</span>
+</span><span id="L-257"><a href="#L-257"><span class="linenos">257</span></a>        <span class="p">)</span>
+</span><span id="L-258"><a href="#L-258"><span class="linenos">258</span></a>        <span class="k">return</span> <span class="n">errors</span>
+</span><span id="L-259"><a href="#L-259"><span class="linenos">259</span></a>
+</span><span id="L-260"><a href="#L-260"><span class="linenos">260</span></a>    <span class="n">superseded_by</span> <span class="o">=</span> <span class="n">fields</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"superseded_by"</span><span class="p">)</span>
+</span><span id="L-261"><a href="#L-261"><span class="linenos">261</span></a>    <span class="k">if</span> <span class="n">superseded_by</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">superseded_by</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
+</span><span id="L-262"><a href="#L-262"><span class="linenos">262</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="L-263"><a href="#L-263"><span class="linenos">263</span></a>            <span class="sa">f</span><span class="s2">"superseded_by must be a list or wikilink string, got "</span>
+</span><span id="L-264"><a href="#L-264"><span class="linenos">264</span></a>            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">superseded_by</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+</span><span id="L-265"><a href="#L-265"><span class="linenos">265</span></a>        <span class="p">)</span>
+</span><span id="L-266"><a href="#L-266"><span class="linenos">266</span></a>        <span class="k">return</span> <span class="n">errors</span>
+</span><span id="L-267"><a href="#L-267"><span class="linenos">267</span></a>
+</span><span id="L-268"><a href="#L-268"><span class="linenos">268</span></a>    <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="n">STATUS_SUPERSEDED</span><span class="p">:</span>
+</span><span id="L-269"><a href="#L-269"><span class="linenos">269</span></a>        <span class="n">entries</span> <span class="o">=</span> <span class="n">_superseded_by_entries</span><span class="p">(</span><span class="n">superseded_by</span><span class="p">)</span>
+</span><span id="L-270"><a href="#L-270"><span class="linenos">270</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">entries</span><span class="p">:</span>
+</span><span id="L-271"><a href="#L-271"><span class="linenos">271</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="L-272"><a href="#L-272"><span class="linenos">272</span></a>                <span class="s2">"status: superseded requires at least one superseded_by wikilink"</span>
+</span><span id="L-273"><a href="#L-273"><span class="linenos">273</span></a>            <span class="p">)</span>
+</span><span id="L-274"><a href="#L-274"><span class="linenos">274</span></a>    <span class="k">elif</span> <span class="n">superseded_by</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="L-275"><a href="#L-275"><span class="linenos">275</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"superseded_by set but status is not 'superseded'"</span><span class="p">)</span>
+</span><span id="L-276"><a href="#L-276"><span class="linenos">276</span></a>    <span class="k">return</span> <span class="n">errors</span>
+</span><span id="L-277"><a href="#L-277"><span class="linenos">277</span></a>
+</span><span id="L-278"><a href="#L-278"><span class="linenos">278</span></a>
+</span><span id="L-279"><a href="#L-279"><span class="linenos">279</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_superseded_by_entries</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="L-280"><a href="#L-280"><span class="linenos">280</span></a><span class="w">    </span><span class="sd">"""Non-empty wikilink entries from a superseded_by field value."""</span>
+</span><span id="L-281"><a href="#L-281"><span class="linenos">281</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="L-282"><a href="#L-282"><span class="linenos">282</span></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[</span><span class="n">value</span><span class="p">]</span>
+</span><span id="L-283"><a href="#L-283"><span class="linenos">283</span></a>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span id="L-284"><a href="#L-284"><span class="linenos">284</span></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">value</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">str</span><span class="p">)]</span>
+</span><span id="L-285"><a href="#L-285"><span class="linenos">285</span></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="L-286"><a href="#L-286"><span class="linenos">286</span></a>        <span class="k">return</span> <span class="p">[]</span>
+</span><span id="L-287"><a href="#L-287"><span class="linenos">287</span></a>    <span class="k">return</span> <span class="p">[</span><span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">items</span> <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">and</span> <span class="s2">"[["</span> <span class="ow">in</span> <span class="n">item</span><span class="p">]</span>
+</span><span id="L-288"><a href="#L-288"><span class="linenos">288</span></a>
+</span><span id="L-289"><a href="#L-289"><span class="linenos">289</span></a>
+</span><span id="L-290"><a href="#L-290"><span class="linenos">290</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-291"><a href="#L-291"><span class="linenos">291</span></a><span class="c1"># Tag rules (shared by every prompt that instructs the model on tags)</span>
+</span><span id="L-292"><a href="#L-292"><span class="linenos">292</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
+</span><span id="L-293"><a href="#L-293"><span class="linenos">293</span></a>
+</span><span id="L-294"><a href="#L-294"><span class="linenos">294</span></a><span class="c1">#: The kebab-case / short-singular tag rule, stated once. Both branches of the</span>
+</span><span id="L-295"><a href="#L-295"><span class="linenos">295</span></a><span class="c1">#: summarizer's tag instruction (existing-tags vs. fresh-vault) interpolate</span>
+</span><span id="L-296"><a href="#L-296"><span class="linenos">296</span></a><span class="c1">#: this so a single edit updates both. Prompt templates that mention tags also</span>
+</span><span id="L-297"><a href="#L-297"><span class="linenos">297</span></a><span class="c1">#: interpolate ``{tag_rules}`` from this constant.</span>
+</span><span id="L-298"><a href="#L-298"><span class="linenos">298</span></a><span class="n">TAG_RULES</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="L-299"><a href="#L-299"><span class="linenos">299</span></a>    <span class="s2">"  NEVER use underscores — always kebab-case (hyphens);</span><span class="se">\n</span><span class="s2">"</span>
+</span><span id="L-300"><a href="#L-300"><span class="linenos">300</span></a>    <span class="s2">"  prefer short singular tags: 'voxel' not 'voxel-engine', 'hook' not 'hooks')"</span>
+</span><span id="L-301"><a href="#L-301"><span class="linenos">301</span></a><span class="p">)</span>
+</span><span id="L-302"><a href="#L-302"><span class="linenos">302</span></a>
+</span><span id="L-303"><a href="#L-303"><span class="linenos">303</span></a><span class="c1">#: Comma-separated, sorted list of valid note types — the form prompts inject</span>
+</span><span id="L-304"><a href="#L-304"><span class="linenos">304</span></a><span class="c1">#: as ``{valid_types}``. Pre-computed so prompt rendering does not have to import</span>
+</span><span id="L-305"><a href="#L-305"><span class="linenos">305</span></a><span class="c1">#: the frozenset at render time (the loader stays free of domain knowledge).</span>
+</span><span id="L-306"><a href="#L-306"><span class="linenos">306</span></a><span class="n">NOTE_TYPES_DISPLAY</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">", "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_NOTE_TYPES</span><span class="p">))</span>
 </span></pre></div>
 
 
@@ -227,7 +441,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
                 <section id="VALID_NOTE_TYPES">
                     <div class="attr variable">
             <span class="name">VALID_NOTE_TYPES</span><span class="annotation">: frozenset[str]</span>        =
-            <span class="default_value">frozenset({&#39;daily&#39;, &#39;debugging&#39;, &#39;framework&#39;, &#39;knowledge&#39;, &#39;language&#39;, &#39;pattern&#39;, &#39;project&#39;, &#39;research&#39;, &#39;tool&#39;})</span>
+            <span class="default_value">frozenset({&#39;daily&#39;, &#39;debugging&#39;, &#39;fork&#39;, &#39;framework&#39;, &#39;knowledge&#39;, &#39;language&#39;, &#39;pattern&#39;, &#39;project&#39;, &#39;research&#39;, &#39;rule&#39;, &#39;tool&#39;})</span>
 
         
     </div>
@@ -239,7 +453,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
                 <section id="TYPE_FOLDERS">
                     <div class="attr variable">
             <span class="name">TYPE_FOLDERS</span><span class="annotation">: dict[str, str]</span>        =
-            <span class="default_value">{&#39;debugging&#39;: &#39;Debugging&#39;, &#39;research&#39;: &#39;Research&#39;, &#39;pattern&#39;: &#39;Patterns&#39;, &#39;tool&#39;: &#39;Tools&#39;, &#39;framework&#39;: &#39;Frameworks&#39;, &#39;language&#39;: &#39;Languages&#39;, &#39;project&#39;: &#39;Projects&#39;, &#39;daily&#39;: &#39;Daily&#39;, &#39;knowledge&#39;: &#39;Knowledge&#39;}</span>
+            <span class="default_value">{&#39;debugging&#39;: &#39;Debugging&#39;, &#39;research&#39;: &#39;Research&#39;, &#39;pattern&#39;: &#39;Patterns&#39;, &#39;tool&#39;: &#39;Tools&#39;, &#39;framework&#39;: &#39;Frameworks&#39;, &#39;language&#39;: &#39;Languages&#39;, &#39;project&#39;: &#39;Projects&#39;, &#39;daily&#39;: &#39;Daily&#39;, &#39;knowledge&#39;: &#39;Knowledge&#39;, &#39;rule&#39;: &#39;Rules&#39;, &#39;fork&#39;: &#39;Forks&#39;}</span>
 
         
     </div>
@@ -275,7 +489,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
                 <section id="FRONTMATTER_FIELD_ORDER">
                     <div class="attr variable">
             <span class="name">FRONTMATTER_FIELD_ORDER</span><span class="annotation">: tuple[str, ...]</span>        =
-<span class="default_value">(&#39;date&#39;, &#39;type&#39;, &#39;tags&#39;, &#39;project&#39;, &#39;confidence&#39;, &#39;sources&#39;, &#39;related&#39;, &#39;provenance&#39;, &#39;session_id&#39;)</span>
+            <span class="default_value">(&#39;date&#39;, &#39;type&#39;, &#39;tags&#39;, &#39;project&#39;, &#39;confidence&#39;, &#39;sources&#39;, &#39;related&#39;, &#39;provenance&#39;, &#39;status&#39;, &#39;superseded_by&#39;, &#39;session_id&#39;)</span>
 
         
     </div>
@@ -320,6 +534,283 @@ stdlib-only contract as the <code>core/</code> package and is covered by
     
 
                 </section>
+                <section id="VALID_STATUS_VALUES">
+                    <div class="attr variable">
+            <span class="name">VALID_STATUS_VALUES</span><span class="annotation">: frozenset[str]</span>        =
+<span class="default_value">frozenset({&#39;live&#39;, &#39;superseded&#39;})</span>
+
+        
+    </div>
+    <a class="headerlink" href="#VALID_STATUS_VALUES"></a>
+    
+    
+
+                </section>
+                <section id="STATUS_SUPERSEDED">
+                    <div class="attr variable">
+            <span class="name">STATUS_SUPERSEDED</span><span class="annotation">: str</span>        =
+<span class="default_value">&#39;superseded&#39;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#STATUS_SUPERSEDED"></a>
+    
+    
+
+                </section>
+                <section id="TRIGGER_ALWAYS">
+                    <div class="attr variable">
+            <span class="name">TRIGGER_ALWAYS</span><span class="annotation">: str</span>        =
+<span class="default_value">&#39;always&#39;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#TRIGGER_ALWAYS"></a>
+    
+    
+
+                </section>
+                <section id="is_path_trigger">
+                            <input id="is_path_trigger-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">is_path_trigger</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+
+                <label class="view-source-button" for="is_path_trigger-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#is_path_trigger"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="is_path_trigger-148"><a href="#is_path_trigger-148"><span class="linenos">148</span></a><span class="k">def</span><span class="w"> </span><span class="nf">is_path_trigger</span><span class="p">(</span><span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="is_path_trigger-149"><a href="#is_path_trigger-149"><span class="linenos">149</span></a><span class="w">    </span><span class="sd">"""True when *trigger* is a path pattern (contains ``/`` or ``*``)."""</span>
+</span><span id="is_path_trigger-150"><a href="#is_path_trigger-150"><span class="linenos">150</span></a>    <span class="k">return</span> <span class="s2">"/"</span> <span class="ow">in</span> <span class="n">trigger</span> <span class="ow">or</span> <span class="s2">"*"</span> <span class="ow">in</span> <span class="n">trigger</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>True when <em>trigger</em> is a path pattern (contains <code>/</code> or <code>*</code>).</p>
+</div>
+
+
+                </section>
+                <section id="parse_triggers">
+                            <input id="parse_triggers-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">parse_triggers</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
+
+                <label class="view-source-button" for="parse_triggers-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#parse_triggers"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="parse_triggers-153"><a href="#parse_triggers-153"><span class="linenos">153</span></a><span class="k">def</span><span class="w"> </span><span class="nf">parse_triggers</span><span class="p">(</span><span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="parse_triggers-154"><a href="#parse_triggers-154"><span class="linenos">154</span></a><span class="w">    </span><span class="sd">"""Normalized trigger strings from a note's frontmatter, empty when absent.</span>
+</span><span id="parse_triggers-155"><a href="#parse_triggers-155"><span class="linenos">155</span></a>
+</span><span id="parse_triggers-156"><a href="#parse_triggers-156"><span class="linenos">156</span></a><span class="sd">    Tolerates both the list form (``triggers: [a, b]``) and the inline</span>
+</span><span id="parse_triggers-157"><a href="#parse_triggers-157"><span class="linenos">157</span></a><span class="sd">    comma-string form (``triggers: a, b``); non-string entries are dropped.</span>
+</span><span id="parse_triggers-158"><a href="#parse_triggers-158"><span class="linenos">158</span></a><span class="sd">    """</span>
+</span><span id="parse_triggers-159"><a href="#parse_triggers-159"><span class="linenos">159</span></a>    <span class="n">raw</span> <span class="o">=</span> <span class="n">fields</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"triggers"</span><span class="p">)</span>
+</span><span id="parse_triggers-160"><a href="#parse_triggers-160"><span class="linenos">160</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="parse_triggers-161"><a href="#parse_triggers-161"><span class="linenos">161</span></a>        <span class="k">return</span> <span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">raw</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">","</span><span class="p">)</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+</span><span id="parse_triggers-162"><a href="#parse_triggers-162"><span class="linenos">162</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span id="parse_triggers-163"><a href="#parse_triggers-163"><span class="linenos">163</span></a>        <span class="k">return</span> <span class="p">[]</span>
+</span><span id="parse_triggers-164"><a href="#parse_triggers-164"><span class="linenos">164</span></a>    <span class="k">return</span> <span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">raw</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Normalized trigger strings from a note's frontmatter, empty when absent.</p>
+
+<p>Tolerates both the list form (<code>triggers: [a, b]</code>) and the inline
+comma-string form (<code>triggers: a, b</code>); non-string entries are dropped.</p>
+</div>
+
+
+                </section>
+                <section id="validate_triggers">
+                            <input id="validate_triggers-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">validate_triggers</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">triggers</span><span class="p">:</span> <span class="nb">object</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
+
+                <label class="view-source-button" for="validate_triggers-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#validate_triggers"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="validate_triggers-167"><a href="#validate_triggers-167"><span class="linenos">167</span></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_triggers</span><span class="p">(</span><span class="n">triggers</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="validate_triggers-168"><a href="#validate_triggers-168"><span class="linenos">168</span></a><span class="w">    </span><span class="sd">"""Validate a ``triggers`` frontmatter value; return error strings.</span>
+</span><span id="validate_triggers-169"><a href="#validate_triggers-169"><span class="linenos">169</span></a>
+</span><span id="validate_triggers-170"><a href="#validate_triggers-170"><span class="linenos">170</span></a><span class="sd">    Syntax contract: a list of 1-32 entries, each a kebab-case keyword</span>
+</span><span id="validate_triggers-171"><a href="#validate_triggers-171"><span class="linenos">171</span></a><span class="sd">    (``[a-z0-9-]``, 2-120 chars) or an fnmatch path pattern (contains ``/``</span>
+</span><span id="validate_triggers-172"><a href="#validate_triggers-172"><span class="linenos">172</span></a><span class="sd">    or ``*``); ``always`` must be the only entry when present. Empty when</span>
+</span><span id="validate_triggers-173"><a href="#validate_triggers-173"><span class="linenos">173</span></a><span class="sd">    the value is valid — the doctor ``rule-triggers`` check surfaces these</span>
+</span><span id="validate_triggers-174"><a href="#validate_triggers-174"><span class="linenos">174</span></a><span class="sd">    strings verbatim.</span>
+</span><span id="validate_triggers-175"><a href="#validate_triggers-175"><span class="linenos">175</span></a><span class="sd">    """</span>
+</span><span id="validate_triggers-176"><a href="#validate_triggers-176"><span class="linenos">176</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">triggers</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span id="validate_triggers-177"><a href="#validate_triggers-177"><span class="linenos">177</span></a>        <span class="k">return</span> <span class="p">[</span>
+</span><span id="validate_triggers-178"><a href="#validate_triggers-178"><span class="linenos">178</span></a>            <span class="s2">"triggers must be a list of keywords/path patterns, "</span>
+</span><span id="validate_triggers-179"><a href="#validate_triggers-179"><span class="linenos">179</span></a>            <span class="sa">f</span><span class="s2">"got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">triggers</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+</span><span id="validate_triggers-180"><a href="#validate_triggers-180"><span class="linenos">180</span></a>        <span class="p">]</span>
+</span><span id="validate_triggers-181"><a href="#validate_triggers-181"><span class="linenos">181</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">triggers</span><span class="p">:</span>
+</span><span id="validate_triggers-182"><a href="#validate_triggers-182"><span class="linenos">182</span></a>        <span class="k">return</span> <span class="p">[</span><span class="s2">"triggers must be a non-empty list (use [always] for always-on)"</span><span class="p">]</span>
+</span><span id="validate_triggers-183"><a href="#validate_triggers-183"><span class="linenos">183</span></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">triggers</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_TRIGGER_MAX_COUNT</span><span class="p">:</span>
+</span><span id="validate_triggers-184"><a href="#validate_triggers-184"><span class="linenos">184</span></a>        <span class="k">return</span> <span class="p">[</span><span class="sa">f</span><span class="s2">"triggers has more than </span><span class="si">{</span><span class="n">_TRIGGER_MAX_COUNT</span><span class="si">}</span><span class="s2"> entries"</span><span class="p">]</span>
+</span><span id="validate_triggers-185"><a href="#validate_triggers-185"><span class="linenos">185</span></a>    <span class="n">errors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="validate_triggers-186"><a href="#validate_triggers-186"><span class="linenos">186</span></a>    <span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="validate_triggers-187"><a href="#validate_triggers-187"><span class="linenos">187</span></a>    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">triggers</span><span class="p">:</span>
+</span><span id="validate_triggers-188"><a href="#validate_triggers-188"><span class="linenos">188</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">entry</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+</span><span id="validate_triggers-189"><a href="#validate_triggers-189"><span class="linenos">189</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"triggers entry </span><span class="si">{</span><span class="n">entry</span><span class="si">!r}</span><span class="s2"> is not a non-empty string"</span><span class="p">)</span>
+</span><span id="validate_triggers-190"><a href="#validate_triggers-190"><span class="linenos">190</span></a>            <span class="k">continue</span>
+</span><span id="validate_triggers-191"><a href="#validate_triggers-191"><span class="linenos">191</span></a>        <span class="n">entry</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+</span><span id="validate_triggers-192"><a href="#validate_triggers-192"><span class="linenos">192</span></a>        <span class="n">entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+</span><span id="validate_triggers-193"><a href="#validate_triggers-193"><span class="linenos">193</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_TRIGGER_MAX_LEN</span><span class="p">:</span>
+</span><span id="validate_triggers-194"><a href="#validate_triggers-194"><span class="linenos">194</span></a>            <span class="n">patterns</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="validate_triggers-195"><a href="#validate_triggers-195"><span class="linenos">195</span></a>                <span class="sa">f</span><span class="s2">"trigger </span><span class="si">{</span><span class="n">entry</span><span class="si">!r}</span><span class="s2"> exceeds </span><span class="si">{</span><span class="n">_TRIGGER_MAX_LEN</span><span class="si">}</span><span class="s2"> chars"</span>
+</span><span id="validate_triggers-196"><a href="#validate_triggers-196"><span class="linenos">196</span></a>            <span class="p">]</span>
+</span><span id="validate_triggers-197"><a href="#validate_triggers-197"><span class="linenos">197</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">patterns</span><span class="p">)</span>
+</span><span id="validate_triggers-198"><a href="#validate_triggers-198"><span class="linenos">198</span></a>            <span class="k">continue</span>
+</span><span id="validate_triggers-199"><a href="#validate_triggers-199"><span class="linenos">199</span></a>        <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">TRIGGER_ALWAYS</span><span class="p">:</span>
+</span><span id="validate_triggers-200"><a href="#validate_triggers-200"><span class="linenos">200</span></a>            <span class="k">continue</span>
+</span><span id="validate_triggers-201"><a href="#validate_triggers-201"><span class="linenos">201</span></a>        <span class="k">if</span> <span class="n">is_path_trigger</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+</span><span id="validate_triggers-202"><a href="#validate_triggers-202"><span class="linenos">202</span></a>            <span class="k">continue</span>
+</span><span id="validate_triggers-203"><a href="#validate_triggers-203"><span class="linenos">203</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">_TRIGGER_KEYWORD_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+</span><span id="validate_triggers-204"><a href="#validate_triggers-204"><span class="linenos">204</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="validate_triggers-205"><a href="#validate_triggers-205"><span class="linenos">205</span></a>                <span class="sa">f</span><span class="s2">"trigger </span><span class="si">{</span><span class="n">entry</span><span class="si">!r}</span><span class="s2"> is not a kebab-case keyword or a path "</span>
+</span><span id="validate_triggers-206"><a href="#validate_triggers-206"><span class="linenos">206</span></a>                <span class="s2">"pattern (path patterns contain / or *)"</span>
+</span><span id="validate_triggers-207"><a href="#validate_triggers-207"><span class="linenos">207</span></a>            <span class="p">)</span>
+</span><span id="validate_triggers-208"><a href="#validate_triggers-208"><span class="linenos">208</span></a>    <span class="k">if</span> <span class="s2">"always"</span> <span class="ow">in</span> <span class="p">[</span><span class="n">e</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">]</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+</span><span id="validate_triggers-209"><a href="#validate_triggers-209"><span class="linenos">209</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"trigger 'always' must be the only entry"</span><span class="p">)</span>
+</span><span id="validate_triggers-210"><a href="#validate_triggers-210"><span class="linenos">210</span></a>    <span class="k">return</span> <span class="n">errors</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Validate a <code>triggers</code> frontmatter value; return error strings.</p>
+
+<p>Syntax contract: a list of 1-32 entries, each a kebab-case keyword
+(<code>[a-z0-9-]</code>, 2-120 chars) or an fnmatch path pattern (contains <code>/</code>
+or <code>*</code>); <code>always</code> must be the only entry when present. Empty when
+the value is valid — the doctor <code>rule-triggers</code> check surfaces these
+strings verbatim.</p>
+</div>
+
+
+                </section>
+                <section id="match_trigger">
+                            <input id="match_trigger-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">match_trigger</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span>, </span><span class="param"><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>, </span><span class="param"><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+
+                <label class="view-source-button" for="match_trigger-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#match_trigger"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="match_trigger-213"><a href="#match_trigger-213"><span class="linenos">213</span></a><span class="k">def</span><span class="w"> </span><span class="nf">match_trigger</span><span class="p">(</span>
+</span><span id="match_trigger-214"><a href="#match_trigger-214"><span class="linenos">214</span></a>    <span class="n">trigger</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="match_trigger-215"><a href="#match_trigger-215"><span class="linenos">215</span></a>    <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="match_trigger-216"><a href="#match_trigger-216"><span class="linenos">216</span></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="match_trigger-217"><a href="#match_trigger-217"><span class="linenos">217</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="match_trigger-218"><a href="#match_trigger-218"><span class="linenos">218</span></a><span class="w">    </span><span class="sd">"""True when a single trigger fires for the given context.</span>
+</span><span id="match_trigger-219"><a href="#match_trigger-219"><span class="linenos">219</span></a>
+</span><span id="match_trigger-220"><a href="#match_trigger-220"><span class="linenos">220</span></a><span class="sd">    Keyword triggers match as whole words against the prompt (or the path</span>
+</span><span id="match_trigger-221"><a href="#match_trigger-221"><span class="linenos">221</span></a><span class="sd">    text, for the pre-tool-use hook); hyphens in a keyword may correspond to</span>
+</span><span id="match_trigger-222"><a href="#match_trigger-222"><span class="linenos">222</span></a><span class="sd">    a hyphen or whitespace in the text, so ``prompt-cache`` matches "prompt</span>
+</span><span id="match_trigger-223"><a href="#match_trigger-223"><span class="linenos">223</span></a><span class="sd">    cache". Path patterns fnmatch the lowercased path. Give exactly one of</span>
+</span><span id="match_trigger-224"><a href="#match_trigger-224"><span class="linenos">224</span></a><span class="sd">    *prompt*/*path*.</span>
+</span><span id="match_trigger-225"><a href="#match_trigger-225"><span class="linenos">225</span></a><span class="sd">    """</span>
+</span><span id="match_trigger-226"><a href="#match_trigger-226"><span class="linenos">226</span></a>    <span class="k">if</span> <span class="n">trigger</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">TRIGGER_ALWAYS</span><span class="p">:</span>
+</span><span id="match_trigger-227"><a href="#match_trigger-227"><span class="linenos">227</span></a>        <span class="k">return</span> <span class="kc">True</span>
+</span><span id="match_trigger-228"><a href="#match_trigger-228"><span class="linenos">228</span></a>    <span class="k">if</span> <span class="n">is_path_trigger</span><span class="p">(</span><span class="n">trigger</span><span class="p">):</span>
+</span><span id="match_trigger-229"><a href="#match_trigger-229"><span class="linenos">229</span></a>        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="ow">and</span> <span class="n">fnmatch</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">lower</span><span class="p">(),</span> <span class="n">trigger</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+</span><span id="match_trigger-230"><a href="#match_trigger-230"><span class="linenos">230</span></a>    <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="sa">r</span><span class="s2">"[-\s]"</span><span class="p">,</span> <span class="n">trigger</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span> <span class="k">if</span> <span class="n">p</span><span class="p">]</span>
+</span><span id="match_trigger-231"><a href="#match_trigger-231"><span class="linenos">231</span></a>    <span class="n">text</span> <span class="o">=</span> <span class="n">prompt</span> <span class="k">if</span> <span class="n">prompt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">path</span>
+</span><span id="match_trigger-232"><a href="#match_trigger-232"><span class="linenos">232</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">parts</span> <span class="ow">or</span> <span class="n">text</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="match_trigger-233"><a href="#match_trigger-233"><span class="linenos">233</span></a>        <span class="k">return</span> <span class="kc">False</span>
+</span><span id="match_trigger-234"><a href="#match_trigger-234"><span class="linenos">234</span></a>    <span class="n">toks</span> <span class="o">=</span> <span class="p">{</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="sa">r</span><span class="s2">"[a-z0-9]+"</span><span class="p">,</span> <span class="n">text</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">}</span>
+</span><span id="match_trigger-235"><a href="#match_trigger-235"><span class="linenos">235</span></a>    <span class="k">return</span> <span class="nb">all</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">toks</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">)</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>True when a single trigger fires for the given context.</p>
+
+<p>Keyword triggers match as whole words against the prompt (or the path
+text, for the pre-tool-use hook); hyphens in a keyword may correspond to
+a hyphen or whitespace in the text, so <code>prompt-cache</code> matches "prompt
+cache". Path patterns fnmatch the lowercased path. Give exactly one of
+<em>prompt</em>/<em>path</em>.</p>
+</div>
+
+
+                </section>
+                <section id="validate_status_fields">
+                            <input id="validate_status_fields-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">validate_status_fields</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span></span><span class="return-annotation">) -> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
+
+                <label class="view-source-button" for="validate_status_fields-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#validate_status_fields"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="validate_status_fields-238"><a href="#validate_status_fields-238"><span class="linenos">238</span></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_status_fields</span><span class="p">(</span><span class="n">fields</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+</span><span id="validate_status_fields-239"><a href="#validate_status_fields-239"><span class="linenos">239</span></a><span class="w">    </span><span class="sd">"""Validate the status/superseded_by frontmatter pair; return error strings.</span>
+</span><span id="validate_status_fields-240"><a href="#validate_status_fields-240"><span class="linenos">240</span></a>
+</span><span id="validate_status_fields-241"><a href="#validate_status_fields-241"><span class="linenos">241</span></a><span class="sd">    The consistency rule behind the ``superseded-consistency`` doctor rule:</span>
+</span><span id="validate_status_fields-242"><a href="#validate_status_fields-242"><span class="linenos">242</span></a><span class="sd">    ``status: superseded`` requires at least one resolvable-looking</span>
+</span><span id="validate_status_fields-243"><a href="#validate_status_fields-243"><span class="linenos">243</span></a><span class="sd">    ``superseded_by`` entry (the retirement must point at its replacement),</span>
+</span><span id="validate_status_fields-244"><a href="#validate_status_fields-244"><span class="linenos">244</span></a><span class="sd">    and ``superseded_by`` on a live note is a contradiction. Wikilink</span>
+</span><span id="validate_status_fields-245"><a href="#validate_status_fields-245"><span class="linenos">245</span></a><span class="sd">    *resolution* (the target note existing) is checked by the doctor rule,</span>
+</span><span id="validate_status_fields-246"><a href="#validate_status_fields-246"><span class="linenos">246</span></a><span class="sd">    not here — this function sees frontmatter only.</span>
+</span><span id="validate_status_fields-247"><a href="#validate_status_fields-247"><span class="linenos">247</span></a>
+</span><span id="validate_status_fields-248"><a href="#validate_status_fields-248"><span class="linenos">248</span></a><span class="sd">    Returns an empty list when the pair is consistent.</span>
+</span><span id="validate_status_fields-249"><a href="#validate_status_fields-249"><span class="linenos">249</span></a><span class="sd">    """</span>
+</span><span id="validate_status_fields-250"><a href="#validate_status_fields-250"><span class="linenos">250</span></a>    <span class="n">errors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="validate_status_fields-251"><a href="#validate_status_fields-251"><span class="linenos">251</span></a>    <span class="n">status</span> <span class="o">=</span> <span class="n">fields</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"status"</span><span class="p">)</span>
+</span><span id="validate_status_fields-252"><a href="#validate_status_fields-252"><span class="linenos">252</span></a>    <span class="k">if</span> <span class="n">status</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="validate_status_fields-253"><a href="#validate_status_fields-253"><span class="linenos">253</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"status must be a string, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">status</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="validate_status_fields-254"><a href="#validate_status_fields-254"><span class="linenos">254</span></a>        <span class="k">return</span> <span class="n">errors</span>
+</span><span id="validate_status_fields-255"><a href="#validate_status_fields-255"><span class="linenos">255</span></a>    <span class="k">if</span> <span class="n">status</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">status</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">VALID_STATUS_VALUES</span><span class="p">:</span>
+</span><span id="validate_status_fields-256"><a href="#validate_status_fields-256"><span class="linenos">256</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="validate_status_fields-257"><a href="#validate_status_fields-257"><span class="linenos">257</span></a>            <span class="sa">f</span><span class="s2">"status must be one of </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">VALID_STATUS_VALUES</span><span class="p">)</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">status</span><span class="si">!r}</span><span class="s2">"</span>
+</span><span id="validate_status_fields-258"><a href="#validate_status_fields-258"><span class="linenos">258</span></a>        <span class="p">)</span>
+</span><span id="validate_status_fields-259"><a href="#validate_status_fields-259"><span class="linenos">259</span></a>        <span class="k">return</span> <span class="n">errors</span>
+</span><span id="validate_status_fields-260"><a href="#validate_status_fields-260"><span class="linenos">260</span></a>
+</span><span id="validate_status_fields-261"><a href="#validate_status_fields-261"><span class="linenos">261</span></a>    <span class="n">superseded_by</span> <span class="o">=</span> <span class="n">fields</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"superseded_by"</span><span class="p">)</span>
+</span><span id="validate_status_fields-262"><a href="#validate_status_fields-262"><span class="linenos">262</span></a>    <span class="k">if</span> <span class="n">superseded_by</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">superseded_by</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
+</span><span id="validate_status_fields-263"><a href="#validate_status_fields-263"><span class="linenos">263</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="validate_status_fields-264"><a href="#validate_status_fields-264"><span class="linenos">264</span></a>            <span class="sa">f</span><span class="s2">"superseded_by must be a list or wikilink string, got "</span>
+</span><span id="validate_status_fields-265"><a href="#validate_status_fields-265"><span class="linenos">265</span></a>            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">superseded_by</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span>
+</span><span id="validate_status_fields-266"><a href="#validate_status_fields-266"><span class="linenos">266</span></a>        <span class="p">)</span>
+</span><span id="validate_status_fields-267"><a href="#validate_status_fields-267"><span class="linenos">267</span></a>        <span class="k">return</span> <span class="n">errors</span>
+</span><span id="validate_status_fields-268"><a href="#validate_status_fields-268"><span class="linenos">268</span></a>
+</span><span id="validate_status_fields-269"><a href="#validate_status_fields-269"><span class="linenos">269</span></a>    <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="n">STATUS_SUPERSEDED</span><span class="p">:</span>
+</span><span id="validate_status_fields-270"><a href="#validate_status_fields-270"><span class="linenos">270</span></a>        <span class="n">entries</span> <span class="o">=</span> <span class="n">_superseded_by_entries</span><span class="p">(</span><span class="n">superseded_by</span><span class="p">)</span>
+</span><span id="validate_status_fields-271"><a href="#validate_status_fields-271"><span class="linenos">271</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">entries</span><span class="p">:</span>
+</span><span id="validate_status_fields-272"><a href="#validate_status_fields-272"><span class="linenos">272</span></a>            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="validate_status_fields-273"><a href="#validate_status_fields-273"><span class="linenos">273</span></a>                <span class="s2">"status: superseded requires at least one superseded_by wikilink"</span>
+</span><span id="validate_status_fields-274"><a href="#validate_status_fields-274"><span class="linenos">274</span></a>            <span class="p">)</span>
+</span><span id="validate_status_fields-275"><a href="#validate_status_fields-275"><span class="linenos">275</span></a>    <span class="k">elif</span> <span class="n">superseded_by</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="validate_status_fields-276"><a href="#validate_status_fields-276"><span class="linenos">276</span></a>        <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"superseded_by set but status is not 'superseded'"</span><span class="p">)</span>
+</span><span id="validate_status_fields-277"><a href="#validate_status_fields-277"><span class="linenos">277</span></a>    <span class="k">return</span> <span class="n">errors</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Validate the status/superseded_by frontmatter pair; return error strings.</p>
+
+<p>The consistency rule behind the <code>superseded-consistency</code> doctor rule:
+<code>status: superseded</code> requires at least one resolvable-looking
+<code>superseded_by</code> entry (the retirement must point at its replacement),
+and <code>superseded_by</code> on a live note is a contradiction. Wikilink
+<em>resolution</em> (the target note existing) is checked by the doctor rule,
+not here — this function sees frontmatter only.</p>
+
+<p>Returns an empty list when the pair is consistent.</p>
+</div>
+
+
+                </section>
                 <section id="TAG_RULES">
                     <div class="attr variable">
             <span class="name">TAG_RULES</span><span class="annotation">: str</span>        =
@@ -335,7 +826,7 @@ stdlib-only contract as the <code>core/</code> package and is covered by
                 <section id="NOTE_TYPES_DISPLAY">
                     <div class="attr variable">
             <span class="name">NOTE_TYPES_DISPLAY</span><span class="annotation">: str</span>        =
-<span class="default_value">&#39;daily, debugging, framework, knowledge, language, pattern, project, research, tool&#39;</span>
+<span class="default_value">&#39;daily, debugging, fork, framework, knowledge, language, pattern, project, research, rule, tool&#39;</span>
 
         
     </div>
