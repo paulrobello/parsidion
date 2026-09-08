@@ -143,6 +143,20 @@ class TestFindCodeRaw:
         ]
         assert Path(str(call["cwd"])).resolve() == tmp_vault.resolve()
 
+    def test_query_clamped_to_daemon_cap(
+        self, tmp_vault: Path, ready: FakeParsight
+    ) -> None:
+        # parsight's daemon -32602-rejects queries over its 4096-char cap;
+        # the transport must clamp so recall degrades to a prefix query
+        # instead of silently no-oping (observed 409 live exit:2 events).
+        ready.configure(find_code={"results": [], "_meta": {"count": 0}})
+        long_query = "needle " * 2000  # 14,000 chars
+        assert parsight_backend.find_code_raw(long_query, cwd=tmp_vault) == []
+        call = ready.wait_for_call("find-code")
+        sent = cast(list[str], call["argv"])[1]
+        assert len(sent) == 4096
+        assert sent.startswith("needle ")
+
     def test_unavailable_backend_returns_none(
         self, tmp_vault: Path, fake_parsight: FakeParsight
     ) -> None:

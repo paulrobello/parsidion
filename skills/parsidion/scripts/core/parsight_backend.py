@@ -51,6 +51,11 @@ _DEFAULT_BINARY = "parsight"
 # legacy command on PATH, so default resolution falls back to it.
 _LEGACY_BINARY = "par-mem"
 _DEFAULT_TIMEOUT_S = 10.0
+# parsight's daemon rejects find_code queries over its 4096-char MCP-boundary
+# cap (SEC-005) with a JSON-RPC -32602; callers (prompt recall, file legs) can
+# exceed it, so the transport clamps — a prefix query still retrieves while an
+# oversized one would silently disable parsight recall for that call.
+_FIND_CODE_QUERY_CAP = 4096
 _DEFAULT_MCP_URL = "http://127.0.0.1:4848/mcp"
 _HEALTH_TIMEOUT_S = 1.0
 # Per-request budget for the one-shot MCP watch-coverage probe (two POSTs on
@@ -441,13 +446,19 @@ def find_code_raw(
     nonzero exit, or unparseable output. Failures (other than plain
     unavailability) are logged via ``write_hook_event`` with a reason tag
     (``"launch"``/``"timeout"``/``"exit:N"``/``"bad-json"``/``"missing-results"``)
-    plus a sanitized stderr excerpt when the process completed. Never raises.
+    plus a sanitized stderr excerpt when the process completed. The *query*
+    is clamped to parsight's 4096-character MCP-boundary cap — a longer
+    query degrades to its prefix instead of failing the whole call. Never
+    raises.
     """
     try:
         vault = vault or resolve_vault()
         cwd = cwd or vault
         if not query.strip():
             return None
+        # Clamp at the transport: the daemon rejects an over-cap query with a
+        # JSON-RPC -32602, which every caller would treat as "no recall".
+        query = query[:_FIND_CODE_QUERY_CAP]
         if _resolve_binary(vault) is None:
             return None
         eff_timeout = float(timeout) if timeout is not None else _timeout_s(vault)
