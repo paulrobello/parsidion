@@ -113,8 +113,9 @@ fails the gate.
   `VALID_CONFIDENCE_VALUES`.
 - `TAG_RULES` — the kebab-case / short-singular tag rule, interpolated by every prompt that
   instructs the model on tags.
-- `NOTE_TYPES_DISPLAY` — the pre-computed comma-separated type list prompts interpolate as
-  `{note_types}`.
+- `NOTE_TYPES_DISPLAY` — the pre-computed comma-separated type list. Prompts interpolate the
+  list as the `valid_types` variable (`{valid_types}` / `$valid_types`); a loader-test guard
+  asserts the display string covers every valid type.
 
 The summarizer and `vault_doctor` re-export these under their legacy private names
 (`_VALID_NOTE_TYPES`, `VALID_TYPES`, etc.) so every existing call site keeps working — but they
@@ -231,7 +232,7 @@ The other prompts' expected fields:
 | Prompt               | Fields                                                           |
 |----------------------|------------------------------------------------------------------|
 | `summarize-chunk`    | `sentence_min`, `sentence_max`, `must_mention`                   |
-| `select-notes`       | `must_select`, `must_not_select` (render vars come from it too)  |
+| `select-notes`       | `must_select`, `must_not_select`; render vars `project_name`, `cwd`, `output_limit` come from it too |
 | `merge-notes`        | `title`, `must_mention_a`, `must_mention_b`, `must_not_duplicate`|
 | `repair-frontmatter` | `rel`, `issues`, `expected_type`, `must_mention`                 |
 | `detect-conflicts`   | `expected_conflicts`, `expect_empty`, `note_count` (render var with a fallback) |
@@ -276,12 +277,14 @@ score in the commit message.
 | `skills/parsidion/templates/prompts/*.md` | The six externalized prompt templates. |
 | `skills/parsidion/scripts/summarizer/prompt.py` | `build_prompt` + tag/dedup renderers (uses the loader). |
 | `skills/parsidion/scripts/summarizer/notes.py` | `_stamp_prompt_version` — injects the version stamp. |
+| `skills/parsidion/scripts/doctor/frontmatter.py` | Renders `repair-frontmatter` for `vault_doctor` (uses the loader). |
 | `tools/eval/prompt_eval_run.py` | Opt-in eval harness (PEP 723 script). |
 | `tools/eval/evaluators/_base.py` | Shared `BaseEvaluator`: flat-YAML parser, golden-case discovery, `ScoredCase`. |
 | `tools/eval/evaluators/<prompt with underscores>.py` | One evaluator per prompt (e.g. `summarize_session.py`): render / parse / score against `expected.yaml`. |
 | `tests/test_prompt_templates.py` | Byte-identical rendering gate + loader contract + ARC-010 convergence. |
 | `tests/test_note_index_prompt_version.py` | `note_index.prompt_version` column + migration. |
 | `tests/test_golden_fixtures_anonymization.py` | Golden-set anonymization gate. |
-| `tests/test_prompt_evaluators.py` | Evaluator render/parse/score unit tests (no AI call). |
+| `tests/test_prompt_evaluators.py` | Registry + `summarize-session` evaluator render/parse/score unit tests (no AI call). |
+| `tests/test_evaluator_<prompt with underscores>.py` | Per-prompt evaluator unit tests for the other five prompts (no AI call), e.g. `test_evaluator_merge_notes.py`. |
 | `tests/test_sec115_merge_prompt.py` | SEC-115 gate: `merge-notes` inlines note bodies as untrusted data + output guard. |
 | `tests/fixtures/prompts/golden/<prompt_id>/` | Per-prompt golden cases: input fixtures + `expected.yaml`. |

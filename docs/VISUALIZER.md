@@ -107,26 +107,35 @@ graph TB
     Emb --> Builder
     Builder --> GJ
 
-    style App fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Graph fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style Read fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style Search fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style Sidebar fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style History fill:#006064,stroke:#00acc1,stroke-width:2px,color:#ffffff
-    style Conflict fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
-    style SSE fill:#4a148c,stroke:#9c27b0,stroke-width:3px,color:#ffffff
-    style Broadcast fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
-    style Watcher fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style GJ fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style GraphDelta fill:#1a237e,stroke:#3f51b5,stroke-width:1px,color:#ffffff
-    style API fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style FilesAPI fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style HistAPI fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
-    style DiffAPI fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
-    style Vault fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
-    style Git fill:#311b92,stroke:#7c4dff,stroke-width:1px,color:#ffffff
-    style Emb fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style Builder fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    class App primary
+    class Graph graphBlue
+    class Read active
+    class Search external
+    class Sidebar,Watcher,API,FilesAPI neutral
+    class History history
+    class Conflict error
+    class SSE stream
+    class Broadcast,Builder broadcast
+    class GJ,Emb database
+    class GraphDelta databaseThin
+    class HistAPI,DiffAPI historyThin
+    class Vault neutralThin
+    class Git vcs
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef graphBlue fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef history fill:#006064,stroke:#00acc1,stroke-width:2px,color:#ffffff
+    classDef error fill:#b71c1c,stroke:#f44336,stroke-width:2px,color:#ffffff
+    classDef stream fill:#4a148c,stroke:#9c27b0,stroke-width:3px,color:#ffffff
+    classDef broadcast fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    classDef databaseThin fill:#1a237e,stroke:#3f51b5,stroke-width:1px,color:#ffffff
+    classDef historyThin fill:#006064,stroke:#00acc1,stroke-width:1px,color:#ffffff
+    classDef neutralThin fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    classDef vcs fill:#311b92,stroke:#7c4dff,stroke-width:1px,color:#ffffff
 ```
 
 ### Tech Stack
@@ -300,7 +309,7 @@ Interactive force-directed graph for exploring note relationships:
 
 | Element | Encoding |
 |---------|---------|
-| Node color | Note type (pattern, debugging, research, project, tool, language, framework, knowledge, daily) |
+| Node color | Note type (pattern, debugging, research, project, tool, language, framework, knowledge, rule, fork, daily) |
 | Node size | Configurable: uniform, incoming link count (logarithmic), betweenness centrality, or recency (newer = larger) |
 | Wiki edge | Solid line — explicit wikilinks |
 | Semantic edge | Solid line — embedding similarity above threshold; color mode: binary (opacity) or gradient (blue to red) |
@@ -328,7 +337,7 @@ If no wiki-link path exists between the two notes, a "No wiki-link path found" t
 Floating overlay in the bottom-left of the graph canvas. Draggable via its title bar.
 
 **Display Controls**
-- Semantic similarity threshold (0.0–1.0)
+- Semantic similarity threshold (slider range 0.60–0.99)
 - Graph source: Semantic vs. Wiki
 - Overlay edges (show opposite type at low opacity)
 - Node type filter checkboxes
@@ -379,7 +388,7 @@ Floating overlay in the bottom-left of the graph canvas. Draggable via its title
 - Active tab: highlighted with distinct background and bottom border
 - Tabs scroll horizontally on overflow
 - Tab state persisted to `localStorage`
-- Stale stems auto-removed on load
+- All persisted tabs are kept on load — tabs for notes absent from `graph.json` remain valid
 - Switching tabs updates content immediately (cached)
 
 ### File Explorer Sidebar
@@ -632,13 +641,19 @@ graph LR
     Filter --> JSON
     Wiki --> JSON
 
-    style NI fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style EM fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
-    style Cos fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Filter fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
-    style Wiki fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style JSON fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style Norm fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    class NI,EM database
+    class Cos primary
+    class Filter warning
+    class Wiki external
+    class JSON active
+    class Norm neutral
+
+    classDef primary fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    classDef active fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    classDef external fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    classDef neutral fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    classDef database fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    classDef warning fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
 ```
 
 ## Data Model
@@ -650,12 +665,13 @@ graph LR
   id: string           // Unique stem identifier
   title: string        // Display title
   type: string         // Note type: pattern | debugging | research | project |
-                       //   tool | language | framework | knowledge | daily
+                       //   tool | language | framework | knowledge | rule | fork | daily
   folder: string       // Top-level vault folder (e.g., "Patterns", "Daily")
   path: string         // Vault-relative path
   tags: string[]       // Note tags
   incoming_links: number  // Count of wiki links pointing to this note
   mtime: number        // File modification time (Unix timestamp)
+  status?: 'live' | 'superseded'  // Supersession state; absent means live
 }
 ```
 
@@ -724,7 +740,7 @@ Returns the Markdown content for a note identified by its stem ID.
 **Response (404):** JSON error — note not found
 
 **`POST /api/note`** — Update (overwrite) an existing note. Accepts `vault` from the query string or the JSON body (query wins; ARC-002).
-Body: `{ stem: string, content: string, baseMtimeMs?: number, vault?: string }`
+Body: `{ stem?: string, path?: string, content: string, baseMtimeMs?: number, vault?: string }` — identify the note by `stem` or `path` (`path` wins when both resolve, avoiding stem collisions across folders)
 - If `baseMtimeMs` is provided, the server compares it to the file's current `mtimeMs`. If the file's mtime is strictly greater, the note was modified externally and the save is refused with HTTP 409.
 - Response (200): `{ ok: true, mtimeMs: number }` — save succeeded; the returned `mtimeMs` becomes the caller's next `baseMtimeMs`.
 - Response (409): `{ error: "...", conflict: true, serverContent: string, mtimeMs: number }` — conflict detected. The client should offer to merge or overwrite using `serverContent` as the new base. All conflict responses use the `{error, ...}` shape (ARC-040).

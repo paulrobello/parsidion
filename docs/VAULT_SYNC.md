@@ -55,7 +55,7 @@ The installer automatically:
 - initializes the vault as a **git repository** (with `.gitignore` and initial commit)
 - adds the machine-local files listed in [What Gets Synced](#what-gets-synced) to `.gitignore` (including `embeddings.db`, `pending_summaries.jsonl`, `config.yaml`, `config.local.yaml`, and others)
 - installs a **post-merge hook** that rebuilds the index and embeddings after every pull
-- writes `vault.username` (from `$USER`) into `config.yaml` for per-user daily note naming
+- writes `vault.username` (from `$USER`, or `$USERNAME` on Windows) into `config.yaml` for per-user daily note naming
 
 If you already have a vault, re-running the installer adds git support without affecting
 existing notes:
@@ -254,7 +254,8 @@ with the latest notes.
 
 Multiple people can share a vault by pointing at the same git remote.  Each
 person runs the installer on their own machine — the installer automatically sets
-`vault.username` in `config.yaml` to their OS username (`$USER`).
+`vault.username` in `config.yaml` to their OS username (`$USER`, or `$USERNAME`
+on Windows).
 
 Daily notes are stored as `Daily/YYYY-MM/DD-{username}.md` (e.g.
 `Daily/2026-03/23-alice.md`, `Daily/2026-03/23-bob.md`), so each team member
@@ -322,7 +323,11 @@ machine.
 ls -la ~/ParsidionVault/.git/hooks/post-merge
 ```
 
-The hook must be executable (`-rwxr-xr-x`).  If missing, re-run the installer:
+The hook must be executable (`-rwxr-xr-x`).  Git skips `post-merge` on pulls
+performed with `--rebase` (or when `pull.rebase` is configured globally) — in
+that case run the rebuild commands from
+[Stale search results after pull](#stale-search-results-after-pull) manually.
+If the hook is missing, re-run the installer:
 ```bash
 uv run install.py --force --yes
 ```

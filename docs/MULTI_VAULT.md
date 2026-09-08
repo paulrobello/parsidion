@@ -28,7 +28,7 @@ Use `--create-vaults-config` to generate a vaults configuration file:
 uv run install.py --create-vaults-config
 ```
 
-This creates `~/.config/parsidion/vaults.yaml` with commented examples. Edit it to register each vault's name and path. At lookup time the registry is read through `get_vaults_config_path()` in `core/vault_path.py`, which honors `$XDG_CONFIG_HOME` and falls back to `~/.config`:
+This creates `~/.config/parsidion/vaults.yaml` with commented examples. Edit it to register each vault's name and path. At lookup time the registry is read through `get_vaults_config_path()` in `core/vault_path.py`, which honors `$XDG_CONFIG_HOME`, falls back to `~/.config`, and reads the legacy pre-rebrand locations (`~/.config/parsidion-cc` or `~/.parsidion-cc`) when `~/.config/parsidion` does not exist:
 
 ```yaml
 vaults:
@@ -74,6 +74,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault w
 | `vault-export` | Yes — path or name |
 | `vault-merge` | Yes — path or name |
 | `vault-conflicts` | Yes — path or name |
+| `vault-supersede` | Yes — path or name |
 | `vault_doctor.py` | Yes — path or name |
 | `build_embeddings.py` | Yes — path or name |
 | `update_index.py` | Yes — path or name |
@@ -100,8 +101,10 @@ The reference must resolve to a named vault registered in `vaults.yaml` or to th
 - `pre_compact_hook.py` — snapshots to the project's vault
 - `post_compact_hook.py` — restores from the project's vault
 - `subagent_stop_hook.py` — queues to the active vault
+- `user_prompt_submit_hook.py` — injects vault recall for each user prompt
+- `pre_tool_use_hook.py` — injects rule notes matching the file being read or edited
 
-The Codex and Gemini adapter hooks run the same resolution through the shared session pipeline.
+The Codex and Antigravity adapter hooks (registered in `~/.codex/hooks.json` and `~/.gemini/config/hooks.json`) and the pi extension run the same resolution through the shared pipeline in `agent_adapter.py`.
 
 ## Default Vault Resolution
 

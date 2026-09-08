@@ -133,6 +133,16 @@ gets a rank-preserving synthesized score (`1/(1+position)`) so it still
 flows through aggregation/decay/sort instead of collapsing to a tie — the
 final ordering therefore matches parsight's returned rank.
 
+Two result-shaping behaviors apply on the parsight path:
+
+- **Superseded notes are excluded.** Retired notes (`status: superseded`)
+  never surface through parsight recall, matching the embeddings backend;
+  `vault-search --include-superseded` opts back in for history queries.
+- **Long queries are clamped.** parsight's daemon rejects `find-code`
+  queries over its 4096-character MCP cap, so the transport clamps an
+  oversized query to its prefix — a long prompt degrades to a prefix
+  search instead of silently disabling parsight recall for that call.
+
 ## Index freshness
 
 - **Query-time:** each parsight-routed search checks `parsight repos --json`.

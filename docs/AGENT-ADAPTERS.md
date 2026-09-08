@@ -56,7 +56,7 @@ Held by `AgentAdapter.install`; a standalone frozen dataclass so the installer h
 | | `entry_timeout` + `timeout_unit` | Numeric timeout and its unit — **`"s"` (codex/antigravity) or `"ms"` (claude)**. See [Timeout units](#timeout-units). |
 | | `entry_names` | Per-event `name` values when the runtime's schema requires one (antigravity). `None` otherwise. |
 | | `config_validator` | Optional pure `(dict) -> dict | None` JSON-shape check on the loaded hook config (`None` = unsafe to edit). Reserved: no built-in sets it — the installer's `_read_runtime_hooks` validates inline. |
-| | `build_entry` | Optional `(event, command) -> dict` override for entries that need logic, not just data. Reserved: no built-in sets it — the installer's `_build_entry` builds every entry from `entry_matcher`/`entry_timeout`/`entry_names`. |
+| | `build_entry` | Optional `(event, command) -> dict` override for entries that need logic, not just data. Reserved: no built-in sets it — the installer's `_build_entry` builds every entry from `entry_matcher`/`event_matchers`/`entry_timeout`/`entry_names`. |
 | **Instructions** | `instructions_filename` | File the installer injects agent instructions into (`AGENTS.md`, `GEMINI.md`). `None` for claude (uses `PARSIDION-VAULT.md`) and pi/omp. |
 
 ### Deprecated flat read-properties
@@ -103,10 +103,9 @@ effects at zero):
 
 | Runtime | Hooks | Connect path | Notes |
 |---|---|---|---|
-| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (unified 60 s SessionStart timeout raise via `installer.paths._HOOK_OPTIONS`, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). Since the fork/PreToolUse work of 2026-09-07, codex wires `PreToolUse -> pre_tool_use_hook.py` with the `apply_patch` matcher via the spec's `event_matchers`; antigravity cannot wire PreToolUse (its output is decision-only, no context channel). |
-| `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`. Timeout in **seconds**. |
-| `antigravity` | `~/.gemini/config/hooks.json` | `install()`/`uninstall()` | Generic core. Named hooks (`parsidion-session-start` / `parsidion-session-end`) use `PreInvocation` + `Stop`, with empty matchers and 60-second timeouts. The `agy` binary receives session-start context as an `ephemeralMessage` via `injectSteps`; transcripts are under `~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl`. `GEMINI.md` remains the instructions file. |
-
+| `claude` | `settings.json` | `install()`/`uninstall()` (native hooks) | Keeps its own `merge_hooks` flow (unified 60 s SessionStart timeout raise via `installer.paths._HOOK_OPTIONS`, update-existing-options, SEC-105 `.bak` snapshot); reads `event_scripts` from the adapter. Since ARC-002, `session_stop_hook.py` is a shim over `run_session_end` with this adapter (`read_transcript_tail` byte-bounded reader, `always_log_daily=true`). |
+| `codex` | `~/.codex/hooks.json` | `install()`/`uninstall()` | Generic `_merge_runtime_hooks` / `remove_runtime_hooks`; connect also sets `[features] hooks = true` in `~/.codex/config.toml` (`enable_codex_hooks_config`; disconnect reverts it). Timeout in **seconds**. Wires `PreToolUse -> pre_tool_use_hook.py` with the `apply_patch` matcher via the spec's `event_matchers` (codex payloads are Claude-shaped; `apply_patch` is its one file tool). |
+| `antigravity` | `~/.gemini/config/hooks.json` | `install()`/`uninstall()` | Dedicated named-hooks merge/remove (`merge_antigravity_hooks` / `remove_antigravity_hooks`) sharing the spec-driven entry builders. Named hooks (`parsidion-session-start` / `parsidion-session-end`) use `PreInvocation` + `Stop`, with empty matchers and 60-second timeouts; `PreToolUse` cannot be wired (its output is decision-only, with no context-injection channel). The `agy` binary receives session-start context as an `ephemeralMessage` via `injectSteps`; transcripts are under `~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl`. `GEMINI.md` remains the instructions file. |
 | `pi` | none | `connect pi` runs `scripts/install-pi-extension` | Extension-only: ships a TypeScript extension that shells out to claude's hook scripts at runtime (preferring `uv run --no-project`). |
 | `omp` | none | `connect omp` runs `scripts/install-pi-extension --extension-dir <omp-home>/agent/extensions --agent-name omp` | Extension-only, same source as pi. omp resolves its agent dir from `$PI_CONFIG_DIR` (default `~/.omp`); `--omp-home` overrides. omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every event it uses; subagent capture is a no-op under omp (no `subagent:result` messages). |
 
@@ -149,8 +148,9 @@ register(
 )
 ```
 
-Runtimes whose install needs more than hook registration (like pi's extension copy) keep a small,
-named branch in the `connect`/`disconnect` dispatch — the rule of thumb is: if only one runtime needs
+Runtimes whose install needs more than the generic hook registration keep a small,
+named branch — pi's extension copy in the `connect`/`disconnect` dispatch, antigravity's named-hooks
+merge/remove pair in `installer/hooks.py` — the rule of thumb is: if only one runtime needs
 a behaviour, it does **not** become a descriptor field.
 
 ## External adapters
@@ -183,9 +183,9 @@ checkable instead of an undocumented literal (audit item ARC-048a identified an 
 `agent_adapter.py` and every hook shim import nothing outside the Python standard library (plus the
 stdlib-only `vault_common`). This is the project's hardest constraint and it is enforced by
 `tests/test_stdlib_only.py`, which imports every `core/*` module, every hook, and the adapter
-registry itself in a fresh interpreter with 12 third-party packages poisoned in `sys.modules`
-(`rich`, `fastembed`, `sqlite_vec`, `anyio`, `yaml`, `numpy`, `PIL`, `requests`, `aiohttp`, plus
-their alias spellings). Any adapter descriptor that pulls a third-party import — even transitively —
+registry itself in a fresh interpreter with 12 third-party module names poisoned in `sys.modules`
+(`rich`, `fastembed`, `sqlite_vec`/`sqlitevec`, `anyio`, `yaml`/`pyyaml`, `numpy`, `PIL`/`pillow`,
+`requests`, `aiohttp`). Any adapter descriptor that pulls a third-party import — even transitively —
 fails the gate.
 
 ## Architecture notes
@@ -203,9 +203,14 @@ fails the gate.
   way).
   This is safe because `vault_common` is stdlib-only at import time.
 - **Generic core.** `_merge_runtime_hooks(adapter, …)` and `remove_runtime_hooks(adapter, …)` in
-  `installer/hooks.py` are the single read-modify-write path for codex/antigravity (and any future
-  hooks-based runtime). Claude retains its own `merge_hooks` for its options-raise/`.bak` flow but
-  reads `event_scripts` and builds commands through the shared helpers.
+  `installer/hooks.py` are the shared read-modify-write path for codex (both directions) and
+  claude's remove (`remove_installed_hooks`); any future runtime with a flat `hooks`-section config
+  joins the same path. Antigravity keeps a dedicated named-hooks merge/remove pair
+  (`merge_antigravity_hooks` / `remove_antigravity_hooks`) over the `parsidion` key in
+  `~/.gemini/config/hooks.json`, sharing the spec-driven `_build_managed_command` / `_build_entry`
+  builders and the flock/atomic-write primitives. Claude retains its own `merge_hooks` for its
+  options-raise/`.bak` flow but reads `event_scripts` and builds commands through the shared
+  helpers.
 
 ## Related documentation
 

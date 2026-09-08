@@ -190,12 +190,13 @@ CREATE TABLE note_index (
     incoming_links INTEGER NOT NULL DEFAULT 0,
     date           TEXT    NOT NULL DEFAULT '',     -- YYYY-MM-DD from frontmatter (lexicographically sortable)
     prompt_version TEXT    NOT NULL DEFAULT '',     -- prompt version that produced an AI-generated note (ENH-008)
-    incoming_stems TEXT    NOT NULL DEFAULT ''      -- JSON array of source stems linking to this note (ENH-021)
+    incoming_stems TEXT    NOT NULL DEFAULT '',     -- JSON array of source stems linking to this note (ENH-021)
+    status         TEXT    NOT NULL DEFAULT 'live'  -- 'live' or 'superseded' (note retirement; superseded rows are excluded from retrieval)
 );
 -- Secondary indexes: idx_ni_folder, idx_ni_note_type, idx_ni_project, idx_ni_mtime, idx_ni_tags, idx_ni_date
 ```
 
-The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The `prompt_version` column records which summarizer prompt version produced an AI-generated note, so note quality can be sliced by prompt. The `incoming_stems` column holds the reverse-link adjacency — a JSON array of source stems that link to the note, inverted from every note's outgoing `related` links at index time — and drives the session start hook's graph retrieval. All three schema migrations (`ALTER TABLE note_index ADD COLUMN date ...`, the matching `prompt_version` addition, and the `incoming_stems` addition) run automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open. `incoming_stems` is empty on pre-ENH-021 rows until the next index rebuild; readers treat empty as "not populated" and fall back to deriving the inversion from `related`.
+The `date` column stores the note's frontmatter `date` (YYYY-MM-DD) so point-in-time queries can be served by the index without re-reading note files. It defaults to `''` for notes without a date. The `prompt_version` column records which summarizer prompt version produced an AI-generated note, so note quality can be sliced by prompt. The `incoming_stems` column holds the reverse-link adjacency — a JSON array of source stems that link to the note, inverted from every note's outgoing `related` links at index time — and drives the session start hook's graph retrieval. The `status` column marks retired notes (`superseded`); those rows stay on disk for audit but are excluded from retrieval (see below). All four schema migrations (`ALTER TABLE note_index ADD COLUMN date ...`, the `status` addition, the matching `prompt_version` addition, and the `incoming_stems` addition) run automatically inside `ensure_note_index_schema()`, so existing databases are upgraded in place on first open. `incoming_stems` is empty on pre-ENH-021 rows until the next index rebuild; readers treat empty as "not populated" and fall back to deriving the inversion from `related`.
 
 ### Querying via CLI
 
@@ -403,6 +404,10 @@ Valid values: `auto` (default), `parsight`, `embeddings`, `none` (the legacy spe
 chosen backend is printed on stderr (`backend: embeddings`) so you can confirm which path
 served a query. Metadata and grep modes do not consult `--backend` — they always read the
 local `note_index` table.
+
+> **Note:** Retired notes (`status: superseded` in frontmatter) are excluded from semantic
+> and metadata results by default. Pass `--include-superseded` to include them for explicit
+> history queries.
 
 ### Model Caching and the Persistent Service
 

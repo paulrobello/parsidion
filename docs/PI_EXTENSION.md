@@ -1,6 +1,6 @@
 # pi Extension Install
 
-Install, configure, and smoke-test the Parsidion extension for the [pi](https://github.com/badlogic/pi-mono) coding agent (and for [omp](https://github.com/badlogic/pi-mono), which loads the same extension — the `@mariozechner/*` npm scope and the `badlogic/pi-mono` repository are the same author). The pi adapter is a TypeScript extension that shells out to Parsidion's Python hook scripts, so the same vault and queue path used by Claude Code, Codex CLI, and Gemini CLI works for pi sessions too.
+Install, configure, and smoke-test the Parsidion extension for the [pi](https://github.com/earendil-works/pi) coding agent (and for [omp](https://github.com/can1357/oh-my-pi), a fork of pi that loads the same extension). The pi adapter is a TypeScript extension that shells out to Parsidion's Python hook scripts, so the same vault and queue path used by Claude Code, Codex CLI, and Antigravity CLI works for pi sessions too.
 
 ## Table of Contents
 
@@ -23,7 +23,9 @@ The pi adapter extension source is included in the Parsidion repo at:
 - `extensions/pi/parsidion/lib/transcript.ts`
 - `extensions/pi/parsidion/lib/promptRecall.ts`
 
-It registers Parsidion's SessionStart, SessionEnd, PreCompact, PostCompact, and SubagentStop hooks against pi's lifecycle events, then drives the same Python scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`) the other runtimes use. Hook transcripts come from the session file pi assigns; when no session file exists (ephemeral sessions), the extension synthesizes one under `~/.claude/pi-vault-hooks/` from the session branch (`lib/transcript.ts` maps pi `SessionEntry` shapes to Claude-Code transcript lines; compaction summaries are included so pre-compaction context survives). When the branch serializes to nothing at shutdown, the extension falls back to the last non-empty snapshot taken at `turn_end`, and skips the hook entirely if that is empty too — a 0-byte transcript is never written or queued. The Python side accepts transcript roots under `~/.claude/`, `~/.pi/` (for example `~/.pi/agent/sessions/`), and `<cwd>/.pi/`.
+The four `lib/` helpers are dependency-free modules, each pinned by a bun:test unit test (`lib/scriptRunner.test.ts`, `lib/transcript.test.ts`, `parsidion-status.test.ts`, `promptRecall.test.ts`).
+
+It registers Parsidion's SessionStart, SessionEnd, PreCompact, PostCompact, SubagentStop, and UserPromptSubmit hooks against pi's lifecycle events, then drives the same Python scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `post_compact_hook.py`, `subagent_stop_hook.py`, `user_prompt_submit_hook.py`) the other runtimes use. Per-prompt vault recall runs on `before_agent_start` (10 s hook timeout; `/`-prefixed skill invocations are skipped), matching the UserPromptSubmit parity the Claude Code and Codex registrations have. Hook transcripts come from the session file pi assigns; when no session file exists (ephemeral sessions), the extension synthesizes one under `~/.claude/pi-vault-hooks/` from the session branch (`lib/transcript.ts` maps pi `SessionEntry` shapes to Claude-Code transcript lines; compaction summaries are included so pre-compaction context survives). When the branch serializes to nothing at shutdown, the extension falls back to the last non-empty snapshot taken at `turn_end`, and skips the hook entirely if that is empty too — a 0-byte transcript is never written or queued. The Python side accepts transcript roots under `~/.claude/`, `~/.pi/` (for example `~/.pi/agent/sessions/`), and `<cwd>/.pi/`. The extension imports pi's API from the legacy `@mariozechner/*` npm scope; pi's and omp's extension loaders alias that scope (alongside `@earendil-works` and `@oh-my-pi`) to their bundled runtime modules, so the same source loads unchanged in both runtimes.
 
 ## Install
 
@@ -76,14 +78,14 @@ uv run install.py connect omp
 uv run install.py disconnect omp
 ```
 
-The extension lands in `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; override with `install.py connect omp --omp-home <dir>`). omp's extension loader resolves the extension's `@mariozechner/*` imports and emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`). omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. Verified against the installed omp (`@oh-my-pi/pi-coding-agent` 18.x) extension API: all six bound events are declared in its type definitions, and no `subagent:result` message type exists in the package.
+The extension lands in `$PI_CONFIG_DIR/agent/extensions` (default `~/.omp/agent/extensions`; override with `install.py connect omp --omp-home <dir>`). omp's extension loader resolves the extension's `@mariozechner/*` imports — it aliases the `@oh-my-pi`, `@mariozechner`, and `@earendil-works` scopes to its bundled pi packages — and emits every lifecycle event the extension binds (`session_start`, `before_agent_start`, `session_before_compact`, `session_compact`, `turn_end`, `session_shutdown`). omp's task tool emits no `subagent:result` custom messages, so subagent-transcript capture is a graceful no-op there. Verified against the installed omp (`@oh-my-pi/pi-coding-agent`) extension API: all six bound events are declared in its type definitions, and no `subagent:result` message type exists in the package.
 
 ## Effective Anthropic / GLM Configuration
 
 For Anthropic / GLM-compatible settings, status precedence is:
 
 1. real environment variable
-2. the vault's `config.yaml` `anthropic_env` section (vault located via `CLAUDE_VAULT`, else the default vault location)
+2. the vault's `config.yaml` `anthropic_env` section (vault located via `CLAUDE_VAULT`, read as a directory path — named vaults are not resolved here — else the default vault location)
 3. unset
 
 Secret values such as `ANTHROPIC_AUTH_TOKEN` are masked in status output. Python hook scripts remain authoritative for runtime behavior; the pi extension only reports effective status.
@@ -165,6 +167,6 @@ Then in pi:
 
 ## Related Documentation
 
-- [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) — The runtime-adapter registry that drives `connect`/`disconnect` for every supported runtime (claude/codex/gemini/pi + external drop-ins)
+- [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) — The runtime-adapter registry that drives `connect`/`disconnect` for every supported runtime (claude/codex/antigravity/pi/omp + external drop-ins)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Hook scripts, transcript compatibility, and accepted roots
 - [README.md](../README.md) — Project overview and installation

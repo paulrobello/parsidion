@@ -194,6 +194,8 @@ All tools return plain strings on success. On failure, tools raise typed excepti
 | Non-.md extension (`vault_write`) | `VaultToolError` | `Only .md files are allowed` |
 | Hidden path segment (`vault_read` / `vault_write`) | `VaultToolError` | `Hidden paths are not readable` / `Hidden paths are not writable` |
 | Excluded top-level directory (`vault_read` / `vault_write`) | `VaultToolError` | `Excluded directory: <dir>` |
+| Non-UTF-8 (binary) content (`vault_read`) | `VaultToolError` | `not a text note` |
+| `uv` or `update_index.py` missing (`rebuild_index`) | `OpsToolError` | `uv or update_index.py not found` |
 | Embeddings DB missing and parsight unavailable (semantic search) | `ValueError` | `embeddings DB not found and parsight unavailable -- run rebuild_index first, or install/start parsight` |
 | parsight unavailable (`code_search`) | `ValueError` | `parsight unavailable -- install parsight and start its daemon (see docs/PARSIGHT.md)` |
 | `code_search` repo_path missing | `ValueError` | `repo_path does not exist: <path>` |
@@ -375,7 +377,7 @@ Run this after creating, renaming, or deleting notes to ensure search results an
 
 #### Return Value
 
-Combined stdout and stderr from `update_index.py` on success. Raises `OpsToolError` on failure or timeout (30 seconds).
+Combined stdout and stderr from `update_index.py` on success (`Index rebuilt successfully.` when the script prints nothing). Raises `OpsToolError` on failure, timeout (30 seconds), or when `uv`/`update_index.py` cannot be launched.
 
 #### Example
 
@@ -518,7 +520,7 @@ The test suite covers:
 - **Unit tests** — each tool module tested with mocked `vault_common`, `vault_search`, and `subprocess.run`
 - **Subprocess tests** — `rebuild_index`, `vault_doctor`, and `vault_health` verified for correct flag construction across all parameter combinations
 - **Path safety tests** — traversal attempts in `vault_read` and `vault_write` confirmed to raise the expected `VaultToolError`
-- **Integration smoke test** — reads one real note; automatically skipped when the vault is absent
+- **Integration smoke tests** — read one real note and exercise `vault_context`; automatically skipped when the vault is absent
 
 ### Checkall
 

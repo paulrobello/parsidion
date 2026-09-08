@@ -14,7 +14,7 @@ A fast native Rust CLI that lets AI coding agents control a Chrome or Chromium b
 
 ## Overview
 
-> **Verified against `agentchrome` v1.63.0 (August 2026).** Subcommands and JSON output shapes may drift in later releases; check `agentchrome --version` and `agentchrome --help` if a command below is rejected.
+> **Verified against `agentchrome` v1.63.0 (September 2026).** Subcommands and JSON output shapes may drift in later releases; check `agentchrome --version` and `agentchrome --help` if a command below is rejected.
 
 **Purpose:** Bridge the gap between AI agents and the live web — AgentChrome exposes structured, machine-readable browser state so agents can navigate pages, extract content, fill forms, and capture screenshots without fragile HTML scraping.
 
@@ -121,7 +121,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Coordinate resolution** | Resolve a selector to frame-local and page-global coordinates (`page coords`) |
 | **Screenshot capture** | Full-page, viewport, or element PNG/JPEG/WebP screenshots (`page screenshot`) |
 | **Form automation** | Fill, clear, upload files, and submit form fields by UID or CSS selector (`form fill/fill-many/clear/upload/submit`) |
-| **User interaction** | Click, hover, type, press keys, scroll, drag-and-drop, and manual mouse-button control by UID or CSS selector (`interact click/click-at/hover/type/key/scroll/drag/drag-at/mousedown-at/mouseup-at`) |
+| **User interaction** | Click, hover, type, press keys, scroll, drag-and-drop, and manual mouse-button control by UID, CSS selector, or viewport coordinates (`interact click/click-at/hover/type/key/scroll/drag/drag-at/mousedown-at/mouseup-at`) |
 | **JavaScript execution** | Run arbitrary JS in the page context (`js exec`) |
 | **Console monitoring** | Read or stream browser console messages (`console read/follow`) |
 | **Network monitoring** | Inspect and stream requests and responses (`network list/get/follow`) |
@@ -129,7 +129,7 @@ This auto-detects the active agentic environment. Use `agentchrome skill list` t
 | **Tab management** | List, create, close, and activate tabs (`tabs list/create/close/activate`) |
 | **Device emulation** | Simulate mobile viewports and network conditions (`emulate set/reset/status`) |
 | **Performance tracing** | Capture Core Web Vitals, record traces, and analyze insights (`perf vitals/record/analyze`) |
-| **Lighthouse audits** | Run Google Lighthouse performance, accessibility, SEO, and best-practices audits (`audit lighthouse`) |
+| **Lighthouse audits** | Run Google Lighthouse performance, accessibility, SEO, and best-practices audits; requires the `lighthouse` npm package (`audit lighthouse`) |
 | **Dialog handling** | Inspect, accept, or dismiss alerts, confirms, and prompts (`dialog info/handle`) |
 | **Media control** | List, play, pause, and seek HTML5 audio and video elements (`media list/play/pause/seek/seek-end`) |
 | **Pre-automation diagnostics** | Scan pages for iframes, overlays, shadow DOM, media gates, and framework quirks (`diagnose`) |
@@ -291,8 +291,8 @@ agentchrome interact scroll --amount 500
 # Drag and drop elements by UID or CSS selector
 agentchrome interact drag s5 s10
 
-# Click at specific viewport coordinates
-agentchrome interact click-at 100,200
+# Click at specific viewport coordinates (X and Y are separate arguments)
+agentchrome interact click-at 100 200
 
 # Fill a form field
 agentchrome form fill s5 "hello@example.com"

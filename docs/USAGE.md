@@ -1,6 +1,6 @@
 # Vault CLI Reference
 
-Complete command-line reference for the Parsidion vault tooling: search, scaffold, analytics, review, export, merge, conflicts, summarizer, doctor, and the graph/color coverage utilities. Global commands (`vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, `vault-conflicts`) require `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root). Without it, invoke the underlying script via `uv run --no-project ~/.claude/skills/parsidion/scripts/<name>.py`.
+Complete command-line reference for the Parsidion vault tooling: search, scaffold, analytics, review, export, merge, conflicts, note retirement, summarizer, doctor, and the graph/color coverage utilities. Global commands (`vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, `vault-conflicts`, `vault-supersede`) require `uv run install.py --install-tools` (or `uv tool install --editable ".[tools]"` from the repo root). Without it, invoke the underlying script via `uv run --no-project ~/.claude/skills/parsidion/scripts/<name>.py`.
 
 ## Table of Contents
 
@@ -13,6 +13,7 @@ Complete command-line reference for the Parsidion vault tooling: search, scaffol
 - [Export vault](#export-vault)
 - [Merge near-duplicate notes](#merge-near-duplicate-notes)
 - [Detect and resolve conflicting notes](#detect-and-resolve-conflicting-notes)
+- [Retire or restore a note](#retire-or-restore-a-note)
 - [Summarize queued sessions](#summarize-queued-sessions)
 - [Run vault doctor](#run-vault-doctor)
 - [Run trigger eval](#run-trigger-eval)
@@ -73,6 +74,9 @@ vault-search --grep "pattern" -f Patterns             # combine with metadata fi
 vault-search --changed-since 2026-06-01               # notes modified on/after a date (file mtime)
 vault-search --changed-since 2026-06-01 -T python     # combine with other metadata filters
 vault-search --as-of 2026-05-15                       # notes whose frontmatter date is on/before a date
+
+# Include retired notes (status: superseded) in semantic and metadata results
+vault-search --include-superseded "deprecated pattern"
 
 # Interactive curses TUI (real-time results, navigation, editor integration)
 vault-search --interactive
@@ -173,7 +177,25 @@ vault-conflicts                    # interactive: scan similar pairs, resolve co
 vault-conflicts --scan-only        # scan + write conflicts/report.json, no TUI (AI still runs unless --no-ai)
 vault-conflicts --json             # machine-readable output for scripting
 vault-conflicts --no-ai            # list pairs without invoking the AI backend
+vault-conflicts --execute          # apply keep-A/keep-B resolutions via the supersession contract
+                                   # (without --execute, resolutions are previewed only)
 # Other flags: --vault/-V PATH|NAME, --threshold SCORE (cosine cutoff), --top N (max pairs)
+```
+
+## Retire or restore a note
+
+Applies the supersession contract: the retired note gets `status: superseded` plus a `superseded_by` link and a body pointer line; it stays on disk for audit and drops out of every retrieval surface.
+
+```bash
+# Preview the retirement (without --execute, every run is a preview)
+vault-supersede old-note replacement-note --reason "superseded by newer findings"
+
+# Apply it
+vault-supersede old-note replacement-note --reason "..." --execute
+
+# Un-retire: remove the supersession fields and the body line
+vault-supersede old-note --revert --execute
+# Other flags: --vault/-V PATH|NAME
 ```
 
 ## Summarize queued sessions

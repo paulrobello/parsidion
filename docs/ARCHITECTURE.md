@@ -47,6 +47,8 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - Hierarchical summarization for long transcripts (chunk → haiku summary → Sonnet note)
 - Automated bidirectional backlinks injected after each new note write
 - Working state snapshots before context compaction; snapshot restored automatically after compaction via PostCompact hook
+- Per-prompt and per-file vault recall: `UserPromptSubmit` and `PreToolUse` hooks push relevant notes — and triggered `type: rule` directives — into context before the model answers or opens a file
+- Note supersession: retire wrong or replaced notes without deleting them (`vault-supersede`); retired notes are excluded from every retrieval surface and restorable with `--revert`
 - A dedicated research agent that saves findings to the vault
 - Auto-generated lean root index (`CLAUDE.md`) with quick stats, conventions, recent activity, and folder pointers; full tag cloud in `TAGS.md`; detailed per-folder `MANIFEST.md` files
 - Fast metadata search via `note_index` SQLite table in `embeddings.db`, populated on every index rebuild — enables indexed tag/folder/type/project queries without O(n) file walks. Since ENH-021 each row also carries `incoming_stems` (JSON array of source stems, the reverse-link adjacency inverted from every note's `related` field at index time), so graph retrieval reads incoming links per note instead of re-deriving them; empty values (pre-ENH-021 indexes) fall back to deriving the inversion from `related`
@@ -83,6 +85,8 @@ graph TB
         ASH[subagent_stop_hook.py]
         PCH[pre_compact_hook.py]
         POCH[post_compact_hook.py]
+        UPS[user_prompt_submit_hook.py]
+        PTU[pre_tool_use_hook.py]
         SUM[summarize_sessions.py]
         IDX[update_index.py]
         VD[vault_doctor.py]
@@ -108,6 +112,8 @@ graph TB
         Tools[Tools/]
         Research[Research/]
         Knowledge[Knowledge/]
+        Rules[Rules/]
+        Forks[Forks/]
         History[History/]
         Graph[.obsidian/graph.json]
     end
@@ -118,6 +124,8 @@ graph TB
     Hooks -->|SubagentStop| ASH
     Hooks -->|PreCompact| PCH
     Hooks -->|PostCompact| POCH
+    Hooks -->|UserPromptSubmit| UPS
+    Hooks -->|PreToolUse| PTU
     CC -->|invokes| Agent
     CC -->|invokes| VE
     CC -->|invokes| PE
@@ -128,6 +136,8 @@ graph TB
     ASH -->|reads| VC
     PCH -->|reads| VC
     POCH -->|reads| VC
+    UPS -->|reads| VC
+    PTU -->|reads| VC
     IDX -->|reads| VC
     SUM -->|reads| VC
     VC -->|loads| Config
@@ -143,6 +153,7 @@ graph TB
 
     SSH -->|loads context from| Daily
     SSH -->|loads context from| Projects
+    SSH -->|surfaces fork ideas from| Forks
     STH -->|writes to| Daily
     STH -->|queues to| Pending
     ASH -->|queues to| Pending
@@ -179,12 +190,12 @@ graph TB
     classDef visualizer fill:#006064,stroke:#00bcd4,stroke-width:2px,color:#ffffff
 
     class CC,Hooks primary
-    class SSH,PE,VD active
+    class SSH,PE,VD,UPS,PTU active
     class Skill,Agent,VE,DD,SUM,MCP external
     class VC,IDX,CGC,BG data
     class PCH,POCH,EVAL warning
     class Config,Index,Pending,EMB database
-    class Daily,Projects,Languages,Frameworks,Patterns,Debugging,Tools,Research,Knowledge,History,Graph,VG neutral
+    class Daily,Projects,Languages,Frameworks,Patterns,Debugging,Tools,Research,Knowledge,Rules,Forks,History,Graph,VG neutral
     class CVG alwayson
     class STH,ASH sessionwrite
     class VIZ visualizer
@@ -224,7 +235,7 @@ The skill definition loaded into Claude Code's context. Establishes the philosop
 
 ### Hook Scripts
 
-Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set; Codex gets native `SessionStart`/`Stop`/`SubagentStop` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Antigravity runtime hooks provide `PreInvocation` and `Stop` wrappers registered in `~/.gemini/config/hooks.json` with `--runtime antigravity` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → config.local.yaml → CLI args). Antigravity runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
+Python hook scripts execute at different points in coding-agent runtime lifecycles. Claude Code gets the full hook set (`SessionStart`, `SessionEnd`, `SubagentStop`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `PreToolUse`); Codex gets native `SessionStart`/`Stop`/`SubagentStop`/`UserPromptSubmit`/`PreToolUse` wrappers (note Codex's `timeout` field is in seconds, not milliseconds like Claude's `settings.json`); Antigravity runtime hooks provide `PreInvocation` and `Stop` wrappers registered in `~/.gemini/config/hooks.json` with `--runtime antigravity` or `--runtime all`. All hooks read JSON from stdin, interact with the vault via `vault_common`, and write JSON to stdout. Each hook supports tuneable options via `~/ParsidionVault/config.yaml` and/or CLI arguments (precedence: script defaults → config.yaml → config.local.yaml → CLI args). Antigravity runtime hooks are separate from prompt AI backend selection and do not add a Gemini prompt backend. Gemini has no native subagent lifecycle capture in this first pass.
 
 Transcript compatibility:
 - Claude Code JSONL (`type: "assistant" | "user"`)
@@ -271,9 +282,10 @@ Fires when a Claude Code, Codex, or Antigravity session begins. Loads relevant v
    - **Tier 1 — neighbour expansion** (`graph_expand`, cap `graph_expand_max`): adds up to N 1-hop wikilink neighbours of the selected seed notes (both outgoing and incoming links), best-connected first (highest `incoming_links`). The pre-expansion seed snapshot is captured first so the rerank cluster reflects the intentional selection, not the added neighbours.
    - **Tier 2 — graph-aware rerank** (`graph_rerank`): stable re-sort of the merged candidate list by seed-cluster tag overlap (primary) and `incoming_links` hubness (secondary); notes with no graph signal keep their prior relative order.
    - Both tiers fall back gracefully to the existing retrieval path when `embeddings.db` or `note_index` is absent (no behaviour change for fresh vaults).
-6. Deduplicates and builds context: **compact mode** (default) injects one line per note — `[[stem]] (folder) — \`tags\``; **verbose mode** (`--verbose` or `verbose_mode: true`) injects full note summaries via `build_context_block()`
-7. Returns the context as `additionalContext` in the hook output
-8. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/parsidion-session-start-debug.log`
+6. Builds a **Fork ideas** section from open `type: fork` notes tagged with the current project (`Forks/`) — mid-session improvement ideas captured by the summarizer are resurfaced at the next session start; superseded forks are excluded
+7. Deduplicates and builds context: **compact mode** (default) injects one line per note — `[[stem]] (folder) — \`tags\``; **verbose mode** (`--verbose` or `verbose_mode: true`) injects full note summaries via `build_context_block()`
+8. Returns the context as `additionalContext` in the hook output
+9. When `debug` is enabled, appends the full context plus quality metadata (project, mode, char count, budget %, note count, elapsed time) to `$TMPDIR/parsidion-session-start-debug.log`
 
 **AI-powered mode (`--ai [MODEL]`):**
 
@@ -287,16 +299,16 @@ Pass `--ai` (or `--ai <model-id>`) to the hook command, or set `session_start_ho
 
 Default model: the configured backend's small tier (`ai_models.<backend>.small` — e.g. `claude-haiku-4-5-20251001` for claude-cli, `grok-4.6` for grok-cli, which maps both tiers to the same model). Override with `--ai <model-id>` valid for the configured backend, or `session_start_hook.ai_model` in config.yaml.
 
-**Hook timeout:** The installer registers a 60 s SessionStart timeout for every runtime (existing installs with a lower value are raised on reinstall), so no manual `settings.json` edit is needed when using `--ai`. For reference, the registration the installer writes:
+**Hook timeout:** The installer registers a 60 s SessionStart timeout for every runtime (existing installs with a lower value are raised on reinstall), so no manual `settings.json` edit is needed when using AI mode. AI mode itself is enabled by config (`session_start_hook.ai_model` — what the installer's `--enable-ai` writes into the vault `config.yaml`), not by a command-line flag on the registration. For reference, the registration the installer writes:
 
 ```json
 {
-  "command": "uv run --no-project ~/.claude/skills/parsidion/scripts/session_start_hook.py --ai",
+  "command": "uv run --no-project ~/.claude/skills/parsidion/scripts/session_start_hook.py",
   "timeout": 60000
 }
 ```
 
-**Latency observability and budget gate (ENH-019 + ENH-023):** Every SessionStart run appends a `stages_ms` object to its `hook_events.log` entry attributing wall time to the hook's internal stages — `delta_ms` (cross-session delta), `ai_ms` (AI selector path, when enabled; its `candidates_ms` sub-stage measures the candidate-pool build feeding the selector), `seed_ms` (project/recent note queries), `semantic_ms` (embedding-search subprocess, when enabled), `graph_ms` (Tier 1+2 graph retrieval), and `assemble_ms` (context-body build). The keys are additive JSON; readers that don't know them ignore them, and `vault-stats --hooks N` renders the events unchanged. On top of the observational side, `make bench-hooks` (ENH-023) runs the hook against generated synthetic vaults (500 and 5000 notes) with the nondeterministic legs pinned off, reports per-stage medians, and exits nonzero when a size's median exceeds its budget — the pre-merge/pre-release gate for hook-latency regressions. See [tools/bench/](../tools/bench/) and [CONTRIBUTING.md](../CONTRIBUTING.md#benchmarking-hooks-on-demand).
+**Latency observability and budget gate (ENH-019 + ENH-023):** Every SessionStart run appends a `stages_ms` object to its `hook_events.log` entry attributing wall time to the hook's internal stages — `delta_ms` (cross-session delta), `forks_ms` (open fork-ideas section), `ai_ms` (AI selector path, when enabled; its `candidates_ms` sub-stage measures the candidate-pool build feeding the selector), `seed_ms` (project/recent note queries), `semantic_ms` (embedding-search subprocess, when enabled), `graph_ms` (Tier 1+2 graph retrieval), and `assemble_ms` (context-body build). The keys are additive JSON; readers that don't know them ignore them, and `vault-stats --hooks N` renders the events unchanged. On top of the observational side, `make bench-hooks` (ENH-023) runs the hook against generated synthetic vaults (500 and 5000 notes) with the nondeterministic legs pinned off, reports per-stage medians, and exits nonzero when a size's median exceeds its budget — the pre-merge/pre-release gate for hook-latency regressions. See [tools/bench/](../tools/bench/) and [CONTRIBUTING.md](../CONTRIBUTING.md#benchmarking-hooks-on-demand).
 
 #### SessionEnd Hook
 
@@ -379,6 +391,36 @@ Fires after Claude Code compacts the conversation context. Restores the pre-comp
 3. Returns the snapshot content as `additionalContext` in the hook output
 4. If no snapshot is found (e.g. first compact of a session), returns an empty context gracefully
 
+#### UserPromptSubmit Hook
+
+**Script:** `skills/parsidion/scripts/user_prompt_submit_hook.py`
+
+Registered under `UserPromptSubmit` for Claude Code and Codex (the same script for both — Codex sends no `cwd`, so the script falls back to `os.getcwd()`), and mirrored in TypeScript by the omp/pi extension's `before_agent_start` handler. On every user prompt it queries the vault via parsight's hybrid retrieval and injects bounded note facts as `additionalContext` **before** the model answers — retrieval is pushed, so the model never needs a tool call to recall vault knowledge.
+
+**Configurable options** (section `user_prompt_submit_hook` in `config.yaml`): `enabled`, `top_k` (3), `max_chars` (1500), `per_note_chars` (350), `min_term_matches` (2 — the distinct-token relevance gate between prompt and note title/tags/stem), `min_prompt_chars` (9 — shorter prompts skip retrieval), `probe_cache_seconds` (300), `recall_timeout_s` (7.0 — the per-prompt parsight budget, bounded so the hook's graceful `{}` exit always beats the host kill), `debug`.
+
+**Behavior:**
+1. Skips entirely when the prompt is shorter than `min_prompt_chars` or the hook is disabled
+2. Probes parsight availability (a failed probe is negative-cached for `probe_cache_seconds`; a budget-burning failed search writes its own cooldown stamp)
+3. Searches via `parsight_search` and gates each hit on distinct-token overlap — parsight RRF scores gate by rank, so `min_score` deliberately does not apply
+4. Loads `type: rule` notes (`core/rule_triggers.py`) and injects those whose `triggers` keywords match the prompt — directives, not recall — leading the body within the same char budget
+5. Injects bounded note excerpts inside the shared untrusted-content framing (SEC-108); never blocks — malformed stdin, any exception, or any retrieval failure prints `{}` and exits 0, with diagnostics on stderr only
+
+#### PreToolUse Hook
+
+**Script:** `skills/parsidion/scripts/pre_tool_use_hook.py`
+
+Registered under `PreToolUse` with matcher `Read|Edit` for Claude Code and `apply_patch` for Codex (Codex payloads are Claude-shaped; the hook extracts file targets from the V4A patch body itself). Pushes file-scoped vault recall at the moment a file is opened — the agent never needs a tool call to see the `Debugging/` note covering exactly the file about to be read or edited.
+
+**Configurable options** (section `pre_tool_use_hook` in `config.yaml`): `enabled`, `top_k` (3), `max_chars` (1500), `per_note_chars` (350), `min_term_matches` (2), `cache_seconds` (300 — per-file result cache, positive and negative, persisted across hook invocations), `parsight` (true — also run the semantic leg when the daemon is available; the local `note_index` scan always runs), `recall_timeout_s` (4.0), `debug`.
+
+**Behavior:**
+1. Extracts the file path from `tool_input` (or the first Add/Update/Move-to target of a Codex `apply_patch` body)
+2. Runs the always-on local `note_index` scan (~ms): metadata rows scored by distinct-token overlap between file-derived tokens (basename stem + project name) and each note's title/tags/stem
+3. Optionally runs the parsight semantic leg with a file-derived query, so a note whose title shares no token with the filename is still recalled
+4. Loads `type: rule` notes and injects those whose `triggers` match the file path (fnmatch patterns or keywords), leading the body within the same char budget
+5. Caches results (including "nothing found") per file for `cache_seconds` so re-reads of the same file are free; never blocks — every failure path prints `{}` and exits 0
+
 #### SubagentStop Hook
 
 **Script:** `skills/parsidion/scripts/subagent_stop_hook.py`
@@ -390,7 +432,7 @@ Fires (asynchronously, with `async: true`) when any subagent spawned via the `Ag
 | Key | Default | Description |
 |-----|---------|-------------|
 | `enabled` | `true` | Set `false` to disable subagent transcript capture entirely |
-| `min_messages` | `3` | Minimum assistant message count; for pi transcripts the unset default is `1` |
+| `min_messages` | `null` | Minimum assistant message count before queuing (pi transcripts default to `1` when unset) |
 | `excluded_agents` | `"vault-explorer,research-agent"` | Comma-separated agent types to skip |
 | `transcript_tail_bytes` | `1500000` | Byte ceiling on the subagent transcript tail; bounds huge-line rollouts |
 
@@ -500,6 +542,8 @@ A legacy `pid` key in an old state file is inert residue. Since SEC-016 the doct
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--fix-frontmatter` | off | Apply backend-suggested frontmatter repairs |
+| `--fix` | off | Legacy alias for `--fix-frontmatter` (hidden from `--help`) |
+| `notes` (positional) | all notes | Specific notes to check |
 | `--fix-all` | off | Run all fix steps (frontmatter, tags, subfolder migration, daily-note migration, **`--strip-prefixes`**, and **`--fix-permissions`**); implies `--execute`. Because `--strip-prefixes` rewrites filenames and updates `[[wikilinks]]` vault-wide, run `--fix-all` on a clean git tree so a rename can be reverted. Used by the nightly cron. |
 | `--fix-tags` | off | Detect and merge duplicate tags; use `--execute` to apply |
 | `--fix-sessions` | off | Detect notes sharing the same `session_id` and suggest consolidation (manual or via vault-deduplicator) |
@@ -650,7 +694,7 @@ A Claude Code agent definition (runs on Haiku) that scans `~/ParsidionVault/` fo
 
 ### Vault Common Library
 
-**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`yaml_lite.py`, `vault_config.py`, `vault_schema.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`, `ai_backend.py`, `parsight_backend.py`, `transcript_reader.py`). The flat `vault_*.py` / `subproc_util.py` / `ai_backend.py` / `parsight_backend.py` / `transcript_reader.py` names at the scripts root are thin re-export shims over `core/` — ARC-006 moved the AI and parsight backends into `core/` under the same stdlib gate (tests that monkeypatch module internals target `core.ai_backend` / `core.parsight_backend` directly, while patches of public names via a carrier module keep working through the shim). `core/transcript_reader.py` is the unified byte-bounded transcript tail reader (ENH-018) and `core/vault_schema.py` is the typed config schema every config default derives from (ARC-007).
+**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`yaml_lite.py`, `vault_config.py`, `vault_schema.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`, `ai_backend.py`, `parsight_backend.py`, `transcript_reader.py`, `rule_triggers.py`). The flat `vault_*.py` / `subproc_util.py` / `ai_backend.py` / `parsight_backend.py` / `transcript_reader.py` names at the scripts root are thin re-export shims over `core/` — ARC-006 moved the AI and parsight backends into `core/` under the same stdlib gate (tests that monkeypatch module internals target `core.ai_backend` / `core.parsight_backend` directly, while patches of public names via a carrier module keep working through the shim). `core/transcript_reader.py` is the unified byte-bounded transcript tail reader (ENH-018) and `core/vault_schema.py` is the typed config schema every config default derives from (ARC-007).
 
 The shared utility library used by all hook scripts and the index generator. Uses only Python stdlib (no third-party dependencies). As of ARC-005, the implementation has been split into focused sub-modules; `vault_common.py` remains a thin re-export facade so existing `import vault_common` callers continue to work unchanged. ARC-004 moved these implementations into the `scripts/core/` subpackage (behind the flat re-export shims) and added `tests/test_stdlib_only.py`, which enforces the stdlib-only constraint by importing every `core/*` module and hook in a fresh interpreter with 12 third-party modules (`rich`, `fastembed`, `sqlite_vec`/`sqlitevec`, `anyio`, `yaml`/`pyyaml`, `numpy`, `PIL`/`pillow`, `requests`, `aiohttp`) poisoned in `sys.modules` — a forbidden import, even a transitive one, fails the gate.
 
@@ -714,7 +758,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 - No external dependencies (stdlib only) for maximum portability in hook contexts
 - Custom YAML parser via regex rather than importing `pyyaml`; the config parser (`_parse_config_yaml`) is similarly stdlib-only
 - File walking excludes `.obsidian/`, `Templates/`, `.git/`, `.trash/`, `TagsRoutes/`
-- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 16 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_schema`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`, `yaml_lite`, plus `ai_backend`, `parsight_backend`, `transcript_reader`) to reduce per-file LOC and improve maintainability
+- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 17 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_schema`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`, `yaml_lite`, plus `ai_backend`, `parsight_backend`, `transcript_reader`, `rule_triggers`) to reduce per-file LOC and improve maintainability. `core/rule_triggers.py` loads and matches `type: rule` note triggers, shared by the UserPromptSubmit and PreToolUse hooks
 
 ### Index Generator
 
@@ -779,6 +823,13 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 | `--model ID` | `-m` | fastembed model ID |
 | `--backend` | `-B` | Backend override: `auto` (default), `parsight`, `embeddings`, or `none` |
 
+**Global flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--vault PATH\|NAME` | `-V` | Target a specific vault (path or name from `vaults.yaml`) |
+| `--include-superseded` | — | Include retired notes (`status: superseded`) in semantic and metadata results, for explicit history queries |
+
 **Environment variables** (`VAULT_SEARCH_*` prefix; precedence: CLI flag > env var > config.yaml > default):
 
 | Variable | Description |
@@ -824,7 +875,7 @@ Scaffolds a new vault note from the appropriate template, pre-populating frontma
 
 | Flag | Description |
 |------|-------------|
-| `--type TYPE` | Note type: `pattern`, `debugging`, `research`, `tool`, `language`, `framework`, `project`, `knowledge` |
+| `--type TYPE` | Note type: `pattern`, `debugging`, `research`, `tool`, `language`, `framework`, `project`, `knowledge`, `rule`, `fork` |
 | `--title TITLE` | Note title (used as H1 heading and to derive the kebab-case filename) |
 | `--project PROJECT` | Optional project tag |
 | `--tags TAGS` | Comma-separated tag list |
@@ -934,6 +985,23 @@ Curses TUI for reviewing entries in `pending_summaries.jsonl` before they are pr
 | `s` | Skip entry (no change) |
 | `q` | Quit |
 
+#### vault-supersede
+
+**Location:** `skills/parsidion/scripts/vault_supersede.py` · Global command: `vault-supersede` (after `--install-tools`)
+
+Retires or restores a note via the supersession contract. Retiring writes `status: superseded` and `superseded_by: ["[[replacement]]"]` into the note's frontmatter and appends a quotable body line (`> Superseded by [[X]] on YYYY-MM-DD: <reason>`) for human readers. Retired notes stay on disk for audit and keep their wikilinks, but are excluded from every retrieval surface (`note_index` queries, walks, semantic search, session-start and prompt-submit recall, backlink suggestions, analytics); `vault-search --include-superseded` reads them back for explicit history queries.
+
+**Usage:** `vault-supersede NOTE REPLACEMENT --reason "why" [--execute]` to retire, or `vault-supersede NOTE --revert [--execute]` to restore.
+
+| Flag | Description |
+|------|-------------|
+| `--reason TEXT` | Why the note is retired; recorded in the body line |
+| `--revert` | Un-retire: remove `status`/`superseded_by` and the body line |
+| `--execute` | Apply the change (without it the run is a preview) |
+| `--vault PATH\|NAME` / `-V` | Target a specific vault |
+
+Dry-run is the default. After `--execute`, the vault is committed (`git.auto_commit` aware) and the `note_index` is rebuilt so the retirement is live everywhere at once. Frontmatter is re-serialized canonically: YAML comments inside the frontmatter block are not preserved, but every field value is.
+
 ### Trigger Evaluation
 
 **Location:** `skills/parsidion/scripts/run_trigger_eval.py`, `skills/parsidion/scripts/run_trigger_eval.sh` (macOS/Linux), `skills/parsidion/scripts/run_trigger_eval.bat` (Windows)
@@ -1031,7 +1099,7 @@ uv tool install --editable .
 
 The default vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrading) is plain markdown — no Obsidian required. If you open it in [Obsidian](https://obsidian.md/), you get graph view, search, and wikilink navigation, but all core functionality (hooks, search, summarizer) works without it.
 
-**Templates:** The `Templates/` directory is a symlink to the skill's `templates/` folder, making 9 note templates and the reference `config.yaml` available:
+**Templates:** The `Templates/` directory is a symlink to the skill's `templates/` folder, making 11 note templates and the reference `config.yaml` available:
 
 | Template | Note Type |
 |----------|-----------|
@@ -1044,6 +1112,8 @@ The default vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrad
 | `tool.md` | CLI tools and packages |
 | `knowledge.md` | General knowledge and reference material |
 | `research.md` | Deep-dive research |
+| `rule.md` | Behavioral directives injected when a `triggers` entry matches |
+| `fork.md` | Improvement-fork build ideas surfaced at session start |
 | `config.yaml` | Reference config with all defaults |
 
 ## Configuration
@@ -1464,6 +1534,7 @@ parsidion/
 │   ├── VAULT_SYNC.md                # Multi-machine vault sync guide
 │   ├── README.md                    # Documentation index
 │   ├── CLAUDE.md                    # Doc-folder AI guidance
+│   ├── ideas.md                     # Captured improvement ideas
 │   ├── parsidion-architecture.png   # Architecture diagram embedded by the root README
 │   ├── *-slideshow.html             # Self-contained walkthroughs (5) published to GitHub Pages
 │   ├── api/                         # Generated API reference (pdoc + typedoc; `make docs-api`)
@@ -1498,7 +1569,7 @@ parsidion/
 └── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── core/                    # ARC-004 stdlib implementations (16 modules) behind the flat shims below
+    │   ├── core/                    # ARC-004 stdlib implementations (17 modules) behind the flat shims below
     │   │   ├── vault_config.py      # Config loading, YAML parsing, validation
     │   │   ├── vault_schema.py      # Typed config schema — single source of truth for defaults (ARC-007)
     │   │   ├── vault_constants.py   # Shared constants
@@ -1514,7 +1585,8 @@ parsidion/
     │   │   ├── yaml_lite.py         # Shared YAML-subset tokenizer (ENH-024: config, frontmatter, vaults.yaml)
     │   │   ├── ai_backend.py        # Backend-neutral prompt AI helpers (ARC-006 moved under the stdlib gate)
     │   │   ├── parsight_backend.py  # Optional parsight code-memory bridge (ARC-006)
-    │   │   └── transcript_reader.py # Unified byte-bounded transcript tail reader (ENH-018)
+    │   │   ├── transcript_reader.py # Unified byte-bounded transcript tail reader (ENH-018)
+    │   │   └── rule_triggers.py     # type: rule trigger loading/matching (UserPromptSubmit + PreToolUse hooks)
     │   ├── session_start/           # ARC-006 focused submodules extracted from session_start_hook.py
     │   │   ├── ai_selector.py       # AI note selection (candidate pool, backend prompt, fallback)
     │   │   ├── context.py           # Context assembly (compact one-line index / verbose summaries)
@@ -1539,10 +1611,10 @@ parsidion/
     │   │   └── worker.py            # Per-note repair worker
     │   ├── summarizer/              # ARC-009 summarize_sessions helpers (11 modules: _state_const, dead_letter, dedup, failure, lock, notes, pipeline, progress, prompt, queue, transcript)
     │   ├── cli/                     # ARC-005 decomposed CLI implementations (one subpackage per God-file CLI)
-    │   │   ├── index/               # update_index.py split (parse, build, render, db, graph, models, cli)
+    │   │   ├── index/               # update_index.py split (parse, build, render, db, graph, models, cli, _common)
     │   │   ├── merge/               # vault_merge.py split (scan, lookup, preview, frontmatter, ai_helpers, display, index)
-    │   │   ├── search/              # vault_search.py split (embeddings, metadata, format)
-    │   │   └── stats/               # vault_stats.py split (health, rollups, dashboard, operations, graph, overview, summary, cli)
+    │   │   ├── search/              # vault_search.py split (embeddings, metadata, format, _common)
+    │   │   └── stats/               # vault_stats.py split (health, rollups, dashboard, operations, graph, overview, summary, cli, _common)
     │   ├── vault_common.py          # Re-export facade over core/ (ARC-004/ARC-005)
     │   ├── vault_config.py          # Thin shim → core/vault_config.py
     │   ├── vault_path.py            # Thin shim → core/vault_path.py
@@ -1565,6 +1637,7 @@ parsidion/
     │   ├── vault_merge.py           # CLI to merge two vault notes (vault-merge); implementation split into cli/merge/
     │   ├── vault_conflicts.py       # CLI to detect contradictory notes (vault-conflicts)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
+    │   ├── vault_supersede.py       # CLI to retire/restore notes via the supersession contract (vault-supersede)
     │   ├── ai_backend.py            # Thin shim → core/ai_backend.py (claude-cli, codex-cli, grok-cli)
     │   ├── parsight_backend.py      # Thin shim → core/parsight_backend.py (availability probe + subprocess transport)
     │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/antigravity/pi/omp + opt-in external drop-ins (ARC-020, ENH-006)
@@ -1583,6 +1656,8 @@ parsidion/
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)
     │   ├── pre_compact_hook.py      # PreCompact hook
     │   ├── post_compact_hook.py     # PostCompact hook (restores Pre-Compact Snapshot as additionalContext)
+    │   ├── user_prompt_submit_hook.py # UserPromptSubmit hook (per-prompt parsight vault recall + rule notes)
+    │   ├── pre_tool_use_hook.py     # PreToolUse hook (file-scoped vault recall on Read/Edit + rule notes)
     │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723; semantic dedup via vault_search)
     │   ├── update_index.py          # Index generator + note_index DB upsert; implementation split into cli/index/
     │   ├── vault_doctor.py          # Thin re-export shim over doctor/ (ARC-008); issue scanner and repair tool
@@ -1604,7 +1679,9 @@ parsidion/
         ├── debugging.md
         ├── tool.md
         ├── knowledge.md
-        └── research.md
+        ├── research.md
+        ├── rule.md
+        └── fork.md
 ```
 
 ### Installed Locations
@@ -1651,6 +1728,10 @@ parsidion/
 │   └── MANIFEST.md
 ├── Knowledge/
 │   └── MANIFEST.md
+├── Rules/
+│   └── MANIFEST.md
+├── Forks/
+│   └── MANIFEST.md
 ├── History/
 │   └── MANIFEST.md
 └── Templates/ -> ~/.claude/skills/parsidion/templates/
@@ -1669,6 +1750,8 @@ stateDiagram-v2
     Loaded --> Referenced: Used in session
     Referenced --> Updated: New info added
     Updated --> Indexed: Reindex
+    Updated --> Superseded: Retired (vault-supersede)
+    Superseded --> Indexed: --revert restores retrieval
 
     note right of Created
         Must have:

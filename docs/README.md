@@ -19,9 +19,9 @@ below with its intended audience and purpose.
 | File | Description |
 |------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, component overview, hook lifecycle, full configuration reference, file layout, and data flow. Start here for the component catalogue (every script, hook, and agent), the `config.yaml` per-key reference, and the Obsidian graph color-group table. |
-| [USAGE.md](USAGE.md) | Complete vault CLI reference: every `vault-search` / `vault-new` / `vault-stats` / `vault-review` / `vault-doctor` / `vault-merge` / `vault-conflicts` / `vault-export` flag, the runtime environment-variable table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands. |
+| [USAGE.md](USAGE.md) | Complete vault CLI reference: every `vault-search` / `vault-new` / `vault-stats` / `vault-review` / `vault-doctor` / `vault-merge` / `vault-conflicts` / `vault-export` / `vault-supersede` flag, the runtime environment-variable table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands. |
 | [MULTI_VAULT.md](MULTI_VAULT.md) | Multi-vault setup (`vaults.yaml`), the `--vault` flag, vault-aware tools and hooks, and the five-step default vault resolution order. |
-| [PI_EXTENSION.md](PI_EXTENSION.md) | pi runtime integration: install the TypeScript extension (`scripts/install-pi-extension`), effective Anthropic/GLM (`anthropic_env`) precedence, and the three-step pi SessionEnd/SubagentStop/summarizer smoke tests. |
+| [PI_EXTENSION.md](PI_EXTENSION.md) | pi and omp runtime integration: install the TypeScript extension (`scripts/install-pi-extension`), effective Anthropic/GLM (`anthropic_env`) precedence, and the three-step pi SessionEnd/SubagentStop/summarizer smoke tests. |
 | [AGENT-ADAPTERS.md](AGENT-ADAPTERS.md) | The runtime-adapter contract: one `AgentAdapter` per coding-agent runtime drives the hook shims, the installer, and `connect`/`disconnect` — and how to add a runtime (a hooks-only `AgentAdapter` descriptor) or a third-party drop-in adapter. |
 | [EMBEDDINGS.md](EMBEDDINGS.md) | Semantic search setup: building the embedding index, searching the vault, configuration reference, and integration with hooks and agents. |
 | [EMBEDDINGS_EVAL.md](EMBEDDINGS_EVAL.md) | Evaluation harness for benchmarking embedding model and chunking strategy combinations against AI-backend-generated ground-truth queries. |
@@ -39,7 +39,7 @@ below with its intended audience and purpose.
 | Slideshows (`*.html`) | Self-contained walkthroughs published to GitHub Pages: [vault architecture](vault-architecture-slideshow.html), [vault explorer](vault-explorer-slideshow.html), [research agent](research-agent-slideshow.html), [project explorer](project-explorer-slideshow.html), [vault deduplicator](vault-deduplicator-slideshow.html). |
 | [archive/CHANGELOG-0.11-and-older.md](archive/CHANGELOG-0.11-and-older.md) | Archived changelog entries for Parsidion 0.1.0 through 0.11.x (covers the pre-0.7.0 `parsidion-cc` era and the 0.6.0 rebrand). The current changelog (0.12.x onward) lives at the repo root: [../CHANGELOG.md](../CHANGELOG.md). |
 
-> **Note:** `ideas.md` is gitignored locally (it is a personal scratchpad of visualizer enhancement ideas) and is intentionally not published to GitHub Pages or linked from this index.
+> **Note:** `ideas.md` is gitignored (it is a personal scratchpad of visualizer enhancement ideas) and is intentionally not published to GitHub Pages or linked from this index.
 
 ## Where to Start
 
