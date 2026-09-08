@@ -351,7 +351,8 @@ class SessionStartHookConfig:
     ai_timeout: int | float = field(
         default=25,
         metadata={
-            "doc": "AI call timeout in seconds",
+            "doc": "AI call timeout in seconds (clamped to at most 75% of the "
+            "registered SessionStart hook timeout)",
             "read_by": "session_start_hook.py",
         },
     )

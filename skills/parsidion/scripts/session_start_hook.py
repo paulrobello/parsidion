@@ -40,6 +40,7 @@ from core.vault_adaptive import (
     save_last_seen,
 )
 from core.vault_config import load_typed_config, validate_config
+from core.vault_constants import HOOK_TIMEOUTS_MS
 from core.vault_fs import ensure_vault_dirs, today_daily_path
 from core.vault_hooks import (
     env_without_claudecode,
@@ -277,6 +278,24 @@ def _run_semantic_search(
         return []
 
 
+# SessionStart runs under the runtime's hard hook timeout (HOOK_TIMEOUTS_MS,
+# mirroring the installer registration). With config.local.yaml setting
+# ai_timeout equal to the full 60s budget, 57 hooks were runtime-cancelled in
+# 30 days (card 01a07e9fd1d07f51900841b0a652d014) — the session lost all vault
+# context. The selector is therefore capped to a share of the registered
+# budget so the hook can always return instead of being killed mid-selection.
+_AI_BUDGET_SHARE = 0.75
+_AI_BUDGET_CLAMPED: bool = False
+
+
+def _effective_ai_timeout(configured_s: float, hook: str = "SessionStart") -> float:
+    """Clamp the configured AI selector budget under the registered hook timeout."""
+    registered_ms = HOOK_TIMEOUTS_MS.get(hook)
+    if registered_ms is None:
+        return configured_s
+    return min(configured_s, registered_ms * _AI_BUDGET_SHARE / 1000.0)
+
+
 def _select_context_with_ai(
     project_name: str,
     cwd: str,
@@ -350,11 +369,16 @@ def _select_context_with_ai(
             candidates_text=candidates_text,
         )
 
+        global _AI_BUDGET_CLAMPED
+        configured_s = load_typed_config(vault=vault_path).session_start_hook.ai_timeout
+        effective_s = _effective_ai_timeout(configured_s)
+        if effective_s < configured_s:
+            _AI_BUDGET_CLAMPED = True
         output = ai_backend.run_ai_prompt(
             prompt,
             model=model,
             model_tier="small",
-            timeout=load_typed_config(vault=vault_path).session_start_hook.ai_timeout,
+            timeout=effective_s,
             cwd=cwd,
             purpose="session-start-selection",
             vault=vault_path,
@@ -753,6 +777,8 @@ def main() -> None:
         stages = stage_timings_ms()
         if stages:
             event_extra["stages_ms"] = stages
+        if _AI_BUDGET_CLAMPED:
+            event_extra["ai_budget_clamped"] = True
         write_hook_event(
             hook="SessionStart",
             project=project_name,

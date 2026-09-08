@@ -280,6 +280,58 @@ class TestAiSelectionSafety:
         assert calls[0]["vault"] == tmp_path
         assert (tmp_path / session_start_hook._AI_STAMP_FILENAME).exists()
 
+    def test_effective_ai_timeout_clamps_above_registered_budget(self) -> None:
+        hook_budget_s = session_start_hook.HOOK_TIMEOUTS_MS["SessionStart"] / 1000
+        ceiling = hook_budget_s * session_start_hook._AI_BUDGET_SHARE
+        assert session_start_hook._effective_ai_timeout(600) == ceiling
+        assert session_start_hook._effective_ai_timeout(60) == ceiling
+        # Below the ceiling the configured budget stands.
+        assert session_start_hook._effective_ai_timeout(25) == 25
+        # No registered budget is known for the hook: config value stands.
+        assert session_start_hook._effective_ai_timeout(30, hook="SessionEnd") == 30
+
+    def test_ai_timeout_clamped_under_registered_hook_budget(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        _patch_hook_cfg(monkeypatch, ai_single_flight=False, ai_timeout=600)
+        note = tmp_path / "Patterns" / "glm-slow.md"
+        note.parent.mkdir(parents=True)
+        note.write_text(
+            "---\ntags: [glm]\n---\n# GLM Slow\nSelection prompt content.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(session_start_hook, "_AI_BUDGET_CLAMPED", False)
+        calls: list[dict[str, object]] = []
+
+        def fake_run_ai_prompt(prompt: str, **kwargs: object) -> str:
+            calls.append({"prompt": prompt, **kwargs})
+            return "### GLM Slow\nSelection prompt content."
+
+        monkeypatch.setattr(
+            session_start_hook.ai_backend, "run_ai_prompt", fake_run_ai_prompt
+        )
+
+        context = session_start_hook._select_context_with_ai(
+            "parsidion",
+            str(tmp_path),
+            [note],
+            None,
+            4000,
+            vault_path=tmp_path,
+        )
+
+        ceiling_s = (
+            session_start_hook.HOOK_TIMEOUTS_MS["SessionStart"]
+            * session_start_hook._AI_BUDGET_SHARE
+            / 1000
+        )
+        assert context
+        assert calls
+        assert calls[0]["timeout"] == ceiling_s
+        assert session_start_hook._AI_BUDGET_CLAMPED is True
+
     def test_main_no_arg_ai_uses_codex_backend_default_model(
         self,
         monkeypatch: pytest.MonkeyPatch,
