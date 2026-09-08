@@ -301,6 +301,6 @@ TAG_RULES: str = (
 )
 
 #: Comma-separated, sorted list of valid note types — the form prompts inject
-#: as ``{note_types}``. Pre-computed so prompt rendering does not have to import
+#: as ``{valid_types}``. Pre-computed so prompt rendering does not have to import
 #: the frozenset at render time (the loader stays free of domain knowledge).
 NOTE_TYPES_DISPLAY: str = ", ".join(sorted(VALID_NOTE_TYPES))

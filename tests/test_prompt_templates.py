@@ -398,7 +398,7 @@ def test_all_consumers_share_one_note_type_set() -> None:
 
 
 def test_note_types_display_used_by_prompt_is_complete() -> None:
-    """The {note_types} string prompts interpolate covers every valid type."""
+    """The {valid_types} string prompts interpolate covers every valid type."""
     display = note_schema.NOTE_TYPES_DISPLAY
     for t in note_schema.VALID_NOTE_TYPES:
         assert t in display
