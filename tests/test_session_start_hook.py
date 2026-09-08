@@ -281,6 +281,8 @@ class TestAiSelectionSafety:
         assert (tmp_path / session_start_hook._AI_STAMP_FILENAME).exists()
 
     def test_effective_ai_timeout_clamps_above_registered_budget(self) -> None:
+        # The share is an operator latency decision, not a tunable: pin it.
+        assert session_start_hook._AI_BUDGET_SHARE == 0.50
         hook_budget_s = session_start_hook.HOOK_TIMEOUTS_MS["SessionStart"] / 1000
         ceiling = hook_budget_s * session_start_hook._AI_BUDGET_SHARE
         assert session_start_hook._effective_ai_timeout(600) == ceiling

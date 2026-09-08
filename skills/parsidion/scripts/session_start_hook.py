@@ -284,7 +284,10 @@ def _run_semantic_search(
 # 30 days (card 01a07e9fd1d07f51900841b0a652d014) — the session lost all vault
 # context. The selector is therefore capped to a share of the registered
 # budget so the hook can always return instead of being killed mid-selection.
-_AI_BUDGET_SHARE = 0.75
+# 0.50 is an operator latency decision (2026-09-07, card
+# 01a07ee6858b776398ab4d6d1f400b72): 0.75 left the selector spending 89% of the
+# registered budget on almost every session start.
+_AI_BUDGET_SHARE = 0.50
 _AI_BUDGET_CLAMPED: bool = False
 
 

@@ -1133,7 +1133,7 @@ session_start_hook:
   ai_single_flight: true  # Allow only one nested AI SessionStart selector per vault at a time
   ai_candidates_max: 48  # Cap on the AI selector's ranked candidate pool (0 = unlimited, unset = seed_selection's default of 48)
   max_chars: 4000  # Max context injection characters
-  ai_timeout: 25  # AI call timeout in seconds (clamped to at most 75% of the registered SessionStart hook timeout)
+  ai_timeout: 25  # AI call timeout in seconds (clamped to at most 50% of the registered SessionStart hook timeout)
   recent_days: 3  # Days to look back for recent notes
   debug: false  # Append injected context + metadata to a debug log in $TMPDIR
   verbose_mode: false  # Inject full note summaries instead of the compact one-line-per-note index
