@@ -723,7 +723,10 @@ def score_hook_latency(vault: Path) -> DimensionScore:
     aggregation, and scores ``100 * (1 - p95/timeout)`` clamped to [0, 100]
     — a hook at 10% of budget scores 90, at or over budget scores 0. No
     log / no SessionStart events is neutral (100, no action) so a fresh
-    vault is not penalized. Never raises.
+    vault is not penalized. The aggregate windows over the runs since the
+    hook's last timeout breach (see :func:`_hook_latency_aggregate`), so a
+    shipped fix is reflected as soon as post-fix runs land instead of being
+    read against pre-fix history. Never raises.
     """
     weight = DIMENSION_WEIGHTS["hook_latency"]
     try:
@@ -756,7 +759,7 @@ def score_hook_latency(vault: Path) -> DimensionScore:
         detail = (
             f"SessionStart p95 {int(agg['p95_ms']):,} ms of "
             f"{timeout_ms // 1000}s timeout ({int(round(ratio * 100))}% used), "
-            f"{agg['timeouts']} timeout(s)"
+            f"{agg['timeouts']} timeout(s), window: last {agg['count']} run(s)"
         )
         action = None
         if ratio > 0.70:
@@ -783,10 +786,42 @@ def score_hook_latency(vault: Path) -> DimensionScore:
 
 
 def _hook_latency_aggregate(events: list[dict]) -> dict[str, dict]:
-    """summarize_hook_latency over a raw event list (lazy import, no cycle)."""
+    """summarize_hook_latency over a breach-anchored window (lazy import).
+
+    For hooks with a registered timeout, only the runs after the hook's most
+    recent timeout breach are aggregated (still within the 7-day cap), so a
+    shipped latency fix is not scored against pre-fix runs for the rest of
+    the window. A breach that is the hook's final recorded run leaves no
+    post-breach tail, so that run is kept itself — a fresh timeout must read
+    as a failure, never as neutral.
+    """
     from cli.stats.operations import summarize_hook_latency
 
-    return summarize_hook_latency(events, window_days=7)
+    from .vault_constants import HOOK_TIMEOUTS_MS
+
+    last_breach: dict[str, int] = {}
+    final_index: dict[str, int] = {}
+    for i, event in enumerate(events):
+        hook = str(event.get("hook") or "")
+        if hook not in HOOK_TIMEOUTS_MS:
+            continue
+        duration = event.get("duration_ms")
+        final_index[hook] = i
+        if (
+            isinstance(duration, (int, float))
+            and float(duration) > HOOK_TIMEOUTS_MS[hook]
+        ):
+            last_breach[hook] = i
+
+    kept: list[dict] = []
+    for i, event in enumerate(events):
+        hook = str(event.get("hook") or "")
+        if hook not in HOOK_TIMEOUTS_MS or i > last_breach.get(hook, -1):
+            kept.append(event)
+        elif i == last_breach.get(hook) == final_index.get(hook):
+            kept.append(event)
+
+    return summarize_hook_latency(kept, window_days=7)
 
 
 def compute_health_report(

@@ -424,3 +424,104 @@ class TestPerfectlyHealthyVault:
         # A healthy vault emits no action strings (the plan's invariant).
         actions = [d.action for d in report.dimensions if d.action is not None]
         assert actions == [], f"unexpected actions on a perfect vault: {actions}"
+
+
+class TestHookLatencyBreachWindow:
+    """score_hook_latency windows over the runs since the hook's last breach.
+
+    A latency fix landing mid-window used to be read as a live failure until
+    the 7-day window rotated past it (hook_latency stuck at 0/100 after the
+    SessionStart budget clamp shipped). The window now anchors at the most
+    recent registered-timeout breach, so post-fix runs score on their own.
+    """
+
+    TIMEOUT_MS = 60_000
+
+    @staticmethod
+    def _event(hook: str, duration_ms: float, i: int) -> dict:
+        return {
+            "hook": hook,
+            "duration_ms": duration_ms,
+            "ts": f"2026-09-07T10:{i // 60:02d}:{i % 60:02d}",
+        }
+
+    def _agg(self, events: list[dict]) -> dict:
+        from core import vault_health as core_vault_health
+
+        return core_vault_health._hook_latency_aggregate(events)
+
+    def test_window_excludes_pre_breach_runs(self) -> None:
+        # 61 pre-fix breaches (70s each) followed by 5 post-fix runs at ~47s:
+        # the window is the post-fix tail, so p95 must not read 70s.
+        events = [self._event("SessionStart", 70_000, i) for i in range(61)]
+        events += [
+            self._event("SessionStart", d, 61 + i)
+            for i, d in enumerate((40_000, 42_000, 44_000, 45_000, 46_713))
+        ]
+        agg = self._agg(events)["SessionStart"]
+        assert agg["count"] == 5
+        assert agg["timeouts"] == 0
+        assert agg["p95_ms"] <= 46_713
+        assert agg["p95_ms"] >= 40_000
+
+    def test_breach_as_final_run_scores_zero(self) -> None:
+        # A timeout with no post-breach tail must read as a failure, not
+        # as "no SessionStart events yet" (neutral 100).
+        events = [self._event("SessionStart", 1_000, i) for i in range(9)]
+        events.append(self._event("SessionStart", 61_000, 9))
+        agg = self._agg(events)["SessionStart"]
+        assert agg["count"] == 1
+        assert agg["timeouts"] == 1
+        assert agg["p95_ms"] == 61_000
+
+    def test_no_breach_keeps_all_runs(self) -> None:
+        # Without a breach the pre-existing 7-day behaviour is unchanged.
+        events = [self._event("SessionStart", 1_000, i) for i in range(10)]
+        agg = self._agg(events)["SessionStart"]
+        assert agg["count"] == 10
+        assert agg["timeouts"] == 0
+        assert agg["p95_ms"] == 1_000
+
+    def test_unregistered_hooks_keep_full_window(self) -> None:
+        # Hooks without a registered timeout have no breach concept; their
+        # events are neither anchors nor dropped.
+        events = [self._event("PreToolUse", 100_000, i) for i in range(3)]
+        events += [self._event("SessionStart", 70_000, 3)]
+        events += [self._event("SessionStart", 1_000, 4 + i) for i in range(5)]
+        agg = self._agg(events)
+        assert agg["PreToolUse"]["count"] == 3
+        assert agg["PreToolUse"]["p95_ms"] == 100_000
+        assert agg["SessionStart"]["count"] == 5
+
+    def test_score_uses_breach_window(self, tmp_path: Path) -> None:
+        # Integration: score_hook_latency over a log with pre-fix breaches
+        # scores the post-fix tail (score > 0, p95 under the timeout).
+        log = tmp_path / "hook_events.log"
+        lines = [json.dumps(self._event("SessionStart", 70_000, i)) for i in range(61)]
+        lines += [
+            json.dumps(self._event("SessionStart", d, 61 + i))
+            for i, d in enumerate((40_000, 42_000, 44_000, 45_000, 46_713))
+        ]
+        log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        from core import vault_health as core_vault_health
+
+        dim = core_vault_health.score_hook_latency(tmp_path)
+        assert dim.score > 0
+        assert dim.score <= 100
+        assert "window: last 5 run(s)" in dim.detail
+        assert dim.action is not None  # p95 46,713 ms is 78% of budget → warn
+
+    def test_score_breach_as_final_run_is_zero(self, tmp_path: Path) -> None:
+        # End-to-end for the rescue branch: a timeout as the hook's last run
+        # must score 0 with the timeout visible, never neutral 100.
+        log = tmp_path / "hook_events.log"
+        lines = [json.dumps(self._event("SessionStart", 1_000, i)) for i in range(9)]
+        lines.append(json.dumps(self._event("SessionStart", 61_000, 9)))
+        log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        from core import vault_health as core_vault_health
+
+        dim = core_vault_health.score_hook_latency(tmp_path)
+        assert dim.score == 0
+        assert "1 timeout(s)" in dim.detail
