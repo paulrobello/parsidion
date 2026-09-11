@@ -393,7 +393,20 @@ def _build_scan_context(
     # in _apply_subfolder_migration is separate and deliberately kept.)
     all_notes = list(vault_common.all_vault_notes_walk(vault))
     if notes:
-        target_notes = [Path(n).resolve() for n in notes]
+        vault_resolved = vault.resolve()
+        target_notes = []
+        for n in notes:
+            p = Path(n)
+            if not p.is_absolute():
+                p = vault_resolved / p
+            p = p.resolve()
+            if not p.is_file() or not p.is_relative_to(vault_resolved):
+                print(
+                    f"error: note path {n} does not resolve to a file under {vault_resolved}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            target_notes.append(p)
         explicit = True
     else:
         target_notes = list(all_notes)

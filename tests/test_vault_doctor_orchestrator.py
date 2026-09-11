@@ -772,3 +772,73 @@ class TestDeterministicFrontmatterPrePass:
         assert calls == []
         rel = str(bad.relative_to(tmp_vault))
         assert state["notes"][rel]["status"] == "fixed"
+
+
+class TestExplicitNotePathResolution:
+    """QA-1: explicit `notes` positionals must anchor to the vault.
+
+    ``_build_scan_context`` used to ``Path(n).resolve()`` each positional
+    against the process CWD, so a vault-relative path run from outside the
+    vault crashed later in ``_rel()`` with a raw ``ValueError``.
+    """
+
+    def _options(self) -> vault_doctor.DoctorOptions:
+        return vault_doctor.DoctorOptions(
+            dry_run=True,
+            errors_only=False,
+            fix_frontmatter=False,
+            fix_headings=False,
+            fix_sessions=False,
+            jobs=1,
+            limit=0,
+            model=None,
+            no_state=True,
+            timeout=10,
+        )
+
+    def test_vault_relative_positional_resolved_against_vault(
+        self,
+        tmp_vault: Path,
+        patch_vault: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        _write_note(tmp_vault, "Daily/2026-09/09-probello.md")
+        # Run from a directory that is NOT the vault, as the doctor CLI does
+        # when invoked from a repo checkout.
+        monkeypatch.chdir(tmp_vault.parent)
+
+        state = {"last_run": None, "notes": {}}
+        vault_doctor.run_scan_and_repair(
+            tmp_vault,
+            state,
+            notes=[Path("Daily/2026-09/09-probello.md")],
+            options=self._options(),
+        )
+
+        # The vault-relative positional was scanned (and recorded), not a
+        # CWD-relative phantom path.
+        assert "Daily/2026-09/09-probello.md" in state["notes"]
+
+    def test_out_of_vault_positional_exits_clean(
+        self,
+        tmp_vault: Path,
+        patch_vault: None,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        monkeypatch.chdir(tmp_vault.parent)
+
+        state = {"last_run": None, "notes": {}}
+        with pytest.raises(SystemExit) as excinfo:
+            vault_doctor.run_scan_and_repair(
+                tmp_vault,
+                state,
+                notes=[Path("Patterns/does-not-exist.md")],
+                options=self._options(),
+            )
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert "does-not-exist.md" in captured.err
+        assert "Traceback" not in captured.err
