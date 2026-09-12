@@ -28,6 +28,8 @@ from core.vault_config import get_config, load_typed_config
 from prompt_templates import render
 
 from summarizer._state_const import (
+    _ADAPTIVE_TAIL_WINDOW_GROWTH,
+    _ADAPTIVE_TAIL_WINDOW_MAX_BYTES,
     _DEFAULT_MAX_CLEANED_CHARS,
     _DEFAULT_TRANSCRIPT_TAIL_BYTES,
     _DEFAULT_TRANSCRIPT_TAIL_LINES,
@@ -159,49 +161,68 @@ def preprocess_transcript(
     # "No result" dead-letter class.
     from core.transcript_reader import read_tail
 
-    try:
-        tail_result = read_tail(
-            transcript_path,
-            tail_lines=tail_lines,
-            max_bytes=tail_bytes or 0,
-            max_line_bytes=int(
-                load_typed_config(vault=vault).transcripts.max_line_bytes
-            ),
+    max_line_bytes = int(load_typed_config(vault=vault).transcripts.max_line_bytes)
+    window = tail_bytes or 0
+    pairs: list[str] = []
+    while True:
+        try:
+            tail_result = read_tail(
+                transcript_path,
+                tail_lines=tail_lines,
+                max_bytes=window,
+                max_line_bytes=max_line_bytes,
+            )
+        except OSError:
+            return ""
+        if tail_result.oversized_lines:
+            print(
+                f"[summarizer] {transcript_path.name}: "
+                f"{tail_result.oversized_lines} oversized line(s) field-truncated "
+                f"(window {tail_result.bytes_read} bytes)",
+                file=sys.stderr,
+            )
+        pairs = []
+
+        for raw_line in tail_result.lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            role, content = _extract_role_and_content(entry)
+
+            if role not in {"user", "assistant"} or not content:
+                continue
+
+            text = _extract_text(role, content)
+
+            if not text:
+                continue
+
+            label = "Human" if role == "user" else "Assistant"
+            pairs.append(f"{label}: {text}")
+
+        # Adaptive tail window: a byte-bounded window can land entirely inside
+        # a telemetry-dense stretch (codex event_msg/token_count, claude
+        # attachment records) and yield zero dialogue pairs even though
+        # dialogue exists earlier in the file — a deterministic false
+        # "could not read transcript". Grow the window geometrically up to a
+        # hard cap before reporting the tail as dialogue-free. Oversized
+        # single lines stay field-truncated at every window size.
+        if pairs or window == 0 or window >= _ADAPTIVE_TAIL_WINDOW_MAX_BYTES:
+            break
+        window = min(
+            window * _ADAPTIVE_TAIL_WINDOW_GROWTH,
+            _ADAPTIVE_TAIL_WINDOW_MAX_BYTES,
         )
-    except OSError:
-        return ""
-    if tail_result.oversized_lines:
         print(
-            f"[summarizer] {transcript_path.name}: "
-            f"{tail_result.oversized_lines} oversized line(s) field-truncated "
-            f"(window {tail_result.bytes_read} bytes)",
+            f"[summarizer] {transcript_path.name}: no dialogue in tail "
+            f"window; retrying with {window}-byte window",
             file=sys.stderr,
         )
-    tail = tail_result.lines
-
-    pairs: list[str] = []
-
-    for raw_line in tail:
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-
-        role, content = _extract_role_and_content(entry)
-
-        if role not in {"user", "assistant"} or not content:
-            continue
-
-        text = _extract_text(role, content)
-
-        if not text:
-            continue
-
-        label = "Human" if role == "user" else "Assistant"
-        pairs.append(f"{label}: {text}")
 
     cleaned = "\n\n".join(pairs)
     if max_chars is None:

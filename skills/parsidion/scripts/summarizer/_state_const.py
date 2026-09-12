@@ -138,6 +138,15 @@ _DEFAULT_TRANSCRIPT_TAIL_LINES = 400
 # huge (e.g. codex subagent rollouts) so cleaning/chunking cannot explode.
 _DEFAULT_TRANSCRIPT_TAIL_BYTES = 262_144
 _DEFAULT_MAX_CLEANED_CHARS = 12_000
+# Adaptive tail-window fallback: a byte-bounded window can land entirely
+# inside a telemetry-dense stretch (codex event_msg/token_count, claude
+# attachment/worktree-state records) and yield zero dialogue pairs even
+# though dialogue exists earlier in the file. When the first read comes up
+# dialogue-free, the window grows geometrically up to this hard cap before
+# the transcript is reported as dialogue-free. Oversized single lines stay
+# field-truncated by max_line_bytes at every window size.
+_ADAPTIVE_TAIL_WINDOW_GROWTH = 4
+_ADAPTIVE_TAIL_WINDOW_MAX_BYTES = 8 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # Note type → folder mapping (single source: note_schema, ENH-008 Step 2)
