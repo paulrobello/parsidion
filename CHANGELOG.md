@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-09-11
+
+### Fixed
+
+- **vault_doctor positional note paths** — explicit `notes` positionals are anchored to the vault root instead of the process CWD, so `vault_doctor.py Daily/<note>.md` works from any directory; a positional that does not resolve to a file under the vault exits 1 with a clean, name-naming error instead of a raw `ValueError` traceback.
+- **summarizer adaptive tail window** — a byte-bounded tail window (`summarizer.transcript_tail_bytes`, 256 KiB default) that lands entirely inside a telemetry-dense stretch (codex `event_msg`/`token_count`, claude `attachment` records) no longer false-dead-letters the session as `transcript_read`; the window regrows geometrically (4×, capped at 8 MiB) until dialogue is found, with oversized single lines still field-truncated.
+
 ## [0.24.0] - 2026-09-08
 
 ### Added
