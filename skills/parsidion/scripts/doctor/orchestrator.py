@@ -95,10 +95,17 @@ def _apply_prefix_clusters(
     vault = ctx.vault
     print("Reorganizing prefix clusters…\n")
     cluster_repaired = 0
+    moved_any = False
     for cluster_folder, prefix, cluster_notes, base_note in clusters:
+        if moved_any:
+            # Earlier clusters relocate notes, so the pre-run snapshot holds
+            # stale paths: links FROM already-moved notes TO notes this cluster
+            # moves would be patched at paths that no longer exist.
+            ctx.all_notes = list(vault_common.all_vault_notes_walk(vault))
         moves = fix_prefix_cluster(
             cluster_folder, prefix, cluster_notes, ctx.all_notes, base_note
         )
+        moved_any = moved_any or bool(moves)
         for old_path, new_path in moves:
             old_rel = old_path.relative_to(vault)
             new_rel = new_path.relative_to(vault)
@@ -476,9 +483,15 @@ def _detect_and_apply_prefix_clusters(ctx: ScanContext) -> None:
         return
     clusters = find_prefix_clusters(ctx.all_notes, ctx.vault)
     if clusters and not ctx.options.dry_run:
-        # Filter out generic-word false positives using the configured prompt AI backend
+        # Filter out generic-word false positives using the configured prompt AI
+        # backend.  on_failure="skip" is required on this unattended --fix-all
+        # path: without a vetting backend, unvetted first-word clusters must be
+        # dropped, not moved (see _filter_clusters_with_claude).
         clusters = _filter_clusters_with_claude(
-            clusters, model=ctx.options.model, timeout=ctx.options.timeout
+            clusters,
+            model=ctx.options.model,
+            timeout=ctx.options.timeout,
+            on_failure="skip",
         )
     if clusters:
         _display_cluster_plan(clusters, ctx.vault)

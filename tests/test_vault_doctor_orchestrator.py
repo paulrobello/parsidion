@@ -842,3 +842,127 @@ class TestExplicitNotePathResolution:
         captured = capsys.readouterr()
         assert "does-not-exist.md" in captured.err
         assert "Traceback" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# In-scan prefix-cluster stage — unvetted-cluster + cross-cluster link guards
+# ---------------------------------------------------------------------------
+
+
+def _cluster_note(vault: Path, rel: str, related_target: str) -> Path:
+    """A valid note whose ``related`` field cites one explicit target stem."""
+    return _write_note(
+        vault,
+        rel,
+        "---\n"
+        "date: 2026-09-19\n"
+        "type: pattern\n"
+        "tags: [test]\n"
+        "confidence: high\n"
+        f'related: ["{related_target}"]\n'
+        "---\n"
+        "# Heading\n"
+        "body\n",
+    )
+
+
+@pytest.mark.timeout(60)
+class TestInScanPrefixClusterGuards:
+    """2026-09-19 incident regressions in the in-scan prefix-cluster stage.
+
+    1. The stage called ``_filter_clusters_with_claude`` without
+       ``on_failure="skip"``, so an unavailable AI backend moved 107 unvetted
+       first-word clusters (410 notes) into junk subfolders under ``--fix-all``.
+       Unattended runs must skip unvetted clusters, exactly like
+       ``run_migrate_subfolders`` already did.
+    2. The stage patched links from a stale pre-move note walk, so links FROM
+       notes an earlier cluster moved TO notes a later cluster moved were
+       never rewritten (92 broken wikilinks, papered over by AI repairs).
+    """
+
+    @staticmethod
+    def _options() -> vault_doctor.DoctorOptions:
+        return vault_doctor.DoctorOptions(
+            dry_run=False,
+            errors_only=False,
+            fix_frontmatter=True,
+            fix_headings=True,
+            fix_sessions=False,
+            jobs=1,
+            limit=0,
+            model=None,
+            no_state=True,
+            timeout=10,
+        )
+
+    def test_ai_unavailable_moves_nothing(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        notes = [
+            _cluster_note(tmp_vault, f"Debugging/zephyr-{s}.md", "[[other-note]]")
+            for s in ("aa", "bb", "cc")
+        ]
+        monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
+
+        vault_doctor.run_scan_and_repair(
+            tmp_vault,
+            {"last_run": None, "notes": {}},
+            notes=[],
+            options=self._options(),
+        )
+
+        for note in notes:
+            assert note.exists(), "unvetted clusters must not move without AI vetting"
+        assert not (tmp_vault / "Debugging" / "zephyr").exists()
+        assert "AI backend unavailable" in capsys.readouterr().err
+
+    def test_cross_cluster_links_rewritten(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import doctor.orchestrator as orch
+
+        _write_note(tmp_vault, "Patterns/other-note.md")
+        # quartz sorts before zephyr, so the quartz cluster moves first; its
+        # dd note links to zephyr-aa, which the LATER zephyr cluster moves.
+        _cluster_note(tmp_vault, "Debugging/quartz-dd.md", "[[zephyr-aa]]")
+        for s in ("ee", "ff"):
+            _cluster_note(tmp_vault, f"Debugging/quartz-{s}.md", "[[other-note]]")
+        _cluster_note(tmp_vault, "Debugging/zephyr-aa.md", "[[other-note]]")
+        for s in ("bb", "cc"):
+            _cluster_note(tmp_vault, f"Debugging/zephyr-{s}.md", "[[other-note]]")
+
+        # Keep every cluster (bypass AI vetting) so both clusters move, and
+        # patch the orchestrator's direct binding of the filter.
+        monkeypatch.setattr(
+            orch, "_filter_clusters_with_claude", lambda clusters, **kw: clusters
+        )
+        monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
+
+        vault_doctor.run_scan_and_repair(
+            tmp_vault,
+            {"last_run": None, "notes": {}},
+            notes=[],
+            options=self._options(),
+        )
+
+        moved_linker = tmp_vault / "Debugging" / "quartz" / "dd.md"
+        assert moved_linker.exists()
+        content = moved_linker.read_text(encoding="utf-8")
+        assert "[[aa]]" in content
+        assert "[[zephyr-aa]]" not in content
+        # The link must resolve against the post-move layout.
+        assert (tmp_vault / "Debugging" / "zephyr" / "aa.md").exists()
