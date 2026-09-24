@@ -842,7 +842,12 @@ def compute_health_report(
         degrade to low scores with detail strings (and metadata-scan failure
         is wrapped so a broken ``check_note`` cannot abort the whole report).
     """
-    resolved = resolve_vault(explicit=vault if isinstance(vault, str) else None)
+    if isinstance(vault, Path):
+        resolved = vault
+    elif isinstance(vault, str):
+        resolved = resolve_vault(explicit=vault)
+    else:
+        resolved = resolve_vault()
     # Pre-compute the metadata scan once so the dimension reuses it without
     # walking the vault twice. Skipped under --fast so the report renders in
     # well under a second on a 5k-note vault.

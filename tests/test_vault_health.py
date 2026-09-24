@@ -14,7 +14,7 @@ import sqlite3
 import sys
 import time
 from collections.abc import Generator
-from datetime import datetime, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -439,10 +439,11 @@ class TestHookLatencyBreachWindow:
 
     @staticmethod
     def _event(hook: str, duration_ms: float, i: int) -> dict:
+        now = datetime.now() - timedelta(hours=1)
         return {
             "hook": hook,
             "duration_ms": duration_ms,
-            "ts": f"2026-09-07T10:{i // 60:02d}:{i % 60:02d}",
+            "ts": (now + timedelta(seconds=i)).isoformat(),
         }
 
     def _agg(self, events: list[dict]) -> dict:
