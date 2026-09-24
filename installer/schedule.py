@@ -6,6 +6,7 @@ Stdlib-only — no third-party dependencies.
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -54,6 +55,16 @@ def _build_launchd_plist(
         str(Path.home() / ".claude" / "logs" / "parsidion-summarizer.log")
     )
     home_safe = _xml_escape(str(Path.home()))
+    path_entries = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    for candidate in [
+        str(Path.home() / ".local" / "bin"),
+        str(Path.home() / ".cargo" / "bin"),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+    ]:
+        if candidate not in path_entries and os.path.isdir(candidate):
+            path_entries.insert(0, candidate)
+    path_safe = _xml_escape(os.pathsep.join(path_entries))
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -84,6 +95,8 @@ def _build_launchd_plist(
     <dict>
         <key>HOME</key>
         <string>{home_safe}</string>
+        <key>PATH</key>
+        <string>{path_safe}</string>
     </dict>
     <key>RunAtLoad</key>
     <false/>

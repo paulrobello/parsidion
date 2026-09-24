@@ -49,3 +49,18 @@ class TestCronLineQuoting:
         # shlex.quote single-quotes the whole path, so the inner double
         # quotes and $ are inert under the cron shell.
         assert f"'{evil}'" in line
+
+
+class TestLaunchdPlist:
+    def test_launchd_plist_includes_doctor_and_rebuild_graph(
+        self, tmp_path: Path
+    ) -> None:
+        plist = schedule._build_launchd_plist(
+            "/usr/local/bin/uv",
+            tmp_path,
+            hour=3,
+            rebuild_graph=True,
+        )
+        assert "<string>--run-doctor</string>" in plist
+        assert "<string>--rebuild-graph</string>" in plist
+        assert "<key>PATH</key>" in plist
