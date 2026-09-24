@@ -768,3 +768,33 @@ def test_run_doctor_timeout_warns_and_continues(
     mod.main()  # must not raise
 
     assert "timed out after 600s" in capsys.readouterr().err
+
+
+def test_run_doctor_configured_timeout_overrides_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "pending_summaries.jsonl").write_text("", encoding="utf-8")
+    (vault / "config.yaml").write_text(
+        "summarizer:\n  doctor_timeout: 1200\n", encoding="utf-8"
+    )
+
+    captured_timeout: list[int] = []
+
+    def fake_run_with_pgkill(cmd, cwd, timeout):
+        captured_timeout.append(timeout)
+        return ("timeout", None)
+
+    monkeypatch.setattr(mod, "run_with_pgkill", fake_run_with_pgkill)
+    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["summarize_sessions.py", "--vault", str(vault), "--run-doctor"],
+    )
+
+    mod.main()
+    assert captured_timeout == [1200]
+    assert "timed out after 1200s" in capsys.readouterr().err

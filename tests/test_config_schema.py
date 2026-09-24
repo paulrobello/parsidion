@@ -138,6 +138,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "cluster_model": (str, type(None)),
         "dedup_threshold": (float, int),
         "dead_letter_retention_days": (int,),
+        "doctor_timeout": (int,),
         "rebuild_graph": (bool,),
         "graph_include_daily": (bool,),
         "graph_incremental": (bool,),

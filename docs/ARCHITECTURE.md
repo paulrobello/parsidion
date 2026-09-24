@@ -1272,6 +1272,7 @@ summarizer:
   cluster_model: null  # Small model for hierarchical chunk summarization (null = ai_models.<backend>.small)
   dedup_threshold: 0.8  # Cosine similarity above which a near-duplicate note is detected and skipped (1.0 disables)
   dead_letter_retention_days: 7  # Prune dead_letters.jsonl entries older than N days each run (<=0 disables)
+  doctor_timeout: 600  # Ceiling in seconds for --run-doctor sub-run (default 600 = 10m)
   rebuild_graph: false  # Rebuild visualizer graph.json after indexing (same as --rebuild-graph)
   graph_include_daily: false  # Include Daily notes in graph rebuild (same as --graph-include-daily)
   graph_incremental: true  # ENH-010: reuse the previous graph and recompute only changed notes; automatic full-rebuild fallback

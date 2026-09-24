@@ -268,7 +268,7 @@ Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_do
 | `user_prompt_submit_hook` | `enabled`, `top_k`, `max_chars`, `per_note_chars`, `min_term_matches`, `min_prompt_chars`, `probe_cache_seconds`, `recall_timeout_s`, `debug` | user_prompt_submit_hook.py |
 | `pre_tool_use_hook` | `enabled`, `top_k`, `max_chars`, `per_note_chars`, `min_term_matches`, `cache_seconds`, `parsight`, `recall_timeout_s`, `debug` | pre_tool_use_hook.py |
 | `pre_compact_hook` | `lines`, `transcript_tail_bytes` | pre_compact_hook.py |
-| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `rebuild_graph`, `graph_include_daily`, `graph_incremental`, `persist` (reserved) | summarize_sessions.py, summarizer/transcript.py |
+| `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `doctor_timeout`, `rebuild_graph`, `graph_include_daily`, `graph_incremental`, `persist` (reserved) | summarize_sessions.py, summarizer/transcript.py |
 | `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled`, `service_idle_exit` | build_embeddings.py, vault_search.py, vault_embed_serve.py |
 | `parsight` | `enabled`, `binary`, `timeout_s` | parsight_backend.py, vault_search.py |
 | `search` | `backend`, `use_note_index`, `max_index_age_seconds` | vault_search.py, vault_index.py, core/vault_index.py |

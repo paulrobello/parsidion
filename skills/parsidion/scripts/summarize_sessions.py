@@ -827,15 +827,23 @@ def main() -> None:
         # worker processes -- exactly the zombie class the SessionStart
         # semantic-search comment documents. run_with_pgkill captures output,
         # so it is relayed here to preserve the previous console behaviour.
+        _doctor_timeout = int(
+            vault_common.get_config(
+                "summarizer",
+                "doctor_timeout",
+                _DOCTOR_TIMEOUT_SECS,
+                vault=vault_path,
+            )
+        )
         _reason, _proc = run_with_pgkill(
             [sys.executable, str(_doctor), "--fix-all"],
             cwd=Path.cwd(),
-            timeout=_DOCTOR_TIMEOUT_SECS,
+            timeout=_doctor_timeout,
         )
         if _reason == "timeout":
             print(
                 f"Warning: vault_doctor --fix-all timed out after "
-                f"{_DOCTOR_TIMEOUT_SECS}s; continuing with summarization.",
+                f"{_doctor_timeout}s; continuing with summarization.",
                 file=sys.stderr,
             )
         elif _reason == "launch":

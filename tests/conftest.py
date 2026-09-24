@@ -153,6 +153,7 @@ def _protect_live_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(schedule, "_schedule_summarizer_launchd", safe_launchd)
     monkeypatch.setattr(schedule, "_schedule_summarizer_cron", safe_cron)
 
+
 @pytest.fixture()
 def fake_parsight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeParsight:
     """Install a fake `parsight` executable at the front of PATH."""

@@ -755,6 +755,13 @@ class SummarizerConfig:
             "read_by": "summarize_sessions.py",
         },
     )
+    doctor_timeout: int = field(
+        default=600,
+        metadata={
+            "doc": "Ceiling in seconds for --run-doctor sub-run (default 600 = 10m)",
+            "read_by": "summarize_sessions.py",
+        },
+    )
     rebuild_graph: bool = field(
         default=False,
         metadata={
