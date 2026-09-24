@@ -2124,6 +2124,9 @@ class TestInstallUninstallRoundTrip:
             "record_installed_vault",
         ):
             monkeypatch.setattr(installer_plan, name, lambda *a, **kw: None)
+        from installer import uninstall as installer_uninstall
+        monkeypatch.setattr(installer_uninstall, "unschedule_summarizer", lambda dry_run=False: None)
+        monkeypatch.setattr(installer_uninstall, "remove_vault_post_merge_hook", lambda *a, **kw: None)
 
         monkeypatch.setattr(
             sys,

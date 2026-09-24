@@ -127,6 +127,32 @@ def _no_ambient_xdg_config_home(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _protect_live_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never allow tests to touch the user's real launchd or cron scheduler."""
+    from installer import schedule, uninstall
+
+    orig_unschedule = schedule.unschedule_summarizer
+    orig_launchd = schedule._schedule_summarizer_launchd
+    orig_cron = schedule._schedule_summarizer_cron
+
+    def safe_unschedule(dry_run: bool = False) -> None:
+        if dry_run:
+            orig_unschedule(dry_run=True)
+
+    def safe_launchd(*args, **kwargs) -> None:
+        if kwargs.get("dry_run", False):
+            orig_launchd(*args, **kwargs)
+
+    def safe_cron(*args, **kwargs) -> None:
+        if kwargs.get("dry_run", False):
+            orig_cron(*args, **kwargs)
+
+    monkeypatch.setattr(schedule, "unschedule_summarizer", safe_unschedule)
+    monkeypatch.setattr(uninstall, "unschedule_summarizer", safe_unschedule)
+    monkeypatch.setattr(schedule, "_schedule_summarizer_launchd", safe_launchd)
+    monkeypatch.setattr(schedule, "_schedule_summarizer_cron", safe_cron)
+
 @pytest.fixture()
 def fake_parsight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeParsight:
     """Install a fake `parsight` executable at the front of PATH."""
