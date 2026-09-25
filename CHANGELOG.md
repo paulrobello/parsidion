@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Installer launchd environment** — the summarizer launchd plist now includes `PATH`, allowing launchd jobs to resolve `claude`, `uv`, `git`, and `parsight` in non-login environments.
-- **Vault health and doctor reliability** — health-report timestamp handling accepts `Path` inputs and the doctor prefix-cluster scan is guarded against malformed scan state.
+- **Vault health and doctor reliability** — `compute_health_report` honors `Path` vault arguments instead of falling back to default vault resolution, and test timestamps are dynamically window-anchored to prevent time-rot in hook-latency checks.
 
 ### Changed
 
