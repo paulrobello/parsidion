@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-09-24
+
+### Added
+
+- **Configurable summarizer doctor timeout** — `summarizer.doctor_timeout` is now configurable, defaulting to 600 seconds, so deployments can tune the post-summary doctor stage for their vault size and environment.
+
+### Fixed
+
+- **Installer launchd environment** — the summarizer launchd plist now includes `PATH`, allowing launchd jobs to resolve `claude`, `uv`, `git`, and `parsight` in non-login environments.
+- **Vault health and doctor reliability** — health-report timestamp handling accepts `Path` inputs and the doctor prefix-cluster scan is guarded against malformed scan state.
+
+### Changed
+
+- **Installer teardown safety** — tests now protect the live scheduler during pytest cleanup so uninstall fixtures do not touch the user's launchd plist.
+
 ## [0.24.1] - 2026-09-11
 
 ### Fixed
@@ -394,8 +409,9 @@ this changelog scannable:
 That archive covers `parsidion-cc` (the pre-0.7.0 project name), the 0.6.0 rebrand to
 `parsidion`, and every patch through 0.11.1.
 
-[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.23.3...HEAD
-[0.23.3]: https://github.com/paulrobello/parsidion/compare/v0.23.2...v0.23.3
+[Unreleased]: https://github.com/paulrobello/parsidion/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/paulrobello/parsidion/compare/v0.24.1...v0.25.0
+[0.24.1]: https://github.com/paulrobello/parsidion/compare/v0.24.0...v0.24.1
 [0.23.2]: https://github.com/paulrobello/parsidion/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/paulrobello/parsidion/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/paulrobello/parsidion/compare/v0.22.1...v0.23.0
