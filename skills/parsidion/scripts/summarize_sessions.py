@@ -817,10 +817,10 @@ def main() -> None:
         _doctor = Path(__file__).parent / "vault_doctor.py"
         print("Running vault_doctor --fix-all before summarizing…")
         # QA-005: bound the run so a hung vault_doctor cannot stall the
-        # summarizer indefinitely. vault_doctor --fix-all is bounded work
-        # (a few seconds on a small vault, ~1 min on a large one); 10
-        # minutes is a generous ceiling for the rare AI-driven repair.
-        #
+        # summarizer indefinitely. vault_doctor --fix-all is bounded work,
+        # but AI-driven repairs or large subfolder vetting passes can exceed
+        # 10 minutes on large vaults (observed 2026-09-24). Configurable via
+        # summarizer.doctor_timeout (default _DOCTOR_TIMEOUT_SECS = 600).
         # ARC-106: routed through run_with_pgkill like every other child in
         # this pipeline. The bare subprocess.run predated ARC-004 and killed
         # only the direct child on timeout, orphaning vault_doctor's own AI
