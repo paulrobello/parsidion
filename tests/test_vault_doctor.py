@@ -747,7 +747,18 @@ class TestGenericPrefixDenylist:
     """
 
     def test_is_generic_prefix_classifies_known_words(self) -> None:
-        for w in ("client", "code", "env", "id", "admin", "asset", "flaky"):
+        for w in (
+            "client",
+            "code",
+            "env",
+            "id",
+            "admin",
+            "asset",
+            "flaky",
+            "doc",
+            "per",
+            "security",
+        ):
             assert vault_doctor._is_generic_prefix(w) is True
         for w in ("redis", "serde", "extractor", "token", "obsidian"):
             assert vault_doctor._is_generic_prefix(w) is False
