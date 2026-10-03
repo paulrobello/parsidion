@@ -72,14 +72,24 @@ _LOG_NAME = "parsidion-parsight.log"
 # instead of forwarding every ``_SAFE_ENV_KEYS`` entry. ``PARSIGHT_MCP_URL``
 # overrides the daemon endpoint; PATH/HOME cover binary resolution and
 # config discovery. Add a key only after verifying the CLI reads it.
-_PARSIGHT_ENV_KEYS = ("PATH", "HOME", "PARSIGHT_MCP_URL")
+_PARSIGHT_ENV_KEYS = ("PATH", "HOME", "PARSIGHT_MCP_URL", "PARSIGHT_CLIENT_NAME")
+
+# DEV #1402 (parsight): the CLI sends this as clientInfo.name at initialize(),
+# and the session ledger derives its caller label from it — without it every
+# hook-fired query ledgers as `parsight-cli`, indistinguishable from real CLI
+# traffic (misattributed on the ARC-108 census; parsight card 01a1012b).
+_DEFAULT_CLIENT_NAME = "parsidion:prompt-hook"
 
 
 def _parsight_env() -> dict[str, str]:
     """Return the least-privilege env for a parsight CLI subprocess (SEC-206)."""
-    return {
+    env = {
         key: value for key, value in os.environ.items() if key in _PARSIGHT_ENV_KEYS
     }
+    env["PARSIGHT_CLIENT_NAME"] = (
+        (os.environ.get("PARSIGHT_CLIENT_NAME") or "").strip() or _DEFAULT_CLIENT_NAME
+    )
+    return env
 
 
 # Per-process availability cache: str(vault) -> absolute binary path when
