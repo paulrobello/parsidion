@@ -83,12 +83,10 @@ _DEFAULT_CLIENT_NAME = "parsidion:prompt-hook"
 
 def _parsight_env() -> dict[str, str]:
     """Return the least-privilege env for a parsight CLI subprocess (SEC-206)."""
-    env = {
-        key: value for key, value in os.environ.items() if key in _PARSIGHT_ENV_KEYS
-    }
+    env = {key: value for key, value in os.environ.items() if key in _PARSIGHT_ENV_KEYS}
     env["PARSIGHT_CLIENT_NAME"] = (
-        (os.environ.get("PARSIGHT_CLIENT_NAME") or "").strip() or _DEFAULT_CLIENT_NAME
-    )
+        os.environ.get("PARSIGHT_CLIENT_NAME") or ""
+    ).strip() or _DEFAULT_CLIENT_NAME
     return env
 
 
