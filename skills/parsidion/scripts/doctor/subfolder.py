@@ -228,8 +228,8 @@ def _filter_clusters_with_claude(
     (e.g. 'parvitar', 'redis', 'obsidian').  Generic verbs, adjectives, and modifiers
     (e.g. 'fixing', 'missing', 'multi', 'cross') are rejected.
 
-    ``on_failure`` controls the fallback when the AI backend is unavailable or
-    returns unparseable output:
+    ``on_failure`` controls the fallback when AI vetting fails (backend
+    unavailable, response timeout, or unparseable output):
 
     - ``"keep"`` (default): keep all clusters so interactive callers are never
       silently blocked (the scan path prints candidates for human review).
@@ -251,10 +251,22 @@ def _filter_clusters_with_claude(
     if not first_word:
         return clusters
 
-    def _fallback() -> list[tuple[Path, str, list[Path], Path | None]]:
+    def _fallback(
+        cause: str | None = None,
+    ) -> list[tuple[Path, str, list[Path], Path | None]]:
         if on_failure == "skip":
+            detail_map: dict[str | None, str] = {
+                ai_backend.CAUSE_TIMEOUT: (
+                    f"AI vetting timed out after {timeout}s (raise --timeout)"
+                ),
+                ai_backend.CAUSE_DISABLED: "AI backend disabled",
+                ai_backend.CAUSE_LAUNCH: "could not launch AI backend",
+                ai_backend.CAUSE_NONZERO: "AI backend exited non-zero",
+                ai_backend.CAUSE_EMPTY: "no output from AI backend",
+            }
+            detail = detail_map.get(cause, "unparseable AI vetting response")
             print(
-                f"  ⚠ AI backend unavailable — skipping {len(first_word)} "
+                f"  ⚠ {detail} — skipping {len(first_word)} "
                 "unvetted first-word cluster(s) (no notes moved).",
                 file=sys.stderr,
             )
@@ -290,7 +302,7 @@ def _filter_clusters_with_claude(
     )
 
     try:
-        output = ai_backend.run_ai_prompt(
+        output, cause = ai_backend.run_ai_prompt_with_cause(
             prompt,
             model=model,
             model_tier="small",
@@ -298,11 +310,11 @@ def _filter_clusters_with_claude(
             purpose="vault-doctor",
         )
         if not output:
-            return _fallback()
+            return _fallback(cause)
 
         m = re.search(r"\[.*?\]", output.strip(), re.DOTALL)
         if not m:
-            return _fallback()
+            return _fallback("unparseable")
 
         accepted: set[str] = set(json.loads(m.group(0)))
         kept_first_word: list[tuple[Path, str, list[Path], Path | None]] = [
@@ -314,7 +326,7 @@ def _filter_clusters_with_claude(
         return result_clusters
 
     except (json.JSONDecodeError, ValueError):
-        return _fallback()
+        return _fallback("unparseable")
 
 
 def fix_prefix_cluster(
@@ -503,9 +515,10 @@ def run_migrate_subfolders(
 
     Candidates pass through the same generic-word AI filter as the scan path
     (``_filter_clusters_with_claude``) in BOTH modes, so dry-run previews match
-    execute behavior.  When the AI backend is unavailable, unvetted clusters are
-    skipped (``on_failure="skip"``) — this mode runs unattended via ``--fix-all``
-    cron, where moving unfiltered clusters would auto-commit junk subfolders.
+    execute behavior.  When AI vetting fails (backend unavailable, timeout, or
+    unusable response), unvetted clusters are skipped (``on_failure="skip"``) —
+    this mode runs unattended via ``--fix-all`` cron, where moving unfiltered
+    clusters would auto-commit junk subfolders.
 
     Args:
         vault_root: Root path of the vault.

@@ -182,9 +182,11 @@ class TestMigrateSubfoldersFilter:
     ) -> None:
         notes = _make_generic_cluster(vault)
 
-        # AI backend unavailable → run_ai_prompt returns None
+        # AI vetting fails → run_ai_prompt_with_cause returns no output
         monkeypatch.setattr(
-            vault_doctor.ai_backend, "run_ai_prompt", lambda *a, **kw: None
+            vault_doctor.ai_backend,
+            "run_ai_prompt_with_cause",
+            lambda *a, **kw: (None, "empty"),
         )
 
         vault_doctor.run_migrate_subfolders(vault, dry_run=False)
@@ -192,7 +194,7 @@ class TestMigrateSubfoldersFilter:
         for note in notes:
             assert note.exists(), "unvetted clusters must not move without AI vetting"
         assert not (vault / "Debugging" / "fixing").exists()
-        assert "AI backend unavailable" in capsys.readouterr().err
+        assert "no output from AI backend" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

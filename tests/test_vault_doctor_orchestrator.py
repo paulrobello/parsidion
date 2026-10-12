@@ -908,7 +908,9 @@ class TestInScanPrefixClusterGuards:
         ]
         monkeypatch.setattr(vault_doctor, "_vault_path", tmp_vault)
         monkeypatch.setattr(
-            vault_doctor.ai_backend, "run_ai_prompt", lambda *a, **kw: None
+            vault_doctor.ai_backend,
+            "run_ai_prompt_with_cause",
+            lambda *a, **kw: (None, "empty"),
         )
         monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
 
@@ -922,7 +924,7 @@ class TestInScanPrefixClusterGuards:
         for note in notes:
             assert note.exists(), "unvetted clusters must not move without AI vetting"
         assert not (tmp_vault / "Debugging" / "zephyr").exists()
-        assert "AI backend unavailable" in capsys.readouterr().err
+        assert "no output from AI backend" in capsys.readouterr().err
 
     def test_cross_cluster_links_rewritten(
         self,
