@@ -3,7 +3,7 @@ name = "parsidion-mcp"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp>=4.1.0",
+    "fastmcp>=4.1.3",
     "parsidion[search]",
 ]
 
@@ -14,7 +14,7 @@ constraint-dependencies = [
     # GHSA-mj87-hwqh-73pj / CVE-2026-40347
     "python-multipart>=0.0.32",
     # GHSA-whj4-6x5x-4v2j / CVE-2026-40192
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
 ]
 
 [tool.uv.sources]
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-timeout>=2.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.17.0",
+    "ruff>=0.17.2",
     "pyright>=1.1.414",
 ]
 
