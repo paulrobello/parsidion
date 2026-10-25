@@ -294,18 +294,39 @@ def test_handle_ignores_client_model_override(monkeypatch: pytest.MonkeyPatch) -
 
 def test_handle_rejects_oversized_request(monkeypatch: pytest.MonkeyPatch) -> None:
     """SEC-018: an unterminated request over 64 KiB is refused, not buffered."""
-    monkeypatch.setattr(vault_embed_serve, "_get_model", lambda name: _FakeModel([0.1]))
+    seen: list[str] = []
+
+    def fake_get_model(name: str) -> _FakeModel:
+        seen.append(name)
+        return _FakeModel([0.1])
+
+    monkeypatch.setattr(vault_embed_serve, "_get_model", fake_get_model)
     client, peer = socket.socketpair()
+    client.settimeout(5)
     try:
         t = threading.Thread(
             target=vault_embed_serve._handle, args=(peer, "default-model")
         )
         t.start()
-        client.sendall(b'{"text": "' + b"x" * (70 * 1024) + b'"}')
-        data = client.recv(4096).decode().strip()
+        peer_closed = False
+        try:
+            client.sendall(b'{"text": "' + b"x" * (70 * 1024) + b'"}')
+        except (BrokenPipeError, ConnectionResetError):
+            # Refusal may close the peer before sendall finishes.
+            peer_closed = True
+        try:
+            data = client.recv(4096).decode().strip()
+        except ConnectionResetError:
+            peer_closed = True
+            data = ""
         t.join(timeout=5)
-        payload = json.loads(data)
-        assert "error" in payload and "64 KiB" in payload["error"]
+        assert not t.is_alive()
+        assert seen == []
+        if data:
+            payload = json.loads(data)
+            assert "error" in payload and "64 KiB" in payload["error"]
+        else:
+            assert peer_closed
     finally:
         client.close()
         peer.close()
