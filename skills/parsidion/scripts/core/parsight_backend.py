@@ -214,7 +214,8 @@ def _daemon_watches_vault(vault: Path) -> bool:
     The parsight CLI has no watch-list subcommand, so this asks the daemon's
     MCP endpoint directly (the same endpoint the health probe uses): one
     ``initialize`` handshake POST capturing the session id, then one
-    ``tools/call list_watched_paths`` POST. Watched paths compare by
+    ``tools/call watch`` POST with ``{"action": "list"}`` arguments.
+    Watched paths compare by
     ``os.path.realpath`` on both sides, mirroring ``_vault_repo_state``.
 
     False on ANY failure (endpoint absent, protocol mismatch, garbage
@@ -248,7 +249,7 @@ def _daemon_watches_vault(vault: Path) -> bool:
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "list_watched_paths", "arguments": {}},
+                "params": {"name": "watch", "arguments": {"action": "list"}},
             },
             session_id,
         )

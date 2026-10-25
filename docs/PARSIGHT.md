@@ -151,13 +151,13 @@ Two result-shaping behaviors apply on the parsight path:
   up). A *stale* vault is still usable, so the current query is served from
   parsight; a background reindex is kicked only when the daemon's watcher
   does not already cover the vault (asked via the daemon's MCP
-  `list_watched_paths` — the watcher re-indexes on the very file
+  `watch` tool, `{"action": "list"}` — the watcher re-indexes on the very file
   changes/commits that made the index stale, and a manual job would only
   queue behind it and contend for the index writer).
 - **Rebuild trigger:** `update_index.py` ends its run by launching a
   background `parsight index --no-wait` when the backend resolves AND the
-  daemon's watcher does not already cover the vault (same
-  `list_watched_paths` probe as above — the watcher re-indexes on the note
+  daemon's watcher does not already cover the vault (same `watch`
+  `{"action": "list"}` probe as above — the watcher re-indexes on the note
   writes the rebuild just produced); the spawn is skipped with a log line
   when it does (summarizer note writes call `rebuild_index()` and inherit
   this). `--no-wait` submits the job and exits immediately, so the detached

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -240,8 +241,9 @@ class TestDaemonWatchesVault:
     """Unit tests for the ``_daemon_watches_vault`` MCP probe itself.
 
     The parsight CLI has no watch-list subcommand, so the backend asks the
-    daemon's MCP endpoint directly (initialize → tools/call
-    list_watched_paths). The fake daemon mirrors the real one's handshake
+    daemon's MCP endpoint directly (initialize → tools/call watch with
+    action "list" — ENH-066 folded list_watched_paths into the action-
+    picked ``watch`` tool). The fake daemon mirrors the real one's handshake
     discipline — a session-less tools/call gets 422 — so these tests also
     prove the probe performs the initialize handshake.
     """
@@ -258,6 +260,10 @@ class TestDaemonWatchesVault:
             c for c in mcp_daemon.mcp_calls if c.get("method") == "tools/call"
         )
         assert call_entry.get("session")  # handshake honored, not session-less
+        # ENH-066: the probe must use the folded tool — the pre-fold
+        # list_watched_paths name is gone from the daemon (-32602).
+        assert call_entry.get("tool") == "watch"
+        assert call_entry.get("arguments") == {"action": "list"}
 
     def test_true_via_symlinked_watch_path(
         self, tmp_vault: Path, tmp_path: Path, mcp_daemon: FakeMcpDaemon
@@ -290,6 +296,18 @@ class TestDaemonWatchesVault:
         # Mirrors the real daemon's SSE framing: keep-alive/noise lines around
         # the payload. Here every data line is unparseable.
         mcp_daemon.raw_tools_response = "data: \nretry: 3000\n\ndata: not json\n\n"
+        assert parsight_backend._daemon_watches_vault(tmp_vault) is False
+
+    def test_false_on_malformed_watched_paths(
+        self, tmp_vault: Path, mcp_daemon: FakeMcpDaemon
+    ) -> None:
+        text = json.dumps({"watched_paths": str(tmp_vault), "watches": []})
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {"content": [{"type": "text", "text": text}], "isError": False},
+        }
+        mcp_daemon.raw_tools_response = f"data: {json.dumps(payload)}\n\n"
         assert parsight_backend._daemon_watches_vault(tmp_vault) is False
 
     def test_false_when_mcp_endpoint_not_served(

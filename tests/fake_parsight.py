@@ -204,11 +204,14 @@ class FakeMcpDaemon:
     watch-coverage probe: ``initialize`` answers with an ``mcp-session-id``
     header, and a session-less ``tools/call`` is rejected with 422 — both
     mirroring the real daemon, so a client that skips the handshake fails
-    here like it would in production. ``tools/call list_watched_paths``
-    returns ``self.watched_paths`` as an SSE ``data:`` body (the real
-    daemon's response shape). ``raw_tools_response`` overrides the verbatim
-    SSE body for error/garbage-shape tests (its JSON-RPC ``id`` must be 2,
-    the id the backend's probe uses for ``tools/call``).
+    here like it would in production. ``tools/call watch`` with arguments
+    ``{"action": "list"}`` (the ENH-066 fold — ``action`` defaults to
+    ``"list"`` server-side, and the pre-fold tool names are gone) returns
+    ``self.watched_paths`` as an SSE ``data:`` body (the real daemon's
+    response shape); any other tool name gets the real daemon's
+    ``-32602``. ``raw_tools_response`` overrides the verbatim SSE body for
+    error/garbage-shape tests (its JSON-RPC ``id`` must be 2, the id the
+    backend's probe uses for ``tools/call``).
 
     The parsight CLI has no watch-list subcommand, so this HTTP surface is
     the only way to fake "is the vault watched by the daemon".
@@ -253,18 +256,23 @@ class FakeMcpDaemon:
                     self.send_response(400)
                     self.end_headers()
                     return
-                ctl.mcp_calls.append(
-                    {
-                        "method": message.get("method")
-                        if isinstance(message, dict)
-                        else None,
-                        "session": self.headers.get("Mcp-Session-Id"),
-                    }
-                )
                 if not isinstance(message, dict):
                     self.send_response(400)
                     self.end_headers()
                     return
+                call_entry: dict[str, object] = {
+                    "method": message.get("method"),
+                    "session": self.headers.get("Mcp-Session-Id"),
+                }
+                if message.get("method") == "tools/call":
+                    params = message.get("params")
+                    call_entry["tool"] = (
+                        params.get("name") if isinstance(params, dict) else None
+                    )
+                    call_entry["arguments"] = (
+                        params.get("arguments") if isinstance(params, dict) else None
+                    )
+                ctl.mcp_calls.append(call_entry)
                 if message.get("method") == "initialize":
                     self._send_sse(
                         {
@@ -294,8 +302,10 @@ class FakeMcpDaemon:
                     if ctl.raw_tools_response is not None:
                         self._send_raw_sse(ctl.raw_tools_response)
                         return
-                    name = (message.get("params") or {}).get("name")
-                    if name == "list_watched_paths":
+                    params = message.get("params") or {}
+                    name = params.get("name")
+                    arguments = params.get("arguments") or {}
+                    if name == "watch" and arguments.get("action", "list") == "list":
                         text = json.dumps(
                             {"watched_paths": ctl.watched_paths, "watches": []}
                         )
@@ -315,7 +325,7 @@ class FakeMcpDaemon:
                                 "jsonrpc": "2.0",
                                 "id": message.get("id"),
                                 "error": {
-                                    "code": -32601,
+                                    "code": -32602,
                                     "message": f"unknown tool {name!r}",
                                 },
                             }
