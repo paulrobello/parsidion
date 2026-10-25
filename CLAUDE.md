@@ -175,6 +175,8 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-tag
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-sessions       # detect multiple notes from same session
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders           # detect prefix clusters (dry-run)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate-subfolders --execute # apply moves
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --prune-trash                              # preview deleting .trash notes older than the retention window
+uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --prune-trash --trash-retention-days 7 --execute  # apply prune (opt-in; NEVER in --fix-all)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-frontmatter    # repair frontmatter via the configured prompt AI backend
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --no-fix-headings --fix-frontmatter  # repair frontmatter without heading promotion
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --list-rules         # print the selectable rule catalog (name, kind, risk, description)
@@ -190,6 +192,9 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate
 # Note: --fix-all implies --execute and ALL fix flags (frontmatter, tags, subfolder
 #       migration, daily-note migration, permissions) AND --strip-prefixes (a bulk file rename that
 #       rewrites wikilinks vault-wide). Run on a clean git tree so a rename can be reverted.
+#       --prune-trash is deliberately NOT implied: .trash deletion is irreversible
+#       (gitignored) and always needs an explicit --trash-retention-days.
+#       Scans report TRASH_SIZE once .trash exceeds 1,000 files.
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
 # Other flags: --fix (alias for --fix-frontmatter), --errors-only, --no-state,
 #               --jobs/-j N (parallel workers, default 3), --timeout SECS (default 120),

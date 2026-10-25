@@ -578,6 +578,12 @@ def main() -> None:
         default=False,
         help="Preview actions without writing to disk.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Build even when embeddings.enabled is false in the vault config.",
+    )
     config_model: str = vault_common.get_config("embeddings", "model", _DEFAULT_MODEL)
     parser.add_argument(
         "--model",
@@ -644,6 +650,18 @@ def main() -> None:
     # module global (branch 4 of resolve_vault reads that patch only to
     # warn). The scope flushes the config cache on both boundaries.
     with active_vault_scope(vault_path):
+        # The vault post-merge hook and manual runs call this script directly,
+        # bypassing update_index.py's own enabled check — enforce the config
+        # here so a vault with embeddings disabled never rebuilds vectors.
+        if not args.force and not vault_common.get_config(
+            "embeddings", "enabled", True
+        ):
+            print(
+                "build_embeddings: embeddings.enabled is false in this vault's "
+                "config — skipping vector build (update_index.py still "
+                "maintains note_index; pass --force to override)."
+            )
+            return
         start = time.time()
         if args.incremental:
             incremental_update(vault_path, args.model, args.dry_run)

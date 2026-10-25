@@ -305,4 +305,5 @@ class TestCatalogConsistency:
             "strip-prefixes",
             "subfolder-prefix",
             "daily-namespace",
+            "trash-size",
         }

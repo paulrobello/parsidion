@@ -203,6 +203,13 @@ RULE_SPECS: tuple[RuleSpec, ...] = (
         "Tighten permissions on sensitive vault files",
         "fix_permissions",
     ),
+    RuleSpec(
+        "trash-size",
+        "mode",
+        "bulk",
+        "Report .trash sprawl; prune via --prune-trash (opt-in, never in --fix-all)",
+        "prune_trash",
+    ),
 )
 
 RULE_NAMES: tuple[str, ...] = tuple(spec.name for spec in RULE_SPECS)

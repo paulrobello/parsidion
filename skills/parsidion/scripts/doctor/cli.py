@@ -44,6 +44,7 @@ from doctor.protocol import (
 )
 from doctor.subfolder import run_migrate_subfolders
 from doctor.tags import run_fix_tags
+from doctor.trash import run_prune_trash
 
 
 def _valid_daily_username(value: str) -> str:
@@ -82,12 +83,16 @@ def _build_fix_modes(args: argparse.Namespace) -> tuple[FixMode, ...]:
     def _run_permissions(vault: Path, dry: bool) -> None:
         run_fix_permissions(vault, dry_run=dry)
 
+    def _run_trash(vault: Path, dry: bool) -> None:
+        run_prune_trash(vault, retention_days=args.trash_retention_days, dry_run=dry)
+
     return (
         FixMode("fix_tags", _run_tags, "tag dedup"),
         FixMode("strip_prefixes", _run_prefixes, "redundant-prefix strip"),
         FixMode("migrate_subfolders", _run_subfolders, "subfolder migration"),
         FixMode("migrate_daily_notes", _run_daily, "daily-note migration"),
         FixMode("fix_permissions", _run_permissions, "permission repair"),
+        FixMode("prune_trash", _run_trash, "trash prune"),
     )
 
 
@@ -190,6 +195,22 @@ def _build_parser() -> argparse.ArgumentParser:
             "and show candidates for subfolder migration. "
             "Use --execute to actually move the files."
         ),
+    )
+    parser.add_argument(
+        "--prune-trash",
+        action="store_true",
+        help=(
+            "Delete .trash notes older than --trash-retention-days. "
+            "Shows what would go by default; use --execute to delete. "
+            "Opt-in only: never part of --fix-all."
+        ),
+    )
+    parser.add_argument(
+        "--trash-retention-days",
+        type=int,
+        default=7,
+        metavar="N",
+        help="Retention window for --prune-trash (default: 7 days).",
     )
     parser.add_argument(
         "--execute",
@@ -317,6 +338,9 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    if args.prune_trash and args.trash_retention_days <= 0:
+        parser.error("--trash-retention-days must be positive with --prune-trash")
+
     # ENH-015: --list-rules needs no vault, lock, or state — answer and exit.
     if args.list_rules:
         _print_rule_catalog()
@@ -374,6 +398,8 @@ def main() -> None:
             args.migrate_daily_notes = True
             args.fix_permissions = True
             args.execute = True
+            # prune_trash is deliberately NOT implied: deleting .trash is
+            # irreversible (gitignored) and needs an owner-approved window.
 
         # Per-mode dispatch via the registry.  Standalone modes (selected without
         # --fix-all) run once and skip scan-and-repair; --fix-all runs every

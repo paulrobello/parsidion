@@ -53,6 +53,7 @@ from doctor.subfolder import (
     fix_prefix_cluster,
 )
 from doctor.tags import run_fix_sessions
+from doctor.trash import report_trash_sprawl
 from doctor.worker import _repair_one
 
 
@@ -535,6 +536,10 @@ def run_scan_and_repair(
 
     # ── Prefix cluster detection and fixing ──────────────────────────────────
     _detect_and_apply_prefix_clusters(ctx)
+
+    # ── Trash sprawl report (fix is the opt-in --prune-trash mode) ───────────
+    if rule_enabled(ctx.options.enabled_rules, "trash-size"):
+        report_trash_sprawl(ctx.vault)
 
     print(
         f"Scanning {len(ctx.target_notes)} vault notes"
