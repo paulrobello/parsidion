@@ -843,24 +843,24 @@ playbook is preserved in git history).</p>
 
     </div>
     <a class="headerlink" href="#secure_log_dir"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="secure_log_dir-109"><a href="#secure_log_dir-109"><span class="linenos">109</span></a><span class="k">def</span><span class="w"> </span><span class="nf">secure_log_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="secure_log_dir-110"><a href="#secure_log_dir-110"><span class="linenos">110</span></a><span class="w">    </span><span class="sd">"""Return ``~/.claude/logs/``, creating it with mode 0o700 if absent.</span>
-</span><span id="secure_log_dir-111"><a href="#secure_log_dir-111"><span class="linenos">111</span></a>
-</span><span id="secure_log_dir-112"><a href="#secure_log_dir-112"><span class="linenos">112</span></a><span class="sd">    SEC-110: ``Path.mkdir(mode=...)`` is ignored when the directory already</span>
-</span><span id="secure_log_dir-113"><a href="#secure_log_dir-113"><span class="linenos">113</span></a><span class="sd">    exists, so the 0o700 intent never applied to a pre-existing ``~/.claude/logs``</span>
-</span><span id="secure_log_dir-114"><a href="#secure_log_dir-114"><span class="linenos">114</span></a><span class="sd">    (typically created world-readable by ``session_stop_wrapper.sh``'s plain</span>
-</span><span id="secure_log_dir-115"><a href="#secure_log_dir-115"><span class="linenos">115</span></a><span class="sd">    ``mkdir -p``). Re-chmod explicitly so an existing dir is repaired on every call.</span>
-</span><span id="secure_log_dir-116"><a href="#secure_log_dir-116"><span class="linenos">116</span></a>
-</span><span id="secure_log_dir-117"><a href="#secure_log_dir-117"><span class="linenos">117</span></a><span class="sd">    Returns:</span>
-</span><span id="secure_log_dir-118"><a href="#secure_log_dir-118"><span class="linenos">118</span></a><span class="sd">        Absolute Path to the secure log directory.</span>
-</span><span id="secure_log_dir-119"><a href="#secure_log_dir-119"><span class="linenos">119</span></a><span class="sd">    """</span>
-</span><span id="secure_log_dir-120"><a href="#secure_log_dir-120"><span class="linenos">120</span></a>    <span class="n">log_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".claude"</span> <span class="o">/</span> <span class="s2">"logs"</span>
-</span><span id="secure_log_dir-121"><a href="#secure_log_dir-121"><span class="linenos">121</span></a>    <span class="n">log_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mo">0o700</span><span class="p">)</span>
-</span><span id="secure_log_dir-122"><a href="#secure_log_dir-122"><span class="linenos">122</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="secure_log_dir-123"><a href="#secure_log_dir-123"><span class="linenos">123</span></a>        <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">log_dir</span><span class="p">,</span> <span class="mo">0o700</span><span class="p">)</span>
-</span><span id="secure_log_dir-124"><a href="#secure_log_dir-124"><span class="linenos">124</span></a>    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
-</span><span id="secure_log_dir-125"><a href="#secure_log_dir-125"><span class="linenos">125</span></a>        <span class="k">pass</span>
-</span><span id="secure_log_dir-126"><a href="#secure_log_dir-126"><span class="linenos">126</span></a>    <span class="k">return</span> <span class="n">log_dir</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="secure_log_dir-110"><a href="#secure_log_dir-110"><span class="linenos">110</span></a><span class="k">def</span><span class="w"> </span><span class="nf">secure_log_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="secure_log_dir-111"><a href="#secure_log_dir-111"><span class="linenos">111</span></a><span class="w">    </span><span class="sd">"""Return ``~/.claude/logs/``, creating it with mode 0o700 if absent.</span>
+</span><span id="secure_log_dir-112"><a href="#secure_log_dir-112"><span class="linenos">112</span></a>
+</span><span id="secure_log_dir-113"><a href="#secure_log_dir-113"><span class="linenos">113</span></a><span class="sd">    SEC-110: ``Path.mkdir(mode=...)`` is ignored when the directory already</span>
+</span><span id="secure_log_dir-114"><a href="#secure_log_dir-114"><span class="linenos">114</span></a><span class="sd">    exists, so the 0o700 intent never applied to a pre-existing ``~/.claude/logs``</span>
+</span><span id="secure_log_dir-115"><a href="#secure_log_dir-115"><span class="linenos">115</span></a><span class="sd">    (typically created world-readable by ``session_stop_wrapper.sh``'s plain</span>
+</span><span id="secure_log_dir-116"><a href="#secure_log_dir-116"><span class="linenos">116</span></a><span class="sd">    ``mkdir -p``). Re-chmod explicitly so an existing dir is repaired on every call.</span>
+</span><span id="secure_log_dir-117"><a href="#secure_log_dir-117"><span class="linenos">117</span></a>
+</span><span id="secure_log_dir-118"><a href="#secure_log_dir-118"><span class="linenos">118</span></a><span class="sd">    Returns:</span>
+</span><span id="secure_log_dir-119"><a href="#secure_log_dir-119"><span class="linenos">119</span></a><span class="sd">        Absolute Path to the secure log directory.</span>
+</span><span id="secure_log_dir-120"><a href="#secure_log_dir-120"><span class="linenos">120</span></a><span class="sd">    """</span>
+</span><span id="secure_log_dir-121"><a href="#secure_log_dir-121"><span class="linenos">121</span></a>    <span class="n">log_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".claude"</span> <span class="o">/</span> <span class="s2">"logs"</span>
+</span><span id="secure_log_dir-122"><a href="#secure_log_dir-122"><span class="linenos">122</span></a>    <span class="n">log_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mo">0o700</span><span class="p">)</span>
+</span><span id="secure_log_dir-123"><a href="#secure_log_dir-123"><span class="linenos">123</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="secure_log_dir-124"><a href="#secure_log_dir-124"><span class="linenos">124</span></a>        <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">log_dir</span><span class="p">,</span> <span class="mo">0o700</span><span class="p">)</span>
+</span><span id="secure_log_dir-125"><a href="#secure_log_dir-125"><span class="linenos">125</span></a>    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+</span><span id="secure_log_dir-126"><a href="#secure_log_dir-126"><span class="linenos">126</span></a>        <span class="k">pass</span>
+</span><span id="secure_log_dir-127"><a href="#secure_log_dir-127"><span class="linenos">127</span></a>    <span class="k">return</span> <span class="n">log_dir</span>
 </span></pre></div>
 
 
@@ -888,25 +888,25 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 
     </div>
     <a class="headerlink" href="#rotate_log_file"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="rotate_log_file-129"><a href="#rotate_log_file-129"><span class="linenos">129</span></a><span class="k">def</span><span class="w"> </span><span class="nf">rotate_log_file</span><span class="p">(</span><span class="n">log_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">max_lines</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">_HOOK_ERROR_LOG_MAX_LINES</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="rotate_log_file-130"><a href="#rotate_log_file-130"><span class="linenos">130</span></a><span class="w">    </span><span class="sd">"""Rotate a log file when it exceeds *max_lines*, keeping the second half.</span>
-</span><span id="rotate_log_file-131"><a href="#rotate_log_file-131"><span class="linenos">131</span></a>
-</span><span id="rotate_log_file-132"><a href="#rotate_log_file-132"><span class="linenos">132</span></a><span class="sd">    Best-effort -- never raises.</span>
-</span><span id="rotate_log_file-133"><a href="#rotate_log_file-133"><span class="linenos">133</span></a>
-</span><span id="rotate_log_file-134"><a href="#rotate_log_file-134"><span class="linenos">134</span></a><span class="sd">    Args:</span>
-</span><span id="rotate_log_file-135"><a href="#rotate_log_file-135"><span class="linenos">135</span></a><span class="sd">        log_path: Path to the log file to rotate.</span>
-</span><span id="rotate_log_file-136"><a href="#rotate_log_file-136"><span class="linenos">136</span></a><span class="sd">        max_lines: Maximum number of lines before rotation is triggered.</span>
-</span><span id="rotate_log_file-137"><a href="#rotate_log_file-137"><span class="linenos">137</span></a><span class="sd">    """</span>
-</span><span id="rotate_log_file-138"><a href="#rotate_log_file-138"><span class="linenos">138</span></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="rotate_log_file-139"><a href="#rotate_log_file-139"><span class="linenos">139</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">log_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="rotate_log_file-140"><a href="#rotate_log_file-140"><span class="linenos">140</span></a>            <span class="k">return</span>
-</span><span id="rotate_log_file-141"><a href="#rotate_log_file-141"><span class="linenos">141</span></a>        <span class="n">lines</span> <span class="o">=</span> <span class="n">log_path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">(</span><span class="n">keepends</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="rotate_log_file-142"><a href="#rotate_log_file-142"><span class="linenos">142</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_lines</span><span class="p">:</span>
-</span><span id="rotate_log_file-143"><a href="#rotate_log_file-143"><span class="linenos">143</span></a>            <span class="k">return</span>
-</span><span id="rotate_log_file-144"><a href="#rotate_log_file-144"><span class="linenos">144</span></a>        <span class="n">keep</span> <span class="o">=</span> <span class="n">lines</span><span class="p">[</span><span class="n">max_lines</span> <span class="o">//</span> <span class="mi">2</span> <span class="p">:]</span>
-</span><span id="rotate_log_file-145"><a href="#rotate_log_file-145"><span class="linenos">145</span></a>        <span class="n">log_path</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="s2">""</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">keep</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
-</span><span id="rotate_log_file-146"><a href="#rotate_log_file-146"><span class="linenos">146</span></a>    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
-</span><span id="rotate_log_file-147"><a href="#rotate_log_file-147"><span class="linenos">147</span></a>        <span class="k">pass</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="rotate_log_file-130"><a href="#rotate_log_file-130"><span class="linenos">130</span></a><span class="k">def</span><span class="w"> </span><span class="nf">rotate_log_file</span><span class="p">(</span><span class="n">log_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">max_lines</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">_HOOK_ERROR_LOG_MAX_LINES</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="rotate_log_file-131"><a href="#rotate_log_file-131"><span class="linenos">131</span></a><span class="w">    </span><span class="sd">"""Rotate a log file when it exceeds *max_lines*, keeping the second half.</span>
+</span><span id="rotate_log_file-132"><a href="#rotate_log_file-132"><span class="linenos">132</span></a>
+</span><span id="rotate_log_file-133"><a href="#rotate_log_file-133"><span class="linenos">133</span></a><span class="sd">    Best-effort -- never raises.</span>
+</span><span id="rotate_log_file-134"><a href="#rotate_log_file-134"><span class="linenos">134</span></a>
+</span><span id="rotate_log_file-135"><a href="#rotate_log_file-135"><span class="linenos">135</span></a><span class="sd">    Args:</span>
+</span><span id="rotate_log_file-136"><a href="#rotate_log_file-136"><span class="linenos">136</span></a><span class="sd">        log_path: Path to the log file to rotate.</span>
+</span><span id="rotate_log_file-137"><a href="#rotate_log_file-137"><span class="linenos">137</span></a><span class="sd">        max_lines: Maximum number of lines before rotation is triggered.</span>
+</span><span id="rotate_log_file-138"><a href="#rotate_log_file-138"><span class="linenos">138</span></a><span class="sd">    """</span>
+</span><span id="rotate_log_file-139"><a href="#rotate_log_file-139"><span class="linenos">139</span></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="rotate_log_file-140"><a href="#rotate_log_file-140"><span class="linenos">140</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">log_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="rotate_log_file-141"><a href="#rotate_log_file-141"><span class="linenos">141</span></a>            <span class="k">return</span>
+</span><span id="rotate_log_file-142"><a href="#rotate_log_file-142"><span class="linenos">142</span></a>        <span class="n">lines</span> <span class="o">=</span> <span class="n">log_path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">(</span><span class="n">keepends</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="rotate_log_file-143"><a href="#rotate_log_file-143"><span class="linenos">143</span></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_lines</span><span class="p">:</span>
+</span><span id="rotate_log_file-144"><a href="#rotate_log_file-144"><span class="linenos">144</span></a>            <span class="k">return</span>
+</span><span id="rotate_log_file-145"><a href="#rotate_log_file-145"><span class="linenos">145</span></a>        <span class="n">keep</span> <span class="o">=</span> <span class="n">lines</span><span class="p">[</span><span class="n">max_lines</span> <span class="o">//</span> <span class="mi">2</span> <span class="p">:]</span>
+</span><span id="rotate_log_file-146"><a href="#rotate_log_file-146"><span class="linenos">146</span></a>        <span class="n">log_path</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="s2">""</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">keep</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+</span><span id="rotate_log_file-147"><a href="#rotate_log_file-147"><span class="linenos">147</span></a>    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+</span><span id="rotate_log_file-148"><a href="#rotate_log_file-148"><span class="linenos">148</span></a>        <span class="k">pass</span>
 </span></pre></div>
 
 
@@ -932,10 +932,10 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 
     </div>
     <a class="headerlink" href="#VaultConfigError"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="VaultConfigError-150"><a href="#VaultConfigError-150"><span class="linenos">150</span></a><span class="k">class</span><span class="w"> </span><span class="nc">VaultConfigError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
-</span><span id="VaultConfigError-151"><a href="#VaultConfigError-151"><span class="linenos">151</span></a><span class="w">    </span><span class="sd">"""Raised when vault configuration is invalid."""</span>
-</span><span id="VaultConfigError-152"><a href="#VaultConfigError-152"><span class="linenos">152</span></a>
-</span><span id="VaultConfigError-153"><a href="#VaultConfigError-153"><span class="linenos">153</span></a>    <span class="k">pass</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="VaultConfigError-151"><a href="#VaultConfigError-151"><span class="linenos">151</span></a><span class="k">class</span><span class="w"> </span><span class="nc">VaultConfigError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+</span><span id="VaultConfigError-152"><a href="#VaultConfigError-152"><span class="linenos">152</span></a><span class="w">    </span><span class="sd">"""Raised when vault configuration is invalid."""</span>
+</span><span id="VaultConfigError-153"><a href="#VaultConfigError-153"><span class="linenos">153</span></a>
+</span><span id="VaultConfigError-154"><a href="#VaultConfigError-154"><span class="linenos">154</span></a>    <span class="k">pass</span>
 </span></pre></div>
 
 
@@ -955,28 +955,28 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 
     </div>
     <a class="headerlink" href="#get_vaults_config_path"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_vaults_config_path-161"><a href="#get_vaults_config_path-161"><span class="linenos">161</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_vaults_config_path</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="get_vaults_config_path-162"><a href="#get_vaults_config_path-162"><span class="linenos">162</span></a><span class="w">    </span><span class="sd">"""Return the path to the vaults configuration file.</span>
-</span><span id="get_vaults_config_path-163"><a href="#get_vaults_config_path-163"><span class="linenos">163</span></a>
-</span><span id="get_vaults_config_path-164"><a href="#get_vaults_config_path-164"><span class="linenos">164</span></a><span class="sd">    Uses XDG config home with fallback to legacy pre-rebrand locations.</span>
-</span><span id="get_vaults_config_path-165"><a href="#get_vaults_config_path-165"><span class="linenos">165</span></a>
-</span><span id="get_vaults_config_path-166"><a href="#get_vaults_config_path-166"><span class="linenos">166</span></a><span class="sd">    Returns:</span>
-</span><span id="get_vaults_config_path-167"><a href="#get_vaults_config_path-167"><span class="linenos">167</span></a><span class="sd">        Path to vaults.yaml configuration file.</span>
-</span><span id="get_vaults_config_path-168"><a href="#get_vaults_config_path-168"><span class="linenos">168</span></a><span class="sd">    """</span>
-</span><span id="get_vaults_config_path-169"><a href="#get_vaults_config_path-169"><span class="linenos">169</span></a>    <span class="n">xdg_config</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"XDG_CONFIG_HOME"</span><span class="p">)</span>
-</span><span id="get_vaults_config_path-170"><a href="#get_vaults_config_path-170"><span class="linenos">170</span></a>    <span class="n">config_base</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">xdg_config</span><span class="p">)</span> <span class="k">if</span> <span class="n">xdg_config</span> <span class="k">else</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".config"</span>
-</span><span id="get_vaults_config_path-171"><a href="#get_vaults_config_path-171"><span class="linenos">171</span></a>    <span class="n">config_dir</span> <span class="o">=</span> <span class="n">config_base</span> <span class="o">/</span> <span class="s2">"parsidion"</span>
-</span><span id="get_vaults_config_path-172"><a href="#get_vaults_config_path-172"><span class="linenos">172</span></a>
-</span><span id="get_vaults_config_path-173"><a href="#get_vaults_config_path-173"><span class="linenos">173</span></a>    <span class="c1"># Fallback to legacy pre-rebrand locations if the new XDG dir does not exist.</span>
-</span><span id="get_vaults_config_path-174"><a href="#get_vaults_config_path-174"><span class="linenos">174</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">config_dir</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="get_vaults_config_path-175"><a href="#get_vaults_config_path-175"><span class="linenos">175</span></a>        <span class="n">legacy_name</span> <span class="o">=</span> <span class="s2">"parsidion"</span> <span class="o">+</span> <span class="s2">"-cc"</span>
-</span><span id="get_vaults_config_path-176"><a href="#get_vaults_config_path-176"><span class="linenos">176</span></a>        <span class="n">legacy_candidates</span> <span class="o">=</span> <span class="p">[</span><span class="n">config_base</span> <span class="o">/</span> <span class="n">legacy_name</span><span class="p">,</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">".</span><span class="si">{</span><span class="n">legacy_name</span><span class="si">}</span><span class="s2">"</span><span class="p">]</span>
-</span><span id="get_vaults_config_path-177"><a href="#get_vaults_config_path-177"><span class="linenos">177</span></a>        <span class="k">for</span> <span class="n">legacy_dir</span> <span class="ow">in</span> <span class="n">legacy_candidates</span><span class="p">:</span>
-</span><span id="get_vaults_config_path-178"><a href="#get_vaults_config_path-178"><span class="linenos">178</span></a>            <span class="k">if</span> <span class="n">legacy_dir</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="get_vaults_config_path-179"><a href="#get_vaults_config_path-179"><span class="linenos">179</span></a>                <span class="n">config_dir</span> <span class="o">=</span> <span class="n">legacy_dir</span>
-</span><span id="get_vaults_config_path-180"><a href="#get_vaults_config_path-180"><span class="linenos">180</span></a>                <span class="k">break</span>
-</span><span id="get_vaults_config_path-181"><a href="#get_vaults_config_path-181"><span class="linenos">181</span></a>
-</span><span id="get_vaults_config_path-182"><a href="#get_vaults_config_path-182"><span class="linenos">182</span></a>    <span class="k">return</span> <span class="n">config_dir</span> <span class="o">/</span> <span class="s2">"vaults.yaml"</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_vaults_config_path-162"><a href="#get_vaults_config_path-162"><span class="linenos">162</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_vaults_config_path</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="get_vaults_config_path-163"><a href="#get_vaults_config_path-163"><span class="linenos">163</span></a><span class="w">    </span><span class="sd">"""Return the path to the vaults configuration file.</span>
+</span><span id="get_vaults_config_path-164"><a href="#get_vaults_config_path-164"><span class="linenos">164</span></a>
+</span><span id="get_vaults_config_path-165"><a href="#get_vaults_config_path-165"><span class="linenos">165</span></a><span class="sd">    Uses XDG config home with fallback to legacy pre-rebrand locations.</span>
+</span><span id="get_vaults_config_path-166"><a href="#get_vaults_config_path-166"><span class="linenos">166</span></a>
+</span><span id="get_vaults_config_path-167"><a href="#get_vaults_config_path-167"><span class="linenos">167</span></a><span class="sd">    Returns:</span>
+</span><span id="get_vaults_config_path-168"><a href="#get_vaults_config_path-168"><span class="linenos">168</span></a><span class="sd">        Path to vaults.yaml configuration file.</span>
+</span><span id="get_vaults_config_path-169"><a href="#get_vaults_config_path-169"><span class="linenos">169</span></a><span class="sd">    """</span>
+</span><span id="get_vaults_config_path-170"><a href="#get_vaults_config_path-170"><span class="linenos">170</span></a>    <span class="n">xdg_config</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"XDG_CONFIG_HOME"</span><span class="p">)</span>
+</span><span id="get_vaults_config_path-171"><a href="#get_vaults_config_path-171"><span class="linenos">171</span></a>    <span class="n">config_base</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">xdg_config</span><span class="p">)</span> <span class="k">if</span> <span class="n">xdg_config</span> <span class="k">else</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".config"</span>
+</span><span id="get_vaults_config_path-172"><a href="#get_vaults_config_path-172"><span class="linenos">172</span></a>    <span class="n">config_dir</span> <span class="o">=</span> <span class="n">config_base</span> <span class="o">/</span> <span class="s2">"parsidion"</span>
+</span><span id="get_vaults_config_path-173"><a href="#get_vaults_config_path-173"><span class="linenos">173</span></a>
+</span><span id="get_vaults_config_path-174"><a href="#get_vaults_config_path-174"><span class="linenos">174</span></a>    <span class="c1"># Fallback to legacy pre-rebrand locations if the new XDG dir does not exist.</span>
+</span><span id="get_vaults_config_path-175"><a href="#get_vaults_config_path-175"><span class="linenos">175</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">config_dir</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="get_vaults_config_path-176"><a href="#get_vaults_config_path-176"><span class="linenos">176</span></a>        <span class="n">legacy_name</span> <span class="o">=</span> <span class="s2">"parsidion"</span> <span class="o">+</span> <span class="s2">"-cc"</span>
+</span><span id="get_vaults_config_path-177"><a href="#get_vaults_config_path-177"><span class="linenos">177</span></a>        <span class="n">legacy_candidates</span> <span class="o">=</span> <span class="p">[</span><span class="n">config_base</span> <span class="o">/</span> <span class="n">legacy_name</span><span class="p">,</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">".</span><span class="si">{</span><span class="n">legacy_name</span><span class="si">}</span><span class="s2">"</span><span class="p">]</span>
+</span><span id="get_vaults_config_path-178"><a href="#get_vaults_config_path-178"><span class="linenos">178</span></a>        <span class="k">for</span> <span class="n">legacy_dir</span> <span class="ow">in</span> <span class="n">legacy_candidates</span><span class="p">:</span>
+</span><span id="get_vaults_config_path-179"><a href="#get_vaults_config_path-179"><span class="linenos">179</span></a>            <span class="k">if</span> <span class="n">legacy_dir</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="get_vaults_config_path-180"><a href="#get_vaults_config_path-180"><span class="linenos">180</span></a>                <span class="n">config_dir</span> <span class="o">=</span> <span class="n">legacy_dir</span>
+</span><span id="get_vaults_config_path-181"><a href="#get_vaults_config_path-181"><span class="linenos">181</span></a>                <span class="k">break</span>
+</span><span id="get_vaults_config_path-182"><a href="#get_vaults_config_path-182"><span class="linenos">182</span></a>
+</span><span id="get_vaults_config_path-183"><a href="#get_vaults_config_path-183"><span class="linenos">183</span></a>    <span class="k">return</span> <span class="n">config_dir</span> <span class="o">/</span> <span class="s2">"vaults.yaml"</span>
 </span></pre></div>
 
 
@@ -1001,20 +1001,20 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
 
     </div>
     <a class="headerlink" href="#list_named_vaults"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="list_named_vaults-428"><a href="#list_named_vaults-428"><span class="linenos">428</span></a><span class="k">def</span><span class="w"> </span><span class="nf">list_named_vaults</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]:</span>
-</span><span id="list_named_vaults-429"><a href="#list_named_vaults-429"><span class="linenos">429</span></a><span class="w">    </span><span class="sd">"""Load named vaults from vaults.yaml configuration.</span>
-</span><span id="list_named_vaults-430"><a href="#list_named_vaults-430"><span class="linenos">430</span></a>
-</span><span id="list_named_vaults-431"><a href="#list_named_vaults-431"><span class="linenos">431</span></a><span class="sd">    Parses a simple YAML file with top-level 'vaults:' key containing</span>
-</span><span id="list_named_vaults-432"><a href="#list_named_vaults-432"><span class="linenos">432</span></a><span class="sd">    name-to-path mappings.</span>
-</span><span id="list_named_vaults-433"><a href="#list_named_vaults-433"><span class="linenos">433</span></a>
-</span><span id="list_named_vaults-434"><a href="#list_named_vaults-434"><span class="linenos">434</span></a><span class="sd">    Returns:</span>
-</span><span id="list_named_vaults-435"><a href="#list_named_vaults-435"><span class="linenos">435</span></a><span class="sd">        Dictionary mapping vault names to their absolute paths.</span>
-</span><span id="list_named_vaults-436"><a href="#list_named_vaults-436"><span class="linenos">436</span></a><span class="sd">        Empty dict if config file doesn't exist or has no vaults section.</span>
-</span><span id="list_named_vaults-437"><a href="#list_named_vaults-437"><span class="linenos">437</span></a><span class="sd">    """</span>
-</span><span id="list_named_vaults-438"><a href="#list_named_vaults-438"><span class="linenos">438</span></a>    <span class="n">vaults</span><span class="p">,</span> <span class="n">_default</span> <span class="o">=</span> <span class="n">read_vaults_yaml</span><span class="p">()</span>
-</span><span id="list_named_vaults-439"><a href="#list_named_vaults-439"><span class="linenos">439</span></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="list_named_vaults-440"><a href="#list_named_vaults-440"><span class="linenos">440</span></a>        <span class="n">name</span><span class="p">:</span> <span class="n">Path</span><span class="p">(</span><span class="n">path_str</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">path_str</span> <span class="ow">in</span> <span class="n">vaults</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-</span><span id="list_named_vaults-441"><a href="#list_named_vaults-441"><span class="linenos">441</span></a>    <span class="p">}</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="list_named_vaults-429"><a href="#list_named_vaults-429"><span class="linenos">429</span></a><span class="k">def</span><span class="w"> </span><span class="nf">list_named_vaults</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]:</span>
+</span><span id="list_named_vaults-430"><a href="#list_named_vaults-430"><span class="linenos">430</span></a><span class="w">    </span><span class="sd">"""Load named vaults from vaults.yaml configuration.</span>
+</span><span id="list_named_vaults-431"><a href="#list_named_vaults-431"><span class="linenos">431</span></a>
+</span><span id="list_named_vaults-432"><a href="#list_named_vaults-432"><span class="linenos">432</span></a><span class="sd">    Parses a simple YAML file with top-level 'vaults:' key containing</span>
+</span><span id="list_named_vaults-433"><a href="#list_named_vaults-433"><span class="linenos">433</span></a><span class="sd">    name-to-path mappings.</span>
+</span><span id="list_named_vaults-434"><a href="#list_named_vaults-434"><span class="linenos">434</span></a>
+</span><span id="list_named_vaults-435"><a href="#list_named_vaults-435"><span class="linenos">435</span></a><span class="sd">    Returns:</span>
+</span><span id="list_named_vaults-436"><a href="#list_named_vaults-436"><span class="linenos">436</span></a><span class="sd">        Dictionary mapping vault names to their absolute paths.</span>
+</span><span id="list_named_vaults-437"><a href="#list_named_vaults-437"><span class="linenos">437</span></a><span class="sd">        Empty dict if config file doesn't exist or has no vaults section.</span>
+</span><span id="list_named_vaults-438"><a href="#list_named_vaults-438"><span class="linenos">438</span></a><span class="sd">    """</span>
+</span><span id="list_named_vaults-439"><a href="#list_named_vaults-439"><span class="linenos">439</span></a>    <span class="n">vaults</span><span class="p">,</span> <span class="n">_default</span> <span class="o">=</span> <span class="n">read_vaults_yaml</span><span class="p">()</span>
+</span><span id="list_named_vaults-440"><a href="#list_named_vaults-440"><span class="linenos">440</span></a>    <span class="k">return</span> <span class="p">{</span>
+</span><span id="list_named_vaults-441"><a href="#list_named_vaults-441"><span class="linenos">441</span></a>        <span class="n">name</span><span class="p">:</span> <span class="n">Path</span><span class="p">(</span><span class="n">path_str</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">path_str</span> <span class="ow">in</span> <span class="n">vaults</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+</span><span id="list_named_vaults-442"><a href="#list_named_vaults-442"><span class="linenos">442</span></a>    <span class="p">}</span>
 </span></pre></div>
 
 
@@ -1041,70 +1041,70 @@ name-to-path mappings.</p>
 
     </div>
     <a class="headerlink" href="#resolve_vault"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_vault-643"><a href="#resolve_vault-643"><span class="linenos">643</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_vault</span><span class="p">(</span>
-</span><span id="resolve_vault-644"><a href="#resolve_vault-644"><span class="linenos">644</span></a>    <span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="resolve_vault-645"><a href="#resolve_vault-645"><span class="linenos">645</span></a>    <span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="resolve_vault-646"><a href="#resolve_vault-646"><span class="linenos">646</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="resolve_vault-647"><a href="#resolve_vault-647"><span class="linenos">647</span></a><span class="w">    </span><span class="sd">"""Resolve which vault to use based on precedence order.</span>
-</span><span id="resolve_vault-648"><a href="#resolve_vault-648"><span class="linenos">648</span></a>
-</span><span id="resolve_vault-649"><a href="#resolve_vault-649"><span class="linenos">649</span></a><span class="sd">    ENH-009 (resolved): the visualizer no longer reimplements this in</span>
-</span><span id="resolve_vault-650"><a href="#resolve_vault-650"><span class="linenos">650</span></a><span class="sd">    TypeScript. Its ``vaultResolver.ts`` delegates to</span>
-</span><span id="resolve_vault-651"><a href="#resolve_vault-651"><span class="linenos">651</span></a><span class="sd">    :func:`resolve_vault_server` (the deliberately narrower server contract)</span>
-</span><span id="resolve_vault-652"><a href="#resolve_vault-652"><span class="linenos">652</span></a><span class="sd">    via the ``vault_resolve.py`` CLI, so the allowlist algorithm is</span>
-</span><span id="resolve_vault-653"><a href="#resolve_vault-653"><span class="linenos">653</span></a><span class="sd">    single-sourced here. The narrower contract is formalized as</span>
-</span><span id="resolve_vault-654"><a href="#resolve_vault-654"><span class="linenos">654</span></a><span class="sd">    :func:`resolve_vault_server` (named vaults + default + ``VAULT_ROOT``</span>
-</span><span id="resolve_vault-655"><a href="#resolve_vault-655"><span class="linenos">655</span></a><span class="sd">    override; no ``cwd/.claude/vault`` or ``CLAUDE_VAULT``, because a</span>
-</span><span id="resolve_vault-656"><a href="#resolve_vault-656"><span class="linenos">656</span></a><span class="sd">    long-lived server has no current project). The shared parity fixture</span>
-</span><span id="resolve_vault-657"><a href="#resolve_vault-657"><span class="linenos">657</span></a><span class="sd">    (``tests/fixtures/parity/vault-resolution.json``) still pins the</span>
-</span><span id="resolve_vault-658"><a href="#resolve_vault-658"><span class="linenos">658</span></a><span class="sd">    observable contract both the full and server resolvers must satisfy.</span>
-</span><span id="resolve_vault-659"><a href="#resolve_vault-659"><span class="linenos">659</span></a>
-</span><span id="resolve_vault-660"><a href="#resolve_vault-660"><span class="linenos">660</span></a><span class="sd">    Precedence (highest to lowest):</span>
-</span><span id="resolve_vault-661"><a href="#resolve_vault-661"><span class="linenos">661</span></a><span class="sd">    1. explicit flag (path or vault name)</span>
-</span><span id="resolve_vault-662"><a href="#resolve_vault-662"><span class="linenos">662</span></a><span class="sd">    2. cwd/.claude/vault file (project-local vault)</span>
-</span><span id="resolve_vault-663"><a href="#resolve_vault-663"><span class="linenos">663</span></a><span class="sd">    3. CLAUDE_VAULT environment variable</span>
-</span><span id="resolve_vault-664"><a href="#resolve_vault-664"><span class="linenos">664</span></a><span class="sd">    4. vaults.yaml top-level ``default:`` key (a vault name or a registered</span>
-</span><span id="resolve_vault-665"><a href="#resolve_vault-665"><span class="linenos">665</span></a><span class="sd">       path; ARC-019), then the filesystem default ~/ParsidionVault, or</span>
-</span><span id="resolve_vault-666"><a href="#resolve_vault-666"><span class="linenos">666</span></a><span class="sd">       legacy ~/ClaudeVault if it already exists</span>
-</span><span id="resolve_vault-667"><a href="#resolve_vault-667"><span class="linenos">667</span></a>
-</span><span id="resolve_vault-668"><a href="#resolve_vault-668"><span class="linenos">668</span></a><span class="sd">    ARC-001: when :func:`active_vault_scope` is active, argument-less calls</span>
-</span><span id="resolve_vault-669"><a href="#resolve_vault-669"><span class="linenos">669</span></a><span class="sd">    return the scoped vault ahead of branches 2-4 (an explicit argument</span>
-</span><span id="resolve_vault-670"><a href="#resolve_vault-670"><span class="linenos">670</span></a><span class="sd">    still wins), so a CLI that resolved ``--vault`` once can let helper code</span>
-</span><span id="resolve_vault-671"><a href="#resolve_vault-671"><span class="linenos">671</span></a><span class="sd">    resolve without passing the value through every signature.</span>
-</span><span id="resolve_vault-672"><a href="#resolve_vault-672"><span class="linenos">672</span></a>
-</span><span id="resolve_vault-673"><a href="#resolve_vault-673"><span class="linenos">673</span></a><span class="sd">    Args:</span>
-</span><span id="resolve_vault-674"><a href="#resolve_vault-674"><span class="linenos">674</span></a><span class="sd">        explicit: Optional explicit vault reference (name or path).</span>
-</span><span id="resolve_vault-675"><a href="#resolve_vault-675"><span class="linenos">675</span></a><span class="sd">        cwd: Optional working directory for project-local vault lookup.</span>
-</span><span id="resolve_vault-676"><a href="#resolve_vault-676"><span class="linenos">676</span></a><span class="sd">            If None, uses current working directory.</span>
-</span><span id="resolve_vault-677"><a href="#resolve_vault-677"><span class="linenos">677</span></a>
-</span><span id="resolve_vault-678"><a href="#resolve_vault-678"><span class="linenos">678</span></a><span class="sd">    Returns:</span>
-</span><span id="resolve_vault-679"><a href="#resolve_vault-679"><span class="linenos">679</span></a><span class="sd">        Absolute Path to the resolved vault directory.</span>
-</span><span id="resolve_vault-680"><a href="#resolve_vault-680"><span class="linenos">680</span></a>
-</span><span id="resolve_vault-681"><a href="#resolve_vault-681"><span class="linenos">681</span></a><span class="sd">    Note:</span>
-</span><span id="resolve_vault-682"><a href="#resolve_vault-682"><span class="linenos">682</span></a><span class="sd">        This function is cached with @functools.lru_cache(maxsize=8).</span>
-</span><span id="resolve_vault-683"><a href="#resolve_vault-683"><span class="linenos">683</span></a><span class="sd">        The cache key is based on (explicit, normalized_cwd) arguments.</span>
-</span><span id="resolve_vault-684"><a href="#resolve_vault-684"><span class="linenos">684</span></a><span class="sd">        ARC-009: ``cwd`` is normalized to a resolved ``str`` before the</span>
-</span><span id="resolve_vault-685"><a href="#resolve_vault-685"><span class="linenos">685</span></a><span class="sd">        cache lookup so that ``Path("/x")`` and ``"/x"`` produce the</span>
-</span><span id="resolve_vault-686"><a href="#resolve_vault-686"><span class="linenos">686</span></a><span class="sd">        same cache entry.</span>
-</span><span id="resolve_vault-687"><a href="#resolve_vault-687"><span class="linenos">687</span></a><span class="sd">    """</span>
-</span><span id="resolve_vault-688"><a href="#resolve_vault-688"><span class="linenos">688</span></a>    <span class="c1"># ARC-001: an active explicit-vault scope answers argument-less calls</span>
-</span><span id="resolve_vault-689"><a href="#resolve_vault-689"><span class="linenos">689</span></a>    <span class="c1"># directly — the scope value is the entry point's already-resolved</span>
-</span><span id="resolve_vault-690"><a href="#resolve_vault-690"><span class="linenos">690</span></a>    <span class="c1"># vault, so no cache entry is consulted or created for it. An explicit</span>
-</span><span id="resolve_vault-691"><a href="#resolve_vault-691"><span class="linenos">691</span></a>    <span class="c1"># argument still wins: a direct request must not be overridden by the</span>
-</span><span id="resolve_vault-692"><a href="#resolve_vault-692"><span class="linenos">692</span></a>    <span class="c1"># ambient scope.</span>
-</span><span id="resolve_vault-693"><a href="#resolve_vault-693"><span class="linenos">693</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="resolve_vault-694"><a href="#resolve_vault-694"><span class="linenos">694</span></a>        <span class="n">scoped</span> <span class="o">=</span> <span class="n">_active_vault</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
-</span><span id="resolve_vault-695"><a href="#resolve_vault-695"><span class="linenos">695</span></a>        <span class="k">if</span> <span class="n">scoped</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="resolve_vault-696"><a href="#resolve_vault-696"><span class="linenos">696</span></a>            <span class="k">return</span> <span class="n">scoped</span>
-</span><span id="resolve_vault-697"><a href="#resolve_vault-697"><span class="linenos">697</span></a>    <span class="c1"># ARC-009: Normalize cwd to a resolved str for consistent cache keys</span>
-</span><span id="resolve_vault-698"><a href="#resolve_vault-698"><span class="linenos">698</span></a>    <span class="n">normalized_cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="resolve_vault-699"><a href="#resolve_vault-699"><span class="linenos">699</span></a>    <span class="k">if</span> <span class="n">cwd</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="resolve_vault-700"><a href="#resolve_vault-700"><span class="linenos">700</span></a>        <span class="n">normalized_cwd</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">cwd</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
-</span><span id="resolve_vault-701"><a href="#resolve_vault-701"><span class="linenos">701</span></a>    <span class="c1"># A Path explicit (e.g. doctor/cli.py's ``--vault`` uses ``type=Path``)</span>
-</span><span id="resolve_vault-702"><a href="#resolve_vault-702"><span class="linenos">702</span></a>    <span class="c1"># must be coerced to str before the named-vault dict lookup in</span>
-</span><span id="resolve_vault-703"><a href="#resolve_vault-703"><span class="linenos">703</span></a>    <span class="c1"># _resolve_vault_reference, which is keyed by vault NAME.</span>
-</span><span id="resolve_vault-704"><a href="#resolve_vault-704"><span class="linenos">704</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
-</span><span id="resolve_vault-705"><a href="#resolve_vault-705"><span class="linenos">705</span></a>        <span class="n">explicit</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">explicit</span><span class="p">)</span>
-</span><span id="resolve_vault-706"><a href="#resolve_vault-706"><span class="linenos">706</span></a>    <span class="k">return</span> <span class="n">_resolve_vault_cached</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="n">normalized_cwd</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_vault-697"><a href="#resolve_vault-697"><span class="linenos">697</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_vault</span><span class="p">(</span>
+</span><span id="resolve_vault-698"><a href="#resolve_vault-698"><span class="linenos">698</span></a>    <span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="resolve_vault-699"><a href="#resolve_vault-699"><span class="linenos">699</span></a>    <span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="resolve_vault-700"><a href="#resolve_vault-700"><span class="linenos">700</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="resolve_vault-701"><a href="#resolve_vault-701"><span class="linenos">701</span></a><span class="w">    </span><span class="sd">"""Resolve which vault to use based on precedence order.</span>
+</span><span id="resolve_vault-702"><a href="#resolve_vault-702"><span class="linenos">702</span></a>
+</span><span id="resolve_vault-703"><a href="#resolve_vault-703"><span class="linenos">703</span></a><span class="sd">    ENH-009 (resolved): the visualizer no longer reimplements this in</span>
+</span><span id="resolve_vault-704"><a href="#resolve_vault-704"><span class="linenos">704</span></a><span class="sd">    TypeScript. Its ``vaultResolver.ts`` delegates to</span>
+</span><span id="resolve_vault-705"><a href="#resolve_vault-705"><span class="linenos">705</span></a><span class="sd">    :func:`resolve_vault_server` (the deliberately narrower server contract)</span>
+</span><span id="resolve_vault-706"><a href="#resolve_vault-706"><span class="linenos">706</span></a><span class="sd">    via the ``vault_resolve.py`` CLI, so the allowlist algorithm is</span>
+</span><span id="resolve_vault-707"><a href="#resolve_vault-707"><span class="linenos">707</span></a><span class="sd">    single-sourced here. The narrower contract is formalized as</span>
+</span><span id="resolve_vault-708"><a href="#resolve_vault-708"><span class="linenos">708</span></a><span class="sd">    :func:`resolve_vault_server` (named vaults + default + ``VAULT_ROOT``</span>
+</span><span id="resolve_vault-709"><a href="#resolve_vault-709"><span class="linenos">709</span></a><span class="sd">    override; no ``cwd/.claude/vault`` or ``CLAUDE_VAULT``, because a</span>
+</span><span id="resolve_vault-710"><a href="#resolve_vault-710"><span class="linenos">710</span></a><span class="sd">    long-lived server has no current project). The shared parity fixture</span>
+</span><span id="resolve_vault-711"><a href="#resolve_vault-711"><span class="linenos">711</span></a><span class="sd">    (``tests/fixtures/parity/vault-resolution.json``) still pins the</span>
+</span><span id="resolve_vault-712"><a href="#resolve_vault-712"><span class="linenos">712</span></a><span class="sd">    observable contract both the full and server resolvers must satisfy.</span>
+</span><span id="resolve_vault-713"><a href="#resolve_vault-713"><span class="linenos">713</span></a>
+</span><span id="resolve_vault-714"><a href="#resolve_vault-714"><span class="linenos">714</span></a><span class="sd">    Precedence (highest to lowest):</span>
+</span><span id="resolve_vault-715"><a href="#resolve_vault-715"><span class="linenos">715</span></a><span class="sd">    1. explicit flag (path or vault name)</span>
+</span><span id="resolve_vault-716"><a href="#resolve_vault-716"><span class="linenos">716</span></a><span class="sd">    2. cwd/.claude/vault file (project-local vault)</span>
+</span><span id="resolve_vault-717"><a href="#resolve_vault-717"><span class="linenos">717</span></a><span class="sd">    3. CLAUDE_VAULT environment variable</span>
+</span><span id="resolve_vault-718"><a href="#resolve_vault-718"><span class="linenos">718</span></a><span class="sd">    4. vaults.yaml top-level ``default:`` key (a vault name or a registered</span>
+</span><span id="resolve_vault-719"><a href="#resolve_vault-719"><span class="linenos">719</span></a><span class="sd">       path; ARC-019), then the filesystem default ~/ParsidionVault, or</span>
+</span><span id="resolve_vault-720"><a href="#resolve_vault-720"><span class="linenos">720</span></a><span class="sd">       legacy ~/ClaudeVault if it already exists</span>
+</span><span id="resolve_vault-721"><a href="#resolve_vault-721"><span class="linenos">721</span></a>
+</span><span id="resolve_vault-722"><a href="#resolve_vault-722"><span class="linenos">722</span></a><span class="sd">    ARC-001: when :func:`active_vault_scope` is active, argument-less calls</span>
+</span><span id="resolve_vault-723"><a href="#resolve_vault-723"><span class="linenos">723</span></a><span class="sd">    return the scoped vault ahead of branches 2-4 (an explicit argument</span>
+</span><span id="resolve_vault-724"><a href="#resolve_vault-724"><span class="linenos">724</span></a><span class="sd">    still wins), so a CLI that resolved ``--vault`` once can let helper code</span>
+</span><span id="resolve_vault-725"><a href="#resolve_vault-725"><span class="linenos">725</span></a><span class="sd">    resolve without passing the value through every signature.</span>
+</span><span id="resolve_vault-726"><a href="#resolve_vault-726"><span class="linenos">726</span></a>
+</span><span id="resolve_vault-727"><a href="#resolve_vault-727"><span class="linenos">727</span></a><span class="sd">    Args:</span>
+</span><span id="resolve_vault-728"><a href="#resolve_vault-728"><span class="linenos">728</span></a><span class="sd">        explicit: Optional explicit vault reference (name or path).</span>
+</span><span id="resolve_vault-729"><a href="#resolve_vault-729"><span class="linenos">729</span></a><span class="sd">        cwd: Optional working directory for project-local vault lookup.</span>
+</span><span id="resolve_vault-730"><a href="#resolve_vault-730"><span class="linenos">730</span></a><span class="sd">            If None, uses current working directory.</span>
+</span><span id="resolve_vault-731"><a href="#resolve_vault-731"><span class="linenos">731</span></a>
+</span><span id="resolve_vault-732"><a href="#resolve_vault-732"><span class="linenos">732</span></a><span class="sd">    Returns:</span>
+</span><span id="resolve_vault-733"><a href="#resolve_vault-733"><span class="linenos">733</span></a><span class="sd">        Absolute Path to the resolved vault directory.</span>
+</span><span id="resolve_vault-734"><a href="#resolve_vault-734"><span class="linenos">734</span></a>
+</span><span id="resolve_vault-735"><a href="#resolve_vault-735"><span class="linenos">735</span></a><span class="sd">    Note:</span>
+</span><span id="resolve_vault-736"><a href="#resolve_vault-736"><span class="linenos">736</span></a><span class="sd">        This function is cached with @functools.lru_cache(maxsize=8).</span>
+</span><span id="resolve_vault-737"><a href="#resolve_vault-737"><span class="linenos">737</span></a><span class="sd">        The cache key is based on (explicit, normalized_cwd) arguments.</span>
+</span><span id="resolve_vault-738"><a href="#resolve_vault-738"><span class="linenos">738</span></a><span class="sd">        ARC-009: ``cwd`` is normalized to a resolved ``str`` before the</span>
+</span><span id="resolve_vault-739"><a href="#resolve_vault-739"><span class="linenos">739</span></a><span class="sd">        cache lookup so that ``Path("/x")`` and ``"/x"`` produce the</span>
+</span><span id="resolve_vault-740"><a href="#resolve_vault-740"><span class="linenos">740</span></a><span class="sd">        same cache entry.</span>
+</span><span id="resolve_vault-741"><a href="#resolve_vault-741"><span class="linenos">741</span></a><span class="sd">    """</span>
+</span><span id="resolve_vault-742"><a href="#resolve_vault-742"><span class="linenos">742</span></a>    <span class="c1"># ARC-001: an active explicit-vault scope answers argument-less calls</span>
+</span><span id="resolve_vault-743"><a href="#resolve_vault-743"><span class="linenos">743</span></a>    <span class="c1"># directly — the scope value is the entry point's already-resolved</span>
+</span><span id="resolve_vault-744"><a href="#resolve_vault-744"><span class="linenos">744</span></a>    <span class="c1"># vault, so no cache entry is consulted or created for it. An explicit</span>
+</span><span id="resolve_vault-745"><a href="#resolve_vault-745"><span class="linenos">745</span></a>    <span class="c1"># argument still wins: a direct request must not be overridden by the</span>
+</span><span id="resolve_vault-746"><a href="#resolve_vault-746"><span class="linenos">746</span></a>    <span class="c1"># ambient scope.</span>
+</span><span id="resolve_vault-747"><a href="#resolve_vault-747"><span class="linenos">747</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="resolve_vault-748"><a href="#resolve_vault-748"><span class="linenos">748</span></a>        <span class="n">scoped</span> <span class="o">=</span> <span class="n">_active_vault</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span id="resolve_vault-749"><a href="#resolve_vault-749"><span class="linenos">749</span></a>        <span class="k">if</span> <span class="n">scoped</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="resolve_vault-750"><a href="#resolve_vault-750"><span class="linenos">750</span></a>            <span class="k">return</span> <span class="n">scoped</span>
+</span><span id="resolve_vault-751"><a href="#resolve_vault-751"><span class="linenos">751</span></a>    <span class="c1"># ARC-009: Normalize cwd to a resolved str for consistent cache keys</span>
+</span><span id="resolve_vault-752"><a href="#resolve_vault-752"><span class="linenos">752</span></a>    <span class="n">normalized_cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="resolve_vault-753"><a href="#resolve_vault-753"><span class="linenos">753</span></a>    <span class="k">if</span> <span class="n">cwd</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="resolve_vault-754"><a href="#resolve_vault-754"><span class="linenos">754</span></a>        <span class="n">normalized_cwd</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">cwd</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+</span><span id="resolve_vault-755"><a href="#resolve_vault-755"><span class="linenos">755</span></a>    <span class="c1"># A Path explicit (e.g. doctor/cli.py's ``--vault`` uses ``type=Path``)</span>
+</span><span id="resolve_vault-756"><a href="#resolve_vault-756"><span class="linenos">756</span></a>    <span class="c1"># must be coerced to str before the named-vault dict lookup in</span>
+</span><span id="resolve_vault-757"><a href="#resolve_vault-757"><span class="linenos">757</span></a>    <span class="c1"># _resolve_vault_reference, which is keyed by vault NAME.</span>
+</span><span id="resolve_vault-758"><a href="#resolve_vault-758"><span class="linenos">758</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="resolve_vault-759"><a href="#resolve_vault-759"><span class="linenos">759</span></a>        <span class="n">explicit</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">explicit</span><span class="p">)</span>
+</span><span id="resolve_vault-760"><a href="#resolve_vault-760"><span class="linenos">760</span></a>    <span class="k">return</span> <span class="n">_resolve_vault_cached</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="n">normalized_cwd</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -1166,33 +1166,33 @@ resolve without passing the value through every signature.</p>
 
     </div>
     <a class="headerlink" href="#resolve_templates_dir"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_templates_dir-899"><a href="#resolve_templates_dir-899"><span class="linenos">899</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_templates_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="resolve_templates_dir-900"><a href="#resolve_templates_dir-900"><span class="linenos">900</span></a><span class="w">    </span><span class="sd">"""Resolve the templates directory path.</span>
-</span><span id="resolve_templates_dir-901"><a href="#resolve_templates_dir-901"><span class="linenos">901</span></a>
-</span><span id="resolve_templates_dir-902"><a href="#resolve_templates_dir-902"><span class="linenos">902</span></a><span class="sd">    Precedence (highest to lowest):</span>
-</span><span id="resolve_templates_dir-903"><a href="#resolve_templates_dir-903"><span class="linenos">903</span></a><span class="sd">    1. CLAUDE_TEMPLATES_DIR environment variable</span>
-</span><span id="resolve_templates_dir-904"><a href="#resolve_templates_dir-904"><span class="linenos">904</span></a><span class="sd">    2. Sibling ``templates/`` directory next to this script (works for both</span>
-</span><span id="resolve_templates_dir-905"><a href="#resolve_templates_dir-905"><span class="linenos">905</span></a><span class="sd">       the repo source layout and the installed skill location)</span>
-</span><span id="resolve_templates_dir-906"><a href="#resolve_templates_dir-906"><span class="linenos">906</span></a><span class="sd">    3. Default ``~/.claude/skills/parsidion/templates``</span>
-</span><span id="resolve_templates_dir-907"><a href="#resolve_templates_dir-907"><span class="linenos">907</span></a>
-</span><span id="resolve_templates_dir-908"><a href="#resolve_templates_dir-908"><span class="linenos">908</span></a><span class="sd">    Returns:</span>
-</span><span id="resolve_templates_dir-909"><a href="#resolve_templates_dir-909"><span class="linenos">909</span></a><span class="sd">        Absolute Path to the templates directory.</span>
-</span><span id="resolve_templates_dir-910"><a href="#resolve_templates_dir-910"><span class="linenos">910</span></a><span class="sd">    """</span>
-</span><span id="resolve_templates_dir-911"><a href="#resolve_templates_dir-911"><span class="linenos">911</span></a>    <span class="c1"># 1. Environment variable override</span>
-</span><span id="resolve_templates_dir-912"><a href="#resolve_templates_dir-912"><span class="linenos">912</span></a>    <span class="n">env_templates</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"CLAUDE_TEMPLATES_DIR"</span><span class="p">)</span>
-</span><span id="resolve_templates_dir-913"><a href="#resolve_templates_dir-913"><span class="linenos">913</span></a>    <span class="k">if</span> <span class="n">env_templates</span><span class="p">:</span>
-</span><span id="resolve_templates_dir-914"><a href="#resolve_templates_dir-914"><span class="linenos">914</span></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">env_templates</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
-</span><span id="resolve_templates_dir-915"><a href="#resolve_templates_dir-915"><span class="linenos">915</span></a>
-</span><span id="resolve_templates_dir-916"><a href="#resolve_templates_dir-916"><span class="linenos">916</span></a>    <span class="c1"># 2. Sibling directory relative to this script. This module lives at</span>
-</span><span id="resolve_templates_dir-917"><a href="#resolve_templates_dir-917"><span class="linenos">917</span></a>    <span class="c1">#    scripts/core/vault_path.py, so templates/ is two parents up</span>
-</span><span id="resolve_templates_dir-918"><a href="#resolve_templates_dir-918"><span class="linenos">918</span></a>    <span class="c1">#    (.../scripts/core -&gt; .../scripts -&gt; .../parsidion/templates).</span>
-</span><span id="resolve_templates_dir-919"><a href="#resolve_templates_dir-919"><span class="linenos">919</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
-</span><span id="resolve_templates_dir-920"><a href="#resolve_templates_dir-920"><span class="linenos">920</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
-</span><span id="resolve_templates_dir-921"><a href="#resolve_templates_dir-921"><span class="linenos">921</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
-</span><span id="resolve_templates_dir-922"><a href="#resolve_templates_dir-922"><span class="linenos">922</span></a>        <span class="k">return</span> <span class="n">sibling</span>
-</span><span id="resolve_templates_dir-923"><a href="#resolve_templates_dir-923"><span class="linenos">923</span></a>
-</span><span id="resolve_templates_dir-924"><a href="#resolve_templates_dir-924"><span class="linenos">924</span></a>    <span class="c1"># 3. Default</span>
-</span><span id="resolve_templates_dir-925"><a href="#resolve_templates_dir-925"><span class="linenos">925</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_templates_dir-957"><a href="#resolve_templates_dir-957"><span class="linenos">957</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_templates_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="resolve_templates_dir-958"><a href="#resolve_templates_dir-958"><span class="linenos">958</span></a><span class="w">    </span><span class="sd">"""Resolve the templates directory path.</span>
+</span><span id="resolve_templates_dir-959"><a href="#resolve_templates_dir-959"><span class="linenos">959</span></a>
+</span><span id="resolve_templates_dir-960"><a href="#resolve_templates_dir-960"><span class="linenos">960</span></a><span class="sd">    Precedence (highest to lowest):</span>
+</span><span id="resolve_templates_dir-961"><a href="#resolve_templates_dir-961"><span class="linenos">961</span></a><span class="sd">    1. CLAUDE_TEMPLATES_DIR environment variable</span>
+</span><span id="resolve_templates_dir-962"><a href="#resolve_templates_dir-962"><span class="linenos">962</span></a><span class="sd">    2. Sibling ``templates/`` directory next to this script (works for both</span>
+</span><span id="resolve_templates_dir-963"><a href="#resolve_templates_dir-963"><span class="linenos">963</span></a><span class="sd">       the repo source layout and the installed skill location)</span>
+</span><span id="resolve_templates_dir-964"><a href="#resolve_templates_dir-964"><span class="linenos">964</span></a><span class="sd">    3. Default ``~/.claude/skills/parsidion/templates``</span>
+</span><span id="resolve_templates_dir-965"><a href="#resolve_templates_dir-965"><span class="linenos">965</span></a>
+</span><span id="resolve_templates_dir-966"><a href="#resolve_templates_dir-966"><span class="linenos">966</span></a><span class="sd">    Returns:</span>
+</span><span id="resolve_templates_dir-967"><a href="#resolve_templates_dir-967"><span class="linenos">967</span></a><span class="sd">        Absolute Path to the templates directory.</span>
+</span><span id="resolve_templates_dir-968"><a href="#resolve_templates_dir-968"><span class="linenos">968</span></a><span class="sd">    """</span>
+</span><span id="resolve_templates_dir-969"><a href="#resolve_templates_dir-969"><span class="linenos">969</span></a>    <span class="c1"># 1. Environment variable override</span>
+</span><span id="resolve_templates_dir-970"><a href="#resolve_templates_dir-970"><span class="linenos">970</span></a>    <span class="n">env_templates</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"CLAUDE_TEMPLATES_DIR"</span><span class="p">)</span>
+</span><span id="resolve_templates_dir-971"><a href="#resolve_templates_dir-971"><span class="linenos">971</span></a>    <span class="k">if</span> <span class="n">env_templates</span><span class="p">:</span>
+</span><span id="resolve_templates_dir-972"><a href="#resolve_templates_dir-972"><span class="linenos">972</span></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">env_templates</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+</span><span id="resolve_templates_dir-973"><a href="#resolve_templates_dir-973"><span class="linenos">973</span></a>
+</span><span id="resolve_templates_dir-974"><a href="#resolve_templates_dir-974"><span class="linenos">974</span></a>    <span class="c1"># 2. Sibling directory relative to this script. This module lives at</span>
+</span><span id="resolve_templates_dir-975"><a href="#resolve_templates_dir-975"><span class="linenos">975</span></a>    <span class="c1">#    scripts/core/vault_path.py, so templates/ is two parents up</span>
+</span><span id="resolve_templates_dir-976"><a href="#resolve_templates_dir-976"><span class="linenos">976</span></a>    <span class="c1">#    (.../scripts/core -&gt; .../scripts -&gt; .../parsidion/templates).</span>
+</span><span id="resolve_templates_dir-977"><a href="#resolve_templates_dir-977"><span class="linenos">977</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
+</span><span id="resolve_templates_dir-978"><a href="#resolve_templates_dir-978"><span class="linenos">978</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
+</span><span id="resolve_templates_dir-979"><a href="#resolve_templates_dir-979"><span class="linenos">979</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+</span><span id="resolve_templates_dir-980"><a href="#resolve_templates_dir-980"><span class="linenos">980</span></a>        <span class="k">return</span> <span class="n">sibling</span>
+</span><span id="resolve_templates_dir-981"><a href="#resolve_templates_dir-981"><span class="linenos">981</span></a>
+</span><span id="resolve_templates_dir-982"><a href="#resolve_templates_dir-982"><span class="linenos">982</span></a>    <span class="c1"># 3. Default</span>
+</span><span id="resolve_templates_dir-983"><a href="#resolve_templates_dir-983"><span class="linenos">983</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
 </span></pre></div>
 
 
@@ -1224,19 +1224,19 @@ the repo source layout and the installed skill location)</li>
 
     </div>
     <a class="headerlink" href="#default_vault_root"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="default_vault_root-67"><a href="#default_vault_root-67"><span class="linenos">67</span></a><span class="k">def</span><span class="w"> </span><span class="nf">default_vault_root</span><span class="p">(</span><span class="n">home</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="default_vault_root-68"><a href="#default_vault_root-68"><span class="linenos">68</span></a><span class="w">    </span><span class="sd">"""Return the default vault path, preserving legacy installs.</span>
-</span><span id="default_vault_root-69"><a href="#default_vault_root-69"><span class="linenos">69</span></a>
-</span><span id="default_vault_root-70"><a href="#default_vault_root-70"><span class="linenos">70</span></a><span class="sd">    New installs default to ``~/ParsidionVault``. If a user already has a</span>
-</span><span id="default_vault_root-71"><a href="#default_vault_root-71"><span class="linenos">71</span></a><span class="sd">    legacy ``~/ClaudeVault`` and has not created ``~/ParsidionVault``, keep</span>
-</span><span id="default_vault_root-72"><a href="#default_vault_root-72"><span class="linenos">72</span></a><span class="sd">    using the legacy path so upgrades do not silently create a second vault.</span>
-</span><span id="default_vault_root-73"><a href="#default_vault_root-73"><span class="linenos">73</span></a><span class="sd">    """</span>
-</span><span id="default_vault_root-74"><a href="#default_vault_root-74"><span class="linenos">74</span></a>    <span class="n">root</span> <span class="o">=</span> <span class="n">home</span> <span class="ow">or</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span>
-</span><span id="default_vault_root-75"><a href="#default_vault_root-75"><span class="linenos">75</span></a>    <span class="n">current</span> <span class="o">=</span> <span class="n">root</span> <span class="o">/</span> <span class="n">DEFAULT_VAULT_NAME</span>
-</span><span id="default_vault_root-76"><a href="#default_vault_root-76"><span class="linenos">76</span></a>    <span class="n">legacy</span> <span class="o">=</span> <span class="n">root</span> <span class="o">/</span> <span class="n">LEGACY_DEFAULT_VAULT_NAME</span>
-</span><span id="default_vault_root-77"><a href="#default_vault_root-77"><span class="linenos">77</span></a>    <span class="k">if</span> <span class="n">legacy</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">current</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="default_vault_root-78"><a href="#default_vault_root-78"><span class="linenos">78</span></a>        <span class="k">return</span> <span class="n">legacy</span>
-</span><span id="default_vault_root-79"><a href="#default_vault_root-79"><span class="linenos">79</span></a>    <span class="k">return</span> <span class="n">current</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="default_vault_root-68"><a href="#default_vault_root-68"><span class="linenos">68</span></a><span class="k">def</span><span class="w"> </span><span class="nf">default_vault_root</span><span class="p">(</span><span class="n">home</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="default_vault_root-69"><a href="#default_vault_root-69"><span class="linenos">69</span></a><span class="w">    </span><span class="sd">"""Return the default vault path, preserving legacy installs.</span>
+</span><span id="default_vault_root-70"><a href="#default_vault_root-70"><span class="linenos">70</span></a>
+</span><span id="default_vault_root-71"><a href="#default_vault_root-71"><span class="linenos">71</span></a><span class="sd">    New installs default to ``~/ParsidionVault``. If a user already has a</span>
+</span><span id="default_vault_root-72"><a href="#default_vault_root-72"><span class="linenos">72</span></a><span class="sd">    legacy ``~/ClaudeVault`` and has not created ``~/ParsidionVault``, keep</span>
+</span><span id="default_vault_root-73"><a href="#default_vault_root-73"><span class="linenos">73</span></a><span class="sd">    using the legacy path so upgrades do not silently create a second vault.</span>
+</span><span id="default_vault_root-74"><a href="#default_vault_root-74"><span class="linenos">74</span></a><span class="sd">    """</span>
+</span><span id="default_vault_root-75"><a href="#default_vault_root-75"><span class="linenos">75</span></a>    <span class="n">root</span> <span class="o">=</span> <span class="n">home</span> <span class="ow">or</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span>
+</span><span id="default_vault_root-76"><a href="#default_vault_root-76"><span class="linenos">76</span></a>    <span class="n">current</span> <span class="o">=</span> <span class="n">root</span> <span class="o">/</span> <span class="n">DEFAULT_VAULT_NAME</span>
+</span><span id="default_vault_root-77"><a href="#default_vault_root-77"><span class="linenos">77</span></a>    <span class="n">legacy</span> <span class="o">=</span> <span class="n">root</span> <span class="o">/</span> <span class="n">LEGACY_DEFAULT_VAULT_NAME</span>
+</span><span id="default_vault_root-78"><a href="#default_vault_root-78"><span class="linenos">78</span></a>    <span class="k">if</span> <span class="n">legacy</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">current</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="default_vault_root-79"><a href="#default_vault_root-79"><span class="linenos">79</span></a>        <span class="k">return</span> <span class="n">legacy</span>
+</span><span id="default_vault_root-80"><a href="#default_vault_root-80"><span class="linenos">80</span></a>    <span class="k">return</span> <span class="n">current</span>
 </span></pre></div>
 
 
@@ -4873,19 +4873,19 @@ Best-effort -- never raises.</p>
 
     </div>
     <a class="headerlink" href="#get_embeddings_db_path"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_embeddings_db_path-928"><a href="#get_embeddings_db_path-928"><span class="linenos">928</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="get_embeddings_db_path-929"><a href="#get_embeddings_db_path-929"><span class="linenos">929</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
-</span><span id="get_embeddings_db_path-930"><a href="#get_embeddings_db_path-930"><span class="linenos">930</span></a>
-</span><span id="get_embeddings_db_path-931"><a href="#get_embeddings_db_path-931"><span class="linenos">931</span></a><span class="sd">    Args:</span>
-</span><span id="get_embeddings_db_path-932"><a href="#get_embeddings_db_path-932"><span class="linenos">932</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
-</span><span id="get_embeddings_db_path-933"><a href="#get_embeddings_db_path-933"><span class="linenos">933</span></a>
-</span><span id="get_embeddings_db_path-934"><a href="#get_embeddings_db_path-934"><span class="linenos">934</span></a><span class="sd">    Returns:</span>
-</span><span id="get_embeddings_db_path-935"><a href="#get_embeddings_db_path-935"><span class="linenos">935</span></a><span class="sd">        Path to vault/embeddings.db.</span>
-</span><span id="get_embeddings_db_path-936"><a href="#get_embeddings_db_path-936"><span class="linenos">936</span></a><span class="sd">    """</span>
-</span><span id="get_embeddings_db_path-937"><a href="#get_embeddings_db_path-937"><span class="linenos">937</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
-</span><span id="get_embeddings_db_path-938"><a href="#get_embeddings_db_path-938"><span class="linenos">938</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
-</span><span id="get_embeddings_db_path-939"><a href="#get_embeddings_db_path-939"><span class="linenos">939</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
-</span><span id="get_embeddings_db_path-940"><a href="#get_embeddings_db_path-940"><span class="linenos">940</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_embeddings_db_path-986"><a href="#get_embeddings_db_path-986"><span class="linenos">986</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="get_embeddings_db_path-987"><a href="#get_embeddings_db_path-987"><span class="linenos">987</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
+</span><span id="get_embeddings_db_path-988"><a href="#get_embeddings_db_path-988"><span class="linenos">988</span></a>
+</span><span id="get_embeddings_db_path-989"><a href="#get_embeddings_db_path-989"><span class="linenos">989</span></a><span class="sd">    Args:</span>
+</span><span id="get_embeddings_db_path-990"><a href="#get_embeddings_db_path-990"><span class="linenos">990</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
+</span><span id="get_embeddings_db_path-991"><a href="#get_embeddings_db_path-991"><span class="linenos">991</span></a>
+</span><span id="get_embeddings_db_path-992"><a href="#get_embeddings_db_path-992"><span class="linenos">992</span></a><span class="sd">    Returns:</span>
+</span><span id="get_embeddings_db_path-993"><a href="#get_embeddings_db_path-993"><span class="linenos">993</span></a><span class="sd">        Path to vault/embeddings.db.</span>
+</span><span id="get_embeddings_db_path-994"><a href="#get_embeddings_db_path-994"><span class="linenos">994</span></a><span class="sd">    """</span>
+</span><span id="get_embeddings_db_path-995"><a href="#get_embeddings_db_path-995"><span class="linenos">995</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
+</span><span id="get_embeddings_db_path-996"><a href="#get_embeddings_db_path-996"><span class="linenos">996</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
+</span><span id="get_embeddings_db_path-997"><a href="#get_embeddings_db_path-997"><span class="linenos">997</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
+</span><span id="get_embeddings_db_path-998"><a href="#get_embeddings_db_path-998"><span class="linenos">998</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
 </span></pre></div>
 
 
