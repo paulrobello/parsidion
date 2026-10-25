@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-25
+
+### Added
+
+- **Vault sprawl enforcement** — the doctor scan now reports a `TRASH_SIZE` finding once `.trash` exceeds 1,000 files, backed by a new `trash-size` rule; pruning is opt-in via `--prune-trash --trash-retention-days N --execute` and is deliberately never implied by `--fix-all`.
+- **Static-only post-merge indexing** — `PARSIDION_STATIC_ONLY=1` (per-invocation: `PARSIDION_STATIC_ONLY=1 git pull`) skips the embeddings step of the vault post-merge hook v3 and update_index's background embed/parsight launches; docs now also cover that `git merge --squash` fires the hook and that it auto-commits generated index files.
+- **CI-parity gate** — new `make checkall-ci` adds wheel build + clean-room import smoke (`make wheel-install`), `make parity-fixtures-check`, `make docs-api-check`, and the pi-extension tests (`make pi-extension-check`) to the fast `checkall`.
+- **Linked-worktree vault resolution** — `--vault`/`CLAUDE_VAULT` now accept a Git worktree of an already-allowlisted vault, verified reciprocally via the registered root's own `git worktree list` (fail-closed; arbitrary paths still rejected).
+
+### Changed
+
+- **Subfolder AI vetting is batched** — first-word clusters are vetted in calls of ~50 instead of one 45k-char prompt, so default-invocation runs (nightly `--fix-all`) no longer time out at 120s and skip every cluster; a failed batch now skips only its own clusters, and per-cause failure reporting (timeout/disabled/launch/non-zero) is retained per batch.
+- **`build_embeddings.py` honors `embeddings.enabled`** — direct runs (notably the vault post-merge hook) on a vault with embeddings disabled now exit early instead of rebuilding the 160MB index; `--force` overrides. `update_index.py` still maintains `note_index`.
+- **Summarizer prompt 1.1.0** — generated notes must label rejected/abandoned experiments as such, separate measured evidence from hypothesis, carry causal uncertainty with lowered confidence, and avoid resource-exhaustion claims without trace evidence. The prompt-eval harness now retains full outputs, names failed required patterns, and supports `--case` single-case reruns.
+- **Summarizer visibility** — a flushed heartbeat line names the backend and timeout before each in-flight summarize AI call; the links phase is pinned idempotent by tests, and its previously unbounded in-process semantic lookup is diagnosed and queued for bounding.
+
+### Fixed
+
+- `parsight_backend` again detects daemon watcher coverage: the folded `watch` tool (ENH-066) is called with `{"action":"list"}` instead of the retired `list_watched_paths` (which logged `-32602` on every session prompt).
+- Doctor strip-prefixes resolves `_run_reindex` through the `vault_doctor` shim so test patches take effect (previously ran a real index-rebuild subprocess; surfaced as a 10s pytest timeout after the dependency refresh).
+- The oversized-request embedding-service test no longer flakes on the SEC-018 socket-close race (peer close is treated as the refusal it is).
+- parsidion-mcp integration smoke tests run against a registered temp vault instead of walking the live `~/ParsidionVault`.
+
+### Dependencies
+
+- Python: fastembed 0.9.1, Pillow 13.0.0, ruff 0.17.2, fastmcp 4.1.3, and transitive refreshes; manifest floors synced. Held: huggingface-hub <2.0 (fastembed constraint).
+- Visualizer: Next 16.4.3, React 19.3.1, happy-dom 21, chokidar 6. Held: TypeScript ^6 (typescript-eslint/typedoc reject 7), sigma 3 (v4 API migration), eslint-config-next 16.3.8 + react-hooks 7.0.1 (7.1.1 lint regressions).
+- CI: actions/checkout v7.0.1, astral-sh/setup-uv v10.3.2 (verified SHA), oven-sh/setup-bun v2.2.0 — all latest.
+
 ## [0.25.0] - 2026-09-24
 
 ### Added
