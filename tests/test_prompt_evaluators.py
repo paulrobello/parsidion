@@ -339,3 +339,76 @@ class TestSummarizeSessionEvidence:
         assert checks["must_mention"] == 1.0
         assert checks["required_claims"] == 0.0
         assert score == 0.0
+
+
+@pytest.mark.parametrize("edges", ["expiration_edges=0", "expiration_edges = 0"])
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "The unsolicited second-drone idea is not a requirement.",
+        "The unrequested second drone is excluded.",
+    ],
+)
+def test_evidence_valid_alternative_grammar(summarizer, evidence_case, edges, scope):
+    raw = _EVIDENCE_NOTE.replace("There was no expiration edge.", edges + ".").replace(
+        "The second drone was not requested.", scope
+    )
+    score, checks = summarizer.score(summarizer.parse(raw), evidence_case)
+    assert checks["required_claims"] == 1.0
+    assert score == 100.0
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("There was no expiration edge.", "expiration_edges=01."),
+        ("There was no expiration edge.", "expiration_edges=1."),
+        ("The second drone was not requested.", "The second drone was requested."),
+        ("The accepted baseline remains single-drone.", "The baseline was rejected."),
+        (
+            "Ammo and guidance variants were rejected.",
+            "Ammo and guidance variants were explored.",
+        ),
+        ("4690 of its 6000 capacity", "4690 of its 7000 capacity"),
+        (
+            "Zero qualifying witnesses were recorded.",
+            "Some qualifying witnesses were recorded.",
+        ),
+    ],
+)
+def test_evidence_missing_facts_remain_red(summarizer, evidence_case, old, new):
+    parsed = summarizer.parse(_EVIDENCE_NOTE.replace(old, new))
+    score, checks = summarizer.score(parsed, evidence_case)
+    assert checks["required_claims"] == 0.0
+    assert parsed["missing_required_patterns"]
+    assert score == 0.0
+
+
+def test_driver_preserves_full_output_and_bounds_case(monkeypatch):
+    import prompt_eval_run as driver
+
+    calls = []
+    raw = _EVIDENCE_NOTE + (" diagnostic detail" * 200)
+
+    def fake_call(prompt, model, tier):
+        calls.append(prompt)
+        return raw
+
+    monkeypatch.setattr(driver, "_call_ai", fake_call)
+    results = driver.run_eval("summarize-session", None, "small", 1, "009", False, True)
+    assert len(calls) == len(results) == 1
+    assert results[0].case_id == "009-rejected-ammo-guidance"
+    assert results[0].raw_output == raw
+    assert len(results[0].raw_output) > 500
+    assert results[0].failed_required_patterns == []
+
+
+def test_driver_reports_missing_required_patterns(monkeypatch):
+    import prompt_eval_run as driver
+
+    monkeypatch.setattr(driver, "_call_ai", lambda *args: "---\ntype: project\n---\n")
+    results = driver.run_eval(
+        "summarize-session", None, "small", None, "009", False, True
+    )
+    assert len(results[0].failed_required_patterns) == 8
+    assert results[0].score == 0.0

@@ -137,6 +137,7 @@ def run_eval(
     model: str | None,
     model_tier: str,
     limit: int | None,
+    case_filter: str | None,
     use_cache: bool,
     auto_yes: bool,
 ) -> list[ScoredCase]:
@@ -148,7 +149,11 @@ def run_eval(
     evaluator = EVALUATORS[prompt_id]
     version = evaluator.version_stamp
 
-    cases = evaluator.load_cases(limit=limit)
+    cases = evaluator.load_cases()
+    if case_filter is not None:
+        cases = [c for c in cases if case_filter in c.case_id]
+    if limit:
+        cases = cases[:limit]
     if not cases:
         console.print(
             f"[red]No golden cases found for {prompt_id!r} "
@@ -202,7 +207,13 @@ def run_eval(
                 case_id=case.case_id,
                 score=score,
                 checks=checks,
-                raw_output=raw[:500],
+                # Full raw output: these are curated, anonymized fixtures, and
+                # the evidence-check failure modes are only diagnosable from
+                # what the model actually wrote.
+                raw_output=raw,
+                failed_required_patterns=list(
+                    parsed.get("missing_required_patterns") or []
+                ),
             )
         except Exception as exc:  # noqa: BLE001
             result = ScoredCase(
@@ -264,6 +275,12 @@ def display_results(results: list[ScoredCase], prompt_id: str) -> None:
         table.add_row(r.case_id, *cells, f"{r.score:.1f}", "yes" if r.cached else "")
     console.print()
     console.print(table)
+    for result in results:
+        for pattern in result.failed_required_patterns:
+            console.print(
+                f"  {result.case_id}: missing required pattern {pattern!r}",
+                markup=False,
+            )
     avg = sum(r.score for r in results) / len(results) if results else 0.0
     console.print(f"\n[bold]Mean score: {avg:.1f}[/bold]   (n={len(results)})\n")
 
@@ -312,6 +329,12 @@ def main() -> None:
         help="Model tier when --model is unset (default: small).",
     )
     parser.add_argument(
+        "--case",
+        default=None,
+        help="Evaluate only cases whose id contains this substring "
+        "(e.g. --case 009 for a bounded single-case rerun).",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -334,6 +357,7 @@ def main() -> None:
         model=args.model,
         model_tier=args.model_tier,
         limit=args.limit,
+        case_filter=args.case,
         use_cache=not args.no_cache,
         auto_yes=args.yes,
     )

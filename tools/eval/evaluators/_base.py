@@ -59,6 +59,7 @@ class ScoredCase:
     cached: bool = False
     error: str = ""
     raw_output: str = field(default="", repr=False)
+    failed_required_patterns: list[str] = field(default_factory=list)
 
 
 class PromptEvaluator(Protocol):

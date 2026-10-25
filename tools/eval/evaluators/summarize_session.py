@@ -80,15 +80,23 @@ def _asserted_match(text: str, pattern: str) -> bool:
     return False
 
 
-def _evidence_checks(raw: str, expected: dict[str, Any]) -> dict[str, float]:
-    """Evaluate optional evidence contracts before the weighted quality rubric."""
+def _evidence_checks(
+    raw: str, expected: dict[str, Any]
+) -> tuple[dict[str, float], list[str]]:
+    """Evaluate optional evidence contracts before the weighted rubric.
+
+    Returns the check fractions and the list of required patterns with no match
+    (for the driver's per-pattern failure report).
+    """
     required = expected.get("required_claim_patterns") or []
     forbidden = expected.get("forbidden_claim_patterns") or []
     checks: dict[str, float] = {}
+    missing: list[str] = []
     if required:
-        checks["required_claims"] = float(
-            all(re.search(str(p), raw, re.IGNORECASE) for p in required)
-        )
+        missing = [
+            str(p) for p in required if not re.search(str(p), raw, re.IGNORECASE)
+        ]
+        checks["required_claims"] = float(not missing)
     if forbidden:
         checks["unsupported_claims"] = float(
             not any(_asserted_match(raw, str(p)) for p in forbidden)
@@ -100,7 +108,7 @@ def _evidence_checks(raw: str, expected: dict[str, Any]) -> dict[str, float]:
         checks["causal_confidence"] = float(
             match is not None and ranks[match.group(1)] <= ranks[str(ceiling)]
         )
-    return checks
+    return checks, missing
 
 
 class SummarizeSessionEvaluator(BaseEvaluator):
@@ -230,9 +238,10 @@ class SummarizeSessionEvaluator(BaseEvaluator):
             + WEIGHT_MUST_MENTION * checks["must_mention"]
             + WEIGHT_RELATED_LINKS * checks["related_links"]
         )
-        evidence = _evidence_checks(str(parsed["raw"]), expected)
+        evidence, missing_required = _evidence_checks(str(parsed["raw"]), expected)
         checks.update(evidence)
         # A contradiction is not compensated by correct tags or formatting.
         if any(value == 0.0 for value in evidence.values()):
             score = 0.0
+        parsed["missing_required_patterns"] = missing_required
         return round(score, 1), checks

@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "generated_at": "2026-10-25T14:50:55.557400",
+    "prompt_id": "summarize-session",
+    "model": "default-small",
+    "case_count": 1,
+    "mean_score": 80.0,
+    "original_score_before_rubric_fix": 0.0,
+    "original_failed_required_patterns": [
+      "no expiration edge|zero expiration edges|without.{0,40}expir",
+      "second drone[^.]{0,50}(not requested|unrequested|unsolicited)"
+    ],
+    "rescored_offline": true,
+    "backend": "claude-cli"
+  },
+  "results": [
+    {
+      "case_id": "009-rejected-ammo-guidance",
+      "prompt_id": "summarize-session",
+      "prompt_version": "summarize-session@1.1.0",
+      "model": "small",
+      "score": 80.0,
+      "checks": {
+        "write_gate": 1.0,
+        "type": 0.0,
+        "frontmatter": 1.0,
+        "tags": 0.75,
+        "must_mention": 1.0,
+        "related_links": 1.0,
+        "required_claims": 1.0,
+        "unsupported_claims": 1.0,
+        "causal_confidence": 1.0
+      },
+      "cached": false,
+      "error": "",
+      "raw_output": "---\ndate: 2026-10-25\ntype: debugging\ntags:\n  - drone\n  - evidence\n  - baseline\nproject: eval-project\nconfidence: medium\nsources: []\nrelated:\n  - \"[[eval-project]]\"\nprovenance: inferred\nsession_id: eval-case\n---\n\n# Witness-Gated Drone Baseline Changes\n\n## Summary\n\nThe accepted single-drone baseline remains unchanged because neither the ammo-capacity experiment nor the guidance experiment produced a qualifying witness. The baseline trace contradicts expiration or source exhaustion as explanations for the observed late-run loss of fire, but does not establish an alternative cause.\n\n## Key Learnings\n\n- **Gate baseline changes on qualifying evidence:** A symptom alone does not justify selecting an experimental configuration. Capture a qualifying witness before changing the accepted baseline.\n- **Check timing before attributing expiration:** The baseline run ended at `840.0167s`, before the earliest possible expiration at `850.033s`, and recorded `expiration_edges=0`. This run provides no direct evidence of expiration.\n- **Check remaining supply before attributing exhaustion:** The trace recorded `source_remaining=4690` and `source_capacity=6000`, with no source-exhaustion event. Source exhaustion is not supported by the recorded evidence.\n- **Keep rejected experiments separate from accepted results:** The ammo-capacity and guidance variants were rejected, not selected or shipped, because neither produced a qualifying witness.\n- **Do not promote an unverified hypothesis into a cause:** A guidance problem remains a low-confidence hypothesis. The symptom motivated investigation, but zero qualifying witnesses provide no affirmative support; the evidence against expiration and exhaustion does not establish guidance by elimination.\n- **Preserve requested scope:** The accepted configuration contains one drone. The unsolicited second-drone idea is neither an accepted change nor a requirement.\n\n## Accepted Baseline Evidence\n\nThe transcript reports the following measurements from the accepted single-drone run:\n\n| Measurement | Recorded value |\n|---|---:|\n| Run end | `840.0167s` |\n| Earliest possible expiration | `850.033s` |\n| Expiration edges | `0` |\n| Source remaining | `4690` |\n| Source capacity | `6000` |\n| Qualifying witnesses | `0` |\n\nThese measurements contradict an expiration or source-exhaustion explanation for this run. They do not identify the cause of the late-run loss of fire or establish that every possible resource remained available.\n\n## Rejected Experiments\n\n| Experiment | Status | Reported evidence |\n|---|---|---|\n| Ammo-capacity variant | Rejected; not selected or shipped | No qualifying witness |\n| Guidance variant | Rejected; not selected or shipped | No qualifying witness |\n\nThe transcript's later claim that zero witnesses support a guidance hypothesis is not warranted by the reported evidence. Both experiments remain unsuccessful attempts to establish a qualifying result, not causal confirmations.\n\n## Context\n\nThe investigation concerned a drone's late-run loss of fire in `eval-project`. The user required preserving the accepted single-drone baseline unless an experiment produced a qualifying witness, while recording rejected experiments separately and excluding an unrequested second drone from requirements.",
+      "failed_required_patterns": []
+    }
+  ]
+}
