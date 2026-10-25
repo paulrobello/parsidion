@@ -6,6 +6,9 @@ These pin two security invariants:
 * every ``uv run`` line in the installed hook template carries ``--no-project``
   (SEC-101 — a missing flag grants RCE to a hostile vault remote via PEP 517
   build-backend discovery in the vault worktree).
+* the v3 template gates the embeddings step on ``PARSIDION_STATIC_ONLY=1`` so a
+  per-invocation static-only pull never loads or fetches an embedding model,
+  while the index rebuild stays unconditional.
 * the vault ``.gitignore`` covers backup variants of sensitive files
   (SEC-104 — exact-filename entries let ``pending_summaries.jsonl.bak`` slip
   through), and a commented-out ``# config.yaml`` no longer suppresses the real
@@ -14,6 +17,7 @@ These pin two security invariants:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -51,6 +55,79 @@ class TestTemplateInvariants:
         # The pre-rename marker string must be recognised so stale hooks
         # regenerate on the next install instead of being skipped.
         assert "# parsidion-cc post-merge hook" in _POST_MERGE_LEGACY_MARKERS
+
+
+class TestStaticOnlyPostMergeHook:
+    """Static-only merges rebuild the index without starting model work."""
+
+    def test_template_has_static_only_gate(self) -> None:
+        assert 'if [ "$PARSIDION_STATIC_ONLY" = "1" ]; then' in (
+            _POST_MERGE_HOOK_TEMPLATE
+        )
+        assert _POST_MERGE_MARKER == "# parsidion post-merge hook v3"
+
+    @pytest.mark.parametrize("static_only", [None, "0", "1"])
+    def test_invocation_rebuilds_index_and_conditionally_embeds(
+        self, tmp_path: Path, static_only: str | None
+    ) -> None:
+        uv_stub = tmp_path / "uv"
+        uv_stub.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$UV_CALL_LOG"\n')
+        uv_stub.chmod(0o755)
+        call_log = tmp_path / "uv-calls"
+        hook = tmp_path / "post-merge"
+        hook.write_text(
+            _POST_MERGE_HOOK_TEMPLATE.format(
+                marker=_POST_MERGE_MARKER,
+                update_index_script="/scripts/update_index.py",
+                build_embeddings_script="/scripts/build_embeddings.py",
+            ),
+            encoding="utf-8",
+        )
+        env = {
+            **os.environ,
+            "PATH": str(tmp_path) + os.pathsep + os.defpath,
+            "UV_CALL_LOG": str(call_log),
+        }
+        env.pop("PARSIDION_STATIC_ONLY", None)
+        if static_only is not None:
+            env["PARSIDION_STATIC_ONLY"] = static_only
+        result = subprocess.run(
+            ["sh", str(hook)], env=env, capture_output=True, text=True, timeout=10
+        )
+        assert result.returncode == 0, result.stderr
+        calls = call_log.read_text().splitlines()
+        assert calls[0] == "run --no-project /scripts/update_index.py"
+        if static_only == "1":
+            assert len(calls) == 1
+            assert "skipping embeddings" in result.stdout
+        else:
+            assert calls[1:] == [
+                "run --no-project /scripts/build_embeddings.py --incremental"
+            ]
+
+    @pytest.mark.parametrize("doc", ["docs/VAULT_SYNC.md", "CLAUDE.md"])
+    def test_static_only_invocation_documented(self, doc: str) -> None:
+        content = (Path(__file__).resolve().parents[1] / doc).read_text(
+            encoding="utf-8"
+        )
+        assert "PARSIDION_STATIC_ONLY=1 git pull" in content
+        assert "git merge --squash" in content
+
+    def test_v2_hook_is_refreshed(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        hook_path = vault / ".git" / "hooks" / "post-merge"
+        hook_path.parent.mkdir(parents=True)
+        hook_path.write_text(
+            "#!/bin/bash\n# parsidion post-merge hook v2\n"
+            "uv run --no-project /scripts/update_index.py\n"
+            "uv run --no-project /scripts/build_embeddings.py --incremental\n",
+            encoding="utf-8",
+        )
+        assert not _is_current_post_merge_hook(hook_path.read_text())
+        install_vault_post_merge_hook(vault, tmp_path / ".claude")
+        content = hook_path.read_text()
+        assert _POST_MERGE_MARKER in content
+        assert 'if [ "$PARSIDION_STATIC_ONLY" = "1" ]; then' in content
 
 
 class TestIsCurrentPostMergeHook:
@@ -241,7 +318,7 @@ class TestSec012PostMergeHookPath:
             '/build_embeddings.py" --incremental\n'
         )
         hook_path.write_text(v1_body, encoding="utf-8")
-        assert not _is_current_post_merge_hook(v1_body)  # v2 marker required
+        assert not _is_current_post_merge_hook(v1_body)  # v3 marker required
 
         claude_dir = tmp_path / ".claude"
         (claude_dir / "skills" / "parsidion" / "scripts").mkdir(parents=True)

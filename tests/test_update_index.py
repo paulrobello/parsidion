@@ -6,6 +6,9 @@ DB writes) require a populated vault and are left as future work.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 import update_index
 
@@ -120,3 +123,137 @@ class TestGraphIncrementalFlag:
 
         monkeypatch.setattr(sys, "argv", ["update_index", "--no-graph-incremental"])
         assert update_index._parse_args().graph_incremental is False
+
+
+class TestStaticOnlySuppressesModelWork:
+    """PARSIDION_STATIC_ONLY=1 must propagate through ``update_index.main()``.
+
+    The v3 vault post-merge hook skips its own ``build_embeddings.py`` step
+    under PARSIDION_STATIC_ONLY=1, but ``update_index.py`` independently
+    spawns ``build_embeddings.py`` when ``embeddings.enabled`` is true, and a
+    parsight background index when the parsight backend resolves. Static-only
+    semantics require suppressing both, while the metadata rebuild
+    (CLAUDE.md / TAGS.md / MANIFEST.md / note_index table) still runs.
+    """
+
+    def _prepare_vault(self, vault: Path) -> None:
+        (vault / "Patterns").mkdir(parents=True, exist_ok=True)
+        (vault / "Patterns" / "static-only-note.md").write_text(
+            "---\ndate: 2026-10-25\ntype: pattern\ntags: [hook]\n"
+            'related: ["[[other-note]]"]\n---\n\n# Static Only Note\nBody.\n',
+            encoding="utf-8",
+        )
+        # embeddings explicitly ON: proves suppression comes from the env var,
+        # not from the embeddings.enabled config gate. Pre-create embeddings.db
+        # so the note_index metadata upsert runs (it no-ops on a missing DB).
+        (vault / "config.yaml").write_text(
+            "embeddings:\n  enabled: true\n", encoding="utf-8"
+        )
+        (vault / "embeddings.db").touch()
+
+    def _stub_spawns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        calls: dict[str, int],
+        cmds: list[list[str]],
+    ) -> None:
+        class _Proc:
+            returncode = 0
+
+            @staticmethod
+            def poll() -> None:
+                return None  # pretend the child launched and is running
+
+        def fake_popen(*args: object, **kwargs: object) -> _Proc:
+            calls["popen"] = calls.get("popen", 0) + 1
+            cmd = args[0] if args else kwargs.get("args")
+            assert isinstance(cmd, list)
+            cmds.append([str(a) for a in cmd])
+            return _Proc()
+
+        monkeypatch.setattr(
+            update_index,
+            "subprocess",
+            SimpleNamespace(Popen=fake_popen, DEVNULL=-3),
+        )
+
+        import parsight_backend
+
+        monkeypatch.setattr(
+            parsight_backend,
+            "resolve_parsight_backend",
+            lambda vault_path: (
+                calls.__setitem__(
+                    "parsight_resolve", calls.get("parsight_resolve", 0) + 1
+                )
+                or True
+            ),
+        )
+        monkeypatch.setattr(
+            parsight_backend, "daemon_watches_vault", lambda vault_path: False
+        )
+
+        def fake_spawn(vault_path: object) -> bool:
+            calls["parsight_spawn"] = calls.get("parsight_spawn", 0) + 1
+            return True
+
+        monkeypatch.setattr(parsight_backend, "spawn_background_index", fake_spawn)
+
+    def test_static_only_skips_model_spawns_with_embeddings_enabled(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import sqlite3
+        import sys
+
+        self._prepare_vault(tmp_vault)
+        monkeypatch.setenv("HOME", str(tmp_vault / "home"))
+        calls: dict[str, int] = {}
+        cmds: list[list[str]] = []
+        self._stub_spawns(monkeypatch, calls, cmds)
+        monkeypatch.setattr(sys, "argv", ["update_index"])
+        monkeypatch.setenv("PARSIDION_STATIC_ONLY", "1")
+
+        update_index.main()
+
+        assert calls.get("popen", 0) == 0, cmds
+        assert calls.get("parsight_spawn", 0) == 0
+        # The skip happens before the parsight availability probe.
+        assert calls.get("parsight_resolve", 0) == 0
+        assert "PARSIDION_STATIC_ONLY=1" in capsys.readouterr().out
+        # Metadata rebuild preserved: generated index files and note_index rows.
+        assert (tmp_vault / "CLAUDE.md").exists()
+        assert (tmp_vault / "TAGS.md").exists()
+        assert (tmp_vault / "Patterns" / "MANIFEST.md").exists()
+        con = sqlite3.connect(tmp_vault / "embeddings.db")
+        try:
+            count = con.execute("SELECT COUNT(*) FROM note_index").fetchone()[0]
+        finally:
+            con.close()
+        assert count == 1
+
+    def test_default_still_spawns_with_embeddings_enabled(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import sys
+
+        self._prepare_vault(tmp_vault)
+        monkeypatch.setenv("HOME", str(tmp_vault / "home"))
+        calls: dict[str, int] = {}
+        cmds: list[list[str]] = []
+        self._stub_spawns(monkeypatch, calls, cmds)
+        monkeypatch.setattr(sys, "argv", ["update_index"])
+        monkeypatch.delenv("PARSIDION_STATIC_ONLY", raising=False)
+
+        update_index.main()
+
+        assert calls.get("popen", 0) == 1, cmds
+        assert any("build_embeddings.py" in part for part in cmds[0]), cmds
+        assert "--no-project" in cmds[0]
+        assert calls.get("parsight_spawn", 0) == 1
+        assert "Embeddings: " in capsys.readouterr().out

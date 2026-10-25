@@ -364,7 +364,10 @@ def main() -> None:
     # QA-021: close the parent's copy of `_embed_log` after spawn. The fd is
     # intentionally inherited by the detached child, but the parent leaking
     # its own handle is unnecessary.
-    if get_config("embeddings", "enabled", True):
+    static_only = os.environ.get("PARSIDION_STATIC_ONLY") == "1"
+    if static_only:
+        print("PARSIDION_STATIC_ONLY=1: skipping embeddings and parsight indexing")
+    if not static_only and get_config("embeddings", "enabled", True):
         db_path = get_embeddings_db_path(vault=vault_path)
         build_script = Path(__file__).parent / "build_embeddings.py"
         if build_script.exists():
@@ -415,7 +418,7 @@ def main() -> None:
     # when the daemon's watcher already covers the vault: the watcher
     # re-indexes on the very note writes this run produced, so a manual job
     # would only queue behind it and contend for the index writer.
-    if parsight_backend.resolve_parsight_backend(vault_path):
+    if not static_only and parsight_backend.resolve_parsight_backend(vault_path):
         if parsight_backend.daemon_watches_vault(vault_path):
             print(
                 "parsight: daemon watcher covers the vault — skipping background index"

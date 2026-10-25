@@ -231,23 +231,38 @@ def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
 # quotes, where neither bash nor uv expands ~, so every post-merge run died
 # under `set -e` after each `git pull`. v1 hooks are recognised as stale-ours
 # and regenerated on the next install.
-_POST_MERGE_MARKER = "# parsidion post-merge hook v2"
+# Bumped to v3 — the embeddings step is now gated on PARSIDION_STATIC_ONLY=1
+# (per-invocation escape: `PARSIDION_STATIC_ONLY=1 git pull` skips the model
+# fetch while keeping the index rebuild). v1/v2 hooks are recognised as
+# stale-ours and regenerated on the next install.
+_POST_MERGE_MARKER = "# parsidion post-merge hook v3"
 # Markers from older parsidion releases whose hooks are still installed on
 # real machines. Recognising them lets install_vault_post_merge_hook
 # regenerate a stale hook instead of skipping it as "not ours". SEC-101/SEC-012.
 _POST_MERGE_LEGACY_MARKERS = (
     "# parsidion-cc post-merge hook",
     "# parsidion post-merge hook",
+    "# parsidion post-merge hook v2",
 )
 
 _POST_MERGE_HOOK_TEMPLATE = """\
 #!/bin/bash
 {marker} — rebuilds vault index and embeddings after pull
+# PARSIDION_STATIC_ONLY=1 skips the embeddings step for this invocation only
+# (PARSIDION_STATIC_ONLY=1 git pull) — no embedding-model fetch. The env var is
+# inherited by update_index.py, which skips its own background embeddings and
+# parsight index spawns while still rebuilding the metadata index. The
+# config-level equivalent is embeddings.enabled: false in the vault's
+# config.yaml (build_embeddings.py exits early when embeddings are off).
 set -e
 echo "[parsidion] Rebuilding vault index..."
 uv run --no-project {update_index_script}
-echo "[parsidion] Updating embeddings (incremental)..."
-uv run --no-project {build_embeddings_script} --incremental
+if [ "$PARSIDION_STATIC_ONLY" = "1" ]; then
+    echo "[parsidion] PARSIDION_STATIC_ONLY=1 — skipping embeddings update."
+else
+    echo "[parsidion] Updating embeddings (incremental)..."
+    uv run --no-project {build_embeddings_script} --incremental
+fi
 echo "[parsidion] Post-merge sync complete."
 """
 
@@ -257,8 +272,9 @@ def _is_current_post_merge_hook(existing: str) -> bool:
 
     A hook that carries our current marker but lacks `--no-project` on every
     `uv run` line is the SEC-101 defect and must be regenerated, not skipped.
-    A hook carrying any pre-v2 marker is the SEC-012 double-quoted-`~` defect
-    and is likewise not current (the marker itself must match v2 exactly).
+    A hook carrying any pre-v3 marker is stale (SEC-012 double-quoted-`~` for
+    v1, no PARSIDION_STATIC_ONLY gate for v2) and is likewise not current
+    (the marker itself must match v3 exactly).
     """
     if _POST_MERGE_MARKER not in existing:
         return False

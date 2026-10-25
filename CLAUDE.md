@@ -232,9 +232,18 @@ If no `.git` directory is present, all `git_commit_vault()` calls are silent no-
 ### Multi-Machine Sync
 
 The installer creates a `post-merge` git hook inside the vault (`<vault>/.git/hooks/post-merge`)
-that rebuilds the `note_index` and refreshes embeddings after every `git pull`. This allows sharing
+that rebuilds the `note_index` and refreshes embeddings after every `git pull` — and after any
+merging `git merge`, including `git merge --squash`. This allows sharing
 the vault via a private git remote — only markdown notes are synced; `embeddings.db`,
 `pending_summaries.jsonl`, and `hook_events.log` are gitignored and rebuilt locally.
+The index rebuild is unconditional and auto-commits regenerated `CLAUDE.md`/`TAGS.md`/`MANIFEST.md`
+as a side effect (respecting `git.auto_commit`). The embeddings step can be skipped per invocation
+with `PARSIDION_STATIC_ONLY=1 git pull` (no embedding-model load/fetch — the env var propagates into
+`update_index.py`, suppressing its own background embeddings and parsight index spawns); the
+config-level equivalent is `embeddings.enabled: false` in `<vault>/config.yaml` (hook template v3).
+Existing v1/v2 hooks are
+regenerated on the next `uv run install.py --force --yes` — the hook file is copied into the vault,
+not symlinked, so a reinstall is required to pick up template changes.
 
 See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full multi-machine setup guide.
 

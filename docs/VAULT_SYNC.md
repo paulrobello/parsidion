@@ -145,8 +145,10 @@ produced by migration code are covered too.
 ## Post-Merge Hook
 
 The installer creates `.git/hooks/post-merge` inside the vault when a `.git`
-directory is detected.  The hook runs two commands after every `git pull` or
-`git merge`:
+directory is detected. The hook runs after a merging `git pull` or `git merge`,
+including `git merge --squash` (even though squash does not create a merge commit).
+The index rebuild is unconditional. The embeddings step can be skipped as described
+below:
 
 ```mermaid
 graph LR
@@ -180,21 +182,52 @@ graph LR
 2. `build_embeddings.py --incremental` — re-embeds only notes whose `mtime`
    changed, updating the `note_embeddings` table for semantic search
 
+**Static-only invocation:** set `PARSIDION_STATIC_ONLY=1` to skip the embeddings
+step without disabling it permanently:
+
+```bash
+PARSIDION_STATIC_ONLY=1 git pull
+PARSIDION_STATIC_ONLY=1 git merge --squash <branch>
+```
+
+The hook prints that embeddings were skipped and still runs `update_index.py`.
+`update_index.py` inherits `PARSIDION_STATIC_ONLY=1` and skips its own background
+`build_embeddings.py` spawn and its parsight background-index spawn, while the
+metadata rebuild (root `CLAUDE.md`, `TAGS.md`, per-folder `MANIFEST.md`, and the
+`note_index` table) still runs to completion.
+The configuration-level equivalent is `embeddings.enabled: false` in the vault's
+`config.yaml` or `config.local.yaml`, which makes `build_embeddings.py` exit before
+loading or fetching a model. With embeddings enabled and no static-only switch,
+the hook may load or fetch an embedding model on each merge — including via
+`update_index.py`'s own background spawn.
+
+**Commit side effect:** `update_index.py` auto-commits generated `CLAUDE.md`,
+`TAGS.md`, and per-folder `MANIFEST.md` files when changed, unless
+`git.auto_commit: false` is configured. Static-only mode does not disable these
+writes or commits, including when the hook runs during `git merge --squash`.
+
 Both commands run as `uv run --no-project`, which is critical for SEC-101:
 without `--no-project`, `uv run` would walk up from the vault looking for a
 `pyproject.toml` / `uv.toml` / `setup.py` and execute its build backend —
 arbitrary code from whatever file lands in the vault worktree.
 
 **Idempotency:** running the installer again does not duplicate the hook.  The
-hook is identified by a marker comment (`# parsidion post-merge hook v2`).
-The installer also recognises legacy markers (`# parsidion-cc post-merge hook`
-and the pre-v2 `# parsidion post-merge hook`) from earlier releases.  The v1
+hook is identified by a marker comment (`# parsidion post-merge hook v3`).
+The installer also recognises legacy markers (`# parsidion-cc post-merge hook`,
+the pre-v2 `# parsidion post-merge hook`, and
+`# parsidion post-merge hook v2`) from earlier releases.  The v1
 template interpolated `~/...` paths inside double quotes, where neither bash
 nor `uv` expands `~`, so every post-merge run died under `set -e`; v2 emits
-shell-quoted absolute script paths.  A hook that carries our marker but
+shell-quoted absolute script paths.  v3 gates the embeddings step on
+`PARSIDION_STATIC_ONLY=1`.  A hook that carries our marker but
 predates the `--no-project` fix is also treated as stale-but-ours — in every
 case the installer regenerates the hook rather than leaving the vulnerable or
 dead version in place.
+
+**Existing installations:** run `uv run install.py --force --yes` from the
+updated source checkout to refresh a v1/v2 hook to v3. The hook is a generated
+file written into the vault's `.git/hooks/`, not a symlink, so live script
+changes on macOS/Linux do not update its body without reinstalling.
 
 **Safety:** if a pre-existing `post-merge` hook is found that was not created
 by the installer (no current or legacy marker), it is left untouched with a
