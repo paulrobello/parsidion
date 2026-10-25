@@ -10,6 +10,7 @@
     "env_VAULT_ROOT": "TS getDefaultVault() override. null = unset. Python resolve_vault() does not read this var.",
     "vaults_yaml": "Body written to $HOME/.config/parsidion/vaults.yaml before the call.",
     "mkdir": "Directories to create before the call.",
+    "worktrees": "Linked Git worktrees to create (Python harness only, before the call). Each entry: {root (the registered repo root, initialized as a git repo with one commit), path (the linked worktree directory git creates)}. The TS harness delegates to the Python resolver, so these vectors run end-to-end there too.",
     "expect": "Expected resolved vault path ({TMP}-substituted). Mutually exclusive with expect_error.",
     "expect_error": "If present (a label string), expect a VaultConfigError. The label documents the reason; both suites assert the error class, not the label text."
   },
@@ -357,6 +358,28 @@
       ],
       "explicit": null,
       "expect": "{TMP}/vault-b"
+    },
+    {
+      "name": "worktree-of-named-vault-resolves",
+      "description": "A linked Git worktree of a registered named vault resolves by path -- vault identity is the worktree itself. The gitdir pointer plus git's authoritative worktrees/<name> back-reference prove the candidate shares the registered vault's repository, so it inherits the registration without a second vaults.yaml entry.",
+      "env_HOME": "{TMP}",
+      "vaults_yaml": "vaults:\n  main: {TMP}/repo/ParsidionVault\n",
+      "worktrees": [
+        {"root": "{TMP}/repo/ParsidionVault", "path": "{TMP}/wt/ParsidionVault"}
+      ],
+      "explicit": "{TMP}/wt/ParsidionVault",
+      "expect": "{TMP}/wt/ParsidionVault"
+    },
+    {
+      "name": "worktree-of-unregistered-root-rejected",
+      "description": "SEC-P001: a linked worktree of a repo that is NOT itself a registered/default vault stays rejected -- worktree acceptance is inherited from an allowlisted root, never granted to an arbitrary git repo (closing a planted-.git-file vector: the forged candidate must also control the root's .git).",
+      "env_HOME": "{TMP}",
+      "vaults_yaml": "vaults:\n  main: {TMP}/repo/ParsidionVault\n",
+      "worktrees": [
+        {"root": "{TMP}/attacker-repo", "path": "{TMP}/attacker-wt"}
+      ],
+      "explicit": "{TMP}/attacker-wt",
+      "expect_error": "not-allowlisted"
     },
     {
       "name": "vault-root-env-beats-config-default-typescript",

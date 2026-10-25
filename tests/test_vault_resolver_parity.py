@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from collections.abc import Generator
 from pathlib import Path
@@ -161,6 +162,31 @@ def _subst(value: Any, tmp: str) -> Any:
     return value
 
 
+def _create_worktree(root: Path, worktree: Path) -> None:
+    """Create a real linked Git worktree entirely inside the test tree."""
+    root.mkdir(parents=True, exist_ok=True)
+    commands = [
+        ["init", str(root)],
+        [
+            "-C",
+            str(root),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ],
+        ["-C", str(root), "worktree", "add", "--detach", str(worktree)],
+    ]
+    for args in commands:
+        subprocess.run(["git", *args], check=True, capture_output=True, timeout=20)
+
+
 def _materialize(
     vec: dict[str, Any],
     tmp_path: Path,
@@ -202,6 +228,12 @@ def _materialize(
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "vaults.yaml").write_text(
             _subst(vec["vaults_yaml"], tmp), encoding="utf-8"
+        )
+
+    for worktree in vec.get("worktrees", []):
+        _create_worktree(
+            Path(_subst(worktree["root"], tmp)),
+            Path(_subst(worktree["path"], tmp)),
         )
 
     kwargs: dict[str, Any] = {"cwd": cwd}
@@ -293,6 +325,66 @@ def _server_env(
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "vaults.yaml").write_text(vaults_yaml, encoding="utf-8")
     return home
+
+
+class TestVaultWorktrees:
+    @pytest.mark.parametrize("registered", [True, False])
+    def test_real_worktree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, registered: bool
+    ) -> None:
+        root = tmp_path / "root"
+        worktree = tmp_path / "worktree"
+        _create_worktree(root, worktree)
+        config = tmp_path / "config" / "parsidion"
+        config.mkdir(parents=True)
+        (config / "vaults.yaml").write_text(
+            f"vaults:\n  test: {root if registered else tmp_path / 'other'}\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config.parent))
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("VAULT_ROOT", raising=False)
+        if not registered:
+            with pytest.raises(vault_path.VaultConfigError):
+                vault_path.resolve_vault(explicit=worktree)
+            with pytest.raises(vault_path.VaultConfigError):
+                vault_path.resolve_vault_server(str(worktree))
+            return
+        assert vault_path.resolve_vault(explicit=worktree) == worktree.resolve()
+        assert vault_path.resolve_vault_server(str(worktree)) == worktree.resolve()
+        monkeypatch.setenv("CLAUDE_VAULT", str(worktree))
+        assert vault_path.resolve_vault(cwd=tmp_path) == worktree.resolve()
+        alias = tmp_path / "alias"
+        alias.symlink_to(worktree, target_is_directory=True)
+        assert vault_path.resolve_vault(explicit=alias) == worktree.resolve()
+
+    def test_forged_pointer_rejected(self, tmp_vault: Path) -> None:
+        real_worktree = tmp_vault / "real-worktree"
+        root = tmp_vault / "registered"
+        _create_worktree(root, real_worktree)
+        config = tmp_vault / ".config" / "parsidion" / "vaults.yaml"
+        config.write_text(f"vaults:\n  test: {root}\n", encoding="utf-8")
+        forged = tmp_vault / "forged"
+        forged.mkdir()
+        (forged / ".git").write_bytes((real_worktree / ".git").read_bytes())
+        with pytest.raises(vault_path.VaultConfigError):
+            vault_path.resolve_vault(explicit=forged)
+
+    @pytest.mark.parametrize(
+        "marker",
+        [None, "directory", "invalid", "gitdir: \n", "gitdir: /tmp/not-a-worktree"],
+    )
+    def test_invalid_markers_rejected(
+        self, tmp_vault: Path, marker: str | None
+    ) -> None:
+        candidate = tmp_vault / "unregistered"
+        candidate.mkdir()
+        if marker == "directory":
+            (candidate / ".git").mkdir()
+        elif marker is not None:
+            (candidate / ".git").write_text(marker, encoding="utf-8")
+        with pytest.raises(vault_path.VaultConfigError):
+            vault_path.resolve_vault(explicit=candidate)
 
 
 class TestResolveVaultServer:

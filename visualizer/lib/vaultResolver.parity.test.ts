@@ -59,6 +59,7 @@ interface Vector {
   env_VAULT_ROOT?: string | null
   vaults_yaml?: string
   mkdir?: string[]
+  worktrees?: { root: string; path: string }[]
   expect?: string
   expect_error?: string
 }
@@ -106,6 +107,20 @@ function materialize(vec: Vector): void {
 
   for (const d of vec.mkdir ?? []) {
     fs.mkdirSync(subst(d), { recursive: true })
+  }
+
+  // Linked Git worktrees (worktree-of-*-vectors). Created here so the
+  // delegated Python resolver (vault_resolve.py) sees the same filesystem
+  // state the Python harness builds.
+  for (const wt of vec.worktrees ?? []) {
+    const root = subst(wt.root)
+    const worktreePath = subst(wt.path)
+    fs.mkdirSync(root, { recursive: true })
+    const git = (args: string[]) =>
+      spawnSync('git', args, { stdio: 'ignore', timeout: 20000 })
+    git(['init', root])
+    git(['-C', root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'initial'])
+    git(['-C', root, 'worktree', 'add', '--detach', worktreePath])
   }
 
   if (vec.vaults_yaml) {

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import functools
 import os
+import subprocess
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -530,12 +531,61 @@ def _named_vault_paths() -> set[Path]:
         return set()
 
 
+def _is_allowed_vault_worktree(candidate: Path, allowed: set[Path]) -> bool:
+    """Check linked-worktree membership without trusting a planted gitdir file.
+
+    SEC-P001: the gitdir must belong to an already allowlisted vault root,
+    and Git's registry at that root must list this candidate. Never extend
+    the allowlist from candidate-controlled metadata alone. Missing Git,
+    malformed pointers, unreadable metadata, and timeouts fail closed.
+    """
+    marker = candidate / ".git"
+    try:
+        if not marker.is_file():
+            return False
+        pointer = marker.read_text(encoding="utf-8").strip()
+        if not pointer.startswith("gitdir: "):
+            return False
+        target = pointer[len("gitdir: ") :]
+        if not target or "\n" in target or "\r" in target:
+            return False
+        gitdir = Path(os.path.realpath(candidate / target))
+        if gitdir.parent.name != "worktrees" or gitdir.parent.parent.name != ".git":
+            return False
+        root = gitdir.parent.parent.parent
+        if root not in allowed:
+            return False
+        _validate_vault_path(root)
+        # Inherited Git overrides must not redirect the trusted-root query.
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("GIT_")
+        }
+        result = subprocess.run(
+            ["git", "-C", str(root), "worktree", "list", "--porcelain", "-z"],
+            capture_output=True,
+            timeout=5,
+            check=True,
+            env=env,
+        )
+        candidate_real = os.fsencode(os.path.realpath(candidate))
+        return any(
+            record.startswith(b"worktree ")
+            and os.path.realpath(record[len(b"worktree ") :]) == candidate_real
+            for record in result.stdout.split(b"\0")
+        )
+    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError):
+        return False
+
+
 def _resolve_vault_reference(reference: str) -> Path:
     """Resolve a vault reference (name or path) to an absolute Path.
 
     SEC-P001: Allowlist resolver. The reference must resolve to
-    either (a) a named vault registered in ``vaults.yaml``, or (b) the
-    default vault by its own path.  Arbitrary filesystem paths are
+    either (a) a named vault registered in ``vaults.yaml``, (b) the
+    default vault by its own path, or (c) a linked Git worktree verified by
+    an already allowlisted root's worktree registry. Arbitrary filesystem paths are
     rejected even when they do not fall under
     :data:`_VAULT_FORBIDDEN_PREFIXES`, closing the vector where a
     malicious repo's ``cwd/.claude/vault`` or a crafted ``CLAUDE_VAULT``
@@ -578,7 +628,11 @@ def _resolve_vault_reference(reference: str) -> Path:
         candidate = ref_path
     default = default_vault_root()
 
-    if candidate in _named_vault_paths() or candidate == default:
+    allowed = _named_vault_paths() | {Path(os.path.realpath(default))}
+    if candidate in allowed:
+        _validate_vault_path(candidate)
+        return candidate
+    if _is_allowed_vault_worktree(candidate, allowed):
         _validate_vault_path(candidate)
         return candidate
 
@@ -883,7 +937,11 @@ def resolve_vault_server(reference: str | None = None) -> Path:
     except OSError:
         candidate = ref_path
 
-    if candidate in _named_vault_paths() or candidate == default:
+    allowed = _named_vault_paths() | {Path(os.path.realpath(default))}
+    if candidate in allowed:
+        _validate_vault_path(candidate)
+        return candidate
+    if _is_allowed_vault_worktree(candidate, allowed):
         _validate_vault_path(candidate)
         return candidate
 
