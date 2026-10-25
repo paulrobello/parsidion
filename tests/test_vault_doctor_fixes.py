@@ -10,6 +10,8 @@ Covers:
   wikilinks for stems that actually renamed.
 """
 
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -195,6 +197,167 @@ class TestMigrateSubfoldersFilter:
             assert note.exists(), "unvetted clusters must not move without AI vetting"
         assert not (vault / "Debugging" / "fixing").exists()
         assert "no output from AI backend" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Migrate-subfolders — batched AI vetting of first-word clusters
+# ---------------------------------------------------------------------------
+
+
+def _fake_first_word_clusters(
+    n: int,
+) -> list[tuple[Path, str, list[Path], Path | None]]:
+    """Build *n* distinct first-word clusters (base_note is None)."""
+    folder = Path("/tmp/vault/Debugging")
+    return [
+        (
+            folder,
+            f"fw-{i:03d}",
+            [folder / f"fw-{i:03d}-{s}.md" for s in ("aa", "bb", "cc")],
+            None,
+        )
+        for i in range(n)
+    ]
+
+
+class TestFilterClustersBatching:
+    """``_filter_clusters_with_claude`` vets first-word clusters in bounded batches.
+
+    A single whole-vault prompt (207 clusters, ~45k chars) took ~128s through
+    claude-cli — past the default 120s per-call AI timeout — so every default
+    invocation timed out and dropped all clusters. Batching keeps each call
+    inside the same per-call timeout budget.
+    """
+
+    def test_207_clusters_vetted_in_5_batches(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        prompts: list[str] = []
+        kwargs_seen: list[dict[str, object]] = []
+
+        def fake_backend(prompt: str, **kw: object) -> tuple[str, None]:
+            prompts.append(prompt)
+            kwargs_seen.append(kw)
+            # Keep every prefix in this call's batch
+            return json.dumps(re.findall(r"prefix='([^']+)'", prompt)), None
+
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt_with_cause", fake_backend
+        )
+
+        kept = vault_doctor._filter_clusters_with_claude(
+            _fake_first_word_clusters(207),
+            model="test-model",
+            timeout=5,
+            on_failure="skip",
+        )
+
+        assert len(prompts) == 5, "ceil(207/50) calls"
+        assert [len(re.findall(r"prefix='([^']+)'", p)) for p in prompts] == [
+            50,
+            50,
+            50,
+            50,
+            7,
+        ]
+        assert [p for _, p, _, _ in kept] == [f"fw-{i:03d}" for i in range(207)]
+        assert all(kw.get("timeout") == 5 for kw in kwargs_seen)
+        assert all(kw.get("model") == "test-model" for kw in kwargs_seen)
+
+    def test_failed_batch_skips_only_its_clusters(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_backend(prompt: str, **kw: object) -> tuple[str | None, str | None]:
+            calls.append(prompt)
+            if len(calls) == 2:
+                return None, "disabled"  # backend unavailable for batch 2 only
+            return json.dumps(re.findall(r"prefix='([^']+)'", prompt)), None
+
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt_with_cause", fake_backend
+        )
+
+        kept = vault_doctor._filter_clusters_with_claude(
+            _fake_first_word_clusters(207), model=None, timeout=5, on_failure="skip"
+        )
+
+        # Batches 1, 3, 4, 5 verdicts survive; only batch 2's 50 clusters drop.
+        expected = [f"fw-{i:03d}" for i in range(207) if not 50 <= i < 100]
+        assert [p for _, p, _, _ in kept] == expected
+        assert len(kept) == 157
+        err = capsys.readouterr().err
+        assert "skipping 50 unvetted first-word cluster(s) in batch 2/5" in err
+        # 01c3a49 cause reporting: the real cause is named, not a generic banner.
+        assert "AI backend disabled" in err
+
+    def test_failed_batch_kept_when_on_failure_keep(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_backend(prompt: str, **kw: object) -> tuple[str, None]:
+            calls.append(prompt)
+            if len(calls) == 2:
+                return "backend said something unparseable", None
+            return json.dumps(re.findall(r"prefix='([^']+)'", prompt)), None
+
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt_with_cause", fake_backend
+        )
+
+        kept = vault_doctor._filter_clusters_with_claude(
+            _fake_first_word_clusters(207), model=None, timeout=5, on_failure="keep"
+        )
+
+        assert [p for _, p, _, _ in kept] == [f"fw-{i:03d}" for i in range(207)]
+        assert "AI backend unavailable" not in capsys.readouterr().err
+
+    def test_exact_stem_clusters_bypass_backend(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        prompts: list[str] = []
+
+        def fake_backend(prompt: str, **kw: object) -> tuple[str, None]:
+            prompts.append(prompt)
+            return "[]", None  # reject everything sent
+
+        monkeypatch.setattr(
+            vault_doctor.ai_backend, "run_ai_prompt_with_cause", fake_backend
+        )
+
+        folder = Path("/tmp/vault/Tools")
+        exact_stem = [
+            (
+                folder,
+                base,
+                [folder / f"{base}.md"]
+                + [folder / f"{base}-{s}.md" for s in ("x", "y")],
+                folder / f"{base}.md",
+            )
+            for base in ("cctmux", "redis", "obsidian")
+        ]
+
+        result = vault_doctor._filter_clusters_with_claude(
+            exact_stem + _fake_first_word_clusters(10),
+            model=None,
+            timeout=5,
+            on_failure="skip",
+        )
+
+        # Only the 10 first-word clusters reach the backend (1 batch), and no
+        # exact-stem prefix ever appears in a prompt.
+        assert len(prompts) == 1
+        sent = prompts[0]
+        for base in ("cctmux", "redis", "obsidian"):
+            assert f"prefix='{base}'" not in sent
+        # All exact-stem clusters survive even though the backend rejected all.
+        assert all(cluster in result for cluster in exact_stem)
 
 
 # ---------------------------------------------------------------------------
