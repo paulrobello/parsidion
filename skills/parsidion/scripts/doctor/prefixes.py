@@ -19,7 +19,6 @@ import vault_fs
 import vault_links
 
 from doctor._state import _active_vault, _backup_note
-from doctor.graph import _run_reindex
 
 
 def _find_redundant_prefixes(
@@ -152,4 +151,8 @@ def run_strip_prefixes(
         f"Renamed {len(renamed)} file(s), patched references in {patched_notes} note(s)."
     )
     if auto_reindex:
-        _run_reindex(vault_path)
+        # Resolve through the vault_doctor shim so test patches on
+        # vault_doctor._run_reindex are honoured (same pattern as subfolder.py).
+        import vault_doctor
+
+        vault_doctor._run_reindex(vault_path)
