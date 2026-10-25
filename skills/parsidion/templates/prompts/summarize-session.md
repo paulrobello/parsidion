@@ -1,6 +1,6 @@
 ---
 id: summarize-session
-version: 1.0.0
+version: 1.1.0
 syntax: template
 variables: [project, cats_str, today, dedup_block, cleaned_transcript, tags_instruction, valid_types, session_id]
 description: Generate a structured vault note from a cleaned session transcript (summarize_sessions). Transcript is inlined as untrusted data.
@@ -34,6 +34,15 @@ completed in this session — classify the note as type: fork, and structure the
 ## What to Build (the concrete change), ## Why (the value once built), ## Where (repo,
 module, or file entry points). Forks are additive build specs surfaced at the next
 session start; they are not groomed backlog items.
+
+- Label rejected, abandoned, or superseded experiments as such — never present them as
+  the selected or shipped implementation.
+- Distinguish measured evidence (numbers, traces, test/gate output in the transcript)
+  from hypothesis or interpretation, and attribute each claim to what the transcript shows.
+- State inferred causes as hypotheses, cite the supporting AND contradicting evidence,
+  and lower confidence (medium/low) — an inferred cause is never "high".
+- Do not assert supply expiration, source exhaustion, or resource exhaustion unless the
+  transcript contains direct evidence for it (counts, errors, trace lines).
 
 Write a complete markdown vault note. Requirements:
 - YAML frontmatter: date ($today), type (one of: $valid_types),

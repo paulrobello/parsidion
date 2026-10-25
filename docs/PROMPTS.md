@@ -45,7 +45,7 @@ Each template lives at `skills/parsidion/templates/prompts/<id>.md` with this sh
 ```markdown
 ---
 id: summarize-session
-version: 1.0.0
+version: 1.1.0
 syntax: format
 variables: [project, cats_str, today, dedup_block, cleaned_transcript, ...]
 description: Generate a structured vault note from a cleaned session transcript.

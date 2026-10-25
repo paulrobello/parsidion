@@ -96,6 +96,15 @@ def test_summarize_session_renders_byte_identical() -> None:
         "module, or file entry points). Forks are additive build specs surfaced at the next\n"
         "session start; they are not groomed backlog items.\n"
         "\n"
+        "- Label rejected, abandoned, or superseded experiments as such — never present them as\n"
+        "  the selected or shipped implementation.\n"
+        "- Distinguish measured evidence (numbers, traces, test/gate output in the transcript)\n"
+        "  from hypothesis or interpretation, and attribute each claim to what the transcript shows.\n"
+        "- State inferred causes as hypotheses, cite the supporting AND contradicting evidence,\n"
+        '  and lower confidence (medium/low) — an inferred cause is never "high".\n'
+        "- Do not assert supply expiration, source exhaustion, or resource exhaustion unless the\n"
+        "  transcript contains direct evidence for it (counts, errors, trace lines).\n"
+        "\n"
         "Write a complete markdown vault note. Requirements:\n"
         f"- YAML frontmatter: date ({today}), type (one of: {valid_types}),\n"
         f"{tags_instruction},\n"
@@ -340,8 +349,41 @@ def test_render_raises_on_missing_legacy_placeholder() -> None:
 def test_load_prompt_returns_version_stamp() -> None:
     reset_cache()
     tpl = load_prompt("summarize-session")
-    assert tpl.version == "1.0.0"
-    assert tpl.version_stamp == "summarize-session@1.0.0"
+    assert tpl.version == "1.1.0"
+    assert tpl.version_stamp == "summarize-session@1.1.0"
+
+
+def test_summarize_session_epistemic_directives_present() -> None:
+    """v1.1.0: the rendered prompt carries the epistemic-status directives.
+
+    Regression guard for a defect where a generated note presented REJECTED
+    experiments as the selected implementation and asserted exhaustion causes
+    the transcript evidence contradicted, at high confidence.
+    """
+    reset_cache()
+    rendered = render(
+        "summarize-session",
+        project="parsidion",
+        cats_str="general",
+        today="2026-10-25",
+        dedup_block="",
+        cleaned_transcript="transcript body",
+        tags_instruction="  tags (2-4 relevant tags)",
+        valid_types="debugging, pattern",
+        session_id="abc-123",
+    )
+    # (a) accepted-vs-rejected experiment status is preserved.
+    assert "Label rejected, abandoned, or superseded experiments as such" in rendered
+    assert "never present them as" in rendered
+    # (b) measured evidence vs hypothesis/interpretation.
+    assert "Distinguish measured evidence" in rendered
+    assert "from hypothesis or interpretation" in rendered
+    # (c) inferred causes stated as hypotheses with lowered confidence.
+    assert "State inferred causes as hypotheses" in rendered
+    assert 'an inferred cause is never "high"' in rendered
+    # (d) no exhaustion claims without direct transcript evidence.
+    assert "supply expiration, source exhaustion, or resource exhaustion" in rendered
+    assert "direct evidence" in rendered
 
 
 def test_load_prompt_caches_per_id() -> None:
