@@ -23,6 +23,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from core import ai_backend
 from core.vault_config import get_config, load_typed_config
 
 from prompt_templates import render
@@ -258,16 +259,24 @@ async def _summarize_chunk(
         chunk_text=chunk_text,
     )
     try:
+        configured_timeout = get_config("summarizer", "ai_timeout", None, vault=vault)
+        ai_timeout = (
+            configured_timeout
+            if configured_timeout is not None
+            else _DEFAULT_SUMMARIZER_AI_TIMEOUT
+        )
+        print(
+            f"  summarizing chunk {chunk_num}/{total_chunks} via "
+            f"{ai_backend.resolve_ai_backend(vault=vault)} "
+            f"(timeout {ai_timeout}s)…",
+            flush=True,
+        )
         result_text = await _run_summarizer_prompt(
             prompt,
             model=model,
             model_tier="small",
             purpose="summarizer-chunk",
-            timeout=(
-                get_config("summarizer", "ai_timeout", None, vault=vault)
-                if get_config("summarizer", "ai_timeout", None, vault=vault) is not None
-                else _DEFAULT_SUMMARIZER_AI_TIMEOUT
-            ),
+            timeout=ai_timeout,
             vault=vault,
         )
     except Exception:  # noqa: BLE001

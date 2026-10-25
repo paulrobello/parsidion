@@ -431,16 +431,24 @@ async def summarize_one(
         )
 
         try:
+            configured_timeout = load_typed_config(vault=vault).summarizer.ai_timeout
+            ai_timeout = (
+                configured_timeout
+                if configured_timeout is not None
+                else _DEFAULT_SUMMARIZER_AI_TIMEOUT
+            )
+            print(
+                f"  summarizing {session_id[:8]} via "
+                f"{ai_backend.resolve_ai_backend(vault=vault)} "
+                f"(timeout {ai_timeout}s)…",
+                flush=True,
+            )
             result_text, no_result_cause = await _run_summarizer_prompt_with_cause(
                 prompt,
                 model=model,
                 model_tier="large",
                 purpose="summarizer-note",
-                timeout=(
-                    load_typed_config(vault=vault).summarizer.ai_timeout
-                    if load_typed_config(vault=vault).summarizer.ai_timeout is not None
-                    else _DEFAULT_SUMMARIZER_AI_TIMEOUT
-                ),
+                timeout=ai_timeout,
                 vault=vault,
             )
         except Exception as e:  # noqa: BLE001

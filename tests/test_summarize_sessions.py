@@ -231,12 +231,18 @@ def test_load_prompt_template_caches_per_name(
 
 
 def test_summarize_chunk_uses_small_tier_backend(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     calls: list[dict[str, object]] = []
 
     async def fake_run_summarizer_prompt(prompt: str, **kwargs: object) -> object:
+        assert (
+            "  summarizing chunk 2/3 via claude-cli (timeout 42s)…"
+            in capsys.readouterr().out
+        )
         calls.append({"prompt": prompt, **kwargs})
         return "backend summary"
 
@@ -406,7 +412,9 @@ def test_preprocess_transcript_hierarchical_chunks_real_oversized_transcripts(
 
 
 def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
     transcript_path = tmp_path / "session.jsonl"
@@ -486,6 +494,8 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
     assert calls[0]["model_tier"] == "large"
     assert calls[0]["purpose"] == "summarizer-note"
     assert calls[0]["timeout"] == 77
+    out = capsys.readouterr().out
+    assert "  summarizing session- via claude-cli (timeout 77s)…" in out
 
 
 def test_summarize_one_falls_back_to_default_timeout_when_unset(
