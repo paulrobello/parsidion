@@ -89,9 +89,9 @@ def summarizer() -> SummarizeSessionEvaluator:
 
 
 class TestSummarizeSessionLoad:
-    def test_loads_eight_cases(self, summarizer: SummarizeSessionEvaluator) -> None:
+    def test_loads_nine_cases(self, summarizer: SummarizeSessionEvaluator) -> None:
         cases = summarizer.load_cases()
-        assert len(cases) == 8
+        assert len(cases) == 9
         assert all("cleaned_transcript" in c.inputs for c in cases)
         assert all(c.inputs["cleaned_transcript"].strip() for c in cases)
 
@@ -222,3 +222,120 @@ class TestSummarizeSessionScore:
         _, checks = summarizer.score(parsed, case)
         assert checks["type"] == 0.0
         assert checks["frontmatter"] == 1.0  # 'pattern' is still a valid type
+
+
+@pytest.fixture
+def evidence_case(summarizer: SummarizeSessionEvaluator) -> CaseInput:
+    return next(
+        c for c in summarizer.load_cases() if c.case_id == "009-rejected-ammo-guidance"
+    )
+
+
+_EVIDENCE_NOTE = """---
+date: 2026-10-25
+type: project
+tags: [sim, baseline]
+confidence: medium
+related: ["[[simulation]]"]
+---
+# Baseline evidence and uncertainty
+The accepted baseline remains single-drone. Ammo and guidance variants were rejected.
+The run ended at 840.0167s before earliest possible expiration at 850.033s.
+There was no expiration edge. The source retained 4690 of its 6000 capacity.
+Zero qualifying witnesses were recorded. The second drone was not requested.
+Guidance remains a hypothesis, not a confirmed cause.
+"""
+
+
+class TestSummarizeSessionEvidence:
+    def test_fixture_renders_real_evidence(
+        self, summarizer: SummarizeSessionEvaluator, evidence_case: CaseInput
+    ) -> None:
+        rendered = summarizer.render(evidence_case)
+        for fact in (
+            "840.0167",
+            "850.033",
+            "source_remaining=4690",
+            "qualifying_witnesses=0",
+        ):
+            assert fact in rendered
+        score, checks = summarizer.score(
+            summarizer.parse(_EVIDENCE_NOTE), evidence_case
+        )
+        assert score == 100.0
+        assert checks["required_claims"] == 1.0
+        assert checks["unsupported_claims"] == 1.0
+        assert checks["causal_confidence"] == 1.0
+
+    @pytest.mark.parametrize(
+        "claim",
+        [
+            "The source expired.",
+            "The source was exhausted.",
+            "The supply ran out.",
+            "Telemetry confirmed expiry.",
+            "Telemetry confirmed exhaustion.",
+            "The ammo variant was selected.",
+            "The guidance variant was shipped.",
+            "The guidance variant was accepted.",
+            "A second drone was requested.",
+            "Witnesses confirmed exhaustion.",
+            "No issue was reported; the source expired.",
+            "The cause is uncertain, but the source expired.",
+        ],
+    )
+    def test_false_assertions_are_red_even_with_all_keywords(
+        self,
+        summarizer: SummarizeSessionEvaluator,
+        evidence_case: CaseInput,
+        claim: str,
+    ) -> None:
+        score, checks = summarizer.score(
+            summarizer.parse(_EVIDENCE_NOTE + claim), evidence_case
+        )
+        assert checks["must_mention"] == 1.0
+        assert checks["unsupported_claims"] == 0.0
+        assert score == 0.0
+
+    @pytest.mark.parametrize(
+        "claim",
+        [
+            "The source did not expire.",
+            "The source was not exhausted.",
+            "There is no evidence the source expired.",
+            "The source might have expired in a longer run.",
+            "A possible source expiration remains unconfirmed.",
+            "The ammo variant was not selected.",
+            "No qualifying witnesses confirmed exhaustion.",
+        ],
+    )
+    def test_negative_evidence_and_hypotheses_are_not_confirmed_causes(
+        self,
+        summarizer: SummarizeSessionEvaluator,
+        evidence_case: CaseInput,
+        claim: str,
+    ) -> None:
+        score, checks = summarizer.score(
+            summarizer.parse(_EVIDENCE_NOTE + claim), evidence_case
+        )
+        assert checks["unsupported_claims"] == 1.0
+        assert score == 100.0
+
+    def test_high_confidence_inferred_cause_is_red(
+        self, summarizer: SummarizeSessionEvaluator, evidence_case: CaseInput
+    ) -> None:
+        raw = _EVIDENCE_NOTE.replace("confidence: medium", "confidence: high")
+        score, checks = summarizer.score(summarizer.parse(raw), evidence_case)
+        assert checks["causal_confidence"] == 0.0
+        assert score == 0.0
+
+    def test_keyword_dump_without_measured_relationships_is_red(
+        self, summarizer: SummarizeSessionEvaluator, evidence_case: CaseInput
+    ) -> None:
+        raw = _EVIDENCE_NOTE.split("# Baseline")[0] + (
+            "baseline rejected 840.0167 850.033 4690"
+        )
+        score, checks = summarizer.score(summarizer.parse(raw), evidence_case)
+        assert checks["must_mention"] == 1.0
+        assert checks["required_claims"] == 0.0
+        assert score == 0.0

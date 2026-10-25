@@ -170,6 +170,24 @@ Each prompt has its own rubric in its evaluator module (weights always sum to 10
 | Required content present    | 15     | `must_mention` substring checks                |
 | Related links meet minimum  | 10     | `[[wikilink]]` count in `related` vs `related_links_min` |
 
+Cases may additionally declare `required_claim_patterns` and `forbidden_claim_patterns`
+(case-insensitive Python regular expressions) and `confidence_max` (`low`, `medium`, or
+`high`). These are evidence gates, not weighted style checks: a missing required claim,
+an asserted forbidden claim, or missing/excessive confidence makes the total score **0**.
+The forbidden-claim check recognizes explicit negation and uncertainty in the same clause,
+so “the source was not exhausted” and “the source might have expired” do not become
+confirmed-cause claims. Clause boundaries prevent a disclaimer before “but” or a semicolon
+from excusing a later assertion. These checks cover a bounded vocabulary, not general
+natural-language entailment. Add offline positive, negative, and contradiction tests when
+extending a case's patterns. The flat fixture parser preserves backslashes literally, so
+write regex escapes once (for example `840\.0167`), not YAML double-quoted escapes.
+
+Case `009-rejected-ammo-guidance` exercises accepted baseline versus rejected variants,
+measured run/expiration timing, remaining source, an unrequested second drone, zero
+qualifying witnesses, and causal uncertainty. Offline canned-output scores verify the
+rubric only. They do **not** establish generated-output quality or a prompt improvement.
+That criterion requires a separate, explicitly authorized uncached AI evaluation.
+
 A result file is written to `tools/eval/results/prompt-eval-<id>-<timestamp>.json`
 (matching the `embed_eval` harness's output convention).
 

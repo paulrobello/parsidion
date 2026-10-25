@@ -1,0 +1,10 @@
+should_produce_note: true
+expected_type: project
+expected_tags_include: [sim, baseline]
+expected_tags_exclude: [misc]
+must_mention: ["840.0167", "850.033", "4690", "rejected", "baseline"]
+required_claim_patterns: ["(run|ended|end)[^.]{0,120}840\.0167", "840\.0167[^.]{0,120}(before|prior to|earlier than)[^.]{0,40}850\.033", "4690[^.]{0,80}(6000|capacity)", "no expiration edge|zero expiration edges|without.{0,40}expir", "(accepted baseline|baseline[^.]{0,80}(accept|retained|selected))", "(ammo|guidance)[^.]{0,100}(reject|abandon)", "second drone[^.]{0,50}(not requested|unrequested|unsolicited)", "(zero|0|no) qualifying witnesses"]
+forbidden_claim_patterns: ["(source|supply|resource)[^.]{0,60}(expired|was exhausted|ran out)", "confirmed (source |supply |resource )?(expiry|expiration|exhaustion)", "(ammo(-capacity)?|guidance) variant (was )?(selected|shipped|accepted)", "second drone (was )?requested|requested a second drone", "witness(es)? (confirmed|verified|observed)[^.]{0,80}(expiry|expiration|exhaustion)"]
+confidence_max: medium
+frontmatter_valid: true
+related_links_min: 1

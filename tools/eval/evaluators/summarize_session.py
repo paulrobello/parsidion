@@ -1,10 +1,7 @@
 """Evaluator for the ``summarize-session`` prompt (the note producer).
 
-Migrated verbatim from ``prompt_eval_run.py``'s former
-``_build_prompt_for_case``/``_parse_output``/``_score_case`` so behaviour and
-weights are unchanged — this is a refactor into the per-prompt shape, not a
-behaviour change. The eight existing golden cases move into
-``golden/summarize-session/``.
+Optional fixture claim patterns enforce bounded evidence/decision contracts.
+These deterministic checks are not a general natural-language entailment judge.
 """
 
 from __future__ import annotations
@@ -61,6 +58,49 @@ def _fm_list_items(raw: str, field: str) -> list[str]:
         for line in blob.splitlines()
         if line.strip().startswith("- ")
     ]
+
+
+def _asserted_match(text: str, pattern: str) -> bool:
+    """Find a forbidden claim unless its clause explicitly disclaims certainty.
+
+    Clause boundaries keep a preceding disclaimer from excusing a later positive
+    assertion. This deliberately supports a bounded fixture vocabulary, not arbitrary
+    paraphrases or cross-sentence reasoning.
+    """
+    for clause in re.split(r"[;\n]|(?<=[.!?])\s+|\bbut\b|\bhowever\b", text):
+        for match in re.finditer(pattern, clause, re.IGNORECASE):
+            context = clause[: match.end()]
+            if not re.search(
+                r"\b(no|not|never|neither|without|unconfirmed|unproven)\b"
+                r"|\b(hypothes\w*|might|may|could|possible|uncertain)\b",
+                context,
+                re.IGNORECASE,
+            ):
+                return True
+    return False
+
+
+def _evidence_checks(raw: str, expected: dict[str, Any]) -> dict[str, float]:
+    """Evaluate optional evidence contracts before the weighted quality rubric."""
+    required = expected.get("required_claim_patterns") or []
+    forbidden = expected.get("forbidden_claim_patterns") or []
+    checks: dict[str, float] = {}
+    if required:
+        checks["required_claims"] = float(
+            all(re.search(str(p), raw, re.IGNORECASE) for p in required)
+        )
+    if forbidden:
+        checks["unsupported_claims"] = float(
+            not any(_asserted_match(raw, str(p)) for p in forbidden)
+        )
+    ceiling = expected.get("confidence_max")
+    if ceiling:
+        ranks = {"low": 0, "medium": 1, "high": 2}
+        match = re.search(r"^confidence:\s*(low|medium|high)\s*$", raw, re.MULTILINE)
+        checks["causal_confidence"] = float(
+            match is not None and ranks[match.group(1)] <= ranks[str(ceiling)]
+        )
+    return checks
 
 
 class SummarizeSessionEvaluator(BaseEvaluator):
@@ -190,4 +230,9 @@ class SummarizeSessionEvaluator(BaseEvaluator):
             + WEIGHT_MUST_MENTION * checks["must_mention"]
             + WEIGHT_RELATED_LINKS * checks["related_links"]
         )
+        evidence = _evidence_checks(str(parsed["raw"]), expected)
+        checks.update(evidence)
+        # A contradiction is not compensated by correct tags or formatting.
+        if any(value == 0.0 for value in evidence.values()):
+            score = 0.0
         return round(score, 1), checks
