@@ -18,7 +18,10 @@ if str(_SCRIPTS_DIR) not in sys.path:
 # Plain pytest runs lack the entry shim's anyio dependency; summarizer.pipeline
 # only references it in an annotation. Same stub pattern as
 # test_summarize_sessions._fresh_summarize_sessions.
-if "anyio" not in sys.modules and importlib.util.find_spec("anyio") is None:
+_stubbed_anyio = (
+    "anyio" not in sys.modules and importlib.util.find_spec("anyio") is None
+)
+if _stubbed_anyio:
     sys.modules["anyio"] = types.SimpleNamespace(  # type: ignore[assignment]
         Semaphore=object,
         to_thread=types.SimpleNamespace(run_sync=lambda func, *args: func(*args)),
@@ -27,6 +30,9 @@ if "anyio" not in sys.modules and importlib.util.find_spec("anyio") is None:
 from core import vault_links  # noqa: E402
 from core.vault_index import parse_frontmatter  # noqa: E402
 from summarizer.pipeline import _apply_backlinks_and_strip_links  # noqa: E402
+
+if _stubbed_anyio:
+    del sys.modules["anyio"]
 
 
 def _snapshot(vault: Path) -> dict[str, bytes]:
