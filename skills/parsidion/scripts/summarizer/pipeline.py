@@ -29,7 +29,9 @@ from pathlib import Path
 
 import anyio  # type: ignore[import-untyped]  # annotation only (semaphore param)
 from core import ai_backend, vault_links
+from core.subproc_util import run_with_pgkill
 from core.vault_config import load_typed_config
+from core.vault_path import get_embeddings_db_path
 from core.vault_fs import atomic_write_text
 from core.vault_index import parse_frontmatter
 from core.vault_path import is_path_inside_vault
@@ -281,6 +283,69 @@ def _handle_write_gate_decision(
     return None
 
 
+# The optional lookup must not leave model inference running after a timeout.
+_SEMANTIC_BACKLINK_TIMEOUT = 15.0
+_SEMANTIC_BACKLINK_WORKER = """
+import json
+import os
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+payload = json.load(sys.stdin)
+os.environ["CLAUDE_VAULT"] = payload["vault"]
+from core.vault_links import find_related_by_semantic
+links = find_related_by_semantic(
+    Path(payload["note"]), Path(payload["vault"]),
+    max_links=5, tag_strs=payload["tags"],
+)
+print(json.dumps(links))
+"""
+
+
+def _find_semantic_backlinks_bounded(
+    written: Path, vault: Path, tag_strs: list[str]
+) -> list[str]:
+    """Run optional semantic search in a killable, deadline-bound child."""
+    config = load_typed_config(vault=vault)
+    if not config.embeddings.enabled or not get_embeddings_db_path(vault).exists():
+        print(
+            "  [backlinks] Semantic lookup skipped (disabled or no index); using tags",
+            flush=True,
+        )
+        return []
+    timeout = _SEMANTIC_BACKLINK_TIMEOUT
+    configured = config.summarizer.ai_timeout
+    if configured is not None and configured > 0:
+        timeout = min(timeout, configured)
+    print(f"  [backlinks] Semantic lookup (timeout {timeout:g}s)…", flush=True)
+    scripts = Path(__file__).resolve().parents[1]
+    reason, result = run_with_pgkill(
+        [sys.executable, "-c", _SEMANTIC_BACKLINK_WORKER, str(scripts)],
+        cwd=scripts,
+        timeout=timeout,
+        kill_grace_secs=0.5,
+        stdin=json.dumps(
+            {
+                "note": str(written.resolve()),
+                "vault": str(vault.resolve()),
+                "tags": tag_strs,
+            }
+        ),
+    )
+    if reason == "ok" and result is not None and result.returncode == 0:
+        try:
+            links = json.loads(result.stdout)
+            if isinstance(links, list) and all(isinstance(link, str) for link in links):
+                return links
+        except (ValueError, TypeError):
+            pass
+        reason = "invalid result"
+    elif reason == "ok":
+        reason = "child failed"
+    print(f"  [backlinks] Semantic lookup skipped ({reason}); using tags", flush=True)
+    return []
+
+
 def _apply_backlinks_and_strip_links(
     written: Path | None,
     vault: Path,
@@ -318,9 +383,7 @@ def _apply_backlinks_and_strip_links(
         if not isinstance(note_tags, list):
             note_tags = []
         tag_strs = [str(t) for t in note_tags]
-        related_links = vault_links.find_related_by_semantic(
-            written, vault, max_links=5, tag_strs=tag_strs
-        )
+        related_links = _find_semantic_backlinks_bounded(written, vault, tag_strs)
         if not related_links:
             related_links = vault_links.find_related_by_tags(
                 written, tag_strs, vault_notes=vault_notes
