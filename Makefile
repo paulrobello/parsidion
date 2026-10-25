@@ -1,4 +1,4 @@
-.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-mcp clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen bench-hooks grind-start grind-start-anthropic grind-start-zai grind-start-grok grind-start-codex grind-start-omp grind-stop grind-clean-logs
+.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-ci checkall-mcp wheel-install pi-extension-check clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen bench-hooks grind-start grind-start-anthropic grind-start-zai grind-start-grok grind-start-codex grind-start-omp grind-stop grind-clean-logs
 
 # Format code with ruff
 fmt:
@@ -201,6 +201,28 @@ visualizer-check:
 
 # Run all checks in sequence: format check, lint, typecheck, test
 checkall: fmt-check lint typecheck test test-graph test-search visualizer-check checkall-mcp config-docs-check
+
+# CI-parity gate (ci-gate-parity convention): checkall plus every CI check
+# that checkall alone does not run — the parity-fixtures and docs-api drift
+# gates, the wheel clean-room import smoke, and the pi extension bun tests.
+# checkall stays the fast inner loop; the heavier parity checks live here.
+checkall-ci: checkall parity-fixtures-check docs-api-check wheel-install pi-extension-check
+
+# Mirror of CI's wheel-install job (ARC-003): build the wheel, install it
+# plus anyio into a throwaway seeded venv, and import every shipped module
+# (scripts entries, py-modules, scripts subpackages — derived from
+# pyproject.toml so new modules are covered automatically). Build output and
+# the venv both live under one mktemp dir, so concurrent runs cannot collide
+# and nothing lands in the checkout's dist/.
+wheel-install:
+	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	uv build --out-dir "$$tmp/dist" && \
+	uv venv --python 3.13 --seed "$$tmp/venv" && \
+	"$$tmp/venv/bin/pip" install --quiet --force-reinstall "$$tmp"/dist/*.whl anyio && \
+	"$$tmp/venv/bin/python" - < scripts/check_wheel_imports.py
+
+pi-extension-check:
+	cd extensions/pi/parsidion && bun test
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
