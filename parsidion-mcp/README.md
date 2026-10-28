@@ -35,6 +35,23 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS; e
 
 Replace `<username>` with your actual username. Use the absolute path returned by `which parsidion-mcp` — Claude Desktop launches processes with a minimal `PATH` that may not include `~/.local/bin/`.
 
+## Metrics (OTLP, optional)
+
+The server exports OTLP/HTTP metrics when a collector endpoint is configured via the standard `OTEL_*` env vars — nothing registers without one, so `record_tool_call` is just an attribute check by default:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 parsidion-mcp
+```
+
+`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` overrides the metrics URL (the generic endpoint gets `/v1/metrics` appended); `OTEL_EXPORTER_OTLP_HEADERS` adds collector auth headers (comma-separated `key=value`, URL-encoded values, `..._METRICS_HEADERS` wins); `OTEL_METRIC_EXPORT_INTERVAL` sets the flush interval in ms (default 60000). Series use the `parsidion_mcp_` prefix with cumulative temporality (Prometheus's OTLP ingest drops delta datapoints; its `rate()` is counter-reset aware):
+
+| Series | Type | Labels | Meaning |
+|---|---|---|---|
+| `parsidion_mcp_tool_calls` | counter | `tool`, `outcome` | completed tool calls |
+| `parsidion_mcp_tool_duration_seconds` | histogram | `tool` | tool latency |
+| `parsidion_mcp_index_age_seconds` | gauge | — | age of the vault index (`embeddings.db` mtime) |
+| `parsidion_mcp_up` | gauge | — | process presence (1 while running) |
+
 ## Tools
 
 Eight tools are exposed. Full request/response shapes live in [../docs/MCP.md](../docs/MCP.md):
