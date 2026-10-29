@@ -16,6 +16,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from core.otlp_metrics import emit_usage_metric
+
 import vault_common
 from prompt_templates import render
 from vault_path import active_vault_scope, is_path_inside_vault
@@ -516,6 +518,7 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-conflicts"})
 
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=str(Path.cwd()))
 

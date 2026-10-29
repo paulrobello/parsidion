@@ -23,6 +23,7 @@
 | `git` | `auto_commit` | vault_common.py (vault_fs.git_commit_vault) |
 | `defaults` | `haiku_model` | ai_backend.py |
 | `event_log` | `enabled`, `max_lines`, `path` | vault_hooks.py |
+| `otlp` | `enabled`, `endpoint`, `headers`, `timeout_s`, `wait_s`, `service_name` | core/otlp_metrics.py |
 | `adaptive_context` | `enabled`, `decay_days` | session_start_hook.py, vault_adaptive.py, session_start/seed_selection.py |
 | `vault` | `username` | vault_fs.py, installer |
 | `transcripts` | `tail_lines`, `tail_bytes`, `max_line_bytes` | agent_adapter.py, subagent_stop_hook.py, pre_compact_hook.py, summarizer/transcript.py, core/transcript_reader.py |

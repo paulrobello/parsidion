@@ -68,6 +68,8 @@ from vault_common import (
 from vault_index import drain_parse_warnings, record_parse_warning  # re-exports
 from vault_fs import atomic_write_text  # re-exported (update_index.atomic_write_text)
 
+from core.otlp_metrics import emit_usage_metric
+
 import parsight_backend  # re-exported (update_index.parsight_backend) for backwards compat
 
 # ---------------------------------------------------------------------------
@@ -283,6 +285,7 @@ def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
 def main() -> None:
     """Entry point: rebuild the index, write CLAUDE.md, and generate MANIFEST.md files."""
     _hook_start = time.monotonic()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "update-index"})
     args = _parse_args()
 
     # ARC-003: resolve once, thread explicitly. No more mutation of

@@ -52,6 +52,7 @@ import contextlib
 import hashlib
 import json  # re-exported (vault_merge.json) for backwards compat
 import os  # re-exported (vault_merge.os) for backwards compat
+from core.otlp_metrics import emit_usage_metric
 import re  # re-exported (vault_merge.re) for backwards compat
 import shutil  # re-exported (vault_merge.shutil) for backwards compat
 import sqlite3  # re-exported (vault_merge.sqlite3) for backwards compat
@@ -540,6 +541,7 @@ def main() -> None:
         help="Skip AI-powered content deduplication; use naive concatenation.",
     )
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-merge"})
 
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())

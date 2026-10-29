@@ -223,6 +223,19 @@ event_log:
   max_lines: 10000  # Rotate (keep the second half) when the log exceeds this many lines
   path: null  # Absolute path override (null = <vault>/hook_events.log)
 
+# OTLP usage telemetry from the hook layer and vault CLIs
+# (``core/otlp_metrics.py``). Off by default. Short-lived hook/CLI processes
+# cannot keep OTLP counter state, so each event exports one gauge datapoint
+# (``parsidion_hook_events``, ``parsidion_cli_invocations``) and dashboards
+# count events with ``count_over_time``.
+otlp:
+  enabled: false  # Push OTLP usage datapoints from hooks and CLIs (requires endpoint)
+  endpoint: ""  # OTLP/HTTP metrics URL including /v1/metrics (e.g. https://obs-ingest.example.net/v1/metrics)
+  headers: ""  # Extra HTTP headers in OTEL_EXPORTER_OTLP_HEADERS syntax (comma-separated key=value, URL-encoded values); keep secrets in config.local.yaml
+  timeout_s: 2.0  # Per-push HTTP timeout in seconds
+  wait_s: 0.5  # Max seconds a hook/CLI waits for the push thread before continuing (datapoint dropped on lapse)
+  service_name: parsidion  # service.name resource attribute on emitted datapoints
+
 # Adaptive context tracking — derank notes never referenced by the agent
 # (session_start_hook.py, vault_adaptive.py).
 adaptive_context:

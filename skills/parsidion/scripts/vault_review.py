@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 
 import vault_common
+
+from core.otlp_metrics import emit_usage_metric
 from vault_path import active_vault_scope
 
 
@@ -660,6 +662,7 @@ def main() -> None:
         help="Remove all entries from the queue (with confirmation).",
     )
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-review"})
 
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())

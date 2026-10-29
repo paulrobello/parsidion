@@ -21,6 +21,8 @@ import zipfile
 from pathlib import Path
 
 import vault_common
+
+from core.otlp_metrics import emit_usage_metric
 from vault_path import active_vault_scope
 
 # ---------------------------------------------------------------------------
@@ -531,6 +533,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-export"})
 
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())

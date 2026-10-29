@@ -52,6 +52,8 @@ from pathlib import Path
 import parsight_backend
 import vault_common
 
+from core.otlp_metrics import emit_usage_metric
+
 # ---------------------------------------------------------------------------
 # Re-exports from cli.search.* — every symbol the original vault_search.py
 # exposed remains importable from ``vault_search`` (function objects are
@@ -448,6 +450,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-search"})
 
     # Resolve vault path
     vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())

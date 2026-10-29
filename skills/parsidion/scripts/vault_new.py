@@ -13,6 +13,7 @@ import sys
 from datetime import date
 
 # ARC-001: imported directly from core.* instead of the vault_common facade.
+from core.otlp_metrics import emit_usage_metric
 from core.vault_fs import ensure_vault_dirs
 from core.vault_index import serialize_frontmatter, slugify
 from core.vault_path import resolve_vault
@@ -178,6 +179,7 @@ Examples:
     )
 
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-new"})
 
     # Parse tags
     tags: list[str] = []

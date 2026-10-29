@@ -21,6 +21,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import IO, Any
 
+from .otlp_metrics import emit_usage_metric
 from .vault_config import get_config
 from .vault_constants import TRANSCRIPT_CATEGORY_LABELS
 from .vault_path import (
@@ -426,6 +427,14 @@ def write_hook_event(
         vault: Optional vault path. Defaults to resolve_vault().
         **extra: Additional key-value pairs to include in the event object.
     """
+    # OTLP usage telemetry is independent of event_log: one gauge datapoint
+    # per hook event, best-effort, no-op unless vault config enables it.
+    try:
+        emit_usage_metric(
+            "parsidion_hook_events", 1.0, {"hook": hook, "project": project}
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break a hook
+        pass
     vault = vault or resolve_vault()
     if not get_config("event_log", "enabled", True):
         return

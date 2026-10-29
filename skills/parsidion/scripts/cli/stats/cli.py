@@ -20,6 +20,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from core.otlp_metrics import emit_usage_metric
 from core.vault_path import resolve_vault
 
 from cli.stats._common import _open_db, _get_console
@@ -377,6 +378,7 @@ def main() -> None:
     """CLI entry point for vault-stats."""
     parser = _build_parser()
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-stats"})
 
     vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
     conn = _open_db(vault_path)

@@ -28,6 +28,8 @@ from datetime import datetime
 from pathlib import Path
 
 import vault_common
+
+from core.otlp_metrics import emit_usage_metric
 from cli.merge.index import _rebuild_index
 from cli.merge.lookup import _find_note
 from core.vault_index import get_body, parse_frontmatter, serialize_frontmatter
@@ -165,6 +167,7 @@ def main() -> None:
         help="Apply the change (without this flag the run is a preview).",
     )
     args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-supersede"})
 
     vault = resolve_vault(args.vault)
     note = _require_resolvable(args.note, vault)

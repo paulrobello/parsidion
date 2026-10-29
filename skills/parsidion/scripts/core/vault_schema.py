@@ -1084,6 +1084,58 @@ class EventLogConfig:
 
 
 @dataclass
+class OtlpConfig:
+    """OTLP usage telemetry from the hook layer and vault CLIs
+    (``core/otlp_metrics.py``). Off by default. Short-lived hook/CLI
+    processes cannot keep OTLP counter state, so each event exports one
+    gauge datapoint (``parsidion_hook_events``, ``parsidion_cli_invocations``)
+    and dashboards count events with ``count_over_time``."""
+
+    enabled: bool = field(
+        default=False,
+        metadata={
+            "doc": "Push OTLP usage datapoints from hooks and CLIs (requires endpoint)",
+            "read_by": "core/otlp_metrics.py",
+        },
+    )
+    endpoint: str = field(
+        default="",
+        metadata={
+            "doc": "OTLP/HTTP metrics URL including /v1/metrics (e.g. https://obs-ingest.example.net/v1/metrics)",
+            "read_by": "core/otlp_metrics.py",
+        },
+    )
+    headers: str = field(
+        default="",
+        metadata={
+            "doc": "Extra HTTP headers in OTEL_EXPORTER_OTLP_HEADERS syntax (comma-separated key=value, URL-encoded values); keep secrets in config.local.yaml",
+            "read_by": "core/otlp_metrics.py",
+        },
+    )
+    timeout_s: int | float = field(
+        default=2.0,
+        metadata={
+            "doc": "Per-push HTTP timeout in seconds",
+            "read_by": "core/otlp_metrics.py",
+        },
+    )
+    wait_s: int | float = field(
+        default=0.5,
+        metadata={
+            "doc": "Max seconds a hook/CLI waits for the push thread before continuing (datapoint dropped on lapse)",
+            "read_by": "core/otlp_metrics.py",
+        },
+    )
+    service_name: str = field(
+        default="parsidion",
+        metadata={
+            "doc": "service.name resource attribute on emitted datapoints",
+            "read_by": "core/otlp_metrics.py",
+        },
+    )
+
+
+@dataclass
 class AdaptiveContextConfig:
     """Adaptive context tracking — derank notes never referenced by the
     agent (session_start_hook.py, vault_adaptive.py)."""
@@ -1222,6 +1274,7 @@ class VaultAppConfig:
     git: GitConfig = field(default_factory=lambda: GitConfig())
     defaults: DefaultsConfig = field(default_factory=lambda: DefaultsConfig())
     event_log: EventLogConfig = field(default_factory=lambda: EventLogConfig())
+    otlp: OtlpConfig = field(default_factory=lambda: OtlpConfig())
     adaptive_context: AdaptiveContextConfig = field(
         default_factory=lambda: AdaptiveContextConfig()
     )
