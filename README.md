@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.26.0:** Vault sprawl enforcement (TRASH_SIZE + opt-in trash pruning), static-only post-merge indexing, batched subfolder AI vetting, embeddings.enabled gate, linked-worktree vault resolution, and a CI-parity gate (`make checkall-ci`). See the [Changelog](CHANGELOG.md).
+> **New in 0.27.0:** OTLP usage telemetry for the hook layer and vault CLIs — live `parsidion_*` series in the fleet Prometheus from the real usage path, config-gated via the new `otlp` section. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -669,7 +669,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.26.0** (vault sprawl enforcement, static-only post-merge indexing, batched AI vetting, embeddings gate, worktree vault resolution, CI-parity gate). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.27.0** (OTLP usage telemetry for the hook layer and vault CLIs). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

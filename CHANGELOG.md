@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-28
+
+### Added
+
+- **OTLP usage telemetry for the hook layer and vault CLIs** — the real usage path (session hooks, `vault-*` CLIs, `update_index.py`) now pushes one OTLP/HTTP JSON gauge datapoint per event (`parsidion_hook_events` `{hook, project}`, `parsidion_cli_invocations` `{tool}`) so the par-obs Prometheus finally has live `parsidion_*` series; gauges, not counters, because one-shot processes cannot keep counter state — panels count with `count_over_time` (documented in `docs/OBSERVABILITY.md`). New stdlib-only `core/otlp_metrics.py`, config-gated via the new `otlp` section (`enabled` + `endpoint` required; auth headers in `OTEL_EXPORTER_OTLP_HEADERS` syntax, secrets in `config.local.yaml`); pushes run on a daemon thread bounded by `wait_s` so a wedged network costs a hook at most half a second, never a hang. The exporter sends a named `User-Agent` — Cloudflare bot protection rejects the default python-urllib signature with error 1010.
+
 ## [0.26.0] - 2026-10-25
 
 ### Added
