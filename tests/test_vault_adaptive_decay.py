@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -33,7 +33,14 @@ from session_start.seed_selection import _rank_by_usefulness  # noqa: E402
 
 
 def _ts(days_ago: float) -> str:
-    return (datetime.now() - timedelta(days=days_ago)).isoformat(timespec="seconds")
+    # Epoch arithmetic, not naive-local datetime subtraction: a window that
+    # crosses a DST transition makes .timestamp() apply the HISTORICAL UTC
+    # offset, reading the age exactly one hour off (measured 2026-11-04,
+    # after the Nov 1 fall-back: decay_factor 0.4985579 vs 0.5, and
+    # effective_score 0.1560996 vs 0.15625 — one hour of phantom decay).
+    return datetime.fromtimestamp(time.time() - days_ago * 86400).isoformat(
+        timespec="seconds"
+    )
 
 
 def _record(hits: int, misses: int, last_hit: str | None) -> dict:

@@ -175,7 +175,12 @@ class TestPost:
 
 
 class TestEmit:
-    def test_off_by_default_no_network(self) -> None:
+    def test_off_by_default_no_network(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Isolate from the machine's live vault config: a dev box with fleet
+        # OTel enablement (config.local.yaml otlp.enabled=true) would
+        # otherwise POST this "m" datapoint to the real collector — the test
+        # named "no_network" must never read real config nor emit traffic.
+        monkeypatch.setattr("core.otlp_metrics.load_otlp_settings", lambda: None)
         assert emit_usage_metric("m", settings=None) is False
 
     def test_delivers_within_wait(self, capture_server: str) -> None:
