@@ -16,7 +16,11 @@ from core.vault_fs import flock_shared as _flock_shared
 from core.vault_fs import funlock as _funlock
 from core.vault_index import run_index_rebuild
 
-from summarizer._state_const import _MAX_ATTEMPTS, _MAX_SKIPS
+from summarizer._state_const import (
+    _MAX_ATTEMPTS,
+    _MAX_SKIPS,
+    _WRITE_GATE_SKIP_LABEL,
+)
 from summarizer.dead_letter import _append_dead_letter
 from summarizer.failure import _failure_record_retryable, _format_failure_record
 
@@ -159,14 +163,14 @@ def remove_processed(
                                 f"{entry.get('session_id') or entry.get('transcript_path', '?')} "
                                 f"(project: {entry.get('project', 'unknown')}) "
                                 f"after {skips} write-gate skips "
-                                f"last failure: write-gate skip (transient)",
+                                f"last failure: {_WRITE_GATE_SKIP_LABEL}",
                                 file=sys.stderr,
                             )
                             _append_dead_letter(
                                 pending_path,
                                 entry,
                                 skips,
-                                "write-gate skip (transient)",
+                                _WRITE_GATE_SKIP_LABEL,
                             )
                             continue
                         entry["skips"] = skips

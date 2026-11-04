@@ -17,7 +17,7 @@ import importlib
 import json
 import sys
 import types
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -890,3 +890,157 @@ def test_write_note_synthesis_skips_empty_content(tmp_path: Path) -> None:
     assert "frontmatter" in refusal
 
 
+def test_requeue_missing_transcript_is_unrecoverable_not_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A write-gate-skip record whose transcript no longer exists routes to
+    ``unrecoverable`` (record dropped), never ``unchanged`` (retained) — the
+    stale-verdict probe reads a missing file as unchanged, and keeping such a
+    record forever defeats the unrecoverable prune."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    rec = _dl_record("gone-1", str(tmp_path / "gone.jsonl"), last_failure=_SKIP_LABEL)
+    dl = vault / "dead_letters.jsonl"
+    _write_pending(dl, [rec])
+    pending = vault / "pending_summaries.jsonl"
+    pending.write_text("", encoding="utf-8")
+
+    result = mod._requeue_dead_letters(
+        vault, reason=_SKIP_LABEL, min_age_days=0, max_count=0
+    )
+
+    assert (result.requeued, result.unrecoverable, result.unchanged) == (0, 1, 0)
+    assert _read_pending_lines(dl) == []
+
+
+# ---------------------------------------------------------------------------
+# Write-gate skip verdicts bind to transcript content
+# ---------------------------------------------------------------------------
+
+_SKIP_LABEL = "write-gate skip (transient)"
+
+
+def _set_mtime(path: Path, when: datetime) -> None:
+    import os
+
+    ts = when.timestamp()
+    os.utime(path, (ts, ts))
+
+
+def test_requeue_dead_letters_refuses_unchanged_write_gate_skips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Retrying a write-gate skip whose transcript is unchanged since the
+    verdict re-bills an AI call to re-derive the same skip — the retry→skip→
+    dead-letter loop. Unchanged skips must be refused (counted separately,
+    record retained); only a skip whose transcript changed post-verdict is
+    re-queued."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    changed = tmp_path / "changed.jsonl"
+    changed.write_text("{}\n", encoding="utf-8")
+    unchanged = tmp_path / "unchanged.jsonl"
+    unchanged.write_text("{}\n", encoding="utf-8")
+    # changed: verdict is old, transcript touched after it.
+    rec_changed = _dl_record("changed-1", str(changed), last_failure=_SKIP_LABEL)
+    rec_changed["dead_lettered_at"] = "2026-08-01T00:00:00"
+    _set_mtime(changed, datetime.now())
+    # unchanged: verdict is fresh, transcript older than it.
+    rec_unchanged = _dl_record("unchanged-1", str(unchanged), last_failure=_SKIP_LABEL)
+    rec_unchanged["dead_lettered_at"] = datetime.now().isoformat()
+    _set_mtime(unchanged, datetime.now() - timedelta(hours=1))
+    dl = vault / "dead_letters.jsonl"
+    _write_pending(dl, [rec_changed, rec_unchanged])
+    pending = vault / "pending_summaries.jsonl"
+    pending.write_text("", encoding="utf-8")
+
+    requeue = mod._requeue_dead_letters
+
+    result = requeue(vault, reason=_SKIP_LABEL, min_age_days=0, max_count=0)
+    assert result.requeued == 1
+    assert result.unchanged == 1
+    moved = [json.loads(line) for line in _read_pending_lines(pending)]
+    assert [e["session_id"] for e in moved] == ["changed-1"]
+    # The unchanged verdict stays dead — retrying it is the loop this fixes.
+    remaining = [json.loads(line) for line in _read_pending_lines(dl)]
+    assert [r["session_id"] for r in remaining] == ["unchanged-1"]
+
+
+def test_resurrect_stale_write_gate_skips_requeues_only_changed_verdicts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Every run resurrects write-gate skips whose transcript changed after
+    the verdict (the session kept writing — the skip judged stale content),
+    so a session-end re-queue is processed instead of being purged by the
+    _DEAD guard. Unchanged skips and non-skip failures are left alone."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    changed = tmp_path / "changed.jsonl"
+    changed.write_text("{}\n", encoding="utf-8")
+    unchanged = tmp_path / "unchanged.jsonl"
+    unchanged.write_text("{}\n", encoding="utf-8")
+    other = tmp_path / "other.jsonl"
+    other.write_text("{}\n", encoding="utf-8")
+
+    rec_changed = _dl_record("changed-1", str(changed), last_failure=_SKIP_LABEL)
+    rec_changed["dead_lettered_at"] = "2026-08-01T00:00:00"
+    _set_mtime(changed, datetime.now())
+    rec_unchanged = _dl_record("unchanged-1", str(unchanged), last_failure=_SKIP_LABEL)
+    rec_unchanged["dead_lettered_at"] = datetime.now().isoformat()
+    _set_mtime(unchanged, datetime.now() - timedelta(hours=1))
+    # Non-skip failure with a changed transcript: out of scope here (ARC-030
+    # keeps deterministic failures sticky).
+    rec_other = _dl_record(
+        "other-1", str(other), last_failure="note_validation: no frontmatter"
+    )
+    rec_other["dead_lettered_at"] = "2026-08-01T00:00:00"
+    _set_mtime(other, datetime.now())
+
+    dl = vault / "dead_letters.jsonl"
+    _write_pending(dl, [rec_changed, rec_unchanged, rec_other])
+    pending = vault / "pending_summaries.jsonl"
+    pending.write_text("", encoding="utf-8")
+
+    resurrected = mod._resurrect_stale_write_gate_skips(vault)
+
+    assert resurrected == 1
+    moved = [json.loads(line) for line in _read_pending_lines(pending)]
+    assert [e["session_id"] for e in moved] == ["changed-1"]
+    # Fresh re-queue: the skip/attempts counters do not carry over, so the
+    # re-evaluated session gets a full skip budget for its new content.
+    assert "skips" not in moved[0]
+    remaining = [json.loads(line) for line in _read_pending_lines(dl)]
+    assert {r["session_id"] for r in remaining} == {"unchanged-1", "other-1"}
+
+
+def test_resurrect_no_duplicates_when_stop_hook_already_requeued(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When the stop hook re-queued the session before resurrection runs, the
+    dead-letter record must be cleared (so _DEAD does not purge it) WITHOUT
+    appending a duplicate pending entry."""
+    mod = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    changed = tmp_path / "changed.jsonl"
+    changed.write_text("{}\n", encoding="utf-8")
+    rec = _dl_record("changed-1", str(changed), last_failure=_SKIP_LABEL)
+    rec["dead_lettered_at"] = "2026-08-01T00:00:00"
+    _set_mtime(changed, datetime.now())
+    dl = vault / "dead_letters.jsonl"
+    _write_pending(dl, [rec])
+    pending = vault / "pending_summaries.jsonl"
+    _write_pending(
+        pending,
+        [{"session_id": "changed-1", "transcript_path": str(changed), "project": "p"}],
+    )
+
+    resurrected = mod._resurrect_stale_write_gate_skips(vault)
+
+    assert resurrected == 0  # nothing new appended …
+    lines = _read_pending_lines(pending)
+    assert len(lines) == 1  # … no duplicate
+    assert _read_pending_lines(dl) == []  # record cleared so _DEAD won't purge

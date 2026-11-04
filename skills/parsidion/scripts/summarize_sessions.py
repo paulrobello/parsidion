@@ -77,6 +77,7 @@ from summarizer._state_const import (  # re-exported for tests
     _TYPE_FOLDERS,
     _VALID_NOTE_TYPES,
     _VALID_PROVENANCE_VALUES,
+    _WRITE_GATE_SKIP_LABEL,
     FailureReason,
 )
 
@@ -436,6 +437,97 @@ class _RequeueResult(NamedTuple):
 
     requeued: int
     unrecoverable: int
+    unchanged: int = 0
+
+
+def _skip_verdict_is_stale(record: dict[str, object]) -> bool:
+    """True when a write-gate-skip dead letter judged content the transcript
+    has since outgrown.
+
+    A skip verdict is only valid for the transcript content it evaluated. If
+    the transcript's mtime is NEWER than ``dead_lettered_at``, the session
+    kept writing after the verdict (typically: skipped mid-flight, then ended
+    with richer content) and re-evaluating is meaningful. Unchanged content
+    re-derives the same deterministic skip while re-billing an AI call — the
+    retry → skip → dead-letter loop. Missing/unparseable timestamps or a
+    missing transcript read as unchanged (verdict stands).
+    """
+    transcript = str(record.get("transcript_path") or "")
+    dead_lettered_at = record.get("dead_lettered_at")
+    if not transcript or not dead_lettered_at:
+        return False
+    try:
+        verdict_time = datetime.fromisoformat(str(dead_lettered_at))
+        mtime = Path(transcript).expanduser().stat().st_mtime
+    except (OSError, ValueError, TypeError):
+        return False
+    return datetime.fromtimestamp(mtime) > verdict_time
+
+
+def _resurrect_stale_write_gate_skips(vault: Path) -> int:
+    """Re-queue write-gate-skip dead letters whose transcript changed after
+    the verdict, so the session's grown content is summarized.
+
+    The ``_DEAD`` guard in ``_early_gate`` purges re-queued dead sessions on
+    sight — correct for genuine verdicts, but it also swallows a session whose
+    skip judged only its early, thin content: the session keeps writing, the
+    stop hook re-queues the final transcript, and the guard discards it (the
+    summary is lost, or an operator retry loop re-bills the same skip). This
+    runs at the start of every invocation: for each skip record whose
+    transcript mtime is newer than the verdict, drop the record (so ``_DEAD``
+    no longer matches) and re-queue the entry fresh (append_to_pending's
+    session-id dedupe makes the stop hook's own re-queue a no-op) — the skip
+    and attempts counters do not carry over, so the re-evaluated content gets
+    a full skip budget.
+
+    Returns the number of sessions re-queued (0 when no verdict went stale).
+    """
+    records = _read_dead_letters(vault)
+    stale = [
+        record
+        for record in records
+        if str(record.get("last_failure", "")) == _WRITE_GATE_SKIP_LABEL
+        and _skip_verdict_is_stale(record)
+    ]
+    if not stale:
+        return 0
+    _remove_dead_letters_by_session_ids(
+        vault, {str(record.get("session_id", "")) for record in stale}
+    )
+    # A stop hook may have re-queued the session before this run; removing the
+    # dead-letter record is then the whole fix (it un-blocks the _DEAD guard).
+    # Skip the append so the count reports sessions actually re-queued.
+    already_queued = {
+        str(entry.get("session_id") or "")
+        for entry in read_pending(vault / "pending_summaries.jsonl")
+    }
+    requeued = 0
+    for record in stale:
+        sid = str(record.get("session_id", ""))
+        if sid and sid in already_queued:
+            continue
+        raw_cats = record.get("categories") or []
+        categories = (
+            {str(c): [] for c in raw_cats} if isinstance(raw_cats, list) else {}
+        )
+        vault_common.append_to_pending(
+            Path(str(record.get("transcript_path", ""))),
+            str(record.get("project", "unknown")),
+            categories,
+            force=True,  # the gate already skipped once; verdict is stale
+            source=str(record.get("source", "session")),
+            agent_type=(
+                str(record["agent_type"]) if record.get("agent_type") else None
+            ),
+            session_id=(str(record.get("session_id", "")) or None),
+            vault=vault,
+        )
+        requeued += 1
+    print(
+        f"Re-queued {requeued} write-gate-skipped session(s) whose transcript "
+        "changed since the skip verdict."
+    )
+    return requeued
 
 
 def _requeue_dead_letters(
@@ -461,9 +553,18 @@ def _requeue_dead_letters(
     they are dropped from ``dead_letters.jsonl`` instead of sitting until
     ``dead_letter_retention_days`` expires them.
 
+    Write-gate-skip matches whose transcript is UNCHANGED since the verdict
+    (see :func:`_skip_verdict_is_stale`) are refused and their records
+    retained: re-running the gate on the same content re-derives the same
+    skip while re-billing an AI call — the retry → skip → dead-letter loop.
+    They surface in ``unchanged`` so the operator sees why the retry batch is
+    smaller than the file. Stale-verdict skips (transcript changed) are
+    re-queued normally.
+
     Returns a ``_RequeueResult``: ``requeued`` is the number re-queued (or
     the count that WOULD be re-queued when ``dry_run``), ``unrecoverable``
-    the number skipped for a missing transcript.
+    the number skipped for a missing transcript, ``unchanged`` the number of
+    skip-verdict records refused for unchanged content.
 
     Most ``no_result`` dead-letters are transient (rate-limit, momentary empty
     response, load) and succeed on a later retry; the permanent 3-strike
@@ -486,22 +587,31 @@ def _requeue_dead_letters(
         matches.append(record)
     recoverable: list[dict[str, object]] = []
     unrecoverable: list[dict[str, object]] = []
+    unchanged: list[dict[str, object]] = []
     for record in matches:
         transcript = str(record.get("transcript_path") or "")
-        if transcript and Path(transcript).expanduser().is_file():
-            recoverable.append(record)
-        else:
+        # Missing transcript first: a skip record whose transcript is gone is
+        # unrecoverable (drop it), never "unchanged" (kept forever) — the
+        # stale-verdict probe reads a missing file as unchanged.
+        if not (transcript and Path(transcript).expanduser().is_file()):
             unrecoverable.append(record)
+            continue
+        if str(
+            record.get("last_failure", "")
+        ) == _WRITE_GATE_SKIP_LABEL and not _skip_verdict_is_stale(record):
+            unchanged.append(record)
+            continue
+        recoverable.append(record)
     if max_count > 0:
         recoverable = recoverable[:max_count]
     if dry_run:
-        return _RequeueResult(len(recoverable), len(unrecoverable))
+        return _RequeueResult(len(recoverable), len(unrecoverable), len(unchanged))
     if unrecoverable:
         _remove_dead_letters_by_session_ids(
             vault, {str(r.get("session_id", "")) for r in unrecoverable}
         )
     if not recoverable:
-        return _RequeueResult(0, len(unrecoverable))
+        return _RequeueResult(0, len(unrecoverable), len(unchanged))
     session_ids = {str(m.get("session_id", "")) for m in recoverable}
     _remove_dead_letters_by_session_ids(vault, session_ids)
     requeued = 0
@@ -523,7 +633,7 @@ def _requeue_dead_letters(
             vault=vault,
         )
         requeued += 1
-    return _RequeueResult(requeued, len(unrecoverable))
+    return _RequeueResult(requeued, len(unrecoverable), len(unchanged))
 
 
 class _SummarizerOptions(NamedTuple):
@@ -812,6 +922,13 @@ def main() -> None:
             f"{_retention_days} day(s)"
         )
 
+    # A write-gate skip verdict only covers the transcript content it judged.
+    # Re-queue skips whose transcript changed after the verdict (session kept
+    # writing) BEFORE the pending flow so their grown content is summarized
+    # instead of being purged by the _DEAD guard on a stop-hook re-queue.
+    if not args.dry_run:
+        _resurrect_stale_write_gate_skips(vault_path)
+
     # Optionally run vault_doctor first (--fix-all: frontmatter, tags, subfolders)
     if args.run_doctor:
         _doctor = Path(__file__).parent / "vault_doctor.py"
@@ -881,12 +998,24 @@ def main() -> None:
                     f"[dry-run] would drop {result.unrecoverable} unrecoverable "
                     "record(s) whose transcript no longer exists."
                 )
+            if result.unchanged:
+                print(
+                    f"[dry-run] would refuse {result.unchanged} write-gate-skip "
+                    "record(s) whose transcript is unchanged since the verdict."
+                )
             return
         if result.unrecoverable:
             print(
                 f"Skipped {result.unrecoverable} unrecoverable dead-letter "
                 "record(s): transcript no longer exists (typically removed "
                 "with its worktree); dropped them from dead_letters.jsonl."
+            )
+        if result.unchanged:
+            print(
+                f"Refused {result.unchanged} write-gate-skip dead-letter "
+                "record(s): transcript unchanged since the skip verdict — "
+                "retrying would re-derive the same skip. They stay in "
+                "dead_letters.jsonl."
             )
         if result.requeued == 0:
             print(

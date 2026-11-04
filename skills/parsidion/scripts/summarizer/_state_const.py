@@ -65,6 +65,13 @@ _MAX_ATTEMPTS = 3
 # summarize_sessions._dequeue_and_finalize + queue.remove_processed.
 _MAX_SKIPS = 2
 
+# Dead-letter last_failure label recorded when a write-gate skip exhausts the
+# _MAX_SKIPS budget. Single-sourced here because two consumers match on the
+# exact string: the append site (queue.remove_processed) and the verdict
+# liveness checks that re-evaluate a skip only when the transcript changed
+# (summarize_sessions._requeue_dead_letters / _resurrect_stale_write_gate_skips).
+_WRITE_GATE_SKIP_LABEL = "write-gate skip (transient)"
+
 # Dead-letter retention (days): entries in dead_letters.jsonl older than this
 # are pruned on each run.  Write-gate skips are made sticky (a re-queue is
 # caught by the _DEAD guard), so without retention the file grows without

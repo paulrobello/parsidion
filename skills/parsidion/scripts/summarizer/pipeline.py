@@ -551,7 +551,12 @@ async def summarize_one(
             result_text, load_prompt("summarize-session").version_stamp
         )
         written, refusal = write_note_with_reason(
-            result_text, dry_run, vault, project, categories
+            result_text,
+            dry_run,
+            vault,
+            project,
+            categories,
+            prompt_version=load_prompt("summarize-session").version_stamp,
         )
         if written is None and not dry_run:
             # write_note already printed the specific refusal (frontmatter
