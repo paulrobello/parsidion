@@ -224,6 +224,49 @@ def _strip_leading_preamble(note_content: str) -> str:
     return note_content
 
 
+def _synthesize_frontmatter_if_missing(
+    note_content: str, prompt_version: str = ""
+) -> str:
+    """Prepend a default frontmatter block when the note has none at all.
+
+    Fourth salvage, for a different failure family than the three above: the
+    code-fence unwrap, preamble strip, and closing-delimiter repair all assume
+    the model emitted *some* frontmatter and only malformed it. Backends
+    summarizing codex-subagent transcripts (and GLM via grok) intermittently
+    emit a bare markdown note with no ``---`` block whatsoever — every other
+    salvage is a no-op on that shape and the note is refused at validation as
+    ``Note has no YAML frontmatter block``, a NON-RETRYABLE dead letter under
+    ARC-030, so the summary is lost even though the content was fine.
+
+    Synthesizes only safe defaults (today's date, ``type: research``, empty
+    tags for the downstream backfill to derive from type/project/categories).
+    SEC-004 invariant preserved: no model-controlled value reaches the
+    frontmatter, so folder routing stays deterministic — a crafted transcript
+    cannot aim the note at an unexpected folder any more than it could before.
+
+    No-op when the content already parses as frontmatter, is empty/whitespace
+    (empty output must stay refused, not become a header-only note), or starts
+    with ``---`` but fails to parse (the delimiter-repair salvages own that
+    shape; prepending a second header would leave the dead pair as body junk —
+    an empty ``---\\n---`` block must stay refused, not double-wrapped).
+    """
+    if not note_content.strip():
+        return note_content
+    if parse_frontmatter(note_content):
+        return note_content
+    if note_content.lstrip().startswith("---"):
+        return note_content
+    today = date.today().isoformat()
+    header = f"---\ndate: {today}\ntype: research\ntags: []\n"
+    if prompt_version:
+        # The ENH-008 pre-write stamp is a no-op on frontmatter-less content;
+        # synthesized notes carry the version here so eval slicing keeps
+        # covering the salvage path.
+        header += f"prompt_version: {prompt_version}\n"
+    header += "---\n"
+    return header + note_content.lstrip()
+
+
 def _stamp_prompt_version(note_content: str, prompt_version: str) -> str:
     """Inject ``prompt_version: <value>`` into a note's frontmatter.
 
@@ -438,6 +481,7 @@ def write_note_with_reason(
     vault: Path,
     project: str = "",
     categories: list[str] | None = None,
+    prompt_version: str = "",
 ) -> tuple[Path | None, str]:
     """Write a generated vault note, also reporting why a write was refused.
 
@@ -445,6 +489,9 @@ def write_note_with_reason(
         note_content: Full markdown note content.
         dry_run: If True, print without writing.
         vault: Path to the vault directory.
+        prompt_version: ENH-008 prompt stamp for the synthesized-header path
+            (the pre-write ``_stamp_prompt_version`` call is a no-op on
+            frontmatter-less content, so the synthesis carries it instead).
 
     Returns:
         (path, reason) — the path where the note was written (or None on
@@ -480,6 +527,12 @@ def write_note_with_reason(
     # Normalize 'related' to clean [[wikilinks]] — repairs AI malformations
     # ([stem], [["stem"]], quoted wikilinks) before the note is written.
     note_content = _normalize_related_field(note_content)
+
+    # Salvage notes whose model emitted no frontmatter at all (codex-subagent
+    # / GLM output shape) — synthesize safe defaults so the note validates
+    # instead of dead-lettering as non-retryable NOTE_VALIDATION. Runs before
+    # the tags backfill so the synthesized empty tags are derived too.
+    note_content = _synthesize_frontmatter_if_missing(note_content, prompt_version)
 
     # Salvage notes whose model omitted an empty/absent tags field (common on
     # dense audit/review transcripts) — derive one from type/project/categories

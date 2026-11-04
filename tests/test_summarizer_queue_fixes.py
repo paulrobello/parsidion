@@ -798,3 +798,95 @@ def test_run_doctor_configured_timeout_overrides_default(
     mod.main()
     assert captured_timeout == [1200]
     assert "timed out after 1200s" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter synthesis: frontmatter-less notes (codex/GLM output shape)
+# ---------------------------------------------------------------------------
+
+
+def test_write_note_synthesizes_frontmatter_for_frontmatterless_note(
+    tmp_path: Path,
+) -> None:
+    """A note with no YAML frontmatter at all (codex-subagent / GLM summarizer
+    output shape) gets safe defaults synthesized instead of being refused at
+    validation and dead-lettered with NOTE_VALIDATION (non-retryable)."""
+    import importlib
+
+    mod_notes = importlib.import_module("summarizer.notes")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = (
+        "# Mux XR Pose Prediction Spike\n\n"
+        "Explored controller-side pose prediction to hide frame latency.\n"
+        "Settled on a two-frame dead-reckoning buffer.\n"
+    )
+
+    path, refusal = mod_notes.write_note_with_reason(
+        note,
+        dry_run=False,
+        vault=vault,
+        project="mux-xr",
+        categories=["config_setup"],
+        prompt_version="summarize-session@9.9.9",
+    )
+
+    assert path is not None and refusal == ""
+    assert path.parent.name == "Research"
+    text = path.read_text(encoding="utf-8")
+    fm = mod_notes.parse_frontmatter(text)
+    assert fm is not None
+    assert fm["date"] == datetime.now().date().isoformat()
+    assert fm["type"] == "research"
+    tags = fm["tags"]
+    assert isinstance(tags, list) and "mux-xr" in tags
+    # ENH-008 stamp survives the synthesis path (the pre-write stamp is a
+    # no-op on frontmatter-less content).
+    assert fm["prompt_version"] == "summarize-session@9.9.9"
+    # Body preserved under the synthesized header.
+    assert "dead-reckoning" in text
+
+
+def test_write_note_synthesis_refuses_empty_frontmatter_block(
+    tmp_path: Path,
+) -> None:
+    """Content with an EMPTY ``---\\n---`` block parses as falsy {} — the
+    same truthiness as no frontmatter. Synthesis must not prepend a second
+    header (leaving the dead delimiter pair as body junk); the note stays
+    refused for validation to report."""
+    import importlib
+
+    mod_notes = importlib.import_module("summarizer.notes")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    path, refusal = mod_notes.write_note_with_reason(
+        "---\n---\n# Title\n\nbody\n",
+        dry_run=False,
+        vault=vault,
+        project="p",
+        categories=[],
+    )
+
+    assert path is None
+    assert refusal  # refused (which schema complaint is parse_frontmatter's)
+
+
+def test_write_note_synthesis_skips_empty_content(tmp_path: Path) -> None:
+    """Empty/whitespace model output must NOT get a synthesized header — it
+    stays refused (validation reports it) rather than writing a header-only
+    empty note."""
+    import importlib
+
+    mod_notes = importlib.import_module("summarizer.notes")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    path, refusal = mod_notes.write_note_with_reason(
+        "   \n", dry_run=False, vault=vault, project="p", categories=[]
+    )
+
+    assert path is None
+    assert "frontmatter" in refusal
+
+
