@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,85 @@ class TestNumericTagEndToEnd:
         assert tag_counter["python"] == 1
         row = next(r for r in db_rows if r.stem == "numeric-tag-note")
         assert "2026" in row.tags
+
+    def test_index_build_uses_explicit_vault_root(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A real linked worktree must be indexed instead of the canonical root."""
+        canonical = tmp_path / "canonical-vault"
+        explicit = tmp_path / "registered-worktree"
+        canonical.mkdir()
+        canonical_note = canonical / "Patterns" / "shared-note.md"
+        canonical_note.parent.mkdir(parents=True)
+        canonical_note.write_text(
+            "---\n"
+            "date: 2026-01-01\n"
+            "type: research\n"
+            "tags: [index-root]\n"
+            "related: []\n"
+            "---\n\n"
+            "# Canonical Note\n\n"
+            "Canonical body.\n",
+            encoding="utf-8",
+        )
+        git_args = ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com"]
+        subprocess.run([*git_args, "init", "-q"], cwd=canonical, check=True)
+        subprocess.run(
+            [*git_args, "add", "Patterns/shared-note.md"], cwd=canonical, check=True
+        )
+        subprocess.run([*git_args, "commit", "-qm", "seed"], cwd=canonical, check=True)
+        subprocess.run(
+            ["git", "worktree", "add", "--detach", "-q", str(explicit), "HEAD"],
+            cwd=canonical,
+            check=True,
+        )
+
+        worktree_note = explicit / "Patterns" / "shared-note.md"
+        worktree_note.write_text(
+            "---\n"
+            "date: 2026-01-01\n"
+            "type: research\n"
+            "tags: [index-root]\n"
+            "related: []\n"
+            "---\n\n"
+            "# Worktree Note\n\n"
+            "Worktree body.\n",
+            encoding="utf-8",
+        )
+        worktree_only = explicit / "Research" / "worktree-only.md"
+        worktree_only.parent.mkdir(parents=True)
+        worktree_only.write_text(
+            "---\n"
+            "date: 2026-01-01\n"
+            "type: research\n"
+            "tags: [index-root]\n"
+            "related: []\n"
+            "---\n\n"
+            "# Worktree Only\n\n"
+            "Worktree-only body.\n",
+            encoding="utf-8",
+        )
+
+        config_dir = tmp_path / ".config" / "parsidion"
+        config_dir.mkdir(parents=True)
+        (config_dir / "vaults.yaml").write_text(
+            f"vaults:\n  canonical: {canonical}\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+        monkeypatch.setenv("CLAUDE_VAULT", str(canonical))
+        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_common.clear_config_cache()
+
+        _, note_count, _, folder_notes, db_rows, _ = update_index.build_index(explicit)
+
+        assert note_count == 2
+        assert {row.stem for row in db_rows} == {"shared-note", "worktree-only"}
+        assert {row.title for row in db_rows} == {"Worktree Note", "Worktree Only"}
+        assert set(folder_notes) == {"Patterns", "Research"}
+        assert canonical_note.read_text(encoding="utf-8").find("Canonical Note") >= 0
 
     def test_nonstring_tag_coerced_with_warning(
         self,

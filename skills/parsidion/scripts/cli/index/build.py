@@ -146,7 +146,7 @@ def build_index(
         tag_counter is the Counter[str] used to build TAGS.md separately.
     """
     ensure_vault_dirs(vault=vault)
-    notes: list[Path] = all_vault_notes_walk()
+    notes: list[Path] = all_vault_notes_walk(vault=vault)
 
     now: datetime = datetime.now()
     now_str: str = now.strftime("%Y-%m-%d %H:%M")
