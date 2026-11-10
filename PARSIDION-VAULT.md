@@ -5,52 +5,28 @@
 
 ## The Vault-First Rule
 
-**Before debugging, before web search, before writing new code — check the vault.**
+**Before debugging, before web search, before writing non-trivial new code — check the vault.**
 
 The vault at `~/ParsidionVault/` (or legacy `~/ClaudeVault/` when upgrading)
 accumulates solutions, patterns, and decisions across every project and session.
-Checking it first saves time and avoids re-solving problems that have already
-been solved.
+Checking it first avoids re-solving problems that have already been solved.
 
-## Debugging: Search Before You Diagnose
+## Searching the Vault
 
-When you encounter an error, exception, or unexpected behavior:
-
-1. Extract the key signal — exception class name, package name, or the most
-   distinctive phrase from the error message (e.g. `IntegrityError`, `pydantic_settings`,
-   `query_one`).
-2. Dispatch the `vault-explorer` agent with the signal as the query.
-3. **Answer returned?** Apply the documented fix. Update the note if you learn
-   something new about the problem. `Read` specific source files from the Sources
-   section only if you need more depth.
-4. **"No relevant vault notes found"?** Diagnose and solve it, then dispatch the
-   `research-agent` to save the solution (see "Saving Solutions" below).
-
-## Implementation: Check for Prior Art
-
-Before writing non-trivial code for any feature, integration, or pattern:
-
-1. Dispatch the `vault-explorer` agent with the feature keyword as the query.
-2. **Answer returned?** Reuse and adapt — a proven implementation from another
-   project beats a fresh one every time. `Read` specific source files from the
-   Sources section for implementation details and the `sources` frontmatter field
-   for referenced code paths.
-3. **"No relevant vault notes found"?** Implement it, then dispatch the
-   `research-agent` to save the pattern (see "Saving Solutions" below).
-
-## Efficient Vault Search
-
-Dispatch the **`vault-explorer` agent** with a natural language query describing
-what you are looking for. The agent searches all relevant vault folders, ranks
-results, reads the top matches, and returns:
-
-- **`## Answer`** — a synthesized answer you can use immediately
-- **`## Sources`** — absolute paths to matching notes for targeted deep-dives
-
-**If the answer is sufficient:** proceed without reading any source files.
-**If you need more depth:** `Read` specific files from the Sources section.
-**If "No relevant vault notes found":** dispatch the `research-agent`
-to research externally and save findings to the vault.
+1. Extract the key signal: for an error, the exception class, package name, or most
+   distinctive phrase of the message (e.g. `IntegrityError`, `pydantic_settings`,
+   `query_one`); for new work, the feature, integration, or pattern keyword.
+2. Search at the cost the question deserves:
+   - **One signal:** run `vault-search "<signal>"` directly and read the top note.
+     A sub-agent pays its full startup context for the same lookup.
+   - **A question that needs several notes combined:** dispatch the `vault-explorer`
+     agent with a natural language query. It returns `## Answer` (a synthesized
+     answer) and `## Sources` (absolute paths to the matching notes).
+3. **Found it?** Apply the fix or reuse and adapt the implementation. `Read` the
+   source notes, and the code paths in their `sources` frontmatter, only when you
+   need more depth. Update the note if you learn something new.
+4. **Nothing relevant?** Solve it, then dispatch the `research-agent` to save the
+   solution or pattern (see "Saving Solutions" below).
 
 ## Vault Organization
 
@@ -59,11 +35,6 @@ into a named subfolder (e.g. `Research/fastapi-middleware/basics.md` instead of
 `Research/fastapi-middleware-basics.md`). Drop the redundant prefix from filenames
 inside the subfolder, update all wikilinks, and rebuild the index. Only one level
 of subfolder is allowed — never nest subfolders within subfolders.
-
-After any note reorganization (create, rename, move, delete) rebuild the index:
-```bash
-uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
-```
 
 ## Saving Solutions
 
@@ -80,7 +51,8 @@ After solving a non-obvious problem or implementing a reusable pattern, save it:
 | General knowledge, concepts, reference material | `<resolved vault>/Knowledge/` |
 | Architectural decision | `<resolved vault>/Projects/<project>/` |
 
-Then rebuild the index:
+After saving, or after any note reorganization (create, rename, move, delete),
+rebuild the index:
 ```bash
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
 ```
