@@ -132,7 +132,7 @@ export function makeNodeReducer(
         color: HIGHLIGHT_COLOR,
         zIndex: 10,
         label: showLabel ? d.label : '',
-        forceLabel: showLabel,
+        labelVisibility: showLabel ? 'visible' : 'hidden',
         highlighted: showLabel,
       }
     }
@@ -141,11 +141,11 @@ export function makeNodeReducer(
     }
     const nh = neighborhoodRef.current
     if (nh && !nh.nodes.has(node)) {
-      return { ...d, hidden: true, label: '' }
+      return { ...d, visibility: 'hidden', label: '' }
     }
     const fn = filteredNodesRef.current
     if (fn.size > 0 && !fn.has(node)) {
-      return { ...d, hidden: true, label: '' }
+      return { ...d, visibility: 'hidden', label: '' }
     }
     if (hideIsolatedRef.current) {
       // Otherwise a node whose only edges are overlay edges (or lead to a
@@ -154,7 +154,7 @@ export function makeNodeReducer(
       const isVisible = (other: string) =>
         (fn.size === 0 || fn.has(other)) && (!nh || nh.nodes.has(other))
       if (isEffectivelyIsolated(graph, node, isVisible)) {
-        return { ...d, hidden: true, label: '' }
+        return { ...d, visibility: 'hidden', label: '' }
       }
     }
     const hn = highlightedNodesRef.current
@@ -164,10 +164,11 @@ export function makeNodeReducer(
       ? (isHovered || (hn.size > 0 && hn.has(node)))
       : (hn.size === 0 || isHovered || hn.has(node))
     const label = showLabel ? d.label : ''
-    // forceLabel bypasses sigma's label-density grid so hovered/highlighted
-    // nodes always render their label. highlighted tells sigma to include
-    // the node in its hover-layer rendering (renderHighlightedNodes).
+    // labelVisibility: 'visible' bypasses sigma's label-density grid so
+    // hovered/highlighted nodes always render their label. highlighted tells
+    // sigma to include the node in its hover-layer rendering.
     const forceLabel = showLabel && (isHovered || (hn.size > 0 && hn.has(node)))
+    const labelVisibility = forceLabel ? 'visible' : 'auto'
     if (!isHighlighted && !isHovered) {
       return { ...d, label, color: CANVAS_BACKGROUND, size: d.size * 0.6, zIndex: 0 }
     }
@@ -175,10 +176,10 @@ export function makeNodeReducer(
       const hopDist = nh.distances.get(node)
       if (hopDist === nh.maxHop) {
         const dimColor = (d.originalColor || d.color) + '66'
-        return { ...d, label, color: dimColor, size: d.size * 0.8, forceLabel, highlighted: forceLabel }
+        return { ...d, label, color: dimColor, size: d.size * 0.8, labelVisibility, highlighted: forceLabel }
       }
     }
-    return { ...d, label, forceLabel, highlighted: forceLabel }
+    return { ...d, label, labelVisibility, highlighted: forceLabel }
   }
 }
 
@@ -204,19 +205,19 @@ export function makeEdgeReducer(
     const d = data as EdgeAttrs
     const pe = pathEdgesRef.current
     if (pe.size > 0 && pe.has(edge)) {
-      return { ...d, color: HIGHLIGHT_COLOR, size: 3, hidden: false }
+      return { ...d, color: HIGHLIGHT_COLOR, size: 3, visibility: 'visible' }
     }
     const nh = neighborhoodRef.current
     if (nh) {
       const src = graph.source(edge)
       const tgt = graph.target(edge)
-      if (!nh.nodes.has(src) || !nh.nodes.has(tgt)) return { ...d, hidden: true }
+      if (!nh.nodes.has(src) || !nh.nodes.has(tgt)) return { ...d, visibility: 'hidden' }
     }
     const fn = filteredNodesRef.current
     if (fn.size > 0) {
       const src = graph.source(edge)
       const tgt = graph.target(edge)
-      if (!fn.has(src) || !fn.has(tgt)) return { ...d, hidden: true }
+      if (!fn.has(src) || !fn.has(tgt)) return { ...d, visibility: 'hidden' }
     }
     const he = highlightedEdgesRef.current
     if (he.size === 0 || he.has(edge)) return d

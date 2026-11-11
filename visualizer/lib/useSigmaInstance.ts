@@ -20,7 +20,6 @@ import type Sigma from 'sigma'
 import type { MouseCoords } from 'sigma/types'
 import type { AbstractGraph } from 'graphology-types'
 import type { NodeContextMenuState } from './useGraphCanvasInteractions'
-import { drawNodeLabel, drawNodeHover } from '@/lib/sigma-renderers'
 import { makeNodeReducer, makeEdgeReducer } from '@/lib/useGraphReducers'
 import type { NeighborhoodInfo } from '@/lib/useGraphReducers'
 import {
@@ -312,21 +311,23 @@ export function useSigmaInstance(opts: UseSigmaInstanceOptions): SigmaInstanceRe
       const edgeReducer = makeEdgeReducer(reducerCtx)
 
       const sigma = new SigmaClass(graph, containerRef.current!, {
-        renderEdgeLabels: false,
-        defaultEdgeColor: 'rgba(150,150,160,0.25)',
-        defaultNodeColor: '#6b7280',
-        labelFont: 'Oxanium, sans-serif',
-        labelSize: 11,
-        labelColor: { color: LABEL_COLOR },
-        minCameraRatio: 0.05,
-        maxCameraRatio: 10,
-        // Scale nodes with zoom: shrink when zoomed out, grow when zoomed in.
-        // ratio = current camera zoom; returns a multiplier applied to node sizes.
-        zoomToSizeRatioFunction: (ratio: number) => ratio,
+        settings: {
+          renderEdgeLabels: false,
+          minCameraRatio: 0.05,
+          maxCameraRatio: 10,
+          // Scale nodes with zoom: shrink when zoomed out, grow when zoomed in.
+          // ratio = current camera zoom; returns a multiplier applied to node sizes.
+          zoomToSizeRatioFunction: (ratio: number) => ratio,
+        },
+        styles: {
+          nodes: {
+            labelFont: 'Oxanium, sans-serif',
+            labelSize: 11,
+            labelColor: LABEL_COLOR,
+          },
+        },
         nodeReducer,
         edgeReducer,
-        defaultDrawNodeLabel: drawNodeLabel,
-        defaultDrawNodeHover: drawNodeHover,
       })
 
       sigmaRef.current = sigma
