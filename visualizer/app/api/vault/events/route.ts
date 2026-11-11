@@ -33,6 +33,11 @@ interface WatcherEntry {
   watcher: FSWatcher
   refCount: number
   subscribers: Set<Subscriber>
+  // Resolves when chokidar fires `ready` — i.e. the initial scan has drained
+  // and the watcher is armed to deliver live events. Tests await this instead
+  // of sleeping a fixed number of milliseconds, which raced the scan under
+  // host load.
+  ready: Promise<void>
 }
 
 // Module-level watcher registry — persists across requests within the same
@@ -42,13 +47,23 @@ interface WatcherEntry {
 // the retired server.ts custom server).
 const watchers = new Map<string, WatcherEntry>()
 
+// Test support (route.test.ts): vaultPath → close() promise of the watcher
+// most recently torn down for that vault. Kept apart from `watchers` because
+// releaseWatcher deletes the registry entry synchronously while the
+// underlying chokidar close() settles later. Entries are pruned once settled.
+const closedWatchers = new Map<string, Promise<void>>()
+
 function broadcastToVault(vaultPath: string, msg: object): void {
   const entry = watchers.get(vaultPath)
   if (!entry) return
   for (const send of entry.subscribers) send(msg)
 }
 
-function createVaultWatcher(vaultRoot: string): FSWatcher {
+function createVaultWatcher(vaultRoot: string): { watcher: FSWatcher; ready: Promise<void> } {
+  let armWatcher: () => void = () => {}
+  const ready = new Promise<void>(resolve => {
+    armWatcher = resolve
+  })
   const watcher = watch(vaultRoot, {
     ignored: (filePath: string) => {
       const rel = path.relative(vaultRoot, filePath)
@@ -88,13 +103,16 @@ function createVaultWatcher(vaultRoot: string): FSWatcher {
 
   watcher.on('error', (err: unknown) => console.error('[vault/events]', vaultRoot, err))
 
-  return watcher
+  watcher.on('ready', armWatcher)
+
+  return { watcher, ready }
 }
 
 function acquireWatcher(vaultPath: string, subscriber: Subscriber): void {
   let entry = watchers.get(vaultPath)
   if (!entry) {
-    entry = { watcher: createVaultWatcher(vaultPath), refCount: 0, subscribers: new Set() }
+    const { watcher, ready } = createVaultWatcher(vaultPath)
+    entry = { watcher, ready, refCount: 0, subscribers: new Set() }
     watchers.set(vaultPath, entry)
   }
   entry.refCount += 1
@@ -107,9 +125,42 @@ function releaseWatcher(vaultPath: string, subscriber: Subscriber): void {
   entry.subscribers.delete(subscriber)
   entry.refCount -= 1
   if (entry.refCount <= 0) {
-    entry.watcher.close()
+    // chokidar close() is async; track it so tests can await the completed
+    // teardown before provoking further writes.
+    const closed = Promise.resolve(entry.watcher.close()).catch(() => {})
+    closedWatchers.set(vaultPath, closed)
+    void closed.finally(() => {
+      if (closedWatchers.get(vaultPath) === closed) closedWatchers.delete(vaultPath)
+    })
     watchers.delete(vaultPath)
   }
+}
+
+// ---- Test support exports (used only by route.test.ts) ----
+// The SSE tests must not race the watcher's asynchronous arm/close cycles
+// against wall-clock sleeps: a fixed sleep before the first file write loses
+// to the initial scan under host load, and a fixed sleep after abort can let
+// a slow teardown leak a late frame into a negative-assertion window.
+
+/** Resolves once the chokidar watcher for `vaultPath` has completed its
+ *  initial scan and is armed to deliver live events (chokidar's `ready`).
+ *  Rejects if no watcher is registered — call it only after opening the SSE
+ *  stream for that vault. */
+export function vaultWatcherReady(vaultPath: string): Promise<void> {
+  const entry = watchers.get(vaultPath)
+  if (!entry) {
+    return Promise.reject(
+      new Error(`vaultWatcherReady: no watcher registered for ${vaultPath} — open the SSE stream first`),
+    )
+  }
+  return entry.ready
+}
+
+/** Resolves once the watcher most recently torn down for `vaultPath` has
+ *  finished closing. Resolves immediately when nothing is pending (or the
+ *  close already settled and was pruned). */
+export function vaultWatcherClosed(vaultPath: string): Promise<void> {
+  return closedWatchers.get(vaultPath) ?? Promise.resolve()
 }
 
 export const GET = withApi(async (req: NextRequest) => {
