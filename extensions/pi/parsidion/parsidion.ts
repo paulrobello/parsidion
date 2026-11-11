@@ -22,6 +22,11 @@ import {
 	readVaultConfigText,
 } from "./lib/parsidion-status";
 import { buildRecallPayload, recallResponseToContent, shouldRecall } from "./lib/promptRecall";
+import {
+	buildCompactRestorePayload,
+	COMPACT_RESTORE_SCRIPT,
+	COMPACT_RESTORE_TIMEOUT_MS,
+} from "./lib/compactRestore";
 import { buildHookEnv, resolveScriptDir, type HookScriptName } from "./lib/scriptRunner";
 import { isRecord, serializeBranchEntries } from "./lib/transcript";
 
@@ -40,7 +45,7 @@ type HookResponse = {
 };
 
 type PendingContextChunk = {
-	source: "startup" | "post_compact" | "compact_restore";
+	source: "startup" | "compact_restore";
 	text: string;
 };
 
@@ -464,13 +469,13 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 		try {
 			// post_compact_hook.py is logging-only (it always emits {} — PostCompact
 			// stdout never reaches the model on Claude Code). The snapshot restore
-			// lives in session_start_hook.py's source=compact path, so invoke the
-			// same script pi-side with the same 60 s budget Claude Code registers.
+			// lives in session_start_hook.py's source=compact path; the invocation
+			// contract is pinned by lib/compactRestore.test.ts.
 			const result = await invokeHook(
 				scriptDir,
-				"session_start_hook.py",
-				{ cwd: ctx.cwd, source: "compact" },
-				HOOK_TIMEOUT_SESSION_START_MS,
+				COMPACT_RESTORE_SCRIPT,
+				buildCompactRestorePayload(ctx.cwd),
+				COMPACT_RESTORE_TIMEOUT_MS,
 			);
 			const additionalContext = extractAdditionalContext(result.stdout)?.trim();
 			if (additionalContext) {
