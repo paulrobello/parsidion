@@ -17,6 +17,12 @@ typecheck:
 	uv run pyright .
 
 # Run tests
+# NOTE: this leg shells out to real git (git_commit_vault, 10 s subprocess
+# timeout) and is load-sensitive on a busy host: under high load average a
+# git subprocess can exceed its timeout and fail one test in
+# tests/test_atomic_write_fixes.py (selector.select timeout, code untouched).
+# That failure class needs a low-load host or an isolated rerun of the
+# failing test; everything else in the leg is load-tolerant.
 test:
 	uv run pytest tests/
 
