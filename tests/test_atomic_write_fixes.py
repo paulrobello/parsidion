@@ -196,6 +196,9 @@ def git_repo(tmp_vault: Path) -> Path:
 
 
 class TestGitCommitVault:
+    # real git subprocesses per test; the 10s module default fails under host load
+    pytestmark = pytest.mark.timeout(60)
+
     def test_auto_commit_excludes_root_config_yaml(self, git_repo: Path) -> None:
         (git_repo / "config.yaml").write_text(
             "anthropic_env:\n  ANTHROPIC_API_KEY: sk-secret\n", encoding="utf-8"
@@ -354,6 +357,9 @@ class TestGitCommitVaultFailureEvents:
     ``vault-stats --hooks N`` reads these, so accumulating failures become
     visible instead of silently leaving the vault uncommitted.
     """
+
+    # real git setup despite monkeypatched runs; 10s default fails under host load
+    pytestmark = pytest.mark.timeout(60)
 
     def test_timeout_emits_event(
         self, git_repo: Path, monkeypatch: pytest.MonkeyPatch

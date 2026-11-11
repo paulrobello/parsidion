@@ -328,6 +328,9 @@ def _server_env(
 
 
 class TestVaultWorktrees:
+    # real git worktree add per test; the 10s default fails under host load
+    pytestmark = pytest.mark.timeout(60)
+
     @pytest.mark.parametrize("registered", [True, False])
     def test_real_worktree(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, registered: bool

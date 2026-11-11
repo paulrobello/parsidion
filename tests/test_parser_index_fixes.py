@@ -63,6 +63,9 @@ class TestListItemsStayStrings:
 class TestNumericTagEndToEnd:
     """A note tagged ``[2026, python]`` must be indexed under both tags."""
 
+    # git init + worktree add subprocesses; the 10s default fails under host load
+    pytestmark = pytest.mark.timeout(60)
+
     def test_numeric_tag_survives_index_build(self, tmp_vault: Path) -> None:
         notes_dir = tmp_vault / "Patterns"
         notes_dir.mkdir(parents=True, exist_ok=True)

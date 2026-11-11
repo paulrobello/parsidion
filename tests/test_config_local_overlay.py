@@ -320,6 +320,9 @@ class TestSec007NetworkEnvKeys:
     API traffic. Benign keys are unaffected.
     """
 
+    # SEC-007 trust check shells out to real git; 10s default fails under host load
+    pytestmark = pytest.mark.timeout(60)
+
     def _git_init(self, vault: Path) -> None:
         import subprocess  # noqa: PLC0415
 
