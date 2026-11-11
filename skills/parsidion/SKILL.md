@@ -34,34 +34,16 @@ description: >
 
 The vault is your **first stop** — not your last resort. Before web search, before documentation, before experimentation, check whether the vault already holds a solution.
 
-### Debugging: Search Before You Diagnose
+### Searching the Vault
 
-When you encounter an error, exception, or unexpected behavior:
+Use this for an error, exception or unexpected behavior, and before implementing any feature, pattern, or integration:
 
-1. **Extract the key signal**: the exception type, package name, or the most distinctive phrase from the error message
-2. **Dispatch the `vault-explorer` agent** with the signal as the query.
-3. **Answer returned?** Apply the documented solution; update the note if you learn something new about the problem. `Read` specific files from the Sources section only if you need more depth.
-4. **"No relevant vault notes found"?** Diagnose, solve, then save the solution so future sessions benefit.
-
-### Implementation: Check for Prior Art
-
-When implementing any feature, pattern, or integration:
-
-1. **Dispatch the `vault-explorer` agent** with the feature keyword as the query.
-2. **Answer returned?** Reuse and adapt — a proven implementation beats a fresh one every time. `Read` specific files from the Sources section for details; check the `sources` frontmatter field for code references.
-3. **"No relevant vault notes found"?** Implement it, then save the pattern so future sessions benefit.
-
-### Efficient Vault Search
-
-Dispatch the **`vault-explorer` agent** with a natural language query. The agent
-searches all relevant vault folders using the appropriate Grep strategy, ranks
-matches, reads the top files, and returns:
-
-- **`## Answer`** — synthesized answer ready to use
-- **`## Sources`** — absolute paths for targeted `Read` calls if deeper context is needed
-
-**No results?** Dispatch the `research-agent` to research externally
-and save findings to the vault.
+1. **Extract the key signal**: for an error, the exception type, package name, or the most distinctive phrase of the message; for new work, the feature keyword.
+2. **Search at the cost the question deserves.**
+   - **One signal:** run `vault-search "<signal>"` directly and read the top note. A sub-agent pays its full startup context for the same lookup.
+   - **A question that needs several notes combined:** dispatch the **`vault-explorer` agent** with a natural language query. It searches all relevant vault folders, ranks matches, reads the top files, and returns `## Answer` (a synthesized answer ready to use) and `## Sources` (absolute paths for targeted `Read` calls).
+3. **Found it?** Apply the documented solution, or reuse and adapt the implementation — a proven one beats a fresh one every time. `Read` the source notes, and the code references in their `sources` frontmatter, only if you need more depth. Update the note if you learn something new.
+4. **Nothing relevant?** Diagnose and solve it, or implement it, then save the solution or pattern so future sessions benefit. For external research, dispatch the `research-agent` to research and save findings to the vault.
 
 ### The Vault-First Loop
 
