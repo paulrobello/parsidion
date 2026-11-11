@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-11
+
+### Added
+
+- **`/cut-release` slash command** — version bump across `pyproject.toml`, `vault_common.__version__`, and the uv lock, changelog + README updates, the release gate, and the atomic commit, tag, and push in one flow.
+
+### Changed
+
+- **Post-compact snapshots re-inject via SessionStart** — PostCompact hook stdout is never injected into model context (documented Claude Code behavior, doc-verified), so snapshot re-injection moved to the SessionStart `source=compact` path; the Claude Code hook layer and the pi extension both re-inject there now, and the PostCompact hook stays registered for observability logging only.
+
+### Fixed
+
+- **Summarizer frontmatter resilience** — sessions whose transcripts would produce frontmatter-less notes no longer dead-letter: default frontmatter is synthesized from session metadata, and write-gate skip verdicts are bound to actual transcript content instead of backend noise.
+- **Visualizer health poll** — the poll built `/api/health&fast=1` without a vault parameter; it now always carries the vault query parameter.
+- **Generated indexes keep explicit vault scope** — indexes generated for a non-default vault no longer lose their vault scoping.
+- **Installer pi-extension sync** — extension lib modules are enumerated from disk instead of hardcoded, so new extension modules sync without installer edits.
+
+### Dependencies
+
+- Python and visualizer packages refreshed to latest stable; the visualizer migrated to sigma 4 (typedoc snapshot regenerated). TypeScript remains held at ^6.
+
 ## [0.27.0] - 2026-10-28
 
 ### Added
