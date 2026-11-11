@@ -300,40 +300,40 @@ module load. Stdlib-only — no third-party dependencies.</p>
 </span><span id="L-200"><a href="#L-200"><span class="linenos">200</span></a>    <span class="n">repo_root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
 </span><span id="L-201"><a href="#L-201"><span class="linenos">201</span></a>    <span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 </span><span id="L-202"><a href="#L-202"><span class="linenos">202</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="L-203"><a href="#L-203"><span class="linenos">203</span></a><span class="w">    </span><span class="sd">"""Install vault-search, vault-new, and vault-stats as global CLI commands via uv tool."""</span>
+</span><span id="L-203"><a href="#L-203"><span class="linenos">203</span></a><span class="w">    </span><span class="sd">"""Install the eight vault CLI tools as global commands via uv tool."""</span>
 </span><span id="L-204"><a href="#L-204"><span class="linenos">204</span></a>    <span class="n">_step</span><span class="p">(</span>
-</span><span id="L-205"><a href="#L-205"><span class="linenos">205</span></a>        <span class="s2">"Install CLI tools: vault-search, vault-new, vault-stats (uv tool install)"</span><span class="p">,</span>
-</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a>        <span class="n">dry_run</span><span class="o">=</span><span class="n">dry_run</span><span class="p">,</span>
-</span><span id="L-207"><a href="#L-207"><span class="linenos">207</span></a>    <span class="p">)</span>
-</span><span id="L-208"><a href="#L-208"><span class="linenos">208</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">dry_run</span><span class="p">:</span>
-</span><span id="L-209"><a href="#L-209"><span class="linenos">209</span></a>        <span class="c1"># QA-005: uv tool install resolves the editable build and installs</span>
-</span><span id="L-210"><a href="#L-210"><span class="linenos">210</span></a>        <span class="c1"># the tools extras; on a cold cache or a slow network that can</span>
-</span><span id="L-211"><a href="#L-211"><span class="linenos">211</span></a>        <span class="c1"># take a minute or more, but a truly hung build should not stall</span>
-</span><span id="L-212"><a href="#L-212"><span class="linenos">212</span></a>        <span class="c1"># the installer indefinitely. 300 s matches the bound the audit</span>
-</span><span id="L-213"><a href="#L-213"><span class="linenos">213</span></a>        <span class="c1"># applied to the index-rebuild children.</span>
-</span><span id="L-214"><a href="#L-214"><span class="linenos">214</span></a>        <span class="k">try</span><span class="p">:</span>
-</span><span id="L-215"><a href="#L-215"><span class="linenos">215</span></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a>                <span class="p">[</span><span class="s2">"uv"</span><span class="p">,</span> <span class="s2">"tool"</span><span class="p">,</span> <span class="s2">"install"</span><span class="p">,</span> <span class="s2">"--editable"</span><span class="p">,</span> <span class="s2">".[tools]"</span><span class="p">],</span>
-</span><span id="L-217"><a href="#L-217"><span class="linenos">217</span></a>                <span class="n">cwd</span><span class="o">=</span><span class="n">repo_root</span><span class="p">,</span>
-</span><span id="L-218"><a href="#L-218"><span class="linenos">218</span></a>                <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="L-219"><a href="#L-219"><span class="linenos">219</span></a>                <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="L-220"><a href="#L-220"><span class="linenos">220</span></a>                <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
-</span><span id="L-221"><a href="#L-221"><span class="linenos">221</span></a>            <span class="p">)</span>
-</span><span id="L-222"><a href="#L-222"><span class="linenos">222</span></a>        <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
-</span><span id="L-223"><a href="#L-223"><span class="linenos">223</span></a>            <span class="n">_warn</span><span class="p">(</span>
-</span><span id="L-224"><a href="#L-224"><span class="linenos">224</span></a>                <span class="s2">"uv tool install timed out after 300s — vault-search / "</span>
-</span><span id="L-225"><a href="#L-225"><span class="linenos">225</span></a>                <span class="s2">"vault-new / vault-stats may not be globally available. "</span>
-</span><span id="L-226"><a href="#L-226"><span class="linenos">226</span></a>                <span class="s2">"Re-run install to retry."</span>
+</span><span id="L-205"><a href="#L-205"><span class="linenos">205</span></a>        <span class="s2">"Install CLI tools: vault-search, vault-new, vault-stats, vault-review, "</span>
+</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a>        <span class="s2">"vault-export, vault-merge, vault-conflicts, vault-supersede (uv tool install)"</span><span class="p">,</span>
+</span><span id="L-207"><a href="#L-207"><span class="linenos">207</span></a>        <span class="n">dry_run</span><span class="o">=</span><span class="n">dry_run</span><span class="p">,</span>
+</span><span id="L-208"><a href="#L-208"><span class="linenos">208</span></a>    <span class="p">)</span>
+</span><span id="L-209"><a href="#L-209"><span class="linenos">209</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">dry_run</span><span class="p">:</span>
+</span><span id="L-210"><a href="#L-210"><span class="linenos">210</span></a>        <span class="c1"># QA-005: uv tool install resolves the editable build and installs</span>
+</span><span id="L-211"><a href="#L-211"><span class="linenos">211</span></a>        <span class="c1"># the tools extras; on a cold cache or a slow network that can</span>
+</span><span id="L-212"><a href="#L-212"><span class="linenos">212</span></a>        <span class="c1"># take a minute or more, but a truly hung build should not stall</span>
+</span><span id="L-213"><a href="#L-213"><span class="linenos">213</span></a>        <span class="c1"># the installer indefinitely. 300 s matches the bound the audit</span>
+</span><span id="L-214"><a href="#L-214"><span class="linenos">214</span></a>        <span class="c1"># applied to the index-rebuild children.</span>
+</span><span id="L-215"><a href="#L-215"><span class="linenos">215</span></a>        <span class="k">try</span><span class="p">:</span>
+</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+</span><span id="L-217"><a href="#L-217"><span class="linenos">217</span></a>                <span class="p">[</span><span class="s2">"uv"</span><span class="p">,</span> <span class="s2">"tool"</span><span class="p">,</span> <span class="s2">"install"</span><span class="p">,</span> <span class="s2">"--editable"</span><span class="p">,</span> <span class="s2">".[tools]"</span><span class="p">],</span>
+</span><span id="L-218"><a href="#L-218"><span class="linenos">218</span></a>                <span class="n">cwd</span><span class="o">=</span><span class="n">repo_root</span><span class="p">,</span>
+</span><span id="L-219"><a href="#L-219"><span class="linenos">219</span></a>                <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="L-220"><a href="#L-220"><span class="linenos">220</span></a>                <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="L-221"><a href="#L-221"><span class="linenos">221</span></a>                <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+</span><span id="L-222"><a href="#L-222"><span class="linenos">222</span></a>            <span class="p">)</span>
+</span><span id="L-223"><a href="#L-223"><span class="linenos">223</span></a>        <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
+</span><span id="L-224"><a href="#L-224"><span class="linenos">224</span></a>            <span class="n">_warn</span><span class="p">(</span>
+</span><span id="L-225"><a href="#L-225"><span class="linenos">225</span></a>                <span class="s2">"uv tool install timed out after 300s — the vault CLI tools may "</span>
+</span><span id="L-226"><a href="#L-226"><span class="linenos">226</span></a>                <span class="s2">"not be globally available. Re-run install to retry."</span>
 </span><span id="L-227"><a href="#L-227"><span class="linenos">227</span></a>            <span class="p">)</span>
 </span><span id="L-228"><a href="#L-228"><span class="linenos">228</span></a>            <span class="k">return</span>
 </span><span id="L-229"><a href="#L-229"><span class="linenos">229</span></a>        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
 </span><span id="L-230"><a href="#L-230"><span class="linenos">230</span></a>            <span class="n">_warn</span><span class="p">(</span>
-</span><span id="L-231"><a href="#L-231"><span class="linenos">231</span></a>                <span class="s2">"uv tool install failed — vault-search / vault-new / vault-stats not globally available.</span><span class="se">\n</span><span class="s2">"</span>
+</span><span id="L-231"><a href="#L-231"><span class="linenos">231</span></a>                <span class="s2">"uv tool install failed — the vault CLI tools are not globally available.</span><span class="se">\n</span><span class="s2">"</span>
 </span><span id="L-232"><a href="#L-232"><span class="linenos">232</span></a>                <span class="sa">f</span><span class="s2">"  stdout: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span>
 </span><span id="L-233"><a href="#L-233"><span class="linenos">233</span></a>                <span class="sa">f</span><span class="s2">"  stderr: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span>
 </span><span id="L-234"><a href="#L-234"><span class="linenos">234</span></a>            <span class="p">)</span>
 </span><span id="L-235"><a href="#L-235"><span class="linenos">235</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a>            <span class="n">_ok</span><span class="p">(</span><span class="s2">"vault-search, vault-new, and vault-stats installed globally"</span><span class="p">)</span>
+</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a>            <span class="n">_ok</span><span class="p">(</span><span class="s2">"vault CLI tools installed globally (8 commands)"</span><span class="p">)</span>
 </span><span id="L-237"><a href="#L-237"><span class="linenos">237</span></a>
 </span><span id="L-238"><a href="#L-238"><span class="linenos">238</span></a>
 </span><span id="L-239"><a href="#L-239"><span class="linenos">239</span></a><span class="c1"># ---------------------------------------------------------------------------</span>
@@ -987,44 +987,44 @@ existing install is left untouched. DOC-039.</p>
 </span><span id="install_cli_tools-201"><a href="#install_cli_tools-201"><span class="linenos">201</span></a>    <span class="n">repo_root</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
 </span><span id="install_cli_tools-202"><a href="#install_cli_tools-202"><span class="linenos">202</span></a>    <span class="n">dry_run</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 </span><span id="install_cli_tools-203"><a href="#install_cli_tools-203"><span class="linenos">203</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="install_cli_tools-204"><a href="#install_cli_tools-204"><span class="linenos">204</span></a><span class="w">    </span><span class="sd">"""Install vault-search, vault-new, and vault-stats as global CLI commands via uv tool."""</span>
+</span><span id="install_cli_tools-204"><a href="#install_cli_tools-204"><span class="linenos">204</span></a><span class="w">    </span><span class="sd">"""Install the eight vault CLI tools as global commands via uv tool."""</span>
 </span><span id="install_cli_tools-205"><a href="#install_cli_tools-205"><span class="linenos">205</span></a>    <span class="n">_step</span><span class="p">(</span>
-</span><span id="install_cli_tools-206"><a href="#install_cli_tools-206"><span class="linenos">206</span></a>        <span class="s2">"Install CLI tools: vault-search, vault-new, vault-stats (uv tool install)"</span><span class="p">,</span>
-</span><span id="install_cli_tools-207"><a href="#install_cli_tools-207"><span class="linenos">207</span></a>        <span class="n">dry_run</span><span class="o">=</span><span class="n">dry_run</span><span class="p">,</span>
-</span><span id="install_cli_tools-208"><a href="#install_cli_tools-208"><span class="linenos">208</span></a>    <span class="p">)</span>
-</span><span id="install_cli_tools-209"><a href="#install_cli_tools-209"><span class="linenos">209</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">dry_run</span><span class="p">:</span>
-</span><span id="install_cli_tools-210"><a href="#install_cli_tools-210"><span class="linenos">210</span></a>        <span class="c1"># QA-005: uv tool install resolves the editable build and installs</span>
-</span><span id="install_cli_tools-211"><a href="#install_cli_tools-211"><span class="linenos">211</span></a>        <span class="c1"># the tools extras; on a cold cache or a slow network that can</span>
-</span><span id="install_cli_tools-212"><a href="#install_cli_tools-212"><span class="linenos">212</span></a>        <span class="c1"># take a minute or more, but a truly hung build should not stall</span>
-</span><span id="install_cli_tools-213"><a href="#install_cli_tools-213"><span class="linenos">213</span></a>        <span class="c1"># the installer indefinitely. 300 s matches the bound the audit</span>
-</span><span id="install_cli_tools-214"><a href="#install_cli_tools-214"><span class="linenos">214</span></a>        <span class="c1"># applied to the index-rebuild children.</span>
-</span><span id="install_cli_tools-215"><a href="#install_cli_tools-215"><span class="linenos">215</span></a>        <span class="k">try</span><span class="p">:</span>
-</span><span id="install_cli_tools-216"><a href="#install_cli_tools-216"><span class="linenos">216</span></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-</span><span id="install_cli_tools-217"><a href="#install_cli_tools-217"><span class="linenos">217</span></a>                <span class="p">[</span><span class="s2">"uv"</span><span class="p">,</span> <span class="s2">"tool"</span><span class="p">,</span> <span class="s2">"install"</span><span class="p">,</span> <span class="s2">"--editable"</span><span class="p">,</span> <span class="s2">".[tools]"</span><span class="p">],</span>
-</span><span id="install_cli_tools-218"><a href="#install_cli_tools-218"><span class="linenos">218</span></a>                <span class="n">cwd</span><span class="o">=</span><span class="n">repo_root</span><span class="p">,</span>
-</span><span id="install_cli_tools-219"><a href="#install_cli_tools-219"><span class="linenos">219</span></a>                <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="install_cli_tools-220"><a href="#install_cli_tools-220"><span class="linenos">220</span></a>                <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="install_cli_tools-221"><a href="#install_cli_tools-221"><span class="linenos">221</span></a>                <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
-</span><span id="install_cli_tools-222"><a href="#install_cli_tools-222"><span class="linenos">222</span></a>            <span class="p">)</span>
-</span><span id="install_cli_tools-223"><a href="#install_cli_tools-223"><span class="linenos">223</span></a>        <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
-</span><span id="install_cli_tools-224"><a href="#install_cli_tools-224"><span class="linenos">224</span></a>            <span class="n">_warn</span><span class="p">(</span>
-</span><span id="install_cli_tools-225"><a href="#install_cli_tools-225"><span class="linenos">225</span></a>                <span class="s2">"uv tool install timed out after 300s — vault-search / "</span>
-</span><span id="install_cli_tools-226"><a href="#install_cli_tools-226"><span class="linenos">226</span></a>                <span class="s2">"vault-new / vault-stats may not be globally available. "</span>
-</span><span id="install_cli_tools-227"><a href="#install_cli_tools-227"><span class="linenos">227</span></a>                <span class="s2">"Re-run install to retry."</span>
+</span><span id="install_cli_tools-206"><a href="#install_cli_tools-206"><span class="linenos">206</span></a>        <span class="s2">"Install CLI tools: vault-search, vault-new, vault-stats, vault-review, "</span>
+</span><span id="install_cli_tools-207"><a href="#install_cli_tools-207"><span class="linenos">207</span></a>        <span class="s2">"vault-export, vault-merge, vault-conflicts, vault-supersede (uv tool install)"</span><span class="p">,</span>
+</span><span id="install_cli_tools-208"><a href="#install_cli_tools-208"><span class="linenos">208</span></a>        <span class="n">dry_run</span><span class="o">=</span><span class="n">dry_run</span><span class="p">,</span>
+</span><span id="install_cli_tools-209"><a href="#install_cli_tools-209"><span class="linenos">209</span></a>    <span class="p">)</span>
+</span><span id="install_cli_tools-210"><a href="#install_cli_tools-210"><span class="linenos">210</span></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">dry_run</span><span class="p">:</span>
+</span><span id="install_cli_tools-211"><a href="#install_cli_tools-211"><span class="linenos">211</span></a>        <span class="c1"># QA-005: uv tool install resolves the editable build and installs</span>
+</span><span id="install_cli_tools-212"><a href="#install_cli_tools-212"><span class="linenos">212</span></a>        <span class="c1"># the tools extras; on a cold cache or a slow network that can</span>
+</span><span id="install_cli_tools-213"><a href="#install_cli_tools-213"><span class="linenos">213</span></a>        <span class="c1"># take a minute or more, but a truly hung build should not stall</span>
+</span><span id="install_cli_tools-214"><a href="#install_cli_tools-214"><span class="linenos">214</span></a>        <span class="c1"># the installer indefinitely. 300 s matches the bound the audit</span>
+</span><span id="install_cli_tools-215"><a href="#install_cli_tools-215"><span class="linenos">215</span></a>        <span class="c1"># applied to the index-rebuild children.</span>
+</span><span id="install_cli_tools-216"><a href="#install_cli_tools-216"><span class="linenos">216</span></a>        <span class="k">try</span><span class="p">:</span>
+</span><span id="install_cli_tools-217"><a href="#install_cli_tools-217"><span class="linenos">217</span></a>            <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+</span><span id="install_cli_tools-218"><a href="#install_cli_tools-218"><span class="linenos">218</span></a>                <span class="p">[</span><span class="s2">"uv"</span><span class="p">,</span> <span class="s2">"tool"</span><span class="p">,</span> <span class="s2">"install"</span><span class="p">,</span> <span class="s2">"--editable"</span><span class="p">,</span> <span class="s2">".[tools]"</span><span class="p">],</span>
+</span><span id="install_cli_tools-219"><a href="#install_cli_tools-219"><span class="linenos">219</span></a>                <span class="n">cwd</span><span class="o">=</span><span class="n">repo_root</span><span class="p">,</span>
+</span><span id="install_cli_tools-220"><a href="#install_cli_tools-220"><span class="linenos">220</span></a>                <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="install_cli_tools-221"><a href="#install_cli_tools-221"><span class="linenos">221</span></a>                <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="install_cli_tools-222"><a href="#install_cli_tools-222"><span class="linenos">222</span></a>                <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+</span><span id="install_cli_tools-223"><a href="#install_cli_tools-223"><span class="linenos">223</span></a>            <span class="p">)</span>
+</span><span id="install_cli_tools-224"><a href="#install_cli_tools-224"><span class="linenos">224</span></a>        <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
+</span><span id="install_cli_tools-225"><a href="#install_cli_tools-225"><span class="linenos">225</span></a>            <span class="n">_warn</span><span class="p">(</span>
+</span><span id="install_cli_tools-226"><a href="#install_cli_tools-226"><span class="linenos">226</span></a>                <span class="s2">"uv tool install timed out after 300s — the vault CLI tools may "</span>
+</span><span id="install_cli_tools-227"><a href="#install_cli_tools-227"><span class="linenos">227</span></a>                <span class="s2">"not be globally available. Re-run install to retry."</span>
 </span><span id="install_cli_tools-228"><a href="#install_cli_tools-228"><span class="linenos">228</span></a>            <span class="p">)</span>
 </span><span id="install_cli_tools-229"><a href="#install_cli_tools-229"><span class="linenos">229</span></a>            <span class="k">return</span>
 </span><span id="install_cli_tools-230"><a href="#install_cli_tools-230"><span class="linenos">230</span></a>        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
 </span><span id="install_cli_tools-231"><a href="#install_cli_tools-231"><span class="linenos">231</span></a>            <span class="n">_warn</span><span class="p">(</span>
-</span><span id="install_cli_tools-232"><a href="#install_cli_tools-232"><span class="linenos">232</span></a>                <span class="s2">"uv tool install failed — vault-search / vault-new / vault-stats not globally available.</span><span class="se">\n</span><span class="s2">"</span>
+</span><span id="install_cli_tools-232"><a href="#install_cli_tools-232"><span class="linenos">232</span></a>                <span class="s2">"uv tool install failed — the vault CLI tools are not globally available.</span><span class="se">\n</span><span class="s2">"</span>
 </span><span id="install_cli_tools-233"><a href="#install_cli_tools-233"><span class="linenos">233</span></a>                <span class="sa">f</span><span class="s2">"  stdout: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span>
 </span><span id="install_cli_tools-234"><a href="#install_cli_tools-234"><span class="linenos">234</span></a>                <span class="sa">f</span><span class="s2">"  stderr: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span>
 </span><span id="install_cli_tools-235"><a href="#install_cli_tools-235"><span class="linenos">235</span></a>            <span class="p">)</span>
 </span><span id="install_cli_tools-236"><a href="#install_cli_tools-236"><span class="linenos">236</span></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="install_cli_tools-237"><a href="#install_cli_tools-237"><span class="linenos">237</span></a>            <span class="n">_ok</span><span class="p">(</span><span class="s2">"vault-search, vault-new, and vault-stats installed globally"</span><span class="p">)</span>
+</span><span id="install_cli_tools-237"><a href="#install_cli_tools-237"><span class="linenos">237</span></a>            <span class="n">_ok</span><span class="p">(</span><span class="s2">"vault CLI tools installed globally (8 commands)"</span><span class="p">)</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Install vault-search, vault-new, and vault-stats as global CLI commands via uv tool.</p>
+            <div class="docstring"><p>Install the eight vault CLI tools as global commands via uv tool.</p>
 </div>
 
 
