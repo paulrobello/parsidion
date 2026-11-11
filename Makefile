@@ -229,6 +229,10 @@ wheel-install:
 
 pi-extension-check:
 	cd extensions/pi/parsidion && bun test
+	# bun test only exercises lib/ modules; transpile the entry file too so a
+	# syntax error in parsidion.ts fails the gate (its deps resolve only
+	# inside pi/omp runtime loaders, hence --external).
+	cd extensions/pi/parsidion && bun build ./parsidion.ts --target=bun --external '*' --outfile /dev/null
 
 # Run parsidion-mcp checks (format, lint, typecheck, test)
 checkall-mcp:
