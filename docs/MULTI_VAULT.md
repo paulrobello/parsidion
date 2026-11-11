@@ -99,7 +99,7 @@ The reference must resolve to a named vault registered in `vaults.yaml` or to th
 - `session_start_hook.py` — loads context from the project's associated vault
 - `session_stop_hook.py` — queues sessions to the appropriate vault
 - `pre_compact_hook.py` — snapshots to the project's vault
-- `post_compact_hook.py` — restores from the project's vault
+- `post_compact_hook.py` — logs snapshot availability to the project's vault (re-injection happens via `session_start_hook.py` on `source="compact"`)
 - `subagent_stop_hook.py` — queues to the active vault
 - `user_prompt_submit_hook.py` — injects vault recall for each user prompt
 - `pre_tool_use_hook.py` — injects rule notes matching the file being read or edited

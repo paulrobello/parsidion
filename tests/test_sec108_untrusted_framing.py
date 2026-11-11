@@ -11,15 +11,18 @@ the framing on:
 - ``session_start_hook`` ``--ai`` selector prompt — instructions precede
   the candidate note bodies (so an instruction inside a note cannot run
   before the model has read the task description).
-- ``post_compact_hook`` — restored snapshots are wrapped, and the
+- ``session_start_hook`` source=``compact`` snapshot restore — the
+  post-compaction snapshot (moved here from post_compact_hook.py, whose
+  stdout Claude Code never injects into context) is wrapped, and the
   previous "(Resume from where you left off above.)" comply-instruction
-  has been removed.
+  stays removed.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -30,7 +33,6 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import post_compact_hook  # noqa: E402
 import session_start_hook  # noqa: E402
 
 
@@ -77,11 +79,18 @@ class TestAssembleContextFraming:
 
 
 class TestPostCompactFraming:
-    """``post_compact_hook`` wraps the snapshot and drops the comply-instruction."""
+    """SessionStart(source="compact") wraps the restored snapshot (SEC-108).
+
+    The snapshot restore moved from post_compact_hook.py (whose PostCompact
+    stdout Claude Code never injects into model context) to the SessionStart
+    source="compact" path in session_start_hook.py. The framing contract
+    travels with it: <content> delimiters + SYSTEM untrusted preamble, and
+    the "(Resume from where you left off above.)" comply-instruction stays
+    removed.
+    """
 
     def _write_daily(self, tmp_path: Path) -> Path:
-        daily = tmp_path / "Daily" / "2026-03" / "05-test.md"
-        daily.parent.mkdir(parents=True)
+        daily = tmp_path / "daily.md"
         daily.write_text(
             "# Today\n\n"
             "## Pre-Compact Snapshot\n"
@@ -97,35 +106,51 @@ class TestPostCompactFraming:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         daily = self._write_daily(tmp_path)
-        # Bypass vault resolution: call main() directly with the daily path
-        # monkeypatched as the daily note path. ARC-001: post_compact_hook now
-        # imports today_daily_path / resolve_vault directly from core.*, so the
-        # patches target those names on the module itself rather than the
-        # former vault_common facade attribute.
+
+        # Stub the retrieval/config surfaces main() touches so the test
+        # exercises only the compact-source snapshot-restore wiring.
         monkeypatch.setattr(
-            post_compact_hook,
-            "today_daily_path",
+            session_start_hook,
+            "build_session_context",
+            lambda *args, **kwargs: ("BASE CONTEXT", 2),
+        )
+        monkeypatch.setattr(
+            session_start_hook, "validate_config", lambda *args, **kwargs: []
+        )
+        monkeypatch.setattr(
+            session_start_hook,
+            "load_typed_config",
+            lambda *args, **kwargs: types.SimpleNamespace(
+                session_start_hook=types.SimpleNamespace(
+                    ai_model=None, max_chars=4000, verbose_mode=False, debug=False
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            session_start_hook, "write_hook_event", lambda **kwargs: None
+        )
+        monkeypatch.setattr(
+            session_start_hook,
+            "existing_daily_path",
             lambda vault=None: daily,
         )
-        monkeypatch.setattr(
-            post_compact_hook,
-            "resolve_vault",
-            lambda cwd="": tmp_path,
-        )
 
-        # Flush stdin via monkeypatch so main() doesn't block.
-        monkeypatch.setattr("sys.stdin", _FakeStdin('{"cwd": "/tmp"}'))
+        # Flush stdin via monkeypatch so main() doesn't block, and pin argv
+        # so argparse doesn't try to parse pytest's own command line.
+        monkeypatch.setattr(sys, "argv", ["session_start_hook.py"])
+        monkeypatch.setattr(
+            "sys.stdin", _FakeStdin('{"cwd": "/tmp", "source": "compact"}')
+        )
 
         import io
 
         buf = io.StringIO()
         monkeypatch.setattr("sys.stdout", buf)
 
-        post_compact_hook.main()
+        session_start_hook.main()
 
         parsed = json.loads(buf.getvalue())
-        assert "additionalContext" in parsed
-        ctx = parsed["additionalContext"]
+        ctx = parsed["hookSpecificOutput"]["additionalContext"]
         # The snapshot is wrapped with <content> delimiters
         assert "<content>" in ctx
         assert "</content>" in ctx
@@ -133,6 +158,8 @@ class TestPostCompactFraming:
         assert "untrusted vault data" in ctx
         # The old comply-instruction has been removed.
         assert "Resume from where you left off" not in ctx
+        # The framing labels the restored snapshot
+        assert "Context restored from pre-compact snapshot" in ctx
 
 
 class _FakeStdin:

@@ -312,7 +312,7 @@ All hooks read `<resolved vault>/config.yaml` for settings (see [Configuration](
 | SessionStart | `session_start_hook.py` | 60 s (registered by the installer; covers `--ai`) | `session_start_hook` | `--ai [MODEL]` or `session_start_hook.ai_model` enables selection through the configured prompt AI backend |
 | SessionEnd | `session_stop_wrapper.sh` → `session_stop_hook.py` | async | `session_stop_hook` | Shell wrapper outputs `{}` immediately; Python script runs detached via `nohup` |
 | PreCompact | `pre_compact_hook.py` | 10 s | `pre_compact_hook` | Configurable transcript lines |
-| PostCompact | `post_compact_hook.py` | 10 s | — | Reads last Pre-Compact Snapshot from today's daily note and returns it as `additionalContext` |
+| PostCompact | `post_compact_hook.py` | 10 s | — | Logs whether today's daily note holds a Pre-Compact Snapshot (`snapshot_found` in `hook_events.log`); always emits `{}` — PostCompact stdout is not injected into model context (doc-verified 2026-11-10). Snapshot re-injection happens in `session_start_hook.py` (SessionStart `source="compact"`) |
 | SubagentStop | `subagent_stop_hook.py` | async | `subagent_stop_hook` | Non-blocking; skips agents listed in `excluded_agents` |
 
 Transcript compatibility for stop hooks:
@@ -646,7 +646,7 @@ Everything else -- indexing, embedding, searching, hook execution, daily notes, 
 
 ### Will this bloat my agent context?
 
-No. The `SessionStart` hook injects a **compact one-line-per-note index** (title + tags only) as context, not full note contents. For a vault with 300+ notes this typically adds 3-5 KB -- roughly 1,000 tokens. The `PreCompact` and `PostCompact` hooks inject a small snapshot (~20 lines) of the current task and recently-touched files so Claude can resume after context compaction. None of these inject full note bodies into the conversation. When Claude needs a specific note, it reads it on demand via the vault-explorer agent or the Read tool.
+No. The `SessionStart` hook injects a **compact one-line-per-note index** (title + tags only) as context, not full note contents. For a vault with 300+ notes this typically adds 3-5 KB -- roughly 1,000 tokens. The `PreCompact` hook writes a small snapshot (~20 lines) of the current task and recently-touched files to the daily note, and after compaction the `SessionStart` hook (fired with `source="compact"`) re-injects it so Claude can resume. None of these inject full note bodies into the conversation. When Claude needs a specific note, it reads it on demand via the vault-explorer agent or the Read tool.
 
 ### How can I share a vault across multiple machines or with a team?
 

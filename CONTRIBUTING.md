@@ -164,7 +164,8 @@ bash skills/parsidion/scripts/session_stop_wrapper.sh <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF
 
-# Test post_compact_hook (reads last Pre-Compact Snapshot from today's daily note)
+# Test post_compact_hook (logs snapshot availability; always emits {} —
+# re-injection lives in session_start_hook.py's source="compact" path)
 python skills/parsidion/scripts/post_compact_hook.py <<'EOF'
 {"cwd": "/path/to/project", "transcript_path": "/path/to/transcript.jsonl"}
 EOF

@@ -975,7 +975,13 @@ class TestPostCompactHookIntegration:
         assert isinstance(parsed, dict)
 
     def test_with_snapshot_in_daily_note(self, tmp_path: Path) -> None:
-        """When daily note has a snapshot, hook returns additionalContext."""
+        """A snapshot in the daily note is logged, not emitted as context.
+
+        PostCompact stdout is not injected into model context (doc-verified
+        2026-11-10); the hook always writes {} and records snapshot_found in
+        hook_events.log. Re-injection lives in session_start_hook.py's
+        SessionStart source="compact" path.
+        """
         from datetime import datetime
 
         year_month = datetime.now().strftime("%Y-%m")
@@ -993,10 +999,18 @@ class TestPostCompactHookIntegration:
 
         result = _run_hook("post_compact_hook.py", {}, tmp_path)
         assert result.returncode == 0
-        parsed = json.loads(result.stdout)
-        # Should have additionalContext with the snapshot content
-        assert "additionalContext" in parsed
-        assert "Pre-Compact Snapshot" in parsed["additionalContext"]
+        assert json.loads(result.stdout) == {}
+
+        log_lines = [
+            ln
+            for ln in (tmp_path / "hook_events.log")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if ln.strip()
+        ]
+        event = json.loads(log_lines[-1])
+        assert event["hook"] == "PostCompact"
+        assert event["snapshot_found"] is True
 
 
 # ---------------------------------------------------------------------------

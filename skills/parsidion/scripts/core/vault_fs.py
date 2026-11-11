@@ -53,8 +53,11 @@ __all__: list[str] = [
     "get_vault_username",
     "is_valid_vault_username",
     "today_daily_path",
+    "existing_daily_path",
     "create_daily_note_if_missing",
     "append_session_to_daily",
+    # Pre-compact snapshots
+    "extract_latest_snapshot",
     # Vault directory management
     "ensure_vault_dirs",
     # Re-exported from vault_constants for callers that import via vault_fs
@@ -1093,6 +1096,69 @@ def today_daily_path(vault: Path | None = None) -> Path:
     month_dir = f"{today.year:04d}-{today.month:02d}"
     day_file = f"{today.day:02d}-{get_vault_username()}.md"
     return vault / "Daily" / month_dir / day_file
+
+
+def existing_daily_path(vault: Path | None = None) -> Path | None:
+    """Return today's daily note path if it exists, else ``None``.
+
+    Prefers the namespaced ``Daily/YYYY-MM/DD-{username}.md`` path and falls
+    back to the legacy un-namespaced ``Daily/YYYY-MM/DD.md`` used by
+    pre-migration vaults — the same fallback the compact hooks apply inline.
+    Unlike :func:`today_daily_path` the returned path is guaranteed to exist
+    (or be ``None``), so callers can read it without a separate existence
+    check.
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
+    """
+    vault = vault or resolve_vault()
+    daily_path = today_daily_path(vault=vault)
+    if daily_path.is_file():
+        return daily_path
+
+    today = date.today()
+    month_dir = f"{today.year:04d}-{today.month:02d}"
+    legacy = vault / "Daily" / month_dir / f"{today.day:02d}.md"
+    if legacy.is_file():
+        return legacy
+    return None
+
+
+_SNAPSHOT_HEADING = "## Pre-Compact Snapshot"
+
+
+def extract_latest_snapshot(daily_content: str) -> str | None:
+    """Extract the most recent Pre-Compact Snapshot section from a daily note.
+
+    Scans backwards through the note to find the last occurrence of
+    ``## Pre-Compact Snapshot``, then collects all lines belonging to that
+    section (until the next ``##``-level heading or end-of-file).
+
+    Args:
+        daily_content: Full text of a daily vault note.
+
+    Returns:
+        The snapshot section text (including heading), or ``None`` if not found.
+    """
+    lines = daily_content.splitlines()
+
+    # Find the last occurrence of the snapshot heading
+    last_idx: int | None = None
+    for i, line in enumerate(lines):
+        if line.startswith(_SNAPSHOT_HEADING):
+            last_idx = i
+
+    if last_idx is None:
+        return None
+
+    # Collect lines from that heading until the next same-level heading or EOF
+    section_lines: list[str] = [lines[last_idx]]
+    for line in lines[last_idx + 1 :]:
+        if line.startswith("## ") and not line.startswith(_SNAPSHOT_HEADING):
+            break
+        section_lines.append(line)
+
+    return "\n".join(section_lines).strip()
 
 
 def create_daily_note_if_missing(vault: Path | None = None) -> Path:

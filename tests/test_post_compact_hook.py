@@ -4,12 +4,19 @@ Mirrors the integration pattern in ``tests/test_hook_integration.py``: spawn the
 hook as a real subprocess, feed minimal JSON on stdin, assert exit 0 + valid
 JSON on stdout.
 
-``post_compact_hook.py`` reads today's daily note and returns the most recent
-``## Pre-Compact Snapshot`` section as ``additionalContext`` so the agent can
-resume after compaction. The hook swallows unexpected exceptions (``except
-Exception:  # noqa: BLE001``) so a regression cannot break the user's session;
-the contract pinned here is therefore "failures are recorded", not "failures
-are loud" — the swallowed-failure path writes a traceback to
+PostCompact hook stdout is NOT injected into model context (doc-verified
+2026-11-10 against the Claude Code hooks reference: only UserPromptSubmit,
+UserPromptExpansion, SessionStart, and PostModelSwitch output reaches Claude).
+The hook therefore always writes ``{}``; its remaining job is the side effect —
+a PostCompact event in ``<vault>/hook_events.log`` recording whether today's
+daily note holds a snapshot. Snapshot re-injection lives in
+``session_start_hook.py``'s SessionStart ``source == "compact"`` path and is
+pinned by ``tests/test_session_start_hook.py``.
+
+The hook swallows unexpected exceptions (``except Exception:  # noqa:
+BLE001``) so a regression cannot break the user's session; the contract
+pinned here is therefore "failures are recorded", not "failures are loud" —
+the swallowed-failure path writes a traceback to
 ``parsidion-hook-errors.log`` via the shared ``log_hook_error``.
 """
 
@@ -21,6 +28,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -84,6 +92,15 @@ def _seed_test_config(vault: Path) -> None:
     )
 
 
+def _last_hook_event(vault: Path) -> dict[str, Any]:
+    """Return the last JSON line of the vault's hook_events.log."""
+    log = vault / "hook_events.log"
+    assert log.is_file(), "hook_events.log missing after post_compact run"
+    lines = [ln for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert lines, "hook_events.log is empty"
+    return json.loads(lines[-1])
+
+
 # ---------------------------------------------------------------------------
 # Snapshot present
 # ---------------------------------------------------------------------------
@@ -91,11 +108,9 @@ def _seed_test_config(vault: Path) -> None:
 
 @pytest.mark.timeout(20)
 class TestPostCompactSnapshotPresent:
-    """A daily note with a Pre-Compact Snapshot injects it as context."""
+    """A daily note with a snapshot emits ``{}`` and logs the side effect."""
 
-    def test_snapshot_section_returned_as_additional_context(
-        self, tmp_path: Path
-    ) -> None:
+    def test_snapshot_emits_empty_json_and_logs_event(self, tmp_path: Path) -> None:
         vault = tmp_path / "vault"
         vault.mkdir(parents=True)
         _seed_test_config(vault)
@@ -115,15 +130,12 @@ class TestPostCompactSnapshotPresent:
 
         result = _run_hook({"cwd": str(tmp_path)}, vault)
         assert result.returncode == 0
-        parsed = json.loads(result.stdout)
-        assert "additionalContext" in parsed
-        ctx = parsed["additionalContext"]
-        assert "## Pre-Compact Snapshot (14:32)" in ctx
-        assert "refactoring the parser" in ctx
-        assert "Context restored from pre-compact snapshot" in ctx
-        # The "## Later Section" must NOT be included — snapshot collection
-        # stops at the next same-level heading.
-        assert "Later Section" not in ctx
+        # PostCompact stdout is never injected; the contract is {} always.
+        assert json.loads(result.stdout) == {}
+
+        event = _last_hook_event(vault)
+        assert event["hook"] == "PostCompact"
+        assert event["snapshot_found"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +145,7 @@ class TestPostCompactSnapshotPresent:
 
 @pytest.mark.timeout(20)
 class TestPostCompactSnapshotAbsent:
-    """Without a snapshot, the hook returns valid empty JSON."""
+    """Without a snapshot, the hook returns valid empty JSON and logs it."""
 
     def test_daily_without_snapshot_returns_empty_json(self, tmp_path: Path) -> None:
         vault = tmp_path / "vault"
@@ -150,6 +162,10 @@ class TestPostCompactSnapshotAbsent:
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
 
+        event = _last_hook_event(vault)
+        assert event["hook"] == "PostCompact"
+        assert event["snapshot_found"] is False
+
     def test_no_daily_note_returns_empty_json(self, tmp_path: Path) -> None:
         vault = tmp_path / "vault"
         vault.mkdir(parents=True)
@@ -157,45 +173,9 @@ class TestPostCompactSnapshotAbsent:
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
 
-
-# ---------------------------------------------------------------------------
-# Multiple snapshots — most recent wins
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.timeout(20)
-class TestPostCompactMostRecentSnapshot:
-    """With multiple snapshots, the most recent one is returned."""
-
-    def test_most_recent_snapshot_wins(self, tmp_path: Path) -> None:
-        vault = tmp_path / "vault"
-        vault.mkdir(parents=True)
-        _seed_test_config(vault)
-        daily = _today_daily_path(vault)
-        daily.parent.mkdir(parents=True, exist_ok=True)
-        daily.write_text(
-            "# Today\n\n"
-            "## Pre-Compact Snapshot (10:00)\n"
-            "- **Working on**: older task\n\n"
-            "Some intermediate prose.\n\n"
-            "## Pre-Compact Snapshot (15:45)\n"
-            "- **Working on**: newer task — fixing the parser\n\n"
-            "## Unrelated Heading\n"
-            "trailer\n",
-            encoding="utf-8",
-        )
-
-        result = _run_hook({"cwd": str(tmp_path)}, vault)
-        assert result.returncode == 0
-        parsed = json.loads(result.stdout)
-        assert "additionalContext" in parsed
-        ctx = parsed["additionalContext"]
-        # Most-recent snapshot wins
-        assert "Snapshot (15:45)" in ctx
-        assert "newer task" in ctx
-        # Older snapshot must not be present
-        assert "Snapshot (10:00)" not in ctx
-        assert "older task" not in ctx
+        event = _last_hook_event(vault)
+        assert event["hook"] == "PostCompact"
+        assert event["snapshot_found"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -212,11 +192,8 @@ class TestPostCompactMalformedInput:
         vault.mkdir(parents=True)
         result = _run_hook({}, vault, stdin_text="not valid json at all")
         assert result.returncode == 0
-        # Either empty {} (no cwd → default vault → no daily note) or
-        # {"additionalContext": ...} depending on the user's real vault state.
-        # Either way, stdout MUST be valid JSON.
-        parsed = json.loads(result.stdout)
-        assert isinstance(parsed, dict)
+        # PostCompact always writes {}; stdout MUST be valid JSON either way.
+        assert json.loads(result.stdout) == {}
 
     def test_daily_with_garbage_bytes_does_not_raise(self, tmp_path: Path) -> None:
         """A daily note containing invalid UTF-8 must not crash the hook."""
@@ -261,10 +238,12 @@ class TestPostCompactInternalGuard:
         )
         assert result.returncode == 0
         assert json.loads(result.stdout) == {}
+        # The short-circuit fires before vault resolution and event logging.
+        assert not (vault / "hook_events.log").exists()
 
 
 # ---------------------------------------------------------------------------
-# Unit test: extract_latest_snapshot logic
+# Unit test: extract_latest_snapshot logic (now in core.vault_fs)
 # ---------------------------------------------------------------------------
 
 
@@ -272,15 +251,15 @@ class TestExtractLatestSnapshot:
     """Direct unit tests for the snapshot extraction logic."""
 
     def test_returns_none_when_no_snapshot(self) -> None:
-        import post_compact_hook
+        from core.vault_fs import extract_latest_snapshot
 
-        assert post_compact_hook.extract_latest_snapshot("no snapshot here") is None
+        assert extract_latest_snapshot("no snapshot here") is None
 
     def test_returns_section_text_with_heading(self) -> None:
-        import post_compact_hook
+        from core.vault_fs import extract_latest_snapshot
 
         content = "## Pre-Compact Snapshot\n- task A\n\n## Next Section\ntrailer\n"
-        result = post_compact_hook.extract_latest_snapshot(content)
+        result = extract_latest_snapshot(content)
         assert result is not None
         assert "Pre-Compact Snapshot" in result
         assert "task A" in result
@@ -289,7 +268,7 @@ class TestExtractLatestSnapshot:
         assert "trailer" not in result
 
     def test_returns_most_recent_when_multiple(self) -> None:
-        import post_compact_hook
+        from core.vault_fs import extract_latest_snapshot
 
         content = (
             "## Pre-Compact Snapshot (early)\n"
@@ -297,7 +276,7 @@ class TestExtractLatestSnapshot:
             "## Pre-Compact Snapshot (late)\n"
             "- new\n"
         )
-        result = post_compact_hook.extract_latest_snapshot(content)
+        result = extract_latest_snapshot(content)
         assert result is not None
         assert "(late)" in result
         assert "(early)" not in result

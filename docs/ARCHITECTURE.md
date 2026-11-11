@@ -46,7 +46,7 @@ An agent-agnostic markdown knowledge vault that gives coding assistants persiste
 - Write-gate filter: transient sessions are skipped rather than saved
 - Hierarchical summarization for long transcripts (chunk → haiku summary → Sonnet note)
 - Automated bidirectional backlinks injected after each new note write
-- Working state snapshots before context compaction; snapshot restored automatically after compaction via PostCompact hook
+- Working state snapshots before context compaction; snapshot re-injected after compaction by the SessionStart hook (`source == "compact"`)
 - Per-prompt and per-file vault recall: `UserPromptSubmit` and `PreToolUse` hooks push relevant notes — and triggered `type: rule` directives — into context before the model answers or opens a file
 - Note supersession: retire wrong or replaced notes without deleting them (`vault-supersede`); retired notes are excluded from every retrieval surface and restorable with `--revert`
 - A dedicated research agent that saves findings to the vault
@@ -383,13 +383,13 @@ Fires before Claude Code compacts the conversation context. Snapshots the curren
 
 **Script:** `skills/parsidion/scripts/post_compact_hook.py`
 
-Fires after Claude Code compacts the conversation context. Restores the pre-compaction working state so Claude can resume the session without manually re-reading files.
+Fires after Claude Code compacts the conversation context. Observability only — no context injection: PostCompact hook stdout is NOT injected into model context (doc-verified 2026-11-10 against the Claude Code hooks reference; only UserPromptSubmit, UserPromptExpansion, SessionStart, and PostModelSwitch output reaches Claude). Snapshot re-injection is handled by the SessionStart hook, which Claude Code fires with `source == "compact"` right after a compaction (see [SessionStart Hook](#sessionstart-hook)).
 
 **Behavior:**
-1. Reads today's daily note (`Daily/YYYY-MM/DD-{username}.md`)
+1. Reads today's daily note (`Daily/YYYY-MM/DD-{username}.md`, legacy un-namespaced fallback)
 2. Scans backwards for the most recent `## Pre-Compact Snapshot` section written by `pre_compact_hook.py`
-3. Returns the snapshot content as `additionalContext` in the hook output
-4. If no snapshot is found (e.g. first compact of a session), returns an empty context gracefully
+3. Logs a `PostCompact` event to `hook_events.log` recording whether a snapshot was found (`snapshot_found`), visible via `vault-stats --hooks`
+4. Always writes `{}` — re-injection happens in `session_start_hook.py`'s `source == "compact"` path, which appends the snapshot under the SEC-108 untrusted-data framing
 
 #### UserPromptSubmit Hook
 
@@ -1669,7 +1669,7 @@ parsidion/
     │   ├── antigravity_session_end_hook.py # Antigravity Stop wrapper
     │   ├── subagent_stop_hook.py    # SubagentStop hook (async, captures subagent learnings)
     │   ├── pre_compact_hook.py      # PreCompact hook
-    │   ├── post_compact_hook.py     # PostCompact hook (restores Pre-Compact Snapshot as additionalContext)
+    │   ├── post_compact_hook.py     # PostCompact hook (logs snapshot_found to hook_events.log; stdout not injected)
     │   ├── user_prompt_submit_hook.py # UserPromptSubmit hook (per-prompt parsight vault recall + rule notes)
     │   ├── pre_tool_use_hook.py     # PreToolUse hook (file-scoped vault recall on Read/Edit + rule notes)
     │   ├── summarize_sessions.py    # On-demand AI summarizer (PEP 723; semantic dedup via vault_search)
