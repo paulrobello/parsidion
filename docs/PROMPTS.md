@@ -46,11 +46,11 @@ Each template lives at `skills/parsidion/templates/prompts/<id>.md` with this sh
 ---
 id: summarize-session
 version: 1.1.0
-syntax: format
-variables: [project, cats_str, today, dedup_block, cleaned_transcript, ...]
-description: Generate a structured vault note from a cleaned session transcript.
+syntax: template
+variables: [project, cats_str, today, dedup_block, cleaned_transcript, tags_instruction, valid_types, session_id]
+description: Generate a structured vault note from a cleaned session transcript (summarize_sessions). Transcript is inlined as untrusted data.
 ---
-<the prompt body with {variable} placeholders>
+<the prompt body with $variable placeholders>
 ```
 
 The frontmatter fields:
@@ -146,6 +146,9 @@ uv run tools/eval/prompt_eval_run.py --prompt summarize-session --model claude-s
 
 # Quick check on the first 3 cases:
 uv run tools/eval/prompt_eval_run.py --prompt summarize-session --limit 3
+
+# Bounded single-case rerun (matches case ids by substring):
+uv run tools/eval/prompt_eval_run.py --prompt summarize-session --case 009
 
 # Ignore the cache and re-run every case:
 uv run tools/eval/prompt_eval_run.py --prompt summarize-session --no-cache

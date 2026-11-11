@@ -327,6 +327,10 @@ uv run ~/.claude/skills/parsidion/scripts/build_embeddings.py --vault my-project
 Use a full rebuild after bulk note reorganizations, subfolder moves, or when you want to ensure
 the database is in a clean state.
 
+> **Note:** When `embeddings.enabled` is `false` in the vault config, `build_embeddings.py`
+> skips the build entirely — vectors go stale while `update_index.py` still maintains the
+> `note_index` metadata. Pass `--force` to build the vectors anyway.
+
 ### Incremental Update
 
 An incremental update compares each note's `mtime` against the stored value and re-encodes only
@@ -732,7 +736,7 @@ parsight:
 
 | Key | Section | Type | Default | Description |
 |---|---|---|---|---|
-| `enabled` | `embeddings` | boolean | `true` | Master switch — set `false` to disable all embedding builds and `note_index` writes |
+| `enabled` | `embeddings` | boolean | `true` | Master switch — set `false` to skip vector builds (`build_embeddings.py` exits without `--force`) and the automatic background rebuild after `update_index.py`; `note_index` metadata writes continue so indexed queries stay current |
 | `model` | `embeddings` | string | `BAAI/bge-small-en-v1.5` | fastembed model ID for the embedding model |
 | `min_score` | `embeddings` | float | `0.45` | Global minimum cosine similarity threshold; results below this are excluded (embeddings backend only; parsight gates by rank/`top`) |
 | `top_k` | `embeddings` | integer | `10` | Default number of results returned per search |

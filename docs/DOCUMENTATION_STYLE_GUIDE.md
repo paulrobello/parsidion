@@ -102,8 +102,6 @@ Longer documents should also include:
 - **Verification:** For setup, operations, and troubleshooting docs
 - **Troubleshooting:** For workflows with common failure modes
 
-**Exemption — adapter instruction shims:** One-line redirect stubs that exist solely to point a coding-agent runtime at the project's primary instructions are exempt from the H1 + summary baseline. Examples in this repo: `AGENTS.md` (Codex CLI, contains `read @CLAUDE.md`) and the installer-generated `~/.codex/AGENTS.md` / `~/.gemini/GEMINI.md`. The redirect is the entire point — duplicating CLAUDE.md content in these stubs would create drift. The H1 + summary rule applies once a shim grows real content of its own.
-
 ### Heading Hierarchy
 
 | Level | Use | Example |
@@ -557,6 +555,8 @@ Use whichever tools fit the project:
 - Code block extraction and testing
 - Mermaid rendering validation
 - API reference generation or schema validation
+
+When the project defines a documentation link checker (for example a `doc-links-check` make target built on lychee), run it after every documentation edit and keep it green; treat its failures like test failures.
 
 ## Review Checklist
 

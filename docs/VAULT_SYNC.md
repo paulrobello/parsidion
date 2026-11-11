@@ -196,10 +196,13 @@ The hook prints that embeddings were skipped and still runs `update_index.py`.
 metadata rebuild (root `CLAUDE.md`, `TAGS.md`, per-folder `MANIFEST.md`, and the
 `note_index` table) still runs to completion.
 The configuration-level equivalent is `embeddings.enabled: false` in the vault's
-`config.yaml` or `config.local.yaml`, which makes `build_embeddings.py` exit before
-loading or fetching a model. With embeddings enabled and no static-only switch,
-the hook may load or fetch an embedding model on each merge — including via
-`update_index.py`'s own background spawn.
+`config.yaml` or `config.local.yaml`, which makes `build_embeddings.py` exit without
+building vectors (`--force` overrides). The exit precedes any model load or fetch
+when no `embeddings.db` exists yet; on a vault with an existing populated database,
+the incremental dimension probe still loads the cached model before the exit.
+With embeddings enabled and no static-only switch, the hook may load or fetch an
+embedding model on each merge — including via `update_index.py`'s own background
+spawn.
 
 **Commit side effect:** `update_index.py` auto-commits generated `CLAUDE.md`,
 `TAGS.md`, and per-folder `MANIFEST.md` files when changed, unless

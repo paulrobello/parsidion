@@ -43,7 +43,7 @@ Key capabilities:
 - Composite vault health scoring across eight dimensions via `vault_health`
 - Natural-language code search over any parsight-indexed repository via `code_search`
 
-The server runs locally only. It makes no external network calls and requires no API keys beyond the Claude API key already used by Claude Desktop. The `code_search` tool additionally requires parsight to be installed and its local daemon running (see [docs/PARSIGHT.md](PARSIGHT.md)); without parsight the other seven tools continue to work and `code_search` raises a clear `ValueError`. **Note:** parsight itself is not yet publicly available (coming soon) — the other seven tools work fully today; `code_search` activates automatically once parsight ships.
+The server runs locally only and requires no API keys beyond the Claude API key already used by Claude Desktop. By default it makes no external network calls; the one exception is optional OTLP metrics — when a collector endpoint is configured via the standard `OTEL_*` environment variables, the server exports telemetry to that collector (see [docs/OBSERVABILITY.md](OBSERVABILITY.md)). The `code_search` tool additionally requires parsight to be installed and its local daemon running (see [docs/PARSIGHT.md](PARSIGHT.md)); without parsight the other seven tools continue to work and `code_search` raises a clear `ValueError`. **Note:** parsight itself is not yet publicly available (coming soon) — the other seven tools work fully today; `code_search` activates automatically once parsight ships.
 
 ## Architecture
 
@@ -120,7 +120,7 @@ graph TD
     classDef neutral fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
 ```
 
-The server entry point in `server.py` creates a `FastMCP` application, registers each tool function, and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
+The server entry point in `server.py` creates a `FastMCP` application, registers each tool function wrapped with env-gated OTLP call instrumentation (`metrics.py`; a no-op unless an `OTEL_*` collector endpoint is configured), and calls `mcp.run()` which handles the stdio transport required by Claude Desktop.
 
 Script paths for `rebuild_index`, `vault_doctor`, and `vault_health` resolve from `vault_path.__file__` rather than the module-level `SCRIPTS_DIR` constant. `ops.py` derives its `SCRIPTS_DIR` as `Path(vault_path.__file__).resolve().parent`, so each subprocess runs the same code the MCP server imported via the editable install — not a possibly-drifted `~/.claude/skills/parsidion/scripts/` copy. On Unix this resolves to the same path because the installer symlinks `~/.claude/skills/parsidion` at the repo; on Windows (where the installer copies) the distinction matters.
 
@@ -502,7 +502,7 @@ The tool first calls `parsight_backend.resolve_parsight_backend()`. If parsight 
 
 **Path containment.** Both `vault_read` and `vault_write` resolve the caller-supplied path against the vault root (obtained via `vault_common.resolve_vault()`) using `Path.resolve()` and `Path.is_relative_to()`. Any path that resolves outside the vault root — including traversal sequences such as `../../etc/passwd` — raises `VaultToolError("path escapes vault root")` immediately. No file system access occurs for rejected paths. On `vault_write`, containment and the segment gate are re-run against the fully resolved path after parent-directory creation, and the leaf file is opened with `O_NOFOLLOW`, so a vault-internal symlink swap between validation and the write cannot redirect the bytes (SEC-P003).
 
-**No external network calls.** The server and all eight tools operate entirely on the local file system and local SQLite database. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself invokes the configured prompt AI backend — `claude` by default, or `codex`/`grok` per the `ai.backend` config key — using the system's existing credentials; this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local parsight daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
+**Local-only operation.** The server and all eight tools operate entirely on the local file system and local SQLite database. The one exception is the optional OTLP metrics export: when `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (or the generic `OTEL_EXPORTER_OTLP_ENDPOINT`) is set, the server sends telemetry to that collector; without it nothing registers and no network calls occur. The subprocess calls to `update_index.py`, `vault_doctor.py`, and `vault_stats.py` are also local-only (except when `vault_doctor` is run with `fix=True`, in which case `vault_doctor.py` itself invokes the configured prompt AI backend — `claude` by default, or `codex`/`grok` per the `ai.backend` config key — using the system's existing credentials; this is the same behaviour as running `vault_doctor.py` manually from the terminal). The `code_search` tool talks only to the local parsight daemon over HTTP on `127.0.0.1`; it makes no outbound network calls.
 
 The server has no authentication layer of its own because it is transport-bound to stdio. Only Claude Desktop (or another local process with stdio access) can communicate with it.
 
@@ -520,6 +520,7 @@ The test suite covers:
 - **Unit tests** — each tool module tested with mocked `vault_common`, `vault_search`, and `subprocess.run`
 - **Subprocess tests** — `rebuild_index`, `vault_doctor`, and `vault_health` verified for correct flag construction across all parameter combinations
 - **Path safety tests** — traversal attempts in `vault_read` and `vault_write` confirmed to raise the expected `VaultToolError`
+- **Metrics and server tests** — OTLP endpoint/header resolution, enabled/disabled initialization, and the tool-call instrumentation wrapper verified with an in-memory metric reader
 - **Integration smoke tests** — read one real note and exercise `vault_context`; automatically skipped when the vault is absent
 
 ### Checkall
@@ -542,6 +543,7 @@ parsidion-mcp/
     └── parsidion_mcp/
         ├── __init__.py
         ├── server.py         # FastMCP app and entry point
+        ├── metrics.py        # env-gated OTLP tool-call metrics
         └── tools/
             ├── __init__.py
             ├── search.py     # vault_search tool
@@ -558,3 +560,4 @@ The `parsidion[search]` editable path dependency (declared in `pyproject.toml` u
 - [CLAUDE.md](../CLAUDE.md) — project instructions, vault conventions, hook architecture, and script paths
 - [PARSIGHT.md](PARSIGHT.md) — the optional parsight code-memory backend that serves `code_search` and vault semantic search when available
 - [MULTI_VAULT.md](MULTI_VAULT.md) — named vaults, `vaults.yaml`, and the per-call `vault` parameter every tool except `code_search` accepts
+- [OBSERVABILITY.md](OBSERVABILITY.md) — the optional OTLP metrics the server exports when a collector endpoint is configured, and where they land

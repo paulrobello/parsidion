@@ -22,6 +22,7 @@ Complete command-line reference for the Parsidion vault tooling: search, scaffol
 - [Audit graph color group coverage](#audit-graph-color-group-coverage)
 - [Reinstall after source changes](#reinstall-after-source-changes)
 - [Uninstall](#uninstall)
+- [Environment variables](#environment-variables)
 - [Related Documentation](#related-documentation)
 
 ## Rebuild the vault index
@@ -272,8 +273,9 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --migrate
 # Run all automated structural maintenance (tags, prefixes, sessions, legacy formats)
 uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --fix-all
 # Other flags: --fix-tags, --fix-frontmatter, --migrate-daily-notes [--daily-username NAME],
-#               --list-rules, --only RULE / --skip RULE, --jobs/-j N, --timeout SECS,
-#               --model MODEL, --vault/-V PATH|NAME, plus a `notes` positional
+#               --strip-prefixes, --fix-permissions, --prune-trash [--trash-retention-days N],
+#               --fix-headings/--no-fix-headings, --list-rules, --only RULE / --skip RULE,
+#               --jobs/-j N, --timeout SECS, --model MODEL, --vault/-V PATH|NAME, plus a `notes` positional
 ```
 
 The doctor is singleton-guarded — it takes an `flock` on `<vault>/.doctor.lock` (released by the kernel when the holder dies) and exits if another instance is already running. Before scanning it auto-commits any uncommitted vault files whose mtime is ≥ 15 minutes old. Notes that time out twice are flagged `needs_review` and skipped on future runs. The vault health summary appears in `CLAUDE.md` after running `update_index.py`.

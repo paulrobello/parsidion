@@ -200,9 +200,10 @@ def install_cli_tools(
     repo_root: Path,
     dry_run: bool = False,
 ) -> None:
-    """Install vault-search, vault-new, and vault-stats as global CLI commands via uv tool."""
+    """Install the eight vault CLI tools as global commands via uv tool."""
     _step(
-        "Install CLI tools: vault-search, vault-new, vault-stats (uv tool install)",
+        "Install CLI tools: vault-search, vault-new, vault-stats, vault-review, "
+        "vault-export, vault-merge, vault-conflicts, vault-supersede (uv tool install)",
         dry_run=dry_run,
     )
     if not dry_run:
@@ -221,19 +222,18 @@ def install_cli_tools(
             )
         except subprocess.TimeoutExpired:
             _warn(
-                "uv tool install timed out after 300s — vault-search / "
-                "vault-new / vault-stats may not be globally available. "
-                "Re-run install to retry."
+                "uv tool install timed out after 300s — the vault CLI tools may "
+                "not be globally available. Re-run install to retry."
             )
             return
         if result.returncode != 0:
             _warn(
-                "uv tool install failed — vault-search / vault-new / vault-stats not globally available.\n"
+                "uv tool install failed — the vault CLI tools are not globally available.\n"
                 f"  stdout: {result.stdout.strip()}\n"
                 f"  stderr: {result.stderr.strip()}"
             )
         else:
-            _ok("vault-search, vault-new, and vault-stats installed globally")
+            _ok("vault CLI tools installed globally (8 commands)")
 
 
 # ---------------------------------------------------------------------------

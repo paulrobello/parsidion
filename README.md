@@ -96,8 +96,8 @@ uv run install.py --dry-run
 # Migrate a legacy default vault from ~/ClaudeVault to ~/ParsidionVault
 uv run install.py --migrate-vault --yes
 
-# Also install the seven vault CLI tools as global commands
-# (vault-search, vault-new, vault-stats, vault-review, vault-export, vault-merge, vault-conflicts)
+# Also install the eight vault CLI tools as global commands
+# (vault-search, vault-new, vault-stats, vault-review, vault-export, vault-merge, vault-conflicts, vault-supersede)
 uv run install.py --force --yes --install-tools
 
 # Schedule nightly auto-summarization (launchd on macOS, cron on Linux)
@@ -136,7 +136,7 @@ uv run install.py disconnect omp      # remove the omp extension only
 | `--vault PATH` | Vault path (skips interactive prompt) |
 | `--claude-dir PATH` | Target Claude config dir (default: `~/.claude`) |
 | `--codex-home PATH` | Target Codex home for hooks/config (default: `$CODEX_HOME` or `~/.codex`) |
-| `--gemini-home PATH` | Target Antigravity/Gemini config home for hook settings (default: `~/.gemini`) |
+| `--antigravity-home PATH` | Target Antigravity config home for hook settings (default: `~/.gemini`) |
 | `--omp-home PATH` | omp config home for the `connect omp` extension install (default: `$PI_CONFIG_DIR` or `~/.omp`); the extension lands in `<omp-home>/agent/extensions` |
 | `--purge-config` | With `--uninstall`, also remove `~/.config/parsidion/vaults.yaml` (always preserved otherwise; no effect unless the Claude integration is being removed, and required even under `--yes`) |
 | `--runtime {claude,codex,antigravity,both,all,none}` | Runtime integration target; interactive installs default to `both` (Claude + Codex), while `--yes` defaults to `claude` for backwards compatibility |
@@ -148,7 +148,7 @@ uv run install.py disconnect omp      # remove the omp extension only
 | `--skip-agent` | Do not install any agents |
 | `--enable-ai` | Enable AI-powered note selection: writes `ai_model` to `config.yaml` and uses the configured prompt AI backend (SessionStart timeout is 60 s for every install regardless) |
 | `--enable-embeddings` | Enable semantic search embeddings: writes `embeddings.enabled = true` to `config.yaml` |
-| `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, and `vault-conflicts` as global CLI commands via `uv tool install` |
+| `--install-tools` | Install `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, `vault-conflicts`, and `vault-supersede` as global CLI commands via `uv tool install` |
 | `--schedule-summarizer` | Generate a launchd plist (macOS) or cron job (Linux) for nightly auto-summarization |
 | `--summarizer-hour N` | Hour (0-23) for the scheduled summarizer job (default: 3) |
 | `--rebuild-graph` | Add `--rebuild-graph` to the scheduled command so `graph.json` is regenerated each night (default: on; use with `--schedule-summarizer`) |
@@ -188,7 +188,7 @@ Antigravity runtime hooks are separate from prompt AI backend selection. `--runt
 
 During interactive installation, the installer prompts for three optional features:
 
-1. **"Install CLI tools?"** (default: yes) — runs `uv tool install --editable ".[tools]"` to register `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, and `vault-conflicts` as global commands. Use `--install-tools` to enable this non-interactively (e.g. with `--yes`).
+1. **"Install CLI tools?"** (default: yes) — runs `uv tool install --editable ".[tools]"` to register `vault-search`, `vault-new`, `vault-stats`, `vault-review`, `vault-export`, `vault-merge`, `vault-conflicts`, and `vault-supersede` as global commands. Use `--install-tools` to enable this non-interactively (e.g. with `--yes`).
 2. **"Enable AI-powered note selection?"** (default: yes) — writes `ai_model` to `config.yaml`, enabling the configured prompt AI backend to intelligently select relevant vault notes at session start. Use `--enable-ai` to enable this non-interactively (e.g. with `--yes`). The SessionStart hook timeout is 60 s on every install, so no timeout adjustment is needed.
 3. **"Enable embeddings?"** (default: yes) — writes `embeddings.enabled = true` to `config.yaml`, enabling the vector index used by `vault-search` semantic mode and `session_start_hook` with `use_embeddings`. Requires ~67 MB model download on first run. Use `--enable-embeddings` to enable this non-interactively (e.g. with `--yes`).
 
@@ -212,7 +212,7 @@ A markdown vault-based knowledge management system that replaces flat runtime me
 
 **Auto-triggering:** The skill includes YAML frontmatter with a description that enables automatic invocation when users mention saving knowledge, checking notes, or persisting findings across sessions.
 
-The skill ships ~130 Python modules (hooks, CLIs, and library code across the flat script layer and the `core`/`summarizer`/`doctor`/`cli`/`session_start` subpackages) and 9 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge). The full per-script catalogue — purpose, public API surface, and which component consumes each one — lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **Component Details**, alongside the vault directory layout, the Obsidian graph color-group table, and the data-flow diagrams.
+The skill ships ~135 Python modules (hooks, CLIs, and library code across the flat script layer and the `core`/`summarizer`/`doctor`/`cli`/`session_start` subpackages) and 11 note templates (daily, project, language, framework, pattern, debugging, tool, research, knowledge, fork, rule). The full per-script catalogue — purpose, public API surface, and which component consumes each one — lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) under **Component Details**, alongside the vault directory layout, the Obsidian graph color-group table, and the data-flow diagrams.
 
 The default vault structure:
 
@@ -228,7 +228,7 @@ The default vault structure:
   graph.json                 # Pre-built knowledge graph for the visualizer (gitignored)
   Daily/YYYY-MM/DD-{username}.md   # Per-user daily notes
   Projects/ Languages/ Frameworks/ Patterns/ Debugging/
-  Tools/ Research/ Knowledge/ History/ Templates/
+  Tools/ Research/ Knowledge/ Rules/ Forks/ History/ Templates/
 ```
 
 For every script, the Obsidian color groups, and how the pieces fit together, see:
@@ -319,7 +319,7 @@ Transcript compatibility for stop hooks:
 - Claude Code JSONL (`type: "assistant" | "user"`)
 - pi JSONL (`type: "message"` + `message.role`)
 - Antigravity JSONL model output records (`role: "model"`, `message.role: "model"`, or `llm_response.candidates[].content.parts`)
-- Accepted roots: `~/.claude/`, `~/.pi/`, `<cwd>/.pi/`, `~/.codex/sessions/`, `~/.gemini/`, and `<cwd>/.gemini/`
+- Accepted roots: `~/.claude/`, `~/.pi/`, `<cwd>/.pi/`, `~/.codex/sessions/` (i.e. `$CODEX_HOME/sessions`), and `~/.gemini/antigravity-cli/brain/`
 
 
 ### pi runtime integration
@@ -448,13 +448,18 @@ session_stop_hook:     # Queue + auto-summarize: ai_model, auto_summarize, auto_
                        # transcript_tail_lines, pi_transcript_tail_lines
 subagent_stop_hook:    # Subagent capture: enabled, min_messages, excluded_agents
 pre_compact_hook:      # lines (transcript tail to snapshot)
+user_prompt_submit:    # Prompt recall: enabled, top_k, max_chars, per_note_chars, min_term_matches,
+                       # min_prompt_chars, probe_cache_seconds, recall_timeout_s, debug
+pre_tool_use:          # Pre-tool recall (Read|Edit): enabled, top_k, max_chars, per_note_chars,
+                       # min_term_matches, cache_seconds, parsight, recall_timeout_s, debug
 summarizer:            # model, max_parallel, transcript_tail_lines/bytes, max_cleaned_chars,
                        # cluster_model, dedup_threshold, dead_letter_retention_days
 ai:                    # backend: auto | claude-cli | codex-cli | grok-cli | none
 ai_models:             # per-backend small/large model IDs (claude, codex, grok)
 claude_cli:            # minimal_context, system_prompt, timeout (claude -p invocation)
-grok_cli:              # command, timeout, minimal_context, system_prompt (grok CLI, OAuth)
-codex_cli:             # command, timeout, sandbox, ephemeral, skip_git_repo_check, suppress_notify
+grok_cli:              # command, timeout, minimal_context, system_prompt, allow_tools (grok CLI, OAuth)
+codex_cli:             # command, timeout, sandbox, ephemeral, skip_git_repo_check, minimal_context,
+                       # suppress_notify, allow_danger_full_access
 anthropic_env:         # ANTHROPIC_API_KEY/AUTH_TOKEN/BASE_URL/CUSTOM_HEADERS,
                        # ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL, API_TIMEOUT_MS, HTTPS/HTTP_PROXY
 defaults:              # haiku_model (centralized)
@@ -464,6 +469,7 @@ parsight:               # enabled, binary, timeout_s (see docs/PARSIGHT.md)
 search:                # backend: auto | parsight | embeddings | none
 git:                   # auto_commit
 event_log:             # enabled, max_lines, path
+otlp:                  # OTLP telemetry: enabled, endpoint, headers, timeout_s, wait_s, service_name
 adaptive_context:      # enabled, decay_days
 transcripts:           # tail_lines, tail_bytes, max_line_bytes (transcript reading)
 vault:                 # username (Daily/YYYY-MM/DD-{username}.md suffix)
@@ -546,7 +552,7 @@ If no `.git` directory is present, all git operations are silent no-ops.
 
 ## Usage
 
-The vault ships seven global CLI tools (installed by `--install-tools`) plus the maintenance scripts under `skills/parsidion/scripts/`. The full command-by-command reference (every `vault-stats` mode, every `vault-doctor` flag, every `vault-merge`/`vault-conflicts`/`vault-export` option, the `VAULT_SEARCH_*` env-var table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands) lives in a dedicated guide:
+The vault ships eight global CLI tools (installed by `--install-tools`) plus the maintenance scripts under `skills/parsidion/scripts/`. The full command-by-command reference (every `vault-stats` mode, every `vault-doctor` flag, every `vault-merge`/`vault-conflicts`/`vault-export` option, the `VAULT_SEARCH_*` env-var table, the trigger eval, the programmatic `vault_common` API, and the install/uninstall commands) lives in a dedicated guide:
 
 ➜ **[docs/USAGE.md](docs/USAGE.md)**
 

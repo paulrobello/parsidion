@@ -49,7 +49,7 @@ Held by `AgentAdapter.install`; a standalone frozen dataclass so the installer h
 |---|---|---|
 | **Identity** | `display_name` | User-facing label for installer messages (`Codex`). |
 | | `runtime_env_value` | Value set for `PARSIDION_RUNTIME` when the runtime's hook runs. |
-| **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json`, `settings.json`). `None` = no hook config (pi, omp). |
+| **Hook registration** | `hooks_config_filename` | File the runtime stores hooks in, relative to its home (`hooks.json` codex, `config/hooks.json` antigravity, `settings.json` claude). `None` = no hook config (pi, omp). |
 | | `event_scripts` | Ordered `event -> hook-script-filename` map (e.g. `SessionStart -> codex_session_start_hook.py`). |
 | | `entry_matcher` | the `matcher` for the hook entry (always `""` for codex/claude/antigravity). |
 | | `event_matchers` | Per-event `matcher` overrides when one event needs a tool filter others must not carry (codex `PreToolUse -> "apply_patch"`). Events absent from the map fall back to `entry_matcher`. |

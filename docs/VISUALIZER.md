@@ -1034,7 +1034,8 @@ parsidion/
 │   │   ├── api/stats/route.ts           # Pending-summary count for VaultStats (GET)
 │   │   ├── api/health/route.ts          # Composite vault health report via vault-stats (GET, ENH-007)
 │   │   ├── api/summarize/route.ts       # Spawn the summarizer subprocess (POST, auth)
-│   │   └── api/summarizer/status/route.ts # Live summarizer run progress (GET)
+│   │   ├── api/summarizer/status/route.ts # Live summarizer run progress (GET)
+│   │   └── api/apiRoutes.test.ts        # ARC-014: asserts every HTTP-method export under app/api/ is wrapped by withApi
 │   ├── components/
 │   │   ├── GraphPanel.tsx            # Graph-mode container: scope indicator + lazy-loaded GraphCanvas + HUDPanel (ARC-008)
 │   │   ├── ReadingPanePanel.tsx      # Read-mode container: ReadingPane wrapper + linked-notes memo (ARC-008)
@@ -1051,6 +1052,7 @@ parsidion/
 │   │   ├── Toolbar.tsx               # Top bar: tabs + vault selector + VaultStats + sync dot + new note
 │   │   ├── VaultSelector.tsx         # Multi-vault dropdown switcher
 │   │   ├── VaultStats.tsx            # PEND / NOTES chips; composite health grade chip (ENH-007); triggers + monitors summarizer runs
+│   │   ├── VaultStats.test.tsx       # Unit tests for VaultStats
 │   │   ├── TabBar.tsx                # Scrollable tab strip with permanent Graph tab
 │   │   ├── UnifiedSearch.tsx         # ⌘K search input + dropdown
 │   │   ├── TemperatureBar.tsx        # Simulation energy indicator
@@ -1111,7 +1113,6 @@ parsidion/
 │   │   ├── parseDiff.test.ts         # Unit tests for parseDiff
 │   │   ├── sigma-colors.ts           # Note type → color mapping, edge coloring, node sizing constants
 │   │   ├── sigma-colors.test.ts      # Unit tests for sigma-colors
-│   │   ├── sigma-renderers.ts        # Custom Sigma label/hover renderers
 │   │   ├── frontmatter.ts            # Frontmatter parse/serialize helpers
 │   │   ├── frontmatter.test.ts       # Unit tests for frontmatter
 │   │   ├── frontmatter.parity.test.ts # ARC-005 TS/Python frontmatter serialization parity (shared fixture)

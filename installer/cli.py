@@ -487,7 +487,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Enable AI-powered note selection: writes ai_model to vault config.yaml "
-            "and sets the SessionStart hook timeout to 30s so claude-haiku can "
+            "and sets the SessionStart hook timeout to 60s so claude-haiku can "
             "intelligently select relevant vault notes. "
             "The interactive installer prompts for this; use this flag to enable "
             "it non-interactively (e.g. with --yes)."

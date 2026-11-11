@@ -116,7 +116,7 @@ When no explicit vault is specified, tools use this resolution order:
 4. The top-level `default:` key in `~/.config/parsidion/vaults.yaml` (a vault name or a registered path; unset or unresolvable values are ignored)
 5. `~/ParsidionVault` (or legacy `~/ClaudeVault` if it exists)
 
-> **Note:** A vault reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path. An arbitrary unregistered path is rejected: an explicit `--vault` reference fails with a `VaultConfigError`, while `.claude/vault` and `CLAUDE_VAULT` references that fail the check are skipped and resolution falls through to the next step.
+> **Note:** A vault reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path. A linked Git worktree of a registered vault also resolves, verified through Git's own worktree registry at the allowlisted root. An arbitrary unregistered path is rejected: an explicit `--vault` reference fails with a `VaultConfigError`, while `.claude/vault` and `CLAUDE_VAULT` references that fail the check are skipped and resolution falls through to the next step.
 
 ## Related Documentation
 

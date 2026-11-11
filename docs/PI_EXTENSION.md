@@ -22,8 +22,9 @@ The pi adapter extension source is included in the Parsidion repo at:
 - `extensions/pi/parsidion/lib/scriptRunner.ts`
 - `extensions/pi/parsidion/lib/transcript.ts`
 - `extensions/pi/parsidion/lib/promptRecall.ts`
+- `extensions/pi/parsidion/lib/compactRestore.ts`
 
-The four `lib/` helpers are dependency-free modules, each pinned by a bun:test unit test (`lib/scriptRunner.test.ts`, `lib/transcript.test.ts`, `parsidion-status.test.ts`, `promptRecall.test.ts`).
+The five `lib/` helpers are dependency-free modules, each pinned by a bun:test unit test (`lib/scriptRunner.test.ts`, `lib/transcript.test.ts`, `lib/compactRestore.test.ts`, `parsidion-status.test.ts`, `promptRecall.test.ts`).
 
 It registers Parsidion's SessionStart, SessionEnd, PreCompact, SubagentStop, and UserPromptSubmit hooks against pi's lifecycle events, then drives the same Python scripts (`session_start_hook.py`, `session_stop_hook.py`, `pre_compact_hook.py`, `subagent_stop_hook.py`, `user_prompt_submit_hook.py`) the other runtimes use; pi's `session_compact` event also drives `session_start_hook.py` with `source: "compact"` to re-inject the pre-compact snapshot (Claude Code's PostCompact stdout is never injected, so `post_compact_hook.py` is logging-only and is not invoked here). Per-prompt vault recall runs on `before_agent_start` (10 s hook timeout; `/`-prefixed skill invocations are skipped), matching the UserPromptSubmit parity the Claude Code and Codex registrations have. Hook transcripts come from the session file pi assigns; when no session file exists (ephemeral sessions), the extension synthesizes one under `~/.claude/pi-vault-hooks/` from the session branch (`lib/transcript.ts` maps pi `SessionEntry` shapes to Claude-Code transcript lines; compaction summaries are included so pre-compaction context survives). When the branch serializes to nothing at shutdown, the extension falls back to the last non-empty snapshot taken at `turn_end`, and skips the hook entirely if that is empty too — a 0-byte transcript is never written or queued. The Python side accepts transcript roots under `~/.claude/`, `~/.pi/` (for example `~/.pi/agent/sessions/`), and `<cwd>/.pi/`. The extension imports pi's API from the legacy `@mariozechner/*` npm scope; pi's and omp's extension loaders alias that scope (alongside `@earendil-works` and `@oh-my-pi`) to their bundled runtime modules, so the same source loads unchanged in both runtimes.
 
@@ -51,9 +52,10 @@ cp extensions/pi/parsidion/lib/parsidion-status.ts ~/.pi/agent/extensions/lib/pa
 cp extensions/pi/parsidion/lib/scriptRunner.ts ~/.pi/agent/extensions/lib/scriptRunner.ts
 cp extensions/pi/parsidion/lib/transcript.ts ~/.pi/agent/extensions/lib/transcript.ts
 cp extensions/pi/parsidion/lib/promptRecall.ts ~/.pi/agent/extensions/lib/promptRecall.ts
+cp extensions/pi/parsidion/lib/compactRestore.ts ~/.pi/agent/extensions/lib/compactRestore.ts
 ```
 
-The five code files are required (`parsidion.md` is optional — `--no-doc` skips it): `parsidion.ts` imports `./lib/parsidion-status`, `./lib/scriptRunner`, `./lib/transcript`, and `./lib/promptRecall`, so an install missing any lib file fails to load.
+The six code files are required (`parsidion.md` is optional — `--no-doc` skips it): `parsidion.ts` imports `./lib/parsidion-status`, `./lib/scriptRunner`, `./lib/transcript`, `./lib/promptRecall`, and `./lib/compactRestore`, so an install missing any lib file fails to load.
 
 Then in pi:
 

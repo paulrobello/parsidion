@@ -803,8 +803,8 @@ class EmbeddingsConfig:
     enabled: bool = field(
         default=True,
         metadata={
-            "doc": "Set false to disable embedding builds, note_index writes, and auto-rebuild after update_index.py",
-            "read_by": "build_embeddings.py, vault_search.py",
+            "doc": "Set false to disable embedding builds and the auto-rebuild after update_index.py; note_index metadata writes stay unconditional",
+            "read_by": "build_embeddings.py, update_index.py, vault_search.py",
         },
     )
     model: str = field(
