@@ -40,7 +40,7 @@ type HookResponse = {
 };
 
 type PendingContextChunk = {
-	source: "startup" | "post_compact";
+	source: "startup" | "post_compact" | "compact_restore";
 	text: string;
 };
 
@@ -69,7 +69,6 @@ const SUBAGENT_RESULT_MESSAGE_TYPE = "subagent:result";
 // is an AI selector prompt (8-40s on headless CLI backends) + retrieval.
 const HOOK_TIMEOUT_SESSION_START_MS = 60_000;
 const HOOK_TIMEOUT_PRE_COMPACT_MS = 8_000;
-const HOOK_TIMEOUT_POST_COMPACT_MS = 6_000;
 const HOOK_TIMEOUT_USER_PROMPT_MS = 10_000;
 const HOOK_TERMINATE_GRACE_MS = 1_500;
 const MAX_VAULT_CONTEXT_CHARS = 12_000;
@@ -287,7 +286,12 @@ function extractAdditionalContext(stdout: string): string | undefined {
 
 function buildVaultContextMessage(chunks: PendingContextChunk[]): string {
 	const parts = chunks.map((chunk) => {
-		const title = chunk.source === "startup" ? "SessionStart hook" : "PostCompact hook";
+		const title =
+			chunk.source === "startup"
+				? "SessionStart hook"
+				: chunk.source === "compact_restore"
+					? "SessionStart hook (post-compact restore)"
+					: "PostCompact hook";
 		return `### ${title}\n\n${chunk.text.trim()}`;
 	});
 	const full = [`Vault inserted the following context:`, "", ...parts].join("\n").trim();
@@ -458,19 +462,28 @@ export default function parsidionVaultExtension(pi: ExtensionAPI) {
 		const scriptDir = resolveScriptDir(ctx.cwd);
 		if (!scriptDir) return;
 		try {
-			const result = await invokeHook(scriptDir, "post_compact_hook.py", { cwd: ctx.cwd }, HOOK_TIMEOUT_POST_COMPACT_MS);
+			// post_compact_hook.py is logging-only (it always emits {} — PostCompact
+			// stdout never reaches the model on Claude Code). The snapshot restore
+			// lives in session_start_hook.py's source=compact path, so invoke the
+			// same script pi-side with the same 60 s budget Claude Code registers.
+			const result = await invokeHook(
+				scriptDir,
+				"session_start_hook.py",
+				{ cwd: ctx.cwd, source: "compact" },
+				HOOK_TIMEOUT_SESSION_START_MS,
+			);
 			const additionalContext = extractAdditionalContext(result.stdout)?.trim();
 			if (additionalContext) {
-				pendingContext.push({ source: "post_compact", text: additionalContext });
+				pendingContext.push({ source: "compact_restore", text: additionalContext });
 				const preview = buildStatusPreview(additionalContext);
 				notify(
 					ctx,
-					`${EXTENSION_NAME}: PostCompact hook queued ${additionalContext.length} chars for next turn\n\n${preview}`,
+					`${EXTENSION_NAME}: SessionStart compact restore queued ${additionalContext.length} chars for next turn\n\n${preview}`,
 				);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			notify(ctx, `${EXTENSION_NAME}: PostCompact hook failed: ${message}`, "warning");
+			notify(ctx, `${EXTENSION_NAME}: post-compact restore hook failed: ${message}`, "warning");
 		}
 	}
 

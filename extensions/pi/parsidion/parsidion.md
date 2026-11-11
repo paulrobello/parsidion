@@ -70,7 +70,6 @@ It invokes these existing Python handlers directly:
 - `session_start_hook.py`
 - `session_stop_hook.py`
 - `pre_compact_hook.py`
-- `post_compact_hook.py`
 - `subagent_stop_hook.py`
 
 It does **not** reimplement their vault logic in TypeScript.
@@ -89,7 +88,7 @@ Pi does not expose the same hook stdin/stdout contract as Claude Code, so this e
 
 - `session_start` -> `session_start_hook.py`
 - `session_before_compact` -> `pre_compact_hook.py`
-- `session_compact` -> `post_compact_hook.py`
+- `session_compact` -> `session_start_hook.py` with `source: "compact"` (re-injects the latest Pre-Compact Snapshot; `post_compact_hook.py` is logging-only and emits no context)
 - `turn_end` -> scan for newly finished subagents and invoke `subagent_stop_hook.py` (detached)
 - `session_shutdown` -> final subagent scan + `session_stop_hook.py` (detached)
 
