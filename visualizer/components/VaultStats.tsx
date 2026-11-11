@@ -129,7 +129,7 @@ export function VaultStats({ vault, totalNotes }: Props) {
   const fetchHealth = async () => {
     setHealthLoading(true)
     try {
-      const res = await fetch(`${healthUrl}&fast=1`)
+      const res = await fetch(`${healthUrl}${q ? '&' : '?'}fast=1`)
       if (!res.ok) return
       const data = (await res.json()) as VaultHealthReport
       if (mountedRef.current) setHealth(data)
