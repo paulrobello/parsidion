@@ -135,6 +135,12 @@ docs-api-check:
 # git remote through a worktree's .git file indirection -- so run make
 # docs-api from the main checkout, not an agent worktree.
 #
+# After merging a branch that changed visualizer deps, run `cd visualizer &&
+# bun install` BEFORE make docs-api: typedoc compiles lib/*.ts against the
+# CHECKOUT's node_modules, and a stale install (e.g. sigma 3 while the
+# merged bun.lock says sigma 4) produces TS2353 "does not exist in type"
+# errors that a fresh install makes disappear.
+#
 # Two more cross-platform details:
 #
 # - typedoc's entryPointStrategy "expand" walks lib/ in READDIR order, and
