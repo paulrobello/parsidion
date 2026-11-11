@@ -310,14 +310,14 @@ def _disconnect_extension_runtime(
 ) -> None:
     """Remove the parsidion extension files from a pi-family *ext_dir*."""
     removed: list[str] = []
-    for name in (
-        "parsidion.ts",
-        "parsidion.md",
-        "lib/parsidion-status.ts",
-        "lib/scriptRunner.ts",
-        "lib/transcript.ts",
-        "lib/promptRecall.ts",
-    ):
+    # Enumerate the source's lib/ directory instead of hardcoding filenames —
+    # a hardcoded list is how lib modules go missing from installs (the
+    # 4-of-6 regression this pairing with scripts/install-pi-extension guards).
+    lib_dir = REPO_ROOT / "extensions" / "pi" / "parsidion" / "lib"
+    names = ["parsidion.ts", "parsidion.md"] + sorted(
+        f"lib/{p.name}" for p in lib_dir.glob("*.ts")
+    )
+    for name in names:
         candidate = ext_dir / name
         if candidate.is_symlink() or candidate.exists():
             removed.append(str(candidate))

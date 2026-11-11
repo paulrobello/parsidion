@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -243,14 +244,24 @@ class TestInstallPiExtensionScript:
     """
 
     SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "install-pi-extension"
-    EXPECTED = (
-        "parsidion.ts",
-        "parsidion.md",
-        "lib/parsidion-status.ts",
-        "lib/scriptRunner.ts",
-        "lib/transcript.ts",
-        "lib/promptRecall.ts",
-    )
+
+    @classmethod
+    def _expected_files(cls) -> tuple[str, ...]:
+        """Derive the file set from parsidion.ts's actual lib imports so a new
+        lib module cannot be missed by an install (the 4-of-6 list-drift
+        regression this gate exists for)."""
+        entry = (
+            cls.SCRIPT.parent.parent
+            / "extensions"
+            / "pi"
+            / "parsidion"
+            / "parsidion.ts"
+        )
+        text = entry.read_text(encoding="utf-8")
+        libs = sorted(set(re.findall(r'from "\./lib/([a-z-]+)"', text)))
+        return ("parsidion.ts", "parsidion.md") + tuple(
+            f"lib/{name}.ts" for name in libs
+        )
 
     def test_copy_mode_installs_all_files(self, tmp_path):
         import subprocess  # noqa: PLC0415
@@ -261,7 +272,7 @@ class TestInstallPiExtensionScript:
             check=True,
             capture_output=True,
         )
-        for name in self.EXPECTED:
+        for name in self._expected_files():
             assert (ext / name).is_file(), name
 
     def test_symlink_mode_installs_all_files(self, tmp_path):
@@ -273,7 +284,7 @@ class TestInstallPiExtensionScript:
             check=True,
             capture_output=True,
         )
-        for name in self.EXPECTED:
+        for name in self._expected_files():
             target = ext / name
             assert target.is_symlink() or target.is_file(), name
 
@@ -292,7 +303,7 @@ class TestInstallPiExtensionScript:
             ["install.py", "disconnect", "omp", "--omp-home", str(tmp_path)],
         )
         install_mod.main()
-        for name in self.EXPECTED:
+        for name in self._expected_files():
             assert not (ext / name).exists(), name
 
 

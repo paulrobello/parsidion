@@ -35,10 +35,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_DIR="$REPO_ROOT/extensions/pi/parsidion"
 SRC_TS="$SRC_DIR/parsidion.ts"
 SRC_MD="$SRC_DIR/parsidion.md"
-SRC_STATUS="$SRC_DIR/lib/parsidion-status.ts"
-SRC_RUNNER="$SRC_DIR/lib/scriptRunner.ts"
-SRC_TRANSCRIPT="$SRC_DIR/lib/transcript.ts"
-SRC_PROMPT_RECALL="$SRC_DIR/lib/promptRecall.ts"
+# Every lib/*.ts ships with the extension — enumerated, never hardcoded, so
+# adding a lib module cannot be missed by an install (4-of-6 regression).
+shopt -s nullglob
+LIB_SOURCES=("$SRC_DIR"/lib/*.ts)
+shopt -u nullglob
 
 MODE="copy"
 INSTALL_DOC="yes"
@@ -89,45 +90,23 @@ fi
 mkdir -p "$EXT_DIR" "$EXT_DIR/lib"
 DST_TS="$EXT_DIR/parsidion.ts"
 DST_MD="$EXT_DIR/parsidion.md"
-DST_STATUS="$EXT_DIR/lib/parsidion-status.ts"
-DST_RUNNER="$EXT_DIR/lib/scriptRunner.ts"
-DST_TRANSCRIPT="$EXT_DIR/lib/transcript.ts"
-DST_PROMPT_RECALL="$EXT_DIR/lib/promptRecall.ts"
 
 if [[ "$MODE" == "symlink" ]]; then
     ln -sfn "$SRC_TS" "$DST_TS"
     if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
         ln -sfn "$SRC_MD" "$DST_MD"
     fi
-    if [[ -f "$SRC_STATUS" ]]; then
-        ln -sfn "$SRC_STATUS" "$DST_STATUS"
-    fi
-    if [[ -f "$SRC_RUNNER" ]]; then
-        ln -sfn "$SRC_RUNNER" "$DST_RUNNER"
-    fi
-    if [[ -f "$SRC_TRANSCRIPT" ]]; then
-        ln -sfn "$SRC_TRANSCRIPT" "$DST_TRANSCRIPT"
-    fi
-    if [[ -f "$SRC_PROMPT_RECALL" ]]; then
-        ln -sfn "$SRC_PROMPT_RECALL" "$DST_PROMPT_RECALL"
-    fi
+    for src in "${LIB_SOURCES[@]}"; do
+        ln -sfn "$src" "$EXT_DIR/lib/$(basename "$src")"
+    done
 else
     cp "$SRC_TS" "$DST_TS"
     if [[ "$INSTALL_DOC" == "yes" && -f "$SRC_MD" ]]; then
         cp "$SRC_MD" "$DST_MD"
     fi
-    if [[ -f "$SRC_STATUS" ]]; then
-        cp "$SRC_STATUS" "$DST_STATUS"
-    fi
-    if [[ -f "$SRC_RUNNER" ]]; then
-        cp "$SRC_RUNNER" "$DST_RUNNER"
-    fi
-    if [[ -f "$SRC_TRANSCRIPT" ]]; then
-        cp "$SRC_TRANSCRIPT" "$DST_TRANSCRIPT"
-    fi
-    if [[ -f "$SRC_PROMPT_RECALL" ]]; then
-        cp "$SRC_PROMPT_RECALL" "$DST_PROMPT_RECALL"
-    fi
+    for src in "${LIB_SOURCES[@]}"; do
+        cp "$src" "$EXT_DIR/lib/"
+    done
 fi
 
 echo "Installed parsidion extension:"
@@ -138,17 +117,8 @@ if [[ "$INSTALL_DOC" == "yes" ]]; then
         echo "  doc:           $DST_MD"
     fi
 fi
-if [[ -f "$DST_STATUS" || -L "$DST_STATUS" ]]; then
-    echo "  status helper: $DST_STATUS"
-fi
-if [[ -f "$DST_RUNNER" || -L "$DST_RUNNER" ]]; then
-    echo "  script runner: $DST_RUNNER"
-fi
-if [[ -f "$DST_TRANSCRIPT" || -L "$DST_TRANSCRIPT" ]]; then
-    echo "  transcript:    $DST_TRANSCRIPT"
-fi
-if [[ -f "$DST_PROMPT_RECALL" || -L "$DST_PROMPT_RECALL" ]]; then
-    echo "  prompt recall: $DST_PROMPT_RECALL"
+if ((${#LIB_SOURCES[@]} > 0)); then
+    echo "  lib modules:   ${#LIB_SOURCES[@]} file(s) in lib/"
 fi
 
 echo
