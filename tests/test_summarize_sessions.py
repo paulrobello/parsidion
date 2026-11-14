@@ -1365,7 +1365,7 @@ def test_write_note_slug_collision_backup_failure_aborts_merge(
     def _boom(note_path: Path, vault: Path) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(summarizer_notes, "_backup_note", _boom)
+    monkeypatch.setattr(summarizer_notes, "backup_note", _boom)
 
     new_note = (
         "---\n"

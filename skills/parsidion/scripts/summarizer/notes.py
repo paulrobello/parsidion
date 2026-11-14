@@ -435,23 +435,6 @@ def _backfill_tags_if_empty(
     return note_content
 
 
-def _backup_note(note_path: Path, vault: Path) -> None:
-    """Copy *note_path* to today's pre-mutation backup dir, best-effort.
-
-    QA-001: thin wrapper around :func:`vault_fs.backup_note` (the canonical
-    shared helper). The summarizer signature ``(note_path, vault)`` already
-    matches the canonical order, so this is a direct delegation.
-
-    SEC-107: mirrors ``vault_doctor._backup_note`` so the merge path defends
-    a trusted, frequently-retrieved note the same way doctor's repair path
-    does. First version of the day wins (an existing backup is not replaced).
-    Raises ``OSError`` on copy failure so the caller can choose to abort the
-    merge — unlike doctor's "never raise" contract, the merge caller already
-    has a fallback (return None and let the attempts cap dead-letter it).
-    """
-    backup_note(note_path, vault)
-
-
 def write_note(
     note_content: str,
     dry_run: bool,
@@ -597,7 +580,7 @@ def write_note_with_reason(
         # merge must never destroy the only copy. Abort (return None) when the
         # backup fails rather than mutating unprotected.
         try:
-            _backup_note(target_path, vault)
+            backup_note(target_path, vault)
         except OSError as backup_err:
             print(
                 f"  Warning: slug-collision backup failed for "

@@ -124,7 +124,6 @@ from prompt_templates import load_prompt, render  # re-exported for tests
 
 from summarizer.notes import (  # re-exported for tests
     _backfill_tags_if_empty,
-    _backup_note,
     _clean_tag,
     _ensure_closing_frontmatter_delimiter,
     _note_body,

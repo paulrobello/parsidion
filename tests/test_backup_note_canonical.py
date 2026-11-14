@@ -126,11 +126,13 @@ class TestCanonicalBackupNote:
 
 
 class TestLegacyWrappers:
-    """doctor._backup_note(vault, note) and summarizer._backup_note(note, vault)
+    """doctor._backup_note(vault, note) keeps its vault-first parameter order.
 
-    Both must keep working with their existing parameter order — their many
-    call sites were not touched by QA-001. This pins the delegation direction
-    so a future edit that accidentally swaps the wrapper signatures is caught.
+    Doctor's many call sites were not touched by QA-001. The summarizer
+    wrapper is gone (ARC-202): notes.py calls vault_fs.backup_note directly
+    with the same (note, vault) order it always used. These tests pin the
+    delegation direction so a future edit that accidentally re-forks the
+    call path is caught.
     """
 
     def test_doctor_wrapper_vault_first(self, tmp_vault: Path) -> None:
@@ -143,15 +145,20 @@ class TestLegacyWrappers:
         assert backup.exists()
         assert backup.read_text(encoding="utf-8") == "doctor\n"
 
-    def test_summarizer_wrapper_note_first(self, tmp_vault: Path) -> None:
+    def test_summarizer_calls_canonical_note_first(self, tmp_vault: Path) -> None:
         note = _write_note(tmp_vault, "Patterns/summ.md", "summ\n")
 
-        # Summarizer's call signature is (note, vault) — note first.
-        summarizer_notes._backup_note(note, tmp_vault)
+        # ARC-202: the summarizer wrapper is gone — notes.py calls the
+        # canonical helper directly, keeping the (note, vault) order.
+        summarizer_notes.backup_note(note, tmp_vault)
 
         backup = _backup_path(tmp_vault, "Patterns/summ.md")
         assert backup.exists()
         assert backup.read_text(encoding="utf-8") == "summ\n"
+
+    def test_summarizer_binds_canonical_helper(self) -> None:
+        """notes.py must import vault_fs.backup_note itself, not re-export."""
+        assert summarizer_notes.backup_note is vault_fs.backup_note
 
     def test_doctor_wrapper_swallows_oserror(
         self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
@@ -167,7 +174,7 @@ class TestLegacyWrappers:
         # Must NOT raise — doctor wraps the helper in try/except.
         vault_doctor._backup_note(tmp_vault, note)
 
-    def test_summarizer_wrapper_propagates_oserror(
+    def test_summarizer_propagates_oserror(
         self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Summarizer's contract is "let OSError propagate"."""
@@ -179,4 +186,4 @@ class TestLegacyWrappers:
         monkeypatch.setattr(vault_doctor.shutil, "copy2", boom)
 
         with pytest.raises(OSError, match="simulated copy failure"):
-            summarizer_notes._backup_note(note, tmp_vault)
+            summarizer_notes.backup_note(note, tmp_vault)

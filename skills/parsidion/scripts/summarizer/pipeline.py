@@ -32,7 +32,7 @@ from core import ai_backend, vault_links
 from core.subproc_util import run_with_pgkill
 from core.vault_config import load_typed_config
 from core.vault_path import get_embeddings_db_path
-from core.vault_fs import atomic_write_text
+from core.vault_fs import atomic_write_text, backup_note
 from core.vault_index import parse_frontmatter
 from core.vault_path import is_path_inside_vault
 
@@ -53,7 +53,6 @@ from summarizer.dead_letter import _dead_lettered_ids
 from summarizer.dedup import _find_dedup_candidates, _resolve_note_stem
 from summarizer.failure import _mark_failure
 from summarizer.notes import (
-    _backup_note,
     _normalize_related_field,
     _stamp_prompt_version,
     _validate_frontmatter,
@@ -224,7 +223,7 @@ def _apply_merge_decision(
     # mirroring vault_doctor._backup_note. A failed merge
     # must never destroy the only copy of a trusted note.
     try:
-        _backup_note(target_path, vault)
+        backup_note(target_path, vault)
     except OSError as backup_err:
         print(
             f"  Warning: merge backup failed for [[{target_stem}]]: {backup_err}",
