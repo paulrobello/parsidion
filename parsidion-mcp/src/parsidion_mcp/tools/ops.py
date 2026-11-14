@@ -118,8 +118,8 @@ def vault_doctor(
         if result.returncode != 0:
             raise OpsToolError(output)
         return output or "Doctor scan complete."
-    except subprocess.TimeoutExpired:
-        raise OpsToolError("command timed out after 120s")
+    except subprocess.TimeoutExpired as err:
+        raise OpsToolError("command timed out after 120s") from err
     except FileNotFoundError as exc:
         raise OpsToolError(str(exc)) from exc
     except OSError as exc:
@@ -181,8 +181,8 @@ def vault_health(vault: str | None = None, *, fast: bool = False) -> str:
         if result.returncode != 0:
             raise OpsToolError(output)
         return output or '{"error": "vault-stats produced no output"}'
-    except subprocess.TimeoutExpired:
-        raise OpsToolError("command timed out after 60s")
+    except subprocess.TimeoutExpired as err:
+        raise OpsToolError("command timed out after 60s") from err
     except FileNotFoundError as exc:
         raise OpsToolError(str(exc)) from exc
     except OSError as exc:
