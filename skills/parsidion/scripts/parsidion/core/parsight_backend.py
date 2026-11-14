@@ -90,6 +90,22 @@ def _parsight_env() -> dict[str, str]:
     return env
 
 
+def _swallow_debug(stage: str, exc: BaseException) -> None:
+    """Debug-gated swallow note on stderr (QA-009): stage + exception class.
+
+    Fail-open control flow is unchanged; this only surfaces an unexpected
+    swallowed-stage failure when ``PARSIDION_DEBUG=1`` (the retrieval hooks
+    set it from their ``debug`` config key). Untrusted note content never
+    appears — the exception class name only.
+    """
+    if os.environ.get("PARSIDION_DEBUG") != "1":
+        return
+    print(
+        f"parsight_backend {stage} swallowed: {type(exc).__name__}",
+        file=sys.stderr,
+    )
+
+
 # Per-process availability cache: str(vault) -> absolute binary path when
 # available, or None when parsight was probed and found unavailable.
 _RESOLVE_CACHE: dict[str, str | None] = {}
@@ -148,7 +164,8 @@ def _health_ok() -> bool:
     try:
         with urllib.request.urlopen(_health_url(), timeout=_HEALTH_TIMEOUT_S) as resp:
             return 200 <= resp.status < 300
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("health-probe", exc)
         return False
 
 
@@ -280,7 +297,8 @@ def _daemon_watches_vault(vault: Path) -> bool:
         return any(
             isinstance(p, str) and os.path.realpath(p) == vault_real for p in paths
         )
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("watch-coverage", exc)
         return False
 
 
@@ -346,7 +364,8 @@ def _resolve_binary(vault: Path | None = None) -> str | None:
                 resolved = which
         _RESOLVE_CACHE[key] = resolved
         return resolved
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("resolve-binary", exc)
         return None
 
 
@@ -507,7 +526,8 @@ def find_code_raw(
             )
             return None
         return [hit for hit in results if isinstance(hit, dict)]
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("find-code", exc)
         return None
 
 
@@ -568,7 +588,8 @@ def doc_links_raw(
         if isinstance(payload, dict) and payload.get("truncated"):
             _log_event(vault, "doc-links", f"truncated:{payload.get('total')}", started)
         return [link for link in links if isinstance(link, dict)]
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("doc-links", exc)
         return None
 
 
@@ -727,7 +748,8 @@ def _is_superseded_stem(
             parse_frontmatter(note_path.read_text(encoding="utf-8")).get("status")
             == STATUS_SUPERSEDED
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug("superseded-check", exc)
         return False
 
 
@@ -860,7 +882,8 @@ def parsight_search(
                 )
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [entry for _, entry in scored[:top_k]]
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("fallback-score", exc)
         return None
 
 
@@ -894,7 +917,8 @@ def spawn_background_index(vault: Path | None = None) -> bool:
             start_new_session=True,
         )
         return True
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("spawn-background-index", exc)
         return False
 
 
@@ -926,7 +950,8 @@ def _spawn_watch_command(verb: str, vault: Path | None, session_id: str) -> bool
             start_new_session=True,
         )
         return True
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug(f"spawn-{verb}", exc)
         return False
 
 
@@ -1054,7 +1079,8 @@ def ensure_vault_indexed(vault: Path | None = None) -> bool:
             spawn_background_index(vault)
             return False
         return False  # unavailable or invalid — never spawn blind
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("ensure-indexed", exc)
         return False
 
 
@@ -1074,5 +1100,6 @@ def vault_index_fresh(vault: Path | None = None) -> tuple[bool, str]:
         vault = vault or resolve_vault()
         state = _repos_state(vault)
         return (state == "fresh", state)
-    except Exception:  # noqa: BLE001 — contract: never raises
+    except Exception as exc:  # noqa: BLE001 — contract: never raises
+        _swallow_debug("index-fresh", exc)
         return (False, "error")

@@ -60,9 +60,11 @@ _POISON_SETUP = "import sys\n" + "\n".join(
 
 # Modules whose stdlib-only status is enforced. ``core.*`` are the library
 # implementations; the wheel-namespace names are the TUI surface (vault_tui),
-# and every hook entry point plus the shared adapter registry. CLIs and
-# eval/build tools are excluded -- they legitimately use guarded optional
-# extras.
+# and every hook entry point plus the shared adapter registry. The
+# summarizer/, doctor/, and cli/ subpackages are in scope since QA-010: their
+# third-party use is guarded-optional (graceful degradation), which the gate
+# allows by design; the only out-of-surface file is the PEP 723
+# ``summarize_sessions.py`` entry script, which legitimately requires anyio.
 _ENFORCEMENT_SCOPE = [
     # core/ stdlib-only library package
     "parsidion.core.vault_config",
@@ -125,6 +127,75 @@ _ENFORCEMENT_SCOPE = [
     # ENH-018: the unified transcript reader is imported (lazily) by every
     # hook and adapter, so it shares the stdlib-only contract.
     "parsidion.core.transcript_reader",
+    # QA-010: the summarizer/, doctor/, and cli/ subpackages share the
+    # stdlib-only contract. Their third-party imports are guarded-optional
+    # (the gate allows those by design); the PEP 723 entry script
+    # summarize_sessions.py stays out of scope — it legitimately requires
+    # anyio. The summarizer subpackage imports anyio only guarded
+    # (summarizer/prompt.py) or under TYPE_CHECKING (summarizer/pipeline.py).
+    "parsidion.summarizer.__init__",
+    "parsidion.summarizer._state_const",
+    "parsidion.summarizer.dead_letter",
+    "parsidion.summarizer.dedup",
+    "parsidion.summarizer.failure",
+    "parsidion.summarizer.lock",
+    "parsidion.summarizer.notes",
+    "parsidion.summarizer.pipeline",
+    "parsidion.summarizer.progress",
+    "parsidion.summarizer.prompt",
+    "parsidion.summarizer.queue",
+    "parsidion.summarizer.transcript",
+    "parsidion.doctor.__init__",
+    "parsidion.doctor._state",
+    "parsidion.doctor.check",
+    "parsidion.doctor.cli",
+    "parsidion.doctor.daily",
+    "parsidion.doctor.frontmatter",
+    "parsidion.doctor.graph",
+    "parsidion.doctor.headings",
+    "parsidion.doctor.links",
+    "parsidion.doctor.orchestrator",
+    "parsidion.doctor.permissions",
+    "parsidion.doctor.prefixes",
+    "parsidion.doctor.protocol",
+    "parsidion.doctor.scan",
+    "parsidion.doctor.subfolder",
+    "parsidion.doctor.tags",
+    "parsidion.doctor.trash",
+    "parsidion.doctor.worker",
+    "parsidion.cli.__init__",
+    "parsidion.cli.index.__init__",
+    "parsidion.cli.index._common",
+    "parsidion.cli.index.build",
+    "parsidion.cli.index.cli",
+    "parsidion.cli.index.db",
+    "parsidion.cli.index.graph",
+    "parsidion.cli.index.models",
+    "parsidion.cli.index.parse",
+    "parsidion.cli.index.render",
+    "parsidion.cli.merge.__init__",
+    "parsidion.cli.merge.ai_helpers",
+    "parsidion.cli.merge.display",
+    "parsidion.cli.merge.frontmatter",
+    "parsidion.cli.merge.index",
+    "parsidion.cli.merge.lookup",
+    "parsidion.cli.merge.preview",
+    "parsidion.cli.merge.scan",
+    "parsidion.cli.search.__init__",
+    "parsidion.cli.search._common",
+    "parsidion.cli.search.embeddings",
+    "parsidion.cli.search.format",
+    "parsidion.cli.search.metadata",
+    "parsidion.cli.stats.__init__",
+    "parsidion.cli.stats._common",
+    "parsidion.cli.stats.cli",
+    "parsidion.cli.stats.dashboard",
+    "parsidion.cli.stats.graph",
+    "parsidion.cli.stats.health",
+    "parsidion.cli.stats.operations",
+    "parsidion.cli.stats.overview",
+    "parsidion.cli.stats.rollups",
+    "parsidion.cli.stats.summary",
 ]
 
 

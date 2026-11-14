@@ -114,8 +114,8 @@ def vault_read(path: str, vault: str | None = None) -> str:
         raise
     except UnicodeDecodeError as exc:
         raise VaultToolError("not a text note") from exc
-    except FileNotFoundError:
-        raise VaultToolError(f"note not found at {path}")
+    except FileNotFoundError as err:
+        raise VaultToolError(f"note not found at {path}") from err
     except OSError as exc:
         raise VaultToolError(str(exc)) from exc
 

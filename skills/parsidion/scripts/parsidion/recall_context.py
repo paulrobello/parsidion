@@ -105,21 +105,47 @@ def _build_context(
     return preamble + body + suffix
 
 
+def _coerce_scalar(value: object, fallback: Any) -> Any:
+    """Snap a config scalar to *fallback*'s type; malformed values snap too.
+
+    The typed schema declares bool/int/float per key (ARC-007) but values
+    pass through the parser untyped, so a mis-typed config value used to
+    surface mid-stage inside a swallowing except (QA-008) and silently
+    degrade recall. Missing config keys arrive as ``None`` (absent keys
+    are ``None`` on the section dataclass) and snap to the fallback as
+    well, replacing the old ``getattr(..., default)`` per-key fallback.
+    """
+    if isinstance(value, bool):
+        return value if isinstance(fallback, bool) else fallback
+    if isinstance(fallback, bool):
+        return fallback
+    if isinstance(fallback, int):
+        return value if isinstance(value, int) else fallback
+    if isinstance(fallback, float):
+        return float(value) if isinstance(value, (int, float)) else fallback
+    if isinstance(fallback, str):
+        return value if isinstance(value, str) else fallback
+    return value
+
+
 def load_hook_settings(
     vault: Path,
     section: str,
     defaults: dict[str, Any],
     timeout_hi: float,
-) -> dict[str, object]:
-    """Read the *section* config section, defaulting per key.
+) -> dict[str, Any]:
+    """Read the *section* config section, defaulting and typing per key.
 
     Tolerates the section being absent (or config load failing) so the
-    hook never blocks on configuration problems. ``recall_timeout_s`` is
-    clamped to ``[1.0, timeout_hi]`` regardless of source: NaN/negative
-    would reach ``communicate(timeout=...)`` as "no timeout" (SEC-024
-    shape), and a value above the ceiling recreates the 10s host-kill bug.
+    hook never blocks on configuration problems. Each value is snapped to
+    the fallback default's type (see :func:`_coerce_scalar`) — callers
+    read ``settings["top_k"]`` as an ``int`` directly, no per-use
+    ``int()``/``float()`` re-conversion. ``recall_timeout_s`` is clamped
+    to ``[1.0, timeout_hi]`` regardless of source: NaN/negative would
+    reach ``communicate(timeout=...)`` as "no timeout" (SEC-024 shape),
+    and a value above the ceiling recreates the 10s host-kill bug.
     """
-    settings: dict[str, object] = dict(defaults)
+    settings: dict[str, Any] = dict(defaults)
     try:
         sec = getattr(load_typed_config(vault=vault), section, None)
     except Exception:  # noqa: BLE001
@@ -127,9 +153,9 @@ def load_hook_settings(
     if sec is None:
         return settings
     for key, default in defaults.items():
-        settings[key] = getattr(sec, key, default)
+        settings[key] = _coerce_scalar(getattr(sec, key, None), default)
     settings["recall_timeout_s"] = clamp_timeout(
-        settings["recall_timeout_s"],  # type: ignore[arg-type]
+        settings["recall_timeout_s"],
         default=defaults["recall_timeout_s"],
         lo=1.0,
         hi=timeout_hi,

@@ -67,10 +67,10 @@ def _scan_duplicates(
 
     try:
         import sqlite_vec  # type: ignore[import-untyped]
-    except ImportError:
+    except ImportError as err:
         raise MergeScanError(
             "sqlite-vec not installed — run: uv tool install --editable '.[tools]'"
-        )
+        ) from err
 
     conn = sqlite3.connect(db_path)
     conn.enable_load_extension(True)

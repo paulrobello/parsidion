@@ -171,7 +171,23 @@ def _file_query(file_path: Path, project: str) -> str:
     return f"{file_path.stem.replace('-', ' ').replace('_', ' ')} {project}"
 
 
-def _load_settings(vault: Path) -> dict[str, object]:
+def _swallow_debug(settings: dict[str, Any], stage: str, exc: BaseException) -> None:
+    """Debug-gated swallow note on stderr (QA-009): stage + exception class.
+
+    Fail-open control flow is unchanged; this only surfaces a swallowed
+    stage failure when ``debug: true`` (which also sets ``PARSIDION_DEBUG``
+    so parsight_backend's internal swallows become visible too). Untrusted
+    note content never appears — the exception class name only.
+    """
+    if not settings.get("debug"):
+        return
+    print(
+        f"[pre_tool_use_hook] {stage} failed: {type(exc).__name__}",
+        file=sys.stderr,
+    )
+
+
+def _load_settings(vault: Path) -> dict[str, Any]:
     """Read the ``pre_tool_use_hook`` section, defaulting per key."""
     return load_hook_settings(
         vault,
@@ -322,11 +338,12 @@ def _load_local_matches(
     """Score note_index metadata rows against the file's tokens."""
     try:
         rows = load_note_index_metadata(vault=vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(settings, "local-scan", exc)
         rows = None
     if not rows:
         return []
-    min_matches = int(settings["min_term_matches"])  # type: ignore[arg-type]
+    min_matches = settings["min_term_matches"]
     scored: list[tuple[int, float, dict[str, object]]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -343,7 +360,7 @@ def _load_local_matches(
             )
         )
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [row for _, _, row in scored[: int(settings["top_k"])]]
+    return [row for _, _, row in scored[: settings["top_k"]]]
 
 
 def _load_semantic_matches(
@@ -352,14 +369,15 @@ def _load_semantic_matches(
     settings: dict[str, Any],
 ) -> list[dict[str, object]]:
     """parsight semantic leg, gated by the availability probe + cooldown."""
-    if not bool(settings["parsight"]):
+    if not settings["parsight"]:
         return []
     stamp = _probe_stamp_path()
-    if stamp_fresh(stamp, int(settings["cache_seconds"])):  # type: ignore[arg-type]
+    if stamp_fresh(stamp, settings["cache_seconds"]):
         return []
     try:
         probe_ok = parsight_backend.resolve_parsight_backend(vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(settings, "probe", exc)
         probe_ok = False
     if not probe_ok:
         set_stamp(stamp, True)
@@ -368,12 +386,13 @@ def _load_semantic_matches(
     try:
         results = parsight_backend.parsight_search(
             query,
-            top_k=int(settings["top_k"]),  # type: ignore[arg-type]
-            vault=vault,  # type: ignore[arg-type]
-            timeout=float(settings["recall_timeout_s"]),  # type: ignore[arg-type]
+            top_k=settings["top_k"],
+            vault=vault,
+            timeout=settings["recall_timeout_s"],
             kill_grace_secs=_SEARCH_KILL_GRACE_S,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(settings, "search", exc)
         results = None
     if not results:
         return []
@@ -419,8 +438,12 @@ def run_injection(payload: dict) -> dict:
             vault = resolve_vault()
         _mark("resolve_vault")
         settings = _load_settings(vault)
+        if settings["debug"]:
+            # Surface parsight_backend's internal swallows under the same
+            # debug switch (QA-009); process-local, never leaves the hook.
+            os.environ["PARSIDION_DEBUG"] = "1"
         _mark("load_settings")
-        if not bool(settings["enabled"]):
+        if not settings["enabled"]:
             return {}
 
         # Reading a vault note needs no vault recall about itself; also
@@ -434,7 +457,7 @@ def run_injection(payload: dict) -> dict:
         # Per-file result cache: re-reads of the same file are free, and a
         # cached "" (nothing found) is served too.
         cache_key = _cache_key(file_path)
-        cached = _cache_read(cache_key, int(settings["cache_seconds"]))  # type: ignore[arg-type]
+        cached = _cache_read(cache_key, settings["cache_seconds"])
         _mark("cache")
         if cached is not None:
             if not cached:
@@ -455,7 +478,8 @@ def run_injection(payload: dict) -> dict:
         # rules ride the per-file result cache like the recall body.
         try:
             matched_rules = match_rules(load_rule_notes(vault), path=str(file_path))
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _swallow_debug(settings, "rules", exc)
             matched_rules = []
         _mark("rules")
 
@@ -463,7 +487,7 @@ def run_injection(payload: dict) -> dict:
         _mark("local_scan")
         semantic = _load_semantic_matches(vault, query, settings)
         _mark("semantic_search")
-        notes = _merge_notes(local, semantic)[: int(settings["top_k"])]  # type: ignore[arg-type]
+        notes = _merge_notes(local, semantic)[: settings["top_k"]]
         if not notes and not matched_rules:
             _cache_write(cache_key, "")
             return {}
@@ -492,11 +516,11 @@ def run_injection(payload: dict) -> dict:
                 session_id=str(payload.get("session_id") or ""),
                 stages_ms=_stage_deltas(),
             )
-        except Exception:  # noqa: BLE001
-            pass  # observability is best-effort
+        except Exception as exc:  # noqa: BLE001
+            _swallow_debug(settings, "hook-event", exc)
         _mark("event")
 
-        if bool(settings["debug"]):
+        if settings["debug"]:
             print(
                 "[pre_tool_use_hook] stages_ms=" + json.dumps(stages, sort_keys=True),
                 file=sys.stderr,

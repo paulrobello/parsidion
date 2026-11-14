@@ -244,7 +244,7 @@ def render(prompt_id: str, **variables: object) -> str:
     try:
         if tpl.syntax == "template":
             assert tpl._engine is not None
-            return string.Template(tpl.body).substitute(**variables)  # type: ignore[arg-type]
+            return string.Template(tpl.body).substitute(**variables)
         return tpl.body.format(**variables)
     except KeyError as exc:
         # A referenced placeholder was not supplied — only reachable for

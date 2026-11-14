@@ -195,7 +195,7 @@ def _tokens(text: str) -> set[str]:
     }
 
 
-def _load_settings(vault: Path) -> dict[str, object]:
+def _load_settings(vault: Path) -> dict[str, Any]:
     """Read the ``user_prompt_submit_hook`` section, defaulting per key."""
     return load_hook_settings(
         vault,
@@ -233,7 +233,7 @@ class _RecallContext:
     prompt: str = ""
     cwd: str = ""
     vault: Path | None = None
-    settings: dict[str, object] = field(default_factory=dict)
+    settings: dict[str, Any] = field(default_factory=dict)
     matched_rules: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -250,6 +250,22 @@ def _stage_deltas(ctx: _RecallContext) -> dict[str, float]:
         deltas[name] = round(cumulative - prev, 1)
         prev = cumulative
     return deltas
+
+
+def _swallow_debug(ctx: _RecallContext, stage: str, exc: BaseException) -> None:
+    """Debug-gated swallow note on stderr (QA-009): stage + exception class.
+
+    Fail-open control flow is unchanged; this only surfaces a swallowed
+    stage failure when ``debug: true`` (which also sets ``PARSIDION_DEBUG``
+    so parsight_backend's internal swallows become visible too). Untrusted
+    note content never appears — the exception class name only.
+    """
+    if not ctx.settings.get("debug"):
+        return
+    print(
+        f"[user_prompt_submit_hook] {stage} failed: {type(exc).__name__}",
+        file=sys.stderr,
+    )
 
 
 def _emit(ctx: _RecallContext, notes: list[dict[str, object]]) -> dict:
@@ -274,8 +290,8 @@ def _emit(ctx: _RecallContext, notes: list[dict[str, object]]) -> dict:
             session_id=str(ctx.payload.get("session_id") or ""),
             stages_ms=_stage_deltas(ctx),
         )
-    except Exception:  # noqa: BLE001
-        pass  # observability is best-effort
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "hook-event", exc)
     return {
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
@@ -284,16 +300,14 @@ def _emit(ctx: _RecallContext, notes: list[dict[str, object]]) -> dict:
     }
 
 
-def _match_rules_stage(ctx: _RecallContext) -> None:
+def _match_rules_stage(ctx: _RecallContext, vault: Path) -> None:
     """Rules leg: trigger-scoped rule notes are push, not retrieval —
     they inject independent of parsight health, before the probe gate,
     so a daemon outage never suppresses a directive."""
     try:
-        ctx.matched_rules = match_rules(
-            load_rule_notes(ctx.vault),  # type: ignore[arg-type]
-            prompt=ctx.prompt,
-        )
-    except Exception:  # noqa: BLE001
+        ctx.matched_rules = match_rules(load_rule_notes(vault), prompt=ctx.prompt)
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "rules", exc)
         ctx.matched_rules = []
     _mark(ctx, "rules")
 
@@ -302,24 +316,26 @@ def _probe_parsight(ctx: _RecallContext) -> bool:
     """Probe parsight availability for the search leg; never raises."""
     try:
         probe_ok = parsight_backend.resolve_parsight_backend(ctx.vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "probe", exc)
         probe_ok = False
     _mark(ctx, "probe")
     return probe_ok
 
 
-def _search_notes(ctx: _RecallContext) -> list[dict[str, object]]:
+def _search_notes(ctx: _RecallContext, vault: Path) -> list[dict[str, object]]:
     """Search parsight and filter to notes sharing distinct prompt tokens."""
     search_started = time.monotonic()
     try:
         results = parsight_backend.parsight_search(
             ctx.prompt,
-            top_k=int(ctx.settings["top_k"]),  # type: ignore[arg-type]
-            vault=ctx.vault,  # type: ignore[arg-type]
-            timeout=float(ctx.settings["recall_timeout_s"]),  # type: ignore[arg-type]
+            top_k=ctx.settings["top_k"],
+            vault=vault,
+            timeout=ctx.settings["recall_timeout_s"],
             kill_grace_secs=_SEARCH_KILL_GRACE_S,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "search", exc)
         results = None
     _mark(ctx, "search")
     if (
@@ -329,7 +345,7 @@ def _search_notes(ctx: _RecallContext) -> list[dict[str, object]]:
         set_stamp(_search_cooldown_stamp_path(), True)
     notes: list[dict[str, object]] = []
     if results:
-        min_matches = int(ctx.settings["min_term_matches"])  # type: ignore[arg-type]
+        min_matches = ctx.settings["min_term_matches"]
         prompt_tokens = _tokens(ctx.prompt)
         if min_matches <= 0:
             notes = [r for r in results if isinstance(r, dict)]
@@ -360,24 +376,29 @@ def run_recall(payload: dict) -> dict:
             return {}
 
         try:
-            ctx.vault = resolve_vault(cwd=ctx.cwd)
+            vault = resolve_vault(cwd=ctx.cwd)
         except Exception:  # noqa: BLE001
-            ctx.vault = resolve_vault()
+            vault = resolve_vault()
+        ctx.vault = vault
         _mark(ctx, "resolve_vault")
-        ctx.settings = _load_settings(ctx.vault)  # type: ignore[arg-type]
+        ctx.settings = _load_settings(vault)
+        if ctx.settings["debug"]:
+            # Surface parsight_backend's internal swallows under the same
+            # debug switch (QA-009); process-local, never leaves the hook.
+            os.environ["PARSIDION_DEBUG"] = "1"
         _mark(ctx, "load_settings")
 
-        if not bool(ctx.settings["enabled"]):
+        if not ctx.settings["enabled"]:
             return {}
-        if len(ctx.prompt) < int(ctx.settings["min_prompt_chars"]):  # type: ignore[arg-type]
+        if len(ctx.prompt) < ctx.settings["min_prompt_chars"]:
             return {}
 
-        _match_rules_stage(ctx)
+        _match_rules_stage(ctx, vault)
 
         # Probe gate with negative cache: a recent failed probe skips both
         # the probe and the search silently.
         stamp = _probe_stamp_path()
-        if stamp_fresh(stamp, int(ctx.settings["probe_cache_seconds"])):  # type: ignore[arg-type]
+        if stamp_fresh(stamp, ctx.settings["probe_cache_seconds"]):
             return {}
         if not _probe_parsight(ctx):
             set_stamp(stamp, True)
@@ -385,13 +406,10 @@ def run_recall(payload: dict) -> dict:
         set_stamp(stamp, False)
 
         cooldown = _search_cooldown_stamp_path()
-        if stamp_fresh(
-            cooldown,
-            int(ctx.settings["probe_cache_seconds"]),  # type: ignore[arg-type]
-        ):
+        if stamp_fresh(cooldown, ctx.settings["probe_cache_seconds"]):
             return _emit(ctx, [])
 
-        notes = _search_notes(ctx)
+        notes = _search_notes(ctx, vault)
         if not notes and not ctx.matched_rules:
             return {}
         _mark(ctx, "filter")
@@ -401,7 +419,7 @@ def run_recall(payload: dict) -> dict:
             return {}
         _mark(ctx, "event")
 
-        if bool(ctx.settings["debug"]):
+        if ctx.settings["debug"]:
             print(
                 "[user_prompt_submit_hook] stages_ms="
                 + json.dumps(ctx.stages, sort_keys=True),

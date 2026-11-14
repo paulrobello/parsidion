@@ -27,7 +27,8 @@ import time
 import traceback
 from pathlib import Path
 
-import anyio  # type: ignore[import-untyped]  # annotation only (semaphore param)
+from typing import TYPE_CHECKING
+
 from parsidion.core import ai_backend, vault_links
 from parsidion.core.subproc_util import run_with_pgkill
 from parsidion.core.vault_config import load_typed_config
@@ -50,6 +51,11 @@ from parsidion.summarizer._state_const import (
     FailureReason,
 )
 from parsidion.summarizer.dead_letter import _dead_lettered_ids
+
+if TYPE_CHECKING:
+    # Annotation only (the summarize_one semaphore param); the runtime
+    # task-group/semaphore machinery lives in the PEP 723 entry script.
+    import anyio  # type: ignore[import-untyped]
 from parsidion.summarizer.dedup import _find_dedup_candidates, _resolve_note_stem
 from parsidion.summarizer.failure import _mark_failure
 from parsidion.summarizer.notes import (

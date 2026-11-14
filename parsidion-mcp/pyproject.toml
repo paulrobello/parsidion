@@ -52,7 +52,8 @@ extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "B", "BLE", "UP"]
-ignore = ["E501", "B008", "B904"]
+ignore = ["E501", "B008"]
+
 
 [tool.pyright]
 include = ["src"]
