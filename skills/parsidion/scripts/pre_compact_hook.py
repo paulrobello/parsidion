@@ -104,6 +104,76 @@ def extract_user_task(lines: list[str]) -> str:
     return "Unknown task"
 
 
+def _entry_role_content(entry: dict) -> tuple[str | None, object]:
+    """Role/content of a transcript entry (message dict or top-level form)."""
+    message = entry.get("message")
+    content: object = None
+    role: str | None = None
+
+    if isinstance(message, dict):
+        role_raw = message.get("role")
+        if isinstance(role_raw, str):
+            role = role_raw
+        content = message.get("content")
+
+    if role is None:
+        msg_type = entry.get("type")
+        if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
+            role = msg_type
+            top_level_content = entry.get("content")
+            if top_level_content is not None:
+                content = top_level_content
+
+    return role, content
+
+
+def _tool_block_parts(block: dict) -> tuple[str, object] | None:
+    """(lowercased tool name, input carrier) of a tool_use/toolCall block.
+
+    Returns ``None`` when the block is neither a Claude Code ``tool_use``
+    nor a pi ``toolCall``.
+    """
+    block_type = block.get("type")
+    if block_type == "tool_use":
+        input_key = "input"
+    elif block_type == "toolCall":
+        input_key = "arguments"
+    else:
+        return None
+    name_raw = block.get("name", "")
+    tool_name = name_raw if isinstance(name_raw, str) else ""
+    return tool_name.lower(), block.get(input_key, {})
+
+
+def _resolve_tool_path(path_val: object, cwd: str | None) -> str | None:
+    """Strip a tool-input path and resolve it against *cwd*; None if unusable."""
+    if not isinstance(path_val, str) or not path_val.strip():
+        return None
+    normalized = path_val.strip()
+    if not os.path.isabs(normalized):
+        if not cwd:
+            return None
+        return str((Path(cwd) / normalized).resolve())
+    return normalized
+
+
+def _collect_tool_path(
+    input_data: dict, tool_name: str, cwd: str | None, seen: set[str], paths: list[str]
+) -> bool:
+    """Collect the file fields of one tool block; True when the cap is hit."""
+    for field in _FILE_TOOLS.get(tool_name, []):
+        path_val = input_data.get(field, "")
+        normalized = _resolve_tool_path(path_val, cwd)
+        if normalized is None:
+            continue
+        if normalized not in seen:
+            seen.add(normalized)
+            paths.append(normalized)
+            if len(paths) >= 15:
+                return True
+    return False
+
+
 def extract_file_paths(lines: list[str], cwd: str | None = None) -> list[str]:
     """Extract file paths from assistant tool call blocks.
 
@@ -128,67 +198,21 @@ def extract_file_paths(lines: list[str], cwd: str | None = None) -> list[str]:
         except (json.JSONDecodeError, ValueError):
             continue
 
-        message = entry.get("message")
-        content: object = None
-        role: str | None = None
-
-        if isinstance(message, dict):
-            role_raw = message.get("role")
-            if isinstance(role_raw, str):
-                role = role_raw
-            content = message.get("content")
-
-        if role is None:
-            msg_type = entry.get("type")
-            if isinstance(msg_type, str) and msg_type in {"user", "assistant"}:
-                role = msg_type
-                top_level_content = entry.get("content")
-                if top_level_content is not None:
-                    content = top_level_content
-
+        role, content = _entry_role_content(entry)
         if role != "assistant" or not isinstance(content, list):
             continue
 
         for block in content:
             if not isinstance(block, dict):
                 continue
-
-            block_type = block.get("type")
-            tool_name = ""
-            input_data: object = {}
-
-            if block_type == "tool_use":
-                name_raw = block.get("name", "")
-                if isinstance(name_raw, str):
-                    tool_name = name_raw.lower()
-                input_data = block.get("input", {})
-            elif block_type == "toolCall":
-                name_raw = block.get("name", "")
-                if isinstance(name_raw, str):
-                    tool_name = name_raw.lower()
-                input_data = block.get("arguments", {})
-            else:
+            parts = _tool_block_parts(block)
+            if parts is None:
                 continue
-
+            tool_name, input_data = parts
             if not isinstance(input_data, dict):
                 continue
-
-            for field in _FILE_TOOLS.get(tool_name, []):
-                path_val = input_data.get(field, "")
-                if not isinstance(path_val, str) or not path_val.strip():
-                    continue
-
-                normalized = path_val.strip()
-                if not os.path.isabs(normalized):
-                    if not cwd:
-                        continue
-                    normalized = str((Path(cwd) / normalized).resolve())
-
-                if normalized not in seen:
-                    seen.add(normalized)
-                    paths.append(normalized)
-                    if len(paths) >= 15:
-                        return paths
+            if _collect_tool_path(input_data, tool_name, cwd, seen, paths):
+                return paths
 
     return paths
 
