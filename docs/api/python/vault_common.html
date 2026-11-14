@@ -1041,70 +1041,70 @@ name-to-path mappings.</p>
 
     </div>
     <a class="headerlink" href="#resolve_vault"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_vault-697"><a href="#resolve_vault-697"><span class="linenos">697</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_vault</span><span class="p">(</span>
-</span><span id="resolve_vault-698"><a href="#resolve_vault-698"><span class="linenos">698</span></a>    <span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="resolve_vault-699"><a href="#resolve_vault-699"><span class="linenos">699</span></a>    <span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="resolve_vault-700"><a href="#resolve_vault-700"><span class="linenos">700</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="resolve_vault-701"><a href="#resolve_vault-701"><span class="linenos">701</span></a><span class="w">    </span><span class="sd">"""Resolve which vault to use based on precedence order.</span>
-</span><span id="resolve_vault-702"><a href="#resolve_vault-702"><span class="linenos">702</span></a>
-</span><span id="resolve_vault-703"><a href="#resolve_vault-703"><span class="linenos">703</span></a><span class="sd">    ENH-009 (resolved): the visualizer no longer reimplements this in</span>
-</span><span id="resolve_vault-704"><a href="#resolve_vault-704"><span class="linenos">704</span></a><span class="sd">    TypeScript. Its ``vaultResolver.ts`` delegates to</span>
-</span><span id="resolve_vault-705"><a href="#resolve_vault-705"><span class="linenos">705</span></a><span class="sd">    :func:`resolve_vault_server` (the deliberately narrower server contract)</span>
-</span><span id="resolve_vault-706"><a href="#resolve_vault-706"><span class="linenos">706</span></a><span class="sd">    via the ``vault_resolve.py`` CLI, so the allowlist algorithm is</span>
-</span><span id="resolve_vault-707"><a href="#resolve_vault-707"><span class="linenos">707</span></a><span class="sd">    single-sourced here. The narrower contract is formalized as</span>
-</span><span id="resolve_vault-708"><a href="#resolve_vault-708"><span class="linenos">708</span></a><span class="sd">    :func:`resolve_vault_server` (named vaults + default + ``VAULT_ROOT``</span>
-</span><span id="resolve_vault-709"><a href="#resolve_vault-709"><span class="linenos">709</span></a><span class="sd">    override; no ``cwd/.claude/vault`` or ``CLAUDE_VAULT``, because a</span>
-</span><span id="resolve_vault-710"><a href="#resolve_vault-710"><span class="linenos">710</span></a><span class="sd">    long-lived server has no current project). The shared parity fixture</span>
-</span><span id="resolve_vault-711"><a href="#resolve_vault-711"><span class="linenos">711</span></a><span class="sd">    (``tests/fixtures/parity/vault-resolution.json``) still pins the</span>
-</span><span id="resolve_vault-712"><a href="#resolve_vault-712"><span class="linenos">712</span></a><span class="sd">    observable contract both the full and server resolvers must satisfy.</span>
-</span><span id="resolve_vault-713"><a href="#resolve_vault-713"><span class="linenos">713</span></a>
-</span><span id="resolve_vault-714"><a href="#resolve_vault-714"><span class="linenos">714</span></a><span class="sd">    Precedence (highest to lowest):</span>
-</span><span id="resolve_vault-715"><a href="#resolve_vault-715"><span class="linenos">715</span></a><span class="sd">    1. explicit flag (path or vault name)</span>
-</span><span id="resolve_vault-716"><a href="#resolve_vault-716"><span class="linenos">716</span></a><span class="sd">    2. cwd/.claude/vault file (project-local vault)</span>
-</span><span id="resolve_vault-717"><a href="#resolve_vault-717"><span class="linenos">717</span></a><span class="sd">    3. CLAUDE_VAULT environment variable</span>
-</span><span id="resolve_vault-718"><a href="#resolve_vault-718"><span class="linenos">718</span></a><span class="sd">    4. vaults.yaml top-level ``default:`` key (a vault name or a registered</span>
-</span><span id="resolve_vault-719"><a href="#resolve_vault-719"><span class="linenos">719</span></a><span class="sd">       path; ARC-019), then the filesystem default ~/ParsidionVault, or</span>
-</span><span id="resolve_vault-720"><a href="#resolve_vault-720"><span class="linenos">720</span></a><span class="sd">       legacy ~/ClaudeVault if it already exists</span>
-</span><span id="resolve_vault-721"><a href="#resolve_vault-721"><span class="linenos">721</span></a>
-</span><span id="resolve_vault-722"><a href="#resolve_vault-722"><span class="linenos">722</span></a><span class="sd">    ARC-001: when :func:`active_vault_scope` is active, argument-less calls</span>
-</span><span id="resolve_vault-723"><a href="#resolve_vault-723"><span class="linenos">723</span></a><span class="sd">    return the scoped vault ahead of branches 2-4 (an explicit argument</span>
-</span><span id="resolve_vault-724"><a href="#resolve_vault-724"><span class="linenos">724</span></a><span class="sd">    still wins), so a CLI that resolved ``--vault`` once can let helper code</span>
-</span><span id="resolve_vault-725"><a href="#resolve_vault-725"><span class="linenos">725</span></a><span class="sd">    resolve without passing the value through every signature.</span>
-</span><span id="resolve_vault-726"><a href="#resolve_vault-726"><span class="linenos">726</span></a>
-</span><span id="resolve_vault-727"><a href="#resolve_vault-727"><span class="linenos">727</span></a><span class="sd">    Args:</span>
-</span><span id="resolve_vault-728"><a href="#resolve_vault-728"><span class="linenos">728</span></a><span class="sd">        explicit: Optional explicit vault reference (name or path).</span>
-</span><span id="resolve_vault-729"><a href="#resolve_vault-729"><span class="linenos">729</span></a><span class="sd">        cwd: Optional working directory for project-local vault lookup.</span>
-</span><span id="resolve_vault-730"><a href="#resolve_vault-730"><span class="linenos">730</span></a><span class="sd">            If None, uses current working directory.</span>
-</span><span id="resolve_vault-731"><a href="#resolve_vault-731"><span class="linenos">731</span></a>
-</span><span id="resolve_vault-732"><a href="#resolve_vault-732"><span class="linenos">732</span></a><span class="sd">    Returns:</span>
-</span><span id="resolve_vault-733"><a href="#resolve_vault-733"><span class="linenos">733</span></a><span class="sd">        Absolute Path to the resolved vault directory.</span>
-</span><span id="resolve_vault-734"><a href="#resolve_vault-734"><span class="linenos">734</span></a>
-</span><span id="resolve_vault-735"><a href="#resolve_vault-735"><span class="linenos">735</span></a><span class="sd">    Note:</span>
-</span><span id="resolve_vault-736"><a href="#resolve_vault-736"><span class="linenos">736</span></a><span class="sd">        This function is cached with @functools.lru_cache(maxsize=8).</span>
-</span><span id="resolve_vault-737"><a href="#resolve_vault-737"><span class="linenos">737</span></a><span class="sd">        The cache key is based on (explicit, normalized_cwd) arguments.</span>
-</span><span id="resolve_vault-738"><a href="#resolve_vault-738"><span class="linenos">738</span></a><span class="sd">        ARC-009: ``cwd`` is normalized to a resolved ``str`` before the</span>
-</span><span id="resolve_vault-739"><a href="#resolve_vault-739"><span class="linenos">739</span></a><span class="sd">        cache lookup so that ``Path("/x")`` and ``"/x"`` produce the</span>
-</span><span id="resolve_vault-740"><a href="#resolve_vault-740"><span class="linenos">740</span></a><span class="sd">        same cache entry.</span>
-</span><span id="resolve_vault-741"><a href="#resolve_vault-741"><span class="linenos">741</span></a><span class="sd">    """</span>
-</span><span id="resolve_vault-742"><a href="#resolve_vault-742"><span class="linenos">742</span></a>    <span class="c1"># ARC-001: an active explicit-vault scope answers argument-less calls</span>
-</span><span id="resolve_vault-743"><a href="#resolve_vault-743"><span class="linenos">743</span></a>    <span class="c1"># directly — the scope value is the entry point's already-resolved</span>
-</span><span id="resolve_vault-744"><a href="#resolve_vault-744"><span class="linenos">744</span></a>    <span class="c1"># vault, so no cache entry is consulted or created for it. An explicit</span>
-</span><span id="resolve_vault-745"><a href="#resolve_vault-745"><span class="linenos">745</span></a>    <span class="c1"># argument still wins: a direct request must not be overridden by the</span>
-</span><span id="resolve_vault-746"><a href="#resolve_vault-746"><span class="linenos">746</span></a>    <span class="c1"># ambient scope.</span>
-</span><span id="resolve_vault-747"><a href="#resolve_vault-747"><span class="linenos">747</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="resolve_vault-748"><a href="#resolve_vault-748"><span class="linenos">748</span></a>        <span class="n">scoped</span> <span class="o">=</span> <span class="n">_active_vault</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
-</span><span id="resolve_vault-749"><a href="#resolve_vault-749"><span class="linenos">749</span></a>        <span class="k">if</span> <span class="n">scoped</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="resolve_vault-750"><a href="#resolve_vault-750"><span class="linenos">750</span></a>            <span class="k">return</span> <span class="n">scoped</span>
-</span><span id="resolve_vault-751"><a href="#resolve_vault-751"><span class="linenos">751</span></a>    <span class="c1"># ARC-009: Normalize cwd to a resolved str for consistent cache keys</span>
-</span><span id="resolve_vault-752"><a href="#resolve_vault-752"><span class="linenos">752</span></a>    <span class="n">normalized_cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="resolve_vault-753"><a href="#resolve_vault-753"><span class="linenos">753</span></a>    <span class="k">if</span> <span class="n">cwd</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="resolve_vault-754"><a href="#resolve_vault-754"><span class="linenos">754</span></a>        <span class="n">normalized_cwd</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">cwd</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
-</span><span id="resolve_vault-755"><a href="#resolve_vault-755"><span class="linenos">755</span></a>    <span class="c1"># A Path explicit (e.g. doctor/cli.py's ``--vault`` uses ``type=Path``)</span>
-</span><span id="resolve_vault-756"><a href="#resolve_vault-756"><span class="linenos">756</span></a>    <span class="c1"># must be coerced to str before the named-vault dict lookup in</span>
-</span><span id="resolve_vault-757"><a href="#resolve_vault-757"><span class="linenos">757</span></a>    <span class="c1"># _resolve_vault_reference, which is keyed by vault NAME.</span>
-</span><span id="resolve_vault-758"><a href="#resolve_vault-758"><span class="linenos">758</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
-</span><span id="resolve_vault-759"><a href="#resolve_vault-759"><span class="linenos">759</span></a>        <span class="n">explicit</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">explicit</span><span class="p">)</span>
-</span><span id="resolve_vault-760"><a href="#resolve_vault-760"><span class="linenos">760</span></a>    <span class="k">return</span> <span class="n">_resolve_vault_cached</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="n">normalized_cwd</span><span class="p">)</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_vault-706"><a href="#resolve_vault-706"><span class="linenos">706</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_vault</span><span class="p">(</span>
+</span><span id="resolve_vault-707"><a href="#resolve_vault-707"><span class="linenos">707</span></a>    <span class="n">explicit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="resolve_vault-708"><a href="#resolve_vault-708"><span class="linenos">708</span></a>    <span class="n">cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="resolve_vault-709"><a href="#resolve_vault-709"><span class="linenos">709</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="resolve_vault-710"><a href="#resolve_vault-710"><span class="linenos">710</span></a><span class="w">    </span><span class="sd">"""Resolve which vault to use based on precedence order.</span>
+</span><span id="resolve_vault-711"><a href="#resolve_vault-711"><span class="linenos">711</span></a>
+</span><span id="resolve_vault-712"><a href="#resolve_vault-712"><span class="linenos">712</span></a><span class="sd">    ENH-009 (resolved): the visualizer no longer reimplements this in</span>
+</span><span id="resolve_vault-713"><a href="#resolve_vault-713"><span class="linenos">713</span></a><span class="sd">    TypeScript. Its ``vaultResolver.ts`` delegates to</span>
+</span><span id="resolve_vault-714"><a href="#resolve_vault-714"><span class="linenos">714</span></a><span class="sd">    :func:`resolve_vault_server` (the deliberately narrower server contract)</span>
+</span><span id="resolve_vault-715"><a href="#resolve_vault-715"><span class="linenos">715</span></a><span class="sd">    via the ``vault_resolve.py`` CLI, so the allowlist algorithm is</span>
+</span><span id="resolve_vault-716"><a href="#resolve_vault-716"><span class="linenos">716</span></a><span class="sd">    single-sourced here. The narrower contract is formalized as</span>
+</span><span id="resolve_vault-717"><a href="#resolve_vault-717"><span class="linenos">717</span></a><span class="sd">    :func:`resolve_vault_server` (named vaults + default + ``VAULT_ROOT``</span>
+</span><span id="resolve_vault-718"><a href="#resolve_vault-718"><span class="linenos">718</span></a><span class="sd">    override; no ``cwd/.claude/vault`` or ``CLAUDE_VAULT``, because a</span>
+</span><span id="resolve_vault-719"><a href="#resolve_vault-719"><span class="linenos">719</span></a><span class="sd">    long-lived server has no current project). The shared parity fixture</span>
+</span><span id="resolve_vault-720"><a href="#resolve_vault-720"><span class="linenos">720</span></a><span class="sd">    (``tests/fixtures/parity/vault-resolution.json``) still pins the</span>
+</span><span id="resolve_vault-721"><a href="#resolve_vault-721"><span class="linenos">721</span></a><span class="sd">    observable contract both the full and server resolvers must satisfy.</span>
+</span><span id="resolve_vault-722"><a href="#resolve_vault-722"><span class="linenos">722</span></a>
+</span><span id="resolve_vault-723"><a href="#resolve_vault-723"><span class="linenos">723</span></a><span class="sd">    Precedence (highest to lowest):</span>
+</span><span id="resolve_vault-724"><a href="#resolve_vault-724"><span class="linenos">724</span></a><span class="sd">    1. explicit flag (path or vault name)</span>
+</span><span id="resolve_vault-725"><a href="#resolve_vault-725"><span class="linenos">725</span></a><span class="sd">    2. cwd/.claude/vault file (project-local vault)</span>
+</span><span id="resolve_vault-726"><a href="#resolve_vault-726"><span class="linenos">726</span></a><span class="sd">    3. CLAUDE_VAULT environment variable</span>
+</span><span id="resolve_vault-727"><a href="#resolve_vault-727"><span class="linenos">727</span></a><span class="sd">    4. vaults.yaml top-level ``default:`` key (a vault name or a registered</span>
+</span><span id="resolve_vault-728"><a href="#resolve_vault-728"><span class="linenos">728</span></a><span class="sd">       path; ARC-019), then the filesystem default ~/ParsidionVault, or</span>
+</span><span id="resolve_vault-729"><a href="#resolve_vault-729"><span class="linenos">729</span></a><span class="sd">       legacy ~/ClaudeVault if it already exists</span>
+</span><span id="resolve_vault-730"><a href="#resolve_vault-730"><span class="linenos">730</span></a>
+</span><span id="resolve_vault-731"><a href="#resolve_vault-731"><span class="linenos">731</span></a><span class="sd">    ARC-001: when :func:`active_vault_scope` is active, argument-less calls</span>
+</span><span id="resolve_vault-732"><a href="#resolve_vault-732"><span class="linenos">732</span></a><span class="sd">    return the scoped vault ahead of branches 2-4 (an explicit argument</span>
+</span><span id="resolve_vault-733"><a href="#resolve_vault-733"><span class="linenos">733</span></a><span class="sd">    still wins), so a CLI that resolved ``--vault`` once can let helper code</span>
+</span><span id="resolve_vault-734"><a href="#resolve_vault-734"><span class="linenos">734</span></a><span class="sd">    resolve without passing the value through every signature.</span>
+</span><span id="resolve_vault-735"><a href="#resolve_vault-735"><span class="linenos">735</span></a>
+</span><span id="resolve_vault-736"><a href="#resolve_vault-736"><span class="linenos">736</span></a><span class="sd">    Args:</span>
+</span><span id="resolve_vault-737"><a href="#resolve_vault-737"><span class="linenos">737</span></a><span class="sd">        explicit: Optional explicit vault reference (name or path).</span>
+</span><span id="resolve_vault-738"><a href="#resolve_vault-738"><span class="linenos">738</span></a><span class="sd">        cwd: Optional working directory for project-local vault lookup.</span>
+</span><span id="resolve_vault-739"><a href="#resolve_vault-739"><span class="linenos">739</span></a><span class="sd">            If None, uses current working directory.</span>
+</span><span id="resolve_vault-740"><a href="#resolve_vault-740"><span class="linenos">740</span></a>
+</span><span id="resolve_vault-741"><a href="#resolve_vault-741"><span class="linenos">741</span></a><span class="sd">    Returns:</span>
+</span><span id="resolve_vault-742"><a href="#resolve_vault-742"><span class="linenos">742</span></a><span class="sd">        Absolute Path to the resolved vault directory.</span>
+</span><span id="resolve_vault-743"><a href="#resolve_vault-743"><span class="linenos">743</span></a>
+</span><span id="resolve_vault-744"><a href="#resolve_vault-744"><span class="linenos">744</span></a><span class="sd">    Note:</span>
+</span><span id="resolve_vault-745"><a href="#resolve_vault-745"><span class="linenos">745</span></a><span class="sd">        This function is cached with @functools.lru_cache(maxsize=8).</span>
+</span><span id="resolve_vault-746"><a href="#resolve_vault-746"><span class="linenos">746</span></a><span class="sd">        The cache key is based on (explicit, normalized_cwd) arguments.</span>
+</span><span id="resolve_vault-747"><a href="#resolve_vault-747"><span class="linenos">747</span></a><span class="sd">        ARC-009: ``cwd`` is normalized to a resolved ``str`` before the</span>
+</span><span id="resolve_vault-748"><a href="#resolve_vault-748"><span class="linenos">748</span></a><span class="sd">        cache lookup so that ``Path("/x")`` and ``"/x"`` produce the</span>
+</span><span id="resolve_vault-749"><a href="#resolve_vault-749"><span class="linenos">749</span></a><span class="sd">        same cache entry.</span>
+</span><span id="resolve_vault-750"><a href="#resolve_vault-750"><span class="linenos">750</span></a><span class="sd">    """</span>
+</span><span id="resolve_vault-751"><a href="#resolve_vault-751"><span class="linenos">751</span></a>    <span class="c1"># ARC-001: an active explicit-vault scope answers argument-less calls</span>
+</span><span id="resolve_vault-752"><a href="#resolve_vault-752"><span class="linenos">752</span></a>    <span class="c1"># directly — the scope value is the entry point's already-resolved</span>
+</span><span id="resolve_vault-753"><a href="#resolve_vault-753"><span class="linenos">753</span></a>    <span class="c1"># vault, so no cache entry is consulted or created for it. An explicit</span>
+</span><span id="resolve_vault-754"><a href="#resolve_vault-754"><span class="linenos">754</span></a>    <span class="c1"># argument still wins: a direct request must not be overridden by the</span>
+</span><span id="resolve_vault-755"><a href="#resolve_vault-755"><span class="linenos">755</span></a>    <span class="c1"># ambient scope.</span>
+</span><span id="resolve_vault-756"><a href="#resolve_vault-756"><span class="linenos">756</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="resolve_vault-757"><a href="#resolve_vault-757"><span class="linenos">757</span></a>        <span class="n">scoped</span> <span class="o">=</span> <span class="n">_active_vault</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span id="resolve_vault-758"><a href="#resolve_vault-758"><span class="linenos">758</span></a>        <span class="k">if</span> <span class="n">scoped</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="resolve_vault-759"><a href="#resolve_vault-759"><span class="linenos">759</span></a>            <span class="k">return</span> <span class="n">scoped</span>
+</span><span id="resolve_vault-760"><a href="#resolve_vault-760"><span class="linenos">760</span></a>    <span class="c1"># ARC-009: Normalize cwd to a resolved str for consistent cache keys</span>
+</span><span id="resolve_vault-761"><a href="#resolve_vault-761"><span class="linenos">761</span></a>    <span class="n">normalized_cwd</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="resolve_vault-762"><a href="#resolve_vault-762"><span class="linenos">762</span></a>    <span class="k">if</span> <span class="n">cwd</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="resolve_vault-763"><a href="#resolve_vault-763"><span class="linenos">763</span></a>        <span class="n">normalized_cwd</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">cwd</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+</span><span id="resolve_vault-764"><a href="#resolve_vault-764"><span class="linenos">764</span></a>    <span class="c1"># A Path explicit (e.g. doctor/cli.py's ``--vault`` uses ``type=Path``)</span>
+</span><span id="resolve_vault-765"><a href="#resolve_vault-765"><span class="linenos">765</span></a>    <span class="c1"># must be coerced to str before the named-vault dict lookup in</span>
+</span><span id="resolve_vault-766"><a href="#resolve_vault-766"><span class="linenos">766</span></a>    <span class="c1"># _resolve_vault_reference, which is keyed by vault NAME.</span>
+</span><span id="resolve_vault-767"><a href="#resolve_vault-767"><span class="linenos">767</span></a>    <span class="k">if</span> <span class="n">explicit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span id="resolve_vault-768"><a href="#resolve_vault-768"><span class="linenos">768</span></a>        <span class="n">explicit</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">explicit</span><span class="p">)</span>
+</span><span id="resolve_vault-769"><a href="#resolve_vault-769"><span class="linenos">769</span></a>    <span class="k">return</span> <span class="n">_resolve_vault_cached</span><span class="p">(</span><span class="n">explicit</span><span class="p">,</span> <span class="n">normalized_cwd</span><span class="p">)</span>
 </span></pre></div>
 
 
@@ -1166,33 +1166,33 @@ resolve without passing the value through every signature.</p>
 
     </div>
     <a class="headerlink" href="#resolve_templates_dir"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_templates_dir-957"><a href="#resolve_templates_dir-957"><span class="linenos">957</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_templates_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="resolve_templates_dir-958"><a href="#resolve_templates_dir-958"><span class="linenos">958</span></a><span class="w">    </span><span class="sd">"""Resolve the templates directory path.</span>
-</span><span id="resolve_templates_dir-959"><a href="#resolve_templates_dir-959"><span class="linenos">959</span></a>
-</span><span id="resolve_templates_dir-960"><a href="#resolve_templates_dir-960"><span class="linenos">960</span></a><span class="sd">    Precedence (highest to lowest):</span>
-</span><span id="resolve_templates_dir-961"><a href="#resolve_templates_dir-961"><span class="linenos">961</span></a><span class="sd">    1. CLAUDE_TEMPLATES_DIR environment variable</span>
-</span><span id="resolve_templates_dir-962"><a href="#resolve_templates_dir-962"><span class="linenos">962</span></a><span class="sd">    2. Sibling ``templates/`` directory next to this script (works for both</span>
-</span><span id="resolve_templates_dir-963"><a href="#resolve_templates_dir-963"><span class="linenos">963</span></a><span class="sd">       the repo source layout and the installed skill location)</span>
-</span><span id="resolve_templates_dir-964"><a href="#resolve_templates_dir-964"><span class="linenos">964</span></a><span class="sd">    3. Default ``~/.claude/skills/parsidion/templates``</span>
-</span><span id="resolve_templates_dir-965"><a href="#resolve_templates_dir-965"><span class="linenos">965</span></a>
-</span><span id="resolve_templates_dir-966"><a href="#resolve_templates_dir-966"><span class="linenos">966</span></a><span class="sd">    Returns:</span>
-</span><span id="resolve_templates_dir-967"><a href="#resolve_templates_dir-967"><span class="linenos">967</span></a><span class="sd">        Absolute Path to the templates directory.</span>
-</span><span id="resolve_templates_dir-968"><a href="#resolve_templates_dir-968"><span class="linenos">968</span></a><span class="sd">    """</span>
-</span><span id="resolve_templates_dir-969"><a href="#resolve_templates_dir-969"><span class="linenos">969</span></a>    <span class="c1"># 1. Environment variable override</span>
-</span><span id="resolve_templates_dir-970"><a href="#resolve_templates_dir-970"><span class="linenos">970</span></a>    <span class="n">env_templates</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"CLAUDE_TEMPLATES_DIR"</span><span class="p">)</span>
-</span><span id="resolve_templates_dir-971"><a href="#resolve_templates_dir-971"><span class="linenos">971</span></a>    <span class="k">if</span> <span class="n">env_templates</span><span class="p">:</span>
-</span><span id="resolve_templates_dir-972"><a href="#resolve_templates_dir-972"><span class="linenos">972</span></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">env_templates</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
-</span><span id="resolve_templates_dir-973"><a href="#resolve_templates_dir-973"><span class="linenos">973</span></a>
-</span><span id="resolve_templates_dir-974"><a href="#resolve_templates_dir-974"><span class="linenos">974</span></a>    <span class="c1"># 2. Sibling directory relative to this script. This module lives at</span>
-</span><span id="resolve_templates_dir-975"><a href="#resolve_templates_dir-975"><span class="linenos">975</span></a>    <span class="c1">#    scripts/core/vault_path.py, so templates/ is two parents up</span>
-</span><span id="resolve_templates_dir-976"><a href="#resolve_templates_dir-976"><span class="linenos">976</span></a>    <span class="c1">#    (.../scripts/core -&gt; .../scripts -&gt; .../parsidion/templates).</span>
-</span><span id="resolve_templates_dir-977"><a href="#resolve_templates_dir-977"><span class="linenos">977</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
-</span><span id="resolve_templates_dir-978"><a href="#resolve_templates_dir-978"><span class="linenos">978</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
-</span><span id="resolve_templates_dir-979"><a href="#resolve_templates_dir-979"><span class="linenos">979</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
-</span><span id="resolve_templates_dir-980"><a href="#resolve_templates_dir-980"><span class="linenos">980</span></a>        <span class="k">return</span> <span class="n">sibling</span>
-</span><span id="resolve_templates_dir-981"><a href="#resolve_templates_dir-981"><span class="linenos">981</span></a>
-</span><span id="resolve_templates_dir-982"><a href="#resolve_templates_dir-982"><span class="linenos">982</span></a>    <span class="c1"># 3. Default</span>
-</span><span id="resolve_templates_dir-983"><a href="#resolve_templates_dir-983"><span class="linenos">983</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="resolve_templates_dir-966"><a href="#resolve_templates_dir-966"><span class="linenos">966</span></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_templates_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="resolve_templates_dir-967"><a href="#resolve_templates_dir-967"><span class="linenos">967</span></a><span class="w">    </span><span class="sd">"""Resolve the templates directory path.</span>
+</span><span id="resolve_templates_dir-968"><a href="#resolve_templates_dir-968"><span class="linenos">968</span></a>
+</span><span id="resolve_templates_dir-969"><a href="#resolve_templates_dir-969"><span class="linenos">969</span></a><span class="sd">    Precedence (highest to lowest):</span>
+</span><span id="resolve_templates_dir-970"><a href="#resolve_templates_dir-970"><span class="linenos">970</span></a><span class="sd">    1. CLAUDE_TEMPLATES_DIR environment variable</span>
+</span><span id="resolve_templates_dir-971"><a href="#resolve_templates_dir-971"><span class="linenos">971</span></a><span class="sd">    2. Sibling ``templates/`` directory next to this script (works for both</span>
+</span><span id="resolve_templates_dir-972"><a href="#resolve_templates_dir-972"><span class="linenos">972</span></a><span class="sd">       the repo source layout and the installed skill location)</span>
+</span><span id="resolve_templates_dir-973"><a href="#resolve_templates_dir-973"><span class="linenos">973</span></a><span class="sd">    3. Default ``~/.claude/skills/parsidion/templates``</span>
+</span><span id="resolve_templates_dir-974"><a href="#resolve_templates_dir-974"><span class="linenos">974</span></a>
+</span><span id="resolve_templates_dir-975"><a href="#resolve_templates_dir-975"><span class="linenos">975</span></a><span class="sd">    Returns:</span>
+</span><span id="resolve_templates_dir-976"><a href="#resolve_templates_dir-976"><span class="linenos">976</span></a><span class="sd">        Absolute Path to the templates directory.</span>
+</span><span id="resolve_templates_dir-977"><a href="#resolve_templates_dir-977"><span class="linenos">977</span></a><span class="sd">    """</span>
+</span><span id="resolve_templates_dir-978"><a href="#resolve_templates_dir-978"><span class="linenos">978</span></a>    <span class="c1"># 1. Environment variable override</span>
+</span><span id="resolve_templates_dir-979"><a href="#resolve_templates_dir-979"><span class="linenos">979</span></a>    <span class="n">env_templates</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"CLAUDE_TEMPLATES_DIR"</span><span class="p">)</span>
+</span><span id="resolve_templates_dir-980"><a href="#resolve_templates_dir-980"><span class="linenos">980</span></a>    <span class="k">if</span> <span class="n">env_templates</span><span class="p">:</span>
+</span><span id="resolve_templates_dir-981"><a href="#resolve_templates_dir-981"><span class="linenos">981</span></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">env_templates</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+</span><span id="resolve_templates_dir-982"><a href="#resolve_templates_dir-982"><span class="linenos">982</span></a>
+</span><span id="resolve_templates_dir-983"><a href="#resolve_templates_dir-983"><span class="linenos">983</span></a>    <span class="c1"># 2. Sibling directory relative to this script. This module lives at</span>
+</span><span id="resolve_templates_dir-984"><a href="#resolve_templates_dir-984"><span class="linenos">984</span></a>    <span class="c1">#    scripts/core/vault_path.py, so templates/ is two parents up</span>
+</span><span id="resolve_templates_dir-985"><a href="#resolve_templates_dir-985"><span class="linenos">985</span></a>    <span class="c1">#    (.../scripts/core -&gt; .../scripts -&gt; .../parsidion/templates).</span>
+</span><span id="resolve_templates_dir-986"><a href="#resolve_templates_dir-986"><span class="linenos">986</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
+</span><span id="resolve_templates_dir-987"><a href="#resolve_templates_dir-987"><span class="linenos">987</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
+</span><span id="resolve_templates_dir-988"><a href="#resolve_templates_dir-988"><span class="linenos">988</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+</span><span id="resolve_templates_dir-989"><a href="#resolve_templates_dir-989"><span class="linenos">989</span></a>        <span class="k">return</span> <span class="n">sibling</span>
+</span><span id="resolve_templates_dir-990"><a href="#resolve_templates_dir-990"><span class="linenos">990</span></a>
+</span><span id="resolve_templates_dir-991"><a href="#resolve_templates_dir-991"><span class="linenos">991</span></a>    <span class="c1"># 3. Default</span>
+</span><span id="resolve_templates_dir-992"><a href="#resolve_templates_dir-992"><span class="linenos">992</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
 </span></pre></div>
 
 
@@ -4881,19 +4881,19 @@ Best-effort -- never raises.</p>
 
     </div>
     <a class="headerlink" href="#get_embeddings_db_path"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_embeddings_db_path-986"><a href="#get_embeddings_db_path-986"><span class="linenos">986</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="get_embeddings_db_path-987"><a href="#get_embeddings_db_path-987"><span class="linenos">987</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
-</span><span id="get_embeddings_db_path-988"><a href="#get_embeddings_db_path-988"><span class="linenos">988</span></a>
-</span><span id="get_embeddings_db_path-989"><a href="#get_embeddings_db_path-989"><span class="linenos">989</span></a><span class="sd">    Args:</span>
-</span><span id="get_embeddings_db_path-990"><a href="#get_embeddings_db_path-990"><span class="linenos">990</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
-</span><span id="get_embeddings_db_path-991"><a href="#get_embeddings_db_path-991"><span class="linenos">991</span></a>
-</span><span id="get_embeddings_db_path-992"><a href="#get_embeddings_db_path-992"><span class="linenos">992</span></a><span class="sd">    Returns:</span>
-</span><span id="get_embeddings_db_path-993"><a href="#get_embeddings_db_path-993"><span class="linenos">993</span></a><span class="sd">        Path to vault/embeddings.db.</span>
-</span><span id="get_embeddings_db_path-994"><a href="#get_embeddings_db_path-994"><span class="linenos">994</span></a><span class="sd">    """</span>
-</span><span id="get_embeddings_db_path-995"><a href="#get_embeddings_db_path-995"><span class="linenos">995</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
-</span><span id="get_embeddings_db_path-996"><a href="#get_embeddings_db_path-996"><span class="linenos">996</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
-</span><span id="get_embeddings_db_path-997"><a href="#get_embeddings_db_path-997"><span class="linenos">997</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
-</span><span id="get_embeddings_db_path-998"><a href="#get_embeddings_db_path-998"><span class="linenos">998</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_embeddings_db_path-995"><a href="#get_embeddings_db_path-995"><span class="linenos"> 995</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="get_embeddings_db_path-996"><a href="#get_embeddings_db_path-996"><span class="linenos"> 996</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
+</span><span id="get_embeddings_db_path-997"><a href="#get_embeddings_db_path-997"><span class="linenos"> 997</span></a>
+</span><span id="get_embeddings_db_path-998"><a href="#get_embeddings_db_path-998"><span class="linenos"> 998</span></a><span class="sd">    Args:</span>
+</span><span id="get_embeddings_db_path-999"><a href="#get_embeddings_db_path-999"><span class="linenos"> 999</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
+</span><span id="get_embeddings_db_path-1000"><a href="#get_embeddings_db_path-1000"><span class="linenos">1000</span></a>
+</span><span id="get_embeddings_db_path-1001"><a href="#get_embeddings_db_path-1001"><span class="linenos">1001</span></a><span class="sd">    Returns:</span>
+</span><span id="get_embeddings_db_path-1002"><a href="#get_embeddings_db_path-1002"><span class="linenos">1002</span></a><span class="sd">        Path to vault/embeddings.db.</span>
+</span><span id="get_embeddings_db_path-1003"><a href="#get_embeddings_db_path-1003"><span class="linenos">1003</span></a><span class="sd">    """</span>
+</span><span id="get_embeddings_db_path-1004"><a href="#get_embeddings_db_path-1004"><span class="linenos">1004</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
+</span><span id="get_embeddings_db_path-1005"><a href="#get_embeddings_db_path-1005"><span class="linenos">1005</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
+</span><span id="get_embeddings_db_path-1006"><a href="#get_embeddings_db_path-1006"><span class="linenos">1006</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
+</span><span id="get_embeddings_db_path-1007"><a href="#get_embeddings_db_path-1007"><span class="linenos">1007</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
 </span></pre></div>
 
 
