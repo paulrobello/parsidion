@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import parsight_backend
-import vault_common
+from core import parsight_backend, vault_path
 
 # vault_search.py mutates sys.path at import time (adds its own directory).
 # This is an intentional design of the standalone script; the side effect is
-# benign here — it ensures vault_common remains resolvable at runtime.
+# benign here — it keeps the scripts-layer modules resolvable at runtime.
+# vault_search itself is the CLI's entry module (its ``search`` routing
+# function lives there), not one of the flat re-export shims, so importing it
+# directly is the canonical form.
 import vault_search as _vault_search_module
 
 
@@ -54,10 +56,10 @@ def vault_search(
     # to both the embeddings DB path check and the underlying search/query.
     resolved_vault: Path | None = None
     if vault is not None:
-        resolved_vault = vault_common.resolve_vault(explicit=vault)
+        resolved_vault = vault_path.resolve_vault(explicit=vault)
 
     if query is not None:
-        db_path = vault_common.get_embeddings_db_path(resolved_vault)
+        db_path = vault_path.get_embeddings_db_path(resolved_vault)
         if not db_path.exists() and not parsight_backend.resolve_parsight_backend():
             # ARC-008: Raise instead of returning a sentinel error string
             raise ValueError(

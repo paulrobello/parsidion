@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import vault_common
+from core import vault_index, vault_path
 
 
 def vault_context(
@@ -38,18 +38,18 @@ def vault_context(
     Returns:
         Context string ready for system prompt injection.
     """
-    vault_root = vault_common.resolve_vault(explicit=vault) if vault else None
+    vault_root = vault_path.resolve_vault(explicit=vault) if vault else None
 
     notes: list[Path] = []
     seen: set[Path] = set()
 
     if project:
-        for p in vault_common.find_notes_by_project(project, vault=vault_root):
+        for p in vault_index.find_notes_by_project(project, vault=vault_root):
             if p not in seen:
                 notes.append(p)
                 seen.add(p)
 
-    for p in vault_common.find_recent_notes(recent_days, vault=vault_root):
+    for p in vault_index.find_recent_notes(recent_days, vault=vault_root):
         if p not in seen:
             notes.append(p)
             seen.add(p)
@@ -58,6 +58,6 @@ def vault_context(
         return "No relevant vault notes found."
 
     if verbose:
-        return vault_common.build_context_block(notes)
+        return vault_index.build_context_block(notes)
 
-    return vault_common.build_compact_index(notes, vault=vault_root)
+    return vault_index.build_compact_index(notes, vault=vault_root)

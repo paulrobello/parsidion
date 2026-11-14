@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 # Resolvable via the editable `parsidion` dependency, the same mechanism
-# tools/search.py uses for vault_common / vault_search.
-import parsight_backend
+# tools/search.py uses for core.* / vault_search.
+from core import parsight_backend
 
 
 def code_search(

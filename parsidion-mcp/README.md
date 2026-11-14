@@ -4,7 +4,7 @@ Optional Model Context Protocol (MCP) server that exposes a Parsidion vault to *
 
 ## Overview
 
-`parsidion-mcp` is a FastMCP-based server that bridges Parsidion vault operations — semantic search, note read/write, context-block generation, index rebuilds, vault-doctor scans, and parsight code-memory search — to MCP clients. It imports `vault_common` / `vault_search` from the parent repo via the editable `.[tools]` install, so it always reflects the same vault code path the hooks use.
+`parsidion-mcp` is a FastMCP-based server that bridges Parsidion vault operations — semantic search, note read/write, context-block generation, index rebuilds, vault-doctor scans, and parsight code-memory search — to MCP clients. It imports the parent repo's `core.*` canonical modules (plus the `vault_search` CLI entry module) via the editable `.[tools]` install, so it always reflects the same vault code path the hooks use.
 
 For the full tool reference, configuration, and Claude Desktop setup, see [../docs/MCP.md](../docs/MCP.md).
 

@@ -39,10 +39,10 @@ def test_semantic_search_returns_json(tmp_path: Path) -> None:
     db.touch()
 
     with (
-        patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.search.vault_path") as mock_vp,
         patch("parsidion_mcp.tools.search._vault_search_module") as mock_vs,
     ):
-        mock_vc.get_embeddings_db_path.return_value = db
+        mock_vp.get_embeddings_db_path.return_value = db
         mock_vs.search.return_value = [_FAKE_NOTE]
 
         result = vault_search(query="python patterns")
@@ -59,8 +59,8 @@ def test_semantic_search_returns_json(tmp_path: Path) -> None:
 def test_semantic_search_missing_db_raises(tmp_path: Path) -> None:
     absent_db = tmp_path / "missing.db"
 
-    with patch("parsidion_mcp.tools.search.vault_common") as mock_vc:
-        mock_vc.get_embeddings_db_path.return_value = absent_db
+    with patch("parsidion_mcp.tools.search.vault_path") as mock_vp:
+        mock_vp.get_embeddings_db_path.return_value = absent_db
         with pytest.raises(ValueError, match="embeddings DB not found"):
             vault_search(query="anything")
 
@@ -73,11 +73,11 @@ def test_semantic_search_missing_db_but_parsight_available_delegates(
     absent_db = tmp_path / "missing.db"
 
     with (
-        patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.search.vault_path") as mock_vp,
         patch("parsidion_mcp.tools.search.parsight_backend") as mock_pb,
         patch("parsidion_mcp.tools.search._vault_search_module") as mock_vs,
     ):
-        mock_vc.get_embeddings_db_path.return_value = absent_db
+        mock_vp.get_embeddings_db_path.return_value = absent_db
         mock_pb.resolve_parsight_backend.return_value = True
         mock_vs.search.return_value = [_FAKE_NOTE]
 
@@ -94,10 +94,10 @@ def test_semantic_search_missing_db_and_no_parsight_raises(tmp_path: Path) -> No
     absent_db = tmp_path / "missing.db"
 
     with (
-        patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.search.vault_path") as mock_vp,
         patch("parsidion_mcp.tools.search.parsight_backend") as mock_pb,
     ):
-        mock_vc.get_embeddings_db_path.return_value = absent_db
+        mock_vp.get_embeddings_db_path.return_value = absent_db
         mock_pb.resolve_parsight_backend.return_value = False
         with pytest.raises(ValueError, match="embeddings DB not found"):
             vault_search(query="anything")
@@ -108,10 +108,10 @@ def test_semantic_search_respects_top_k_and_min_score(tmp_path: Path) -> None:
     db.touch()
 
     with (
-        patch("parsidion_mcp.tools.search.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.search.vault_path") as mock_vp,
         patch("parsidion_mcp.tools.search._vault_search_module") as mock_vs,
     ):
-        mock_vc.get_embeddings_db_path.return_value = db
+        mock_vp.get_embeddings_db_path.return_value = db
         mock_vs.search.return_value = []
         vault_search(query="q", top_k=5, min_score=0.6)
 

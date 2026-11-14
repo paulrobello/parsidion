@@ -5,18 +5,21 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import vault_common
-import vault_path
+import core
+from core import vault_index, vault_path
 
-# ARC-021: resolve SCRIPTS_DIR from the imported package's __file__ rather
-# than the hardwired ``~/.claude/skills/parsidion/scripts`` constant in
-# vault_path.py. The MCP server imports vault_common/vault_path via the
-# editable install, so vault_path.__file__ points at the *same* code the
-# process is running — subprocessing it (rather than a possibly-drifted
-# ~/.claude copy) keeps import and subprocess consistent. On Unix this is
-# the same path because the installer symlinks ~/.claude/skills/parsidion
-# at the repo; on Windows (where the installer copies) this matters.
-SCRIPTS_DIR: Path = Path(vault_path.__file__).resolve().parent
+# ARC-021 / ARC-200 step 1: resolve SCRIPTS_DIR from the imported package's
+# __file__ rather than the hardwired ``~/.claude/skills/parsidion/scripts``
+# constant. The ``core`` package lives at the scripts root, so SCRIPTS_DIR is
+# core.__file__'s parent — the directory holding vault_doctor.py /
+# vault_stats.py, the scripts the subprocess tools below invoke. The MCP
+# server imports the scripts layer via the editable install, so this points
+# at the *same* code the process is running — subprocessing it (rather than a
+# possibly-drifted ~/.claude copy) keeps import and subprocess consistent.
+# On Unix this is the same path because the installer symlinks
+# ~/.claude/skills/parsidion at the repo; on Windows (where the installer
+# copies) this matters.
+SCRIPTS_DIR: Path = Path(core.__file__).resolve().parent.parent
 
 
 class OpsToolError(Exception):
@@ -31,7 +34,7 @@ def _resolve_vault_path(vault: str | None) -> Path | None:
     """
     if vault is None:
         return None
-    return vault_common.resolve_vault(explicit=vault)
+    return vault_path.resolve_vault(explicit=vault)
 
 
 def rebuild_index(vault: str | None = None) -> str:
@@ -55,7 +58,7 @@ def rebuild_index(vault: str | None = None) -> str:
         OpsToolError: On command failure, timeout, or missing binary.
     """
     resolved_vault = _resolve_vault_path(vault)
-    reason, proc = vault_common.run_index_rebuild(
+    reason, proc = vault_index.run_index_rebuild(
         resolved_vault, scripts_dir=SCRIPTS_DIR, timeout=30.0
     )
     if reason == "ok" and proc is not None:

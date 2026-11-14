@@ -7,7 +7,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-import vault_common
+
+from core import vault_path
+from core.vault_config import clear_config_cache
 
 from parsidion_mcp.tools.context import vault_context
 from parsidion_mcp.tools.notes import vault_read
@@ -20,8 +22,8 @@ _NOTE_TITLE = "MCP fixture note"
 @pytest.fixture()
 def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
     """Register a small real vault through the public resolver configuration."""
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    clear_config_cache()
 
     cfg_dir = tmp_path / ".config" / "parsidion"
     cfg_dir.mkdir(parents=True)
@@ -54,13 +56,13 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
     try:
         yield tmp_path
     finally:
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        clear_config_cache()
 
 
 def test_vault_read_real_note(tmp_vault: Path) -> None:
     """Read a real note from the registered temporary vault without mocks."""
-    assert vault_common.resolve_vault() == tmp_vault
+    assert vault_path.resolve_vault() == tmp_vault
     result = vault_read(_NOTE_PATH, vault=_TEST_VAULT_NAME)
     assert result == (tmp_vault / _NOTE_PATH).read_text(encoding="utf-8")
 
@@ -69,7 +71,7 @@ def test_vault_read_real_note(tmp_vault: Path) -> None:
 def test_vault_context_returns_string(tmp_vault: Path, vault_ref: str) -> None:
     """Resolve the fixture by registered name or path and include its note."""
     vault = str(tmp_vault) if vault_ref == "path" else vault_ref
-    assert vault_common.resolve_vault(explicit=vault) == tmp_vault
+    assert vault_path.resolve_vault(explicit=vault) == tmp_vault
     result = vault_context(recent_days=30, vault=vault)
     assert isinstance(result, str)
     assert _NOTE_TITLE in result

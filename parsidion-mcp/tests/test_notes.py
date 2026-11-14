@@ -22,8 +22,8 @@ def test_vault_read_returns_content(tmp_path: Path) -> None:
     note.parent.mkdir()
     note.write_text("---\ndate: 2026-01-01\n---\n\n# My Note\n", encoding="utf-8")
 
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         result = vault_read("Patterns/my-note.md")
 
     assert "# My Note" in result
@@ -33,23 +33,23 @@ def test_vault_read_absolute_path(tmp_path: Path) -> None:
     note = tmp_path / "test.md"
     note.write_text("content", encoding="utf-8")
 
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         result = vault_read(str(note))
 
     assert result == "content"
 
 
 def test_vault_read_path_escape_raises(tmp_path: Path) -> None:
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         with pytest.raises(VaultToolError, match="path escapes vault root"):
             vault_read("../../etc/passwd")
 
 
 def test_vault_read_missing_file_raises(tmp_path: Path) -> None:
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         with pytest.raises(VaultToolError, match="note not found"):
             vault_read("nonexistent.md")
 
@@ -57,8 +57,8 @@ def test_vault_read_missing_file_raises(tmp_path: Path) -> None:
 def test_vault_read_missing_vault_raises(tmp_path: Path) -> None:
     absent = tmp_path / "NoVault"
 
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = absent
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = absent
         with pytest.raises(VaultToolError, match="vault root not found"):
             vault_read("note.md")
 
@@ -78,9 +78,9 @@ class TestVaultReadNoteOnly:
         (tmp_path / "config.local.yaml").write_text(
             "ai:\n  key: secret\n", encoding="utf-8"
         )
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match=r"\.md files are readable"):
                 vault_read("config.local.yaml")
 
@@ -88,9 +88,9 @@ class TestVaultReadNoteOnly:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         (git_dir / "config").write_text("[core]\n", encoding="utf-8")
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             # The .md-suffix guard fires first; the dot segment would also
             # be refused by the hidden-path guard.
             with pytest.raises(VaultToolError, match="readable"):
@@ -102,9 +102,9 @@ class TestVaultReadNoteOnly:
         hidden = tmp_path / ".obsidian"
         hidden.mkdir()
         (hidden / "workspace.md").write_text("# x\n", encoding="utf-8")
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="not readable"):
                 vault_read(".obsidian/workspace.md")
 
@@ -112,27 +112,27 @@ class TestVaultReadNoteOnly:
         tpl = tmp_path / "Templates"
         tpl.mkdir()
         (tpl / "x.md").write_text("# t\n", encoding="utf-8")
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="Excluded directory"):
                 vault_read("Templates/x.md")
 
     def test_read_binary_file_raises_not_a_text_note(self, tmp_path: Path) -> None:
         note = tmp_path / "bin.md"
         note.write_bytes(b"\x80\x81\x00\xffnot-utf8")
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="not a text note"):
                 vault_read("bin.md")
 
     def test_read_oversized_note_rejected(self, tmp_path: Path) -> None:
         note = tmp_path / "big.md"
         note.write_bytes(b"x" * (10 * 1024 * 1024 + 1))
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="10 MB limit"):
                 vault_read("big.md")
 
@@ -140,9 +140,9 @@ class TestVaultReadNoteOnly:
         note = tmp_path / "Patterns" / "ok.md"
         note.parent.mkdir()
         note.write_text("# fine\n", encoding="utf-8")
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             assert "# fine" in vault_read("Patterns/ok.md")
 
 
@@ -152,8 +152,8 @@ class TestVaultReadNoteOnly:
 
 
 def test_vault_write_creates_file(tmp_path: Path) -> None:
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         result = vault_write("new-note.md", "# Hello\n")
 
     written = tmp_path / "new-note.md"
@@ -163,8 +163,8 @@ def test_vault_write_creates_file(tmp_path: Path) -> None:
 
 
 def test_vault_write_creates_parent_dirs(tmp_path: Path) -> None:
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         vault_write("Patterns/deep/note.md", "content")
 
     assert (tmp_path / "Patterns" / "deep" / "note.md").exists()
@@ -174,16 +174,16 @@ def test_vault_write_overwrites_existing(tmp_path: Path) -> None:
     note = tmp_path / "note.md"
     note.write_text("old", encoding="utf-8")
 
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         vault_write("note.md", "new")
 
     assert note.read_text(encoding="utf-8") == "new"
 
 
 def test_vault_write_path_escape_raises(tmp_path: Path) -> None:
-    with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-        mock_vc.resolve_vault.return_value = tmp_path
+    with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+        mock_vp.resolve_vault.return_value = tmp_path
         with pytest.raises(VaultToolError, match="path escapes vault root"):
             vault_write("../../evil.md", "content")
 
@@ -192,13 +192,13 @@ def test_vault_write_oserror_raises(tmp_path: Path) -> None:
     # SEC-P003: vault_write now opens via os.open + writes through an fd, so
     # the failure point moved off Path.write_text. Patch os.open to raise.
     with (
-        patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.notes.vault_path") as mock_vp,
         patch(
             "parsidion_mcp.tools.notes.os.open",
             side_effect=OSError("disk full"),
         ),
     ):
-        mock_vc.resolve_vault.return_value = tmp_path
+        mock_vp.resolve_vault.return_value = tmp_path
         with pytest.raises(VaultToolError, match="disk full"):
             vault_write("note.md", "content")
 
@@ -220,23 +220,23 @@ class TestVaultWriteNoteOnly:
     def test_write_trash_backup_rejected(self, tmp_path: Path) -> None:
         # The exact attack from the audit: overwrite SEC-107 pre-mutation
         # backups before vandalizing live notes.
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="not writable"):
                 vault_write(".trash/backup/2026-01-01/x.md", "#evil\n")
 
     def test_write_obsidian_rejected(self, tmp_path: Path) -> None:
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="not writable"):
                 vault_write(".obsidian/y.md", "#evil\n")
 
     def test_write_git_rejected(self, tmp_path: Path) -> None:
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="not writable"):
                 vault_write(".git/z.md", "#evil\n")
 
@@ -245,25 +245,25 @@ class TestVaultWriteNoteOnly:
         # resolves foo/../.trash/x.md to vault/.trash/x.md, which the segment
         # gate must still refuse (the path stays inside the vault, so the
         # containment check alone would pass it).
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="not writable"):
                 vault_write("foo/../.trash/x.md", "#evil\n")
 
     def test_write_excluded_dir_rejected(self, tmp_path: Path) -> None:
         # Templates is excluded but not dot-prefixed — only the EXCLUDE_DIRS
         # check catches it.
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             with pytest.raises(VaultToolError, match="Excluded directory"):
                 vault_write("Templates/x.md", "#evil\n")
 
     def test_write_normal_note_still_works(self, tmp_path: Path) -> None:
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
-            mock_vc.EXCLUDE_DIRS = _EXCLUDE_DIRS
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
+            mock_vp.EXCLUDE_DIRS = _EXCLUDE_DIRS
             result = vault_write("Patterns/x.md", "# fine\n")
 
         assert (tmp_path / "Patterns" / "x.md").read_text(encoding="utf-8") == (
@@ -279,7 +279,7 @@ class TestVaultWriteNoteOnly:
 
 class TestVaultParameter:
     """ARC-021: vault_read / vault_write accept an optional *vault* reference
-    (name or path) that is forwarded to vault_common.resolve_vault(explicit=…)
+    (name or path) that is forwarded to vault_path.resolve_vault(explicit=…)
     so the MCP layer can target a specific named vault instead of always
     hitting the default.
     """
@@ -300,8 +300,8 @@ class TestVaultParameter:
         # Path that supports the division operator.
         mock_vault_root.__truediv__ = lambda self, key: tmp_path / key
 
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = mock_vault_root
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = mock_vault_root
             # Patch the inner Path resolution so vault_read finds the note.
             # Simpler: patch _resolve_vault_path directly to bypass path math.
             with patch(
@@ -309,7 +309,7 @@ class TestVaultParameter:
             ):
                 vault_read("note.md", vault="my-vault")
 
-        for call in mock_vc.resolve_vault.call_args_list:
+        for call in mock_vp.resolve_vault.call_args_list:
             assert call.kwargs.get("explicit") == "my-vault", (
                 f"resolve_vault call missing explicit=vault: {call}"
             )
@@ -324,11 +324,11 @@ class TestVaultParameter:
         # reaches resolve_vault.
         (tmp_path / "Patterns").mkdir()
 
-        with patch("parsidion_mcp.tools.notes.vault_common") as mock_vc:
-            mock_vc.resolve_vault.return_value = tmp_path
+        with patch("parsidion_mcp.tools.notes.vault_path") as mock_vp:
+            mock_vp.resolve_vault.return_value = tmp_path
             vault_write("Patterns/note.md", "# body\n", vault="my-vault")
 
-        for call in mock_vc.resolve_vault.call_args_list:
+        for call in mock_vp.resolve_vault.call_args_list:
             assert call.kwargs.get("explicit") == "my-vault"
 
 
@@ -377,13 +377,13 @@ def test_vault_write_rejects_parent_symlink_swap(tmp_path: Path) -> None:
         return result
 
     with (
-        patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.notes.vault_path") as mock_vp,
         patch(
             "parsidion_mcp.tools.notes._resolve_vault_path",
             side_effect=swapping_resolver,
         ),
     ):
-        mock_vc.resolve_vault.return_value = tmp_path
+        mock_vp.resolve_vault.return_value = tmp_path
         with pytest.raises(VaultToolError, match="path escapes vault root"):
             vault_write("Patterns/note.md", "attacker content")
 
@@ -407,10 +407,10 @@ def test_vault_write_rejects_leaf_symlink_to_outside(tmp_path: Path) -> None:
     leaf.symlink_to(outside)
 
     with (
-        patch("parsidion_mcp.tools.notes.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.notes.vault_path") as mock_vp,
         patch("parsidion_mcp.tools.notes._resolve_vault_path", return_value=leaf),
     ):
-        mock_vc.resolve_vault.return_value = tmp_path
+        mock_vp.resolve_vault.return_value = tmp_path
         with pytest.raises(VaultToolError, match="path escapes vault root"):
             vault_write("note.md", "attacker content")
 
