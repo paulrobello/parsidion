@@ -102,6 +102,9 @@ _ENFORCEMENT_SCOPE = [
     "antigravity_session_start_hook",
     "antigravity_session_end_hook",
     "agent_adapter",
+    # ARC-202: the shared recall-context pipeline is imported in-process by
+    # both retrieval hooks, so it shares the stdlib-only contract.
+    "recall_context",
     # ENH-007: vault_health scoring is imported by vault_stats + the MCP
     # server, so it is held to the same stdlib-only contract as the rest of
     # the core/hook surface.

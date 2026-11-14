@@ -44,11 +44,15 @@ from typing import Any
 
 from core import parsight_backend
 from core.rule_triggers import load_rule_notes, match_rules
-from core.vault_config import clamp_timeout, load_typed_config
 from core.vault_hooks import get_project_name, write_hook_event
-from core.vault_index import read_note_summary
 from core.vault_path import resolve_vault, secure_log_dir
-from session_start.context import UNTRUSTED_PREAMBLE
+from recall_context import (
+    _build_context,
+    _note_tags,
+    load_hook_settings,
+    set_stamp,
+    stamp_fresh,
+)
 
 # Defaults for the shared ``user_prompt_submit_hook`` config section. Each is
 # a per-key fallback: the typed section (Slice A schema) wins when present.
@@ -191,34 +195,13 @@ def _tokens(text: str) -> set[str]:
 
 
 def _load_settings(vault: Path) -> dict[str, object]:
-    """Read the ``user_prompt_submit_hook`` section, defaulting per key.
-
-    Tolerates the section being absent (or config load failing) so the hook
-    never blocks on configuration problems.
-    """
-    settings: dict[str, object] = dict(_DEFAULTS)
-    try:
-        section = getattr(
-            load_typed_config(vault=vault), "user_prompt_submit_hook", None
-        )
-    except Exception:  # noqa: BLE001
-        return settings
-    if section is None:
-        return settings
-    for key, default in _DEFAULTS.items():
-        settings[key] = getattr(section, key, default)
-    # The omp/pi host still kills UserPromptSubmit at 10s; startup + probe
-    # (~1.5s) plus the 1s kill grace leave ~7s of safe search budget — the
-    # default IS the ceiling. A configured value above it recreates the
-    # host-kill bug, and NaN/negative would reach communicate(timeout=...)
-    # as "no timeout" (SEC-024 shape), so clamp regardless of source.
-    settings["recall_timeout_s"] = clamp_timeout(
-        settings["recall_timeout_s"],  # type: ignore[arg-type]
-        default=_DEFAULTS["recall_timeout_s"],
-        lo=1.0,
-        hi=float(_DEFAULTS["recall_timeout_s"]),  # type: ignore[arg-type]
+    """Read the ``user_prompt_submit_hook`` section, defaulting per key."""
+    return load_hook_settings(
+        vault,
+        section="user_prompt_submit_hook",
+        defaults=_DEFAULTS,
+        timeout_hi=float(_DEFAULTS["recall_timeout_s"]),
     )
-    return settings
 
 
 def _probe_stamp_path() -> Path:
@@ -226,25 +209,9 @@ def _probe_stamp_path() -> Path:
     return secure_log_dir() / _PROBE_STAMP_NAME
 
 
-def _probe_stamp_fresh(stamp: Path, max_age_s: int) -> bool:
-    """True when *stamp* exists and is younger than *max_age_s* seconds."""
-    try:
-        return (time.time() - stamp.stat().st_mtime) < max_age_s
-    except OSError:
-        return False
-
-
 def _search_cooldown_stamp_path() -> Path:
     """Negative-cache stamp for a budget-burning failed search."""
     return secure_log_dir() / _SEARCH_COOLDOWN_STAMP_NAME
-
-
-def _note_tags(note: dict[str, object]) -> str:
-    """Space-joined string tags; non-list/​non-str shapes collapse to ""."""
-    raw = note.get("tags")
-    if not isinstance(raw, list):
-        return ""
-    return " ".join(t for t in raw if isinstance(t, str))
 
 
 def _term_overlap(prompt_tokens: set[str], note: dict[str, object]) -> int:
@@ -253,72 +220,6 @@ def _term_overlap(prompt_tokens: set[str], note: dict[str, object]) -> int:
         (str(note.get("title") or ""), str(note.get("stem") or ""), _note_tags(note))
     )
     return len(prompt_tokens & _tokens(meta))
-
-
-def _excerpt(note: dict[str, object], per_note_chars: int) -> str:
-    """One-line excerpt: result ``summary`` if truthy, else read_note_summary."""
-    summary = str(note.get("summary") or "").strip()
-    if not summary:
-        raw_path = str(note.get("path") or "")
-        if raw_path:
-            try:
-                summary = read_note_summary(Path(raw_path)).strip()
-            except Exception:  # noqa: BLE001
-                summary = ""
-    summary = " ".join(summary.split())  # collapse to a single line
-    if len(summary) > per_note_chars:
-        summary = summary[: per_note_chars - 1].rstrip() + "…"
-    return summary
-
-
-def _build_context(
-    notes: list[dict[str, object]],
-    vault: Path,
-    settings: dict[str, Any],
-    rules: list[dict[str, object]] | None = None,
-) -> str:
-    """Format matched notes into the bounded, untrusted-framed context body.
-
-    Triggered ``type: rule`` notes lead the body when present — they are
-    directives, not recall — and share the same char budget. Each rule line
-    names the triggers that fired.
-    """
-    per_note_chars = int(settings["per_note_chars"])
-    max_chars = int(settings["max_chars"])
-    preamble = UNTRUSTED_PREAMBLE + "<content>\n"
-    suffix = "\n</content>\n"
-    available_body_chars = max_chars - len(preamble) - len(suffix)
-    if available_body_chars < 1:
-        return ""
-    lines: list[str] = []
-    if rules:
-        lines.append(f"Vault rules — {len(rules)} rule(s) triggered:")
-        for rule in rules:
-            title = str(rule.get("title") or rule.get("stem") or "untitled")
-            folder = str(rule.get("folder") or "")
-            stem = str(rule.get("stem") or "")
-            loc = f"{folder}/{stem}" if folder else stem
-            matched = rule.get("matched")
-            matched_list = matched if isinstance(matched, list) else []
-            trig = ", ".join(str(t) for t in matched_list)
-            lines.append(f"- **{title}** [{loc}] (triggered: {trig})")
-            lines.append(f"  {_excerpt(rule, per_note_chars)}")
-        lines.append("")
-    if notes:
-        lines.append(f"Vault recall — {len(notes)} note(s) relevant to this prompt:")
-        for note in notes:
-            title = str(note.get("title") or note.get("stem") or "untitled")
-            folder = str(note.get("folder") or "")
-            stem = str(note.get("stem") or "")
-            loc = f"{folder}/{stem}" if folder else stem
-            tags = ", ".join(t for t in _note_tags(note).split() if t)
-            lines.append(f"- **{title}** [{loc}] ({tags})")
-            lines.append(f"  {_excerpt(note, per_note_chars)}")
-    body = "\n".join(lines)
-    available_body_chars = max_chars - len(preamble) - len(suffix)
-    if len(body) > available_body_chars:
-        body = body[:available_body_chars]
-    return preamble + body + suffix
 
 
 def run_recall(payload: dict) -> dict:
@@ -346,7 +247,9 @@ def run_recall(payload: dict) -> dict:
         """Compose rules + recall into one bounded, framed injection."""
         if not notes and not matched_rules:
             return {}
-        context = _build_context(notes, vault, settings, rules=matched_rules or None)
+        context = _build_context(
+            notes, "this prompt", settings, rules=matched_rules or None
+        )
         _mark("format")
         if not context:
             return {}
@@ -404,7 +307,7 @@ def run_recall(payload: dict) -> dict:
         # Probe gate with negative cache: a recent failed probe skips both
         # the probe and the search silently.
         stamp = _probe_stamp_path()
-        if _probe_stamp_fresh(stamp, int(settings["probe_cache_seconds"])):  # type: ignore[arg-type]
+        if stamp_fresh(stamp, int(settings["probe_cache_seconds"])):  # type: ignore[arg-type]
             return {}
         try:
             probe_ok = parsight_backend.resolve_parsight_backend(vault)
@@ -412,19 +315,12 @@ def run_recall(payload: dict) -> dict:
             probe_ok = False
         _mark("probe")
         if not probe_ok:
-            try:
-                stamp.parent.mkdir(parents=True, exist_ok=True)
-                stamp.touch()
-            except OSError:
-                pass
+            set_stamp(stamp, True)
             return _emit([])
-        try:
-            stamp.unlink(missing_ok=True)
-        except OSError:
-            pass
+        set_stamp(stamp, False)
 
         cooldown = _search_cooldown_stamp_path()
-        if _probe_stamp_fresh(
+        if stamp_fresh(
             cooldown,
             int(settings["probe_cache_seconds"]),  # type: ignore[arg-type]
         ):
@@ -446,11 +342,7 @@ def run_recall(payload: dict) -> dict:
             results is None
             and (time.monotonic() - search_started) >= _SEARCH_COOLDOWN_MIN_BURN_S
         ):
-            try:
-                cooldown.parent.mkdir(parents=True, exist_ok=True)
-                cooldown.touch()
-            except OSError:
-                pass
+            set_stamp(cooldown, True)
         notes: list[dict[str, object]] = []
         if results:
             min_matches = int(settings["min_term_matches"])  # type: ignore[arg-type]

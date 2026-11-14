@@ -54,11 +54,10 @@ from typing import Any
 
 from core import parsight_backend
 from core.rule_triggers import load_rule_notes, match_rules
-from core.vault_config import clamp_timeout, load_typed_config
 from core.vault_hooks import get_project_name, write_hook_event
-from core.vault_index import load_note_index_metadata, read_note_summary
+from core.vault_index import load_note_index_metadata
 from core.vault_path import is_path_inside_vault, resolve_vault, secure_log_dir
-from session_start.context import UNTRUSTED_PREAMBLE
+from recall_context import _build_context, load_hook_settings, set_stamp, stamp_fresh
 
 # Defaults for the ``pre_tool_use_hook`` config section. Each is a per-key
 # fallback: the typed section (Slice A schema) wins when present.
@@ -164,31 +163,13 @@ def _file_query(file_path: Path, project: str) -> str:
 
 
 def _load_settings(vault: Path) -> dict[str, object]:
-    """Read the ``pre_tool_use_hook`` section, defaulting per key.
-
-    Tolerates the section being absent (or config load failing) so the
-    hook never blocks on configuration problems.
-    """
-    settings: dict[str, object] = dict(_DEFAULTS)
-    try:
-        section = getattr(load_typed_config(vault=vault), "pre_tool_use_hook", None)
-    except Exception:  # noqa: BLE001
-        return settings
-    if section is None:
-        return settings
-    for key, default in _DEFAULTS.items():
-        settings[key] = getattr(section, key, default)
-    # NaN/negative would reach communicate(timeout=...) as "no timeout"
-    # (SEC-024 shape); clamp regardless of source. The ceiling keeps the
-    # parsight leg inside the 10s PreToolUse host kill with startup +
-    # probe + kill-grace headroom.
-    settings["recall_timeout_s"] = clamp_timeout(
-        settings["recall_timeout_s"],  # type: ignore[arg-type]
-        default=_DEFAULTS["recall_timeout_s"],
-        lo=1.0,
-        hi=5.0,
+    """Read the ``pre_tool_use_hook`` section, defaulting per key."""
+    return load_hook_settings(
+        vault,
+        section="pre_tool_use_hook",
+        defaults=_DEFAULTS,
+        timeout_hi=5.0,
     )
-    return settings
 
 
 def _extract_file_path(
@@ -296,14 +277,6 @@ def _probe_stamp_path() -> Path:
     return secure_log_dir() / _PROBE_STAMP_NAME
 
 
-def _stamp_fresh(stamp: Path, max_age_s: int) -> bool:
-    """True when *stamp* exists and is younger than *max_age_s* seconds."""
-    try:
-        return (time.time() - stamp.stat().st_mtime) < max_age_s
-    except OSError:
-        return False
-
-
 def _note_tags(note: dict[str, object]) -> str:
     """Space-joined string tags; non-list/non-str shapes collapse to ""."""
     raw = note.get("tags")
@@ -320,74 +293,6 @@ def _term_overlap(file_tokens: set[str], note: dict[str, object]) -> int:
         (str(note.get("title") or ""), str(note.get("stem") or ""), _note_tags(note))
     )
     return len(file_tokens & _tokens(meta))
-
-
-def _excerpt(note: dict[str, object], per_note_chars: int) -> str:
-    """One-line excerpt: row ``summary`` if truthy, else read_note_summary."""
-    summary = str(note.get("summary") or "").strip()
-    if not summary:
-        raw_path = str(note.get("path") or "")
-        if raw_path:
-            try:
-                summary = read_note_summary(Path(raw_path)).strip()
-            except Exception:  # noqa: BLE001
-                summary = ""
-    summary = " ".join(summary.split())  # collapse to a single line
-    if len(summary) > per_note_chars:
-        summary = summary[: per_note_chars - 1].rstrip() + "…"
-    return summary
-
-
-def _build_context(
-    notes: list[dict[str, object]],
-    file_path: Path,
-    settings: dict[str, Any],
-    rules: list[dict[str, object]] | None = None,
-) -> str:
-    """Format matched notes into the bounded, untrusted-framed context body.
-
-    Triggered ``type: rule`` notes lead the body when present — directives,
-    not recall — and share the same char budget. Each rule line names the
-    triggers that fired.
-    """
-    per_note_chars = int(settings["per_note_chars"])
-    max_chars = int(settings["max_chars"])
-    preamble = UNTRUSTED_PREAMBLE + "<content>\n"
-    suffix = "\n</content>\n"
-    available_body_chars = max_chars - len(preamble) - len(suffix)
-    if available_body_chars < 1:
-        return ""
-    lines: list[str] = []
-    if rules:
-        lines.append(f"Vault rules — {len(rules)} rule(s) triggered:")
-        for rule in rules:
-            title = str(rule.get("title") or rule.get("stem") or "untitled")
-            folder = str(rule.get("folder") or "")
-            stem = str(rule.get("stem") or "")
-            loc = f"{folder}/{stem}" if folder else stem
-            matched = rule.get("matched")
-            matched_list = matched if isinstance(matched, list) else []
-            trig = ", ".join(str(t) for t in matched_list)
-            lines.append(f"- **{title}** [{loc}] (triggered: {trig})")
-            lines.append(f"  {_excerpt(rule, per_note_chars)}")
-        lines.append("")
-    if notes:
-        lines.append(
-            f"Vault recall — {len(notes)} note(s) relevant to {file_path.name}:"
-        )
-    for note in notes:
-        title = str(note.get("title") or note.get("stem") or "untitled")
-        folder = str(note.get("folder") or "")
-        stem = str(note.get("stem") or "")
-        loc = f"{folder}/{stem}" if folder else stem
-        tags = ", ".join(t for t in _note_tags(note).split() if t)
-        lines.append(f"- **{title}** [{loc}] ({tags})")
-        lines.append(f"  {_excerpt(note, per_note_chars)}")
-    body = "\n".join(lines)
-    available_body_chars = max_chars - len(preamble) - len(suffix)
-    if len(body) > available_body_chars:
-        body = body[:available_body_chars]
-    return preamble + body + suffix
 
 
 def _merge_notes(
@@ -441,23 +346,16 @@ def _load_semantic_matches(
     if not bool(settings["parsight"]):
         return []
     stamp = _probe_stamp_path()
-    if _stamp_fresh(stamp, int(settings["cache_seconds"])):  # type: ignore[arg-type]
+    if stamp_fresh(stamp, int(settings["cache_seconds"])):  # type: ignore[arg-type]
         return []
     try:
         probe_ok = parsight_backend.resolve_parsight_backend(vault)
     except Exception:  # noqa: BLE001
         probe_ok = False
     if not probe_ok:
-        try:
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.touch()
-        except OSError:
-            pass
+        set_stamp(stamp, True)
         return []
-    try:
-        stamp.unlink(missing_ok=True)
-    except OSError:
-        pass
+    set_stamp(stamp, False)
     try:
         results = parsight_backend.parsight_search(
             query,
@@ -562,7 +460,11 @@ def run_injection(payload: dict) -> dict:
             return {}
 
         context = _build_context(
-            notes, file_path, settings, rules=matched_rules or None
+            notes,
+            file_path.name,
+            settings,
+            rules=matched_rules or None,
+            note_tags=_note_tags,
         )
         _mark("format")
         _cache_write(cache_key, context)

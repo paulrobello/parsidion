@@ -28,6 +28,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+import recall_context  # noqa: E402 -- ARC-202: patch where it lives
 import user_prompt_submit_hook  # noqa: E402
 from core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
 
@@ -130,7 +131,7 @@ class TestRecall:
         default — operators can shorten or lengthen the budget per vault."""
         fake_section = SimpleNamespace(recall_timeout_s=2.5)
         monkeypatch.setattr(
-            user_prompt_submit_hook,
+            recall_context,
             "load_typed_config",
             lambda vault=None: SimpleNamespace(user_prompt_submit_hook=fake_section),
         )
@@ -151,7 +152,7 @@ class TestRecall:
         from typing import cast
 
         monkeypatch.setattr(
-            user_prompt_submit_hook,
+            recall_context,
             "load_typed_config",
             lambda vault=None: SimpleNamespace(
                 user_prompt_submit_hook=SimpleNamespace(recall_timeout_s=60.0)
@@ -175,7 +176,7 @@ class TestRecall:
         from typing import cast
 
         monkeypatch.setattr(
-            user_prompt_submit_hook,
+            recall_context,
             "load_typed_config",
             lambda vault=None: SimpleNamespace(
                 user_prompt_submit_hook=SimpleNamespace(recall_timeout_s=bad)
@@ -232,7 +233,7 @@ class TestRecall:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(
-            user_prompt_submit_hook,
+            recall_context,
             "load_typed_config",
             lambda vault=None: SimpleNamespace(
                 user_prompt_submit_hook=SimpleNamespace(min_term_matches=0)
@@ -368,7 +369,7 @@ class TestRecall:
         self, tmp_vault: Path, _isolated_logs: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            user_prompt_submit_hook,
+            recall_context,
             "load_typed_config",
             lambda vault=None: SimpleNamespace(
                 user_prompt_submit_hook=SimpleNamespace(enabled=False)
@@ -419,7 +420,7 @@ class TestRecall:
     ) -> None:
         events: list[dict[str, object]] = []
         monkeypatch.setattr(
-            user_prompt_submit_hook,
+            recall_context,
             "load_typed_config",
             lambda vault=None: SimpleNamespace(
                 user_prompt_submit_hook=SimpleNamespace(max_chars=1)
