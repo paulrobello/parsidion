@@ -1125,30 +1125,32 @@ are re-exported from <code>vault_common</code> for backward compatibility.</p>
 </span><span id="L-980"><a href="#L-980"><span class="linenos"> 980</span></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">env_templates</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
 </span><span id="L-981"><a href="#L-981"><span class="linenos"> 981</span></a>
 </span><span id="L-982"><a href="#L-982"><span class="linenos"> 982</span></a>    <span class="c1"># 2. Sibling directory relative to this script. This module lives at</span>
-</span><span id="L-983"><a href="#L-983"><span class="linenos"> 983</span></a>    <span class="c1">#    scripts/core/vault_path.py, so templates/ is two parents up</span>
-</span><span id="L-984"><a href="#L-984"><span class="linenos"> 984</span></a>    <span class="c1">#    (.../scripts/core -&gt; .../scripts -&gt; .../parsidion/templates).</span>
-</span><span id="L-985"><a href="#L-985"><span class="linenos"> 985</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
-</span><span id="L-986"><a href="#L-986"><span class="linenos"> 986</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
-</span><span id="L-987"><a href="#L-987"><span class="linenos"> 987</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
-</span><span id="L-988"><a href="#L-988"><span class="linenos"> 988</span></a>        <span class="k">return</span> <span class="n">sibling</span>
-</span><span id="L-989"><a href="#L-989"><span class="linenos"> 989</span></a>
-</span><span id="L-990"><a href="#L-990"><span class="linenos"> 990</span></a>    <span class="c1"># 3. Default</span>
-</span><span id="L-991"><a href="#L-991"><span class="linenos"> 991</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
-</span><span id="L-992"><a href="#L-992"><span class="linenos"> 992</span></a>
-</span><span id="L-993"><a href="#L-993"><span class="linenos"> 993</span></a>
-</span><span id="L-994"><a href="#L-994"><span class="linenos"> 994</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="L-995"><a href="#L-995"><span class="linenos"> 995</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
-</span><span id="L-996"><a href="#L-996"><span class="linenos"> 996</span></a>
-</span><span id="L-997"><a href="#L-997"><span class="linenos"> 997</span></a><span class="sd">    Args:</span>
-</span><span id="L-998"><a href="#L-998"><span class="linenos"> 998</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
-</span><span id="L-999"><a href="#L-999"><span class="linenos"> 999</span></a>
-</span><span id="L-1000"><a href="#L-1000"><span class="linenos">1000</span></a><span class="sd">    Returns:</span>
-</span><span id="L-1001"><a href="#L-1001"><span class="linenos">1001</span></a><span class="sd">        Path to vault/embeddings.db.</span>
-</span><span id="L-1002"><a href="#L-1002"><span class="linenos">1002</span></a><span class="sd">    """</span>
-</span><span id="L-1003"><a href="#L-1003"><span class="linenos">1003</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
-</span><span id="L-1004"><a href="#L-1004"><span class="linenos">1004</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
-</span><span id="L-1005"><a href="#L-1005"><span class="linenos">1005</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
-</span><span id="L-1006"><a href="#L-1006"><span class="linenos">1006</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
+</span><span id="L-983"><a href="#L-983"><span class="linenos"> 983</span></a>    <span class="c1">#    scripts/parsidion/core/vault_path.py (ARC-201 namespace layout,</span>
+</span><span id="L-984"><a href="#L-984"><span class="linenos"> 984</span></a>    <span class="c1">#    mirrored by the installed skill symlink), so templates/ is three</span>
+</span><span id="L-985"><a href="#L-985"><span class="linenos"> 985</span></a>    <span class="c1">#    parents up (.../core -&gt; .../parsidion -&gt; .../scripts -&gt;</span>
+</span><span id="L-986"><a href="#L-986"><span class="linenos"> 986</span></a>    <span class="c1">#    .../parsidion/templates).</span>
+</span><span id="L-987"><a href="#L-987"><span class="linenos"> 987</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
+</span><span id="L-988"><a href="#L-988"><span class="linenos"> 988</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
+</span><span id="L-989"><a href="#L-989"><span class="linenos"> 989</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+</span><span id="L-990"><a href="#L-990"><span class="linenos"> 990</span></a>        <span class="k">return</span> <span class="n">sibling</span>
+</span><span id="L-991"><a href="#L-991"><span class="linenos"> 991</span></a>
+</span><span id="L-992"><a href="#L-992"><span class="linenos"> 992</span></a>    <span class="c1"># 3. Default</span>
+</span><span id="L-993"><a href="#L-993"><span class="linenos"> 993</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
+</span><span id="L-994"><a href="#L-994"><span class="linenos"> 994</span></a>
+</span><span id="L-995"><a href="#L-995"><span class="linenos"> 995</span></a>
+</span><span id="L-996"><a href="#L-996"><span class="linenos"> 996</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="L-997"><a href="#L-997"><span class="linenos"> 997</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
+</span><span id="L-998"><a href="#L-998"><span class="linenos"> 998</span></a>
+</span><span id="L-999"><a href="#L-999"><span class="linenos"> 999</span></a><span class="sd">    Args:</span>
+</span><span id="L-1000"><a href="#L-1000"><span class="linenos">1000</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
+</span><span id="L-1001"><a href="#L-1001"><span class="linenos">1001</span></a>
+</span><span id="L-1002"><a href="#L-1002"><span class="linenos">1002</span></a><span class="sd">    Returns:</span>
+</span><span id="L-1003"><a href="#L-1003"><span class="linenos">1003</span></a><span class="sd">        Path to vault/embeddings.db.</span>
+</span><span id="L-1004"><a href="#L-1004"><span class="linenos">1004</span></a><span class="sd">    """</span>
+</span><span id="L-1005"><a href="#L-1005"><span class="linenos">1005</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
+</span><span id="L-1006"><a href="#L-1006"><span class="linenos">1006</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
+</span><span id="L-1007"><a href="#L-1007"><span class="linenos">1007</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
+</span><span id="L-1008"><a href="#L-1008"><span class="linenos">1008</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
 </span></pre></div>
 
 
@@ -1960,15 +1962,17 @@ using the legacy path so upgrades do not silently create a second vault.</p>
 </span><span id="resolve_templates_dir-981"><a href="#resolve_templates_dir-981"><span class="linenos">981</span></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">env_templates</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
 </span><span id="resolve_templates_dir-982"><a href="#resolve_templates_dir-982"><span class="linenos">982</span></a>
 </span><span id="resolve_templates_dir-983"><a href="#resolve_templates_dir-983"><span class="linenos">983</span></a>    <span class="c1"># 2. Sibling directory relative to this script. This module lives at</span>
-</span><span id="resolve_templates_dir-984"><a href="#resolve_templates_dir-984"><span class="linenos">984</span></a>    <span class="c1">#    scripts/core/vault_path.py, so templates/ is two parents up</span>
-</span><span id="resolve_templates_dir-985"><a href="#resolve_templates_dir-985"><span class="linenos">985</span></a>    <span class="c1">#    (.../scripts/core -&gt; .../scripts -&gt; .../parsidion/templates).</span>
-</span><span id="resolve_templates_dir-986"><a href="#resolve_templates_dir-986"><span class="linenos">986</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
-</span><span id="resolve_templates_dir-987"><a href="#resolve_templates_dir-987"><span class="linenos">987</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
-</span><span id="resolve_templates_dir-988"><a href="#resolve_templates_dir-988"><span class="linenos">988</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
-</span><span id="resolve_templates_dir-989"><a href="#resolve_templates_dir-989"><span class="linenos">989</span></a>        <span class="k">return</span> <span class="n">sibling</span>
-</span><span id="resolve_templates_dir-990"><a href="#resolve_templates_dir-990"><span class="linenos">990</span></a>
-</span><span id="resolve_templates_dir-991"><a href="#resolve_templates_dir-991"><span class="linenos">991</span></a>    <span class="c1"># 3. Default</span>
-</span><span id="resolve_templates_dir-992"><a href="#resolve_templates_dir-992"><span class="linenos">992</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
+</span><span id="resolve_templates_dir-984"><a href="#resolve_templates_dir-984"><span class="linenos">984</span></a>    <span class="c1">#    scripts/parsidion/core/vault_path.py (ARC-201 namespace layout,</span>
+</span><span id="resolve_templates_dir-985"><a href="#resolve_templates_dir-985"><span class="linenos">985</span></a>    <span class="c1">#    mirrored by the installed skill symlink), so templates/ is three</span>
+</span><span id="resolve_templates_dir-986"><a href="#resolve_templates_dir-986"><span class="linenos">986</span></a>    <span class="c1">#    parents up (.../core -&gt; .../parsidion -&gt; .../scripts -&gt;</span>
+</span><span id="resolve_templates_dir-987"><a href="#resolve_templates_dir-987"><span class="linenos">987</span></a>    <span class="c1">#    .../parsidion/templates).</span>
+</span><span id="resolve_templates_dir-988"><a href="#resolve_templates_dir-988"><span class="linenos">988</span></a>    <span class="n">script_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
+</span><span id="resolve_templates_dir-989"><a href="#resolve_templates_dir-989"><span class="linenos">989</span></a>    <span class="n">sibling</span> <span class="o">=</span> <span class="n">script_dir</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">"templates"</span>
+</span><span id="resolve_templates_dir-990"><a href="#resolve_templates_dir-990"><span class="linenos">990</span></a>    <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+</span><span id="resolve_templates_dir-991"><a href="#resolve_templates_dir-991"><span class="linenos">991</span></a>        <span class="k">return</span> <span class="n">sibling</span>
+</span><span id="resolve_templates_dir-992"><a href="#resolve_templates_dir-992"><span class="linenos">992</span></a>
+</span><span id="resolve_templates_dir-993"><a href="#resolve_templates_dir-993"><span class="linenos">993</span></a>    <span class="c1"># 3. Default</span>
+</span><span id="resolve_templates_dir-994"><a href="#resolve_templates_dir-994"><span class="linenos">994</span></a>    <span class="k">return</span> <span class="n">TEMPLATES_DIR</span>
 </span></pre></div>
 
 
@@ -2000,19 +2004,19 @@ the repo source layout and the installed skill location)</li>
 
     </div>
     <a class="headerlink" href="#get_embeddings_db_path"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="get_embeddings_db_path-995"><a href="#get_embeddings_db_path-995"><span class="linenos"> 995</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
-</span><span id="get_embeddings_db_path-996"><a href="#get_embeddings_db_path-996"><span class="linenos"> 996</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
-</span><span id="get_embeddings_db_path-997"><a href="#get_embeddings_db_path-997"><span class="linenos"> 997</span></a>
-</span><span id="get_embeddings_db_path-998"><a href="#get_embeddings_db_path-998"><span class="linenos"> 998</span></a><span class="sd">    Args:</span>
-</span><span id="get_embeddings_db_path-999"><a href="#get_embeddings_db_path-999"><span class="linenos"> 999</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
-</span><span id="get_embeddings_db_path-1000"><a href="#get_embeddings_db_path-1000"><span class="linenos">1000</span></a>
-</span><span id="get_embeddings_db_path-1001"><a href="#get_embeddings_db_path-1001"><span class="linenos">1001</span></a><span class="sd">    Returns:</span>
-</span><span id="get_embeddings_db_path-1002"><a href="#get_embeddings_db_path-1002"><span class="linenos">1002</span></a><span class="sd">        Path to vault/embeddings.db.</span>
-</span><span id="get_embeddings_db_path-1003"><a href="#get_embeddings_db_path-1003"><span class="linenos">1003</span></a><span class="sd">    """</span>
-</span><span id="get_embeddings_db_path-1004"><a href="#get_embeddings_db_path-1004"><span class="linenos">1004</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
-</span><span id="get_embeddings_db_path-1005"><a href="#get_embeddings_db_path-1005"><span class="linenos">1005</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
-</span><span id="get_embeddings_db_path-1006"><a href="#get_embeddings_db_path-1006"><span class="linenos">1006</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
-</span><span id="get_embeddings_db_path-1007"><a href="#get_embeddings_db_path-1007"><span class="linenos">1007</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="get_embeddings_db_path-997"><a href="#get_embeddings_db_path-997"><span class="linenos"> 997</span></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embeddings_db_path</span><span class="p">(</span><span class="n">vault</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+</span><span id="get_embeddings_db_path-998"><a href="#get_embeddings_db_path-998"><span class="linenos"> 998</span></a><span class="w">    </span><span class="sd">"""Return the path to the vault's embeddings database.</span>
+</span><span id="get_embeddings_db_path-999"><a href="#get_embeddings_db_path-999"><span class="linenos"> 999</span></a>
+</span><span id="get_embeddings_db_path-1000"><a href="#get_embeddings_db_path-1000"><span class="linenos">1000</span></a><span class="sd">    Args:</span>
+</span><span id="get_embeddings_db_path-1001"><a href="#get_embeddings_db_path-1001"><span class="linenos">1001</span></a><span class="sd">        vault: Optional vault path (str or Path). Defaults to resolve_vault().</span>
+</span><span id="get_embeddings_db_path-1002"><a href="#get_embeddings_db_path-1002"><span class="linenos">1002</span></a>
+</span><span id="get_embeddings_db_path-1003"><a href="#get_embeddings_db_path-1003"><span class="linenos">1003</span></a><span class="sd">    Returns:</span>
+</span><span id="get_embeddings_db_path-1004"><a href="#get_embeddings_db_path-1004"><span class="linenos">1004</span></a><span class="sd">        Path to vault/embeddings.db.</span>
+</span><span id="get_embeddings_db_path-1005"><a href="#get_embeddings_db_path-1005"><span class="linenos">1005</span></a><span class="sd">    """</span>
+</span><span id="get_embeddings_db_path-1006"><a href="#get_embeddings_db_path-1006"><span class="linenos">1006</span></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vault</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>  <span class="c1"># be liberal: accept str paths from callers</span>
+</span><span id="get_embeddings_db_path-1007"><a href="#get_embeddings_db_path-1007"><span class="linenos">1007</span></a>        <span class="n">vault</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">vault</span><span class="p">)</span>
+</span><span id="get_embeddings_db_path-1008"><a href="#get_embeddings_db_path-1008"><span class="linenos">1008</span></a>    <span class="n">vault</span> <span class="o">=</span> <span class="n">vault</span> <span class="ow">or</span> <span class="n">resolve_vault</span><span class="p">()</span>
+</span><span id="get_embeddings_db_path-1009"><a href="#get_embeddings_db_path-1009"><span class="linenos">1009</span></a>    <span class="k">return</span> <span class="n">vault</span> <span class="o">/</span> <span class="n">EMBEDDINGS_DB_FILENAME</span>
 </span></pre></div>
 
 
