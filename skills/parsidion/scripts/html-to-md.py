@@ -150,38 +150,8 @@ def _clean_markdown(text: str) -> str:
     return text.strip()
 
 
-def _html_to_markdown(
-    html_content: str,
-    *,
-    url: str | None = None,
-    include_links: bool = True,
-    include_images: bool = False,
-) -> str:
-    """Convert an HTML string to clean Markdown optimised for LLM consumption.
-
-    Narrows the parse tree to the main content container when one is present
-    (``main``, ``[role='main']``, or ``article``), strips non-content elements
-    (navigation, banners, footers, scripts, cookie notices, layout tables),
-    resolves relative URLs when a base URL is provided, annotates fenced code
-    blocks with language identifiers, then delegates to ``html2text`` for the
-    final Markdown conversion. The result is post-processed by ``_clean_markdown``
-    to remove common conversion artefacts.
-
-    Args:
-        html_content: Raw HTML string to convert.
-        url: Base URL used to resolve relative ``href``/``src`` attributes.
-            Ignored when ``include_links`` is False.
-        include_links: When True (default), hyperlinks are preserved in the
-            output. When False, ``a`` and ``link`` elements are removed.
-        include_images: When True, ``img`` elements are preserved as Markdown
-            image references. Defaults to False.
-
-    Returns:
-        Cleaned Markdown string ready for LLM consumption.
-    """
-    soup = BeautifulSoup(html_content, "html.parser")
-
-    # Narrow to main content container if one exists
+def _narrow_to_content_root(soup: BeautifulSoup) -> BeautifulSoup:
+    """Return the tree narrowed to the main content container when one exists."""
     content_root = None
     for selector in ["main", "[role='main']", "article"]:
         candidate = soup.select_one(selector)
@@ -195,33 +165,41 @@ def _html_to_markdown(
         assert div is not None
         div.append(content_root)
         soup = new_soup
+    return soup
 
-    # Resolve relative URLs
-    if include_links and url:
-        url_attributes = [
-            "href",
-            "src",
-            "action",
-            "data",
-            "poster",
-            "background",
-            "cite",
-            "formaction",
-        ]
-        for tag in soup.find_all(True):
-            for attribute in url_attributes:
-                if tag.has_attr(attribute):
-                    attr_value = tag[attribute]
-                    if isinstance(attr_value, list):
-                        continue
-                    if attr_value.startswith("//"):
-                        tag[attribute] = f"https:{attr_value}"
-                    elif not attr_value.startswith(
-                        ("http://", "https://", "mailto:", "tel:", "javascript:")
-                    ):
-                        tag[attribute] = urljoin(url, attr_value)
 
-    # Remove non-content elements by tag
+def _resolve_relative_urls(soup: BeautifulSoup, url: str | None) -> None:
+    """Resolve relative href/src-style attributes against the base *url*."""
+    if not url:
+        return
+    url_attributes = [
+        "href",
+        "src",
+        "action",
+        "data",
+        "poster",
+        "background",
+        "cite",
+        "formaction",
+    ]
+    for tag in soup.find_all(True):
+        for attribute in url_attributes:
+            if tag.has_attr(attribute):
+                attr_value = tag[attribute]
+                if isinstance(attr_value, list):
+                    continue
+                if attr_value.startswith("//"):
+                    tag[attribute] = f"https:{attr_value}"
+                elif not attr_value.startswith(
+                    ("http://", "https://", "mailto:", "tel:", "javascript:")
+                ):
+                    tag[attribute] = urljoin(url, attr_value)
+
+
+def _remove_non_content(
+    soup: BeautifulSoup, include_links: bool, include_images: bool
+) -> None:
+    """Decompose navigation/scripts and selector- or cookie-banner junk."""
     elements_to_remove = [
         "head",
         "header",
@@ -259,7 +237,9 @@ def _html_to_markdown(
         ):
             tag.decompose()
 
-    # Unwrap layout tables
+
+def _prepare_tables_and_separators(soup: BeautifulSoup) -> None:
+    """Unwrap layout tables; convert role=separator elements to <hr>."""
     for table in soup.find_all("table"):
         if _is_layout_table(table):
             table.unwrap()
@@ -271,7 +251,9 @@ def _html_to_markdown(
         hr.insert_before(soup.new_string("\n"))
         hr.insert_after(soup.new_string("\n"))
 
-    # Extract language hints and mark code blocks
+
+def _mark_code_blocks(soup: BeautifulSoup) -> None:
+    """Insert language-hint markers before fenced-code candidates."""
     for pre in soup.find_all("pre"):
         lang = _extract_code_language(pre)
         if lang:
@@ -280,6 +262,11 @@ def _html_to_markdown(
             )
             pre.insert_before(marker)
 
+
+def _convert_html(
+    soup: BeautifulSoup, include_links: bool, include_images: bool
+) -> str:
+    """Run html2text over the prepared tree with LLM-friendly settings."""
     result_html = str(soup)
 
     converter = html2text.HTML2Text()
@@ -291,52 +278,54 @@ def _html_to_markdown(
     converter.skip_internal_links = True
     converter.wrap_links = False
 
-    markdown = converter.handle(result_html)
+    return converter.handle(result_html)
 
+
+def _replace_indented_block(m: re.Match) -> str:
+    """Convert a language-annotated 4-space-indented block to a fenced code block.
+
+    Used as a ``re.sub`` replacement function. Strips the 4-space or tab
+    indentation added by html2text for ``<pre>`` elements, removes leading
+    and trailing blank lines within the block, and wraps the result in a
+    fenced code block with the extracted language identifier.
+
+    Args:
+        m: Match object with group 1 = language identifier, group 2 = indented block.
+
+    Returns:
+        Fenced code block string, or an empty string if the block is empty
+        after stripping.
+    """
+    lang = m.group(1)
+    block = m.group(2)
+    # Strip the 4-space (or tab) indent from every line; drop leading blank lines
+    lines = block.rstrip("\n").split("\n")
+    dedented = []
+    for line in lines:
+        if line.startswith("    "):
+            dedented.append(line[4:])
+        elif line.startswith("\t"):
+            dedented.append(line[1:])
+        else:
+            dedented.append(line.strip())
+    # Drop leading/trailing blank lines inside the block
+    while dedented and not dedented[0].strip():
+        dedented.pop(0)
+    while dedented and not dedented[-1].strip():
+        dedented.pop()
+    if not dedented:
+        return ""
+    return f"```{lang}\n" + "\n".join(dedented) + "\n```"
+
+
+def _postprocess_markdown(markdown: str) -> str:
+    """Apply the language-marker fixups and final conversion cleanup."""
     # Fix up language-annotated fenced code blocks: <!--lang:python-->``` → ```python
     markdown = re.sub(
         rf"{re.escape(_LANG_MARKER_PREFIX)}(\w+){re.escape(_LANG_MARKER_SUFFIX)}\s*```",
         r"```\1",
         markdown,
     )
-
-    # Fix up language-annotated indented code blocks (html2text uses 4-space indent for <pre>)
-    # <!--lang:python-->\n    \n    code\n → ```python\ncode\n```
-    def _replace_indented_block(m: re.Match) -> str:
-        """Convert a language-annotated 4-space-indented block to a fenced code block.
-
-        Used as a ``re.sub`` replacement function. Strips the 4-space or tab
-        indentation added by html2text for ``<pre>`` elements, removes leading
-        and trailing blank lines within the block, and wraps the result in a
-        fenced code block with the extracted language identifier.
-
-        Args:
-            m: Match object with group 1 = language identifier, group 2 = indented block.
-
-        Returns:
-            Fenced code block string, or an empty string if the block is empty
-            after stripping.
-        """
-        lang = m.group(1)
-        block = m.group(2)
-        # Strip the 4-space (or tab) indent from every line; drop leading blank lines
-        lines = block.rstrip("\n").split("\n")
-        dedented = []
-        for line in lines:
-            if line.startswith("    "):
-                dedented.append(line[4:])
-            elif line.startswith("\t"):
-                dedented.append(line[1:])
-            else:
-                dedented.append(line.strip())
-        # Drop leading/trailing blank lines inside the block
-        while dedented and not dedented[0].strip():
-            dedented.pop(0)
-        while dedented and not dedented[-1].strip():
-            dedented.pop()
-        if not dedented:
-            return ""
-        return f"```{lang}\n" + "\n".join(dedented) + "\n```"
 
     # Match marker followed by all lines starting with whitespace (covers blank indented lines)
     markdown = re.sub(
@@ -351,8 +340,47 @@ def _html_to_markdown(
         "",
         markdown,
     )
-
     return _clean_markdown(markdown)
+
+
+def _html_to_markdown(
+    html_content: str,
+    *,
+    url: str | None = None,
+    include_links: bool = True,
+    include_images: bool = False,
+) -> str:
+    """Convert an HTML string to clean Markdown optimised for LLM consumption.
+
+    Narrows the parse tree to the main content container when one is present
+    (``main``, ``[role='main']``, or ``article``), strips non-content elements
+    (navigation, banners, footers, scripts, cookie notices, layout tables),
+    resolves relative URLs when a base URL is provided, annotates fenced code
+    blocks with language identifiers, then delegates to ``html2text`` for the
+    final Markdown conversion. The result is post-processed by ``_clean_markdown``
+    to remove common conversion artefacts.
+
+    Args:
+        html_content: Raw HTML string to convert.
+        url: Base URL used to resolve relative ``href``/``src`` attributes.
+            Ignored when ``include_links`` is False.
+        include_links: When True (default), hyperlinks are preserved in the
+            output. When False, ``a`` and ``link`` elements are removed.
+        include_images: When True, ``img`` elements are preserved as Markdown
+            image references. Defaults to False.
+
+    Returns:
+        Cleaned Markdown string ready for LLM consumption.
+    """
+    soup = BeautifulSoup(html_content, "html.parser")
+    soup = _narrow_to_content_root(soup)
+    if include_links and url:
+        _resolve_relative_urls(soup, url)
+    _remove_non_content(soup, include_links, include_images)
+    _prepare_tables_and_separators(soup)
+    _mark_code_blocks(soup)
+    markdown = _convert_html(soup, include_links, include_images)
+    return _postprocess_markdown(markdown)
 
 
 # ── Fetching ───────────────────────────────────────────────────────────────
