@@ -43,7 +43,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from core import ai_backend
 from core.vault_adaptive import get_injected_stems, update_usefulness_scores
@@ -1123,6 +1123,28 @@ def _read_stdin_payload() -> dict[str, object]:
         return parsed if isinstance(parsed, dict) else {}
     except (json.JSONDecodeError, ValueError):
         return {}
+
+
+def _to_shared_payload(payload: dict[str, Any]) -> dict[str, object]:
+    """Map Antigravity's camelCase wire fields onto the shared pipeline's.
+
+    QA-006: the two Antigravity shim hooks carried byte-identical private
+    copies; both now import this one. Lives on the adapter registry (the
+    ARC-020 shared layer) rather than a separate antigravity_common module —
+    the mapping is the adapter-contract concern.
+    """
+    workspace_paths = payload.get("workspacePaths")
+    cwd = ""
+    if isinstance(workspace_paths, list) and workspace_paths:
+        cwd = str(workspace_paths[0])
+    mapped: dict[str, object] = {}
+    if cwd:
+        mapped["cwd"] = cwd
+    if payload.get("conversationId"):
+        mapped["session_id"] = str(payload["conversationId"])
+    if payload.get("transcriptPath"):
+        mapped["transcript_path"] = str(payload["transcriptPath"])
+    return mapped
 
 
 def _deeper_pi_tail(

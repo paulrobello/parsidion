@@ -21,7 +21,7 @@ import json
 import sys
 from typing import Any
 
-from agent_adapter import get, run_session_end
+from agent_adapter import _to_shared_payload, get, run_session_end
 
 _ALLOW_STOP = '{"decision": ""}'
 
@@ -34,22 +34,6 @@ def _read_payload() -> dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except (json.JSONDecodeError, ValueError):
         return {}
-
-
-def _to_shared_payload(payload: dict[str, Any]) -> dict[str, object]:
-    """Map Antigravity's camelCase wire fields onto the shared pipeline's."""
-    workspace_paths = payload.get("workspacePaths")
-    cwd = ""
-    if isinstance(workspace_paths, list) and workspace_paths:
-        cwd = str(workspace_paths[0])
-    mapped: dict[str, object] = {}
-    if cwd:
-        mapped["cwd"] = cwd
-    if payload.get("conversationId"):
-        mapped["session_id"] = str(payload["conversationId"])
-    if payload.get("transcriptPath"):
-        mapped["transcript_path"] = str(payload["transcriptPath"])
-    return mapped
 
 
 def main() -> None:
