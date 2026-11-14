@@ -29,6 +29,24 @@
         ],
         "createdAt": "2026-11-14T07:00:17.938Z",
         "reason": "generated pdoc API snapshot; page CSS is owned by pdoc's default template, not repo design (orchestrator, fix-audit run 2026-11-13)"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "docs/api"
+        ],
+        "createdAt": "2026-11-14T08:02:02.837Z",
+        "reason": "generated pdoc API snapshot; CSS owned by pdoc template, not repo design (orchestrator, fix-audit run)"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api"
+        ],
+        "createdAt": "2026-11-14T08:02:07.123Z",
+        "reason": "generated pdoc API snapshot; CSS owned by pdoc template, not repo design (orchestrator, fix-audit run)"
       }
     ]
   }
