@@ -15,10 +15,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from parsidion.core.vault_index import all_vault_notes, get_body
-from parsidion.core.vault_path import get_embeddings_db_path, resolve_vault
-from parsidion.core.vault_index import _build_note_index_where
-from parsidion.core.vault_path import is_path_inside_vault
+from parsidion.core.vault_index import (
+    _query_note_index_results,
+    all_vault_notes,
+    get_body,
+)
+from parsidion.core.vault_path import (
+    get_embeddings_db_path,
+    is_path_inside_vault,
+    resolve_vault,
+)
 
 # SEC-020: one stderr note per process when DB-sourced paths get skipped.
 _skipped_outside_warned = False
@@ -44,7 +50,11 @@ def query(
 ) -> list[dict[str, object]]:
     """Query the note_index table for metadata-filtered results.
 
-    Returns an empty list (not None) if the DB is absent or table missing.
+    QA-002: thin delegate to
+    :func:`parsidion.core.vault_index._query_note_index_results` so the SQL
+    lives only in core; this wrapper keeps the vault-search CLI contract
+    (empty list when the DB or table is absent, ``score: null`` result dicts
+    sorted by mtime descending).
 
     Args:
         tag: Exact tag token to match.
@@ -52,107 +62,27 @@ def query(
         note_type: Exact note_type to match.
         project: Exact project name to match.
         recent_days: Notes modified within this many days.
+        changed_since: Only notes modified on/after this ISO datetime.
+        as_of: Only notes whose frontmatter date is on/before this ISO date.
         limit: Maximum result count.
         vault: Optional vault path. Defaults to resolve_vault().
+        include_superseded: Include retired notes (history queries only).
 
     Returns:
         List of result dicts with score set to null, sorted by mtime descending.
     """
-    db_path = get_embeddings_db_path(vault)
-    if not db_path.exists():
-        return []
-
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-    except sqlite3.OperationalError:
-        return []
-
-    try:
-        if (
-            conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            is None
-        ):
-            return []
-
-        # Defensive: a note_index predating the `date` migration (e.g. an
-        # embeddings-disabled vault never rebuilt) lacks the column. SELECTing
-        # `date` would raise OperationalError and silently return []. Detect it
-        # instead: non-date queries omit the column (still work); --as-of (which
-        # genuinely needs it) warns and returns [].
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(note_index)").fetchall()
-        }
-        has_date = "date" in columns
-        if as_of is not None and not has_date:
-            print(
-                "note_index schema is stale (no 'date' column); "
-                "run update_index.py to enable --as-of.",
-                file=sys.stderr,
-            )
-            return []
-        # Supersession: a note_index predating the status migration lacks the
-        # column; the filter is then vacuously satisfied (nothing can be
-        # retired yet) instead of breaking every metadata query.
-        has_status = "status" in columns
-
-        # QA-009: shared WHERE builder — the condition assembly that was
-        # duplicated with query_note_index lives once in
-        # parsidion.core.vault_index._build_note_index_where (injection-safety
-        # contract documented there).
-        where, params = _build_note_index_where(
-            tag=tag,
-            folder=folder,
-            note_type=note_type,
-            project=project,
-            recent_days=recent_days,
-            changed_since=changed_since,
-            as_of=as_of,
-            has_status=has_status,
-            include_superseded=include_superseded,
-        )
-        date_col = ", date" if has_date else ""
-        sql = (
-            f"SELECT stem, path, folder, title, summary, tags, note_type, "
-            f"project, confidence, mtime, related, is_stale, incoming_links"
-            f"{date_col} "
-            f"FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
-        )
-        params.append(limit)
-
-        rows = conn.execute(sql, params).fetchall()
-    except sqlite3.Error:
-        return []
-    finally:
-        conn.close()
-
-    results: list[dict[str, object]] = []
-    for row in rows:
-        d = dict(row)
-        tags_str: str = d.get("tags", "") or ""
-        related_str: str = d.get("related", "") or ""
-        results.append(
-            {
-                "score": None,
-                "stem": d.get("stem", ""),
-                "title": d.get("title", ""),
-                "folder": d.get("folder", ""),
-                "tags": [t.strip() for t in tags_str.split(",") if t.strip()],
-                "path": d.get("path", ""),
-                "summary": d.get("summary", ""),
-                "note_type": d.get("note_type", ""),
-                "project": d.get("project", ""),
-                "confidence": d.get("confidence", ""),
-                "mtime": d.get("mtime"),
-                "related": [r.strip() for r in related_str.split(",") if r.strip()],
-                "is_stale": bool(d.get("is_stale", 0)),
-                "incoming_links": d.get("incoming_links", 0),
-                "date": d.get("date", ""),
-            }
-        )
-    return results
+    return _query_note_index_results(
+        tag=tag,
+        folder=folder,
+        note_type=note_type,
+        project=project,
+        recent_days=recent_days,
+        changed_since=changed_since,
+        as_of=as_of,
+        limit=limit,
+        vault=vault,
+        include_superseded=include_superseded,
+    )
 
 
 def _get_all_notes_as_results(
