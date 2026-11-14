@@ -335,8 +335,13 @@ def dump_scalar(value: Any) -> str:
 
     Only ``str`` values are ever quoted: a bare ``3`` (int) parses back
     to int 3, but a string ``"3"`` must be quoted or the reader would
-    coerce it to an int and break the round-trip.
+    coerce it to an int and break the round-trip. ``None`` renders as
+    ``null`` -- the bare fallback ``str(None)`` would emit the string
+    ``"None"``, which parses back as the four-letter word instead of
+    null (ARC-207).
     """
+    if value is None:
+        return "null"
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str) and scalar_needs_quotes(value):

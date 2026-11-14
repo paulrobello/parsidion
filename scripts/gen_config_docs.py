@@ -34,6 +34,7 @@ _SCRIPTS_DIR = _REPO_ROOT / "skills" / "parsidion" / "scripts"
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from parsidion.core import vault_schema  # noqa: E402
+from parsidion.core.yaml_lite import dump_scalar  # noqa: E402
 
 _TEMPLATE = _REPO_ROOT / "skills" / "parsidion" / "templates" / "config.yaml"
 _TEMPLATE_HEADER = (
@@ -112,28 +113,6 @@ def _read_by_union(fl: list[Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _yaml_scalar(value: Any) -> str:
-    """Render *value* as a YAML scalar (bare when unambiguous)."""
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return repr(value)
-    s = str(value)
-    low = s.lower()
-    if (
-        not s
-        or s != s.strip()
-        or "#" in s
-        or ":" in s
-        or low in {"true", "false", "null", "yes", "no", "on", "off"}
-        or s.startswith(("[", "{", "'", '"', "&", "*", "!", "|", ">", "%", "@", "`"))
-    ):
-        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    return s
-
-
 def _docstring_comment(cls: type) -> list[str]:
     """The section docstring as '# ' comment lines, wrapped."""
     doc = (cls.__doc__ or "").strip()
@@ -171,9 +150,9 @@ def render_annotated_yaml() -> str:
                 out.append(f"  # {m['doc']}")
                 out.append(f"  {f.name}:")
                 for k, v in value.items():
-                    out.append(f"    {k}: {_yaml_scalar(v)}")
+                    out.append(f"    {k}: {dump_scalar(v)}")
             else:
-                out.append(f"  {f.name}: {_yaml_scalar(value)}  # {m['doc']}")
+                out.append(f"  {f.name}: {dump_scalar(value)}  # {m['doc']}")
         out.append("")
     return "\n".join(out).rstrip() + "\n"
 
