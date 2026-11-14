@@ -14,6 +14,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import tempfile
 from pathlib import Path
 
@@ -148,9 +149,12 @@ def _managed_hook_command(claude_dir: Path, skill_name: str, event: str) -> str:
     script_path = claude_dir / "skills" / skill_name / "scripts" / script
     try:
         rel = script_path.relative_to(Path.home())
-        rel_str = f"~/{rel.as_posix()}"
+        # SEC-003: quote after the tilde — an unquoted `~` still tilde-expands
+        # while the quoted tail keeps spaces (and other shell metacharacters)
+        # from word-splitting the path.
+        rel_str = f"~/{shlex.quote(rel.as_posix())}"
     except ValueError:
-        rel_str = script_path.as_posix()
+        rel_str = shlex.quote(script_path.as_posix())
 
     if script.endswith(".sh"):
         return rel_str
@@ -463,9 +467,10 @@ def _build_managed_command(
     script_path = claude_dir / "skills" / SKILL_NAME / "scripts" / script
     try:
         rel = script_path.relative_to(Path.home())
-        display = f"~/{rel.as_posix()}"
+        # SEC-003: quote after the tilde — see _managed_hook_command.
+        display = f"~/{shlex.quote(rel.as_posix())}"
     except ValueError:
-        display = script_path.as_posix()
+        display = shlex.quote(script_path.as_posix())
     if script.endswith(".sh"):
         return display
     return f"uv run --no-project {display}"
