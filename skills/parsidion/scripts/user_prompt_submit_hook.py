@@ -39,6 +39,7 @@ import os
 import re
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -222,153 +223,188 @@ def _term_overlap(prompt_tokens: set[str], note: dict[str, object]) -> int:
     return len(prompt_tokens & _tokens(meta))
 
 
+@dataclass
+class _RecallContext:
+    """Per-invocation state shared by the run_recall stage helpers."""
+
+    payload: dict
+    started: float
+    stages: dict[str, float] = field(default_factory=dict)
+    prompt: str = ""
+    cwd: str = ""
+    vault: Path | None = None
+    settings: dict[str, object] = field(default_factory=dict)
+    matched_rules: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _mark(ctx: _RecallContext, name: str) -> None:
+    """Record a cumulative stage mark (ms since run_recall started)."""
+    ctx.stages[name] = round((time.perf_counter() - ctx.started) * 1000.0, 1)
+
+
+def _stage_deltas(ctx: _RecallContext) -> dict[str, float]:
+    """Convert cumulative stage marks into per-stage milliseconds."""
+    deltas: dict[str, float] = {}
+    prev = 0.0
+    for name, cumulative in ctx.stages.items():
+        deltas[name] = round(cumulative - prev, 1)
+        prev = cumulative
+    return deltas
+
+
+def _emit(ctx: _RecallContext, notes: list[dict[str, object]]) -> dict:
+    """Compose rules + recall into one bounded, framed injection."""
+    if not notes and not ctx.matched_rules:
+        return {}
+    context = _build_context(
+        notes, "this prompt", ctx.settings, rules=ctx.matched_rules or None
+    )
+    _mark(ctx, "format")
+    if not context:
+        return {}
+    try:
+        write_hook_event(
+            hook="UserPromptSubmit",
+            project=get_project_name(ctx.cwd),
+            duration_ms=(time.perf_counter() - ctx.started) * 1000.0,
+            vault=ctx.vault,
+            notes_injected=len(notes) + len(ctx.matched_rules),
+            rules_injected=len(ctx.matched_rules),
+            chars=len(context),
+            session_id=str(ctx.payload.get("session_id") or ""),
+            stages_ms=_stage_deltas(ctx),
+        )
+    except Exception:  # noqa: BLE001
+        pass  # observability is best-effort
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    }
+
+
+def _match_rules_stage(ctx: _RecallContext) -> None:
+    """Rules leg: trigger-scoped rule notes are push, not retrieval —
+    they inject independent of parsight health, before the probe gate,
+    so a daemon outage never suppresses a directive."""
+    try:
+        ctx.matched_rules = match_rules(
+            load_rule_notes(ctx.vault),  # type: ignore[arg-type]
+            prompt=ctx.prompt,
+        )
+    except Exception:  # noqa: BLE001
+        ctx.matched_rules = []
+    _mark(ctx, "rules")
+
+
+def _probe_parsight(ctx: _RecallContext) -> bool:
+    """Probe parsight availability for the search leg; never raises."""
+    try:
+        probe_ok = parsight_backend.resolve_parsight_backend(ctx.vault)
+    except Exception:  # noqa: BLE001
+        probe_ok = False
+    _mark(ctx, "probe")
+    return probe_ok
+
+
+def _search_notes(ctx: _RecallContext) -> list[dict[str, object]]:
+    """Search parsight and filter to notes sharing distinct prompt tokens."""
+    search_started = time.monotonic()
+    try:
+        results = parsight_backend.parsight_search(
+            ctx.prompt,
+            top_k=int(ctx.settings["top_k"]),  # type: ignore[arg-type]
+            vault=ctx.vault,  # type: ignore[arg-type]
+            timeout=float(ctx.settings["recall_timeout_s"]),  # type: ignore[arg-type]
+            kill_grace_secs=_SEARCH_KILL_GRACE_S,
+        )
+    except Exception:  # noqa: BLE001
+        results = None
+    _mark(ctx, "search")
+    if (
+        results is None
+        and (time.monotonic() - search_started) >= _SEARCH_COOLDOWN_MIN_BURN_S
+    ):
+        set_stamp(_search_cooldown_stamp_path(), True)
+    notes: list[dict[str, object]] = []
+    if results:
+        min_matches = int(ctx.settings["min_term_matches"])  # type: ignore[arg-type]
+        prompt_tokens = _tokens(ctx.prompt)
+        if min_matches <= 0:
+            notes = [r for r in results if isinstance(r, dict)]
+        else:
+            notes = [
+                r
+                for r in results
+                if isinstance(r, dict)
+                and _term_overlap(prompt_tokens, r) >= min_matches
+            ]
+    return notes
+
+
 def run_recall(payload: dict) -> dict:
     """Full recall pipeline; returns the stdout dict ({}` or the injection).
 
     Pure function of *payload* — no stdin/stdout here. ``prompt``, ``cwd``
     and ``session_id`` payload keys are all optional. Never raises.
     """
-    started = time.perf_counter()
-    stages: dict[str, float] = {}
-
-    def _mark(name: str) -> None:
-        stages[name] = round((time.perf_counter() - started) * 1000.0, 1)
-
-    def _stage_deltas() -> dict[str, float]:
-        """Convert cumulative stage marks into per-stage milliseconds."""
-        deltas: dict[str, float] = {}
-        prev = 0.0
-        for name, cumulative in stages.items():
-            deltas[name] = round(cumulative - prev, 1)
-            prev = cumulative
-        return deltas
-
-    def _emit(notes: list[dict[str, object]]) -> dict:
-        """Compose rules + recall into one bounded, framed injection."""
-        if not notes and not matched_rules:
-            return {}
-        context = _build_context(
-            notes, "this prompt", settings, rules=matched_rules or None
-        )
-        _mark("format")
-        if not context:
-            return {}
-        try:
-            write_hook_event(
-                hook="UserPromptSubmit",
-                project=get_project_name(cwd),
-                duration_ms=(time.perf_counter() - started) * 1000.0,
-                vault=vault,
-                notes_injected=len(notes) + len(matched_rules),
-                rules_injected=len(matched_rules),
-                chars=len(context),
-                session_id=str(payload.get("session_id") or ""),
-                stages_ms=_stage_deltas(),
-            )
-        except Exception:  # noqa: BLE001
-            pass  # observability is best-effort
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": context,
-            }
-        }
-
+    ctx = _RecallContext(payload={}, started=time.perf_counter())
     try:
         if not isinstance(payload, dict):
             payload = {}
-        prompt = str(payload.get("prompt") or "")
-        cwd = str(payload.get("cwd") or os.getcwd())
-        if is_noise_prompt(prompt):
+        ctx.payload = payload
+        ctx.prompt = str(payload.get("prompt") or "")
+        ctx.cwd = str(payload.get("cwd") or os.getcwd())
+        if is_noise_prompt(ctx.prompt):
             return {}
 
         try:
-            vault = resolve_vault(cwd=cwd)
+            ctx.vault = resolve_vault(cwd=ctx.cwd)
         except Exception:  # noqa: BLE001
-            vault = resolve_vault()
-        _mark("resolve_vault")
-        settings = _load_settings(vault)
-        _mark("load_settings")
+            ctx.vault = resolve_vault()
+        _mark(ctx, "resolve_vault")
+        ctx.settings = _load_settings(ctx.vault)  # type: ignore[arg-type]
+        _mark(ctx, "load_settings")
 
-        if not bool(settings["enabled"]):
+        if not bool(ctx.settings["enabled"]):
             return {}
-        if len(prompt) < int(settings["min_prompt_chars"]):  # type: ignore[arg-type]
+        if len(ctx.prompt) < int(ctx.settings["min_prompt_chars"]):  # type: ignore[arg-type]
             return {}
 
-        # Rules leg: trigger-scoped rule notes are push, not retrieval —
-        # they inject independent of parsight health, before the probe gate,
-        # so a daemon outage never suppresses a directive.
-        try:
-            matched_rules = match_rules(load_rule_notes(vault), prompt=prompt)
-        except Exception:  # noqa: BLE001
-            matched_rules = []
-        _mark("rules")
+        _match_rules_stage(ctx)
 
         # Probe gate with negative cache: a recent failed probe skips both
         # the probe and the search silently.
         stamp = _probe_stamp_path()
-        if stamp_fresh(stamp, int(settings["probe_cache_seconds"])):  # type: ignore[arg-type]
+        if stamp_fresh(stamp, int(ctx.settings["probe_cache_seconds"])):  # type: ignore[arg-type]
             return {}
-        try:
-            probe_ok = parsight_backend.resolve_parsight_backend(vault)
-        except Exception:  # noqa: BLE001
-            probe_ok = False
-        _mark("probe")
-        if not probe_ok:
+        if not _probe_parsight(ctx):
             set_stamp(stamp, True)
-            return _emit([])
+            return _emit(ctx, [])
         set_stamp(stamp, False)
 
         cooldown = _search_cooldown_stamp_path()
         if stamp_fresh(
             cooldown,
-            int(settings["probe_cache_seconds"]),  # type: ignore[arg-type]
+            int(ctx.settings["probe_cache_seconds"]),  # type: ignore[arg-type]
         ):
-            return _emit([])
+            return _emit(ctx, [])
 
-        search_started = time.monotonic()
-        try:
-            results = parsight_backend.parsight_search(
-                prompt,
-                top_k=int(settings["top_k"]),  # type: ignore[arg-type]
-                vault=vault,  # type: ignore[arg-type]
-                timeout=float(settings["recall_timeout_s"]),  # type: ignore[arg-type]
-                kill_grace_secs=_SEARCH_KILL_GRACE_S,
-            )
-        except Exception:  # noqa: BLE001
-            results = None
-        _mark("search")
-        if (
-            results is None
-            and (time.monotonic() - search_started) >= _SEARCH_COOLDOWN_MIN_BURN_S
-        ):
-            set_stamp(cooldown, True)
-        notes: list[dict[str, object]] = []
-        if results:
-            min_matches = int(settings["min_term_matches"])  # type: ignore[arg-type]
-            prompt_tokens = _tokens(prompt)
-            if min_matches <= 0:
-                notes = [r for r in results if isinstance(r, dict)]
-            else:
-                notes = [
-                    r
-                    for r in results
-                    if isinstance(r, dict)
-                    and _term_overlap(prompt_tokens, r) >= min_matches
-                ]
-        if not notes and not matched_rules:
+        notes = _search_notes(ctx)
+        if not notes and not ctx.matched_rules:
             return {}
-        _mark("filter")
+        _mark(ctx, "filter")
 
-        result = _emit(notes)
+        result = _emit(ctx, notes)
         if not result:
             return {}
-        _mark("event")
+        _mark(ctx, "event")
 
-        if bool(settings["debug"]):
+        if bool(ctx.settings["debug"]):
             print(
                 "[user_prompt_submit_hook] stages_ms="
-                + json.dumps(stages, sort_keys=True),
+                + json.dumps(ctx.stages, sort_keys=True),
                 file=sys.stderr,
             )
         return result
