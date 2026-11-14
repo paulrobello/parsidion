@@ -13,9 +13,9 @@
 // reading pane and the graph), so this panel is presentational for
 // selection and owns only the delete-confirm state.
 
-import { useState, useCallback } from 'react'
 import { FileExplorer } from '@/components/FileExplorer'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { useConfirmDelete } from '@/lib/useConfirmDelete'
 import type { VaultFile } from '@/lib/vaultFile'
 
 export interface SidebarPanelProps {
@@ -45,28 +45,14 @@ export function SidebarPanel({
   onOpenHistory,
   onDelete,
 }: SidebarPanelProps) {
-  const [pendingDelete, setPendingDelete] = useState<{ stem: string; path: string } | null>(null)
-  const [isSidebarDeleting, setIsSidebarDeleting] = useState(false)
-  const [sidebarDeleteError, setSidebarDeleteError] = useState<string | null>(null)
-
-  const handleRequestDelete = useCallback((stem: string, path: string) => {
-    setSidebarDeleteError(null)
-    setPendingDelete({ stem, path })
-  }, [])
-
-  const handleConfirmDelete = useCallback(async () => {
-    if (!pendingDelete) return
-    setIsSidebarDeleting(true)
-    setSidebarDeleteError(null)
-    try {
-      await onDelete(pendingDelete.stem, pendingDelete.path)
-      setPendingDelete(null)
-    } catch (e) {
-      setSidebarDeleteError((e as Error).message)
-    } finally {
-      setIsSidebarDeleting(false)
-    }
-  }, [pendingDelete, onDelete])
+  const {
+    pendingDelete,
+    isDeleting: isSidebarDeleting,
+    deleteError: sidebarDeleteError,
+    requestDelete: handleRequestDelete,
+    cancelDelete,
+    handleConfirmDelete,
+  } = useConfirmDelete(onDelete)
 
   return (
     <>
@@ -91,7 +77,7 @@ export function SidebarPanel({
           cancelLabel="Cancel"
           danger
           onConfirm={handleConfirmDelete}
-          onCancel={() => setPendingDelete(null)}
+          onCancel={cancelDelete}
         />
       )}
     </>

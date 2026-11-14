@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useTransition, useRef } from 'react'
 import { getNodeColor } from '@/lib/sigma-colors'
 import type { NoteNode } from '@/lib/graph'
 import { ConfirmDialog } from './ConfirmDialog'
+import { useConfirmDelete } from '@/lib/useConfirmDelete'
 import { parseFrontmatter, serializeFrontmatter } from '@/lib/frontmatter'
 import type { FrontmatterFields } from '@/lib/frontmatter'
 import { NoteEditor } from './reading-pane/NoteEditor'
@@ -36,9 +37,14 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [previewMode, setPreviewMode] = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const {
+    pendingDelete,
+    isDeleting,
+    deleteError,
+    requestDelete,
+    cancelDelete,
+    handleConfirmDelete,
+  } = useConfirmDelete(onDelete)
   // Conflict-detection token: the server's mtimeMs for the note as currently loaded.
   const [baseMtime, setBaseMtime] = useState<number | undefined>(undefined)
   const [conflictData, setConflictData] = useState<{ serverContent: string; mtimeMs: number } | null>(null)
@@ -157,19 +163,6 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
       setIsSaving(false)
     }
   }, [node, editFields, editBody, onSave, baseMtime])
-
-  const handleConfirmDelete = useCallback(async () => {
-    if (!node) return
-    setIsDeleting(true)
-    setDeleteError(null)
-    try {
-      await onDelete(node.id, node.path)
-      setShowDeleteConfirm(false)
-    } catch (e) {
-      setDeleteError((e as Error).message)
-      setIsDeleting(false)
-    }
-  }, [node, onDelete])
 
   const handleConflictResolve = useCallback(async (resolved: string) => {
     if (!node || !conflictData) return
@@ -294,7 +287,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
                 Edit
               </button>
               <button
-                onClick={() => { setDeleteError(null); setShowDeleteConfirm(true) }}
+                onClick={() => { requestDelete(node.id, node.path) }}
                 title="Delete note"
                 style={{
                   background: 'none', border: '1px solid #1e293b',
@@ -381,7 +374,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
         )}
       </div>
 
-      {showDeleteConfirm && (
+      {pendingDelete && (
         <ConfirmDialog
           title="Delete note"
           message={`"${node.title}" will be permanently deleted from the vault. This cannot be undone.`}
@@ -389,7 +382,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
           cancelLabel="Cancel"
           danger
           onConfirm={handleConfirmDelete}
-          onCancel={() => setShowDeleteConfirm(false)}
+          onCancel={cancelDelete}
         />
       )}
     </div>
