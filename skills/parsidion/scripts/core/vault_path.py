@@ -474,6 +474,24 @@ def _validate_vault_path(resolved: Path) -> None:
             )
 
 
+def _resolved_inside(path: Path, root: Path, resolve_root: bool) -> bool:
+    """Resolve *path* and test containment inside *root*; ``OSError`` → False.
+
+    QA-013: the shared resolve-and-compare atom behind
+    :func:`is_symlink_inside_vault` and :func:`is_path_inside_vault`.
+    *resolve_root* keeps the two callers' distinct root semantics: the
+    symlink containment check compares against *root* as passed (its
+    contract requires the caller to resolve it once before the walk),
+    while the plain containment check resolves both sides.
+    """
+    try:
+        resolved = path.resolve()
+        root_resolved = root.resolve() if resolve_root else root
+    except OSError:
+        return False
+    return resolved.is_relative_to(root_resolved)
+
+
 def is_symlink_inside_vault(path: Path, vault_root: Path) -> bool:
     """Return True if *path* is a symlink whose target stays inside *vault_root*.
 
@@ -487,11 +505,7 @@ def is_symlink_inside_vault(path: Path, vault_root: Path) -> bool:
     """
     if not path.is_symlink():
         return True
-    try:
-        resolved = path.resolve()
-    except OSError:
-        return False
-    return resolved.is_relative_to(vault_root)
+    return _resolved_inside(path, vault_root, resolve_root=False)
 
 
 def is_path_inside_vault(path: Path, vault_root: Path) -> bool:
@@ -510,12 +524,7 @@ def is_path_inside_vault(path: Path, vault_root: Path) -> bool:
     question used by vault walks, prefer :func:`is_symlink_inside_vault`
     — it returns True for non-symlinks without paying for a ``resolve()``.
     """
-    try:
-        resolved = path.resolve()
-        root_resolved = vault_root.resolve()
-    except OSError:
-        return False
-    return resolved.is_relative_to(root_resolved)
+    return _resolved_inside(path, vault_root, resolve_root=True)
 
 
 def _named_vault_paths() -> set[Path]:
