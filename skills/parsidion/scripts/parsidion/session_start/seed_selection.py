@@ -79,7 +79,7 @@ def _build_candidates(
     Args:
         project_name: The current project name (used to prioritize notes).
         vault_path: The vault root path.
-        graph_meta: Optional output of ``parsidion.vault_index.load_graph_metadata()``.
+        graph_meta: Optional output of ``parsidion.core.vault_index.load_graph_metadata()``.
         graph_expand_max: Max graph neighbours to splice in (0 = disabled).
         max_candidates: Cap on the ranked pool (0 = unlimited, None = default).
         snapshot: PRF-104 -- the run's shared ``note_index`` snapshot. When

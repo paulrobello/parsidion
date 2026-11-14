@@ -23,11 +23,11 @@ def test_summarize_sessions_source_uses_ai_backend_not_claude_agent_sdk() -> Non
 
     assert "claude-agent-sdk" not in source
     assert "claude_agent_sdk" not in source
-    assert "import parsidion.ai_backend" in source
+    assert "import parsidion.core.ai_backend" in source
 
 
 def test_summarizer_config_models_accept_none() -> None:
-    import parsidion.vault_config as vault_config
+    import parsidion.core.vault_config as vault_config
 
     assert vault_config._CONFIG_SCHEMA["summarizer"]["model"] == (str, type(None))
     assert vault_config._CONFIG_SCHEMA["summarizer"]["cluster_model"] == (
@@ -859,18 +859,16 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
     ) -> object:
         return asyncio.run(func(*args))
 
-    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(summarize_sessions.vault_config, "get_config", fake_get_config)
     # ARC-103: parsidion.summarizer.queue._bool_option resolves get_config as a bare
     # name from parsidion.core.vault_config, so the option resolution in main() needs
     # the stub bound there too — otherwise it reads the real machine config.
     monkeypatch.setattr(
         sys.modules["parsidion.summarizer.queue"], "get_config", fake_get_config
     )
+    monkeypatch.setattr(summarize_sessions, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(
-        summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
-    )
-    monkeypatch.setattr(
-        summarize_sessions.vault_common,
+        summarize_sessions.vault_hooks,
         "apply_configured_env_defaults",
         lambda **_: None,
     )
@@ -960,18 +958,16 @@ def test_main_requeues_write_gate_skips_in_default_queue(
     ) -> object:
         return asyncio.run(func(*args))
 
-    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(summarize_sessions.vault_config, "get_config", fake_get_config)
     # ARC-103: parsidion.summarizer.queue._bool_option resolves get_config as a bare
     # name from parsidion.core.vault_config, so the option resolution in main() needs
     # the stub bound there too — otherwise it reads the real machine config.
     monkeypatch.setattr(
         sys.modules["parsidion.summarizer.queue"], "get_config", fake_get_config
     )
+    monkeypatch.setattr(summarize_sessions, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(
-        summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
-    )
-    monkeypatch.setattr(
-        summarize_sessions.vault_common,
+        summarize_sessions.vault_hooks,
         "apply_configured_env_defaults",
         lambda **_: None,
     )
@@ -1046,7 +1042,7 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
     ) -> object:
         return asyncio.run(func(*args))
 
-    monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
+    monkeypatch.setattr(summarize_sessions.vault_config, "get_config", fake_get_config)
     # ARC-103: parsidion.summarizer.queue._bool_option resolves get_config as a bare
     # name from parsidion.core.vault_config, so the option resolution in main() needs
     # the stub bound there too — otherwise it reads the real machine config.
@@ -1054,10 +1050,10 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
         sys.modules["parsidion.summarizer.queue"], "get_config", fake_get_config
     )
     monkeypatch.setattr(
-        summarize_sessions.vault_common, "resolve_vault", lambda **_: tmp_path / "vault"
+        summarize_sessions, "resolve_vault", lambda **_: tmp_path / "vault"
     )
     monkeypatch.setattr(
-        summarize_sessions.vault_common,
+        summarize_sessions.vault_hooks,
         "apply_configured_env_defaults",
         lambda **_: None,
     )
@@ -1108,7 +1104,7 @@ def test_ensure_closing_frontmatter_delimiter_inserts_missing_closer(
     assert repaired != note
     # Closing delimiter inserted before the body (first blank line).
     assert "\nsession_id: abc123\n---\n\n#" in repaired
-    fm = summarize_sessions.vault_common.parse_frontmatter(repaired)
+    fm = summarize_sessions.vault_index.parse_frontmatter(repaired)
     assert fm.get("type") == "pattern"
     assert fm.get("date") == "2026-06-14"
 
@@ -1188,7 +1184,7 @@ def test_strip_leading_preamble_strips_prose_before_frontmatter(
 
     assert stripped != note
     assert stripped.startswith("---")
-    fm = summarize_sessions.vault_common.parse_frontmatter(stripped)
+    fm = summarize_sessions.vault_index.parse_frontmatter(stripped)
     assert fm.get("type") == "debugging"
     assert fm.get("date") == "2026-06-27"
 
@@ -1795,7 +1791,7 @@ def test_arc012_one_raising_summarize_one_does_not_kill_siblings(
     monkeypatch.setattr(summarize_sessions, "summarize_one", fake_summarize_one)
     monkeypatch.setattr(summarize_sessions, "_ACTIVE_SESSION_GRACE_SECS", 0)
     monkeypatch.setattr(
-        summarize_sessions.vault_common,
+        summarize_sessions.vault_index,
         "all_vault_notes",
         lambda *a, **kw: [],
     )

@@ -48,7 +48,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Ensure sibling scripts are importable (e.g. vault_common)
+# Ensure sibling scripts are importable (e.g. parsidion.core)
 _HERE = Path(__file__).resolve().parent
 _SCRIPT_DIR = str(_HERE)  # own dir -> sibling embed_eval_* modules
 _SCRIPTS_DIR = str(_HERE.parents[1] / "skills" / "parsidion" / "scripts")
@@ -56,7 +56,7 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import parsidion.vault_common as vault_common
+
 from embed_eval_common import (
     DEFAULT_CHUNKING,
     DEFAULT_MODELS,
@@ -70,6 +70,7 @@ from embed_eval_common import (
 from embed_eval_generate import generate_ground_truth, load_ground_truth
 from embed_eval_report import display_results, generate_html_report, save_json_results
 from embed_eval_run import run_evaluation
+import parsidion.core.vault_path as vault_path
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +229,7 @@ def main() -> None:
             base_path = args.output
         else:
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_path = vault_common.VAULT_ROOT / f"embed_eval_{ts}"
+            base_path = vault_path.VAULT_ROOT / f"embed_eval_{ts}"
 
         json_path = base_path.with_suffix(".json")
         html_path = base_path.with_suffix(".html")

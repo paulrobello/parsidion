@@ -17,9 +17,8 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from parsidion.core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
-import parsidion.vault_common as vault_common  # noqa: E402
-import parsidion.vault_config as vault_config  # noqa: E402
-import parsidion.vault_hooks as vault_hooks  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_hooks as vault_hooks  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
@@ -28,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     parsight_backend.reset_parsight_cache()
 
 
@@ -220,11 +219,11 @@ class TestConfigSchema:
 class TestLegacyCompat:
     """Pre-rename config spellings (``par_mem`` section, ``par-mem`` backend
     value) keep working — normalized at load time by
-    ``parsidion.vault_config._apply_legacy_aliases``."""
+    ``parsidion.core.vault_config._apply_legacy_aliases``."""
 
     def test_legacy_par_mem_section_aliased_to_parsight(self, tmp_vault: Path) -> None:
         _write_config(tmp_vault, "par_mem:\n  binary: /opt/legacy\n  timeout_s: 4\n")
-        config = vault_common.load_config()
+        config = vault_config.load_config()
         assert "par_mem" not in config
         assert config["parsight"]["binary"] == "/opt/legacy"
         assert config["parsight"]["timeout_s"] == 4
@@ -236,13 +235,13 @@ class TestLegacyCompat:
             "parsight:\n  binary: /opt/new\npar_mem:\n  binary: /opt/old\n"
             "  timeout_s: 6\n",
         )
-        config = vault_common.load_config()
+        config = vault_config.load_config()
         assert config["parsight"]["binary"] == "/opt/new"  # canonical wins
         assert config["parsight"]["timeout_s"] == 6  # legacy fills absent keys
 
     def test_legacy_backend_enum_value_normalized(self, tmp_vault: Path) -> None:
         _write_config(tmp_vault, "search:\n  backend: par-mem\n")
-        assert vault_common.load_config()["search"]["backend"] == "parsight"
+        assert vault_config.load_config()["search"]["backend"] == "parsight"
         assert vault_config.load_typed_config().search.backend == "parsight"
 
     def test_local_overlay_wins_across_alias(self, tmp_vault: Path) -> None:
@@ -253,13 +252,13 @@ class TestLegacyCompat:
         (tmp_vault / "config.local.yaml").write_text(
             "par_mem:\n  binary: /opt/local\n", encoding="utf-8"
         )
-        vault_common.clear_config_cache()
-        assert vault_common.load_config()["parsight"]["binary"] == "/opt/local"
+        vault_config.clear_config_cache()
+        assert vault_config.load_config()["parsight"]["binary"] == "/opt/local"
 
 
 class TestPackaging:
     def test_parsight_backend_registered_in_py_modules(self) -> None:
-        """ARC-201: parsight_backend ships as parsidion.parsight_backend."""
+        """ARC-201: parsight_backend ships as parsidion.core.parsight_backend."""
         pyproject = tomllib.loads(
             (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         )
@@ -376,7 +375,7 @@ class TestSafeEnv:
     ) -> None:
         assert "PARSIGHT_MCP_URL" in vault_hooks.SAFE_ENV_KEYS
         monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:6666/mcp")
-        env = vault_common.env_without_claudecode(vault=tmp_vault)
+        env = vault_hooks.env_without_claudecode(vault=tmp_vault)
         assert env["PARSIGHT_MCP_URL"] == "http://127.0.0.1:6666/mcp"
 
 

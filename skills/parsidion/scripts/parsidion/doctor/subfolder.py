@@ -21,10 +21,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-import parsidion.ai_backend as ai_backend
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
-import parsidion.vault_links as vault_links
+import parsidion.core.ai_backend as ai_backend
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_links as vault_links
 
 from parsidion.doctor._state import (
     AI_TIMEOUT,
@@ -475,14 +476,14 @@ def find_subfolder_candidates(
         (prefix, [note_paths]) tuples — one per qualifying prefix group.
     """
     by_folder: dict[Path, list[Path]] = {}
-    for note in vault_common.all_vault_notes_walk(vault_root):
+    for note in vault_index.all_vault_notes_walk(vault_root):
         rel = note.relative_to(vault_root)
         parts = rel.parts
         # Only flat notes (depth 2: folder/note.md) — skip subfolders and root
         if len(parts) != 2:
             continue
         folder_name = parts[0]
-        if folder_name in vault_common.EXCLUDE_DIRS:
+        if folder_name in vault_index.EXCLUDE_DIRS:
             continue
         if folder_name == "Daily":
             continue
@@ -608,7 +609,7 @@ def run_migrate_subfolders(
         return
 
     # --- Execute migrations ---
-    all_notes = list(vault_common.all_vault_notes_walk(vault_root))
+    all_notes = list(vault_index.all_vault_notes_walk(vault_root))
     total_moved = 0
     for folder_rel, groups in sorted(candidates.items()):
         folder = vault_root / folder_rel
@@ -621,7 +622,7 @@ def run_migrate_subfolders(
                 total_moved += 1
 
     if total_moved:
-        vault_common.git_commit_vault(
+        vault_fs.git_commit_vault(
             f"refactor(vault): migrate {total_moved} note(s) into prefix subfolders via vault_doctor --migrate-subfolders",
             vault=vault_root,
         )
@@ -631,7 +632,7 @@ def run_migrate_subfolders(
             subprocess.run(
                 ["uv", "run", "--no-project", str(update_index_script)],
                 check=True,
-                env=vault_common.env_without_claudecode(),
+                env=vault_hooks.env_without_claudecode(),
                 timeout=60,
             )
             print("Index rebuilt.")

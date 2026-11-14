@@ -251,7 +251,7 @@ def test_run_all_classifies_progress_counters(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     mod = _fresh_summarize_sessions(monkeypatch)
-    monkeypatch.setattr(mod.vault_common, "all_vault_notes", lambda vault: [])
+    monkeypatch.setattr(mod.vault_index, "all_vault_notes", lambda vault: [])
     monkeypatch.setattr(mod, "read_existing_tags", lambda vault: [])
     monkeypatch.setattr(
         mod, "read_project_names", lambda vault_notes=None, vault=None: set()
@@ -341,7 +341,7 @@ def _prepare_merge_test(
     )
     monkeypatch.setattr(_pipeline_module(), "build_prompt", lambda *a, **k: "prompt")
     monkeypatch.setattr(
-        mod.vault_common, "get_config", lambda section, key, default=None: default
+        mod.vault_config, "get_config", lambda section, key, default=None: default
     )
     return {
         "session_id": "sess-merge",
@@ -631,7 +631,7 @@ def test_main_retry_dead_letters_dry_run_reports_unrecoverable(
     (vault / "pending_summaries.jsonl").write_text("", encoding="utf-8")
 
     # A tmp vault is not an allowlisted vault; resolve it like main() would.
-    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(mod, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -696,14 +696,14 @@ def test_resolve_options_clamps_configured_max_parallel(
 ) -> None:
     """The clamp is wired into the option resolution, not just available."""
     mod = _fresh_summarize_sessions(monkeypatch)
-    real_get_config = mod.vault_common.get_config
+    real_get_config = mod.vault_config.get_config
 
     def _fake_get_config(section: str, key: str, default: object = None, **kw: object):
         if section == "summarizer" and key == "max_parallel":
             return 500
         return real_get_config(section, key, default, **kw)
 
-    monkeypatch.setattr(mod.vault_common, "get_config", _fake_get_config)
+    monkeypatch.setattr(mod.vault_config, "get_config", _fake_get_config)
     args = mod._build_parser().parse_args([])
     assert mod._resolve_options(args).max_parallel == 16
 
@@ -734,7 +734,7 @@ def test_run_doctor_goes_through_run_with_pgkill(
 
     monkeypatch.setattr(mod, "run_with_pgkill", _fake_pgkill)
     monkeypatch.setattr(mod.subprocess, "run", _boom)
-    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(mod, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -758,7 +758,7 @@ def test_run_doctor_timeout_warns_and_continues(
     (vault / "pending_summaries.jsonl").write_text("", encoding="utf-8")
 
     monkeypatch.setattr(mod, "run_with_pgkill", lambda *_a, **_k: ("timeout", None))
-    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(mod, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -788,7 +788,7 @@ def test_run_doctor_configured_timeout_overrides_default(
         return ("timeout", None)
 
     monkeypatch.setattr(mod, "run_with_pgkill", fake_run_with_pgkill)
-    monkeypatch.setattr(mod.vault_common, "resolve_vault", lambda **_: vault)
+    monkeypatch.setattr(mod, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(
         sys,
         "argv",

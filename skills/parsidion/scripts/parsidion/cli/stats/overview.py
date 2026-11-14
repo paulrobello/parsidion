@@ -1,7 +1,7 @@
 """Overview table views (ARC-005).
 
 Extracted from ``vault_stats.py``. These five modes are simple Rich tables
-rendered directly from ``parsidion.vault_metrics.collect_*`` rows: stale notes, top
+rendered directly from ``parsidion.core.vault_metrics.collect_*`` rows: stale notes, top
 linked, by-project, growth, and the tag cloud. Grouped because they share
 the exact same shape (collect -> table -> console).
 """

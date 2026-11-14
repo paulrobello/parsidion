@@ -99,7 +99,7 @@ def summarize_hook_latency(
             before aggregating; None keeps everything (bad/missing ``ts``
             counts as recent).
         timeout_map: Hook name -> registered timeout in ms. Defaults to
-            :data:`parsidion.vault_constants.HOOK_TIMEOUTS_MS`.
+            :data:`parsidion.core.vault_constants.HOOK_TIMEOUTS_MS`.
 
     Returns:
         ``{hook: {count, p50_ms, p95_ms, max_ms, timeouts}}`` keyed by hook
@@ -108,7 +108,7 @@ def summarize_hook_latency(
     from datetime import datetime, timedelta
 
     if timeout_map is None:
-        from parsidion.vault_constants import HOOK_TIMEOUTS_MS
+        from parsidion.core.vault_constants import HOOK_TIMEOUTS_MS
 
         timeout_map = HOOK_TIMEOUTS_MS
 
@@ -206,7 +206,7 @@ def session_start_budget_warning(
 ) -> str | None:
     """One-line warning when SessionStart p95 exceeds *budget_ratio* of its timeout."""
     if timeout_map is None:
-        from parsidion.vault_constants import HOOK_TIMEOUTS_MS
+        from parsidion.core.vault_constants import HOOK_TIMEOUTS_MS
 
         timeout_map = HOOK_TIMEOUTS_MS
     timeout_ms = timeout_map.get("SessionStart")

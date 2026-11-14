@@ -55,7 +55,7 @@ def _merge_lock(vault_path: Path) -> Iterator[None]:
     immediately with ``SystemExit`` instead of blocking, so a stuck or
     crashed holder can never wedge unrelated merges.
 
-    ``parsidion.vault_fs.flock_exclusive`` is not used here because it blocks
+    ``parsidion.core.vault_fs.flock_exclusive`` is not used here because it blocks
     indefinitely (no ``LOCK_NB``); a blocked second invocation would look
     like a hang rather than the clean, immediate failure this needs.
     """

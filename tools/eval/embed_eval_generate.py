@@ -37,8 +37,8 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import parsidion.ai_backend as ai_backend
-import parsidion.vault_common as vault_common
+import parsidion.core.ai_backend as ai_backend
+import parsidion.core.vault_index as vault_index
 from embed_eval_common import (
     CLAUDE_TIMEOUT,
     EvalItem,
@@ -78,8 +78,8 @@ def generate_queries_for_note(
     except (OSError, UnicodeDecodeError):
         return []
 
-    body = vault_common.get_body(content).strip()
-    fm = vault_common.parse_frontmatter(content)
+    body = vault_index.get_body(content).strip()
+    fm = vault_index.parse_frontmatter(content)
     title = _note_title(note_path, content)
     tags = fm.get("tags", [])
     if isinstance(tags, str):
@@ -123,7 +123,7 @@ def generate_ground_truth(
     seed: int = 42,
 ) -> list[EvalItem]:
     """Sample notes, generate queries via Claude, save to YAML, return items."""
-    all_notes = vault_common.all_vault_notes()
+    all_notes = vault_index.all_vault_notes()
     non_daily = [n for n in all_notes if "Daily" not in n.parts]
 
     rng = random.Random(seed)

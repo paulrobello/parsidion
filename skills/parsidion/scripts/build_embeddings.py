@@ -43,9 +43,16 @@ except ImportError:
     )
     sys.exit(1)
 
-import parsidion.vault_common as vault_common
-from parsidion.vault_path import active_vault_scope
-import parsidion.vault_metrics as vault_metrics
+import parsidion.core.vault_config as vault_config
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
+from parsidion.core.vault_path import (
+    get_embeddings_db_path,
+    resolve_vault,
+    active_vault_scope,
+)
+import parsidion.core.vault_metrics as vault_metrics
 
 _DEFAULT_MODEL: str = "BAAI/bge-small-en-v1.5"
 _EMBED_DIM: int = 384
@@ -100,7 +107,7 @@ def open_embeddings_db(db_path: Path) -> sqlite3.Connection:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stem ON note_embeddings(stem)")
     conn.commit()
-    vault_common.ensure_note_index_schema(conn)
+    vault_index.ensure_note_index_schema(conn)
     ensure_note_vec_schema(conn)
     return conn
 
@@ -253,7 +260,7 @@ def _pack_vector(vec: list[float]) -> bytes:
 def _note_title(note_path: Path, content: str) -> str:
     """Extract note title from first # heading, falling back to filename stem.
 
-    Delegates to ``parsidion.vault_common.extract_title`` — the canonical implementation.
+    Delegates to ``parsidion.vault_index.extract_title`` — the canonical implementation.
     See ARC-009.
 
     Args:
@@ -263,7 +270,7 @@ def _note_title(note_path: Path, content: str) -> str:
     Returns:
         Title string.
     """
-    return vault_common.extract_title(content, note_path.stem)
+    return vault_index.extract_title(content, note_path.stem)
 
 
 def embed_and_write(
@@ -321,7 +328,7 @@ def embed_and_write(
             except (OSError, UnicodeDecodeError):
                 continue
 
-            fm = vault_common.parse_frontmatter(content)
+            fm = vault_index.parse_frontmatter(content)
             tags = fm.get("tags", [])
             if isinstance(tags, str):
                 tags = [tags]
@@ -418,20 +425,20 @@ def _collect_notes() -> list[tuple[Path, str, str]]:
         List of (note_path, stem, embed_text) tuples.
     """
     results: list[tuple[Path, str, str]] = []
-    for note_path in vault_common.all_vault_notes_walk():
+    for note_path in vault_index.all_vault_notes_walk():
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
 
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         tags = fm.get("tags", [])
         if isinstance(tags, str):
             tags = [tags]
         # ARC-004: canonical tag format is ", ".join(sorted(tags))
         tags_str = ", ".join(sorted(str(t) for t in tags)) if tags else ""
         title = _note_title(note_path, content)
-        body = vault_common.get_body(content)
+        body = vault_index.get_body(content)
         embed_text = build_embed_text(title, tags_str, body)
         results.append((note_path, note_path.stem, embed_text))
 
@@ -446,7 +453,7 @@ def full_rebuild(vault_root: Path, model_name: str, dry_run: bool) -> None:
         model_name: fastembed model ID to use.
         dry_run: If True, print actions without writing.
     """
-    db_path = vault_common.get_embeddings_db_path(vault=vault_root)
+    db_path = vault_path.get_embeddings_db_path(vault=vault_root)
     notes = _collect_notes()
 
     if dry_run:
@@ -478,7 +485,7 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
         model_name: fastembed model ID to use.
         dry_run: If True, print actions without writing.
     """
-    db_path = vault_common.get_embeddings_db_path(vault=vault_root)
+    db_path = vault_path.get_embeddings_db_path(vault=vault_root)
 
     if not db_path.exists():
         print("No embeddings.db found — running full rebuild instead.")
@@ -488,7 +495,7 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
     conn = open_embeddings_db(db_path)
     stored = get_stored_mtimes(conn)
 
-    current_notes = vault_common.all_vault_notes_walk()
+    current_notes = vault_index.all_vault_notes_walk()
     current_stems = {n.stem for n in current_notes}
 
     # Deleted notes
@@ -525,14 +532,14 @@ def incremental_update(vault_root: Path, model_name: str, dry_run: bool) -> None
             except (OSError, UnicodeDecodeError):
                 continue
 
-            fm = vault_common.parse_frontmatter(content)
+            fm = vault_index.parse_frontmatter(content)
             tags = fm.get("tags", [])
             if isinstance(tags, str):
                 tags = [tags]
             # ARC-004: canonical tag format is ", ".join(sorted(tags))
             tags_str = ", ".join(sorted(str(t) for t in tags)) if tags else ""
             title = _note_title(note_path, content)
-            body = vault_common.get_body(content)
+            body = vault_index.get_body(content)
             embed_text = build_embed_text(title, tags_str, body)
             to_embed.append((note_path, stem, embed_text))
 
@@ -584,7 +591,7 @@ def main() -> None:
         default=False,
         help="Build even when embeddings.enabled is false in the vault config.",
     )
-    config_model: str = vault_common.get_config("embeddings", "model", _DEFAULT_MODEL)
+    config_model: str = vault_config.get_config("embeddings", "model", _DEFAULT_MODEL)
     parser.add_argument(
         "--model",
         default=config_model,
@@ -600,7 +607,7 @@ def main() -> None:
         )
 
     # Resolve vault path first (needed for model dimension check)
-    vault_path = vault_common.resolve_vault(explicit=args.vault)
+    vault_path = resolve_vault(explicit=args.vault)
 
     # Singleton guard: an embeddings build loads a ~67 MB ONNX runtime, and
     # build_embeddings is spawned detached in the background by update_index
@@ -610,9 +617,7 @@ def main() -> None:
     # a per-vault non-blocking lock for the life of this process so a
     # concurrent build no-ops cleanly. (embeddings.db.lock is covered by the
     # vault .gitignore "embeddings.db*" glob; flock auto-releases on exit.)
-    _embed_build_lock = vault_common.try_singleton_lock(
-        vault_path / "embeddings.db.lock"
-    )
+    _embed_build_lock = vault_fs.try_singleton_lock(vault_path / "embeddings.db.lock")
     if _embed_build_lock is None:
         print(
             "build_embeddings: another build is already running for this "
@@ -623,7 +628,7 @@ def main() -> None:
 
     # If the model changed since the last build, incremental is unsafe —
     # existing vectors have a different dimension. Force full rebuild.
-    db_path = vault_common.get_embeddings_db_path(vault=vault_path)
+    db_path = get_embeddings_db_path(vault=vault_path)
     if args.incremental and db_path.exists():
         conn_check = open_embeddings_db(db_path)
         row = conn_check.execute(
@@ -653,7 +658,7 @@ def main() -> None:
         # The vault post-merge hook and manual runs call this script directly,
         # bypassing update_index.py's own enabled check — enforce the config
         # here so a vault with embeddings disabled never rebuilds vectors.
-        if not args.force and not vault_common.get_config(
+        if not args.force and not vault_config.get_config(
             "embeddings", "enabled", True
         ):
             print(

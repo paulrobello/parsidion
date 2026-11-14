@@ -699,9 +699,9 @@ A Claude Code agent definition (runs on Haiku) that scans `~/ParsidionVault/` fo
 
 ### Vault Common Library
 
-**Location:** `skills/parsidion/scripts/vault_common.py` (re-export facade) + the stdlib library implementations in the `scripts/core/` subpackage (`yaml_lite.py`, `vault_config.py`, `vault_schema.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`, `ai_backend.py`, `parsight_backend.py`, `transcript_reader.py`, `otlp_metrics.py`, `rule_triggers.py`). The flat `vault_*.py` / `subproc_util.py` / `ai_backend.py` / `parsight_backend.py` / `transcript_reader.py` names at the scripts root are thin re-export shims over `core/` — ARC-006 moved the AI and parsight backends into `core/` under the same stdlib gate (tests that monkeypatch module internals target `core.ai_backend` / `core.parsight_backend` directly, while patches of public names via a carrier module keep working through the shim). `core/transcript_reader.py` is the unified byte-bounded transcript tail reader (ENH-018) and `core/vault_schema.py` is the typed config schema every config default derives from (ARC-007).
+**Location:** the stdlib library implementations in `skills/parsidion/scripts/parsidion/core/` (`yaml_lite.py`, `vault_config.py`, `vault_schema.py`, `vault_path.py`, `vault_fs.py`, `vault_index.py`, `vault_hooks.py`, `vault_adaptive.py`, `vault_links.py`, `vault_constants.py`, `vault_metrics.py`, `vault_health.py`, `subproc_util.py`, `ai_backend.py`, `parsight_backend.py`, `transcript_reader.py`, `otlp_metrics.py`, `rule_triggers.py`). The former flat re-export shims (`vault_common.py`, `vault_config.py`, …) were retired in ARC-200 step 2: each `parsidion/<name>.py` file remains in the wheel as a raising stub whose ImportError names its `parsidion.core.*` replacement. `core/transcript_reader.py` is the unified byte-bounded transcript tail reader (ENH-018) and `core/vault_schema.py` is the typed config schema every config default derives from (ARC-007).
 
-The shared utility library used by all hook scripts and the index generator. Uses only Python stdlib (no third-party dependencies). As of ARC-005, the implementation has been split into focused sub-modules; `vault_common.py` remains a thin re-export facade so existing `import vault_common` callers continue to work unchanged. ARC-004 moved these implementations into the `scripts/core/` subpackage (behind the flat re-export shims) and added `tests/test_stdlib_only.py`, which enforces the stdlib-only constraint by importing every `core/*` module and hook in a fresh interpreter with 12 third-party modules (`rich`, `fastembed`, `sqlite_vec`/`sqlitevec`, `anyio`, `yaml`/`pyyaml`, `numpy`, `PIL`/`pillow`, `requests`, `aiohttp`) poisoned in `sys.modules` — a forbidden import, even a transitive one, fails the gate.
+The shared utility library used by all hook scripts and the index generator. Uses only Python stdlib (no third-party dependencies). As of ARC-005, the implementation has been split into focused sub-modules; ARC-004 moved these implementations into the `core/` subpackage and added `tests/test_stdlib_only.py` (ARC-201 moved everything under the `parsidion.*` namespace and ARC-200 step 2 retired the re-export shims behind which the split originally hid), which enforces the stdlib-only constraint by importing every `core/*` module and hook in a fresh interpreter with 12 third-party modules (`rich`, `fastembed`, `sqlite_vec`/`sqlitevec`, `anyio`, `yaml`/`pyyaml`, `numpy`, `PIL`/`pillow`, `requests`, `aiohttp`) poisoned in `sys.modules` — a forbidden import, even a transitive one, fails the gate.
 
 **Key functions:**
 
@@ -763,7 +763,7 @@ The shared utility library used by all hook scripts and the index generator. Use
 - No external dependencies (stdlib only) for maximum portability in hook contexts
 - Custom YAML parser via regex rather than importing `pyyaml`; the config parser (`_parse_config_yaml`) is similarly stdlib-only
 - File walking excludes `.obsidian/`, `Templates/`, `.git/`, `.trash/`, `TagsRoutes/`
-- ARC-005 split: `vault_common.py` is now a thin re-export facade; implementation lives in 18 focused sub-modules inside `scripts/core/` (`vault_config`, `vault_schema`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`, `yaml_lite`, plus `ai_backend`, `parsight_backend`, `transcript_reader`, `otlp_metrics`, `rule_triggers`) to reduce per-file LOC and improve maintainability. `core/rule_triggers.py` loads and matches `type: rule` note triggers, shared by the UserPromptSubmit and PreToolUse hooks
+- ARC-005 split: implementation lives in 18 focused sub-modules inside `parsidion/core/` (the former `vault_common.py` re-export facade was retired in ARC-200 step 2) (`vault_config`, `vault_schema`, `vault_constants`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, `vault_adaptive`, `vault_links`, `vault_metrics`, `vault_health`, `subproc_util`, `yaml_lite`, plus `ai_backend`, `parsight_backend`, `transcript_reader`, `otlp_metrics`, `rule_triggers`) to reduce per-file LOC and improve maintainability. `core/rule_triggers.py` loads and matches `type: rule` note triggers, shared by the UserPromptSubmit and PreToolUse hooks
 
 ### Index Generator
 
@@ -914,7 +914,7 @@ Analytics CLI for vault health and activity. All modes output to stdout; Rich fo
 | `--timeline N` | Activity bar chart of notes created per day for last N days (default: 30) |
 | `--summarizer-progress` | Live feedback from a running `summarize_sessions.py` |
 
-The health-score module lives at `skills/parsidion/scripts/core/vault_health.py` (stdlib-only, ARC-004 pattern: real module + flat re-export shim at `scripts/vault_health.py`). Frontmatter and wikilink validity reuses `vault_doctor.scan_notes_readonly` — the same `check_note` path the repair pipeline uses — so there is exactly one validator.
+The health-score module lives at `skills/parsidion/scripts/parsidion/core/vault_health.py` (stdlib-only; the former `vault_health.py` re-export shim was retired to a raising stub in ARC-200 step 2). Frontmatter and wikilink validity reuses `vault_doctor.scan_notes_readonly` — the same `check_note` path the repair pipeline uses — so there is exactly one validator.
 
 #### vault-export
 
@@ -1589,7 +1589,7 @@ parsidion/
 └── skills/parsidion/
     ├── SKILL.md                     # Skill definition
     ├── scripts/
-    │   ├── core/                    # ARC-004 stdlib implementations (18 modules) behind the flat shims below
+    │   ├── core/                    # ARC-004 stdlib implementations (18 modules) — the canonical import surface
     │   │   ├── vault_config.py      # Config loading, YAML parsing, validation
     │   │   ├── vault_schema.py      # Typed config schema — single source of truth for defaults (ARC-007)
     │   │   ├── vault_constants.py   # Shared constants
@@ -1637,19 +1637,19 @@ parsidion/
     │   │   ├── merge/               # vault_merge.py split (scan, lookup, preview, frontmatter, ai_helpers, display, index)
     │   │   ├── search/              # vault_search.py split (embeddings, metadata, format, _common)
     │   │   └── stats/               # vault_stats.py split (health, rollups, dashboard, operations, graph, overview, summary, cli, _common)
-    │   ├── vault_common.py          # Re-export facade over core/ (ARC-004/ARC-005)
-    │   ├── vault_config.py          # Thin shim → core/vault_config.py
-    │   ├── vault_path.py            # Thin shim → core/vault_path.py
-    │   ├── vault_fs.py              # Thin shim → core/vault_fs.py
-    │   ├── vault_index.py           # Thin shim → core/vault_index.py
-    │   ├── vault_hooks.py           # Thin shim → core/vault_hooks.py
-    │   ├── vault_adaptive.py        # Thin shim → core/vault_adaptive.py
-    │   ├── vault_links.py           # Thin shim → core/vault_links.py
-    │   ├── vault_constants.py       # Thin shim → core/vault_constants.py
-    │   ├── vault_metrics.py         # Thin shim → core/vault_metrics.py
-    │   ├── vault_health.py          # Thin shim → core/vault_health.py (ENH-007)
-    │   ├── subproc_util.py          # Thin shim → core/subproc_util.py
-    │   ├── transcript_reader.py     # Thin shim → core/transcript_reader.py (ENH-018)
+    │   ├── vault_common.py          # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.{vault_config,vault_path,vault_fs,vault_index,vault_hooks,vault_adaptive}
+    │   ├── vault_config.py          # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_config
+    │   ├── vault_path.py            # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_path
+    │   ├── vault_fs.py              # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_fs
+    │   ├── vault_index.py           # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_index
+    │   ├── vault_hooks.py           # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_hooks
+    │   ├── vault_adaptive.py        # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_adaptive
+    │   ├── vault_links.py           # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_links
+    │   ├── vault_constants.py       # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_constants
+    │   ├── vault_metrics.py         # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_metrics
+    │   ├── vault_health.py          # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.vault_health (ENH-007)
+    │   ├── subproc_util.py          # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.subproc_util
+    │   ├── transcript_reader.py     # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.transcript_reader (ENH-018)
     │   ├── vault_resolve.py         # ENH-009 canonical vault-resolver CLI for non-Python callers (visualizer delegates here)
     │   ├── vault_search.py          # Unified search CLI: semantic (QUERY), metadata (--tag/--folder/...), or body search (--grep); implementation split into cli/search/
     │   ├── vault_tui.py             # Interactive curses TUI (extracted from vault_search.py)
@@ -1660,8 +1660,8 @@ parsidion/
     │   ├── vault_conflicts.py       # CLI to detect contradictory notes (vault-conflicts)
     │   ├── vault_review.py          # Curses TUI to review pending_summaries.jsonl (vault-review)
     │   ├── vault_supersede.py       # CLI to retire/restore notes via the supersession contract (vault-supersede)
-    │   ├── ai_backend.py            # Thin shim → core/ai_backend.py (claude-cli, codex-cli, grok-cli)
-    │   ├── parsight_backend.py      # Thin shim → core/parsight_backend.py (availability probe + subprocess transport)
+    │   ├── ai_backend.py            # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.ai_backend (claude-cli, codex-cli, grok-cli)
+    │   ├── parsight_backend.py      # RETIRED (ARC-200 step 2): raising stub → import parsidion.core.parsight_backend (availability probe + subprocess transport)
     │   ├── agent_adapter.py         # Adapter registry driving hooks + connect/disconnect for claude/codex/antigravity/pi/omp + opt-in external drop-ins (ARC-020, ENH-006)
     │   ├── note_schema.py           # Single source of truth for note types, folders, required fields (ENH-008)
     │   ├── prompt_templates.py      # Strict-variable loader for versioned prompt templates under templates/prompts/

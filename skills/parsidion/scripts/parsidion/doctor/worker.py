@@ -20,7 +20,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-import parsidion.vault_fs as vault_fs
+import parsidion.core.vault_fs as vault_fs
 
 from parsidion.doctor._state import (
     AI_TIMEOUT,

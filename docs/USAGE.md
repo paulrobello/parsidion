@@ -301,7 +301,7 @@ bash ~/.claude/skills/parsidion/scripts/run_trigger_eval.sh
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.home() / ".claude/skills/parsidion/scripts"))
-from vault_common import find_notes_by_tag, find_notes_by_project
+from parsidion.core.vault_index import find_notes_by_tag, find_notes_by_project
 ```
 
 ## Audit graph color group coverage
@@ -361,7 +361,7 @@ Variables Parsidion reads at runtime. Real environment variables always win over
 
 ## Related Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Component details, the `vault_common` library surface, and the full configuration reference
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Component details, the `parsidion.core` library surface, and the full configuration reference
 - [EMBEDDINGS.md](EMBEDDINGS.md) — Semantic search setup, the embeddings database, and evaluation
 - [MULTI_VAULT.md](MULTI_VAULT.md) — Multi-vault setup and `--vault` flag reference
 - [README.md](../README.md) — Project overview and installation

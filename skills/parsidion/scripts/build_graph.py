@@ -755,7 +755,7 @@ def build_parsight_body_edges(
     pre-integration output apart from the recorded ``status``.
     """
     try:
-        import parsidion.parsight_backend as parsight_backend
+        import parsidion.core.parsight_backend as parsight_backend
     except ImportError:
         return [], "unavailable"
     try:

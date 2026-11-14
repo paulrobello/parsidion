@@ -24,10 +24,12 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_path as vault_path
 
 from parsidion.core.otlp_metrics import emit_usage_metric
-from parsidion.vault_path import active_vault_scope
+from parsidion.core.vault_path import resolve_vault, active_vault_scope
 
 
 def _pending_path() -> Path:
@@ -37,7 +39,7 @@ def _pending_path() -> Path:
     point's ``active_vault_scope`` (or the CLAUDE_VAULT env pin) governs the
     answer, instead of reading the deprecated mutable global.
     """
-    return vault_common.resolve_vault() / "pending_summaries.jsonl"
+    return vault_path.resolve_vault() / "pending_summaries.jsonl"
 
 
 _EXCERPT_LINES: int = 20
@@ -96,7 +98,7 @@ def _write_entries(entries: list[dict], vault_path: Path | None = None) -> None:
     # before touching the tmp file. ``"a"`` keeps the existing content
     # intact and lets us create the file if it is absent.
     with open(pp, "a", encoding="utf-8") as real_fh:
-        vault_common.flock_exclusive(real_fh)
+        vault_fs.flock_exclusive(real_fh)
         tmp_fd = os.open(str(tmp), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
             for entry in entries:
@@ -165,7 +167,7 @@ def _mutate_entries(
     for _attempt in range(5):
         fd = os.open(str(pp), os.O_CREAT | os.O_RDWR, 0o600)
         with os.fdopen(fd, "r+", encoding="utf-8") as fh:
-            vault_common.flock_exclusive(fh)
+            vault_fs.flock_exclusive(fh)
             try:
                 try:
                     if os.fstat(fh.fileno()).st_ino != os.stat(pp).st_ino:
@@ -190,7 +192,7 @@ def _mutate_entries(
                 tmp.replace(pp)
                 return updated
             finally:
-                vault_common.funlock(fh)
+                vault_fs.funlock(fh)
     return _read_entries()
 
 
@@ -335,7 +337,7 @@ def _read_transcript_excerpt(
                     if role not in {"user", "assistant"}:
                         continue
 
-                    text = vault_common.extract_text_from_content(raw_content)
+                    text = vault_hooks.extract_text_from_content(raw_content)
                     if text:
                         for sub in text.splitlines():
                             lines.append(sub[:200])
@@ -665,7 +667,7 @@ def main() -> None:
     emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-review"})
 
     # Resolve vault path
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
     # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
     # calls in helper code land on the resolved vault without patching the
@@ -682,7 +684,7 @@ def main() -> None:
                 return
 
             # Auto-migrate on every startup (silent — fixes old entries in-place)
-            vault_common.migrate_pending_paths(dry_run=False, vault=vault_path)
+            vault_fs.migrate_pending_paths(dry_run=False, vault=vault_path)
 
             # Check for pending sessions before attempting curses
             entries = _read_entries()

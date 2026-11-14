@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
 
 _TOOLS_DIR = Path(__file__).resolve().parent.parent / "tools"
 if str(_TOOLS_DIR) not in sys.path:
@@ -62,7 +62,7 @@ def test_migrate_memory_happy_path(
     content = notes[0].read_text(encoding="utf-8")
     assert "# Fix login crash" in content
 
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     assert fm.get("type") == "debugging"
     assert fm.get("date")
     tags = fm.get("tags")
@@ -99,7 +99,7 @@ def test_migrate_research_happy_path(
     content = note.read_text(encoding="utf-8")
     assert "# WGPU 28 Breaking Changes" in content
 
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     assert fm.get("type") == "research"
     # Date extracted from the source filename
     assert fm.get("date") == "2026-01-29"

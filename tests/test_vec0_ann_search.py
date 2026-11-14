@@ -37,7 +37,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import build_embeddings  # noqa: E402
 from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
-from parsidion.vault_config import apply_decay_score  # noqa: E402
+from parsidion.core.vault_config import apply_decay_score  # noqa: E402
 
 # Query vector [1, 0]: cosine(query, v) == v[0] for unit vectors.
 _QUERY_VEC = [1.0, 0.0]

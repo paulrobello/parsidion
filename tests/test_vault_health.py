@@ -25,8 +25,9 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.vault_common as vault_common  # noqa: E402
-import parsidion.vault_health as vault_health  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_path as vault_path  # noqa: E402
+import parsidion.core.vault_health as vault_health  # noqa: E402
 
 vault_stats = importlib.import_module("parsidion.vault_stats")
 
@@ -43,8 +44,8 @@ def _isolate_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     Uses the public CLAUDE_VAULT override (matches conftest.tmp_vault) so
     every dimension reads from the synthetic vault under test.
     """
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_config.clear_config_cache()
     # SEC-P001: register tmp_path in a test-local vaults.yaml so the
     # allowlist resolver accepts the CLAUDE_VAULT reference.
     _cfg_dir = tmp_path / ".config" / "parsidion"
@@ -55,8 +56,8 @@ def _isolate_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
     monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
     yield
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_config.clear_config_cache()
 
 
 def _make_db(vault: Path) -> Path:

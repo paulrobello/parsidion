@@ -182,12 +182,12 @@ def remove_processed(
                     remaining.append(line)
                 # Crash-atomic rewrite: write survivors to a sibling .tmp and
                 # swap it over the original (same pattern as
-                # _write_summarizer_state / parsidion.vault_fs.migrate_pending_paths).
+                # _write_summarizer_state / parsidion.core.vault_fs.migrate_pending_paths).
                 # SEC-109: create the tmp with mode 0o600 via os.open+os.fdopen
                 # so the queue's owner-only protection survives the replace
                 # (a plain ``tmp.write_text`` honours the process umask and
                 # leaves the file world-readable, silently undoing the
-                # 0o600 set on first creation by parsidion.vault_fs.append_to_pending).
+                # 0o600 set on first creation by parsidion.core.vault_fs.append_to_pending).
                 tmp = pending_path.with_suffix(".jsonl.tmp")
                 tmp_fd = os.open(
                     str(tmp),

@@ -11,8 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import parsidion.vault_common as vault_common
-import parsidion.vault_hooks as vault_hooks
+
 from parsidion.core import vault_hooks as core_vault_hooks
 
 
@@ -50,9 +49,3 @@ def test_log_hook_error_never_raises(
     core_vault_hooks.log_hook_error("pre_compact_hook")
     err = capsys.readouterr().err
     assert "hook error log write failed" in err
-
-
-def test_log_hook_error_reexported_from_shims() -> None:
-    """The vault_hooks shim and vault_common facade expose the same function."""
-    assert vault_hooks.log_hook_error is core_vault_hooks.log_hook_error
-    assert vault_common.log_hook_error is core_vault_hooks.log_hook_error

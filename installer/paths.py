@@ -115,7 +115,7 @@ def _wants_antigravity_runtime(runtime: str) -> bool:
 # ---------------------------------------------------------------------------
 
 # Hardcoded fallback used only when neither the import nor the regex can
-# resolve the canonical list.Drift between this and parsidion.vault_path.VAULT_DIRS
+# resolve the canonical list.Drift between this and parsidion.core.vault_path.VAULT_DIRS
 # is caught by tests/test_vault_dirs_sync.py.
 _VAULT_DIRS_FALLBACK: list[str] = [
     "Daily",
@@ -146,17 +146,17 @@ def _extract_vault_dirs() -> list[str]:
     """
     scripts_dir = SKILL_SRC / "scripts"
     # Prefer importing vault_path directly so installer.VAULT_DIRS tracks
-    # runtime mutations of parsidion.vault_path.VAULT_DIRS (the mechanism test patches
-    # parsidion.vault_path.VAULT_DIRS and expects installer to follow). The scripts dir
+    # runtime mutations of parsidion.core.vault_path.VAULT_DIRS (the mechanism test patches
+    # parsidion.core.vault_path.VAULT_DIRS and expects installer to follow). The scripts dir
     # is already on sys.path — installer/__init__.py inserts it at package
     # import (ARC-008 removed this duplicate insert).
     try:
-        import parsidion.vault_path as _vault_path  # type: ignore[import-not-found]
+        import parsidion.core.vault_path as _vault_path  # type: ignore[import-not-found]
 
         return list(_vault_path.VAULT_DIRS)
     except Exception as e:  # noqa: BLE001 — fall back to regex on any failure
         print(
-            f"installer/paths.py: could not import parsidion.vault_path.VAULT_DIRS ({e!r}); "
+            f"installer/paths.py: could not import parsidion.core.vault_path.VAULT_DIRS ({e!r}); "
             "falling back to regex parse",
             file=sys.stderr,
         )

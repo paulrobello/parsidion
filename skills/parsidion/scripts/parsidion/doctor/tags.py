@@ -11,8 +11,8 @@ import json
 import re
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_index as vault_index
 
 from parsidion.doctor._state import (
     SESSION_ID_PATTERN,
@@ -40,7 +40,7 @@ def _collect_all_tags(notes: list[Path]) -> dict[str, int]:
             content = note.read_text(encoding="utf-8")
         except OSError:
             continue
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         tags = fm.get("tags", [])
         if isinstance(tags, list):
             for t in tags:
@@ -59,7 +59,7 @@ def _find_session_duplicates(notes: list[Path]) -> list[tuple[str, list[Path]]]:
     for path in notes:
         try:
             content = path.read_text(encoding="utf-8")
-            fm = vault_common.parse_frontmatter(content)
+            fm = vault_index.parse_frontmatter(content)
             sid = fm.get("session_id")
             if not sid:
                 tags = fm.get("tags", [])
@@ -438,7 +438,7 @@ def _normalize_underscores_in_frontmatter(
         fm_match = re.match(r"^---\n(.*?\n)---", content, re.DOTALL)
         if not fm_match:
             continue
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         issues: list[str] = []
         # Check tags
         tags = fm.get("tags", [])
@@ -548,7 +548,7 @@ def run_fix_sessions(vault_path: Path | None = None) -> None:
     if vault_path is None:
         vault_path = _active_vault()
 
-    notes = vault_common.all_vault_notes_walk(vault=vault_path)
+    notes = vault_index.all_vault_notes_walk(vault=vault_path)
     duplicates = _find_session_duplicates(notes)
 
     if not duplicates:
@@ -581,7 +581,7 @@ def run_fix_tags(
     """
     if vault_path is None:
         vault_path = _active_vault()
-    all_notes = list(vault_common.all_vault_notes_walk(vault_path))
+    all_notes = list(vault_index.all_vault_notes_walk(vault_path))
 
     # Step 1: Normalize underscores → hyphens in tags and project fields
     underscore_fixed = _normalize_underscores_in_frontmatter(
@@ -640,7 +640,7 @@ def run_fix_tags(
             msg_parts.append(f"normalize {underscore_fixed} underscore field(s)")
         if duplicates:
             msg_parts.append(f"merge {len(duplicates)} duplicate tag pair(s)")
-        vault_common.git_commit_vault(
+        vault_fs.git_commit_vault(
             f"refactor(vault): {', '.join(msg_parts)}",
             vault=vault_path,
         )

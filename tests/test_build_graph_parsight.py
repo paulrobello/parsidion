@@ -28,7 +28,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import build_graph  # noqa: E402
-import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight, fresh_repos_payload  # noqa: E402
 
@@ -83,8 +83,8 @@ def run_build_graph(
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.clear_config_cache()
-    import parsidion.parsight_backend as parsight_backend
+    vault_config.clear_config_cache()
+    import parsidion.core.parsight_backend as parsight_backend
 
     parsight_backend.reset_parsight_cache()
 
@@ -262,8 +262,8 @@ class TestParsightDisabledOutputIdentical:
         # Run 2 (control): binary entirely absent from PATH, config default
         # (enabled) — the pre-integration behavior.
         (tmp_vault / "config.yaml").unlink()
-        vault_common.clear_config_cache()
-        import parsidion.parsight_backend as parsight_backend
+        vault_config.clear_config_cache()
+        import parsidion.core.parsight_backend as parsight_backend
 
         parsight_backend.reset_parsight_cache()
         empty_bin = tmp_path / "empty-bin"

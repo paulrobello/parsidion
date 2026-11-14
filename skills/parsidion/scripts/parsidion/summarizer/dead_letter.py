@@ -58,12 +58,12 @@ def _append_dead_letter(
 ) -> None:
     """Best-effort append of a dead-lettered entry to dead_letters.jsonl.
 
-    Mirrors parsidion.vault_fs.append_to_pending's permission/lock conventions (0o600,
+    Mirrors parsidion.core.vault_fs.append_to_pending's permission/lock conventions (0o600,
     exclusive flock) but must never raise -- the entry has already been
     purged from the queue by the caller, so a write failure here is only
     a loss of visibility, not a correctness problem.
 
-    ARC-013: matches ``parsidion.vault_fs.append_to_pending``'s inode-retry loop so a
+    ARC-013: matches ``parsidion.core.vault_fs.append_to_pending``'s inode-retry loop so a
     concurrent ``_prune_dead_letters`` (which rewrites via ``os.replace``)
     cannot leave the append writing to an unlinked inode. Without the retry,
     prune's replace would silently drop an appended entry that landed during

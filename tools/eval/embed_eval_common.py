@@ -20,8 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console  # type: ignore[import-untyped]
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
 
-# Ensure sibling scripts are importable (e.g. vault_common)
+# Ensure sibling scripts are importable (e.g. parsidion.core)
 _HERE = Path(__file__).resolve().parent
 _SCRIPT_DIR = str(_HERE)  # own dir -> sibling embed_eval_* modules
 _SCRIPTS_DIR = str(_HERE.parents[1] / "skills" / "parsidion" / "scripts")
@@ -29,7 +31,6 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import parsidion.vault_common as vault_common
 
 console = Console()
 
@@ -45,17 +46,17 @@ def get_default_queries_file(vault: Path | None = None) -> Path:
     """Return the default queries file path for the given vault.
 
     ARC-011: Replaces the module-level ``DEFAULT_QUERIES_FILE`` constant that
-    baked ``parsidion.vault_common.VAULT_ROOT`` at import time, preventing correct
+    baked ``parsidion.vault_path.VAULT_ROOT`` at import time, preventing correct
     operation when the active vault is switched at runtime.
 
     Args:
         vault: Optional explicit vault path.  When ``None``, resolves via
-            ``parsidion.vault_common.resolve_vault()``.
+            ``parsidion.vault_path.resolve_vault()``.
 
     Returns:
         Path to ``embed_eval_queries.yaml`` inside the resolved vault.
     """
-    resolved = vault if vault is not None else vault_common.resolve_vault()
+    resolved = vault if vault is not None else vault_path.resolve_vault()
     return resolved / "embed_eval_queries.yaml"
 
 
@@ -121,7 +122,7 @@ class ComboResult:
 
 def _note_title(note_path: Path, content: str) -> str:
     """Extract note title from first # heading, falling back to stem."""
-    body = vault_common.get_body(content)
+    body = vault_index.get_body(content)
     for line in body.splitlines():
         stripped = line.strip()
         if stripped.startswith("# ") and not stripped.startswith("## "):
@@ -145,13 +146,13 @@ def chunk_note(note_path: Path, strategy: str) -> list[tuple[str, str]]:
     except (OSError, UnicodeDecodeError):
         return []
 
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     tags = fm.get("tags", [])
     if isinstance(tags, str):
         tags = [tags]
     tags_str = ", ".join(str(t) for t in tags) if tags else ""
     title = _note_title(note_path, content)
-    body = vault_common.get_body(content).strip()
+    body = vault_index.get_body(content).strip()
     stem = note_path.stem
 
     if strategy == "whole":

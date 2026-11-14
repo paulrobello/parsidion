@@ -675,7 +675,7 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
 
 
 def _default_vault_path() -> Path:
-    """Return the default vault root, mirroring ``parsidion.vault_path.default_vault_root``.
+    """Return the default vault root, mirroring ``parsidion.core.vault_path.default_vault_root``.
 
     Local copy (rather than importing vault_path) so the installer keeps its
     stdlib-only constraint — vault_path imports fine standalone, but the

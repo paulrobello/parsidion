@@ -1,4 +1,4 @@
-"""Tests for parsidion.parsight_backend.find_code_raw / parsight_search result mapping (Task 3)."""
+"""Tests for parsidion.core.parsight_backend.find_code_raw / parsight_search result mapping (Task 3)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from parsidion.core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
-import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
@@ -44,7 +44,7 @@ EXPECTED_KEYS = {
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     parsight_backend.reset_parsight_cache()
 
 

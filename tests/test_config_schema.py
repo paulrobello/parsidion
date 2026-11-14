@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-import parsidion.vault_config as vault_config
-from parsidion.vault_config import (
+import parsidion.core.vault_config as vault_config
+from parsidion.core.vault_config import (
     AIConfig,
     AIModelsConfig,
     CodexCliConfig,
@@ -477,7 +477,7 @@ class TestLoadTypedConfig:
     def test_section_dataclasses_are_reexported_from_vault_config(self) -> None:
         # The flat shim re-exports the section dataclasses so callers can use
         # them in type annotations without importing vault_schema directly.
-        from parsidion.vault_config import (  # noqa: F401
+        from parsidion.core.vault_config import (  # noqa: F401
             AdaptersConfig,
             AdaptiveContextConfig,
             AnthropicEnvConfig,

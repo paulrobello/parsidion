@@ -1,4 +1,4 @@
-"""Tests for parsidion.parsight_backend.ensure_vault_indexed / spawn_background_index (Task 4)."""
+"""Tests for parsidion.core.parsight_backend.ensure_vault_indexed / spawn_background_index (Task 4)."""
 
 from __future__ import annotations
 

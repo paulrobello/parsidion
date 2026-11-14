@@ -532,7 +532,7 @@ def rebuild_index(
     if dry_run:
         return
 
-    from parsidion.vault_common import run_index_rebuild
+    from parsidion.core.vault_index import run_index_rebuild
 
     reason, proc = run_index_rebuild(scripts_dir=scripts_dir, timeout=30.0)
     if reason == "ok" and proc is not None and proc.returncode == 0:

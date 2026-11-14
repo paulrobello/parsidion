@@ -264,7 +264,7 @@ class TestScanExecuteAppliesPythonOnlyFixes:
         )
         monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
         monkeypatch.setattr(
-            vault_doctor.vault_common,
+            vault_doctor.vault_fs,
             "git_commit_vault",
             lambda msg, **kw: messages.append(msg),
         )
@@ -339,7 +339,7 @@ class TestScanExecuteAppliesPythonOnlyFixes:
         )
         monkeypatch.setattr(vault_doctor, "_run_reindex", lambda *a, **kw: None)
         monkeypatch.setattr(
-            vault_doctor.vault_common, "git_commit_vault", lambda *a, **kw: None
+            vault_doctor.vault_fs, "git_commit_vault", lambda *a, **kw: None
         )
 
         vault_doctor.run_scan_and_repair(

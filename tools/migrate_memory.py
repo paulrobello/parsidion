@@ -27,12 +27,9 @@ from _migrate_common import (
     report_header,
     write_note_file,
 )
-from parsidion.vault_common import (
-    ensure_vault_dirs,
-    resolve_vault,
-    serialize_frontmatter,
-    slugify,
-)
+from parsidion.core.vault_fs import ensure_vault_dirs
+from parsidion.core.vault_index import serialize_frontmatter, slugify
+from parsidion.core.vault_path import resolve_vault
 
 # ---------------------------------------------------------------------------
 # Constants

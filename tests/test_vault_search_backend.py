@@ -15,8 +15,9 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.parsight_backend as parsight_backend  # noqa: E402
-import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.core.parsight_backend as parsight_backend  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_path as vault_path  # noqa: E402
 from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
@@ -28,7 +29,7 @@ SENTINEL: list[dict[str, object]] = [{"stem": "from-embeddings"}]
 
 def _write_config(vault: Path, text: str) -> None:
     (vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     parsight_backend.reset_parsight_cache()
 
 
@@ -368,7 +369,7 @@ class TestInteractiveBackend:
         even when embeddings.db is absent, as long as parsight can serve."""
         import parsidion.vault_tui as vault_tui
 
-        assert not vault_common.get_embeddings_db_path(tmp_vault).exists()
+        assert not vault_path.get_embeddings_db_path(tmp_vault).exists()
         results = vault_tui._search_notes("q", tmp_vault)
         assert [r["stem"] for r in results] == ["hit-note"]
 
@@ -385,7 +386,7 @@ class TestInteractiveBackend:
         empty = tmp_path / "empty-bin-tui"
         empty.mkdir()
         monkeypatch.setenv("PATH", str(empty))
-        assert not vault_common.get_embeddings_db_path(tmp_vault).exists()
+        assert not vault_path.get_embeddings_db_path(tmp_vault).exists()
 
         note = tmp_vault / "my-note.md"
         note.write_text("# My Note\nBody.\n", encoding="utf-8")

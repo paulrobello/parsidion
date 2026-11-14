@@ -49,7 +49,7 @@ def _get_config_calls(source: str) -> set[tuple[str, str]]:
     """(section, key) pairs from config-reader calls in *source*.
 
     Readers appear as bare ``get_config``, module-qualified
-    ``parsidion.vault_common.get_config``, and thin wrappers (``_config_bool`` /
+    ``parsidion.core.vault_config.get_config``, and thin wrappers (``_config_bool`` /
     ``_config_str`` in ai_backend, ``_resolve`` in the summarizer, whose
     section/key sit at args 1-2 behind a CLI-flag override). For each
     matching call the first ADJACENT pair of string-literal arguments is

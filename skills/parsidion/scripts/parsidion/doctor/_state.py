@@ -11,7 +11,7 @@ Test compatibility — two ``monkeypatch`` patterns must keep working:
   files do this.  The patch sets an attribute on the *shim's* ``__dict__``.
   ``_active_vault()`` and ``_rel()`` therefore read ``_vault_path`` dynamically
   via ``sys.modules["vault_doctor"].__dict__`` first, then fall back to this
-  module's own binding, then to ``vault_common``.
+  module's own binding, then to ``vault_path``.
 * ``monkeypatch.setattr(vault_doctor.shutil, "copy2", boom)`` (and the
   ``subprocess`` / ``ai_backend`` equivalents) — these mutate the shared
   module objects, so any submodule that does ``import shutil`` sees the patch.
@@ -28,13 +28,15 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
+
+import parsidion.core.vault_fs as vault_fs
 
 # ENH-008 Step 2: VALID_TYPES is now an alias over the single source in
 # ``note_schema``. Kept under this name so every existing doctor call site and
 # the ARC-010 parity test continue to work unchanged.
 import parsidion.note_schema as _note_schema
+import parsidion.core.vault_hooks as vault_hooks
+from parsidion.core.vault_path import resolve_vault
 
 # ---------------------------------------------------------------------------
 # Constants (formerly module-level in vault_doctor.py)
@@ -172,7 +174,7 @@ def _active_vault() -> Path:
         return shim_vp
     if _vault_path is not None:
         return _vault_path
-    return vault_common.resolve_vault()
+    return resolve_vault()
 
 
 def _get_state_file(vault_path: Path) -> Path:
@@ -187,7 +189,7 @@ def _rel(path: Path, vault_path: Path | None = None) -> str:
         path: Absolute note path.
         vault_path: Explicit vault root. Falls back to the shim's
             ``_vault_path`` (so test monkeypatches apply), then this module's
-            ``_vault_path``, then ``parsidion.vault_common.resolve_vault()``.
+            ``_vault_path``, then ``parsidion.vault_path.resolve_vault()``.
     """
     if vault_path is not None:
         return str(path.relative_to(vault_path))
@@ -196,7 +198,7 @@ def _rel(path: Path, vault_path: Path | None = None) -> str:
         return str(path.relative_to(shim_vp))
     if _vault_path is not None:
         return str(path.relative_to(_vault_path))
-    return str(path.relative_to(vault_common.resolve_vault()))
+    return str(path.relative_to(resolve_vault()))
 
 
 def load_state(vault_path: Path) -> dict:
@@ -238,9 +240,9 @@ def should_skip(key: str, state: dict) -> bool:
     return False  # "fixed", "failed", "timeout" — always retry
 
 
-# QA-007: is_process_running moved to vault_common.py (canonical implementation).
+# QA-007: is_process_running's canonical implementation lives in core.vault_hooks.
 # Local alias preserves all existing call sites unchanged.
-is_process_running = vault_common.is_process_running
+is_process_running = vault_hooks.is_process_running
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +251,9 @@ is_process_running = vault_common.is_process_running
 # Every execute-mode content mutation and rename below is preceded by a call
 # to _backup_note() so an operator can recover the pre-fix version of a note
 # from an unattended --fix-all run. ".trash" is already in
-# parsidion.vault_common.EXCLUDE_DIRS so backups are invisible to search/indexing.
+# parsidion.vault_index.EXCLUDE_DIRS so backups are invisible to search/indexing.
 #
-# QA-001: the implementation now lives in parsidion.vault_fs.backup_note (canonical
+# QA-001: the implementation now lives in parsidion.core.vault_fs.backup_note (canonical
 # signature ``(note_path, vault)``). This wrapper keeps doctor's existing
 # ``(vault, note_path)`` call signature so every submodule call site stays
 # unchanged, plus doctor's "never raise" contract (the shared helper raises
@@ -264,7 +266,7 @@ _backed_up_this_run: set[Path] = set()
 def _backup_note(vault: Path, note_path: Path) -> None:
     """Copy *note_path* to today's pre-mutation backup dir, best-effort.
 
-    Doctor's "never raise" wrapper around :func:`parsidion.vault_fs.backup_note`.
+    Doctor's "never raise" wrapper around :func:`parsidion.core.vault_fs.backup_note`.
     No-ops if this note was already backed up during the current process
     (tracked in ``_backed_up_this_run`` to avoid re-stat'ing) or if a backup
     for today already exists on disk (first version of the day wins).

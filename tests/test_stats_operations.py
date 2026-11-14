@@ -25,7 +25,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from parsidion.cli.stats import operations as stats_ops  # noqa: E402
-from parsidion.vault_constants import HOOK_TIMEOUTS_MS  # noqa: E402
+from parsidion.core.vault_constants import HOOK_TIMEOUTS_MS  # noqa: E402
 
 
 def _event(hook: str, duration_ms: int, ts: str | None = None) -> dict:
@@ -130,7 +130,7 @@ class TestHealthComponent:
     def test_health_json_includes_hook_latency(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import parsidion.vault_health as vault_health
+        import parsidion.core.vault_health as vault_health
 
         (tmp_path / "hook_events.log").write_text(
             json.dumps(_event("SessionStart", 5_000)) + "\n", encoding="utf-8"

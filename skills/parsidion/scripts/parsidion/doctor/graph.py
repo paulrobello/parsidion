@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_fs as vault_fs
 
 from parsidion.doctor._state import SCRIPTS_DIR, STALE_COMMIT_MINUTES, _active_vault
 
@@ -75,7 +75,7 @@ def commit_stale_files(
     if dry_run:
         return stale
 
-    committed = vault_common.git_commit_vault(
+    committed = vault_fs.git_commit_vault(
         f"chore(vault): auto-commit {len(stale)} stale file(s) via vault_doctor",
         paths=stale,
         vault=vault_path,

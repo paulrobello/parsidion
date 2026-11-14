@@ -23,7 +23,7 @@ The orchestration core (``_run_semantic_search``, ``_select_seed_notes``,
 ``main``) stays in the entry shim because tests monkeypatch these functions
 and their patched callees (``find_notes_by_project``, ``find_recent_notes``,
 ``_release_ai_lock``, ``_try_acquire_ai_lock``, ``read_note_summary``,
-``parsidion.ai_backend.run_ai_prompt``, ``_select_context_with_ai`` itself) on the
+``parsidion.core.ai_backend.run_ai_prompt``, ``_select_context_with_ai`` itself) on the
 ``session_start_hook`` module and Python resolves bare names in the *caller's*
 module globals at call time — keeping the callers in the shim is the only way
 the patches take effect without pervasive ``session_start_hook.X()`` dispatch

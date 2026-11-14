@@ -23,6 +23,8 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import parsidion.agent_adapter as agent_adapter  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_path as vault_path  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +279,6 @@ class TestExternalLoading:
     def test_off_by_default(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import parsidion.vault_common as vault_common
 
         home = tmp_path / "home"
         ad = home / ".config" / "parsidion" / "adapters"
@@ -289,8 +290,8 @@ class TestExternalLoading:
             "CLAUDE_VAULT", str(tmp_path)
         )  # no config.yaml -> default off
         monkeypatch.setenv("HOME", str(home))
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_config.clear_config_cache()
         agent_adapter.reset_external_adapters()
         try:
             assert "x" not in agent_adapter.known_runtimes()
@@ -300,7 +301,6 @@ class TestExternalLoading:
     def test_loads_when_enabled_and_refuses_world_writable(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import parsidion.vault_common as vault_common
 
         vault_dir = tmp_path / "vault"
         vault_dir.mkdir()
@@ -329,8 +329,8 @@ class TestExternalLoading:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_config.clear_config_cache()
         agent_adapter.reset_external_adapters()
         try:
             runtimes = agent_adapter.known_runtimes()
@@ -351,7 +351,6 @@ class TestExternalLoading:
         """SEC-205: a group-writable adapters dir means every adapter is
         planted-code — refuse the whole directory even when the files
         themselves look clean."""
-        import parsidion.vault_common as vault_common
 
         vault_dir = tmp_path / "vault"
         vault_dir.mkdir()
@@ -372,8 +371,8 @@ class TestExternalLoading:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_config.clear_config_cache()
         agent_adapter.reset_external_adapters()
         try:
             assert "acme" not in agent_adapter.known_runtimes()
@@ -392,9 +391,8 @@ class TestExternalLoading:
 
         Tests cannot chown, so simulate foreign ownership by answering
         ``os.getuid()`` with an uid that owns nothing in the temp tree (the
-        same check ``parsidion.vault_fs.is_trusted_executable`` applies).
+        same check ``parsidion.core.vault_fs.is_trusted_executable`` applies).
         """
-        import parsidion.vault_common as vault_common
 
         vault_dir = tmp_path / "vault"
         vault_dir.mkdir()
@@ -415,8 +413,8 @@ class TestExternalLoading:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(vault_dir))
         monkeypatch.setenv("HOME", str(home))
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_config.clear_config_cache()
         real_getuid = os.getuid
         monkeypatch.setattr(
             os,

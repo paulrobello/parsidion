@@ -3,7 +3,7 @@
 Covers:
 - summarize_sessions._append_dead_letter(): written on purge at _MAX_ATTEMPTS,
   best-effort (never raises) when the write itself fails.
-- parsidion.vault_metrics.collect_dead_letters(): parses dead_letters.jsonl.
+- parsidion.core.vault_metrics.collect_dead_letters(): parses dead_letters.jsonl.
 - session_start_hook._build_dead_letter_notice(): warning line construction,
   and its inclusion in build_session_context()'s injected context.
 """
@@ -22,8 +22,11 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import parsidion.vault_common as vault_common  # noqa: E402
-import parsidion.vault_metrics as vault_metrics  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_fs as vault_fs  # noqa: E402
+import parsidion.core.vault_index as vault_index  # noqa: E402
+import parsidion.core.vault_path as vault_path  # noqa: E402
+import parsidion.core.vault_metrics as vault_metrics  # noqa: E402
 
 session_start_hook = importlib.import_module("session_start_hook")
 
@@ -118,7 +121,7 @@ def test_purge_at_max_attempts_writes_dead_letter(
     assert record["last_failure"] == "merge target unresolvable"
     assert "dead_lettered_at" in record and record["dead_lettered_at"]
 
-    # Permissions match the 0o600 convention used by parsidion.vault_fs.append_to_pending.
+    # Permissions match the 0o600 convention used by parsidion.core.vault_fs.append_to_pending.
     mode = dead_letter_path.stat().st_mode & 0o777
     assert mode == 0o600
 
@@ -302,7 +305,7 @@ def test_arc013_prune_preserves_0600_mode(
 
 
 # ---------------------------------------------------------------------------
-# parsidion.vault_metrics.collect_dead_letters
+# parsidion.core.vault_metrics.collect_dead_letters
 # ---------------------------------------------------------------------------
 
 
@@ -420,8 +423,8 @@ def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path, tmp_path: Path) -> 
     XDG_CONFIG_HOME) so the allowlist resolver accepts the reference.
     """
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
-    vault_common._clear_config_cache()
+    vault_config.clear_config_cache()
+    vault_config._clear_config_cache()
     cfg_dir = tmp_path / ".config" / "parsidion"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "vaults.yaml").write_text(
@@ -435,7 +438,7 @@ def test_dead_letter_notice_included_in_session_context(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     vault = tmp_path / "vault"
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     (vault / "config.yaml").write_text(
         "session_start_hook:\n"
@@ -476,7 +479,7 @@ def test_dead_letter_notice_suppressed_by_default(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     vault = tmp_path / "vault"
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     (vault / "config.yaml").write_text(
         "session_start_hook:\n"
@@ -511,7 +514,7 @@ def test_no_dead_letter_notice_when_file_absent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     vault = tmp_path / "vault"
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     (vault / "config.yaml").write_text(
         "session_start_hook:\n"
@@ -548,13 +551,13 @@ def test_selected_vault_config_loaded_under_different_cwd(
     config to determine whether to show the dead-letter notice.
     """
     default_vault = tmp_path / "default_vault"
-    vault_common.ensure_vault_dirs(default_vault)
+    vault_fs.ensure_vault_dirs(default_vault)
     (default_vault / "config.yaml").write_text(
         "session_start_hook:\n  show_dead_letter_notice: false\n", encoding="utf-8"
     )
 
     project_vault = tmp_path / "project_vault"
-    vault_common.ensure_vault_dirs(project_vault)
+    vault_fs.ensure_vault_dirs(project_vault)
     (project_vault / "config.yaml").write_text(
         "session_start_hook:\n  show_dead_letter_notice: true\n", encoding="utf-8"
     )
@@ -585,8 +588,8 @@ def test_selected_vault_config_loaded_under_different_cwd(
     monkeypatch.chdir(neutral_dir)
 
     # Clear caches
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_config.clear_config_cache()
 
     # Mock filesystem scans
     monkeypatch.setattr(
@@ -712,7 +715,7 @@ def test_rebuild_index_timeout_is_swallowed(
     """QA-005: a hung update_index/build_graph child must not propagate a
     timeout into the caller (the summarizer and the hooks that drive it).
     ARC-004: ``rebuild_index`` delegates the subprocess to
-    ``parsidion.vault_common.run_index_rebuild``; a ``("timeout", None)`` result is
+    ``parsidion.vault_index.run_index_rebuild``; a ``("timeout", None)`` result is
     logged as a warning and the run continues with a stale index rather
     than dying mid-run.
     """

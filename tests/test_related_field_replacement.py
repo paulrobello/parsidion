@@ -21,8 +21,8 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "skills/parsidion/scripts")
 )
 
-import parsidion.vault_common as vault_common  # noqa: E402
-import parsidion.vault_links as vault_links  # noqa: E402
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_links as vault_links  # noqa: E402
 
 
 def _fm_block(content: str) -> str:
@@ -114,7 +114,7 @@ def test_related_field_is_replaced_not_appended(
         f"{shape}: expected exactly one related: key, frontmatter was:\n"
         f"{_fm_block(content)}"
     )
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     assert fm["related"] == expected
     # Fields on either side of `related` must survive the replacement.
     assert fm["type"] == "pattern"
@@ -141,7 +141,7 @@ def test_existing_duplicate_related_keys_are_collapsed(tmp_path: Path) -> None:
 
     content = note.read_text(encoding="utf-8")
     assert _count_related_keys(content) == 1
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     # parse_frontmatter is last-wins, so the real list is what gets merged.
     assert fm["related"] == ["[[real-one]]", "[[new-note]]"]
     assert fm["provenance"] == "observed"
@@ -168,7 +168,7 @@ def test_body_related_line_still_untouched(tmp_path: Path) -> None:
     content = note.read_text(encoding="utf-8")
     assert body_line in content
     assert _count_related_keys(content) == 1
-    assert vault_common.parse_frontmatter(content)["related"] == ["[[new-note]]"]
+    assert vault_index.parse_frontmatter(content)["related"] == ["[[new-note]]"]
 
 
 def test_daily_template_placeholder_has_no_trailing_comment() -> None:

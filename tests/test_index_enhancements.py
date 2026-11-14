@@ -24,8 +24,9 @@ from typing import Any
 import pytest
 
 import update_index
-import parsidion.vault_common as vault_common
-import parsidion.vault_index as vault_index
+import parsidion.core.vault_config as vault_config
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
 
 # ---------------------------------------------------------------------------
 # Parse warning collector
@@ -33,7 +34,7 @@ import parsidion.vault_index as vault_index
 
 
 class TestParseWarningCollector:
-    """Tests for parsidion.vault_index.record_parse_warning / drain_parse_warnings."""
+    """Tests for parsidion.core.vault_index.record_parse_warning / drain_parse_warnings."""
 
     @pytest.fixture(autouse=True)
     def _clear_collector(self) -> Generator[None]:
@@ -162,8 +163,8 @@ class TestSingletonGuardAtomicClaim:
 
     ARC-003: the vault path is now threaded explicitly through ``pid_file``,
     ``_write_pid``, ``_release_pid`` and ``_singleton_guard`` rather than
-    read from ``parsidion.vault_common.VAULT_ROOT``. The previous
-    ``_patch_vault_root`` helper patched both ``parsidion.vault_common.VAULT_ROOT``
+    read from ``parsidion.vault_path.VAULT_ROOT``. The previous
+    ``_patch_vault_root`` helper patched both ``parsidion.vault_path.VAULT_ROOT``
     and ``update_index.VAULT_ROOT``; with the global no longer consulted
     by these functions, callers pass ``tmp_path`` directly.
     """
@@ -253,11 +254,11 @@ def _build_index(tmp_vault: Path) -> None:
     discovers (build_index walks via ``all_vault_notes_walk``, the
     authoritative enumeration that never reads the DB it is populating).
     """
-    db_path = vault_common.get_embeddings_db_path(tmp_vault)
+    db_path = vault_path.get_embeddings_db_path(tmp_vault)
     if not db_path.exists():
         conn = sqlite3.connect(str(db_path))
         try:
-            vault_common.ensure_note_index_schema(conn)
+            vault_index.ensure_note_index_schema(conn)
         finally:
             conn.close()
     # build_index returns (index_md, total_notes, total_tags, folder_notes, db_rows, tag_counter)
@@ -270,7 +271,7 @@ def _build_index(tmp_vault: Path) -> None:
 def _write_config(tmp_vault: Path, text: str) -> None:
     """Write config.yaml in the tmp vault and clear the config cache."""
     (tmp_vault / "config.yaml").write_text(text, encoding="utf-8")
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
 
 
 _NOTES: list[tuple[str, str, dict[str, Any]]] = [
@@ -310,12 +311,12 @@ class TestNoteIndexDbFirst:
     ) -> None:
         """Case 2: a missing DB returns None; an empty result returns []."""
         # No embeddings.db → None (signals fallback).
-        assert vault_common.query_note_index(project="anything") is None
+        assert vault_index.query_note_index(project="anything") is None
 
         _seed_vault(tmp_vault)
         _build_index(tmp_vault)
         # A project with zero notes → [] (NOT None → no fallback).
-        result = vault_common.query_note_index(project="nonexistent-project")
+        result = vault_index.query_note_index(project="nonexistent-project")
         assert result is not None
         assert result == []
 
@@ -411,7 +412,7 @@ class TestNoteIndexDbFirst:
         # Insert a hostile row pointing at a real file outside the vault,
         # tagged as a pattern so find_notes_by_type("pattern") would surface
         # it absent the containment check.
-        db_path = vault_common.get_embeddings_db_path(tmp_vault)
+        db_path = vault_path.get_embeddings_db_path(tmp_vault)
         conn = sqlite3.connect(str(db_path))
         try:
             conn.execute(
@@ -455,7 +456,7 @@ class TestNoteIndexDbFirst:
         )
         assert new_note in walk_result
         # Staleness signal is non-zero.
-        assert vault_common.note_index_age(tmp_vault) > 0
+        assert vault_index.note_index_age(tmp_vault) > 0
 
     def test_config_no_db_forces_walk_and_finds_stale_note(
         self, tmp_vault: Path
@@ -505,13 +506,13 @@ class TestNoteIndexDbFirst:
     def test_note_index_age_accepts_str(self, tmp_vault: Path) -> None:
         _seed_vault(tmp_vault)
         _build_index(tmp_vault)
-        assert vault_common.note_index_age(tmp_vault) == vault_common.note_index_age(
+        assert vault_index.note_index_age(tmp_vault) == vault_index.note_index_age(
             str(tmp_vault)
         )
 
     def test_get_embeddings_db_path_accepts_str(self, tmp_vault: Path) -> None:
-        assert vault_common.get_embeddings_db_path(tmp_vault) == (
-            vault_common.get_embeddings_db_path(str(tmp_vault))
+        assert vault_path.get_embeddings_db_path(tmp_vault) == (
+            vault_path.get_embeddings_db_path(str(tmp_vault))
         )
 
     def test_note_index_enabled_falls_back_when_embeddings_disabled(

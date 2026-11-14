@@ -1,7 +1,7 @@
 """Tests for the atomic-write + pre-mutation-backup enhancement.
 
 Covers:
-- ``parsidion.vault_fs.atomic_write_text``: writes content, preserves the target's
+- ``parsidion.core.vault_fs.atomic_write_text``: writes content, preserves the target's
   existing permission bits, and leaves no ``.tmp`` file behind even when
   ``Path.replace`` fails.
 - ``vault_doctor._backup_note``: creates a pre-mutation backup under
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 import vault_doctor
-import parsidion.vault_fs as vault_fs
+import parsidion.core.vault_fs as vault_fs
 
 
 @pytest.fixture(autouse=True)
@@ -38,9 +38,9 @@ def _clear_backup_run_state() -> None:
 @pytest.fixture()
 def vault(tmp_vault: Path) -> Path:
     """Return the tmp vault path and create standard dirs."""
-    import parsidion.vault_common as vault_common
+    import parsidion.core.vault_index as vault_index
 
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (tmp_vault / d).mkdir(exist_ok=True)
     return tmp_vault
 
@@ -58,7 +58,7 @@ def _boom_replace(self: Path, target: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# parsidion.vault_fs.atomic_write_text
+# parsidion.core.vault_fs.atomic_write_text
 # ---------------------------------------------------------------------------
 
 

@@ -13,9 +13,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
-import parsidion.vault_links as vault_links
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_links as vault_links
 
 from parsidion.doctor._state import Issue, _active_vault, _backup_note
 
@@ -130,7 +131,7 @@ def _find_link_replacement(
                 "--",
                 link_text,
             ],
-            env=vault_common.env_without_claudecode(),
+            env=vault_hooks.env_without_claudecode(),
             capture_output=True,
             text=True,
             timeout=30,
@@ -284,7 +285,7 @@ def _find_semantic_candidates(path: Path, top_k: int = 5) -> list[str]:
             capture_output=True,
             text=True,
             timeout=30,
-            env=vault_common.env_without_claudecode(),
+            env=vault_hooks.env_without_claudecode(),
         )
         if result.returncode != 0:
             return []
@@ -312,7 +313,7 @@ def dedup_related_links(dry_run: bool = False, vault_path: Path | None = None) -
     related_re = re.compile(r"^(related:\s*)(\[.*?\])\s*$", re.MULTILINE)
     entry_re = re.compile(r'"(\[\[[^\]]+\]\])"')
 
-    for note_path in vault_common.all_vault_notes_walk(vault_path):
+    for note_path in vault_index.all_vault_notes_walk(vault_path):
         try:
             content = note_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -343,7 +344,7 @@ def dedup_related_links(dry_run: bool = False, vault_path: Path | None = None) -
             print(f"  ⚠ failed to write {rel}: {exc}", file=sys.stderr)
 
     if fixed and not dry_run:
-        vault_common.git_commit_vault(
+        vault_fs.git_commit_vault(
             f"chore(vault): deduplicate related links in {fixed} note(s)",
             vault=vault_path,
         )

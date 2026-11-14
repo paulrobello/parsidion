@@ -124,7 +124,7 @@ assert "vault_search" not in sys.modules
 builtins.__import__ = measured_import
 metrics["load_before"] = os.getloadavg()[0]
 start = time.perf_counter()
-links = parsidion.vault_links.find_related_by_semantic(vault / "new-note.md", vault,
+links = parsidion.core.vault_links.find_related_by_semantic(vault / "new-note.md", vault,
                                             tag_strs=["link"])
 metrics["semantic_call_s"] = time.perf_counter() - start
 metrics["load_after"] = os.getloadavg()[0]

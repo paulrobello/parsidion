@@ -59,10 +59,10 @@ _POISON_SETUP = "import sys\n" + "\n".join(
 )
 
 # Modules whose stdlib-only status is enforced. ``core.*`` are the library
-# implementations; the root names are the facade (vault_common), the TUI
-# surface (vault_tui), the AI/parsight backends hooks depend on, and every hook
-# entry point plus the shared adapter registry. CLIs and eval/build tools are
-# excluded -- they legitimately use guarded optional extras.
+# implementations; the wheel-namespace names are the TUI surface (vault_tui),
+# and every hook entry point plus the shared adapter registry. CLIs and
+# eval/build tools are excluded -- they legitimately use guarded optional
+# extras.
 _ENFORCEMENT_SCOPE = [
     # core/ stdlib-only library package
     "parsidion.core.vault_config",
@@ -81,17 +81,17 @@ _ENFORCEMENT_SCOPE = [
     # ENH-024: the shared YAML subset module (imported by vault_config,
     # vault_index, and vault_path) shares the same stdlib-only contract.
     "parsidion.core.yaml_lite",
-    # ARC-006: the AI/parsight backends moved into core/ (the root names below
-    # remain as re-export shims and are held to the same contract).
+    # ARC-006: the AI/parsight backends moved into core/ and are held to the
+    # same contract there.
     "parsidion.core.ai_backend",
     "parsidion.core.parsight_backend",
-    # parsidion/ stdlib libraries / facade (ARC-201: shipped in the wheel
-    # namespace; the root names remain by-path entry scripts, held to the
-    # same contract, and are not part of the wheel).
-    "parsidion.vault_common",
+    # parsidion/ stdlib libraries (ARC-201: shipped in the wheel namespace;
+    # the root names remain by-path entry scripts, held to the same
+    # contract, and are not part of the wheel. The parsidion.vault_common /
+    # ai_backend / parsight_backend / vault_health / transcript_reader
+    # re-export shims were retired with a raising ImportError in ARC-200
+    # step 2 — the core twins carry the stdlib-only contract now.)
     "parsidion.vault_tui",
-    "parsidion.ai_backend",
-    "parsidion.parsight_backend",
     # hooks + shared adapter registry
     "session_start_hook",
     "session_stop_hook",
@@ -110,7 +110,7 @@ _ENFORCEMENT_SCOPE = [
     # ENH-007: vault_health scoring is imported by vault_stats + the MCP
     # server, so it is held to the same stdlib-only contract as the rest of
     # the core/hook surface.
-    "parsidion.vault_health",
+    "parsidion.core.vault_health",
     # ENH-008: prompt_templates + note_schema are imported by hooks
     # (session_start_hook → prompt_templates for select-notes) and by the
     # summarizer/doctor, so they share the stdlib-only contract.
@@ -118,7 +118,7 @@ _ENFORCEMENT_SCOPE = [
     "parsidion.note_schema",
     # ENH-018: the unified transcript reader is imported (lazily) by every
     # hook and adapter, so it shares the stdlib-only contract.
-    "parsidion.transcript_reader",
+    "parsidion.core.transcript_reader",
 ]
 
 

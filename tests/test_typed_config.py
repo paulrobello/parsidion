@@ -20,8 +20,7 @@ from pathlib import Path
 
 import pytest
 
-import parsidion.vault_common as vault_common
-from parsidion.core import vault_config
+import parsidion.core.vault_config as vault_config
 
 # (section, key, the inline default the pre-ARC-007 callers passed)
 _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
@@ -87,7 +86,7 @@ _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
 def empty_config(tmp_vault: Path) -> Path:
     """A vault with an empty config; caches cleared."""
     (tmp_vault / "config.yaml").write_text("", encoding="utf-8")
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     vault_config._clear_typed_config_cache()
     return tmp_vault
 
@@ -99,7 +98,7 @@ def configured_vault(tmp_vault: Path) -> Path:
         "session_start_hook:\n  max_chars: 123\n  ai_model: sonnet\n",
         encoding="utf-8",
     )
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     vault_config._clear_typed_config_cache()
     return tmp_vault
 
@@ -112,32 +111,32 @@ def configured_vault(tmp_vault: Path) -> Path:
 def test_empty_config_returns_the_historical_inline_default(
     empty_config: Path, section: str, key: str, inline_default: object
 ) -> None:
-    assert vault_common.get_config(section, key, inline_default) == inline_default
+    assert vault_config.get_config(section, key, inline_default) == inline_default
 
 
 def test_explicit_null_still_returns_none(tmp_vault: Path) -> None:
     (tmp_vault / "config.yaml").write_text(
         "session_start_hook:\n  max_chars: null\n", encoding="utf-8"
     )
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     vault_config._clear_typed_config_cache()
-    assert vault_common.get_config("session_start_hook", "max_chars", 4000) is None
+    assert vault_config.get_config("session_start_hook", "max_chars", 4000) is None
 
 
 def test_configured_value_wins_over_schema_default(tmp_vault: Path) -> None:
     (tmp_vault / "config.yaml").write_text(
         "session_start_hook:\n  max_chars: 999\n", encoding="utf-8"
     )
-    vault_common.clear_config_cache()
+    vault_config.clear_config_cache()
     vault_config._clear_typed_config_cache()
-    assert vault_common.get_config("session_start_hook", "max_chars", 4000) == 999
+    assert vault_config.get_config("session_start_hook", "max_chars", 4000) == 999
 
 
 def test_context_dependent_key_uses_caller_default(empty_config: Path) -> None:
     """min_messages has NO schema default (pi: 1, others: 3) — the caller's
     contextual default must keep applying."""
-    assert vault_common.get_config("subagent_stop_hook", "min_messages", 3) == 3
-    assert vault_common.get_config("subagent_stop_hook", "min_messages", 1) == 1
+    assert vault_config.get_config("subagent_stop_hook", "min_messages", 3) == 3
+    assert vault_config.get_config("subagent_stop_hook", "min_messages", 1) == 1
 
 
 def test_typed_access_returns_schema_defaults(empty_config: Path) -> None:

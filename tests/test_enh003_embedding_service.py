@@ -46,7 +46,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import parsidion.vault_embed_serve as vault_embed_serve  # noqa: E402
-import parsidion.vault_links as vault_links  # noqa: E402
+import parsidion.core.vault_links as vault_links  # noqa: E402
 import parsidion.vault_search as vault_search  # noqa: E402
 from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
 

@@ -1,14 +1,10 @@
-"""parsight_backend -- compatibility shim (ARC-006).
+"""Deprecated compatibility shim, retired by ARC-200 step 2 (release 0.29.0).
 
-Implementation moved to ``parsidion.core.parsight_backend``. This shim re-exports the
-module's controlled public surface (defined by ``parsidion.core.parsight_backend.__all__``)
-so every existing ``import parsight_backend`` caller keeps working unchanged.
-
-ARC-006 note for tests: patching attributes on THIS shim only affects
-callers that resolve the name through the shim. Monkeypatches of module
-internals (``_run_parsight``, ``_LOG_DIR``, ...) must target the
-implementation module — ``from parsidion.core import parsight_backend`` — because
-function bodies resolve their globals in ``parsidion.core.parsight_backend``.
+The implementation lives at ``parsidion.core.parsight_backend``. Importing this module raises
+:class:`ImportError` with the replacement path.
 """
 
-from parsidion.core.parsight_backend import *  # noqa: F403 -- controlled by parsidion.core.parsight_backend.__all__
+raise ImportError(
+    "parsidion.parsight_backend was removed: import from parsidion.core.parsight_backend instead "
+    "(flat shim surface retired in ARC-200 step 2 / release 0.29.0)."
+)

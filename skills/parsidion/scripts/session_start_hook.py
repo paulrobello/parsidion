@@ -181,7 +181,7 @@ def _run_semantic_search(
 
     PRF-101: when parsight serves retrieval (backend ``auto``/``parsight``
     and the daemon is available), the query runs in-process via
-    ``parsidion.parsight_backend.parsight_search`` — a stdlib-only call already
+    ``parsidion.core.parsight_backend.parsight_search`` — a stdlib-only call already
     imported here. The ``uv run vault_search.py`` subprocess is kept
     exclusively for the embeddings fallback (parsight unavailable or
     backend forced to ``embeddings``): the subprocess only ever existed to
@@ -321,7 +321,7 @@ def _select_context_with_ai(
 ) -> str:
     """Use the configured AI backend to select relevant notes for session context.
 
-    Backend execution is delegated to parsidion.ai_backend.run_ai_prompt so Claude and
+    Backend execution is delegated to parsidion.core.ai_backend.run_ai_prompt so Claude and
     Codex model defaults are resolved consistently.
 
     Args:

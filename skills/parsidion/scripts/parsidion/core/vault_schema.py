@@ -1034,7 +1034,7 @@ class GitConfig:
         default=True,
         metadata={
             "doc": "Auto-commit vault changes after writes",
-            "read_by": "vault_common.py (parsidion.vault_fs.git_commit_vault)",
+            "read_by": "parsidion.core.vault_fs.git_commit_vault",
         },
     )
 
