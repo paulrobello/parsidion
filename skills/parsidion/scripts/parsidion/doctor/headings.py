@@ -10,8 +10,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_fs as vault_fs
 
 from parsidion.doctor._state import _active_vault, _backup_note
 
@@ -64,7 +64,7 @@ def _auto_fix_headings(path: Path) -> bool:
     Returns True if the file was modified.
     """
     content = path.read_text(encoding="utf-8")
-    body = vault_common.get_body(content)
+    body = vault_index.get_body(content)
 
     # Check there is no existing # heading
     for line in body.splitlines():

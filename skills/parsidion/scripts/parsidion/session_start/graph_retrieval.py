@@ -81,7 +81,7 @@ def _graph_neighbors(
 
     Args:
         seed_paths: Already-selected note paths (excluded from results).
-        meta_map: Output of ``parsidion.vault_index.load_graph_metadata()``, or ``None``.
+        meta_map: Output of ``parsidion.core.vault_index.load_graph_metadata()``, or ``None``.
         vault_path: Vault root for path-containment validation.
         max_add: Maximum number of neighbour paths to return.
         snapshot: PRF-104 -- a ``SessionIndexSnapshot`` carrying the reverse
@@ -167,7 +167,7 @@ def _rank_by_graph(
     Args:
         notes: Candidate note paths to re-rank.
         seed_paths: The pre-expansion seed notes defining the tag cluster.
-        meta_map: Output of ``parsidion.vault_index.load_graph_metadata()``, or ``None``.
+        meta_map: Output of ``parsidion.core.vault_index.load_graph_metadata()``, or ``None``.
 
     Returns:
         Re-ranked list of the same paths.

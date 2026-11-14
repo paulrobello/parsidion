@@ -74,10 +74,10 @@ import threading  # re-exported for tests
 from datetime import date, datetime  # re-exported for tests
 from pathlib import Path  # re-exported for tests
 
-import parsidion.ai_backend as ai_backend  # re-exported for test monkeypatch (vault_doctor.ai_backend.run_ai_prompt)
-import parsidion.vault_common as vault_common  # re-exported for tests
-import parsidion.vault_fs as vault_fs  # re-exported for test monkeypatch
-import parsidion.vault_links as vault_links  # re-exported for test monkeypatch
+import parsidion.core.ai_backend as ai_backend  # re-exported for test monkeypatch (vault_doctor.ai_backend.run_ai_prompt)
+
+import parsidion.core.vault_fs as vault_fs  # re-exported for test monkeypatch
+import parsidion.core.vault_links as vault_links  # re-exported for test monkeypatch
 
 # ---------------------------------------------------------------------------
 # Constants, data model, and shared state live in parsidion.doctor._state so the

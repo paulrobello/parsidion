@@ -1,13 +1,13 @@
 """Unit tests for session_stop_hook.py functions.
 
 Tests cover:
-- detect_categories (via vault_common) — categorization of transcript texts
-- append_to_pending (via vault_common) — JSONL queue writes and deduplication
+- detect_categories — categorization of transcript texts
+- append_to_pending — JSONL queue writes and deduplication
 
 Since ARC-002 the classify/persist pipeline lives in ``parsidion.agent_adapter.run_session_end``;
 ``session_stop_hook.main`` is the Claude invocation shim. Monkeypatches that
 target pipeline internals are therefore aimed at ``agent_adapter`` (QA-002).
-These tests import vault_common directly (the canonical implementation) and
+These tests import the canonical core modules directly and
 use tmp_path for all file I/O to avoid touching the real vault.
 """
 
@@ -21,10 +21,13 @@ from typing import Any
 import parsidion.agent_adapter as agent_adapter
 import pytest
 import session_stop_hook
-import parsidion.vault_common as vault_common
+
 from parsidion.core import (
     ai_backend as core_ai_backend,
 )  # ARC-006: patch internals where they live
+import parsidion.core.vault_config as vault_config
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +80,7 @@ def _run_session_stop_main_for_codex(
     _write_codex_config(vault)
 
     session_stop_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common._clear_config_cache()
+    vault_config._clear_config_cache()
     # SEC-P001: register vault in a test-local vaults.yaml so the allowlist
     # resolver accepts the CLAUDE_VAULT reference.
     _cfg_dir = tmp_path / ".config" / "parsidion"
@@ -213,40 +216,40 @@ def test_classify_session_with_ai_uses_small_tier_backend(
 
 
 class TestDetectCategories:
-    """Tests for parsidion.vault_common.detect_categories."""
+    """Tests for parsidion.vault_hooks.detect_categories."""
 
     def test_empty_list_returns_empty(self) -> None:
-        result = vault_common.detect_categories([])
+        result = vault_hooks.detect_categories([])
         assert result == {}
 
     def test_no_keywords_returns_empty(self) -> None:
         texts = ["Hello world", "This is a routine update."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert result == {}
 
     def test_error_fix_keyword(self) -> None:
         texts = ["I found the root cause of the issue."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "error_fix" in result
 
     def test_error_fix_multiple_keywords(self) -> None:
         texts = ["Fixed the bug. The error was in the config parser."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "error_fix" in result
 
     def test_research_keyword(self) -> None:
         texts = ["According to the documentation, this is the recommended approach."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "research" in result
 
     def test_pattern_keyword(self) -> None:
         texts = ["This is a reusable pattern for handling async callbacks."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "pattern" in result
 
     def test_config_setup_keyword(self) -> None:
         texts = ["I configured the environment and initialized the project."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "config_setup" in result
 
     def test_multiple_categories_detected(self) -> None:
@@ -254,30 +257,30 @@ class TestDetectCategories:
             "Root cause was a missing dependency.",  # error_fix
             "The documentation explains the pattern to follow.",  # research + pattern
         ]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         # At least one category must be detected
         assert len(result) >= 1
 
     def test_excerpt_stored_in_category(self) -> None:
         texts = ["Root cause was a missing import."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "error_fix" in result
         # The value should be a list (possibly with excerpt)
         assert isinstance(result["error_fix"], list)
 
     def test_case_insensitive_matching(self) -> None:
         texts = ["ROOT CAUSE: the variable was not initialized."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         assert "error_fix" in result
 
     def test_single_keyword_match_is_sufficient(self) -> None:
         texts = ["The issue was resolved."]
-        result = vault_common.detect_categories(texts)
+        result = vault_hooks.detect_categories(texts)
         # "the issue was" is a keyword in error_fix
         assert "error_fix" in result
 
     def test_returns_dict_type(self) -> None:
-        result = vault_common.detect_categories(["some text"])
+        result = vault_hooks.detect_categories(["some text"])
         assert isinstance(result, dict)
 
 
@@ -287,7 +290,7 @@ class TestDetectCategories:
 
 
 class TestParseTranscriptLines:
-    """Tests for parsidion.vault_common.parse_transcript_lines."""
+    """Tests for parsidion.vault_hooks.parse_transcript_lines."""
 
     def test_parses_claude_assistant_entry(self) -> None:
         line = json.dumps(
@@ -299,7 +302,7 @@ class TestParseTranscriptLines:
                 },
             }
         )
-        result = vault_common.parse_transcript_lines([line])
+        result = vault_hooks.parse_transcript_lines([line])
         assert result == ["Root cause was X."]
 
     def test_parses_pi_assistant_message_entry(self) -> None:
@@ -312,7 +315,7 @@ class TestParseTranscriptLines:
                 },
             }
         )
-        result = vault_common.parse_transcript_lines([line])
+        result = vault_hooks.parse_transcript_lines([line])
         assert result == ["Found that docs require Y."]
 
     def test_ignores_non_assistant_entries(self) -> None:
@@ -334,7 +337,7 @@ class TestParseTranscriptLines:
                 },
             }
         )
-        result = vault_common.parse_transcript_lines([user_line, tool_line])
+        result = vault_hooks.parse_transcript_lines([user_line, tool_line])
         assert result == []
 
 
@@ -344,10 +347,10 @@ class TestParseTranscriptLines:
 
 
 class TestAppendToPending:
-    """Tests for parsidion.vault_common.append_to_pending."""
+    """Tests for parsidion.vault_fs.append_to_pending."""
 
     # ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var +
-    # clears caches) instead of monkeypatching parsidion.vault_common.VAULT_ROOT directly.
+    # clears caches) instead of monkeypatching parsidion.vault_path.VAULT_ROOT directly.
     @pytest.fixture(autouse=True)
     def _use_tmp_vault(self, tmp_vault: Path) -> None:
         """Wire resolve_vault() to a fresh tmp dir via the tmp_vault fixture."""
@@ -358,7 +361,7 @@ class TestAppendToPending:
         transcript.write_text("{}\n", encoding="utf-8")
 
         categories = {"error_fix": ["root cause was X"]}
-        vault_common.append_to_pending(
+        vault_fs.append_to_pending(
             transcript_path=transcript,
             project="test-project",
             categories=categories,
@@ -382,8 +385,8 @@ class TestAppendToPending:
         transcript.write_text("{}\n", encoding="utf-8")
 
         categories = {"error_fix": []}
-        vault_common.append_to_pending(transcript, "proj", categories)
-        vault_common.append_to_pending(transcript, "proj", categories)
+        vault_fs.append_to_pending(transcript, "proj", categories)
+        vault_fs.append_to_pending(transcript, "proj", categories)
 
         pending = self.vault_root / "pending_summaries.jsonl"
         lines = [
@@ -399,7 +402,7 @@ class TestAppendToPending:
 
         # config_setup alone is not in the significant set {error_fix, research, pattern}
         categories = {"config_setup": []}
-        vault_common.append_to_pending(transcript, "proj", categories)
+        vault_fs.append_to_pending(transcript, "proj", categories)
 
         pending = self.vault_root / "pending_summaries.jsonl"
         # File either doesn't exist or is empty — nothing written
@@ -416,7 +419,7 @@ class TestAppendToPending:
         transcript.write_text("{}\n", encoding="utf-8")
 
         categories = {"config_setup": []}
-        vault_common.append_to_pending(transcript, "proj", categories, force=True)
+        vault_fs.append_to_pending(transcript, "proj", categories, force=True)
 
         pending = self.vault_root / "pending_summaries.jsonl"
         assert pending.exists()
@@ -432,7 +435,7 @@ class TestAppendToPending:
         transcript.write_text("{}\n", encoding="utf-8")
 
         categories = {"research": ["found in docs"]}
-        vault_common.append_to_pending(transcript, "my-project", categories)
+        vault_fs.append_to_pending(transcript, "my-project", categories)
 
         pending = self.vault_root / "pending_summaries.jsonl"
         entry = json.loads(pending.read_text(encoding="utf-8").strip())
@@ -447,7 +450,7 @@ class TestAppendToPending:
         transcript = self.vault_root / "src-test.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
 
-        vault_common.append_to_pending(transcript, "proj", {"error_fix": []})
+        vault_fs.append_to_pending(transcript, "proj", {"error_fix": []})
 
         pending = self.vault_root / "pending_summaries.jsonl"
         entry = json.loads(pending.read_text(encoding="utf-8").strip())
@@ -457,7 +460,7 @@ class TestAppendToPending:
         transcript = self.vault_root / "sub-test.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
 
-        vault_common.append_to_pending(
+        vault_fs.append_to_pending(
             transcript,
             "proj",
             {"error_fix": []},
@@ -474,7 +477,7 @@ class TestAppendToPending:
         for name in ("session-a", "session-b", "session-c"):
             t = self.vault_root / f"{name}.jsonl"
             t.write_text("{}\n", encoding="utf-8")
-            vault_common.append_to_pending(t, "proj", {"error_fix": []})
+            vault_fs.append_to_pending(t, "proj", {"error_fix": []})
 
         pending = self.vault_root / "pending_summaries.jsonl"
         lines = [

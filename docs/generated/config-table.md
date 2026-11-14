@@ -20,7 +20,7 @@
 | `parsight` | `enabled`, `binary`, `timeout_s` | parsight_backend.py, vault_search.py |
 | `search` | `backend`, `use_note_index`, `max_index_age_seconds` | vault_search.py, vault_index.py, core/vault_index.py |
 | `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` | vault_hooks.py |
-| `git` | `auto_commit` | vault_common.py (parsidion.vault_fs.git_commit_vault) |
+| `git` | `auto_commit` | parsidion.core.vault_fs.git_commit_vault |
 | `defaults` | `haiku_model` | ai_backend.py |
 | `event_log` | `enabled`, `max_lines`, `path` | vault_hooks.py |
 | `otlp` | `enabled`, `endpoint`, `headers`, `timeout_s`, `wait_s`, `service_name` | core/otlp_metrics.py |

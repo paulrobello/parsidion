@@ -70,7 +70,7 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 
 ## Architecture
 
-`vault_common.py` has been split into focused sub-modules (ARC-005): `vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, and `vault_adaptive`. The original module remains as a re-export facade so all existing `import vault_common` calls continue to work. `vault_search.py` followed the same pattern: its embeddings backend, metadata query, and output formatters live in the `cli.search` package (`cli/search/embeddings.py`, `cli/search/metadata.py`, `cli/search/format.py`), with `vault_search.py` remaining as the CLI entry point and re-export shim for Python callers.
+The vault library has been split into focused sub-modules (ARC-005): `vault_config`, `vault_path`, `vault_fs`, `vault_index`, `vault_hooks`, and `vault_adaptive` — all under `parsidion/core/` since ARC-201, with the former `vault_common` re-export facade retired to a raising stub in ARC-200 step 2. `vault_search.py` followed the same pattern: its embeddings backend, metadata query, and output formatters live in the `cli.search` package (`cli/search/embeddings.py`, `cli/search/metadata.py`, `cli/search/format.py`), with `vault_search.py` remaining as the CLI entry point and re-export shim for Python callers.
 
 `embeddings.db` is a single SQLite file that stores two tables plus one virtual table:
 
@@ -80,7 +80,7 @@ internet connection required. The vault defaults to `~/ParsidionVault/` (or `~/C
 | `note_index` | `update_index.py` | Per-note metadata (folder, tags, type, project, mtime, date, staleness, incoming links) for indexed queries |
 | `note_vec` | `build_embeddings.py` | sqlite-vec `vec0` virtual table (cosine-distance KNN mirror of `note_embeddings`, ENH-022) used to resolve query candidates without a full-table scan |
 
-All three are created on first open: `build_embeddings.py`'s `open_embeddings_db()` calls `vault_common.ensure_note_index_schema()` and its own module-level `ensure_note_vec_schema()`, so the schema is guaranteed even if `update_index.py` has not run yet.
+All three are created on first open: `build_embeddings.py`'s `open_embeddings_db()` calls `parsidion.core.vault_index.ensure_note_index_schema()` and its own module-level `ensure_note_vec_schema()`, so the schema is guaranteed even if `update_index.py` has not run yet.
 
 ```mermaid
 graph TB
@@ -153,10 +153,10 @@ graph TB
 1. `build_embeddings.py` walks the vault, encodes each note with the `fastembed` model, and dual-writes the vector into `note_embeddings` and the `note_vec` vec0 KNN mirror via `sqlite-vec`. It also ensures `note_index` schema exists via `ensure_note_index_schema()`.
 2. `update_index.py` walks the vault, extracts per-note metadata, and upserts rows into `note_index` on every index rebuild. This keeps metadata (folder, tags, mtime, staleness, incoming links) current without requiring a re-embedding run.
 3. `vault_search.py`'s `search()` function routes a semantic query according to the `search.backend` config key (default `auto`): when parsight is installed and its daemon is healthy, the query is served by parsight's hybrid BM25+vector+graph retrieval; otherwise it loads the same `fastembed` model, encodes the query, and runs a `vec0` KNN lookup against the `note_vec` index via `sqlite-vec` (falling back to an exact cosine scan of `note_embeddings` on databases without a synced index), returning ranked results as a JSON array. Both backends return identically shaped result dicts. When `decay_enabled` is `true` (the default), raw cosine scores from the embeddings backend are multiplied by an exponential decay factor based on note age, so newer notes rank higher. (`min_score` gates only the embeddings backend; parsight RRF scores are rank-fusion values and gate by rank/`top` instead.) `vault_search.py` also supports a metadata-only mode (filter flags without a query) that queries `note_index` directly without loading the model, and a `--grep` body-search mode — neither involves a backend choice.
-4. `vault_common.query_note_index()` (implemented in `vault_index.py`, re-exported via the facade) runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking. The facade also re-exports `load_graph_metadata()` and `parse_related_stems()`, which read the `related`/`incoming_links`/`tags` columns to drive the session start hook's graph retrieval passes.
+4. `parsidion.core.vault_index.query_note_index()` runs indexed SQL queries against `note_index` for fast metadata filtering — no model loading, no file walking. The same module exposes `load_graph_metadata()` and `parse_related_stems()`, which read the `related`/`incoming_links`/`tags` columns to drive the session start hook's graph retrieval passes.
 5. Hook scripts and agents use both search paths: semantic for conceptual relevance, metadata for structural filters (folder, tag, recency).
 
-The `vault_common.py` re-export facade (backed by `vault_path.py`) exposes `get_embeddings_db_path(vault=...)` so every script resolves
+`parsidion.core.vault_path.get_embeddings_db_path(vault=...)` is the shared resolver so every script resolves
 the database path consistently without hardcoding it. The optional `vault` parameter supports
 multi-vault setups; when omitted, it falls back to `resolve_vault()` which checks the `--vault`
 flag, project-local `.claude/vault` file, `CLAUDE_VAULT` environment variable, the top-level

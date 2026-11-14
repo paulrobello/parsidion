@@ -26,7 +26,7 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import parsidion.vault_adaptive as vault_adaptive  # noqa: E402
+import parsidion.core.vault_adaptive as vault_adaptive  # noqa: E402
 from parsidion.core import vault_adaptive as core_adaptive  # noqa: E402
 from parsidion.session_start import seed_selection  # noqa: E402
 from parsidion.session_start.seed_selection import _rank_by_usefulness  # noqa: E402

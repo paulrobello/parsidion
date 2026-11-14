@@ -272,7 +272,7 @@ def test_stop_no_assistant_texts_allows_stop(
 
 class TestAntigravityTranscriptPathValidator:
     def test_accepts_documented_cli_layout(self, monkeypatch, tmp_path) -> None:
-        from parsidion.vault_hooks import is_antigravity_transcript_path
+        from parsidion.core.vault_hooks import is_antigravity_transcript_path
 
         home = tmp_path / "antigravity-home"
         monkeypatch.setenv("ANTIGRAVITY_HOME", str(home))
@@ -288,7 +288,7 @@ class TestAntigravityTranscriptPathValidator:
         assert is_antigravity_transcript_path(good) is True
 
     def test_rejects_lookalike_system_generated(self, monkeypatch, tmp_path) -> None:
-        from parsidion.vault_hooks import is_antigravity_transcript_path
+        from parsidion.core.vault_hooks import is_antigravity_transcript_path
 
         home = tmp_path / "antigravity-home"
         monkeypatch.setenv("ANTIGRAVITY_HOME", str(home))
@@ -304,7 +304,7 @@ class TestAntigravityTranscriptPathValidator:
         assert is_antigravity_transcript_path(lookalike) is False
 
     def test_rejects_project_local_gemini_tree(self, monkeypatch, tmp_path) -> None:
-        from parsidion.vault_hooks import is_antigravity_transcript_path
+        from parsidion.core.vault_hooks import is_antigravity_transcript_path
 
         home = tmp_path / "antigravity-home"
         monkeypatch.setenv("ANTIGRAVITY_HOME", str(home))
@@ -322,7 +322,7 @@ class TestAntigravityTranscriptPathValidator:
         assert is_antigravity_transcript_path(local, cwd=str(project)) is False
 
     def test_rejects_config_files_in_home(self, monkeypatch, tmp_path) -> None:
-        from parsidion.vault_hooks import is_antigravity_transcript_path
+        from parsidion.core.vault_hooks import is_antigravity_transcript_path
 
         home = tmp_path / "antigravity-home"
         monkeypatch.setenv("ANTIGRAVITY_HOME", str(home))

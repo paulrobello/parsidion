@@ -10,7 +10,7 @@ import threading
 
 import pytest
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
 import vault_doctor
 
 
@@ -20,7 +20,7 @@ import vault_doctor
 
 
 # ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var) instead
-# of monkeypatching parsidion.vault_common.VAULT_ROOT directly.
+# of monkeypatching parsidion.vault_path.VAULT_ROOT directly.
 @pytest.fixture(autouse=True)
 def _patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Wire resolve_vault() to a fresh tmp dir and point vault_doctor there."""
@@ -30,7 +30,7 @@ def _patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def vault(tmp_vault: Path) -> Path:
     """Return the tmp vault path and create standard dirs."""
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (tmp_vault / d).mkdir(exist_ok=True)
     return tmp_vault
 
@@ -521,7 +521,7 @@ class TestFindPrefixClusters:
         _write_note(vault, "Patterns/redis-caching.md", "# Redis Caching\n")
         _write_note(vault, "Patterns/redis-pubsub.md", "# Redis PubSub\n")
         _write_note(vault, "Patterns/redis-streams.md", "# Redis Streams\n")
-        all_notes = list(vault_common.all_vault_notes(vault))
+        all_notes = list(vault_index.all_vault_notes(vault))
         clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
         # Should find the redis cluster
         prefixes = [prefix for _, prefix, _, _ in clusters]
@@ -531,7 +531,7 @@ class TestFindPrefixClusters:
         _write_note(vault, "Patterns/redis-caching.md", "# Redis Caching\n")
         _write_note(vault, "Patterns/redis-pubsub.md", "# Redis PubSub\n")
         # Only 2 notes -- below PREFIX_CLUSTER_MIN (3)
-        all_notes = list(vault_common.all_vault_notes(vault))
+        all_notes = list(vault_index.all_vault_notes(vault))
         clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
         assert len(clusters) == 0
 
@@ -539,7 +539,7 @@ class TestFindPrefixClusters:
         _write_note(vault, "Patterns/my-project.md", "# My Project\n")
         _write_note(vault, "Patterns/my-project-setup.md", "# Setup\n")
         _write_note(vault, "Patterns/my-project-deploy.md", "# Deploy\n")
-        all_notes = list(vault_common.all_vault_notes(vault))
+        all_notes = list(vault_index.all_vault_notes(vault))
         clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
         # Should find exact-stem cluster where base_note is not None
         exact = [(p, b) for _, p, _, b in clusters if b is not None]
@@ -718,7 +718,7 @@ class TestCommonWordPrefix:
             "visibility-core-implementation",
         ):
             _write_note(vault, f"Patterns/fog-of-war-{s}.md", f"# {s}\n")
-        all_notes = list(vault_common.all_vault_notes(vault))
+        all_notes = list(vault_index.all_vault_notes(vault))
         clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
         first_word = [p for _, p, _, _ in clusters if p == "fog"]
         compound = [p for _, p, _, _ in clusters if p == "fog-of-war"]
@@ -766,14 +766,14 @@ class TestGenericPrefixDenylist:
     def test_find_prefix_clusters_skips_denyalist_prefix(self, vault: Path) -> None:
         for s in ("quality-baseline", "quality-review", "quality-remediation"):
             _write_note(vault, f"Patterns/code-{s}.md", f"# {s}\n")
-        all_notes = list(vault_common.all_vault_notes(vault))
+        all_notes = list(vault_index.all_vault_notes(vault))
         clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
         assert "code" not in [p for _, p, _, _ in clusters]
 
     def test_find_prefix_clusters_keeps_real_subject(self, vault: Path) -> None:
         for s in ("caching", "pubsub", "streams"):
             _write_note(vault, f"Patterns/redis-{s}.md", f"# {s}\n")
-        all_notes = list(vault_common.all_vault_notes(vault))
+        all_notes = list(vault_index.all_vault_notes(vault))
         clusters = vault_doctor.find_prefix_clusters(all_notes, vault)
         assert "redis" in [p for _, p, _, _ in clusters]
 

@@ -21,7 +21,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
 
 from parsidion.doctor.check import check_note
 from parsidion.doctor.links import build_note_map
@@ -90,7 +90,7 @@ def scan_notes_readonly(vault: Path) -> ScanSummary:
         Aggregated issue counts. Always returns a ``ScanSummary`` — never
         raises; an unreadable note becomes a READ_ERROR issue on that note.
     """
-    notes = list(vault_common.all_vault_notes_walk(vault))
+    notes = list(vault_index.all_vault_notes_walk(vault))
     vault_claude_md = vault / "CLAUDE.md"
     vault_tags_md = vault / "TAGS.md"
     notes = [

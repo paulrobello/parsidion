@@ -1,4 +1,4 @@
-"""Unit tests for vault_common.py core functions.
+"""Unit tests for the former vault_common surface (now parsidion.core modules).
 
 Tests cover: parse_frontmatter, _parse_config_yaml, slugify,
 extract_text_from_content, read_last_n_lines, and flock_exclusive/funlock.
@@ -13,8 +13,13 @@ from pathlib import Path
 
 import pytest
 
-import parsidion.vault_common as vault_common
+
 import installer.paths as installer_paths  # noqa: E402
+import parsidion.core.vault_config as vault_config
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
 
 
 # ---------------------------------------------------------------------------
@@ -23,43 +28,43 @@ import installer.paths as installer_paths  # noqa: E402
 
 
 class TestParseFrontmatter:
-    """Tests for parsidion.vault_common.parse_frontmatter."""
+    """Tests for parsidion.vault_index.parse_frontmatter."""
 
     def test_empty_string(self) -> None:
-        assert vault_common.parse_frontmatter("") == {}
+        assert vault_index.parse_frontmatter("") == {}
 
     def test_no_frontmatter(self) -> None:
-        assert vault_common.parse_frontmatter("# Just a heading\nBody text.") == {}
+        assert vault_index.parse_frontmatter("# Just a heading\nBody text.") == {}
 
     def test_basic_scalars(self) -> None:
         content = (
             "---\ndate: 2026-01-15\ntype: research\nconfidence: high\n---\nBody.\n"
         )
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["date"] == "2026-01-15"
         assert result["type"] == "research"
         assert result["confidence"] == "high"
 
     def test_inline_list(self) -> None:
         content = "---\ntags: [python, rust, ai]\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["tags"] == ["python", "rust", "ai"]
 
     def test_empty_inline_list(self) -> None:
         content = "---\nsources: []\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["sources"] == []
 
     def test_multiline_list(self) -> None:
         content = "---\ntags:\n  - alpha\n  - beta\n  - gamma\n---\nBody.\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["tags"] == ["alpha", "beta", "gamma"]
 
     def test_boolean_values(self) -> None:
         content = (
             "---\nenabled: true\ndisabled: false\nalso_yes: yes\nalso_no: no\n---\n"
         )
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["enabled"] is True
         assert result["disabled"] is False
         assert result["also_yes"] is True
@@ -67,45 +72,45 @@ class TestParseFrontmatter:
 
     def test_integer_value(self) -> None:
         content = "---\ncount: 42\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["count"] == 42
         assert isinstance(result["count"], int)
 
     def test_float_value(self) -> None:
         content = "---\nratio: 3.14\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["ratio"] == 3.14
         assert isinstance(result["ratio"], float)
 
     def test_null_value(self) -> None:
         content = "---\nfield: null\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["field"] is None
 
     def test_quoted_string(self) -> None:
         content = '---\ntitle: "Hello World"\n---\n'
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["title"] == "Hello World"
 
     def test_single_quoted_string(self) -> None:
         content = "---\ntitle: 'Hello World'\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["title"] == "Hello World"
 
     def test_wikilink_list(self) -> None:
         content = '---\nrelated: ["[[Topic One]]", "[[Topic Two]]"]\n---\n'
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["related"] == ["[[Topic One]]", "[[Topic Two]]"]
 
     def test_comment_lines_skipped(self) -> None:
         content = "---\n# This is a comment\ndate: 2026-01-15\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert "comment" not in str(result)
         assert result["date"] == "2026-01-15"
 
     def test_missing_closing_fence(self) -> None:
         content = "---\ndate: 2026-01-15\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result == {}
 
     def test_full_realistic_note(self) -> None:
@@ -124,7 +129,7 @@ class TestParseFrontmatter:
             "## WGPU Pipeline Fix\n"
             "\nBody content here.\n"
         )
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["date"] == "2026-03-10"
         assert result["type"] == "debugging"
         assert result["tags"] == ["rust", "wgpu", "rendering"]
@@ -141,14 +146,14 @@ class TestParseFrontmatter:
 
 
 class TestParseConfigYaml:
-    """Tests for parsidion.vault_common._parse_config_yaml."""
+    """Tests for parsidion.vault_config._parse_config_yaml."""
 
     def test_empty_string(self) -> None:
-        assert vault_common._parse_config_yaml("") == {}
+        assert vault_config._parse_config_yaml("") == {}
 
     def test_top_level_scalars(self) -> None:
         text = "timeout: 30\nmodel: claude-haiku\nenabled: true\n"
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         assert result["timeout"] == 30
         assert result["model"] == "claude-haiku"
         assert result["enabled"] is True
@@ -160,7 +165,7 @@ class TestParseConfigYaml:
             "  max_chars: 4000\n"
             "  debug: false\n"
         )
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         section = result["session_start_hook"]
         assert isinstance(section, dict)
         assert section["ai_model"] == "claude-haiku"
@@ -169,24 +174,24 @@ class TestParseConfigYaml:
 
     def test_multiple_sections(self) -> None:
         text = "section_a:\n  key1: value1\nsection_b:\n  key2: value2\n"
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         assert result["section_a"]["key1"] == "value1"
         assert result["section_b"]["key2"] == "value2"
 
     def test_inline_comment_stripped(self) -> None:
         text = "timeout: 30  # seconds\n"
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         assert result["timeout"] == 30
 
     def test_comment_lines_skipped(self) -> None:
         text = "# This is a comment\ntimeout: 30\n"
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         assert result["timeout"] == 30
         assert len(result) == 1
 
     def test_blank_lines_skipped(self) -> None:
         text = "key1: value1\n\nkey2: value2\n"
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         assert result["key1"] == "value1"
         assert result["key2"] == "value2"
 
@@ -197,7 +202,7 @@ class TestParseConfigYaml:
 
         stderr_capture = io.StringIO()
         with contextlib.redirect_stderr(stderr_capture):
-            result = vault_common._parse_config_yaml("no colon here\nkey: value\n")
+            result = vault_config._parse_config_yaml("no colon here\nkey: value\n")
 
         assert result["key"] == "value"
         assert "ignoring unparsable config line" in stderr_capture.getvalue()
@@ -209,7 +214,7 @@ class TestParseConfigYaml:
 
         stderr_capture = io.StringIO()
         with contextlib.redirect_stderr(stderr_capture):
-            result = vault_common._parse_config_yaml("  orphan_key: orphan_value\n")
+            result = vault_config._parse_config_yaml("  orphan_key: orphan_value\n")
 
         # The orphan key should not appear in the result
         assert "orphan_key" not in result
@@ -225,7 +230,7 @@ class TestParseConfigYaml:
             "  nested_key: nested_value\n"
             "another_top: 42\n"
         )
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         assert result["top_key"] == "top_value"
         assert result["section"]["nested_key"] == "nested_value"
         assert result["another_top"] == 42
@@ -240,7 +245,7 @@ class TestParseConfigYaml:
             "  ANTHROPIC_DEFAULT_SONNET_MODEL: GLM-5.1\n"
             "  ANTHROPIC_DEFAULT_HAIKU_MODEL: GLM-5-TURBO\n"
         )
-        result = vault_common._parse_config_yaml(text)
+        result = vault_config._parse_config_yaml(text)
         section = result["anthropic_env"]
         assert isinstance(section, dict)
         assert section["ANTHROPIC_AUTH_TOKEN"] == "token-123"
@@ -289,10 +294,10 @@ class TestConfiguredAnthropicEnv:
             "ANTHROPIC_DEFAULT_HAIKU_MODEL",
         ):
             monkeypatch.delenv(name, raising=False)
-        vault_common._resolve_vault_cached.cache_clear()
-        vault_common._clear_config_cache()
+        vault_path._resolve_vault_cached.cache_clear()
+        vault_config._clear_config_cache()
 
-        env = vault_common.env_without_claudecode()
+        env = vault_hooks.env_without_claudecode()
 
         assert env["ANTHROPIC_AUTH_TOKEN"] == "cfg-token"
         assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
@@ -320,10 +325,10 @@ class TestConfiguredAnthropicEnv:
         monkeypatch.setenv("CLAUDE_VAULT", str(tmp_path))
         monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example/anthropic")
-        vault_common._resolve_vault_cached.cache_clear()
-        vault_common._clear_config_cache()
+        vault_path._resolve_vault_cached.cache_clear()
+        vault_config._clear_config_cache()
 
-        env = vault_common.env_without_claudecode()
+        env = vault_hooks.env_without_claudecode()
 
         assert env["ANTHROPIC_AUTH_TOKEN"] == "env-token"
         assert env["ANTHROPIC_BASE_URL"] == "https://env.example/anthropic"
@@ -349,10 +354,10 @@ class TestConfiguredAnthropicEnv:
         monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
         monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
         monkeypatch.delenv("API_TIMEOUT_MS", raising=False)
-        vault_common._resolve_vault_cached.cache_clear()
-        vault_common._clear_config_cache()
+        vault_path._resolve_vault_cached.cache_clear()
+        vault_config._clear_config_cache()
 
-        vault_common.apply_configured_env_defaults()
+        vault_hooks.apply_configured_env_defaults()
 
         assert os.environ["ANTHROPIC_AUTH_TOKEN"] == "cfg-token"
         assert os.environ["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
@@ -365,40 +370,40 @@ class TestConfiguredAnthropicEnv:
 
 
 class TestSlugify:
-    """Tests for parsidion.vault_common.slugify."""
+    """Tests for parsidion.vault_index.slugify."""
 
     def test_basic(self) -> None:
-        assert vault_common.slugify("Hello World") == "hello-world"
+        assert vault_index.slugify("Hello World") == "hello-world"
 
     def test_underscores(self) -> None:
-        assert vault_common.slugify("hello_world") == "hello-world"
+        assert vault_index.slugify("hello_world") == "hello-world"
 
     def test_special_characters(self) -> None:
         # Special chars are removed, then multiple hyphens are collapsed
-        result = vault_common.slugify("Rust & WGPU: A Guide!")
+        result = vault_index.slugify("Rust & WGPU: A Guide!")
         assert result == "rust-wgpu-a-guide"
         assert "--" not in result
 
     def test_leading_trailing_hyphens_stripped(self) -> None:
-        assert vault_common.slugify("--hello--") == "hello"
+        assert vault_index.slugify("--hello--") == "hello"
 
     def test_multiple_hyphens_collapsed(self) -> None:
-        assert vault_common.slugify("hello   world") == "hello-world"
+        assert vault_index.slugify("hello   world") == "hello-world"
 
     def test_empty_string(self) -> None:
-        assert vault_common.slugify("") == ""
+        assert vault_index.slugify("") == ""
 
     def test_already_slugified(self) -> None:
-        assert vault_common.slugify("already-slugified") == "already-slugified"
+        assert vault_index.slugify("already-slugified") == "already-slugified"
 
     def test_mixed_case(self) -> None:
-        assert vault_common.slugify("CamelCase String") == "camelcase-string"
+        assert vault_index.slugify("CamelCase String") == "camelcase-string"
 
     def test_numbers_preserved(self) -> None:
-        assert vault_common.slugify("wgpu 28 changes") == "wgpu-28-changes"
+        assert vault_index.slugify("wgpu 28 changes") == "wgpu-28-changes"
 
     def test_whitespace_stripped(self) -> None:
-        assert vault_common.slugify("  padded  ") == "padded"
+        assert vault_index.slugify("  padded  ") == "padded"
 
 
 # ---------------------------------------------------------------------------
@@ -407,20 +412,20 @@ class TestSlugify:
 
 
 class TestExtractTextFromContent:
-    """Tests for parsidion.vault_common.extract_text_from_content."""
+    """Tests for parsidion.vault_hooks.extract_text_from_content."""
 
     def test_string_passthrough(self) -> None:
-        assert vault_common.extract_text_from_content("hello") == "hello"
+        assert vault_hooks.extract_text_from_content("hello") == "hello"
 
     def test_empty_string(self) -> None:
-        assert vault_common.extract_text_from_content("") == ""
+        assert vault_hooks.extract_text_from_content("") == ""
 
     def test_text_blocks(self) -> None:
         blocks: list[dict] = [
             {"type": "text", "text": "first"},
             {"type": "text", "text": "second"},
         ]
-        result = vault_common.extract_text_from_content(blocks)
+        result = vault_hooks.extract_text_from_content(blocks)
         assert result == "first\nsecond"
 
     def test_non_text_blocks_skipped(self) -> None:
@@ -429,21 +434,21 @@ class TestExtractTextFromContent:
             {"type": "text", "text": "visible"},
             {"type": "tool_result", "content": "ignored"},
         ]
-        result = vault_common.extract_text_from_content(blocks)
+        result = vault_hooks.extract_text_from_content(blocks)
         assert result == "visible"
 
     def test_empty_list(self) -> None:
-        assert vault_common.extract_text_from_content([]) == ""
+        assert vault_hooks.extract_text_from_content([]) == ""
 
     def test_non_string_text_skipped(self) -> None:
         blocks: list[dict] = [
             {"type": "text", "text": 42},  # type: ignore[dict-item]
         ]
-        result = vault_common.extract_text_from_content(blocks)
+        result = vault_hooks.extract_text_from_content(blocks)
         assert result == ""
 
     def test_non_list_non_string_returns_empty(self) -> None:
-        assert vault_common.extract_text_from_content(42) == ""  # type: ignore[arg-type]
+        assert vault_hooks.extract_text_from_content(42) == ""  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -452,12 +457,12 @@ class TestExtractTextFromContent:
 
 
 class TestReadLastNLines:
-    """Tests for parsidion.vault_common.read_last_n_lines."""
+    """Tests for parsidion.vault_fs.read_last_n_lines."""
 
     def test_basic(self, tmp_path: Path) -> None:
         f = tmp_path / "test.txt"
         f.write_text("line1\nline2\nline3\nline4\nline5\n", encoding="utf-8")
-        result = vault_common.read_last_n_lines(f, 3)
+        result = vault_fs.read_last_n_lines(f, 3)
         assert len(result) == 3
         assert result[0].strip() == "line3"
         assert result[1].strip() == "line4"
@@ -466,24 +471,24 @@ class TestReadLastNLines:
     def test_fewer_lines_than_requested(self, tmp_path: Path) -> None:
         f = tmp_path / "test.txt"
         f.write_text("line1\nline2\n", encoding="utf-8")
-        result = vault_common.read_last_n_lines(f, 10)
+        result = vault_fs.read_last_n_lines(f, 10)
         assert len(result) == 2
 
     def test_empty_file(self, tmp_path: Path) -> None:
         f = tmp_path / "test.txt"
         f.write_text("", encoding="utf-8")
-        result = vault_common.read_last_n_lines(f, 5)
+        result = vault_fs.read_last_n_lines(f, 5)
         assert result == []
 
     def test_nonexistent_file(self, tmp_path: Path) -> None:
         f = tmp_path / "nonexistent.txt"
-        result = vault_common.read_last_n_lines(f, 5)
+        result = vault_fs.read_last_n_lines(f, 5)
         assert result == []
 
     def test_single_line(self, tmp_path: Path) -> None:
         f = tmp_path / "test.txt"
         f.write_text("only line\n", encoding="utf-8")
-        result = vault_common.read_last_n_lines(f, 1)
+        result = vault_fs.read_last_n_lines(f, 1)
         assert len(result) == 1
         assert result[0].strip() == "only line"
 
@@ -496,7 +501,7 @@ class TestReadLastNLines:
         f = tmp_path / "large.txt"
         lines = [f"line-{i}\n" for i in range(10000)]
         f.write_text("".join(lines), encoding="utf-8")
-        result = vault_common.read_last_n_lines(f, 5)
+        result = vault_fs.read_last_n_lines(f, 5)
         assert len(result) == 5
         assert result[0].strip() == "line-9995"
         assert result[4].strip() == "line-9999"
@@ -505,7 +510,7 @@ class TestReadLastNLines:
         """Files with non-UTF-8 content should not raise (errors='replace')."""
         f = tmp_path / "binary.txt"
         f.write_bytes(b"good line\n\xff\xfe bad bytes\n")
-        result = vault_common.read_last_n_lines(f, 5)
+        result = vault_fs.read_last_n_lines(f, 5)
         assert len(result) >= 1  # Should not raise
 
 
@@ -528,11 +533,11 @@ class TestFileLocking:
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
         with open(f, encoding="utf-8") as fh, open(f, encoding="utf-8") as probe:
-            vault_common.flock_exclusive(fh)
+            vault_fs.flock_exclusive(fh)
             # Held: a non-blocking exclusive probe on a second fd must fail.
             with pytest.raises(BlockingIOError):
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            vault_common.funlock(fh)
+            vault_fs.funlock(fh)
             # Released: the probe acquires cleanly.
             fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
@@ -543,11 +548,11 @@ class TestFileLocking:
         f = tmp_path / "lockfile.txt"
         f.write_text("data", encoding="utf-8")
         with open(f, encoding="utf-8") as fh, open(f, encoding="utf-8") as probe:
-            vault_common.flock_shared(fh)
+            vault_fs.flock_shared(fh)
             # Shared locks are compatible -> probe acquires without blocking.
             fcntl.flock(probe.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
             fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
-            vault_common.funlock(fh)
+            vault_fs.funlock(fh)
 
     def test_multiple_shared_locks_block_exclusive_probe(self, tmp_path: Path) -> None:
         """Two concurrently-held shared locks are observable: an exclusive
@@ -559,13 +564,13 @@ class TestFileLocking:
             open(f, encoding="utf-8") as fh2,
             open(f, encoding="utf-8") as probe,
         ):
-            vault_common.flock_shared(fh1)
-            vault_common.flock_shared(fh2)
+            vault_fs.flock_shared(fh1)
+            vault_fs.flock_shared(fh2)
             # Both shared locks held -> exclusive non-blocking probe must fail.
             with pytest.raises(BlockingIOError):
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            vault_common.funlock(fh1)
-            vault_common.funlock(fh2)
+            vault_fs.funlock(fh1)
+            vault_fs.funlock(fh2)
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +585,7 @@ class TestCodexTranscriptHelpers:
         codex_home = tmp_path / ".codex"
         monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
-        roots = vault_common.allowed_transcript_roots(cwd=str(tmp_path))
+        roots = vault_hooks.allowed_transcript_roots(cwd=str(tmp_path))
 
         assert codex_home.resolve() / "sessions" in roots
 
@@ -593,8 +598,8 @@ class TestCodexTranscriptHelpers:
         transcript.write_text("", encoding="utf-8")
         monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
-        assert vault_common.is_codex_transcript_path(transcript)
-        assert vault_common.is_allowed_transcript_path(transcript, cwd=str(tmp_path))
+        assert vault_hooks.is_codex_transcript_path(transcript)
+        assert vault_hooks.is_allowed_transcript_path(transcript, cwd=str(tmp_path))
 
     def test_parse_codex_transcript_lines_extracts_assistant_text(self) -> None:
         lines = [
@@ -604,7 +609,7 @@ class TestCodexTranscriptHelpers:
             "not json",
         ]
 
-        assert vault_common.parse_codex_transcript_lines(lines) == [
+        assert vault_hooks.parse_codex_transcript_lines(lines) == [
             "Fixed the parser bug"
         ]
 
@@ -615,9 +620,7 @@ class TestCodexTranscriptHelpers:
             '{"type":"response_item","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Legacy item format"}]}}',
         ]
 
-        assert vault_common.parse_codex_transcript_lines(lines) == [
-            "Legacy item format"
-        ]
+        assert vault_hooks.parse_codex_transcript_lines(lines) == ["Legacy item format"]
 
 
 class TestAntigravityTranscriptHelpers:
@@ -629,13 +632,13 @@ class TestAntigravityTranscriptHelpers:
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.delenv("ANTIGRAVITY_HOME", raising=False)
         monkeypatch.delenv("GEMINI_HOME", raising=False)
-        assert vault_common.antigravity_home() == (home / ".gemini").resolve()
+        assert vault_hooks.antigravity_home() == (home / ".gemini").resolve()
         # The legacy GEMINI_HOME knob is gone from the cutover: setting it
         # must NOT redirect the antigravity root.
         monkeypatch.setenv("GEMINI_HOME", str(tmp_path / "legacy"))
-        assert vault_common.antigravity_home() == (home / ".gemini").resolve()
+        assert vault_hooks.antigravity_home() == (home / ".gemini").resolve()
         monkeypatch.setenv("ANTIGRAVITY_HOME", str(ag))
-        assert vault_common.antigravity_home() == ag.resolve()
+        assert vault_hooks.antigravity_home() == ag.resolve()
 
     def test_allowed_transcript_roots_includes_antigravity_roots(
         self, monkeypatch, tmp_path: Path
@@ -646,7 +649,7 @@ class TestAntigravityTranscriptHelpers:
         project.mkdir()
         monkeypatch.setenv("HOME", str(home))
 
-        roots = vault_common.allowed_transcript_roots(cwd=str(project))
+        roots = vault_hooks.allowed_transcript_roots(cwd=str(project))
 
         assert (home / ".gemini" / "antigravity-cli" / "brain").resolve() in roots
         # No broad ~/.gemini root and no project-local .gemini root exist
@@ -673,7 +676,7 @@ class TestAntigravityTranscriptHelpers:
         good.write_text("", encoding="utf-8")
         monkeypatch.setenv("HOME", str(home))
 
-        assert vault_common.is_antigravity_transcript_path(good, cwd=str(project))
+        assert vault_hooks.is_antigravity_transcript_path(good, cwd=str(project))
         # Arbitrary files under the home root (legacy layout, configs) and
         # project-local .gemini trees are NOT antigravity transcripts.
         legacy = home / ".gemini" / "tmp" / "session.jsonl"
@@ -689,11 +692,11 @@ class TestAntigravityTranscriptHelpers:
             / "logs"
             / "transcript.jsonl"
         )
-        assert not vault_common.is_antigravity_transcript_path(legacy, cwd=str(project))
-        assert not vault_common.is_antigravity_transcript_path(local, cwd=str(project))
+        assert not vault_hooks.is_antigravity_transcript_path(legacy, cwd=str(project))
+        assert not vault_hooks.is_antigravity_transcript_path(local, cwd=str(project))
         # The umbrella read-allowlist covers the home-rooted transcript only.
-        assert vault_common.is_allowed_transcript_path(good, cwd=str(project))
-        assert not vault_common.is_allowed_transcript_path(local, cwd=str(project))
+        assert vault_hooks.is_allowed_transcript_path(good, cwd=str(project))
+        assert not vault_hooks.is_allowed_transcript_path(local, cwd=str(project))
 
     def test_parse_antigravity_transcript_lines_extracts_model_text(self) -> None:
         lines = [
@@ -703,7 +706,7 @@ class TestAntigravityTranscriptHelpers:
             "not json",
         ]
 
-        assert vault_common.parse_antigravity_transcript_lines(lines) == [
+        assert vault_hooks.parse_antigravity_transcript_lines(lines) == [
             "Fixed the parser bug",
             "Root cause was config",
         ]
@@ -729,7 +732,7 @@ class TestAntigravityTranscriptHelpers:
             ),
         ]
 
-        assert vault_common.parse_antigravity_transcript_lines(lines) == [
+        assert vault_hooks.parse_antigravity_transcript_lines(lines) == [
             "Pattern was useful",
             "First part\nSecond part",
         ]
@@ -747,9 +750,9 @@ def test_resolve_vault_defaults_to_parsidion_vault_for_new_installs(
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("CLAUDE_VAULT", raising=False)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
-    assert vault_common.resolve_vault() == home / "ParsidionVault"
+    assert vault_path.resolve_vault() == home / "ParsidionVault"
 
 
 def test_resolve_vault_uses_legacy_claude_vault_when_it_already_exists(
@@ -760,9 +763,9 @@ def test_resolve_vault_uses_legacy_claude_vault_when_it_already_exists(
     legacy.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("CLAUDE_VAULT", raising=False)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
-    assert vault_common.resolve_vault() == legacy
+    assert vault_path.resolve_vault() == legacy
 
 
 def test_resolve_vault_prefers_parsidion_vault_when_both_defaults_exist(
@@ -775,9 +778,9 @@ def test_resolve_vault_prefers_parsidion_vault_when_both_defaults_exist(
     legacy.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("CLAUDE_VAULT", raising=False)
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
-    assert vault_common.resolve_vault() == current
+    assert vault_path.resolve_vault() == current
 
 
 # ---------------------------------------------------------------------------
@@ -831,7 +834,7 @@ class TestValidateVaultPath:
 
 
 class TestParseFrontmatterMultilineScalars:
-    """Tests for multiline scalar support in parsidion.vault_common.parse_frontmatter.
+    """Tests for multiline scalar support in parsidion.vault_index.parse_frontmatter.
 
     The parser supports four block scalar indicators:
       ``|``  — literal block: lines joined with newlines
@@ -848,7 +851,7 @@ class TestParseFrontmatterMultilineScalars:
         content = (
             "---\nsummary: |\n  First line.\n  Second line.\ndate: 2026-01-01\n---\n"
         )
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["summary"] == "First line.\nSecond line."
         assert result["date"] == "2026-01-01"
 
@@ -857,39 +860,39 @@ class TestParseFrontmatterMultilineScalars:
         content = (
             "---\nsummary: >\n  First line.\n  Second line.\ndate: 2026-01-01\n---\n"
         )
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["summary"] == "First line. Second line."
         assert result["date"] == "2026-01-01"
 
     def test_literal_strip_variant(self) -> None:
         """``|-`` is the strip variant of the literal block."""
         content = "---\nnote: |-\n  Line one.\n  Line two.\nafter: done\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["note"] == "Line one.\nLine two."
 
     def test_folded_strip_variant(self) -> None:
         """``>-`` is the strip variant of the folded block."""
         content = "---\nnote: >-\n  Line one.\n  Line two.\nafter: done\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["note"] == "Line one. Line two."
 
     def test_block_ends_at_blank_line(self) -> None:
         """A blank line terminates a multiline scalar block."""
         content = "---\nsummary: |\n  Only this line.\n\ndate: 2026-01-01\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["summary"] == "Only this line."
         assert result["date"] == "2026-01-01"
 
     def test_block_ends_at_eof(self) -> None:
         """A multiline scalar that ends at the closing --- fence is flushed."""
         content = "---\nsummary: |\n  Flushed at end.\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["summary"] == "Flushed at end."
 
     def test_single_continuation_line(self) -> None:
         """A block with a single indented line works correctly."""
         content = "---\nnote: >\n  Single line.\n---\n"
-        result = vault_common.parse_frontmatter(content)
+        result = vault_index.parse_frontmatter(content)
         assert result["note"] == "Single line."
 
 
@@ -899,11 +902,11 @@ class TestParseFrontmatterMultilineScalars:
 
 
 class TestGetBody:
-    """Tests for parsidion.vault_common.get_body."""
+    """Tests for parsidion.vault_index.get_body."""
 
     def test_with_frontmatter(self) -> None:
         content = "---\ndate: 2026-01-01\n---\n\n## Title\nBody text."
-        body = vault_common.get_body(content)
+        body = vault_index.get_body(content)
         # get_body returns everything after the closing "---\n"
         assert "## Title" in body
         assert "Body text." in body
@@ -911,5 +914,5 @@ class TestGetBody:
 
     def test_without_frontmatter(self) -> None:
         content = "# Just a heading\nBody text."
-        body = vault_common.get_body(content)
+        body = vault_index.get_body(content)
         assert body == content

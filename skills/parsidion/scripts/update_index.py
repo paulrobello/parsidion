@@ -52,30 +52,36 @@ from typing import (
     NamedTuple,
 )  # re-exported (update_index.NamedTuple) for backwards compat
 
-from parsidion.vault_common import (
+from parsidion.core.vault_index import (
     all_vault_notes_walk,  # re-exported for backwards compat
-    ensure_vault_dirs,  # re-exported for backwards compat
     extract_title,  # re-exported (update_index.extract_title)
     get_body,  # re-exported for backwards compat
-    get_config,
-    get_embeddings_db_path,
-    git_commit_vault,
-    is_process_running,
     parse_frontmatter,  # re-exported for backwards compat
-    resolve_vault,
+)
+from parsidion.core.vault_fs import (
+    ensure_vault_dirs,  # re-exported for backwards compat
+    git_commit_vault,
+)
+from parsidion.core.vault_config import get_config
+from parsidion.core.vault_hooks import (
+    is_process_running,
     write_hook_event,
 )
-from parsidion.vault_index import (
+from parsidion.core.vault_path import (
+    get_embeddings_db_path,
+    resolve_vault,
+)
+from parsidion.core.vault_index import (
     drain_parse_warnings,
     record_parse_warning,
 )  # re-exports
-from parsidion.vault_fs import (
+from parsidion.core.vault_fs import (
     atomic_write_text,
 )  # re-exported (update_index.atomic_write_text)
 
 from parsidion.core.otlp_metrics import emit_usage_metric
 
-import parsidion.parsight_backend as parsight_backend  # re-exported (update_index.parsight_backend) for backwards compat
+import parsidion.core.parsight_backend as parsight_backend  # re-exported (update_index.parsight_backend) for backwards compat
 
 # ---------------------------------------------------------------------------
 # Re-exports from parsidion.cli.index.* — every symbol the original update_index.py
@@ -136,7 +142,7 @@ def pid_file(vault: Path | None = None) -> Path:
     return vault / "index.pid"
 
 
-# QA-007: _is_process_running removed — now imported from parsidion.vault_common.
+# QA-007: _is_process_running removed — now imported from parsidion.core.vault_hooks.
 # Local alias preserves all existing call sites unchanged and is the
 # attribute ``tests/test_index_enhancements.py`` patches.
 _is_process_running = is_process_running

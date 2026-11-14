@@ -20,7 +20,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.core.vault_index as vault_index  # noqa: E402
 
 from parsidion.cli.stats import cli as stats_cli  # noqa: E402
 
@@ -39,7 +39,7 @@ def _patch_vault(tmp_vault: Path) -> None:
 
 @pytest.fixture()
 def vault(tmp_path: Path) -> Path:
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (tmp_path / d).mkdir(exist_ok=True)
     return tmp_path
 

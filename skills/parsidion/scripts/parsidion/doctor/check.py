@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_links as vault_links
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_links as vault_links
 
 from parsidion.doctor._state import (
     REQUIRED_FIELDS_ALL,
@@ -40,7 +40,7 @@ from parsidion.note_schema import (
 # visible. Each mirrors a shape found in the live vault; see
 # tests/test_frontmatter_syntax_checks.py.
 
-# Mirrors parsidion.vault_index._FRONTMATTER_RE. Duplicated rather than imported because
+# Mirrors parsidion.core.vault_index._FRONTMATTER_RE. Duplicated rather than imported because
 # that name is private to the parser; the shape (opening/closing bare fences) is
 # part of the note format, not of the parser's internals.
 _FM_BLOCK_RE = re.compile(r"\A---\s*\n(.*?\n)---\s*\n", re.DOTALL)
@@ -190,7 +190,7 @@ def _report_frontmatter_defects(
         )
 
     # An orphan close bracket left in the body by a collapsed inline list.
-    for bline in vault_common.get_body(content).splitlines():
+    for bline in vault_index.get_body(content).splitlines():
         if not bline.strip():
             continue
         if bline.strip() in ("]", "],"):
@@ -363,7 +363,7 @@ def _check_heading_mismatch(
     """HEADING_MISMATCH: ## present but no # heading (not daily)."""
     if ctx.is_daily:
         return []
-    body = vault_common.get_body(content)
+    body = vault_index.get_body(content)
     has_h1 = False
     first_h2_line: str | None = None
     for bline in body.splitlines():
@@ -562,7 +562,7 @@ def check_note(
                 issues.append(issue)
 
     # Parse frontmatter
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     if not fm:
         if enabled_rules is None or "frontmatter-syntax" in enabled_rules:
             issues.append(

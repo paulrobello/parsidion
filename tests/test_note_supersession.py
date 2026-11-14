@@ -20,7 +20,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.vault_links as vault_links  # noqa: E402
+import parsidion.core.vault_links as vault_links  # noqa: E402
 from parsidion.core import parsight_backend  # noqa: E402
 from parsidion.core.vault_index import (  # noqa: E402
     ensure_note_index_schema,

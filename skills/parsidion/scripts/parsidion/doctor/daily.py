@@ -12,9 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
-import parsidion.vault_links as vault_links
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_links as vault_links
 
 from parsidion.doctor._state import SCRIPTS_DIR, _backup_note
 
@@ -39,7 +39,7 @@ def run_migrate_daily_notes(
             ``$USER`` environment variable when empty.
     """
     if not username:
-        username = vault_common.get_vault_username()
+        username = vault_fs.get_vault_username()
 
     daily_root = vault_root / "Daily"
     if not daily_root.exists():
@@ -141,7 +141,7 @@ def run_migrate_daily_notes(
 
     # --- Commit and rebuild index ---
     all_changed = [new for _, new in moved] + updated_rollups
-    vault_common.git_commit_vault(
+    vault_fs.git_commit_vault(
         f"refactor(vault): migrate {len(moved)} daily note(s) to DD-{username}.md format",
         paths=all_changed,
     )
@@ -151,7 +151,7 @@ def run_migrate_daily_notes(
         subprocess.run(
             ["uv", "run", "--no-project", str(update_index_script)],
             check=True,
-            env=vault_common.env_without_claudecode(),
+            env=vault_hooks.env_without_claudecode(),
             timeout=60,
         )
         print("Index rebuilt.")

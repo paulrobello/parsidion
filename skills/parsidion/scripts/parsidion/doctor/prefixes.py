@@ -14,9 +14,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
-import parsidion.vault_links as vault_links
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_links as vault_links
 
 from parsidion.doctor._state import _active_vault, _backup_note
 
@@ -65,7 +65,7 @@ def run_strip_prefixes(
     """
     if vault_path is None:
         vault_path = _active_vault()
-    all_notes = list(vault_common.all_vault_notes_walk(vault_path))
+    all_notes = list(vault_index.all_vault_notes_walk(vault_path))
     pairs = _find_redundant_prefixes(all_notes, vault_path)
 
     if not pairs:
@@ -129,7 +129,7 @@ def run_strip_prefixes(
     # Patch wikilinks and plain path references vault-wide (including in the
     # renamed files)
     patched_notes = 0
-    current_notes = list(vault_common.all_vault_notes_walk(vault_path))
+    current_notes = list(vault_index.all_vault_notes_walk(vault_path))
     for note in current_notes:
         try:
             content = note.read_text(encoding="utf-8")
@@ -143,7 +143,7 @@ def run_strip_prefixes(
             vault_fs.atomic_write_text(note, content)
             patched_notes += 1
 
-    vault_common.git_commit_vault(
+    vault_fs.git_commit_vault(
         f"refactor(vault): strip redundant subfolder prefix from {len(renamed)} note(s)",
         vault=vault_path,
     )

@@ -551,7 +551,7 @@ def write_note_with_reason(
         slug = "session-note"
     target_dir = vault / folder_name
     resolved = (target_dir / f"{slug}.md").resolve()
-    # SEC-130: route through parsidion.vault_path.is_path_inside_vault so this check
+    # SEC-130: route through parsidion.core.vault_path.is_path_inside_vault so this check
     # cannot drift from the other three containment sites.
     if not is_path_inside_vault(resolved, vault):
         raise ValueError(f"Refusing to write outside vault: {resolved}")
@@ -600,7 +600,7 @@ def write_note_with_reason(
             + _note_body(note_content)
             + "\n"
         )
-        # SEC-127: route through parsidion.vault_fs.atomic_write_text so the rewrite is
+        # SEC-127: route through parsidion.core.vault_fs.atomic_write_text so the rewrite is
         # crash-atomic and preserves the existing file's mode.
         try:
             atomic_write_text(target_path, merged)
@@ -614,7 +614,7 @@ def write_note_with_reason(
             print(f"Error merging {target_path}: {e}", file=sys.stderr)
             return None, f"merge of existing {target_path.name} failed: {e}"
 
-    # SEC-127: route through parsidion.vault_fs.atomic_write_text (the create path was a
+    # SEC-127: route through parsidion.core.vault_fs.atomic_write_text (the create path was a
     # bare write_text; the merge path now uses the same primitive).
     try:
         atomic_write_text(target_path, note_content)

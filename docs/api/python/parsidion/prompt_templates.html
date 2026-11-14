@@ -234,7 +234,7 @@ covered by <code>tests/test_stdlib_only.py</code>.</p>
 </span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>
 </span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>
 </span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a><span class="c1">#: The directory holding template files, resolved once per process via</span>
-</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="c1">#: :func:`parsidion.vault_common.resolve_templates_dir`. Tests reset the cache after</span>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="c1">#: :func:`parsidion.core.vault_path.resolve_templates_dir`. Tests reset the cache after</span>
 </span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a><span class="c1">#: monkeypatching the resolver.</span>
 </span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_templates_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 </span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a>    <span class="k">return</span> <span class="n">resolve_templates_dir</span><span class="p">()</span> <span class="o">/</span> <span class="s2">"prompts"</span>
@@ -243,7 +243,7 @@ covered by <code>tests/test_stdlib_only.py</code>.</p>
 </span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="k">def</span><span class="w"> </span><span class="nf">_parse_frontmatter</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="nb">str</span><span class="p">]:</span>
 </span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a><span class="w">    </span><span class="sd">"""Split a template file into ``(frontmatter_dict, body)``.</span>
 </span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a>
-</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="sd">    Reuses :func:`parsidion.vault_common.parse_frontmatter` for value parsing so there is</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="sd">    Reuses :func:`parsidion.core.vault_index.parse_frontmatter` for value parsing so there is</span>
 </span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="sd">    exactly one frontmatter parser in the codebase. Returns ``({}, text)`` when</span>
 </span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="sd">    the file has no opening ``---`` block (legacy templates), so the loader is</span>
 </span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="sd">    backward-compatible with the two pre-existing summarizer prompts.</span>
@@ -311,7 +311,7 @@ covered by <code>tests/test_stdlib_only.py</code>.</p>
 </span><span id="L-169"><a href="#L-169"><span class="linenos">169</span></a><span class="k">def</span><span class="w"> </span><span class="nf">load_prompt</span><span class="p">(</span><span class="n">prompt_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PromptTemplate</span><span class="p">:</span>
 </span><span id="L-170"><a href="#L-170"><span class="linenos">170</span></a><span class="w">    </span><span class="sd">"""Load and cache the template identified by *prompt_id*.</span>
 </span><span id="L-171"><a href="#L-171"><span class="linenos">171</span></a>
-</span><span id="L-172"><a href="#L-172"><span class="linenos">172</span></a><span class="sd">    Resolution mirrors :func:`parsidion.vault_common.resolve_templates_dir`: the sibling</span>
+</span><span id="L-172"><a href="#L-172"><span class="linenos">172</span></a><span class="sd">    Resolution mirrors :func:`parsidion.core.vault_path.resolve_templates_dir`: the sibling</span>
 </span><span id="L-173"><a href="#L-173"><span class="linenos">173</span></a><span class="sd">    ``templates/prompts/`` directory next to this script (repo source layout)</span>
 </span><span id="L-174"><a href="#L-174"><span class="linenos">174</span></a><span class="sd">    or the installed ``~/.claude/skills/parsidion/templates`` location. The</span>
 </span><span id="L-175"><a href="#L-175"><span class="linenos">175</span></a><span class="sd">    file is named ``&lt;prompt_id&gt;.md``.</span>
@@ -637,7 +637,7 @@ template from a rendering bug.</p>
 </span><span id="load_prompt-170"><a href="#load_prompt-170"><span class="linenos">170</span></a><span class="k">def</span><span class="w"> </span><span class="nf">load_prompt</span><span class="p">(</span><span class="n">prompt_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PromptTemplate</span><span class="p">:</span>
 </span><span id="load_prompt-171"><a href="#load_prompt-171"><span class="linenos">171</span></a><span class="w">    </span><span class="sd">"""Load and cache the template identified by *prompt_id*.</span>
 </span><span id="load_prompt-172"><a href="#load_prompt-172"><span class="linenos">172</span></a>
-</span><span id="load_prompt-173"><a href="#load_prompt-173"><span class="linenos">173</span></a><span class="sd">    Resolution mirrors :func:`parsidion.vault_common.resolve_templates_dir`: the sibling</span>
+</span><span id="load_prompt-173"><a href="#load_prompt-173"><span class="linenos">173</span></a><span class="sd">    Resolution mirrors :func:`parsidion.core.vault_path.resolve_templates_dir`: the sibling</span>
 </span><span id="load_prompt-174"><a href="#load_prompt-174"><span class="linenos">174</span></a><span class="sd">    ``templates/prompts/`` directory next to this script (repo source layout)</span>
 </span><span id="load_prompt-175"><a href="#load_prompt-175"><span class="linenos">175</span></a><span class="sd">    or the installed ``~/.claude/skills/parsidion/templates`` location. The</span>
 </span><span id="load_prompt-176"><a href="#load_prompt-176"><span class="linenos">176</span></a><span class="sd">    file is named ``&lt;prompt_id&gt;.md``.</span>
@@ -690,7 +690,7 @@ template from a rendering bug.</p>
 
             <div class="docstring"><p>Load and cache the template identified by <em>prompt_id</em>.</p>
 
-<p>Resolution mirrors <code><a href="vault_common.html#resolve_templates_dir">parsidion.vault_common.resolve_templates_dir()</a></code>: the sibling
+<p>Resolution mirrors <code><a href="core/vault_path.html#resolve_templates_dir">parsidion.core.vault_path.resolve_templates_dir()</a></code>: the sibling
 <code>templates/prompts/</code> directory next to this script (repo source layout)
 or the installed <code>~/.claude/skills/parsidion/templates</code> location. The
 file is named <code>&lt;prompt_id&gt;.md</code>.</p>

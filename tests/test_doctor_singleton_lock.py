@@ -5,7 +5,7 @@ The old guard in ``doctor/cli.py`` read a ``pid`` key from
 own pid back — an unlocked read-check-write (two doctors could both pass), and
 ``is_process_running`` returned True on PermissionError, so a leftover
 ``pid: 1`` blocked doctor runs forever. The guard is now the flock-based
-``parsidion.vault_fs.try_singleton_lock`` on ``<vault>/.doctor.lock``; the kernel
+``parsidion.core.vault_fs.try_singleton_lock`` on ``<vault>/.doctor.lock``; the kernel
 releases it when the holder dies, so stale-PID recovery disappears.
 """
 
@@ -24,8 +24,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.vault_fs as vault_fs  # noqa: E402
-import parsidion.vault_hooks as vault_hooks  # noqa: E402
+import parsidion.core.vault_fs as vault_fs  # noqa: E402
+import parsidion.core.vault_hooks as vault_hooks  # noqa: E402
 
 
 class TestDoctorSingletonLock:

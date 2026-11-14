@@ -29,7 +29,7 @@ def run_health(
             in well under a second on large vaults. The metadata dimension
             reports "skipped (--fast)" with a neutral score.
     """
-    import parsidion.vault_health as vault_health
+    import parsidion.core.vault_health as vault_health
 
     report = vault_health.compute_health_report(vault, skip_metadata=fast)
     if as_json:

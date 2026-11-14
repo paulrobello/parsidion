@@ -52,7 +52,7 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
 from embed_eval_common import (
     DEFAULT_WORKERS,
     ComboResult,
@@ -323,7 +323,7 @@ def run_evaluation(
         List of ComboResult sorted by MRR descending.
     """
     # Index vault notes -- eval notes always included; distractors fill the rest.
-    all_notes: list[Path] = vault_common.all_vault_notes()
+    all_notes: list[Path] = vault_index.all_vault_notes()
 
     if not all_notes:
         console.print("[red]No vault notes found.[/red]")

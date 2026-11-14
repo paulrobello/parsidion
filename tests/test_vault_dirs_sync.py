@@ -1,18 +1,19 @@
-"""ARC-005: Assert installer VAULT_DIRS tracks parsidion.vault_path.VAULT_DIRS at runtime.
+"""ARC-005: Assert installer VAULT_DIRS tracks parsidion.core.vault_path.VAULT_DIRS at runtime.
 
 Previously this was a regex-parse of vault_common.py, but the canonical
 definition moved to vault_path.py during the module split. The regex
 silently failed and installer.VAULT_DIRS was always the hardcoded
 fallback -- this test asserts the *mechanism*: monkeypatching
-parsidion.vault_path.VAULT_DIRS must be reflected in installer.VAULT_DIRS, so the
+parsidion.core.vault_path.VAULT_DIRS must be reflected in installer.VAULT_DIRS, so the
 class of bug where the two drift silently cannot recur.
 """
 
 import pytest
 
-import parsidion.vault_common as vault_common
-import parsidion.vault_path as vault_path
+
 import installer.paths as installer_paths  # noqa: E402
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
 
 
 class TestVaultDirsSync:
@@ -37,7 +38,7 @@ class TestVaultDirsSync:
         )
 
     def test_vault_dirs_preserves_order(self) -> None:
-        """VAULT_DIRS in install.py should preserve order from parsidion.vault_path."""
+        """VAULT_DIRS in install.py should preserve order from parsidion.core.vault_path."""
         assert vault_path.VAULT_DIRS == installer_paths.VAULT_DIRS, (
             "VAULT_DIRS order mismatch!\n"
             f"  vault_path: {vault_path.VAULT_DIRS}\n"
@@ -45,16 +46,16 @@ class TestVaultDirsSync:
         )
 
     def test_vault_dirs_common_reexport_matches_path(self) -> None:
-        """parsidion.vault_common.VAULT_DIRS (back-compat facade) must match vault_path."""
-        assert set(vault_common.VAULT_DIRS) == set(vault_path.VAULT_DIRS), (
-            "parsidion.vault_common.VAULT_DIRS has drifted from parsidion.vault_path.VAULT_DIRS. "
+        """parsidion.vault_index.VAULT_DIRS (back-compat facade) must match vault_path."""
+        assert set(vault_index.VAULT_DIRS) == set(vault_path.VAULT_DIRS), (
+            "parsidion.vault_index.VAULT_DIRS has drifted from parsidion.core.vault_path.VAULT_DIRS. "
             "The facade should re-export the canonical constant."
         )
 
     def test_mechanism_installer_tracks_vault_path_monkeypatch(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Patching parsidion.vault_path.VAULT_DIRS must surface via installer_paths.VAULT_DIRS.
+        """Patching parsidion.core.vault_path.VAULT_DIRS must surface via installer_paths.VAULT_DIRS.
 
         This is the structural guard against the original bug: the regex
         parse silently returned the fallback, so the values happened to
@@ -65,7 +66,7 @@ class TestVaultDirsSync:
         sentinel = ["__sentinel__", "Daily"]
         monkeypatch.setattr(vault_path, "VAULT_DIRS", sentinel)
         # Re-resolve from the patched source. _extract_vault_dirs reads
-        # parsidion.vault_path.VAULT_DIRS via the import path (the test path was
+        # parsidion.core.vault_path.VAULT_DIRS via the import path (the test path was
         # inserted at installer import time; sys.modules already has it).
         from installer import paths as installer_paths
 

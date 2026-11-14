@@ -13,7 +13,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import parsidion.subproc_util as subproc_util  # noqa: E402
+import parsidion.core.subproc_util as subproc_util  # noqa: E402
 
 
 def test_run_with_pgkill_returns_ok_on_normal_completion(tmp_path: Path) -> None:

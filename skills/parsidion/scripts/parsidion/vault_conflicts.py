@@ -18,9 +18,15 @@ from typing import Any
 
 from parsidion.core.otlp_metrics import emit_usage_metric
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_path as vault_path
 from parsidion.prompt_templates import render
-from parsidion.vault_path import active_vault_scope, is_path_inside_vault
+from parsidion.core.vault_path import (
+    resolve_vault,
+    active_vault_scope,
+    is_path_inside_vault,
+)
 
 # SEC-020: one stderr note per process when DB-sourced paths get skipped.
 _skipped_outside_warned = False
@@ -111,7 +117,7 @@ def _load_embeddings(
     """
     import sqlite3
 
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = vault_path.get_embeddings_db_path(vault)
     if not db_path.exists():
         return [], []
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -193,7 +199,7 @@ def _sqlite_pairwise(
         import sqlite_vec  # type: ignore[import-untyped]
     except ImportError:
         return None
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = vault_path.get_embeddings_db_path(vault)
     if not db_path.exists():
         return None
     max_dist = 1.0 - threshold
@@ -288,7 +294,7 @@ def _detect_contradictions(
     """
     if no_ai or len(records) < 2:
         return []
-    import parsidion.ai_backend as ai_backend
+    import parsidion.core.ai_backend as ai_backend
 
     prompt = _build_prompt(records)
     raw = ai_backend.run_ai_prompt(
@@ -327,7 +333,7 @@ def write_conflict_report(conflicts: list[dict[str, Any]], vault: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".json.tmp")
     with open(dest, "a", encoding="utf-8") as lock_fh:
-        vault_common.flock_exclusive(lock_fh)
+        vault_fs.flock_exclusive(lock_fh)
         tmp.write_text(json.dumps(conflicts, indent=2) + "\n", encoding="utf-8")
         tmp.replace(dest)
 
@@ -520,9 +526,9 @@ def main() -> None:
     args = parser.parse_args()
     emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-conflicts"})
 
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=str(Path.cwd()))
+    vault_path = resolve_vault(explicit=args.vault, cwd=str(Path.cwd()))
 
-    vault_common.apply_configured_env_defaults(vault=vault_path)
+    vault_hooks.apply_configured_env_defaults(vault=vault_path)
 
     # ARC-001: the scope covers exactly the span the old patch spanned (the
     # scan): argument-less resolve_vault() calls in scan helpers land on the
@@ -543,7 +549,7 @@ def main() -> None:
     if not args.scan_only:
         _run_tui(conflicts, vault_path, execute=args.execute)
         if args.execute:
-            vault_common.git_commit_vault(
+            vault_fs.git_commit_vault(
                 "docs(vault): resolve detected contradictions via supersession",
                 vault=vault_path,
             )

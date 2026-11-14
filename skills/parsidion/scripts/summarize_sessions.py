@@ -48,9 +48,12 @@ from typing import NamedTuple, cast
 
 import anyio  # type: ignore[import-untyped]
 
-import parsidion.ai_backend as ai_backend  # re-exported for tests (summarize_sessions.ai_backend)
-import parsidion.vault_common as vault_common
-import parsidion.vault_links as vault_links  # re-exported for tests (summarize_sessions.vault_links)
+import parsidion.core.ai_backend as ai_backend  # re-exported for tests (summarize_sessions.ai_backend)
+import parsidion.core.vault_config as vault_config
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_links as vault_links  # re-exported for tests (summarize_sessions.vault_links)
 from parsidion.core.subproc_util import run_with_pgkill
 
 # Constants, sentinels, enums, regexes, and default config values (ARC-009).
@@ -180,7 +183,7 @@ async def run_all(
     """
     # ARC-010: collect vault notes once per run and pass to every per-entry
     # function so we don't call all_vault_notes() up to 3x per entry.
-    vault_notes: list[Path] = vault_common.all_vault_notes(vault)
+    vault_notes: list[Path] = vault_index.all_vault_notes(vault)
     existing_tags = read_existing_tags(vault)
     project_names = read_project_names(vault_notes=vault_notes, vault=vault)
     # Filter project names out -- they're injected post-generation, not chosen by the model
@@ -310,6 +313,7 @@ from parsidion.summarizer.queue import (  # re-exported for tests
 )
 
 
+from parsidion.core.vault_path import resolve_vault
 from parsidion.summarizer.lock import (  # re-exported for tests
     _load_summarizer_state,
     _summarizer_claim_lock_file,
@@ -509,7 +513,7 @@ def _resurrect_stale_write_gate_skips(vault: Path) -> int:
         categories = (
             {str(c): [] for c in raw_cats} if isinstance(raw_cats, list) else {}
         )
-        vault_common.append_to_pending(
+        vault_fs.append_to_pending(
             Path(str(record.get("transcript_path", ""))),
             str(record.get("project", "unknown")),
             categories,
@@ -619,7 +623,7 @@ def _requeue_dead_letters(
         categories = (
             {str(c): [] for c in raw_cats} if isinstance(raw_cats, list) else {}
         )
-        vault_common.append_to_pending(
+        vault_fs.append_to_pending(
             Path(str(record.get("transcript_path", ""))),
             str(record.get("project", "unknown")),
             categories,
@@ -693,7 +697,7 @@ def _clamp_max_parallel(value: object) -> int:
 
 def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
     """Resolve defaults → config → CLI args (CLI wins) into a typed bundle."""
-    configured_model = vault_common.get_config("summarizer", "model", None)
+    configured_model = vault_config.get_config("summarizer", "model", None)
     if args.model is not None:
         model: str | None = args.model
     elif isinstance(configured_model, str) and configured_model.strip():
@@ -706,18 +710,18 @@ def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
     # there was no way to disable from the CLI for a single run.
     persist: bool = _resolve(args.persist, "summarizer", "persist", False)
     max_parallel: int = _clamp_max_parallel(
-        vault_common.get_config("summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL)
+        vault_config.get_config("summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL)
     )
-    tail_lines: int = vault_common.get_config(
+    tail_lines: int = vault_config.get_config(
         "summarizer", "transcript_tail_lines", _DEFAULT_TRANSCRIPT_TAIL_LINES
     )
-    tail_bytes: int | None = vault_common.get_config(
+    tail_bytes: int | None = vault_config.get_config(
         "summarizer", "transcript_tail_bytes", _DEFAULT_TRANSCRIPT_TAIL_BYTES
     )
-    max_cleaned_chars: int = vault_common.get_config(
+    max_cleaned_chars: int = vault_config.get_config(
         "summarizer", "max_cleaned_chars", _DEFAULT_MAX_CLEANED_CHARS
     )
-    configured_cluster_model = vault_common.get_config(
+    configured_cluster_model = vault_config.get_config(
         "summarizer", "cluster_model", None
     )
     cluster_model: str | None = (
@@ -867,7 +871,7 @@ def _dequeue_and_finalize(
             for e in successful
         }
         project_str = ", ".join(sorted(projects))
-        vault_common.git_commit_vault(
+        vault_fs.git_commit_vault(
             f"chore(vault): add session notes [{project_str}]",
             vault=vault_path,
         )
@@ -896,8 +900,8 @@ def main() -> None:
     options = _resolve_options(args)
 
     # Resolve vault
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
-    vault_common.apply_configured_env_defaults(vault=vault_path)
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_hooks.apply_configured_env_defaults(vault=vault_path)
 
     # Singleton guard — only one summarizer may run at a time per vault.
     if not claim_summarizer_lock(vault_path):
@@ -908,7 +912,7 @@ def main() -> None:
     # dead_letters.jsonl (which accumulates every sticky write-gate skip) stays
     # bounded. Runs every invocation regardless of pending work.
     _retention_days = int(
-        vault_common.get_config(
+        vault_config.get_config(
             "summarizer",
             "dead_letter_retention_days",
             _DEAD_LETTER_RETENTION_DAYS,
@@ -944,7 +948,7 @@ def main() -> None:
         # semantic-search comment documents. run_with_pgkill captures output,
         # so it is relayed here to preserve the previous console behaviour.
         _doctor_timeout = int(
-            vault_common.get_config(
+            vault_config.get_config(
                 "summarizer",
                 "doctor_timeout",
                 _DOCTOR_TIMEOUT_SECS,

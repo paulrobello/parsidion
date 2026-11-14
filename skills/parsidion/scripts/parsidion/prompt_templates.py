@@ -92,7 +92,7 @@ class PromptTemplate:
 
 
 #: The directory holding template files, resolved once per process via
-#: :func:`parsidion.vault_common.resolve_templates_dir`. Tests reset the cache after
+#: :func:`parsidion.core.vault_path.resolve_templates_dir`. Tests reset the cache after
 #: monkeypatching the resolver.
 def _templates_dir() -> Path:
     return resolve_templates_dir() / "prompts"
@@ -101,7 +101,7 @@ def _templates_dir() -> Path:
 def _parse_frontmatter(text: str) -> tuple[dict[str, object], str]:
     """Split a template file into ``(frontmatter_dict, body)``.
 
-    Reuses :func:`parsidion.vault_common.parse_frontmatter` for value parsing so there is
+    Reuses :func:`parsidion.core.vault_index.parse_frontmatter` for value parsing so there is
     exactly one frontmatter parser in the codebase. Returns ``({}, text)`` when
     the file has no opening ``---`` block (legacy templates), so the loader is
     backward-compatible with the two pre-existing summarizer prompts.
@@ -169,7 +169,7 @@ def _coerce_variables(raw: object) -> tuple[str, ...]:
 def load_prompt(prompt_id: str) -> PromptTemplate:
     """Load and cache the template identified by *prompt_id*.
 
-    Resolution mirrors :func:`parsidion.vault_common.resolve_templates_dir`: the sibling
+    Resolution mirrors :func:`parsidion.core.vault_path.resolve_templates_dir`: the sibling
     ``templates/prompts/`` directory next to this script (repo source layout)
     or the installed ``~/.claude/skills/parsidion/templates`` location. The
     file is named ``<prompt_id>.md``.

@@ -1403,7 +1403,7 @@ exists, so the 0o700 intent never applied to a pre-existing <code>~/.claude/logs
             <div class="docstring"><p>Scope argument-less <code><a href="#resolve_vault">resolve_vault()</a></code> calls to <em>vault</em> (ARC-001).</p>
 
 <p>CLI entry points resolve <code>--vault</code> once and enter this scope instead of
-mutating <code><a href="#VAULT_ROOT">parsidion.vault_common.VAULT_ROOT</a></code> (the ARC-003-deprecated mechanism
+mutating <code>parsidion.vault_common.VAULT_ROOT</code> (the ARC-003-deprecated mechanism
 that <code><a href="#resolve_vault">resolve_vault()</a></code> branch 4 reads only to warn about). Inside the
 scope, argument-less <code><a href="#resolve_vault">resolve_vault()</a></code> calls deep in helper code return
 the scoped vault; an explicit argument still wins, and a nested scope

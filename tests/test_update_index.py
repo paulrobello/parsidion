@@ -14,7 +14,7 @@ import update_index
 
 
 class TestExtractTitle:
-    """Tests for update_index._extract_title (delegates to parsidion.vault_common.extract_title)."""
+    """Tests for update_index._extract_title (delegates to parsidion.core.vault_index.extract_title)."""
 
     def test_heading_extracted(self) -> None:
         content = "---\ndate: 2026-01-01\n---\n\n# My Note Title\nBody.\n"
@@ -177,7 +177,7 @@ class TestStaticOnlySuppressesModelWork:
             SimpleNamespace(Popen=fake_popen, DEVNULL=-3),
         )
 
-        import parsidion.parsight_backend as parsight_backend
+        import parsidion.core.parsight_backend as parsight_backend
 
         monkeypatch.setattr(
             parsight_backend,

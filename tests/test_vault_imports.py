@@ -61,7 +61,7 @@ class TestArc023Cycle1:
     """``vault_fs`` and ``vault_hooks`` must not form a top-level cycle.
 
     Pre-ARC-023 the cycle was masked by ``append_session_to_daily`` doing a
-    function-body ``from parsidion.vault_hooks import TRANSCRIPT_CATEGORY_LABELS``.
+    function-body ``from parsidion.core.vault_hooks import TRANSCRIPT_CATEGORY_LABELS``.
     The constant now lives in the ``vault_constants`` leaf and both modules
     top-level-import it, so neither direction of the vault_fs/vault_hooks
     edge may resurrect a cycle.
@@ -99,9 +99,9 @@ class TestArc023Cycle1:
             [
                 sys.executable,
                 "-c",
-                "import parsidion.vault_fs, parsidion.vault_hooks, parsidion.vault_constants; "
-                "assert parsidion.vault_hooks.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
-                "== parsidion.vault_fs.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
+                "import parsidion.core.vault_fs, parsidion.core.vault_hooks, parsidion.core.vault_constants; "
+                "assert parsidion.core.vault_hooks.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
+                "== parsidion.core.vault_fs.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
                 "== 'Error Resolution'",
             ],
             env={"PYTHONPATH": str(_SCRIPTS_DIR), "PATH": ""},
@@ -128,7 +128,8 @@ class TestArc023Cycle1:
         )
         # The old lazy import inside append_session_to_daily must be gone.
         assert (
-            "from parsidion.vault_hooks import TRANSCRIPT_CATEGORY_LABELS" not in src
+            "from parsidion.core.vault_hooks import TRANSCRIPT_CATEGORY_LABELS"
+            not in src
         ), (
             "vault_fs.py still lazy-imports TRANSCRIPT_CATEGORY_LABELS from "
             "vault_hooks -- the cycle was not fully hoisted"

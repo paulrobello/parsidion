@@ -39,8 +39,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import parsidion.parsight_backend as parsight_backend
-import parsidion.vault_common as vault_common
+import parsidion.core.parsight_backend as parsight_backend
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
+from parsidion.core.vault_path import resolve_vault
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +168,7 @@ def _search_notes(
     """
     if not q.strip():
         return []
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = vault_path.get_embeddings_db_path(vault)
     if db_path.exists() or parsight_backend.resolve_parsight_backend(vault):
         try:
             # Lazy import to avoid pulling fastembed at module level
@@ -181,14 +183,14 @@ def _search_notes(
     # Fallback: metadata title search via grep over all notes
     matched: list[dict[str, object]] = []
     q_lower = q.lower()
-    for note_path in vault_common.all_vault_notes(vault)[:200]:
+    for note_path in vault_index.all_vault_notes(vault)[:200]:
         if q_lower in note_path.stem.lower():
             try:
                 content = note_path.read_text(encoding="utf-8")
             except OSError:
                 continue
-            fm = vault_common.parse_frontmatter(content)
-            title = vault_common.extract_title(content, note_path.stem)
+            fm = vault_index.parse_frontmatter(content)
+            title = vault_index.extract_title(content, note_path.stem)
             tags = fm.get("tags", [])
             if isinstance(tags, str):
                 tags = [tags]
@@ -248,7 +250,7 @@ def interactive_search(vault: Path | None = None, backend: str | None = None) ->
         backend: ``auto | parsight | embeddings | none`` override; None reads
             the ``search.backend`` config key (default ``auto``).
     """
-    vault = vault or vault_common.resolve_vault()
+    vault = vault or vault_path.resolve_vault()
 
     def _run_tui(stdscr: Any) -> None:
         curses.curs_set(1)
@@ -385,7 +387,7 @@ def main() -> None:
         help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
     )
     args = parser.parse_args()
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
     interactive_search(vault_path)
 
 

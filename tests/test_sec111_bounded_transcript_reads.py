@@ -26,7 +26,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from parsidion.vault_fs import read_last_n_lines  # noqa: E402
+from parsidion.core.vault_fs import read_last_n_lines  # noqa: E402
 
 
 class TestReadLastNLinesByteBounding:

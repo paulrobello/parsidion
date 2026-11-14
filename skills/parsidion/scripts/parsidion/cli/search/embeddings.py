@@ -82,12 +82,12 @@ def _apply_decay(
 ) -> float:
     """Apply temporal decay to a semantic search score.
 
-    ARC-023: thin wrapper around ``parsidion.vault_config.apply_decay_score`` (the
+    ARC-023: thin wrapper around ``parsidion.core.vault_config.apply_decay_score`` (the
     canonical implementation moved there to break the vault_search ↔
     parsight_backend top-level cycle). Kept as a private alias so existing
     internal call sites and parsight_backend's lazy import (if any older copy of
     the module still references it) keep resolving during the transition.
-    New code should call ``parsidion.vault_config.apply_decay_score`` directly.
+    New code should call ``parsidion.core.vault_config.apply_decay_score`` directly.
     PRF-103: accepts the decay parameters explicitly so the scoring loop can
     resolve them once per search instead of per row.
     """

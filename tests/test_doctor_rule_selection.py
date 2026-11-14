@@ -29,6 +29,8 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import parsidion.doctor.cli as doctor_cli  # noqa: E402
 import parsidion.doctor.orchestrator as doctor_orch  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_path as vault_path  # noqa: E402
 import vault_doctor  # noqa: E402
 from parsidion.doctor.check import PRE_FM_RULES, RULES  # noqa: E402
 from parsidion.doctor.protocol import RULE_NAMES, RULE_SPECS  # noqa: E402
@@ -85,8 +87,8 @@ def _run_cli(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
     try:
         doctor_cli.main()
     finally:
-        vault_doctor.vault_common.clear_config_cache()
-        vault_doctor.vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_config.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
 
 
 class _Spy:
@@ -200,7 +202,7 @@ class TestOnlySkipSelection:
         )
         monkeypatch.setattr(doctor_orch, "_run_reindex", lambda *a, **kw: None)
         monkeypatch.setattr(
-            vault_doctor.vault_common, "git_commit_vault", lambda *a, **kw: None
+            vault_doctor.vault_fs, "git_commit_vault", lambda *a, **kw: None
         )
 
         _run_cli(monkeypatch, ["--fix-all", "--skip", "strip-prefixes", "--execute"])

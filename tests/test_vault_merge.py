@@ -18,7 +18,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.core.vault_index as vault_index  # noqa: E402
 import parsidion.vault_merge as vault_merge  # noqa: E402
 
 
@@ -28,7 +28,7 @@ import parsidion.vault_merge as vault_merge  # noqa: E402
 
 
 # ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var) instead
-# of monkeypatching parsidion.vault_common.VAULT_ROOT directly.
+# of monkeypatching parsidion.vault_path.VAULT_ROOT directly.
 @pytest.fixture(autouse=True)
 def _patch_vault(tmp_vault: Path) -> None:  # noqa: ARG001
     """Wire resolve_vault() to a fresh tmp dir via the tmp_vault fixture."""
@@ -37,7 +37,7 @@ def _patch_vault(tmp_vault: Path) -> None:  # noqa: ARG001
 @pytest.fixture()
 def vault(tmp_vault: Path) -> Path:
     """Create standard vault directories and return vault root."""
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (tmp_vault / d).mkdir(exist_ok=True)
     return tmp_vault
 
@@ -202,7 +202,7 @@ class TestMergeNotesNoAI:
         merged = vault_merge._merge_notes(
             path_a, content_a, path_b, content_b, no_ai=True
         )
-        fm = vault_common.parse_frontmatter(merged)
+        fm = vault_index.parse_frontmatter(merged)
         tags = fm.get("tags", [])
         assert "python" in tags
         assert "vault" in tags
@@ -251,7 +251,7 @@ class TestMergeNotesNoAI:
         merged = vault_merge._merge_notes(
             path_a, content_a, path_b, content_b, no_ai=True
         )
-        fm = vault_common.parse_frontmatter(merged)
+        fm = vault_index.parse_frontmatter(merged)
         assert fm.get("project") == "my-project"
 
 

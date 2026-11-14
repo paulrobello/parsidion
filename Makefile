@@ -76,11 +76,12 @@ config-docs-check:
 # (fastembed/sqlite_vec guard) are skipped because their top-level imports are
 # not satisfiable from the lightweight `docs` extra; html-to-md.py is a PEP 723
 # script and not importable as a module (hyphen).
-PDOC_MODULES := parsidion.core installer parsidion.vault_common parsidion.vault_config \
-	parsidion.vault_path parsidion.vault_fs parsidion.vault_index parsidion.vault_hooks \
-	parsidion.vault_adaptive parsidion.vault_metrics parsidion.vault_tui parsidion.vault_links \
-	parsidion.vault_new parsidion.vault_constants parsidion.vault_health parsidion.subproc_util \
-	parsidion.ai_backend parsidion.vault_embed_serve parsidion.parsight_backend \
+# ARC-200 step 2: the retired re-export shims (parsidion.vault_common,
+# vault_config, vault_path, vault_fs, vault_index, vault_hooks, vault_adaptive,
+# vault_metrics, vault_constants, vault_health, vault_links, subproc_util,
+# ai_backend, parsight_backend) left this list - each stub raises ImportError
+# at import, so pdoc has nothing to document.
+PDOC_MODULES := parsidion.core installer parsidion.vault_tui parsidion.vault_new parsidion.vault_embed_serve \
 	parsidion.note_schema parsidion.agent_adapter parsidion.prompt_templates \
 	session_start_hook session_stop_hook pre_compact_hook post_compact_hook \
 	subagent_stop_hook codex_session_start_hook codex_stop_hook codex_subagent_stop_hook \

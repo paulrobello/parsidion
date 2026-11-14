@@ -10,9 +10,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import parsidion.ai_backend as ai_backend
-import parsidion.vault_common as vault_common
-import parsidion.vault_fs as vault_fs
+import parsidion.core.ai_backend as ai_backend
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_fs as vault_fs
 
 from parsidion.doctor._state import (
     AI_TIMEOUT,
@@ -175,7 +175,7 @@ def _note_is_daily(rel: Path, content: str) -> bool:
     """A note is daily if it lives under ``Daily/`` or its frontmatter type is daily."""
     if rel.parts and rel.parts[0] == "Daily":
         return True
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     return bool(fm and fm.get("type") == "daily")
 
 
@@ -422,7 +422,7 @@ def _auto_fix_scalar_list_field(path: Path) -> bool:
         content = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    fm = vault_common.parse_frontmatter(content)
+    fm = vault_index.parse_frontmatter(content)
     if not fm:
         return False
 

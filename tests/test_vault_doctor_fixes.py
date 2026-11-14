@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
 import vault_doctor
 
 
@@ -29,7 +29,7 @@ def _patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def vault(tmp_vault: Path) -> Path:
     """Return the tmp vault path and create standard dirs."""
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (tmp_vault / d).mkdir(exist_ok=True)
     return tmp_vault
 

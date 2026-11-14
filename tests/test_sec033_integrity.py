@@ -18,7 +18,7 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "skills" / "parsidion/scripts")
 )
 
-import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.core.vault_index as vault_index
 import parsidion.vault_conflicts as vault_conflicts  # noqa: E402
 import parsidion.vault_merge as vault_merge  # noqa: E402
 from parsidion.core.vault_links import inject_related_links  # noqa: E402
@@ -71,21 +71,21 @@ class TestMergeFrontmatterQuoteEscaping:
         # which closes the same SEC-033 hazard the old \" escaping did.
         assert "'tag with \"quotes\"'" in fm
         # Round-trip through the vault's frontmatter parser.
-        parsed = vault_common.parse_frontmatter(fm)
+        parsed = vault_index.parse_frontmatter(fm)
         assert parsed.get("tags") == ['tag with "quotes"']
 
     def test_escaped_quote_does_not_split_the_list(self) -> None:
         fm = vault_merge._build_frontmatter(
             {"tags": ['a, comma "and" quote', "plain"], "related": [], "sources": []}
         )
-        parsed = vault_common.parse_frontmatter(fm)
+        parsed = vault_index.parse_frontmatter(fm)
         assert parsed.get("tags") == ['a, comma "and" quote', "plain"]
 
     def test_backslash_round_trips(self) -> None:
         fm = vault_merge._build_frontmatter(
             {"tags": ["path\\to\\thing"], "related": [], "sources": []}
         )
-        parsed = vault_common.parse_frontmatter(fm)
+        parsed = vault_index.parse_frontmatter(fm)
         assert parsed.get("tags") == ["path\\to\\thing"]
 
 

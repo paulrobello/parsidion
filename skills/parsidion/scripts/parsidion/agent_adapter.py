@@ -340,7 +340,7 @@ def _load_external_adapters() -> None:
     arbitrary Python is code execution, so the guards (mirroring SEC-117's
     reasoning for ``codex_cli.command``): off by default; the adapters
     directory and each file must pass the full SEC-007 trust criteria
-    (``parsidion.vault_fs.is_trusted_executable`` — owned by the current uid, no
+    (``parsidion.core.vault_fs.is_trusted_executable`` — owned by the current uid, no
     group/world write bits; a group-writable directory would let any group
     member plant a module); every load logged by path. Never raises — a
     broken external adapter must not break the registry or the hooks that
@@ -358,7 +358,7 @@ def _load_external_adapters() -> None:
             return
         import importlib.util
 
-        from parsidion.vault_fs import is_trusted_executable
+        from parsidion.core.vault_fs import is_trusted_executable
 
         adapters_dir = Path.home() / ".config" / "parsidion" / "adapters"
         if not adapters_dir.is_dir():
@@ -645,7 +645,7 @@ def _classify_session_with_ai(
 ) -> dict[str, object] | None:
     """Use the configured AI backend to classify whether a session should be queued.
 
-    Backend execution is delegated to parsidion.ai_backend.run_ai_prompt so Claude and
+    Backend execution is delegated to parsidion.core.ai_backend.run_ai_prompt so Claude and
     Codex model defaults are resolved consistently. Falls back to keyword
     heuristics (returns None) on any failure.
 

@@ -34,8 +34,8 @@ import sys  # re-exported for tests
 from collections.abc import Callable  # re-exported for tests
 from pathlib import Path  # re-exported for tests
 
-import parsidion.vault_common as vault_common  # re-exported (parsidion.vault_stats.vault_common)
-import parsidion.vault_metrics as vault_metrics  # re-exported (parsidion.vault_stats.vault_metrics)
+
+import parsidion.core.vault_metrics as vault_metrics  # re-exported (parsidion.vault_stats.vault_metrics)
 
 # ---------------------------------------------------------------------------
 # Shared console + DB helpers — parsidion.cli.stats._common

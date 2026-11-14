@@ -560,7 +560,7 @@ is bound by the stdlib-only rule.</p>
 </span><span id="L-340"><a href="#L-340"><span class="linenos"> 340</span></a><span class="sd">    arbitrary Python is code execution, so the guards (mirroring SEC-117's</span>
 </span><span id="L-341"><a href="#L-341"><span class="linenos"> 341</span></a><span class="sd">    reasoning for ``codex_cli.command``): off by default; the adapters</span>
 </span><span id="L-342"><a href="#L-342"><span class="linenos"> 342</span></a><span class="sd">    directory and each file must pass the full SEC-007 trust criteria</span>
-</span><span id="L-343"><a href="#L-343"><span class="linenos"> 343</span></a><span class="sd">    (``parsidion.vault_fs.is_trusted_executable`` — owned by the current uid, no</span>
+</span><span id="L-343"><a href="#L-343"><span class="linenos"> 343</span></a><span class="sd">    (``parsidion.core.vault_fs.is_trusted_executable`` — owned by the current uid, no</span>
 </span><span id="L-344"><a href="#L-344"><span class="linenos"> 344</span></a><span class="sd">    group/world write bits; a group-writable directory would let any group</span>
 </span><span id="L-345"><a href="#L-345"><span class="linenos"> 345</span></a><span class="sd">    member plant a module); every load logged by path. Never raises — a</span>
 </span><span id="L-346"><a href="#L-346"><span class="linenos"> 346</span></a><span class="sd">    broken external adapter must not break the registry or the hooks that</span>
@@ -578,7 +578,7 @@ is bound by the stdlib-only rule.</p>
 </span><span id="L-358"><a href="#L-358"><span class="linenos"> 358</span></a>            <span class="k">return</span>
 </span><span id="L-359"><a href="#L-359"><span class="linenos"> 359</span></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
 </span><span id="L-360"><a href="#L-360"><span class="linenos"> 360</span></a>
-</span><span id="L-361"><a href="#L-361"><span class="linenos"> 361</span></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">parsidion.vault_fs</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_trusted_executable</span>
+</span><span id="L-361"><a href="#L-361"><span class="linenos"> 361</span></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">parsidion.core.vault_fs</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_trusted_executable</span>
 </span><span id="L-362"><a href="#L-362"><span class="linenos"> 362</span></a>
 </span><span id="L-363"><a href="#L-363"><span class="linenos"> 363</span></a>        <span class="n">adapters_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".config"</span> <span class="o">/</span> <span class="s2">"parsidion"</span> <span class="o">/</span> <span class="s2">"adapters"</span>
 </span><span id="L-364"><a href="#L-364"><span class="linenos"> 364</span></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">adapters_dir</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
@@ -865,7 +865,7 @@ is bound by the stdlib-only rule.</p>
 </span><span id="L-645"><a href="#L-645"><span class="linenos"> 645</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 </span><span id="L-646"><a href="#L-646"><span class="linenos"> 646</span></a><span class="w">    </span><span class="sd">"""Use the configured AI backend to classify whether a session should be queued.</span>
 </span><span id="L-647"><a href="#L-647"><span class="linenos"> 647</span></a>
-</span><span id="L-648"><a href="#L-648"><span class="linenos"> 648</span></a><span class="sd">    Backend execution is delegated to parsidion.ai_backend.run_ai_prompt so Claude and</span>
+</span><span id="L-648"><a href="#L-648"><span class="linenos"> 648</span></a><span class="sd">    Backend execution is delegated to parsidion.core.ai_backend.run_ai_prompt so Claude and</span>
 </span><span id="L-649"><a href="#L-649"><span class="linenos"> 649</span></a><span class="sd">    Codex model defaults are resolved consistently. Falls back to keyword</span>
 </span><span id="L-650"><a href="#L-650"><span class="linenos"> 650</span></a><span class="sd">    heuristics (returns None) on any failure.</span>
 </span><span id="L-651"><a href="#L-651"><span class="linenos"> 651</span></a>

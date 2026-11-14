@@ -1,14 +1,10 @@
-"""vault_metrics -- compatibility shim (ARC-004 / QA-005 / ARC-012).
+"""Deprecated compatibility shim, retired by ARC-200 step 2 (release 0.29.0).
 
-Implementation moved to ``parsidion.core.vault_metrics``. This shim re-exports the
-module's controlled non-dunder surface (defined by
-``parsidion.core.vault_metrics.__all__``) so every existing caller --
-``import vault_metrics``, ``from parsidion.vault_metrics import X``,
-``parsidion.vault_metrics.X`` -- keeps working unchanged. QA-005 / ARC-012:
-``__all__`` deliberately excludes stdlib modules (``sqlite3``, ``json``,
-``time``, ``datetime``) and the ``vault_common`` re-export -- callers
-import those directly. The stdlib-only constraint is enforced on
-``parsidion.core.vault_metrics`` by ``tests/test_stdlib_only.py``.
+The implementation lives at ``parsidion.core.vault_metrics``. Importing this module raises
+:class:`ImportError` with the replacement path.
 """
 
-from parsidion.core.vault_metrics import *  # noqa: F403 -- controlled by parsidion.core.vault_metrics.__all__
+raise ImportError(
+    "parsidion.vault_metrics was removed: import from parsidion.core.vault_metrics instead "
+    "(flat shim surface retired in ARC-200 step 2 / release 0.29.0)."
+)

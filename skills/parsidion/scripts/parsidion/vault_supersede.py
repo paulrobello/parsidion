@@ -27,7 +27,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_fs as vault_fs
 
 from parsidion.core.otlp_metrics import emit_usage_metric
 from parsidion.cli.merge.index import _rebuild_index
@@ -38,7 +38,7 @@ from parsidion.core.vault_index import (
     serialize_frontmatter,
 )
 from parsidion.note_schema import STATUS_SUPERSEDED, validate_status_fields
-from parsidion.vault_path import resolve_vault
+from parsidion.core.vault_path import resolve_vault
 
 _SUPERSEDED_BY_FIELD = "superseded_by"
 
@@ -101,7 +101,7 @@ def _supersede(
         + body_line
         + "\n"
     )
-    vault_common.atomic_write_text(note, new_content)
+    vault_fs.atomic_write_text(note, new_content)
 
 
 def _strip_supersede_lines(body: str) -> str:
@@ -127,7 +127,7 @@ def _revert(note: Path, dry_run: bool) -> None:
         return
     body = _strip_supersede_lines(get_body(content))
     new_content = serialize_frontmatter(fm) + body
-    vault_common.atomic_write_text(note, new_content)
+    vault_fs.atomic_write_text(note, new_content)
 
 
 def main() -> None:
@@ -201,7 +201,7 @@ def main() -> None:
         if not args.execute:
             return
 
-    vault_common.git_commit_vault(
+    vault_fs.git_commit_vault(
         (
             f"docs(vault): revert supersession of {note.stem}"
             if args.revert

@@ -20,7 +20,8 @@ import threading
 from datetime import date
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_index as vault_index
 
 from parsidion.doctor._state import (
     DETECTION_ONLY_CODES,
@@ -102,7 +103,7 @@ def _apply_prefix_clusters(
             # Earlier clusters relocate notes, so the pre-run snapshot holds
             # stale paths: links FROM already-moved notes TO notes this cluster
             # moves would be patched at paths that no longer exist.
-            ctx.all_notes = list(vault_common.all_vault_notes_walk(vault))
+            ctx.all_notes = list(vault_index.all_vault_notes_walk(vault))
         moves = fix_prefix_cluster(
             cluster_folder, prefix, cluster_notes, ctx.all_notes, base_note
         )
@@ -114,13 +115,13 @@ def _apply_prefix_clusters(
             cluster_repaired += 1
     if not cluster_repaired:
         return 0
-    vault_common.git_commit_vault(
+    vault_fs.git_commit_vault(
         f"refactor(vault): reorganize {cluster_repaired} note(s) into prefix subfolders",
         vault=vault,
     )
     print()
     # Refresh after moves
-    ctx.all_notes = list(vault_common.all_vault_notes_walk(vault))
+    ctx.all_notes = list(vault_index.all_vault_notes_walk(vault))
     ctx.note_map = build_note_map(ctx.all_notes)
     all_filtered = [
         p
@@ -354,9 +355,7 @@ def _pre_scan_housekeeping(vault: Path, options: DoctorOptions) -> None:
     Legacy pending-path migration, related-link dedup, and the stale-file
     auto-commit — each silent when there is nothing to do.
     """
-    fixed_paths = vault_common.migrate_pending_paths(
-        dry_run=options.dry_run, vault=vault
-    )
+    fixed_paths = vault_fs.migrate_pending_paths(dry_run=options.dry_run, vault=vault)
     if fixed_paths:
         action = "Would fix" if options.dry_run else "Fixed"
         print(
@@ -399,7 +398,7 @@ def _build_scan_context(
     # targets from the same walk that feeds note_map; only an explicit-notes
     # run uses a walk for all_notes alone. (The post-subfolder-move re-walk
     # in _apply_subfolder_migration is separate and deliberately kept.)
-    all_notes = list(vault_common.all_vault_notes_walk(vault))
+    all_notes = list(vault_index.all_vault_notes_walk(vault))
     if notes:
         vault_resolved = vault.resolve()
         target_notes = []
@@ -622,7 +621,7 @@ def run_scan_and_repair(
     # model-authored changes to a commit that does not mention them, and
     # leaving no reviewable diff in between.
     if repaired:
-        vault_common.git_commit_vault(
+        vault_fs.git_commit_vault(
             f"fix(vault): repair frontmatter in {repaired} note(s) via vault_doctor",
             vault=vault,
         )

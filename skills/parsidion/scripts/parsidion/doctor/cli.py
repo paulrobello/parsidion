@@ -19,9 +19,10 @@ import os
 import sys
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
-from parsidion.vault_path import active_vault_scope
-import parsidion.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_path as vault_path
+from parsidion.core.vault_path import active_vault_scope
+import parsidion.core.vault_fs as vault_fs
 
 from parsidion.doctor._state import (
     AI_TIMEOUT,
@@ -352,12 +353,10 @@ def main() -> None:
     # observe a single source of truth.
     import parsidion.doctor._state as _state
 
-    _state._vault_path = vault_common.resolve_vault(
-        explicit=args.vault, cwd=os.getcwd()
-    )
+    _state._vault_path = vault_path.resolve_vault(explicit=args.vault, cwd=os.getcwd())
     # Mirror onto this shim too: main()'s callers read vault_doctor._vault_path.
     globals()["_vault_path"] = _state._vault_path
-    vault_common.apply_configured_env_defaults(vault=_state._vault_path)
+    vault_hooks.apply_configured_env_defaults(vault=_state._vault_path)
 
     # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
     # calls in helper code land on the resolved vault without patching the

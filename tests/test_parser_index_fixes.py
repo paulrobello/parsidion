@@ -22,8 +22,10 @@ from pathlib import Path
 import pytest
 
 import update_index
-import parsidion.vault_common as vault_common
-import parsidion.vault_links as vault_links
+import parsidion.core.vault_config as vault_config
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
+import parsidion.core.vault_links as vault_links
 
 # ---------------------------------------------------------------------------
 # Fix 1a: frontmatter list items stay strings
@@ -34,23 +36,23 @@ class TestListItemsStayStrings:
     """Frontmatter list items must never be coerced to bool/int/float."""
 
     def test_inline_numeric_tag_stays_string(self) -> None:
-        fm = vault_common.parse_frontmatter("---\ntags: [2026, python]\n---\n")
+        fm = vault_index.parse_frontmatter("---\ntags: [2026, python]\n---\n")
         assert fm["tags"] == ["2026", "python"]
 
     def test_block_list_items_stay_strings(self) -> None:
         content = "---\ntags:\n  - 2026\n  - true\n  - 3.14\n---\n"
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         assert fm["tags"] == ["2026", "true", "3.14"]
 
     def test_quoted_list_items_still_unquoted(self) -> None:
-        fm = vault_common.parse_frontmatter(
+        fm = vault_index.parse_frontmatter(
             "---\nrelated: [\"[[note-a]]\", '[[note-b]]']\n---\n"
         )
         assert fm["related"] == ["[[note-a]]", "[[note-b]]"]
 
     def test_scalar_coercion_unchanged(self) -> None:
         """Non-list scalars keep their bool/int/float coercion."""
-        fm = vault_common.parse_frontmatter("---\ncount: 42\nflag: true\n---\n")
+        fm = vault_index.parse_frontmatter("---\ncount: 42\nflag: true\n---\n")
         assert fm["count"] == 42
         assert fm["flag"] is True
 
@@ -158,8 +160,8 @@ class TestNumericTagEndToEnd:
         )
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
         monkeypatch.setenv("CLAUDE_VAULT", str(canonical))
-        vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-        vault_common.clear_config_cache()
+        vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+        vault_config.clear_config_cache()
 
         _, note_count, _, folder_notes, db_rows, _ = update_index.build_index(explicit)
 
@@ -218,7 +220,7 @@ class TestConfigDeepNesting:
         )
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            result = vault_common._parse_config_yaml(text)
+            result = vault_config._parse_config_yaml(text)
 
         # 2nd level is intact and NOT corrupted by the deeper keys
         assert result["ai_models"]["codex"] == {"small": "gpt-small"}
@@ -233,7 +235,7 @@ class TestConfigDeepNesting:
         text = "ai_models:\n  codex:\n    small: gpt-small\n    large: gpt-large\n"
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            result = vault_common._parse_config_yaml(text)
+            result = vault_config._parse_config_yaml(text)
         assert result["ai_models"]["codex"] == {
             "small": "gpt-small",
             "large": "gpt-large",
@@ -274,7 +276,7 @@ class TestInjectRelatedLinks:
 
         content = note.read_text(encoding="utf-8")
         assert self.BODY_LINE in content
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         assert fm["related"] == ["[[new-note]]"]
         # One occurrence in frontmatter, one (untouched) in the body
         assert content.count("related:") == 2
@@ -297,7 +299,7 @@ class TestInjectRelatedLinks:
 
         content = note.read_text(encoding="utf-8")
         assert self.BODY_LINE in content
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         assert fm["related"] == ["[[old-note]]", "[[new-note]]"]
 
     def test_block_style_related_replaced(self, tmp_path: Path) -> None:
@@ -309,7 +311,7 @@ class TestInjectRelatedLinks:
 
         vault_links.inject_related_links(note, ["[[new-note]]"])
 
-        fm = vault_common.parse_frontmatter(note.read_text(encoding="utf-8"))
+        fm = vault_index.parse_frontmatter(note.read_text(encoding="utf-8"))
         assert fm["related"] == ["[[old-note]]", "[[new-note]]"]
 
     def test_no_frontmatter_leaves_file_untouched(self, tmp_path: Path) -> None:

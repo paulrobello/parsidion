@@ -49,8 +49,8 @@ import os
 import sys
 from pathlib import Path
 
-import parsidion.parsight_backend as parsight_backend
-import parsidion.vault_common as vault_common
+import parsidion.core.parsight_backend as parsight_backend
+import parsidion.core.vault_config as vault_config
 
 from parsidion.core.otlp_metrics import emit_usage_metric
 
@@ -90,6 +90,7 @@ from parsidion.cli.search.format import (  # noqa: F401 — re-exports
     _format_rich,
     _format_text,
 )
+from parsidion.core.vault_path import get_embeddings_db_path, resolve_vault
 from parsidion.cli.search.metadata import (  # noqa: F401 — re-exports
     _apply_grep_filter,
     _get_all_notes_as_results,
@@ -291,8 +292,8 @@ def main() -> None:
     )
 
     # Semantic-only flags
-    _cfg_top_k: int = vault_common.get_config("embeddings", "top_k", 10)
-    _cfg_min_score: float = vault_common.get_config("embeddings", "min_score", 0.45)
+    _cfg_top_k: int = vault_config.get_config("embeddings", "top_k", 10)
+    _cfg_min_score: float = vault_config.get_config("embeddings", "min_score", 0.45)
     _eff_top_k = _clamp_default_count(_env_int("TOP", _cfg_top_k))
     _eff_min_score = _env_float("MIN_SCORE", _cfg_min_score)
     _eff_model = os.environ.get(_ENV_PREFIX + "MODEL", _DEFAULT_MODEL)
@@ -453,7 +454,7 @@ def main() -> None:
     emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-search"})
 
     # Resolve vault path
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
     # Interactive mode — runs before the normal search logic
     if args.interactive:
@@ -494,7 +495,7 @@ def main() -> None:
             "auto",
             "parsight",
         ) and parsight_backend.resolve_parsight_backend(vault_path)
-        db_path = vault_common.get_embeddings_db_path(vault_path)
+        db_path = get_embeddings_db_path(vault_path)
         if (
             not db_path.exists()
             and not parsight_may_serve

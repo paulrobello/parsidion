@@ -61,7 +61,7 @@ def _folder_name(note_path: Path, vault: Path) -> str:
     still imported for back-compat with any external caller that imported
     ``update_index._folder_name`` with the old signature, but the public
     resolution flow no longer depends on a runtime mutation of
-    ``parsidion.vault_common.VAULT_ROOT``.
+    ``parsidion.core.vault_path.VAULT_ROOT``.
     """
     try:
         rel: Path = note_path.relative_to(vault)

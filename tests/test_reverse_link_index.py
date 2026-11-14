@@ -24,7 +24,8 @@ from pathlib import Path
 
 import session_start_hook
 import update_index
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_path as vault_path
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,11 +73,11 @@ def _build_index(vault: Path) -> None:
     ``_write_note_index_to_db`` upserts them (see
     tests/test_index_enhancements.py::_build_index).
     """
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = vault_path.get_embeddings_db_path(vault)
     if not db_path.exists():
         conn = sqlite3.connect(str(db_path))
         try:
-            vault_common.ensure_note_index_schema(conn)
+            vault_index.ensure_note_index_schema(conn)
         finally:
             conn.close()
     result = update_index.build_index(vault=vault)
@@ -107,7 +108,7 @@ def _seed_fixture(vault: Path) -> dict[str, Path]:
 
 def _read_rows(vault: Path) -> dict[str, tuple[str, int]]:
     """Return stem -> (incoming_stems column value, incoming_links count)."""
-    db_path = vault_common.get_embeddings_db_path(vault)
+    db_path = vault_path.get_embeddings_db_path(vault)
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         rows = conn.execute(
@@ -130,7 +131,7 @@ class TestIncomingStemsSchema:
         db = tmp_path / "embeddings.db"
         conn = sqlite3.connect(str(db))
         try:
-            vault_common.ensure_note_index_schema(conn)
+            vault_index.ensure_note_index_schema(conn)
             cols = {
                 row[1]: row[2].upper()
                 for row in conn.execute("PRAGMA table_info(note_index)")
@@ -150,7 +151,7 @@ class TestIncomingStemsSchema:
             }
             assert "incoming_stems" not in cols_before
 
-            vault_common.ensure_note_index_schema(conn)
+            vault_index.ensure_note_index_schema(conn)
             rows = conn.execute("PRAGMA table_info(note_index)").fetchall()
         finally:
             conn.close()
@@ -216,7 +217,7 @@ class TestGraphNeighborsParity:
         notes = _seed_fixture(tmp_vault)
         _build_index(tmp_vault)
 
-        snapshot = vault_common.load_session_index_snapshot(vault=tmp_vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=tmp_vault)
         assert snapshot is not None
         meta = snapshot.graph_metadata()
         seeds = [notes["beta"], notes["gamma"]]
@@ -227,14 +228,14 @@ class TestGraphNeighborsParity:
 
         # Blank the column to force the legacy per-run inversion, then
         # recompute: same fixture, same snapshot API, different source.
-        db_path = vault_common.get_embeddings_db_path(tmp_vault)
+        db_path = vault_path.get_embeddings_db_path(tmp_vault)
         conn = sqlite3.connect(str(db_path))
         try:
             conn.execute("UPDATE note_index SET incoming_stems = ''")
             conn.commit()
         finally:
             conn.close()
-        legacy_snapshot = vault_common.load_session_index_snapshot(vault=tmp_vault)
+        legacy_snapshot = vault_index.load_session_index_snapshot(vault=tmp_vault)
         assert legacy_snapshot is not None
 
         from_legacy = session_start_hook._graph_neighbors(
@@ -253,7 +254,7 @@ class TestGraphNeighborsParity:
         _seed_fixture(tmp_vault)
         _build_index(tmp_vault)
 
-        snapshot = vault_common.load_session_index_snapshot(vault=tmp_vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=tmp_vault)
         assert snapshot is not None
         legacy = {
             "alpha": set(),
@@ -274,14 +275,14 @@ class TestSnapshotFallback:
     """Empty / corrupt / absent columns degrade to the legacy inversion."""
 
     def _snapshot_with_column_value(self, vault: Path, value: str):
-        db_path = vault_common.get_embeddings_db_path(vault)
+        db_path = vault_path.get_embeddings_db_path(vault)
         conn = sqlite3.connect(str(db_path))
         try:
             conn.execute("UPDATE note_index SET incoming_stems = ?", (value,))
             conn.commit()
         finally:
             conn.close()
-        return vault_common.load_session_index_snapshot(vault=vault)
+        return vault_index.load_session_index_snapshot(vault=vault)
 
     def test_empty_column_falls_back_to_inversion(self, tmp_vault: Path) -> None:
         _seed_fixture(tmp_vault)
@@ -300,7 +301,7 @@ class TestSnapshotFallback:
     def test_absent_column_still_loads_and_falls_back(self, tmp_vault: Path) -> None:
         """A table created before ENH-021 (column missing entirely)."""
         _seed_fixture(tmp_vault)
-        db_path = vault_common.get_embeddings_db_path(tmp_vault)
+        db_path = vault_path.get_embeddings_db_path(tmp_vault)
         conn = sqlite3.connect(str(db_path))
         try:
             conn.execute(_OLD_SCHEMA_SQL)
@@ -321,6 +322,6 @@ class TestSnapshotFallback:
         finally:
             conn.close()
 
-        snapshot = vault_common.load_session_index_snapshot(vault=tmp_vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=tmp_vault)
         assert snapshot is not None  # must not fail the whole read
         assert snapshot.incoming_stems("beta") == {"alpha", "gamma"}

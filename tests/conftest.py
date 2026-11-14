@@ -40,9 +40,10 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsidion.vault_common as vault_common  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeMcpDaemon, FakeParsight  # noqa: E402
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_path as vault_path  # noqa: E402
 
 
 @pytest.fixture()
@@ -60,13 +61,13 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
     registering ``tmp_path`` so the allowlist check passes.
 
     The fixture does NOT create vault subdirectories — tests that need the
-    standard layout should call ``parsidion.vault_common.ensure_vault_dirs(tmp_vault)``
+    standard layout should call ``parsidion.vault_fs.ensure_vault_dirs(tmp_vault)``
     or create dirs manually.
     """
     # Clear caches before setting the env var so any residual cached entry
     # from a previous test cannot bleed into this one.
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_config.clear_config_cache()
 
     # SEC-P001: register tmp_path in a test-local vaults.yaml so the
     # allowlist resolver accepts CLAUDE_VAULT references to it.
@@ -82,8 +83,8 @@ def tmp_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path
     yield tmp_path
 
     # Teardown: clear caches so the next test starts clean.
-    vault_common.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
+    vault_path.resolve_vault.cache_clear()  # type: ignore[attr-defined]
+    vault_config.clear_config_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -98,14 +99,14 @@ def _parsight_isolation(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """
     monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:1/mcp")
     try:
-        import parsidion.parsight_backend as parsight_backend
+        import parsidion.core.parsight_backend as parsight_backend
 
         parsight_backend.reset_parsight_cache()
     except ImportError:
         pass
     yield
     try:
-        import parsidion.parsight_backend as parsight_backend
+        import parsidion.core.parsight_backend as parsight_backend
 
         parsight_backend.reset_parsight_cache()
     except ImportError:

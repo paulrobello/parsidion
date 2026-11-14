@@ -2758,8 +2758,8 @@ None-guarding the section itself. Whether a section was <em>explicitly</em> set
 in the file is not distinguishable from this view (check the dict from
 <code><a href="#load_config">load_config()</a></code> if you need that); individual field values are
 <code>None</code> for keys absent from the file. Construct via <code><a href="#VaultAppConfig.from_dict">from_dict()</a></code>
-or <code><a href="#load_typed_config">parsidion.vault_config.load_typed_config()</a></code>; the dataclasses carry no
-validation -- that remains <code><a href="#validate_config">parsidion.vault_config.validate_config()</a></code>'s job.</p>
+or <code>parsidion.vault_config.load_typed_config()</code>; the dataclasses carry no
+validation -- that remains <code>parsidion.vault_config.validate_config()</code>'s job.</p>
 </div>
 
 
@@ -3096,11 +3096,11 @@ validation -- that remains <code><a href="#validate_config">parsidion.vault_conf
 
 <p>Values pass through unchanged -- no coercion. Absent keys default to
 <code>None</code> on the section dataclass. Unknown sections/keys and non-mapping
-section values are skipped silently; <code><a href="#validate_config">parsidion.vault_config.validate_config()</a></code>
+section values are skipped silently; <code>parsidion.vault_config.validate_config()</code>
 is responsible for warning about them.</p>
 
 <p>Args:
-    parsed: The dict returned by <code><a href="#load_config">parsidion.vault_config.load_config()</a></code>.</p>
+    parsed: The dict returned by <code>parsidion.vault_config.load_config()</code>.</p>
 
 <p>Returns:
     A populated <code><a href="#VaultAppConfig">VaultAppConfig</a></code>. Returns an instance whose
@@ -5211,7 +5211,7 @@ ANTHROPIC_BASE_URL to route through a trusted gateway.</p>
 </span><span id="GitConfig-1035"><a href="#GitConfig-1035"><span class="linenos">1035</span></a>        <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 </span><span id="GitConfig-1036"><a href="#GitConfig-1036"><span class="linenos">1036</span></a>        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
 </span><span id="GitConfig-1037"><a href="#GitConfig-1037"><span class="linenos">1037</span></a>            <span class="s2">"doc"</span><span class="p">:</span> <span class="s2">"Auto-commit vault changes after writes"</span><span class="p">,</span>
-</span><span id="GitConfig-1038"><a href="#GitConfig-1038"><span class="linenos">1038</span></a>            <span class="s2">"read_by"</span><span class="p">:</span> <span class="s2">"vault_common.py (parsidion.vault_fs.git_commit_vault)"</span><span class="p">,</span>
+</span><span id="GitConfig-1038"><a href="#GitConfig-1038"><span class="linenos">1038</span></a>            <span class="s2">"read_by"</span><span class="p">:</span> <span class="s2">"parsidion.core.vault_fs.git_commit_vault"</span><span class="p">,</span>
 </span><span id="GitConfig-1039"><a href="#GitConfig-1039"><span class="linenos">1039</span></a>        <span class="p">},</span>
 </span><span id="GitConfig-1040"><a href="#GitConfig-1040"><span class="linenos">1040</span></a>    <span class="p">)</span>
 </span></pre></div>

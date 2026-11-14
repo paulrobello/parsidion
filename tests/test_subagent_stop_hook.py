@@ -80,7 +80,7 @@ def _run_hook(
 def _write_pi_transcript(transcript_path: Path, n_messages: int = 4) -> None:
     """Write a synthetic pi-style agent transcript with N assistant turns.
 
-    The hook's transcript parser lives in ``parsidion.vault_common.parse_transcript_lines``
+    The hook's transcript parser lives in ``parsidion.core.vault_hooks.parse_transcript_lines``
     and understands both Claude Code and pi message shapes. The pi shape is
     used here because it lives under ``<cwd>/.pi`` and so satisfies the
     ``is_allowed_transcript_path`` guard without needing HOME trickery.

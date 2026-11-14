@@ -85,7 +85,7 @@ _CONFIRM_THRESHOLD = 12  # confirm before running more than this many uncached c
 
 def _call_ai(prompt: str, model: str | None, model_tier: str) -> str | None:
     """Invoke the configured AI backend (same path production uses)."""
-    import parsidion.ai_backend as ai_backend
+    import parsidion.core.ai_backend as ai_backend
 
     # The CLI default is "small"; this driver does not expose the large tier
     # without an explicit --model, so the literal cast is safe.

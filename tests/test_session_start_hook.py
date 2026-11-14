@@ -44,7 +44,8 @@ def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> No
     )
 
 
-import parsidion.vault_common as vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
+import parsidion.core.vault_config as vault_config  # noqa: E402
+import parsidion.core.vault_index as vault_index  # noqa: E402
 from parsidion.core import ai_backend as core_ai_backend  # noqa: E402 -- ARC-006: patch internals where they live
 from parsidion.core import vault_index as core_vault_index  # noqa: E402 -- same rule
 
@@ -79,7 +80,7 @@ def _run_session_start_main_for_codex(
     _write_codex_config(vault)
 
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common._clear_config_cache()
+    vault_config._clear_config_cache()
     # SEC-P001: register vault in a test-local vaults.yaml so the allowlist
     # resolver accepts the CLAUDE_VAULT reference.
     _cfg_dir = tmp_path / ".config" / "parsidion"
@@ -527,7 +528,7 @@ class TestBuildDeltaSection:
     def test_includes_new_notes_after_cutoff(self, tmp_path: Path) -> None:
         # Create vault structure
         vault = tmp_path
-        for d in vault_common.VAULT_DIRS:
+        for d in vault_index.VAULT_DIRS:
             (vault / d).mkdir(exist_ok=True)
 
         # Write a note with a current mtime
@@ -543,7 +544,7 @@ class TestBuildDeltaSection:
 
     def test_excludes_notes_before_cutoff(self, tmp_path: Path) -> None:
         vault = tmp_path
-        for d in vault_common.VAULT_DIRS:
+        for d in vault_index.VAULT_DIRS:
             (vault / d).mkdir(exist_ok=True)
 
         note = vault / "Patterns" / "old-note.md"
@@ -558,7 +559,7 @@ class TestBuildDeltaSection:
 
     def test_caps_results_at_ten(self, tmp_path: Path) -> None:
         vault = tmp_path
-        for d in vault_common.VAULT_DIRS:
+        for d in vault_index.VAULT_DIRS:
             (vault / d).mkdir(exist_ok=True)
 
         # Write 15 notes
@@ -609,7 +610,7 @@ class TestBuildForksSection:
 
     def test_lists_live_project_forks_newest_first(self, tmp_path: Path) -> None:
         vault = self._vault_with_forks(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         result = session_start_hook._build_forks_section("proj", snapshot)
         assert result == (
@@ -634,7 +635,7 @@ class TestBuildForksSection:
         conn.execute("UPDATE note_index SET status='superseded' WHERE stem='fork-old'")
         conn.commit()
         conn.close()
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         result = session_start_hook._build_forks_section("proj", snapshot)
         assert "Fork Old" not in result
@@ -645,7 +646,7 @@ class TestBuildForksSection:
 
     def test_returns_empty_when_no_forks_match(self, tmp_path: Path) -> None:
         vault = self._vault_with_forks(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         assert session_start_hook._build_forks_section("no-such", snapshot) == ""
 
@@ -668,7 +669,7 @@ class TestBuildForksSection:
                 mtime=1000.0 + i,
             )
         conn.close()
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         result = session_start_hook._build_forks_section("proj", snapshot)
         assert "(7 open, showing 5)" in result
@@ -694,8 +695,8 @@ def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path, tmp_path: Path) -> 
     XDG_CONFIG_HOME) so the allowlist resolver accepts the reference.
     """
     session_start_hook.resolve_vault.cache_clear()  # type: ignore[attr-defined]
-    vault_common.clear_config_cache()
-    vault_common._clear_config_cache()
+    vault_config.clear_config_cache()
+    vault_config._clear_config_cache()
     cfg_dir = tmp_path / ".config" / "parsidion"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "vaults.yaml").write_text(
@@ -708,7 +709,7 @@ def _use_vault(monkeypatch: pytest.MonkeyPatch, vault: Path, tmp_path: Path) -> 
 def _make_note_index(vault: Path) -> sqlite3.Connection:
     """Create embeddings.db with the canonical note_index schema."""
     conn = sqlite3.connect(str(vault / "embeddings.db"))
-    vault_common.ensure_note_index_schema(conn)
+    vault_index.ensure_note_index_schema(conn)
     return conn
 
 
@@ -766,7 +767,7 @@ def _build_meta(
 
 
 class TestLoadGraphMetadata:
-    """Tier 1 data layer: parsidion.vault_common.load_graph_metadata()."""
+    """Tier 1 data layer: parsidion.vault_index.load_graph_metadata()."""
 
     def test_returns_none_when_db_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -919,7 +920,7 @@ class TestGraphExpansionIntegration:
         graph_expand: bool = True,
     ) -> tuple[Path, Path, Path]:
         vault = tmp_path / "vault"
-        for d in vault_common.VAULT_DIRS:
+        for d in vault_index.VAULT_DIRS:
             (vault / d).mkdir(parents=True, exist_ok=True)
         seed = vault / "Patterns" / "seed.md"
         nbr = vault / "Patterns" / "neighbor.md"
@@ -1082,7 +1083,7 @@ class TestGraphRerankIntegration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         vault = tmp_path / "vault"
-        for d in vault_common.VAULT_DIRS:
+        for d in vault_index.VAULT_DIRS:
             (vault / d).mkdir(parents=True, exist_ok=True)
         seed = vault / "Patterns" / "seed.md"
         nbr_a = vault / "Patterns" / "nbr-a.md"  # shares python tag
@@ -1160,7 +1161,7 @@ def _setup_graph_vault(
     recent note. The neighbor is neither recent nor project-scoped, so it only
     surfaces via graph expansion."""
     vault = tmp_path / "vault"
-    for d in vault_common.VAULT_DIRS:
+    for d in vault_index.VAULT_DIRS:
         (vault / d).mkdir(parents=True, exist_ok=True)
     proj = vault / "Projects" / "proj-note.md"
     nbr = vault / "Projects" / "neighbor.md"
@@ -1246,7 +1247,7 @@ class TestBuildCandidatesGraphEnrichment:
         # neighbor is also a recent note here -> already in the base list; it
         # must not be duplicated by enrichment.
         vault = tmp_path / "vault"
-        for d in vault_common.VAULT_DIRS:
+        for d in vault_index.VAULT_DIRS:
             (vault / d).mkdir(parents=True, exist_ok=True)
         proj = vault / "Projects" / "proj-note.md"
         nbr = vault / "Projects" / "neighbor.md"
@@ -1436,8 +1437,8 @@ class TestAiBranchGraphEnrichment:
             "  track_delta: false\n",
             encoding="utf-8",
         )
-        vault_common.clear_config_cache()
-        vault_common._clear_config_cache()
+        vault_config.clear_config_cache()
+        vault_config._clear_config_cache()
         captured: dict[str, list[str]] = {}
 
         def fake_select(
@@ -1742,19 +1743,17 @@ class TestSessionIndexSnapshot:
         """Same sentinel contract as every other DB-first reader here."""
         empty = tmp_path / "empty"
         empty.mkdir()
-        assert vault_common.load_session_index_snapshot(vault=empty) is None
+        assert vault_index.load_session_index_snapshot(vault=empty) is None
 
     def test_graph_metadata_matches_the_standalone_loader(self, tmp_path: Path) -> None:
         vault = self._vault_with_rows(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
-        assert snapshot.graph_metadata() == vault_common.load_graph_metadata(
-            vault=vault
-        )
+        assert snapshot.graph_metadata() == vault_index.load_graph_metadata(vault=vault)
 
     def test_compact_map_matches_the_standalone_loader(self, tmp_path: Path) -> None:
         vault = self._vault_with_rows(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         assert snapshot.compact_index_map() == core_vault_index._load_note_index_map(
             vault
@@ -1763,10 +1762,10 @@ class TestSessionIndexSnapshot:
     def test_paths_where_matches_query_note_index(self, tmp_path: Path) -> None:
         """The in-Python filter must reproduce the SQL it replaces."""
         vault = self._vault_with_rows(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         assert snapshot.paths_where(project="proj", limit=50) == (
-            vault_common.query_note_index(project="proj", vault=vault, limit=50)
+            vault_index.query_note_index(project="proj", vault=vault, limit=50)
         )
         # Ordering is mtime-descending, like the SQL's ORDER BY.
         stems = [p.stem for p in snapshot.paths_where(project="proj", limit=50)]
@@ -1774,7 +1773,7 @@ class TestSessionIndexSnapshot:
 
     def test_paths_where_honours_the_limit(self, tmp_path: Path) -> None:
         vault = self._vault_with_rows(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         assert len(snapshot.paths_where(limit=2)) == 2
 
@@ -1782,7 +1781,7 @@ class TestSessionIndexSnapshot:
         """SEC-005 / SEC-130 containment and existence checks are not skipped."""
         vault = self._vault_with_rows(tmp_path)
         (vault / "Patterns" / "alpha.md").unlink()
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         assert [p.stem for p in snapshot.paths_where(limit=50)] == ["beta", "gamma"]
 
@@ -1795,21 +1794,21 @@ class TestSessionIndexSnapshot:
         conn = _make_note_index(vault)
         _index_row(conn, stem="outside", path=outside, mtime=9999.0)
         conn.close()
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         assert "outside" not in [p.stem for p in snapshot.paths_where(limit=50)]
 
     def test_reverse_adjacency_matches_a_full_scan(self, tmp_path: Path) -> None:
         """The precomputed incoming map replaces the O(N x seeds) scan."""
         vault = self._vault_with_rows(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         meta = snapshot.graph_metadata()
         for stem in meta:
             expected = {
                 other
                 for other, m in meta.items()
-                if stem in vault_common.parse_related_stems(str(m.get("related", "")))
+                if stem in vault_index.parse_related_stems(str(m.get("related", "")))
             }
             assert snapshot.incoming_stems(stem) == expected
 
@@ -1818,7 +1817,7 @@ class TestSessionIndexSnapshot:
     ) -> None:
         """The snapshot fast path must not change which neighbours are found."""
         vault = self._vault_with_rows(tmp_path)
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
         meta = snapshot.graph_metadata()
         seeds = [vault / "Patterns" / "beta.md"]
@@ -1850,7 +1849,7 @@ class TestSessionIndexSnapshot:
             _index_row(conn, stem=note.stem, path=note, mtime=note.stat().st_mtime)
         conn.close()
 
-        snapshot = vault_common.load_session_index_snapshot(vault=vault)
+        snapshot = vault_index.load_session_index_snapshot(vault=vault)
         assert snapshot is not None
 
         # A cutoff before every note: both sources must report all three.

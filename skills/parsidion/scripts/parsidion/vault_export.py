@@ -20,10 +20,10 @@ import sys
 import zipfile
 from pathlib import Path
 
-import parsidion.vault_common as vault_common
+import parsidion.core.vault_index as vault_index
 
 from parsidion.core.otlp_metrics import emit_usage_metric
-from parsidion.vault_path import active_vault_scope
+from parsidion.core.vault_path import resolve_vault, active_vault_scope
 
 # ---------------------------------------------------------------------------
 # Note filtering
@@ -50,7 +50,7 @@ def _collect_notes(
         Sorted list of matching note paths.
     """
     # Try DB-backed filtering first
-    db_results = vault_common.query_note_index(
+    db_results = vault_index.query_note_index(
         project=project,
         folder=folder,
         tag=tag,
@@ -60,7 +60,7 @@ def _collect_notes(
 
     # Fallback: walk all vault notes and filter by frontmatter
     candidates: list[Path] = []
-    for path in vault_common.all_vault_notes_walk(vault=vault_path):
+    for path in vault_index.all_vault_notes_walk(vault=vault_path):
         # Folder filter
         if folder is not None:
             rel = path.relative_to(vault_path)
@@ -72,7 +72,7 @@ def _collect_notes(
             content = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        fm = vault_common.parse_frontmatter(content)
+        fm = vault_index.parse_frontmatter(content)
         # Project filter
         if project is not None:
             if fm.get("project", "").lower() != project.lower():
@@ -385,9 +385,9 @@ def _cmd_html(
             print(f"  Warning: cannot read {path}: {exc}", file=sys.stderr)
             continue
 
-        fm = vault_common.parse_frontmatter(content)
-        body_md = vault_common.get_body(content)
-        title = vault_common.extract_title(content, path.stem)
+        fm = vault_index.parse_frontmatter(content)
+        body_md = vault_index.get_body(content)
+        title = vault_index.extract_title(content, path.stem)
 
         # Build meta line
         meta_parts: list[str] = []
@@ -536,7 +536,7 @@ def main() -> None:
     emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-export"})
 
     # Resolve vault path
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
     # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
     # calls in helper code land on the resolved vault without patching the

@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from parsidion.vault_path import EXCLUDE_DIRS
+from parsidion.core.vault_path import EXCLUDE_DIRS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GEN_SCRIPT = REPO_ROOT / "tools" / "bench" / "gen_bench_vault.py"

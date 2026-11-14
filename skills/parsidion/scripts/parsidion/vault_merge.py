@@ -61,12 +61,17 @@ import sys
 from collections.abc import Iterator  # re-exported for backwards compat
 from pathlib import Path
 
-import parsidion.ai_backend as ai_backend  # re-exported (parsidion.vault_merge.ai_backend) for tests
-import parsidion.vault_common as vault_common  # re-exported (parsidion.vault_merge.vault_common) for tests
-import parsidion.vault_config as vault_config  # re-exported (parsidion.vault_merge.vault_config) for tests
-import parsidion.vault_fs as vault_fs  # re-exported (parsidion.vault_merge.vault_fs) for tests
-import parsidion.vault_links as vault_links  # re-exported (parsidion.vault_merge.vault_links) for tests
-from parsidion.vault_path import active_vault_scope, is_path_inside_vault
+import parsidion.core.ai_backend as ai_backend  # re-exported (parsidion.vault_merge.ai_backend) for tests
+import parsidion.core.vault_fs as vault_fs
+import parsidion.core.vault_hooks as vault_hooks
+import parsidion.core.vault_index as vault_index
+import parsidion.core.vault_config as vault_config  # re-exported (parsidion.vault_merge.vault_config) for tests
+import parsidion.core.vault_links as vault_links  # re-exported (parsidion.vault_merge.vault_links) for tests
+from parsidion.core.vault_path import (
+    resolve_vault,
+    active_vault_scope,
+    is_path_inside_vault,
+)
 from parsidion.core.vault_index import serialize_frontmatter
 from parsidion.prompt_templates import (
     render,
@@ -148,11 +153,11 @@ def _ai_merge_bodies(
     """
     # SEC-115: inline both bodies so no filesystem access is needed.
     try:
-        body_a = vault_common.get_body(path_a.read_text(encoding="utf-8"))
+        body_a = vault_index.get_body(path_a.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
         body_a = ""
     try:
-        body_b = vault_common.get_body(path_b.read_text(encoding="utf-8"))
+        body_b = vault_index.get_body(path_b.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
         body_b = ""
 
@@ -228,10 +233,10 @@ def _merge_notes(
     Returns:
         Full merged note content including frontmatter and body.
     """
-    fm_a = vault_common.parse_frontmatter(content_a)
-    fm_b = vault_common.parse_frontmatter(content_b)
-    body_a = vault_common.get_body(content_a).strip()
-    body_b = vault_common.get_body(content_b).strip()
+    fm_a = vault_index.parse_frontmatter(content_a)
+    fm_b = vault_index.parse_frontmatter(content_b)
+    body_a = vault_index.get_body(content_a).strip()
+    body_b = vault_index.get_body(content_b).strip()
 
     # Tags: union, sorted
     tags_a = _parse_tags_list(fm_a)
@@ -274,8 +279,8 @@ def _merge_notes(
         fm_a.get("provenance") or fm_b.get("provenance") or "inferred"
     )
 
-    title_a = vault_common.extract_title(content_a, path_a.stem)
-    title_b = vault_common.extract_title(content_b, path_b.stem)
+    title_a = vault_index.extract_title(content_a, path_a.stem)
+    title_b = vault_index.extract_title(content_b, path_b.stem)
 
     # Try AI merge for intelligent deduplication
     merged_body: str | None = None
@@ -407,7 +412,7 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
     stays readable with no broken link.
 
     Text inside fenced code blocks and inline code spans is left untouched
-    (see ``parsidion.vault_links.sub_wikilinks_outside_code``), so notes documenting
+    (see ``parsidion.core.vault_links.sub_wikilinks_outside_code``), so notes documenting
     wikilink syntax in an example are not corrupted by the rewrite.
 
     Args:
@@ -432,7 +437,7 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
             return suffix[1:]
         return old_stem
 
-    for path in vault_common.all_vault_notes_walk(vault=vault_path):
+    for path in vault_index.all_vault_notes_walk(vault=vault_path):
         try:
             content = path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -546,8 +551,8 @@ def main() -> None:
     emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-merge"})
 
     # Resolve vault path
-    vault_path = vault_common.resolve_vault(explicit=args.vault, cwd=os.getcwd())
-    vault_common.apply_configured_env_defaults(vault=vault_path)
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    vault_hooks.apply_configured_env_defaults(vault=vault_path)
 
     # ARC-001: enter the explicit-vault scope — argument-less resolve_vault()
     # calls in helper code land on the resolved vault without patching the
@@ -720,7 +725,7 @@ def main() -> None:
                 _delete_preview(vault_path, path_a, path_b)
 
                 # Commit
-                vault_common.git_commit_vault(
+                vault_fs.git_commit_vault(
                     f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
                     vault=vault_path,
                 )
