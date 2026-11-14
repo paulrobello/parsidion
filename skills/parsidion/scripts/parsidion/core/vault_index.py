@@ -648,6 +648,41 @@ def _build_note_index_where(
     return where, params
 
 
+def _open_note_index_ro(db_path: Path) -> tuple[sqlite3.Connection, set[str]] | None:
+    """Open embeddings.db read-only with the note_index table present (QA-002).
+
+    Shared plumbing for the note_index SQL paths: existence check, read-only
+    connect, table-presence check, and the PRAGMA column set. Returns None
+    when the DB is absent, cannot be opened, or has no note_index table --
+    callers map None to their own sentinel (None walk-fallback in
+    :func:`query_note_index`, empty list in :func:`_query_note_index_results`).
+    The connection is closed on every failure; the caller closes on success.
+    Row factory is deliberately left unset (callers set their own).
+    """
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        if (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
+            ).fetchone()
+            is None
+        ):
+            conn.close()
+            return None
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(note_index)").fetchall()
+        }
+    except sqlite3.Error:
+        conn.close()
+        return None
+    return conn, columns
+
+
 def query_note_index(
     *,
     tag: str | None = None,
@@ -682,34 +717,23 @@ def query_note_index(
     """
     if isinstance(vault, str):  # be liberal: accept str paths from callers
         vault = Path(vault)
-    db_path = get_embeddings_db_path(vault)
-    if not db_path.exists():
+    opened = _open_note_index_ro(get_embeddings_db_path(vault))
+    if opened is None:
         return None
+    conn, columns = opened
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return None
-
-    try:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-        ).fetchone()
-        if row is None:
-            return None
-
         # QA-009: shared WHERE builder (see _build_note_index_where for the
         # injection-safety contract). A pre-migration index lacks the status
         # column (ro connections cannot ALTER); the filter then drops out
         # instead of failing the whole query.
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
         where, params = _build_note_index_where(
             tag=tag,
             folder=folder,
             note_type=note_type,
             project=project,
             recent_days=recent_days,
-            has_status="status" in cols,
+            has_status="status" in columns,
             include_superseded=include_superseded,
         )
         sql = f"SELECT path FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
@@ -725,6 +749,114 @@ def query_note_index(
         return None
     finally:
         conn.close()
+
+
+def _query_note_index_results(
+    *,
+    tag: str | None = None,
+    folder: str | None = None,
+    note_type: str | None = None,
+    project: str | None = None,
+    recent_days: int | None = None,
+    changed_since: str | None = None,
+    as_of: str | None = None,
+    limit: int = 50,
+    vault: Path | None = None,
+    include_superseded: bool = False,
+) -> list[dict[str, object]]:
+    """Run the note_index metadata query and return vault-search result dicts.
+
+    QA-002: single home of the SQL previously duplicated in
+    ``parsidion.cli.search.metadata.query`` -- the CLI function is now a
+    thin delegate. Same guard semantics as :func:`query_note_index`
+    (empty list when the DB or the note_index table is absent), plus the
+    CLI-specific details that :func:`query_note_index` intentionally does
+    not carry: the full result-dict projection, ``date``-column detection
+    for pre-migration indexes (non-date queries omit the column; ``--as-of``
+    on a stale schema warns to stderr and returns []), and supersession
+    vacuous-status handling via the shared WHERE builder.
+    """
+    db_path = get_embeddings_db_path(vault)
+    opened = _open_note_index_ro(db_path)
+    if opened is None:
+        return []
+    conn, columns = opened
+    conn.row_factory = sqlite3.Row
+
+    try:
+        # Defensive: a note_index predating the `date` migration (e.g. an
+        # embeddings-disabled vault never rebuilt) lacks the column. SELECTing
+        # `date` would raise OperationalError and silently return []. Detect it
+        # instead: non-date queries omit the column (still work); --as-of (which
+        # genuinely needs it) warns and returns [].
+        has_date = "date" in columns
+        if as_of is not None and not has_date:
+            print(
+                "note_index schema is stale (no 'date' column); "
+                "run update_index.py to enable --as-of.",
+                file=sys.stderr,
+            )
+            return []
+        # Supersession: a note_index predating the status migration lacks the
+        # column; the filter is then vacuously satisfied (nothing can be
+        # retired yet) instead of breaking every metadata query.
+        has_status = "status" in columns
+
+        # QA-009: shared WHERE builder -- the condition assembly that was
+        # duplicated with query_note_index lives once in
+        # parsidion.core.vault_index._build_note_index_where (injection-safety
+        # contract documented there).
+        where, params = _build_note_index_where(
+            tag=tag,
+            folder=folder,
+            note_type=note_type,
+            project=project,
+            recent_days=recent_days,
+            changed_since=changed_since,
+            as_of=as_of,
+            has_status=has_status,
+            include_superseded=include_superseded,
+        )
+        date_col = ", date" if has_date else ""
+        sql = (
+            f"SELECT stem, path, folder, title, summary, tags, note_type, "
+            f"project, confidence, mtime, related, is_stale, incoming_links"
+            f"{date_col} "
+            f"FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
+        )
+        params.append(limit)
+
+        rows = conn.execute(sql, params).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+    results: list[dict[str, object]] = []
+    for row in rows:
+        d = dict(row)
+        tags_str: str = d.get("tags", "") or ""
+        related_str: str = d.get("related", "") or ""
+        results.append(
+            {
+                "score": None,
+                "stem": d.get("stem", ""),
+                "title": d.get("title", ""),
+                "folder": d.get("folder", ""),
+                "tags": [t.strip() for t in tags_str.split(",") if t.strip()],
+                "path": d.get("path", ""),
+                "summary": d.get("summary", ""),
+                "note_type": d.get("note_type", ""),
+                "project": d.get("project", ""),
+                "confidence": d.get("confidence", ""),
+                "mtime": d.get("mtime"),
+                "related": [r.strip() for r in related_str.split(",") if r.strip()],
+                "is_stale": bool(d.get("is_stale", 0)),
+                "incoming_links": d.get("incoming_links", 0),
+                "date": d.get("date", ""),
+            }
+        )
+    return results
 
 
 def load_note_index_metadata(
