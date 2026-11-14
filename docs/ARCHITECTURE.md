@@ -1527,7 +1527,6 @@ parsidion/
 │   ├── show-context                 # CLI: preview session start context for any project
 │   ├── install-pi-extension        # Install parsidion pi extension into ~/.pi/agent/extensions
 │   ├── gen_config_docs.py           # Renders config docs from core/vault_schema.py (CLAUDE.md table, ARCHITECTURE block, template; `make config-docs`)
-│   ├── normalize_docs_api.py        # Canonicalizes byte-unstable docs/api artifacts (keeps `make docs-api-check` deterministic)
 │   └── gen_parity_fixtures.py       # ENH-005 parity-fixture generator (consumed by `make parity-fixtures`)
 ├── visualizer/                      # Next.js vault visualizer (bun dev)
 │   ├── app/                         # Next.js App Router pages and API routes
@@ -1557,7 +1556,7 @@ parsidion/
 │   ├── CLAUDE.md                    # Doc-folder AI guidance
 │   ├── parsidion-architecture.png   # Architecture diagram embedded by the root README
 │   ├── *-slideshow.html             # Self-contained walkthroughs (5) published to GitHub Pages
-│   ├── api/                         # Generated API reference (pdoc + typedoc; `make docs-api`)
+│   ├── api/                         # Generated API reference (pdoc + typedoc; gitignored, CI artifact + Pages `/api/`)
 │   ├── generated/                   # Generated config reference (config-reference.md, config-table.md)
 │   ├── archive/                     # Legacy docs kept for history (MCPL.md, CHANGELOG-0.11-and-older.md)
 │   └── superpowers/                 # Superpowers skill documentation

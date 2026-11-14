@@ -232,8 +232,8 @@ jobs:
       - name: Test
         run: bun test
 
-  docs-api-checks:
-    name: docs/api — generated reference drift check
+  docs-api:
+    name: docs/api — generated API reference (artifact)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -252,9 +252,17 @@ jobs:
         working-directory: visualizer
         run: bun install --frozen-lockfile
 
-      - name: docs/api drift check
-        # DOC-003: pdoc (docs extra) + typedoc (visualizer devDeps) regenerate
-        # to a temp dir and diff against the committed docs/api snapshot.
-        # typedoc.json pins gitRevision: "main" so "Defined in" links stay
-        # stable across commits instead of embedding the build's commit SHA.
-        run: make docs-api-check
+      - name: Generate API reference
+        # ARC-206: pdoc (docs extra) + typedoc (visualizer devDeps) regenerate
+        # docs/api, which is no longer a committed snapshot; the artifact and
+        # the Pages deploy (pages.yml) replace it. typedoc.json pins
+        # sourceLinkTemplate to the main branch so "Defined in" links stay
+        # stable across commits.
+        run: make docs-api
+
+      - name: Upload docs/api artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 (SEC-028)
+        with:
+          name: docs-api
+          path: docs/api
+          retention-days: 30

@@ -1,4 +1,4 @@
-.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-ci checkall-mcp wheel-install pi-extension-check clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api docs-api-check docs-api-gen bench-hooks grind-start grind-start-anthropic grind-start-zai grind-start-grok grind-start-codex grind-start-omp grind-stop grind-clean-logs
+.PHONY: build test test-graph test-search lint fmt fmt-check typecheck checkall checkall-ci checkall-mcp wheel-install pi-extension-check clean install graph graph-with-daily visualizer stop-visualizer build-visualizer visualizer-setup visualizer-check parity-fixtures parity-fixtures-check docs-api bench-hooks grind-start grind-start-anthropic grind-start-zai grind-start-grok grind-start-codex grind-start-omp grind-stop grind-clean-logs
 
 # Format code with ruff
 fmt:
@@ -62,15 +62,11 @@ config-docs-check:
 	uv run python scripts/gen_config_docs.py --check
 
 # === ENH-011: Generated API reference =============================================
-# `make docs-api` regenerates the committed snapshot under docs/api/ from
-# docstrings (pdoc) and JSDoc (typedoc). `make docs-api-check` regenerates to a
-# temp dir and diffs against docs/api/, exiting non-zero on drift.
-#
-# STANDALONE drift gate, intentionally NOT wired into `checkall`: pdoc lives in
-# the opt-in `docs` extra (not installed by `make install` or `uv sync --group
-# dev`) and typedoc lives in the visualizer devDeps, so adding them to
-# `checkall` would push a doc-generation toolchain onto every CI run. Run
-# `make docs-api` after editing docstrings/JSDoc and commit the result.
+# `make docs-api` regenerates docs/api/ from docstrings (pdoc, `docs` extra)
+# and JSDoc (typedoc, visualizer devDeps). ARC-206: docs/api is no longer a
+# committed snapshot - CI runs this target and uploads docs/api as a workflow
+# artifact, and pages.yml deploys it to GitHub Pages under /api/. Run it
+# locally to preview what CI will publish.
 #
 # build_graph.py (numpy), summarize_sessions.py (anyio), and build_embeddings.py
 # (fastembed/sqlite_vec guard) are skipped because their top-level imports are
@@ -94,124 +90,13 @@ PDOC_MODULES := parsidion.core installer parsidion.vault_tui parsidion.vault_new
 # its repo path (and thus its pdoc page location) is part of the contract.
 
 docs-api:
-	$(MAKE) docs-api-gen DOCS_API_OUT=docs/api
-
-docs-api-check:
-	@tmp=$$(mktemp -d); \
-	$(MAKE) docs-api-gen DOCS_API_OUT=$$tmp >/dev/null || { echo "docs-api generation failed" 1>&2; rm -rf $$tmp; exit 1; }; \
-	if diff -r docs/api $$tmp >/dev/null; then \
-		echo "docs/api is up to date"; rc=0; \
-	else \
-		echo "docs/api is stale -- run 'make docs-api' and commit the result" 1>&2; \
-		echo "drifting files:" 1>&2; \
-		diff -rq docs/api $$tmp 1>&2 || true; \
-		first=$$(diff -rq docs/api $$tmp 2>/dev/null | head -1 | sed 's/^Files \(.*\) and .*/\1/'); \
-		if [ -n "$$first" ]; then \
-			echo "first drift unified diff ($$first):" 1>&2; \
-			diff -u "$$first" "$$tmp/$${first#docs/api/}" 1>&2 | head -40 || true; \
-		fi; \
-		rc=1; \
-	fi; \
-	rm -rf $$tmp; exit $$rc
-
-# Internal generator shared by docs-api and docs-api-check so the two cannot
-# drift apart. Writes into $(DOCS_API_OUT). pdoc renders the runtime repr of
-# module-level constants (e.g. installer.paths.REPO_ROOT, vault_path.VAULT_ROOT)
-# which embed the checkout path and $HOME -- machine-specific values that would
-# make the committed snapshot fail docs-api-check on any other machine or CI.
-# pdoc has no flag to suppress default-value rendering, and the machine paths
-# leak into MORE than the visible value text: pdoc's lunr search index stores
-# default_value TOKEN COUNTS (field lengths) and a per-character inverted-index
-# TRIE, both built from the pre-scrubbed strings -- neither reachable by a
-# post-hoc text scrub. pdoc also decides whether to emit its "view-value
-# toggle" widget and its condensed-vs-multiline signature layout from
-# PRE-rendered lengths, so the same source can render differently on machines
-# whose checkout path (or python minor) differs.
-#
-# The only airtight fix is to make the generator's INPUT machine-independent:
-# docs-api-gen rsyncs the documented packages to a fixed physical path
-# (PDOC_GEN_ROOT -- a real directory, not a symlink, so constants that call
-# .resolve() themselves, like installer.paths.REPO_ROOT, still land on the
-# fixed path) and runs pdoc with HOME pointed at a fixed empty directory (for
-# Path.home()-derived constants like VAULT_ROOT/TEMPLATES_DIR). Every
-# __file__- and home-derived repr, trie token, and field length is then
-# identical on every machine and in CI; the scrub below merely rewrites the
-# fixed paths to readable <repo-root>/<home> tokens. rsync copies only .py
-# files, so no build artifacts travel. Note that typedoc's GitHub source links
-# still require a normal (non-worktree) checkout -- typedoc cannot resolve the
-# git remote through a worktree's .git file indirection -- so run make
-# docs-api from the main checkout, not an agent worktree.
-#
-# After merging a branch that changed visualizer deps, run `cd visualizer &&
-# bun install` BEFORE make docs-api: typedoc compiles lib/*.ts against the
-# CHECKOUT's node_modules, and a stale install (e.g. sigma 3 while the
-# merged bun.lock says sigma 4) produces TS2353 "does not exist in type"
-# errors that a fresh install makes disappear.
-#
-# Two more cross-platform details:
-#
-# - typedoc's entryPointStrategy "expand" walks lib/ in READDIR order, and
-#   readdir order differs between filesystems (APFS vs ext4), which shifts
-#   typedoc's sequential reflection ids (data-refl attributes, and ids baked
-#   into the compressed assets/search.js blob). The recipe therefore passes
-#   lib/*.ts explicitly, LC_ALL=C sorted, with entryPointStrategy resolve --
-#   same module-per-file structure as expand, but a conversion order that is
-#   identical on every filesystem.
-#
-# - two artifacts are content-identical but byte-unstable across platforms:
-#   pdoc's prebuilt search index (lunr posting maps serialize in document
-#   processing order, which varies) and typedoc's compressed asset blobs
-#   (navigation/hierarchy/search .js embed base64 zlib streams whose deflate
-#   bytes depend on the producing zlib build). scripts/normalize_docs_api.py
-#   canonicalizes both after the scrub: sorted-key compact JSON for the
-#   search index, and zlib level-0 (stored, no entropy coding) re-storage
-#   for the asset blobs -- byte-identical on every zlib implementation at
-#   the cost of some file size.
-#
-# Two further normalizations:
-#
-# - pdoc must run on the SAME python minor as CI: its condensed-vs-multiline
-#   signature layout is a length comparison against the stringified
-#   parameter/annotation reprs, which differ between python minors (e.g. 3.13
-#   vs 3.14 type display), flipping borderline signatures. The docs job in
-#   .github/workflows/ci.yml runs python 3.13, so the pin below keeps every
-#   environment rendering CI's layout; --isolated keeps the pinned interpreter
-#   in an ephemeral cache instead of re-creating the project .venv on machines
-#   whose local default is a newer minor.
-#
-# - set/frozenset default-value reprs iterate in hash order, which
-#   PYTHONHASHSEED=0 does not make stable across interpreter BUILDS. That,
-#   the cosmetic view-value toggle markup, the numeric default_value lunr
-#   field lengths, and the machine-path needles are all handled by the scrub
-#   in scripts/normalize_docs_api.py (ARC-104 moved it out of this recipe so
-#   each rule is unit-testable; its module docstring carries the trap notes
-#   and tests/test_normalize_docs_api.py pins it against the original perl).
-#   The resolved-path needles are passed as CLI args: an empty needle is a
-#   hard error there, where it used to degrade silently to the literal-path
-#   rule and leave a '/private<repo-root>' prefix behind on macOS.
-.PHONY: docs-api-gen
-PDOC_GEN_ROOT := /tmp/parsidion-docs-gen
-PDOC_GEN_HOME := /tmp/parsidion-docs-home
-docs-api-gen:
-	rm -rf $(PDOC_GEN_ROOT) $(PDOC_GEN_HOME)
-	mkdir -p $(PDOC_GEN_ROOT)/skills/parsidion $(PDOC_GEN_HOME)
-	rsync -a --include='*/' --include='*.py' --exclude='*' \
-		"$(CURDIR)/installer" $(PDOC_GEN_ROOT)/
-	rsync -a --include='*/' --include='*.py' --exclude='*' \
-		"$(CURDIR)/skills/parsidion/scripts" $(PDOC_GEN_ROOT)/skills/parsidion/
-	rm -rf $(abspath $(DOCS_API_OUT))
-	PYTHONHASHSEED=0 HOME=$(PDOC_GEN_HOME) \
-		PYTHONPATH=$(PDOC_GEN_ROOT)/skills/parsidion/scripts:$(PDOC_GEN_ROOT) \
+	rm -rf $(CURDIR)/docs/api
+	PYTHONPATH="$(CURDIR)/skills/parsidion/scripts:$(CURDIR)" \
 		uv run --isolated --python 3.13 --extra docs python -P -m pdoc \
-		-o $(abspath $(DOCS_API_OUT))/python $(PDOC_MODULES)
+		-o $(CURDIR)/docs/api/python $(PDOC_MODULES)
 	cd visualizer && LC_ALL=C ls lib/*.ts | grep -v '\.test\.ts$$' | \
 		xargs bunx typedoc --entryPointStrategy resolve \
-		--out $(abspath $(DOCS_API_OUT))/visualizer --options typedoc.json
-	gen_resolved=$$(realpath $(PDOC_GEN_ROOT) 2>/dev/null || echo $(PDOC_GEN_ROOT)); \
-		home_resolved=$$(realpath $(PDOC_GEN_HOME) 2>/dev/null || echo $(PDOC_GEN_HOME)); \
-		python3 scripts/normalize_docs_api.py $(abspath $(DOCS_API_OUT)) \
-			--repo-root "$$gen_resolved" --repo-root "$(PDOC_GEN_ROOT)" --repo-root "$(CURDIR)" \
-			--home "$$home_resolved" --home "$(PDOC_GEN_HOME)" --home "$(HOME)"
+		--out $(CURDIR)/docs/api/visualizer --options typedoc.json
 
 # Typecheck, lint, unit-test, and build the visualizer (bun)
 # 'bun run build' catches RSC server/client boundary violations (ARC-041) that tsc --noEmit alone misses
@@ -222,10 +107,12 @@ visualizer-check:
 checkall: fmt-check lint typecheck test test-graph test-search visualizer-check checkall-mcp config-docs-check
 
 # CI-parity gate (ci-gate-parity convention): checkall plus every CI check
-# that checkall alone does not run — the parity-fixtures and docs-api drift
-# gates, the wheel clean-room import smoke, and the pi extension bun tests.
+# that checkall alone does not run — the parity-fixtures drift gate, the wheel
+# clean-room import smoke, and the pi extension bun tests. ARC-206: the
+# docs-api drift gate is gone — CI generates docs/api as an artifact and Pages
+# deploys it; there is no committed snapshot left to drift.
 # checkall stays the fast inner loop; the heavier parity checks live here.
-checkall-ci: checkall parity-fixtures-check docs-api-check wheel-install pi-extension-check
+checkall-ci: checkall parity-fixtures-check wheel-install pi-extension-check
 
 # Mirror of CI's wheel-install job (ARC-003): build the wheel, install it
 # plus anyio into a throwaway seeded venv, and import every shipped module

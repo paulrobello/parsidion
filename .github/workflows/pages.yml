@@ -22,11 +22,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (SEC-028)
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0 (SEC-028)
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3 (SEC-028)
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install visualizer dependencies (typedoc)
+        working-directory: visualizer
+        run: bun install --frozen-lockfile
+
+      - name: Generate API reference into docs/api
+        # ARC-206: the API reference is generated at deploy time instead of
+        # being read from a committed snapshot (docs/api is gitignored).
+        run: make docs-api
+
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0 (SEC-028)
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0 (SEC-028)
         with:
           # ARC-013: scope to docs/ only — avoids publishing scripts, lock
-          # files, and other repo internals via GitHub Pages.
+          # files, and other repo internals via GitHub Pages. The generated
+          # docs/api (ARC-206) is part of that scope and publishes under /api/.
           path: docs
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1 (SEC-028)
