@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import vault_path
+
+from core import vault_path
 
 from parsidion_mcp import metrics
 

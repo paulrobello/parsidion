@@ -107,9 +107,9 @@ def _observe_up(_options: Any) -> list[Any]:
 def _observe_index_age(_options: Any) -> list[Any]:
     from opentelemetry.metrics import Observation
 
-    import vault_common
+    from core import vault_path
 
-    db = vault_common.resolve_vault(explicit=None) / "embeddings.db"
+    db = vault_path.resolve_vault(explicit=None) / "embeddings.db"
     try:
         mtime = db.stat().st_mtime
     except OSError:

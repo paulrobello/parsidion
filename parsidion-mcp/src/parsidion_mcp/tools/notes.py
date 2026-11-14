@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import vault_common
+from core import vault_path
 
 
 class VaultToolError(Exception):
@@ -30,7 +30,7 @@ def _resolve_vault_path(path: str, vault: str | None = None) -> Path:
     # and named vaults are all respected.
     # ARC-021: thread the optional *vault* reference through so the MCP
     # caller can target a specific named vault instead of the default.
-    vault_root = vault_common.resolve_vault(explicit=vault).resolve()
+    vault_root = vault_path.resolve_vault(explicit=vault).resolve()
     raw = Path(path)
     candidate = (raw if raw.is_absolute() else vault_root / raw).resolve()
     if not candidate.is_relative_to(vault_root):
@@ -62,7 +62,7 @@ def _validate_note_segments(resolved: Path, vault_root: Path, *, action: str) ->
     segments = rel.parts
     if any(segment.startswith(".") for segment in segments):
         raise VaultToolError(f"Hidden paths are not {action}")
-    if segments and segments[0] in vault_common.EXCLUDE_DIRS:
+    if segments and segments[0] in vault_path.EXCLUDE_DIRS:
         raise VaultToolError(f"Excluded directory: {segments[0]}")
 
 
@@ -99,7 +99,7 @@ def vault_read(path: str, vault: str | None = None) -> str:
             non-note path, oversized file, binary content, file not found,
             OS error).
     """
-    vault_root = vault_common.resolve_vault(explicit=vault)
+    vault_root = vault_path.resolve_vault(explicit=vault)
     if not vault_root.exists():
         raise VaultToolError(f"vault root not found at {vault_root}")
     try:
@@ -147,7 +147,7 @@ def vault_write(path: str, content: str, vault: str | None = None) -> str:
         # SEC-009: Only allow .md file extensions.
         if resolved.suffix.lower() != ".md":
             raise VaultToolError("Only .md files are allowed")
-        vault_root = vault_common.resolve_vault(explicit=vault).resolve()
+        vault_root = vault_path.resolve_vault(explicit=vault).resolve()
         # SEC-201: apply the same hidden-path/excluded-dir segment gate the
         # read side enforces, before any filesystem access — without it a
         # write to .trash/backup/<date>/**.md could overwrite the SEC-107

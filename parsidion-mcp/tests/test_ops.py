@@ -28,15 +28,15 @@ def _make_proc(returncode: int = 0, stdout: str = "ok", stderr: str = "") -> Mag
 # ---------------------------------------------------------------------------
 # rebuild_index
 # ARC-004: the subprocess now lives in core.vault_index.run_index_rebuild;
-# these tests patch it at the vault_common facade ops calls, so they pin the
-# wrapper's mapping of (reason, proc) -> result / OpsToolError. The argv
-# contract itself is pinned by tests/test_run_index_rebuild.py at the repo
-# root.
+# these tests patch it where ops.py binds it (the vault_index module the
+# tool calls), so they pin the wrapper's mapping of (reason, proc) ->
+# result / OpsToolError. The argv contract itself is pinned by
+# tests/test_run_index_rebuild.py at the repo root.
 # ---------------------------------------------------------------------------
 
 
 def test_rebuild_index_success() -> None:
-    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+    with patch("parsidion_mcp.tools.ops.vault_index.run_index_rebuild") as mock_run:
         mock_run.return_value = ("ok", _make_proc(stdout="Index rebuilt."))
         result = rebuild_index()
 
@@ -44,7 +44,7 @@ def test_rebuild_index_success() -> None:
 
 
 def test_rebuild_index_nonzero_exit_raises() -> None:
-    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+    with patch("parsidion_mcp.tools.ops.vault_index.run_index_rebuild") as mock_run:
         mock_run.return_value = (
             "ok",
             _make_proc(returncode=1, stderr="something failed"),
@@ -54,21 +54,21 @@ def test_rebuild_index_nonzero_exit_raises() -> None:
 
 
 def test_rebuild_index_timeout_raises() -> None:
-    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+    with patch("parsidion_mcp.tools.ops.vault_index.run_index_rebuild") as mock_run:
         mock_run.return_value = ("timeout", None)
         with pytest.raises(OpsToolError, match="timed out"):
             rebuild_index()
 
 
 def test_rebuild_index_launch_failure_raises() -> None:
-    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+    with patch("parsidion_mcp.tools.ops.vault_index.run_index_rebuild") as mock_run:
         mock_run.return_value = ("launch", None)
         with pytest.raises(OpsToolError, match="not found"):
             rebuild_index()
 
 
 def test_rebuild_index_timeout_is_30s() -> None:
-    with patch("parsidion_mcp.tools.ops.vault_common.run_index_rebuild") as mock_run:
+    with patch("parsidion_mcp.tools.ops.vault_index.run_index_rebuild") as mock_run:
         mock_run.return_value = ("ok", _make_proc())
         rebuild_index()
 
@@ -191,16 +191,16 @@ def test_vault_health_without_vault_omits_vault_flag() -> None:
 def test_vault_health_with_vault_appends_vault_flag() -> None:
     with (
         patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run,
-        patch("parsidion_mcp.tools.ops.vault_common") as mock_vc,
+        patch("parsidion_mcp.tools.ops.vault_path") as mock_vp,
     ):
         mock_run.return_value = _make_proc(stdout='{"overall": 100}')
-        mock_vc.resolve_vault.return_value = Path("/tmp/work-vault")
+        mock_vp.resolve_vault.return_value = Path("/tmp/work-vault")
         vault_health(vault="work-vault")
 
     cmd = mock_run.call_args[0][0]
     assert "--vault" in cmd
     assert "/tmp/work-vault" in cmd
-    mock_vc.resolve_vault.assert_called_once_with(explicit="work-vault")
+    mock_vp.resolve_vault.assert_called_once_with(explicit="work-vault")
 
 
 def test_vault_health_nonzero_exit_raises() -> None:
@@ -231,22 +231,25 @@ def test_vault_health_timeout_raises() -> None:
 
 
 class TestScriptsDirFromImportedPackage:
-    """ARC-021: SCRIPTS_DIR must come from the imported vault_path.__file__,
-    not the hardwired ~/.claude path. On Unix this matches the symlinked
-    install; on Windows (where the installer copies) it follows whatever
-    the editable install points at — keeping import and subprocess consistent.
+    """ARC-021 / ARC-200 step 1: SCRIPTS_DIR must come from the imported
+    ``core`` package's location (its parent — the scripts root holding
+    vault_doctor.py / vault_stats.py), not the hardwired ~/.claude path.
+    On Unix this matches the symlinked install; on Windows (where the
+    installer copies) it follows whatever the editable install points at —
+    keeping import and subprocess consistent.
     """
 
     def test_scripts_dir_is_inside_imported_package(self) -> None:
-        import vault_path
+        import core
 
         from parsidion_mcp.tools.ops import SCRIPTS_DIR
 
-        # SCRIPTS_DIR must be the parent of vault_path.py — the file the
-        # process is actually importing. A drift here would mean we are
-        # subprocess-ing a different copy of the code than the one we import.
-        expected_parent = Path(vault_path.__file__).resolve().parent
-        assert SCRIPTS_DIR == expected_parent
+        # SCRIPTS_DIR must be the scripts root that owns the imported core
+        # package — the directory the process is actually importing from. A
+        # drift here would mean we are subprocess-ing a different copy of the
+        # code than the one we import.
+        expected_root = Path(core.__file__).resolve().parent.parent
+        assert SCRIPTS_DIR == expected_root
 
     def test_scripts_dir_not_hardwired_to_home_claude(self, monkeypatch) -> None:
         # Even if ~/.claude/skills/parsidion/scripts does not exist, SCRIPTS_DIR
@@ -278,24 +281,27 @@ class TestVaultParameterReachesArgv:
     """ARC-021: the optional *vault* parameter must reach the subprocess argv."""
 
     def test_rebuild_index_without_vault_omits_vault_flag(self) -> None:
-        with patch("parsidion_mcp.tools.ops.vault_common") as mock_vc:
-            mock_vc.run_index_rebuild.return_value = ("ok", _make_proc(stdout="x"))
+        with patch("parsidion_mcp.tools.ops.vault_index") as mock_vi:
+            mock_vi.run_index_rebuild.return_value = ("ok", _make_proc(stdout="x"))
             rebuild_index()
 
         # vault=None positionally: run_index_rebuild omits --vault for None,
         # letting the resolver's default precedence apply (pinned at the
         # subprocess owner in tests/test_run_index_rebuild.py).
-        assert mock_vc.run_index_rebuild.call_args[0][0] is None
+        assert mock_vi.run_index_rebuild.call_args[0][0] is None
 
     def test_rebuild_index_with_vault_appends_vault_flag(self) -> None:
-        with patch("parsidion_mcp.tools.ops.vault_common") as mock_vc:
-            mock_vc.run_index_rebuild.return_value = ("ok", _make_proc(stdout="x"))
-            mock_vc.resolve_vault.return_value = Path("/tmp/my-vault")
+        with (
+            patch("parsidion_mcp.tools.ops.vault_index") as mock_vi,
+            patch("parsidion_mcp.tools.ops.vault_path") as mock_vp,
+        ):
+            mock_vi.run_index_rebuild.return_value = ("ok", _make_proc(stdout="x"))
+            mock_vp.resolve_vault.return_value = Path("/tmp/my-vault")
             rebuild_index(vault="my-vault")
 
-        assert mock_vc.run_index_rebuild.call_args[0][0] == Path("/tmp/my-vault")
+        assert mock_vi.run_index_rebuild.call_args[0][0] == Path("/tmp/my-vault")
         # resolve_vault was called with the explicit reference.
-        mock_vc.resolve_vault.assert_called_once_with(explicit="my-vault")
+        mock_vp.resolve_vault.assert_called_once_with(explicit="my-vault")
 
     def test_vault_doctor_without_vault_omits_vault_flag(self) -> None:
         with patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run:
@@ -308,13 +314,13 @@ class TestVaultParameterReachesArgv:
     def test_vault_doctor_with_vault_appends_vault_flag(self) -> None:
         with (
             patch("parsidion_mcp.tools.ops.subprocess.run") as mock_run,
-            patch("parsidion_mcp.tools.ops.vault_common") as mock_vc,
+            patch("parsidion_mcp.tools.ops.vault_path") as mock_vp,
         ):
             mock_run.return_value = _make_proc(stdout="ok")
-            mock_vc.resolve_vault.return_value = Path("/tmp/work")
+            mock_vp.resolve_vault.return_value = Path("/tmp/work")
             vault_doctor(vault="work")
 
         cmd = mock_run.call_args[0][0]
         assert "--vault" in cmd
         assert "/tmp/work" in cmd
-        mock_vc.resolve_vault.assert_called_once_with(explicit="work")
+        mock_vp.resolve_vault.assert_called_once_with(explicit="work")
