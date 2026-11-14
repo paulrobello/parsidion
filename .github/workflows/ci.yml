@@ -154,21 +154,11 @@ jobs:
         run: |
           uv venv --python 3.13 --seed /tmp/wheeltest
           /tmp/wheeltest/bin/pip install --quiet --force-reinstall dist/*.whl anyio
-          /tmp/wheeltest/bin/python - <<'PYEOF'
-          # ARC-201: the wheel ships only parsidion.* — import every module
-          # under the installed package (console-script targets included).
-          import importlib, pathlib
-
-          scripts_root = pathlib.Path("skills/parsidion/scripts")
-          mods = sorted(
-              str(p.relative_to(scripts_root).with_suffix("")).replace("/", ".")
-              for p in (scripts_root / "parsidion").rglob("*.py")
-              if "__pycache__" not in p.parts
-          )
-          for m in mods:
-              importlib.import_module(m)
-          print(f"ok: imported {len(set(mods))} shipped modules/packages")
-          PYEOF
+          # ARC-200 step 2: the retired shims ship as raising stubs — the
+          # shared smoke (scripts/check_wheel_imports.py, piped through stdin
+          # from the repo root) imports every shipped module and asserts each
+          # stub raises a deprecation ImportError naming its replacement.
+          /tmp/wheeltest/bin/python - < scripts/check_wheel_imports.py
           rm -rf /tmp/wheeltest
 
   visualizer-checks:

@@ -784,7 +784,7 @@ def run_index_rebuild(
         if not script.exists():
             return "launch", None
     else:
-        source_dir = Path(__file__).resolve().parent.parent
+        source_dir = Path(__file__).resolve().parent.parent.parent
         script = next(
             (
                 candidate
