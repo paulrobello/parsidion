@@ -256,7 +256,9 @@ def install(args: argparse.Namespace) -> int:
                 f"  5. Run: {cyan(f'cd {REPO_ROOT} && uv tool install --editable {tools_arg}')}"
             )
             print(
-                "         to add vault-search, vault-new, and vault-stats as global CLI commands"
+                "         to add the eight vault CLIs (vault-search, vault-new, "
+                "vault-stats,\n         vault-review, vault-export, vault-merge, "
+                "vault-conflicts, vault-supersede)\n         as global CLI commands"
             )
             print(
                 f"         (or re-run with {cyan('--install-tools')} to do this automatically)"
@@ -486,9 +488,9 @@ def parse_args() -> argparse.Namespace:
         "--enable-ai",
         action="store_true",
         help=(
-            "Enable AI-powered note selection: writes ai_model to vault config.yaml "
-            "and sets the SessionStart hook timeout to 60s so claude-haiku can "
-            "intelligently select relevant vault notes. "
+            "Enable AI-powered note selection through the configured prompt AI "
+            "backend's small model (SessionStart runs with a 60s timeout on "
+            "every install). "
             "The interactive installer prompts for this; use this flag to enable "
             "it non-interactively (e.g. with --yes)."
         ),
@@ -508,7 +510,9 @@ def parse_args() -> argparse.Namespace:
         "--install-tools",
         action="store_true",
         help=(
-            "Also install vault-search, vault-new, and vault-stats as global CLI "
+            "Also install the eight vault CLIs (vault-search, vault-new, "
+            "vault-stats, vault-review, vault-export, vault-merge, "
+            "vault-conflicts, vault-supersede) as global CLI "
             "commands via 'uv tool install --editable .[tools]' (cross-platform; "
             "adds commands to ~/.local/bin/ or platform equivalent). "
             "The interactive installer prompts for this; use this flag to enable "

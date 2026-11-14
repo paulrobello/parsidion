@@ -126,13 +126,14 @@ def collect_install_options(
         print(bold("CLI Tools (optional)"))
         print(
             dim(
-                "  Installs vault-search, vault-new, and vault-stats as global\n"
-                "  commands via 'uv tool install --editable .[tools]'.\n"
+                "  Installs vault-search, vault-new, vault-stats, vault-review,\n"
+                "  vault-export, vault-merge, vault-conflicts, vault-supersede\n"
+                "  as global commands via 'uv tool install --editable .[tools]'.\n"
                 "  Requires uv to be installed."
             )
         )
         install_tools = _confirm(
-            "Install CLI tools (vault-search, vault-new, vault-stats)?", default=True
+            "Install the eight vault CLIs (see README)?", default=True
         )
 
     # --- AI mode prompt ---
@@ -227,7 +228,11 @@ def print_install_plan(plan: InstallPlan) -> None:
         print(f"  {dim('Antigravity home :')} {plan.antigravity_home}")
     print(f"  {dim('Vault path   :')} {plan.vault_root}")
     if plan.install_tools:
-        print(f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats")
+        print(
+            f"  {dim('CLI tools    :')} vault-search, vault-new, vault-stats, "
+            "vault-review, vault-export, vault-merge, vault-conflicts, "
+            "vault-supersede"
+        )
     if plan.do_schedule:
         graph_suffix = " + graph rebuild" if plan.rebuild_graph else ""
         print(
@@ -502,7 +507,8 @@ def build_install_steps(plan: InstallPlan) -> StepList:
         )
     )
 
-    # 10. Install global CLI tools (vault-search, vault-new, vault-stats).
+    # 10. Install global CLI tools: vault-search, vault-new, vault-stats,
+    #     vault-review, vault-export, vault-merge, vault-conflicts, vault-supersede.
     if plan.install_tools:
         steps.append(
             Step(
