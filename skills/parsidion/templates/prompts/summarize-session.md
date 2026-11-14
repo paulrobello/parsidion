@@ -1,6 +1,6 @@
 ---
 id: summarize-session
-version: 1.1.0
+version: 1.1.1
 syntax: template
 variables: [project, cats_str, today, dedup_block, cleaned_transcript, tags_instruction, valid_types, session_id]
 description: Generate a structured vault note from a cleaned session transcript (summarize_sessions). Transcript is inlined as untrusted data.
@@ -49,9 +49,9 @@ Write a complete markdown vault note. Requirements:
 $tags_instruction,
   project (if project-specific), confidence (high|medium|low),
   sources ([] or URLs mentioned),
-  related (REQUIRED — must be a non-empty YAML list of quoted [[wikilinks]]; always provide at
+  related (REQUIRED — must be a non-empty YAML list of quoted [[wikilinks]]; always provide at <!-- doc-path: example -->
   least one entry; if no specific note title is known, link to the project name or primary
-  technology, e.g. ["[[$project]]"]; an empty "related: []" is NEVER acceptable),
+  technology, e.g. ["[[$project]]"]; <!-- doc-path: example --> an empty "related: []" is NEVER acceptable),
   provenance (optional; one of explicit|inferred|corrected|observed|imported — use "inferred" for knowledge
   distilled from a transcript, "observed" for auto-captured events, "imported" for external research),
   session_id: $session_id

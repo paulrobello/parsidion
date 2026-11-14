@@ -121,7 +121,7 @@ database so semantic search works immediately.
 | `summarizer_state.json` | **No** | Machine-local summarizer run state |
 | `doctor_state.json` | **No** | Machine-local vault doctor run state |
 | `dead_letters.jsonl` | **No** | Machine-local failed-summary entries from the summarizer |
-| `conflicts/` | **No** | Output of `vault-conflicts --scan-only` (`conflicts/report.json`) — machine-local |
+| `conflicts/` | **No** | Output of `vault-conflicts --scan-only` (`conflicts/report.json`) — machine-local | <!-- doc-path: example -->
 | `config.yaml` | **No** | May hold secrets (`anthropic_env` API keys) — configure locally on each machine |
 | `config.local.yaml` | **No** | Optional machine-specific overlay — gitignored, never synced |
 | `pyproject.toml`, `uv.toml`, `setup.py`, `.venv/` | **No** | Defence in depth against SEC-101 — stops `uv run` (without `--no-project`) from executing a build backend if one lands in the vault worktree |
@@ -294,7 +294,8 @@ person runs the installer on their own machine — the installer automatically s
 on Windows).
 
 Daily notes are stored as `Daily/YYYY-MM/DD-{username}.md` (e.g.
-`Daily/2026-03/23-alice.md`, `Daily/2026-03/23-bob.md`), so each team member
+`Daily/2026-03/23-alice.md`, <!-- doc-path: example -->
+`Daily/2026-03/23-bob.md`), <!-- doc-path: example --> so each team member
 writes their own file and git pull/push never produces daily-note conflicts.
 
 ### Migrating existing vaults

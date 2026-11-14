@@ -110,9 +110,9 @@ def test_summarize_session_renders_byte_identical() -> None:
         f"{tags_instruction},\n"
         "  project (if project-specific), confidence (high|medium|low),\n"
         "  sources ([] or URLs mentioned),\n"
-        "  related (REQUIRED — must be a non-empty YAML list of quoted [[wikilinks]]; always provide at\n"
+        "  related (REQUIRED — must be a non-empty YAML list of quoted [[wikilinks]]; always provide at <!-- doc-path: example -->\n"
         "  least one entry; if no specific note title is known, link to the project name or primary\n"
-        '  technology, e.g. ["[[parsidion]]"]; an empty "related: []" is NEVER acceptable),\n'
+        '  technology, e.g. ["[[parsidion]]"]; <!-- doc-path: example --> an empty "related: []" is NEVER acceptable),\n'
         '  provenance (optional; one of explicit|inferred|corrected|observed|imported — use "inferred" for knowledge\n'
         '  distilled from a transcript, "observed" for auto-captured events, "imported" for external research),\n'
         "  session_id: abc-123\n"
@@ -372,8 +372,8 @@ def test_render_raises_on_missing_legacy_placeholder() -> None:
 def test_load_prompt_returns_version_stamp() -> None:
     reset_cache()
     tpl = load_prompt("summarize-session")
-    assert tpl.version == "1.1.0"
-    assert tpl.version_stamp == "summarize-session@1.1.0"
+    assert tpl.version == "1.1.1"
+    assert tpl.version_stamp == "summarize-session@1.1.1"
 
 
 def test_summarize_session_epistemic_directives_present() -> None:

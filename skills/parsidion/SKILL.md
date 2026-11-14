@@ -127,7 +127,7 @@ Research/
 | General knowledge, concepts, reference material | `Knowledge/` |
 | Behavioral rules auto-injected when a prompt/file trigger matches | `Rules/` |
 | Per-project decisions, architecture, key paths | `Projects/` |
-| Daily session summaries | `Daily/YYYY-MM/DD-{username}.md` (e.g. `Daily/2026-03/13-probello.md`; username from `vault.username`, default `$USER`) |
+| Daily session summaries | `Daily/YYYY-MM/DD-{username}.md` (e.g. `Daily/2026-03/13-probello.md`; username from `vault.username`, default `$USER`) | <!-- doc-path: example -->
 
 ### Frontmatter Standard
 

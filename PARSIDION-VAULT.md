@@ -31,8 +31,8 @@ Checking it first avoids re-solving problems that have already been solved.
 ## Vault Organization
 
 **Subfolder rule**: when 3 or more notes share a common subject prefix, move them
-into a named subfolder (e.g. `Research/fastapi-middleware/basics.md` instead of
-`Research/fastapi-middleware-basics.md`). Drop the redundant prefix from filenames
+into a named subfolder (e.g. `Research/fastapi-middleware/basics.md` <!-- doc-path: example --> instead of
+`Research/fastapi-middleware-basics.md`). <!-- doc-path: example --> Drop the redundant prefix from filenames
 inside the subfolder, update all wikilinks, and rebuild the index. Only one level
 of subfolder is allowed — never nest subfolders within subfolders.
 

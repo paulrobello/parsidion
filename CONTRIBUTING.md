@@ -119,7 +119,7 @@ Use modern Python type annotations throughout:
 
 The six AI prompts live as versioned template files under
 `skills/parsidion/templates/prompts/`, rendered through the strict-variable
-loader in `skills/parsidion/scripts/prompt_templates.py`. See
+loader in `skills/parsidion/scripts/parsidion/prompt_templates.py`. See
 [docs/PROMPTS.md](docs/PROMPTS.md) for the template format, the strict variable
 contract, version bump rules, and how to run the opt-in eval harness
 (`tools/eval/prompt_eval_run.py`) against the golden transcript set before

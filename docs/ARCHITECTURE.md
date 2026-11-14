@@ -587,7 +587,7 @@ The vault health summary (clean count, pending repair, needs review, manual fix)
 
 **Location:** `skills/parsidion/scripts/check_graph_coverage.py`
 
-A utility script that audits vault tags against the Obsidian graph color groups in `.obsidian/graph.json`.
+A utility script that audits vault tags against the Obsidian graph color groups in `.obsidian/graph.json`. <!-- doc-path: example -->
 
 **Behavior:**
 1. Collects all tags used across vault notes
@@ -607,7 +607,7 @@ A Claude Code agent definition (runs on Sonnet) that conducts technical research
 2. Uses NotebookLM (if available) for deep synthesis of source material
 3. Uses Brave Search for web research; falls back to `mcpl search "search"` to find alternative search tools when Brave hits rate limits
 4. Fetches raw HTML via `agentchrome dom get-html "css:html"`, pipes through `~/.claude/skills/parsidion/scripts/html-to-md.py` to get clean noise-free markdown (curl + html-to-md.py as fallback if agentchrome fails)
-5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/RESEARCH-NOTES.md`) was also requested
+5. **Always** saves a vault note to the appropriate subfolder with YAML frontmatter — regardless of whether a project-specific destination (e.g. `docs/RESEARCH-NOTES.md` <!-- doc-path: example -->) was also requested
 6. If a project-specific doc was requested, also saves there (following the project style guide, no frontmatter)
 7. Runs `update_index.py` after saving vault notes
 8. Provides a summary report of findings and gaps
@@ -780,7 +780,7 @@ Rebuilds `~/ParsidionVault/CLAUDE.md` and `TAGS.md` by scanning all vault notes.
 
 ### Metadata Query (vault-search filter mode)
 
-**Location:** `skills/parsidion/scripts/vault_search.py` (unified CLI)
+**Location:** `skills/parsidion/scripts/parsidion/vault_search.py` (unified CLI)
 
 `vault-search` operates in four modes depending on arguments:
 
@@ -853,7 +853,7 @@ All modes produce the same JSON output structure. The `vault-explorer` agent use
 
 ### Vault Links Library
 
-**Location:** `skills/parsidion/scripts/vault_links.py`
+**Location:** `skills/parsidion/scripts/parsidion/vault_links.py`
 
 A shared stdlib-only module that encapsulates all backlink operations. Refactored out of `summarize_sessions.py` so the same logic is available to `parsidion-mcp` without code duplication.
 
@@ -872,7 +872,7 @@ A shared stdlib-only module that encapsulates all backlink operations. Refactore
 
 #### vault-new
 
-**Location:** `skills/parsidion/scripts/vault_new.py` · Global command: `vault-new` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_new.py` · Global command: `vault-new` (after `--install-tools`)
 
 Scaffolds a new vault note from the appropriate template, pre-populating frontmatter fields. Eliminates the need to manually copy templates and fill in boilerplate.
 
@@ -890,7 +890,7 @@ Scaffolds a new vault note from the appropriate template, pre-populating frontma
 
 #### vault-stats
 
-**Location:** `skills/parsidion/scripts/vault_stats.py` · Global command: `vault-stats` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_stats.py` · Global command: `vault-stats` (after `--install-tools`)
 
 Analytics CLI for vault health and activity. All modes output to stdout; Rich formatting is used when available.
 
@@ -918,7 +918,7 @@ The health-score module lives at `skills/parsidion/scripts/parsidion/core/vault_
 
 #### vault-export
 
-**Location:** `skills/parsidion/scripts/vault_export.py` · Global command: `vault-export` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_export.py` · Global command: `vault-export` (after `--install-tools`)
 
 Exports vault notes to different formats. Uses the `note_index` DB when available; falls back to a file walk.
 
@@ -940,7 +940,7 @@ Exports vault notes to different formats. Uses the `note_index` DB when availabl
 
 #### vault-merge
 
-**Location:** `skills/parsidion/scripts/vault_merge.py` · Global command: `vault-merge` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_merge.py` · Global command: `vault-merge` (after `--install-tools`)
 
 Merges two vault notes into one. Accepts either absolute paths or stem names (case-insensitive search across the vault).
 
@@ -954,9 +954,9 @@ Scans all vault notes for near-duplicate pairs using embedding similarity. Repor
 
 #### vault-conflicts
 
-**Location:** `skills/parsidion/scripts/vault_conflicts.py` · Global command: `vault-conflicts` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_conflicts.py` · Global command: `vault-conflicts` (after `--install-tools`)
 
-The contradiction-detection companion to `vault-merge` (which merges near-duplicates). Clusters notes by embedding similarity, then asks the configured prompt AI backend whether any pair within a cluster makes mutually-exclusive claims, and persists the findings to `conflicts/report.json`.
+The contradiction-detection companion to `vault-merge` (which merges near-duplicates). Clusters notes by embedding similarity, then asks the configured prompt AI backend whether any pair within a cluster makes mutually-exclusive claims, and persists the findings to `conflicts/report.json`. <!-- doc-path: example -->
 
 **Usage:** `vault-conflicts [--threshold SCORE] [--top N] [--vault PATH] [--scan-only] [--json] [--no-ai]`
 
@@ -966,7 +966,7 @@ Stdlib-only (no third-party dependencies). Falls back gracefully when `embedding
 
 #### vault-review
 
-**Location:** `skills/parsidion/scripts/vault_review.py` · Global command: `vault-review` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_review.py` · Global command: `vault-review` (after `--install-tools`)
 
 Curses TUI for reviewing entries in `pending_summaries.jsonl` before they are processed by the summarizer.
 
@@ -992,7 +992,7 @@ Curses TUI for reviewing entries in `pending_summaries.jsonl` before they are pr
 
 #### vault-supersede
 
-**Location:** `skills/parsidion/scripts/vault_supersede.py` · Global command: `vault-supersede` (after `--install-tools`)
+**Location:** `skills/parsidion/scripts/parsidion/vault_supersede.py` · Global command: `vault-supersede` (after `--install-tools`)
 
 Retires or restores a note via the supersession contract. Retiring writes `status: superseded` and `superseded_by: ["[[replacement]]"]` into the note's frontmatter and appends a quotable body line (`> Superseded by [[X]] on YYYY-MM-DD: <reason>`) for human readers. Retired notes stay on disk for audit and keep their wikilinks, but are excluded from every retrieval surface (`note_index` queries, walks, semantic search, session-start and prompt-submit recall, backlink suggestions, analytics); `vault-search --include-superseded` reads them back for explicit history queries.
 

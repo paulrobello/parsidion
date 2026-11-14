@@ -105,7 +105,7 @@ fails the gate.
 
 ## Single Source for the Note Schema
 
-`skills/parsidion/scripts/note_schema.py` is the single source for:
+`skills/parsidion/scripts/parsidion/note_schema.py` is the single source for:
 
 - `VALID_NOTE_TYPES` — every valid `type` frontmatter value.
 - `TYPE_FOLDERS` — type → vault folder routing.
@@ -293,12 +293,12 @@ score in the commit message.
 
 | Path | Purpose |
 |------|---------|
-| `skills/parsidion/scripts/prompt_templates.py` | Stdlib-only loader: `load_prompt`, `render`, strict-variable checking. |
-| `skills/parsidion/scripts/note_schema.py` | Single source for `VALID_NOTE_TYPES`, `TYPE_FOLDERS`, tag rules. |
+| `skills/parsidion/scripts/parsidion/prompt_templates.py` | Stdlib-only loader: `load_prompt`, `render`, strict-variable checking. |
+| `skills/parsidion/scripts/parsidion/note_schema.py` | Single source for `VALID_NOTE_TYPES`, `TYPE_FOLDERS`, tag rules. |
 | `skills/parsidion/templates/prompts/*.md` | The six externalized prompt templates. |
-| `skills/parsidion/scripts/summarizer/prompt.py` | `build_prompt` + tag/dedup renderers (uses the loader). |
-| `skills/parsidion/scripts/summarizer/notes.py` | `_stamp_prompt_version` — injects the version stamp. |
-| `skills/parsidion/scripts/doctor/frontmatter.py` | Renders `repair-frontmatter` for `vault_doctor` (uses the loader). |
+| `skills/parsidion/scripts/parsidion/summarizer/prompt.py` | `build_prompt` + tag/dedup renderers (uses the loader). |
+| `skills/parsidion/scripts/parsidion/summarizer/notes.py` | `_stamp_prompt_version` — injects the version stamp. |
+| `skills/parsidion/scripts/parsidion/doctor/frontmatter.py` | Renders `repair-frontmatter` for `vault_doctor` (uses the loader). |
 | `tools/eval/prompt_eval_run.py` | Opt-in eval harness (PEP 723 script). |
 | `tools/eval/evaluators/_base.py` | Shared `BaseEvaluator`: flat-YAML parser, golden-case discovery, `ScoredCase`. |
 | `tools/eval/evaluators/<prompt with underscores>.py` | One evaluator per prompt (e.g. `summarize_session.py`): render / parse / score against `expected.yaml`. |

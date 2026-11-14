@@ -12,7 +12,6 @@ Work on the MAIN checkout, never an agent worktree (the docs/api generator bakes
 ## 1. Bump the version — all spots, synced to the target
 
 - `pyproject.toml` — `version = "<target>"`
-- `skills/parsidion/scripts/vault_common.py` — `__version__ = "<target>"`. This copy drifts (it has lagged `pyproject.toml` before); set it to the target even if its current value is behind.
 - `uv.lock` — run `uv lock` so the lock records the new project version; the lock change goes into the release commit.
 
 ## 2. CHANGELOG.md (Keep a Changelog)

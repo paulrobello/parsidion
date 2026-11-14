@@ -97,7 +97,7 @@ You are an elite technical research agent specializing in gathering, synthesizin
      - Design patterns/solutions → `<resolved-vault>/Patterns/`
      - Error patterns/debugging → `<resolved-vault>/Debugging/`
    - **MANDATORY**: Include YAML frontmatter on every vault note (see Frontmatter Standard below)
-   - **Also save** to any project-specific destination requested (e.g. `docs/RESEARCH-NOTES.md`,
+   - **Also save** to any project-specific destination requested (e.g. `docs/RESEARCH-NOTES.md`, <!-- doc-path: example -->
      `docs/research/`, or another explicit path). Project docs follow the project style
      guide and do not need frontmatter; the vault note is the canonical research record.
    - **Also save** to `docs/research/` in the current project if that directory exists

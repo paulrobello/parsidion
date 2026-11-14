@@ -250,7 +250,7 @@ Reads a vault note by path and returns its full content including YAML frontmatt
 
 | Parameter | Type | Description |
 |---|---|---|
-| `path` | `str` | Path relative to vault root (e.g. `Patterns/my-note.md`) or absolute path |
+| `path` | `str` | Path relative to vault root (e.g. `Patterns/my-note.md`) or absolute path | <!-- doc-path: example -->
 | `vault` | `str \| None` | Vault reference (name from `vaults.yaml` or absolute path). When `None`, the resolver's default precedence applies |
 
 #### Return Value

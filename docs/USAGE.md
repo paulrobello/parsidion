@@ -240,7 +240,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --s
 | `merge_containment` | Merge output violated vault containment | No |
 | `note_validation` | Note writer rejected the generated note | No |
 
-Sessions the write-gate skips `_MAX_SKIPS` (2) times are dead-lettered under the literal reason `write-gate skip (transient)`. The catalog lives in `FailureReason` (`skills/parsidion/scripts/summarizer/_state_const.py`).
+Sessions the write-gate skips `_MAX_SKIPS` (2) times are dead-lettered under the literal reason `write-gate skip (transient)`. The catalog lives in `FailureReason` (`skills/parsidion/scripts/parsidion/summarizer/_state_const.py`).
 
 ## Run vault doctor
 
