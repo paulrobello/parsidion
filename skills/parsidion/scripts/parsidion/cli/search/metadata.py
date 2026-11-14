@@ -10,12 +10,14 @@ fallback (``_get_all_notes_as_results``), and the regex body filter
 from __future__ import annotations
 
 import re
-import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
 
-from parsidion.core.note_index import _query_note_index_results
+from parsidion.core.note_index import (
+    _open_note_index_ro,
+    _query_note_index_results,
+)
 from parsidion.core.vault_index import (
     all_vault_notes,
     get_body,
@@ -90,8 +92,10 @@ def _get_all_notes_as_results(
 ) -> list[dict[str, Any]]:
     """Return all vault notes as result dicts suitable for grep filtering.
 
-    Tries the note_index DB first; falls back to a file walk via
-    ``all_vault_notes()``.
+    Delegates the note_index scan to the core helper (QA-002 single SQL
+    home), dropping its ``date`` key so the grep-path result shape stays
+    unchanged. Falls back to a file walk via ``all_vault_notes()`` when the
+    DB or the note_index table is unavailable.
 
     Args:
         limit: Maximum number of notes to return.
@@ -102,54 +106,11 @@ def _get_all_notes_as_results(
     """
     vault = vault or resolve_vault()
     db_path = get_embeddings_db_path(vault)
-    if db_path.exists():
-        try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            if row is not None:
-                sql = (
-                    "SELECT stem, path, folder, title, summary, tags, note_type, "
-                    "project, confidence, mtime, related, is_stale, incoming_links "
-                    "FROM note_index ORDER BY mtime DESC LIMIT ?"
-                )
-                rows = conn.execute(sql, (limit,)).fetchall()
-                conn.close()
-                results: list[dict[str, Any]] = []
-                for r in rows:
-                    d = dict(r)
-                    tags_str: str = d.get("tags", "") or ""
-                    related_str: str = d.get("related", "") or ""
-                    results.append(
-                        {
-                            "score": None,
-                            "stem": d.get("stem", ""),
-                            "title": d.get("title", ""),
-                            "folder": d.get("folder", ""),
-                            "tags": [
-                                t.strip() for t in tags_str.split(",") if t.strip()
-                            ],
-                            "path": d.get("path", ""),
-                            "summary": d.get("summary", ""),
-                            "note_type": d.get("note_type", ""),
-                            "project": d.get("project", ""),
-                            "confidence": d.get("confidence", ""),
-                            "mtime": d.get("mtime"),
-                            "related": [
-                                r2.strip()
-                                for r2 in related_str.split(",")
-                                if r2.strip()
-                            ],
-                            "is_stale": bool(d.get("is_stale", 0)),
-                            "incoming_links": d.get("incoming_links", 0),
-                        }
-                    )
-                return results
-            conn.close()
-        except sqlite3.Error:
-            pass
+    if db_path.exists() and _open_note_index_ro(db_path) is not None:
+        return [
+            {k: v for k, v in row.items() if k != "date"}
+            for row in _query_note_index_results(limit=limit, vault=vault)
+        ]
 
     # Fallback: file walk
     fallback_results: list[dict[str, Any]] = []
