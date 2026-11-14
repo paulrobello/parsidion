@@ -47,6 +47,15 @@
         ],
         "createdAt": "2026-11-14T08:02:07.123Z",
         "reason": "generated pdoc API snapshot; CSS owned by pdoc template, not repo design (orchestrator, fix-audit run)"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api"
+        ],
+        "createdAt": "2026-11-14T08:51:17.835Z",
+        "reason": "generated typedoc/pdoc API snapshot; markup owned by doc generators, not repo design (orchestrator, fix-audit run; tree being untracked by ARC-206)"
       }
     ]
   }
