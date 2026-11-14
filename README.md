@@ -347,9 +347,9 @@ An interactive web application for exploring and navigating the vault through du
 - Graph HUD panel: semantic threshold slider, node-type filters, physics controls, live stats
 - Pre-computed `graph.json` from vault embeddings — no live queries during navigation
 
-![Vault Visualizer - Read Mode](https://raw.githubusercontent.com/paulrobello/parsidion/main/screenshot-vault-read.png)
+![Vault Visualizer - Read Mode](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/screenshot-vault-read.png)
 
-![Vault Visualizer - Graph Mode](https://raw.githubusercontent.com/paulrobello/parsidion/main/screenshot-vault-graph.png)
+![Vault Visualizer - Graph Mode](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/screenshot-vault-graph.png)
 
 **Running the visualizer:**
 

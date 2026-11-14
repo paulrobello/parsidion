@@ -49,3 +49,7 @@ memory/
 # already covered by the *.local / *.local.* rules above)
 .grind-logs/
 .exit-grind
+
+
+# superpowers brainstorm scratch (local HTML mockups + server pid/log state)
+.superpowers/
