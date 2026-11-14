@@ -64,5 +64,5 @@ below with its intended audience and purpose.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — development setup, coding constraints, and PR guidelines
 - [SECURITY.md](../SECURITY.md) — vulnerability disclosure policy and scope statement
 - [CHANGELOG.md](../CHANGELOG.md) — version history
-- [api/](api/) — generated API reference (Python via pdoc, visualizer TypeScript via typedoc); regenerate with `make docs-api` and check for drift with `make docs-api-check`
+- `api/` — generated API reference (Python via pdoc, visualizer TypeScript via typedoc; gitignored, ARC-206); CI uploads it as a workflow artifact and the Pages deploy publishes it under `/api/`; regenerate locally with `make docs-api`
 - [generated/](generated/) — generated config reference (config-table.md, config-reference.md) derived from `core/vault_schema.py`; regenerate with `make config-docs` and check for drift with `make config-docs-check`

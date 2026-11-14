@@ -49,3 +49,10 @@ memory/
 # already covered by the *.local / *.local.* rules above)
 .grind-logs/
 .exit-grind
+
+# Generated API reference (ARC-206): produced by `make docs-api`, uploaded as
+# a CI artifact and deployed to GitHub Pages — no committed snapshot anymore.
+docs/api/
+
+# superpowers brainstorm scratch (local HTML mockups + server pid/log state)
+.superpowers/

@@ -325,7 +325,7 @@ class TestDumpScalar:
             ("3", '"3"'),  # numeric string must be quoted to stay a string
             ("true", '"true"'),
             ("ends:", '"ends:"'),
-            (None, "None"),  # serialize_frontmatter filters None before dump
+            (None, "null"),  # ARC-207: emits real YAML null (was the string "None")
         ],
     )
     def test_table(self, value: Any, expected: str) -> None:
