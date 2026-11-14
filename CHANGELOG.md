@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Audit remediation (2026-11-13 fable audit, 25 issues — full detail in the 61a6471 remediation report on this branch):
+## [0.29.0] - 2026-11-14
+
+Audit remediation (2026-11-13 fable audit, 25 issues — per-issue evidence on the fix-audit board cards; commits 7cd3b6c..60266c6):
 
 ### Added
 - **`parsidion.*` wheel namespace** — the wheel ships only `parsidion*` packages; the generic top-level `core`/`cli`/`doctor`/`summarizer`/`session_start` names and 49 flat modules no longer install into site-packages, eliminating silent sibling-dependency collisions. Core modules physically moved under `skills/parsidion/scripts/parsidion/` (21 by-path entry scripts stayed at the scripts root, so installed hook command strings are unchanged).

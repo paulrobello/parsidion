@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.28.0:** Post-compact snapshots now re-inject through the SessionStart compact path across runtimes (PostCompact stdout was never injected), and the summarizer synthesizes frontmatter for frontmatter-less notes instead of dead-lettering them. See the [Changelog](CHANGELOG.md).
+> **New in 0.29.0:** The wheel ships only the `parsidion.*` namespace — the generic top-level `core`/`cli` packages and 49 flat modules are gone from site-packages (flat shims now raise deprecation errors) — plus god-file splits, a CI-generated API reference on Pages, and the full 2026-11-13 audit remediation. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -675,7 +675,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.28.0** (post-compact snapshot re-injection via SessionStart; summarizer frontmatter resilience). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.29.0** (`parsidion.*`-only wheel namespace with retired shim stubs; the 2026-11-13 audit remediation — docs-api now a CI/Pages artifact). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
