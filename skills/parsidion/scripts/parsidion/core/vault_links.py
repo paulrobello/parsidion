@@ -17,7 +17,10 @@ from pathlib import Path
 # ARC-001: import siblings directly — core/ must not round-trip through the
 # deprecated root-shim facade.
 from .vault_config import get_config
-from .vault_index import _FRONTMATTER_RE, all_vault_notes_walk, parse_frontmatter
+
+# ARC-203: frontmatter parsing/slug/title helpers live in core.frontmatter.
+from .frontmatter import _FRONTMATTER_RE, parse_frontmatter
+from .vault_index import all_vault_notes_walk
 from .vault_path import get_embeddings_db_path, resolve_vault
 from parsidion.note_schema import STATUS_SUPERSEDED
 

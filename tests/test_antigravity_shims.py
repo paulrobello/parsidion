@@ -18,6 +18,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import parsidion.agent_adapter as agent_adapter  # noqa: E402
+import parsidion.agent_pipeline as agent_pipeline  # noqa: E402
 import antigravity_session_end_hook as end_shim  # noqa: E402
 import antigravity_session_start_hook as start_shim  # noqa: E402
 
@@ -46,22 +47,26 @@ def _patch_pipeline(
     calls: dict[str, list[Any]] = {"pending": [], "daily": [], "context": []}
     monkeypatch.setattr(agent_adapter, "resolve_vault", lambda **_: vault)
     monkeypatch.setattr(agent_adapter, "load_typed_config", lambda **_: cfg)
+    monkeypatch.setattr(agent_pipeline, "load_typed_config", lambda **_: cfg)
     monkeypatch.setattr(agent_adapter, "load_config", lambda **_: {})
+    monkeypatch.setattr(agent_pipeline, "load_config", lambda **_: {})
     monkeypatch.setattr(agent_adapter, "ensure_vault_dirs", lambda **_: None)
     monkeypatch.setattr(
-        agent_adapter,
+        agent_pipeline,
         "append_to_pending",
         lambda *a, **kw: calls["pending"].append((a, kw)),
     )
     monkeypatch.setattr(
-        agent_adapter,
+        agent_pipeline,
         "append_session_to_daily",
         lambda *a, **kw: calls["daily"].append((a, kw)),
     )
-    monkeypatch.setattr(agent_adapter, "git_commit_vault", lambda *a, **kw: None)
-    monkeypatch.setattr(agent_adapter, "_launch_summarizer_if_pending", lambda *_: None)
+    monkeypatch.setattr(agent_pipeline, "git_commit_vault", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        agent_pipeline, "_launch_summarizer_if_pending", lambda *_: None
+    )
     monkeypatch.setattr(agent_adapter, "_update_adaptive_scores", lambda *a, **kw: None)
-    monkeypatch.setattr(agent_adapter, "write_hook_event", lambda *a, **kw: None)
+    monkeypatch.setattr(agent_pipeline, "write_hook_event", lambda *a, **kw: None)
     monkeypatch.setattr(agent_adapter, "get_project_name", lambda _: "test-project")
     monkeypatch.setattr(
         agent_adapter,

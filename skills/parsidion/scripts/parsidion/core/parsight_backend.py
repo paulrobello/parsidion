@@ -721,7 +721,7 @@ def _is_superseded_stem(
         if not is_path_inside_vault(note_path, vault) or not note_path.is_file():
             return False
     try:
-        from parsidion.core.vault_index import parse_frontmatter  # noqa: PLC0415
+        from parsidion.core.frontmatter import parse_frontmatter  # noqa: PLC0415
 
         return (
             parse_frontmatter(note_path.read_text(encoding="utf-8")).get("status")

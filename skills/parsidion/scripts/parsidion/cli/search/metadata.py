@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from parsidion.core.note_index import _query_note_index_results
 from parsidion.core.vault_index import (
-    _query_note_index_results,
     all_vault_notes,
     get_body,
 )

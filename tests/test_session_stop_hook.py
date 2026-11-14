@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import parsidion.agent_adapter as agent_adapter
+import parsidion.agent_pipeline as agent_pipeline
 import pytest
 import session_stop_hook
 
@@ -93,28 +94,28 @@ def _run_session_stop_main_for_codex(
     monkeypatch.delenv("CLAUDE_VAULT_STOP_ACTIVE", raising=False)
     monkeypatch.delenv("PARSIDION_INTERNAL", raising=False)
     monkeypatch.setattr(
-        agent_adapter,
+        agent_pipeline,
         "is_allowed_transcript_path",
         lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(agent_adapter, "ensure_vault_dirs", lambda **_kwargs: None)
     monkeypatch.setattr(
-        agent_adapter,
+        agent_pipeline,
         "append_session_to_daily",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        agent_adapter, "append_to_pending", lambda *_args, **_kwargs: None
+        agent_pipeline, "append_to_pending", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(
-        agent_adapter,
+        agent_pipeline,
         "git_commit_vault",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        agent_adapter, "_launch_summarizer_if_pending", lambda *_args: None
+        agent_pipeline, "_launch_summarizer_if_pending", lambda *_args: None
     )
-    monkeypatch.setattr(agent_adapter, "write_hook_event", lambda **_kwargs: None)
+    monkeypatch.setattr(agent_pipeline, "write_hook_event", lambda **_kwargs: None)
 
     calls: list[list[str]] = []
 
@@ -180,7 +181,7 @@ def test_classify_session_with_ai_uses_small_tier_backend(
         calls.append({"prompt": prompt, **kwargs})
         return '{"should_queue": true, "categories": ["research"], "summary": "Found docs."}'
 
-    monkeypatch.setattr(agent_adapter.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
+    monkeypatch.setattr(agent_pipeline.ai_backend, "run_ai_prompt", fake_run_ai_prompt)
     import types as _types
 
     _cfg_stub = _types.SimpleNamespace(
@@ -188,6 +189,11 @@ def test_classify_session_with_ai_uses_small_tier_backend(
     )
     monkeypatch.setattr(
         agent_adapter,
+        "load_typed_config",
+        lambda *args, **kwargs: _cfg_stub,
+    )
+    monkeypatch.setattr(
+        agent_pipeline,
         "load_typed_config",
         lambda *args, **kwargs: _cfg_stub,
     )
@@ -509,7 +515,7 @@ class TestLaunchSummarizerLogging:
             log_dir.mkdir(parents=True, exist_ok=True)
             return log_dir
 
-        monkeypatch.setattr(agent_adapter, "secure_log_dir", fake_secure_log_dir)
+        monkeypatch.setattr(agent_pipeline, "secure_log_dir", fake_secure_log_dir)
 
         captured: dict[str, Any] = {}
 
@@ -520,7 +526,7 @@ class TestLaunchSummarizerLogging:
             captured["stderr"] = kwargs.get("stderr")
             captured["log_name"] = getattr(stdout, "name", None)
 
-        monkeypatch.setattr(agent_adapter.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(agent_pipeline.subprocess, "Popen", fake_popen)
 
         agent_adapter._launch_summarizer_if_pending(vault)
 
@@ -545,12 +551,12 @@ class TestLaunchSummarizerLogging:
         log_dir.mkdir()
         # A directory at the log path forces open() to fail with IsADirectoryError.
         (log_dir / "parsidion-summarizer.log").mkdir()
-        monkeypatch.setattr(agent_adapter, "secure_log_dir", lambda: log_dir)
+        monkeypatch.setattr(agent_pipeline, "secure_log_dir", lambda: log_dir)
 
         def no_popen(*args: Any, **kwargs: Any) -> None:
             raise AssertionError("Popen must not be called when the log is unwritable")
 
-        monkeypatch.setattr(agent_adapter.subprocess, "Popen", no_popen)
+        monkeypatch.setattr(agent_pipeline.subprocess, "Popen", no_popen)
 
         # Must not raise; launch is simply skipped this cycle (retried at the
         # next session end while the queue still meets the threshold).

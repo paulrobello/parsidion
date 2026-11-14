@@ -1,4 +1,17 @@
-"""Note indexing, search, frontmatter parsing, and context building.
+"""Vault note discovery: filesystem walk + DB-first read policy (ARC-203).
+
+The former monolithic ``core/vault_index.py`` has been split (ARC-203):
+
+- ``core.frontmatter`` — frontmatter parsing/serialization, titles, slugs;
+- ``core.note_index`` — the ``note_index`` DB access layer (schema, SQL,
+  queries, the per-run snapshot);
+- this module — the filesystem walk primitives and the DB-first *policy*
+  layer that chooses between a DB read and a walk
+  (``find_notes_by_*``, ``all_vault_notes``), plus context-block builders
+  and the index-rebuild subprocess owner. It re-exports the moved names so
+  ``core.vault_index`` (and the ``vault_index`` / ``vault_common`` shims
+  that star-import its ``__all__``) remain the single stable import
+  surface for the 50+ existing callers.
 
 Provides vault note discovery, frontmatter/body parsing, metadata-based search
 (by tag, project, type, recency), and context block construction for hook injection.
@@ -9,18 +22,37 @@ are re-exported from ``vault_common`` for backward compatibility.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
-import re
 import sqlite3
 import subprocess
-import sys
-import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, NamedTuple
 
+from .frontmatter import (  # noqa: F401 -- re-exported (ARC-203)
+    _FRONTMATTER_RE,
+    _PARSE_WARNINGS_MAX,
+    drain_parse_warnings,
+    extract_title,
+    get_body,
+    parse_frontmatter,
+    record_parse_warning,
+    serialize_frontmatter,
+    slugify,
+)
+from .note_index import (  # noqa: F401 -- re-exported (ARC-203)
+    SessionIndexRow,
+    SessionIndexSnapshot,
+    _build_note_index_where,
+    _incoming_stems_from_column,
+    _load_note_index_map,
+    _paths_from_rows,
+    ensure_note_index_schema,
+    load_graph_metadata,
+    load_note_index_metadata,
+    load_session_index_snapshot,
+    parse_related_stems,
+    query_note_index,
+)
 from .subproc_util import run_with_pgkill
 from .vault_config import get_config, load_config
 from .vault_hooks import env_without_claudecode
@@ -29,22 +61,12 @@ from .vault_path import (
     SCRIPTS_DIR,
     VAULT_DIRS,
     get_embeddings_db_path,
-    is_path_inside_vault,
     is_symlink_inside_vault,
     resolve_vault,
 )
-from .yaml_lite import (
-    dump_list_item,
-    dump_scalar,
-    parse_inline_list,
-    parse_list_item,
-    parse_scalar,
-    split_key_value,
-)
 
-# ARC-005: the canonical frontmatter key order lives in the note contract
-# module (a leaf with no imports, so this cannot cycle).
-from parsidion.note_schema import FRONTMATTER_FIELD_ORDER, STATUS_SUPERSEDED
+# Supersession status constant lives in the note contract module (a leaf).
+from parsidion.note_schema import STATUS_SUPERSEDED
 
 __all__: list[str] = [
     # Constants (re-exported from vault_path for convenience)
@@ -96,825 +118,11 @@ __all__: list[str] = [
     "_note_index_enabled",
 ]
 
-# ---------------------------------------------------------------------------
-# Compiled regexes
-# ---------------------------------------------------------------------------
-
-_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?\n)---\s*\n", re.DOTALL)
-_SLUG_SPECIAL_RE = re.compile(r"[^a-z0-9\-]")
-_SLUG_MULTI_HYPHEN_RE = re.compile(r"-{2,}")
-
-# ---------------------------------------------------------------------------
-# Parse warning collector
-# ---------------------------------------------------------------------------
-#
-# Frontmatter parsing warnings are printed to stderr (see below), which hook
-# scripts swallow -- making them invisible to users.  This in-process
-# collector lets callers (e.g. update_index.py) surface them via
-# write_hook_event() so they show up in `vault-stats --hooks N`.
-
-_PARSE_WARNINGS_MAX = 200
 # query_note_index defaults to a 200-row cap (sufficient for its original
 # context-injection callers). The find_notes_by_* wrappers semantically return
 # EVERY matching note (the walk does), so they pass this effectively-unbounded
 # limit to override that cap.
 _FIND_ALL_LIMIT = 10**9
-_parse_warnings: list[str] = []
-
-
-def record_parse_warning(msg: str) -> None:
-    """Record a frontmatter parse warning for later retrieval via drain_parse_warnings().
-
-    Capped at ``_PARSE_WARNINGS_MAX`` entries to bound memory during large
-    index rebuilds; warnings beyond the cap are silently dropped.
-    """
-    if len(_parse_warnings) < _PARSE_WARNINGS_MAX:
-        _parse_warnings.append(msg)
-
-
-def drain_parse_warnings() -> list[str]:
-    """Return all recorded parse warnings and clear the collector."""
-    warnings = list(_parse_warnings)
-    _parse_warnings.clear()
-    return warnings
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_frontmatter(content: str) -> dict[str, Any]:
-    """Parse YAML frontmatter from markdown content using regex.
-
-    **Supported YAML subset** (stdlib-only; not a full YAML 1.2 parser) --
-    scalar/list tokenization lives in ``core/yaml_lite`` (ENH-024); only
-    the frontmatter-specific structure (delimiters, block sequences,
-    multi-line scalars) lives here:
-
-    - Scalars: bare strings, single/double-quoted strings, integers, floats,
-      booleans (``true``/``false``/``yes``/``no``), ``null``/``~``, and
-      date strings (``YYYY-MM-DD`` kept as strings).
-    - Inline lists: ``key: [a, b, c]`` with optional quoting of items.
-      Quoted items may contain commas.  List items are always kept as
-      strings (never coerced to bool/int/float) so numeric-looking tags
-      like ``tags: [2026, python]`` remain findable.
-    - Block sequence lists: ``key:`` followed by ``  - item`` lines
-      (items kept as strings, same as inline lists).
-    - Multi-line scalars: ``>`` (folded -- joins continuation lines with a
-      space), ``|`` (literal -- joins with newlines), and strip variants
-      ``>-`` / ``|-``.  Only indented continuation lines (indent > 0) are
-      collected; the block ends at the next bare key or blank line.
-    - Comment LINES (first non-blank character ``#``) are skipped; trailing
-      inline comments are NOT stripped from scalar values (``key: v # c``
-      reads back as the string ``v # c``), unlike the config.yaml parser.
-
-    **Not supported** (silently ignored or returned as bare strings):
-    - Nested mappings deeper than 1 level (``key: {a: 1}`` or indented
-      sub-mappings).
-    - YAML anchors, aliases, and tags (``!!str``, etc.).
-    - Multi-document streams (``---`` as a separator within a value).
-    - Flow mappings.
-
-    Returns an empty dict when no frontmatter block is found or when the
-    opening/closing ``---`` delimiters are missing.
-    """
-    match = _FRONTMATTER_RE.match(content)
-    if not match:
-        return {}
-
-    raw = match.group(1)
-    result: dict[str, Any] = {}
-    current_key: str | None = None
-    current_list: list[str] | None = None
-    # Multi-line scalar state: block_style is ">" (folded) or "|" (literal)
-    block_style: str | None = None
-    block_parts: list[str] = []
-
-    def _flush_block() -> None:
-        """Finalize a multi-line scalar block and store it in result."""
-        nonlocal block_style, block_parts
-        if current_key is not None and block_style is not None and block_parts:
-            if block_style in (">", ">-"):
-                result[current_key] = " ".join(block_parts)
-            else:  # "|" or "|-"
-                result[current_key] = "\n".join(block_parts)
-        block_style = None
-        block_parts = []
-
-    for line in raw.splitlines():
-        stripped = line.strip()
-        indent = len(line) - len(line.lstrip())
-
-        # If we're collecting a multi-line scalar block, check for continuation
-        if block_style is not None:
-            if indent > 0 and stripped:
-                block_parts.append(stripped)
-                continue
-            else:
-                _flush_block()
-                # Fall through to process this line normally
-
-        # Continuation of a multi-line list (- item form)
-        if (
-            stripped.startswith("- ")
-            and current_key is not None
-            and current_list is not None
-        ):
-            current_list.append(parse_list_item(stripped[2:].strip()))
-            result[current_key] = current_list
-            continue
-
-        # If we were collecting a list and hit a non-list line, close it
-        if current_list is not None:
-            current_list = None
-
-        # Skip blank lines and comments
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        # key: value pair
-        key_value = split_key_value(line)
-        if key_value is None:
-            continue
-
-        key, value_str = key_value
-
-        if not key:
-            continue
-
-        # QA-008: warn when an indented sub-key looks like a nested mapping.
-        # Nested mappings are not supported by this parser (see docstring).
-        # Emit a stderr warning so vault-doctor checks don't silently mislead.
-        # This is safe: hook scripts print JSON to stdout; stderr is ignored.
-        if indent > 0 and key:
-            _warning = (
-                f"parse_frontmatter: nested mapping key '{key}' (indented) is not "
-                "supported and will be treated as a top-level scalar. "
-                "Consider flattening this YAML key."
-            )
-            print(_warning, file=sys.stderr)
-            record_parse_warning(_warning)
-
-        current_key = key
-
-        # Empty value -- could be start of a multi-line list
-        if not value_str:
-            current_list = []
-            result[key] = current_list
-            continue
-
-        # Multi-line scalar block indicators: >, |, >-, |-
-        if value_str in (">", "|", ">-", "|-"):
-            block_style = value_str
-            block_parts = []
-            current_list = None
-            continue
-
-        # Inline list: [a, b, c]
-        items = parse_inline_list(value_str)
-        if items is not None:
-            result[key] = items
-            current_list = None
-            continue
-
-        # Scalar value
-        result[key] = parse_scalar(value_str)
-        current_list = None
-
-    # Flush any remaining block at end of frontmatter
-    _flush_block()
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter serialization (ARC-005)
-# ---------------------------------------------------------------------------
-
-# Scalar/array emission policy (quoting, round-trip rules) lives in
-# core/yaml_lite (ENH-024): scalar_needs_quotes / quote_scalar /
-# dump_scalar / dump_list_item. Only the frontmatter-specific policy
-# stays here.
-# List fields whose items are always double-quoted: ``related`` holds
-# ``[[wikilinks]]`` and the canonical form (CLAUDE.md conventions,
-# visualizer/lib/frontmatter.ts) is ``related: ["[[a]]", "[[b]]"]``.
-_ALWAYS_QUOTED_LIST_KEYS: frozenset[str] = frozenset({"related"})
-
-
-def serialize_frontmatter(fields: dict[str, Any]) -> str:
-    """Serialize a frontmatter dict to the canonical YAML block.
-
-    ARC-005: the single schema-aware emitter shared by ``vault_new``,
-    ``vault_merge``, the ``tools/migrate_*`` importers, and (via the parity
-    fixture ``tests/fixtures/parity/frontmatter.json``) the visualizer's
-    ``frontmatter.ts``. Replaces four hand-built ``_build_frontmatter``
-    copies whose quoting and key order had drifted.
-
-    Canonical form:
-
-    - keys in :data:`parsidion.note_schema.FRONTMATTER_FIELD_ORDER` first (when
-      present), remaining keys after them in insertion order;
-    - ``None`` and empty-string values are dropped (the writer that has an
-      opinion about empties filters before calling);
-    - ``tags``/``sources`` as inline arrays with bare items unless an item
-      needs quoting; ``related`` items always double-quoted (the
-      ``["[[wikilink]]"]`` convention);
-    - scalars bare unless quoting is required for an exact round-trip
-      through :func:`parse_frontmatter`.
-
-    Returns the ``---\\n...\\n---\\n`` block (no trailing blank line —
-    callers append the body).
-    """
-    ordered = [k for k in FRONTMATTER_FIELD_ORDER if k in fields]
-    ordered += [k for k in fields if k not in FRONTMATTER_FIELD_ORDER]
-
-    lines: list[str] = ["---"]
-    for key in ordered:
-        value = fields[key]
-        if value is None or value == "":
-            continue
-        if isinstance(value, list):
-            if value:
-                items = ", ".join(
-                    dump_list_item(item, always_quote=key in _ALWAYS_QUOTED_LIST_KEYS)
-                    for item in value
-                )
-                lines.append(f"{key}: [{items}]")
-            else:
-                lines.append(f"{key}: []")
-        else:
-            lines.append(f"{key}: {dump_scalar(value)}")
-    lines.append("---")
-    return "\n".join(lines) + "\n"
-
-
-def get_body(content: str) -> str:
-    """Return markdown content after the frontmatter block.
-
-    If no frontmatter is found, returns the entire content.
-    """
-    match = _FRONTMATTER_RE.match(content)
-    if not match:
-        return content
-    return content[match.end() :]
-
-
-def extract_title(content: str, stem: str) -> str:
-    """Extract the display title from a vault note.
-
-    Searches the note body for the first top-level ``# `` heading (a single
-    hash followed by a space, never ``##`` or deeper).  Falls back to the
-    filename *stem* converted to title-case if no heading is found.
-
-    This is the canonical title-extraction function for the vault.  All
-    scripts that need a note title should call this instead of duplicating
-    the logic.  See ARC-009.
-
-    Args:
-        content: Full note content (frontmatter + body).
-        stem: Filename stem (without extension) used as fallback title.
-
-    Returns:
-        Title string -- either the heading text or the humanized stem.
-    """
-    body = get_body(content)
-    for line in body.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("# ") and not stripped.startswith("## "):
-            return stripped[2:].strip()
-    return stem.replace("-", " ").title()
-
-
-# ---------------------------------------------------------------------------
-# Slug utility
-# ---------------------------------------------------------------------------
-
-
-def slugify(text: str) -> str:
-    """Convert text to a kebab-case filename slug.
-
-    Lowercases the text, replaces spaces and underscores with hyphens,
-    transliterates non-ASCII characters to their closest ASCII equivalent
-    (e.g. "é" -> "e"), removes remaining special characters, and collapses
-    multiple consecutive hyphens.
-
-    Titles that are entirely non-transliterable (e.g. CJK) would otherwise
-    collapse to an empty slug and collide with each other; in that case a
-    stable hash of the original title is used instead so distinct titles
-    never collide. Purely-ASCII titles that strip to nothing (e.g. "!!!")
-    still return "" -- vault_new.py relies on that to reject garbage titles.
-    """
-    has_non_ascii = any(ord(ch) > 127 for ch in text)
-    slug = text.lower().strip()
-    slug = slug.replace(" ", "-").replace("_", "-")
-    # Transliterate accented/non-ASCII characters before stripping specials
-    # so e.g. "café" -> "cafe" instead of "caf".
-    slug = unicodedata.normalize("NFKD", slug).encode("ascii", "ignore").decode()
-    slug = _SLUG_SPECIAL_RE.sub("", slug)
-    slug = _SLUG_MULTI_HYPHEN_RE.sub("-", slug)
-    slug = slug.strip("-")
-    if not slug and has_non_ascii:
-        slug = "note-" + hashlib.sha1(text.encode()).hexdigest()[:8]
-    return slug
-
-
-# ---------------------------------------------------------------------------
-# Note index DB helpers
-# ---------------------------------------------------------------------------
-
-
-def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
-    """Create the note_index table and indexes if they don't exist.
-
-    Also idempotently adds the ``date`` column to databases created before
-    Phase 2 of the memory-enhancements plan (point-in-time search support).
-
-    Args:
-        conn: An open sqlite3.Connection (caller sets WAL mode).
-    """
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS note_index (
-            stem           TEXT    NOT NULL PRIMARY KEY,
-            path           TEXT    NOT NULL,
-            folder         TEXT    NOT NULL DEFAULT '',
-            title          TEXT    NOT NULL DEFAULT '',
-            summary        TEXT    NOT NULL DEFAULT '',
-            tags           TEXT    NOT NULL DEFAULT '',
-            note_type      TEXT    NOT NULL DEFAULT '',
-            project        TEXT    NOT NULL DEFAULT '',
-            confidence     TEXT    NOT NULL DEFAULT '',
-            mtime          REAL    NOT NULL DEFAULT 0.0,
-            related        TEXT    NOT NULL DEFAULT '',
-            is_stale       INTEGER NOT NULL DEFAULT 0,
-            incoming_links INTEGER NOT NULL DEFAULT 0,
-            date           TEXT    NOT NULL DEFAULT '',
-            prompt_version TEXT    NOT NULL DEFAULT '',
-            incoming_stems TEXT    NOT NULL DEFAULT '',
-            status         TEXT    NOT NULL DEFAULT 'live'
-        )
-        """
-    )
-    # Migration: add date column to pre-existing databases (CREATE IF NOT EXISTS
-    # does not add columns to an already-present table).
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
-    if "date" not in cols:
-        conn.execute("ALTER TABLE note_index ADD COLUMN date TEXT NOT NULL DEFAULT ''")
-    # Supersession (note retirement): status column; pre-existing rows are
-    # 'live' by definition (an unmarked note was never retired).
-    if "status" not in cols:
-        conn.execute(
-            "ALTER TABLE note_index ADD COLUMN status TEXT NOT NULL DEFAULT 'live'"
-        )
-    # ENH-008 Step 3: prompt_version column for slicing note quality by the
-    # prompt that produced each AI-generated note.
-    if "prompt_version" not in cols:
-        conn.execute(
-            "ALTER TABLE note_index ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''"
-        )
-    # ENH-021: incoming_stems column -- the reverse-link adjacency (JSON array
-    # of source stems), inverted from every note's outgoing ``related`` links
-    # at index time. Empty on pre-ENH-021 rows until the next full rebuild;
-    # readers treat empty as "not populated" and fall back to deriving the
-    # inversion from ``related`` (see SessionIndexSnapshot).
-    if "incoming_stems" not in cols:
-        conn.execute(
-            "ALTER TABLE note_index ADD COLUMN incoming_stems TEXT NOT NULL DEFAULT ''"
-        )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_folder    ON note_index(folder)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_note_type ON note_index(note_type)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_project   ON note_index(project)")
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ni_mtime     ON note_index(mtime DESC)"
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_tags      ON note_index(tags)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_date      ON note_index(date)")
-    conn.commit()
-
-
-def _paths_from_rows(rows: list[Any], vault_root_resolved: Path) -> list[Path]:
-    """Re-validate DB-derived path strings against the vault root.
-
-    SEC-005 / SEC-130: a tampered ``embeddings.db`` can store any path string;
-    never trust SQLite output. Each path must exist and resolve inside the
-    vault. Follows the precedent established inline in ``query_note_index``
-    (the original vault_index.py:373-420 containment guard).
-
-    Args:
-        rows: Rows from a ``SELECT path ...`` query. Each row is either a
-            ``(path_str,)`` tuple/list or a bare string.
-        vault_root_resolved: The resolved vault root to check containment against.
-
-    Returns:
-        List of existing, in-vault ``Path`` objects (unsorted -- caller's SQL
-        determines order).
-    """
-    result: list[Path] = []
-    for row in rows:
-        path_str = row[0] if isinstance(row, (tuple, list)) else str(row)
-        p = Path(path_str)
-        if p.exists() and is_path_inside_vault(p, vault_root_resolved):
-            result.append(p)
-    return result
-
-
-def _note_index_enabled(vault: str | Path | None = None) -> bool:
-    """Whether DB-first note reads are enabled.
-
-    Reads ``search.use_note_index`` (default ``true``). When false, every
-    ``find_notes_by_*`` and ``all_vault_notes`` call takes the filesystem-walk
-    path regardless of DB availability -- the user-facing escape hatch when
-    index staleness is suspected. The *vault* arg is accepted for API symmetry
-    with the callers; ``get_config`` resolves the vault via the cached
-    ``load_config()`` (CLAUDE_VAULT-aware, so tests with ``tmp_vault`` see the
-    right config without an explicit thread).
-
-    Additionally falls back to filesystem walk when:
-    - ``embeddings.enabled`` is False (unless ``search.use_note_index`` is explicitly True),
-      because the embeddings pipeline does not maintain ``note_index``.
-    - ``note_index_age()`` exceeds ``search.max_index_age_seconds`` (default 300s).
-    """
-    vault_path: Path | None = Path(vault) if vault is not None else None
-    if not get_config("search", "use_note_index", True, vault=vault_path):
-        return False
-
-    # When embeddings are disabled, note_index is not maintained by the embeddings
-    # pipeline unless search.use_note_index is explicitly set to True.
-    if not get_config("embeddings", "enabled", True, vault=vault_path):
-        raw_config = load_config(vault=vault_path)
-        search_cfg = raw_config.get("search", {})
-        explicit_true = (
-            isinstance(search_cfg, dict) and search_cfg.get("use_note_index") is True
-        )
-        if not explicit_true:
-            return False
-
-    # Check staleness: if note_index_age exceeds threshold, fall back to walk
-    max_age = get_config("search", "max_index_age_seconds", None, vault=vault_path)
-    if max_age is not None and float(max_age) > 0:
-        age = note_index_age(vault_path)
-        if age > float(max_age):
-            return False
-
-    return True
-
-
-def _build_note_index_where(
-    *,
-    tag: str | None = None,
-    folder: str | None = None,
-    note_type: str | None = None,
-    project: str | None = None,
-    recent_days: int | None = None,
-    changed_since: str | None = None,
-    as_of: str | None = None,
-    has_status: bool = True,
-    include_superseded: bool = False,
-) -> tuple[str, list[object]]:
-    """Build the note_index metadata-filter WHERE clause (QA-009).
-
-    The single home for the condition assembly previously duplicated
-    between ``query_note_index`` here and ``parsidion.cli.search.metadata.query``
-    (parsight similarity 0.908). Callers keep their own SELECT lists,
-    result mapping, and schema/containment guards.
-
-    SECURITY: The SQL WHERE clause is assembled from literal condition
-    fragments only -- no column names are ever derived from external input.
-    All filter values are passed as bound parameters (?). Column names used
-    form a static whitelist: tags, folder, note_type, project, mtime, date,
-    status. Any future addition of a user-supplied column name must be added
-    to this whitelist and reviewed for injection risk.
-
-    Args:
-        tag: Exact tag token to match in the comma-separated tags column.
-        folder: Exact folder name to match.
-        note_type: Exact note_type value to match.
-        project: Exact project value to match.
-        recent_days: Only return notes modified within this many days.
-        changed_since: Only return notes modified on/after this ISO datetime.
-        as_of: Only return notes whose frontmatter date is on/before this
-            ISO date (empty dates excluded).
-        include_superseded: When False (the default), retired notes
-            (``status: superseded``) are excluded from every query. Pass
-            True only for explicit history queries.
-
-    Returns:
-        ``(where, params)`` -- ``where`` is "" or "WHERE c1 AND c2 ...";
-        ``params`` holds the bound values in placeholder order.
-    """
-    conditions: list[str] = []
-    params: list[object] = []
-
-    if not include_superseded and has_status:
-        conditions.append("status != 'superseded'")
-
-    if tag is not None:
-        # 4-pattern exact-token match to avoid partial hits (e.g. "python"
-        # must not match "python-decorator").  Tags are stored as
-        # ", ".join(sorted(tags_list)) -- canonical format enforced at write
-        # time in update_index.py and build_embeddings.py.  See ARC-004.
-        conditions.append("(tags = ? OR tags LIKE ? OR tags LIKE ? OR tags LIKE ?)")
-        params.extend([tag, f"{tag},%", f"%, {tag}", f"%, {tag},%"])
-
-    if folder is not None:
-        conditions.append("folder = ?")
-        params.append(folder)
-
-    if note_type is not None:
-        conditions.append("note_type = ?")
-        params.append(note_type)
-
-    if project is not None:
-        conditions.append("project = ?")
-        params.append(project)
-
-    if recent_days is not None:
-        cutoff = (datetime.now() - timedelta(days=recent_days)).timestamp()
-        conditions.append("mtime >= ?")
-        params.append(cutoff)
-
-    if changed_since is not None:
-        cutoff = datetime.fromisoformat(changed_since).timestamp()
-        conditions.append("mtime >= ?")
-        params.append(cutoff)
-
-    if as_of is not None:
-        # ISO YYYY-MM-DD strings sort lexicographically; exclude empty dates.
-        conditions.append("date != '' AND date <= ?")
-        params.append(as_of)
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    return where, params
-
-
-def _open_note_index_ro(db_path: Path) -> tuple[sqlite3.Connection, set[str]] | None:
-    """Open embeddings.db read-only with the note_index table present (QA-002).
-
-    Shared plumbing for the note_index SQL paths: existence check, read-only
-    connect, table-presence check, and the PRAGMA column set. Returns None
-    when the DB is absent, cannot be opened, or has no note_index table --
-    callers map None to their own sentinel (None walk-fallback in
-    :func:`query_note_index`, empty list in :func:`_query_note_index_results`).
-    The connection is closed on every failure; the caller closes on success.
-    Row factory is deliberately left unset (callers set their own).
-    """
-    if not db_path.exists():
-        return None
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return None
-    try:
-        if (
-            conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            is None
-        ):
-            conn.close()
-            return None
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(note_index)").fetchall()
-        }
-    except sqlite3.Error:
-        conn.close()
-        return None
-    return conn, columns
-
-
-def query_note_index(
-    *,
-    tag: str | None = None,
-    folder: str | None = None,
-    note_type: str | None = None,
-    project: str | None = None,
-    recent_days: int | None = None,
-    limit: int = 200,
-    vault: str | Path | None = None,
-    include_superseded: bool = False,
-) -> list[Path] | None:
-    """Query the note_index table in embeddings.db for fast metadata filtering.
-
-    Returns None (not []) if the DB is absent or the table is missing,
-    signalling the caller to fall back to a file walk. An empty result set
-    is returned as ``[]`` and is distinguishable from ``None`` -- this is what
-    makes the DB-first ``find_notes_by_*`` fallback correct (a project with
-    zero notes returns ``[]``, not the walk fallback).
-
-    Args:
-        tag: Exact tag token to match in the comma-separated tags column.
-        folder: Exact folder name to match.
-        note_type: Exact note_type value to match.
-        project: Exact project value to match.
-        recent_days: Only return notes modified within this many days.
-        limit: Maximum number of results (default 200).
-        vault: Optional vault path used to locate embeddings.db and to validate
-            returned paths against. Defaults to resolve_vault().
-
-    Returns:
-        List of existing Paths sorted by mtime descending, or None on DB error.
-    """
-    if isinstance(vault, str):  # be liberal: accept str paths from callers
-        vault = Path(vault)
-    opened = _open_note_index_ro(get_embeddings_db_path(vault))
-    if opened is None:
-        return None
-    conn, columns = opened
-
-    try:
-        # QA-009: shared WHERE builder (see _build_note_index_where for the
-        # injection-safety contract). A pre-migration index lacks the status
-        # column (ro connections cannot ALTER); the filter then drops out
-        # instead of failing the whole query.
-        where, params = _build_note_index_where(
-            tag=tag,
-            folder=folder,
-            note_type=note_type,
-            project=project,
-            recent_days=recent_days,
-            has_status="status" in columns,
-            include_superseded=include_superseded,
-        )
-        sql = f"SELECT path FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
-        params.append(limit)
-
-        rows = conn.execute(sql, params).fetchall()
-        # SEC-005 / SEC-130: paths from SQLite are re-validated against the
-        # vault root via _paths_from_rows -- a tampered embeddings.db cannot
-        # inject reads outside the vault.
-        vault_root_resolved = (vault or resolve_vault()).resolve()
-        return _paths_from_rows(rows, vault_root_resolved)
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
-
-
-def _query_note_index_results(
-    *,
-    tag: str | None = None,
-    folder: str | None = None,
-    note_type: str | None = None,
-    project: str | None = None,
-    recent_days: int | None = None,
-    changed_since: str | None = None,
-    as_of: str | None = None,
-    limit: int = 50,
-    vault: Path | None = None,
-    include_superseded: bool = False,
-) -> list[dict[str, object]]:
-    """Run the note_index metadata query and return vault-search result dicts.
-
-    QA-002: single home of the SQL previously duplicated in
-    ``parsidion.cli.search.metadata.query`` -- the CLI function is now a
-    thin delegate. Same guard semantics as :func:`query_note_index`
-    (empty list when the DB or the note_index table is absent), plus the
-    CLI-specific details that :func:`query_note_index` intentionally does
-    not carry: the full result-dict projection, ``date``-column detection
-    for pre-migration indexes (non-date queries omit the column; ``--as-of``
-    on a stale schema warns to stderr and returns []), and supersession
-    vacuous-status handling via the shared WHERE builder.
-    """
-    db_path = get_embeddings_db_path(vault)
-    opened = _open_note_index_ro(db_path)
-    if opened is None:
-        return []
-    conn, columns = opened
-    conn.row_factory = sqlite3.Row
-
-    try:
-        # Defensive: a note_index predating the `date` migration (e.g. an
-        # embeddings-disabled vault never rebuilt) lacks the column. SELECTing
-        # `date` would raise OperationalError and silently return []. Detect it
-        # instead: non-date queries omit the column (still work); --as-of (which
-        # genuinely needs it) warns and returns [].
-        has_date = "date" in columns
-        if as_of is not None and not has_date:
-            print(
-                "note_index schema is stale (no 'date' column); "
-                "run update_index.py to enable --as-of.",
-                file=sys.stderr,
-            )
-            return []
-        # Supersession: a note_index predating the status migration lacks the
-        # column; the filter is then vacuously satisfied (nothing can be
-        # retired yet) instead of breaking every metadata query.
-        has_status = "status" in columns
-
-        # QA-009: shared WHERE builder -- the condition assembly that was
-        # duplicated with query_note_index lives once in
-        # parsidion.core.vault_index._build_note_index_where (injection-safety
-        # contract documented there).
-        where, params = _build_note_index_where(
-            tag=tag,
-            folder=folder,
-            note_type=note_type,
-            project=project,
-            recent_days=recent_days,
-            changed_since=changed_since,
-            as_of=as_of,
-            has_status=has_status,
-            include_superseded=include_superseded,
-        )
-        date_col = ", date" if has_date else ""
-        sql = (
-            f"SELECT stem, path, folder, title, summary, tags, note_type, "
-            f"project, confidence, mtime, related, is_stale, incoming_links"
-            f"{date_col} "
-            f"FROM note_index {where} ORDER BY mtime DESC LIMIT ?"
-        )
-        params.append(limit)
-
-        rows = conn.execute(sql, params).fetchall()
-    except sqlite3.Error:
-        return []
-    finally:
-        conn.close()
-
-    results: list[dict[str, object]] = []
-    for row in rows:
-        d = dict(row)
-        tags_str: str = d.get("tags", "") or ""
-        related_str: str = d.get("related", "") or ""
-        results.append(
-            {
-                "score": None,
-                "stem": d.get("stem", ""),
-                "title": d.get("title", ""),
-                "folder": d.get("folder", ""),
-                "tags": [t.strip() for t in tags_str.split(",") if t.strip()],
-                "path": d.get("path", ""),
-                "summary": d.get("summary", ""),
-                "note_type": d.get("note_type", ""),
-                "project": d.get("project", ""),
-                "confidence": d.get("confidence", ""),
-                "mtime": d.get("mtime"),
-                "related": [r.strip() for r in related_str.split(",") if r.strip()],
-                "is_stale": bool(d.get("is_stale", 0)),
-                "incoming_links": d.get("incoming_links", 0),
-                "date": d.get("date", ""),
-            }
-        )
-    return results
-
-
-def load_note_index_metadata(
-    vault: str | Path | None = None,
-    limit: int = 5000,
-) -> list[dict[str, Any]] | None:
-    """Return note_index metadata rows for term-scoring consumers.
-
-    Unlike :func:`query_note_index` (metadata FILTERS returning paths) this
-    is a bounded full scan returning the raw per-note metadata the
-    pre-tool-use hook scores in Python against file-derived tokens. Returns
-    None (not []) when the DB or the table is absent, matching
-    :func:`query_note_index`'s fall-back contract; [] means an empty index.
-
-    SECURITY: rows carry DB-sourced ``path`` strings; a consumer that reads
-    files from them must re-validate containment (``is_path_inside_vault``)
-    first — same contract as SEC-005/SEC-130 on ``query_note_index``.
-
-    Args:
-        vault: Optional vault path used to locate embeddings.db. Defaults to
-            resolve_vault().
-        limit: Row cap so a corrupt/pathological index cannot balloon the
-            hook's latency.
-
-    Returns:
-        List of row dicts (stem, path, folder, title, summary, tags,
-        note_type, project, mtime) or None when the DB/table is missing.
-    """
-    if isinstance(vault, str):  # be liberal: accept str paths from callers
-        vault = Path(vault)
-    db_path = get_embeddings_db_path(vault)
-    if not db_path.exists():
-        return None
-
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return None
-
-    try:
-        conn.row_factory = sqlite3.Row
-        if (
-            conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            is None
-        ):
-            return None
-        rows = conn.execute(
-            "SELECT stem, path, folder, title, summary, tags, note_type, project, "
-            "mtime FROM note_index ORDER BY mtime DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [dict(row) for row in rows]
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1085,6 +293,97 @@ def _is_superseded_note(note_path: Path) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# DB-first read policy
+# ---------------------------------------------------------------------------
+
+
+def _note_index_enabled(vault: str | Path | None = None) -> bool:
+    """Whether DB-first note reads are enabled.
+
+    Reads ``search.use_note_index`` (default ``true``). When false, every
+    ``find_notes_by_*`` and ``all_vault_notes`` call takes the filesystem-walk
+    path regardless of DB availability -- the user-facing escape hatch when
+    index staleness is suspected. The *vault* arg is accepted for API symmetry
+    with the callers; ``get_config`` resolves the vault via the cached
+    ``load_config()`` (CLAUDE_VAULT-aware, so tests with ``tmp_vault`` see the
+    right config without an explicit thread).
+
+    Additionally falls back to filesystem walk when:
+    - ``embeddings.enabled`` is False (unless ``search.use_note_index`` is explicitly True),
+      because the embeddings pipeline does not maintain ``note_index``.
+    - ``note_index_age()`` exceeds ``search.max_index_age_seconds`` (default 300s).
+    """
+    vault_path: Path | None = Path(vault) if vault is not None else None
+    if not get_config("search", "use_note_index", True, vault=vault_path):
+        return False
+
+    # When embeddings are disabled, note_index is not maintained by the embeddings
+    # pipeline unless search.use_note_index is explicitly set to True.
+    if not get_config("embeddings", "enabled", True, vault=vault_path):
+        raw_config = load_config(vault=vault_path)
+        search_cfg = raw_config.get("search", {})
+        explicit_true = (
+            isinstance(search_cfg, dict) and search_cfg.get("use_note_index") is True
+        )
+        if not explicit_true:
+            return False
+
+    # Check staleness: if note_index_age exceeds threshold, fall back to walk
+    max_age = get_config("search", "max_index_age_seconds", None, vault=vault_path)
+    if max_age is not None and float(max_age) > 0:
+        age = note_index_age(vault_path)
+        if age > float(max_age):
+            return False
+
+    return True
+
+
+def note_index_age(vault: str | Path | None = None) -> float:
+    """Return how stale ``note_index`` is, in seconds.
+
+    Computes ``max(on-disk .md mtime) - max(note_index mtime)``. Returns
+    ``0.0`` when the index is current or ahead, when the DB is absent, or
+    when either source is unreadable. A positive value means on-disk notes
+    exist that the index does not yet reflect -- the DB-first read path may
+    return stale results, and the user should rebuild via
+    ``update_index.py``.
+
+    This is a *signal*, not a trigger: read paths never auto-rebuild, because
+    a read doing surprising write work is worse than a slightly stale result.
+
+    Args:
+        vault: Optional vault path. Defaults to resolve_vault().
+    """
+    resolved = vault or resolve_vault()
+    db_path = get_embeddings_db_path(resolved)
+    if not db_path.exists():
+        return 0.0
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return 0.0
+    try:
+        row = conn.execute("SELECT MAX(mtime) FROM note_index").fetchone()
+    except sqlite3.Error:
+        conn.close()
+        return 0.0
+    conn.close()
+    db_max = float(row[0]) if row and row[0] is not None else 0.0
+
+    disk_max = 0.0
+    for p in _walk_vault_notes(resolved):
+        try:
+            m = p.stat().st_mtime
+        except OSError:
+            continue
+        if m > disk_max:
+            disk_max = m
+    if disk_max <= db_max:
+        return 0.0
+    return disk_max - db_max
+
+
 def find_notes_by_project(
     project: str,
     vault: str | Path | None = None,
@@ -1215,47 +514,6 @@ def find_recent_notes(
     )[:limit]
 
 
-def read_note_summary(path: Path, max_lines: int = 5) -> str:
-    """Read a note and return its title (first ``#`` heading) plus the first
-    *max_lines* of body content. Used for building context blocks.
-    """
-    try:
-        content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return ""
-
-    body = get_body(content)
-    lines = body.strip().splitlines()
-
-    title: str = path.stem  # fallback title
-    body_start = 0
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            title = stripped.lstrip("#").strip()
-            body_start = i + 1
-            break
-
-    # Collect up to max_lines of non-empty body content after the title
-    summary_lines: list[str] = []
-    for line in lines[body_start:]:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Skip HTML comments
-        if stripped.startswith("<!--"):
-            continue
-        summary_lines.append(stripped)
-        if len(summary_lines) >= max_lines:
-            break
-
-    result = title
-    if summary_lines:
-        result += "\n" + "\n".join(summary_lines)
-    return result
-
-
 def all_vault_notes(vault: str | Path | None = None) -> list[Path]:
     """Return all ``.md`` files in the vault (excluding ``EXCLUDE_DIRS``, ``CLAUDE.md``, ``TAGS.md``, ``MANIFEST.md``).
 
@@ -1296,54 +554,50 @@ def all_vault_notes_walk(vault: str | Path | None = None) -> list[Path]:
     return _walk_vault_notes(vault)
 
 
-def note_index_age(vault: str | Path | None = None) -> float:
-    """Return how stale ``note_index`` is, in seconds.
-
-    Computes ``max(on-disk .md mtime) - max(note_index mtime)``. Returns
-    ``0.0`` when the index is current or ahead, when the DB is absent, or
-    when either source is unreadable. A positive value means on-disk notes
-    exist that the index does not yet reflect -- the DB-first read path may
-    return stale results, and the user should rebuild via
-    ``update_index.py``.
-
-    This is a *signal*, not a trigger: read paths never auto-rebuild, because
-    a read doing surprising write work is worse than a slightly stale result.
-
-    Args:
-        vault: Optional vault path. Defaults to resolve_vault().
-    """
-    resolved = vault or resolve_vault()
-    db_path = get_embeddings_db_path(resolved)
-    if not db_path.exists():
-        return 0.0
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return 0.0
-    try:
-        row = conn.execute("SELECT MAX(mtime) FROM note_index").fetchone()
-    except sqlite3.Error:
-        conn.close()
-        return 0.0
-    conn.close()
-    db_max = float(row[0]) if row and row[0] is not None else 0.0
-
-    disk_max = 0.0
-    for p in _walk_vault_notes(resolved):
-        try:
-            m = p.stat().st_mtime
-        except OSError:
-            continue
-        if m > disk_max:
-            disk_max = m
-    if disk_max <= db_max:
-        return 0.0
-    return disk_max - db_max
-
-
 # ---------------------------------------------------------------------------
 # Context building
 # ---------------------------------------------------------------------------
+
+
+def read_note_summary(path: Path, max_lines: int = 5) -> str:
+    """Read a note and return its title (first ``#`` heading) plus the first
+    *max_lines* of body content. Used for building context blocks.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+    body = get_body(content)
+    lines = body.strip().splitlines()
+
+    title: str = path.stem  # fallback title
+    body_start = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            title = stripped.lstrip("#").strip()
+            body_start = i + 1
+            break
+
+    # Collect up to max_lines of non-empty body content after the title
+    summary_lines: list[str] = []
+    for line in lines[body_start:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip HTML comments
+        if stripped.startswith("<!--"):
+            continue
+        summary_lines.append(stripped)
+        if len(summary_lines) >= max_lines:
+            break
+
+    result = title
+    if summary_lines:
+        result += "\n" + "\n".join(summary_lines)
+    return result
 
 
 def build_context_block(notes: list[Path], max_chars: int = 4000) -> str:
@@ -1388,288 +642,6 @@ def build_context_block(notes: list[Path], max_chars: int = 4000) -> str:
         char_count += len(block)
 
     return "".join(parts).rstrip("\n")
-
-
-class SessionIndexRow(NamedTuple):
-    """One ``note_index`` row, in the shape the SessionStart path consumes."""
-
-    stem: str
-    path: str
-    title: str
-    tags: str
-    folder: str
-    project: str
-    related: str
-    incoming_links: int
-    mtime: float
-    incoming_stems: str = ""
-    status: str = "live"
-
-
-def _incoming_stems_from_column(
-    rows: list[SessionIndexRow],
-) -> dict[str, set[str]] | None:
-    """Parse the persisted ``incoming_stems`` column into an adjacency map.
-
-    ENH-021: ``update_index`` inverts every note's outgoing ``related`` links
-    in one pass and stores the per-note source stems as a JSON array. This
-    returns that adjacency, or ``None`` when any row's value is empty
-    (pre-ENH-021 index, not yet rebuilt) or unparseable -- the caller then
-    falls back to deriving the inversion from ``related``.
-    """
-    parsed: dict[str, set[str]] = {}
-    for row in rows:
-        if not row.incoming_stems:
-            return None
-        try:
-            raw_list = json.loads(row.incoming_stems)
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(raw_list, list):
-            return None
-        parsed[row.stem] = {s for s in raw_list if isinstance(s, str)}
-    return parsed
-
-
-class SessionIndexSnapshot:
-    """One read of ``note_index``, shared across a single hook invocation.
-
-    PRF-104: a standard SessionStart used to perform roughly three full
-    ``note_index`` reads (the project and recent queries, the graph-metadata
-    load, and another full load inside ``build_compact_index``), each opening
-    its own connection, plus an O(N x seeds) incoming-link scan rebuilt per
-    call. None of that is algorithmically wrong -- it is the SHAPE of the work
-    that grows with the vault -- so the fix is one snapshot per run rather than
-    micro-optimising each site.
-
-    The derived views (compact-index map, graph metadata, and the reverse-link
-    adjacency the Tier-1 neighbour expansion needs) are computed once here in a
-    single pass. Path validation is NOT skipped: callers that resolve rows to
-    filesystem paths still apply the SEC-005 / SEC-130 containment guard -- the
-    saving is doing it once per run instead of once per query.
-
-    Construct via :func:`load_session_index_snapshot`, which returns ``None``
-    when the DB or table is absent, mirroring ``query_note_index``'s sentinel
-    contract so every caller keeps its existing fallback.
-    """
-
-    __slots__ = ("vault", "rows", "by_stem", "_graph_meta", "_incoming", "_compact")
-
-    def __init__(self, vault: Path, rows: list[SessionIndexRow]) -> None:
-        self.vault = vault
-        # Supersession: self.rows keeps every row (paths_where's
-        # include_superseded escape hatch needs them); the retrieval-only
-        # derived views below are built from the LIVE subset.
-        self.rows = rows
-        live_rows = [r for r in rows if r.status != STATUS_SUPERSEDED]
-        self.by_stem: dict[str, SessionIndexRow] = {r.stem: r for r in rows}
-        self._graph_meta: dict[str, dict[str, object]] = {
-            r.stem: {
-                "path": r.path,
-                "related": r.related,
-                "incoming_links": r.incoming_links,
-                "tags": r.tags,
-            }
-            for r in live_rows
-        }
-        self._compact: dict[str, tuple[str, str, str]] = {
-            r.stem: (r.title, r.tags, r.folder) for r in live_rows
-        }
-        # Reverse adjacency. ENH-021: read the inversion persisted at index
-        # time in the ``incoming_stems`` column; only when the column is not
-        # populated (pre-ENH-021 index) rebuild it here in one
-        # O(N x avg_links) pass -- the PRF-104 behaviour.
-        incoming = _incoming_stems_from_column(rows)
-        if incoming is None:
-            incoming = {}
-            for row in rows:
-                for target in parse_related_stems(row.related):
-                    incoming.setdefault(target, set()).add(row.stem)
-        self._incoming = incoming
-
-    def graph_metadata(self) -> dict[str, dict[str, object]]:
-        """The mapping ``load_graph_metadata`` returns, computed once."""
-        return self._graph_meta
-
-    def compact_index_map(self) -> dict[str, tuple[str, str, str]]:
-        """The stem -> (title, tags, folder) map ``build_compact_index`` uses."""
-        return self._compact
-
-    def incoming_stems(self, stem: str) -> set[str]:
-        """Stems whose ``related`` field points at *stem* (precomputed)."""
-        return self._incoming.get(stem, set())
-
-    def paths_where(
-        self,
-        *,
-        project: str | None = None,
-        recent_days: int | None = None,
-        limit: int = 200,
-        include_superseded: bool = False,
-    ) -> list[Path]:
-        """Rows matching the filters, newest first, as validated Paths.
-
-        Mirrors ``query_note_index``'s filtering, ordering, containment guard
-        and limit semantics -- against the snapshot instead of a fresh query.
-        Superseded rows are excluded unless *include_superseded* is set.
-        """
-        cutoff = (
-            (datetime.now() - timedelta(days=recent_days)).timestamp()
-            if recent_days is not None
-            else None
-        )
-        matched = [
-            row
-            for row in self.rows
-            if (include_superseded or row.status != STATUS_SUPERSEDED)
-            and (project is None or row.project == project)
-            and (cutoff is None or row.mtime >= cutoff)
-        ]
-        matched.sort(key=lambda r: r.mtime, reverse=True)
-        return _paths_from_rows(
-            [(r.path,) for r in matched[:limit]], self.vault.resolve()
-        )
-
-
-def load_session_index_snapshot(
-    vault: Path | None = None,
-) -> SessionIndexSnapshot | None:
-    """Read ``note_index`` once for a hook invocation (PRF-104).
-
-    Args:
-        vault: Optional vault path used to locate embeddings.db (ARC-101).
-            Defaults to resolve_vault().
-
-    Returns:
-        A :class:`SessionIndexSnapshot`, or ``None`` when ``embeddings.db`` or
-        the ``note_index`` table is absent -- the same sentinel every other
-        DB-first reader here uses to signal "take the fallback path".
-    """
-    resolved = vault or resolve_vault()
-    db_path = get_embeddings_db_path(resolved)
-    if not db_path.exists():
-        return None
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        return None
-    try:
-        if (
-            conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='note_index'"
-            ).fetchone()
-            is None
-        ):
-            return None
-        # ENH-021: incoming_stems is absent on tables created before the
-        # column existed and not yet re-ensured; select a literal '' for
-        # those so the snapshot (and its legacy-inversion fallback) keeps
-        # working instead of failing the whole read.
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(note_index)")}
-        incoming_sel = (
-            "incoming_stems" if "incoming_stems" in cols else "'' AS incoming_stems"
-        )
-        status_sel = "status" if "status" in cols else "'live' AS status"
-        raw = conn.execute(
-            f"SELECT stem, path, title, tags, folder, project, related, "
-            f"incoming_links, mtime, {incoming_sel}, {status_sel} FROM note_index"
-        ).fetchall()
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
-    rows = [
-        SessionIndexRow(
-            stem=r[0],
-            path=r[1],
-            title=r[2] or "",
-            tags=r[3] or "",
-            folder=r[4] or "",
-            project=r[5] or "",
-            related=r[6] or "",
-            incoming_links=int(r[7] or 0),
-            mtime=float(r[8] or 0.0),
-            incoming_stems=str(r[9] or ""),
-            status=str(r[10] or "live"),
-        )
-        for r in raw
-    ]
-    return SessionIndexSnapshot(Path(resolved), rows)
-
-
-def _load_note_index_map(
-    vault: Path | None = None,
-) -> dict[str, tuple[str, str, str]] | None:
-    """Load a stem -> (title, tags, folder) map from the note_index DB.
-
-    QA-005: Used by build_compact_index and build_context_block to avoid
-    N+1 file reads when the DB is available.
-
-    PRF-104: a thin wrapper over :func:`load_session_index_snapshot` so
-    external callers (parsidion-mcp reaches this through
-    ``build_compact_index``) keep a one-off-snapshot entry point, while the
-    SessionStart path passes its shared snapshot in directly.
-
-    Args:
-        vault: Optional vault path used to locate embeddings.db (ARC-101).
-            Defaults to resolve_vault().
-
-    Returns:
-        Dict mapping stem to (title, tags_str, folder), or None if DB unavailable.
-    """
-    snapshot = load_session_index_snapshot(vault)
-    return snapshot.compact_index_map() if snapshot is not None else None
-
-
-def parse_related_stems(related_str: str) -> list[str]:
-    """Extract note stems from a ``note_index`` ``related`` column value.
-
-    The indexer stores ``related`` as bare comma-separated stems
-    (``", ".join(stems)``); legacy/raw notes may use ``[[wikilink]]`` form.
-    Both are accepted for robustness.  Mirrors ``build_graph.parse_related_stems``
-    so the vault reads the graph the same way it writes it.
-
-    Args:
-        related_str: Raw value of the ``related`` column (or frontmatter field).
-
-    Returns:
-        Ordered list of bare note stems (no brackets, stripped).
-    """
-    if not related_str:
-        return []
-    if "[[" in related_str:
-        return re.findall(r"\[\[([^\]]+)\]\]", related_str)
-    return [s.strip() for s in related_str.split(",") if s.strip()]
-
-
-def load_graph_metadata(
-    vault: Path | None = None,
-) -> dict[str, dict[str, object]] | None:
-    """Load per-note graph metadata from the ``note_index`` table.
-
-    Used by ``session_start_hook`` for 1-hop neighbor expansion (Tier 1) and
-    graph-aware reranking (Tier 2).  Returns ``None`` when ``embeddings.db``
-    or the ``note_index`` table is absent, signalling the caller to skip graph
-    features gracefully -- mirrors ``query_note_index``'s None-sentinel
-    contract so callers fall back to the existing retrieval path.
-
-    Paths are returned verbatim (unvalidated); callers that resolve stems to
-    filesystem paths must apply the SEC-005 vault-containment guard themselves.
-
-    Args:
-        vault: Optional vault path used to locate embeddings.db (ARC-101).
-            Defaults to resolve_vault().
-
-    PRF-104: a thin wrapper over :func:`load_session_index_snapshot`. The
-    SessionStart path takes the mapping off its shared snapshot instead of
-    calling this and paying a second full table read.
-
-    Returns:
-        Mapping of ``stem -> {"path": str, "related": str,
-        "incoming_links": int, "tags": str}``, or ``None`` on DB error.
-    """
-    snapshot = load_session_index_snapshot(vault)
-    return snapshot.graph_metadata() if snapshot is not None else None
 
 
 def build_compact_index(
@@ -1778,10 +750,10 @@ def run_index_rebuild(
     - argv always starts ``["uv", "run", "--no-project", <update_index.py>]``
       so uv never discovers a ``pyproject.toml`` in the inherited cwd and
       syncs an unrelated project's dependencies;
-    - the child environment is :func:`parsidion.core.vault_hooks.env_without_claudecode`
+    - the child environment is :func:`core.vault_hooks.env_without_claudecode`
       so a ``claude``-backed update does not refuse to nest;
     - timeout kills the whole process group
-      (:func:`parsidion.core.subproc_util.run_with_pgkill`), not just the parent.
+      (:func:`core.subproc_util.run_with_pgkill`), not just the parent.
 
     Script discovery: when *scripts_dir* is given it is used exclusively
     (missing script ⇒ ``("launch", None)`` — the installer relies on this to
@@ -1803,7 +775,7 @@ def run_index_rebuild(
 
     Returns:
         ``(reason, proc)`` as documented for
-        :func:`parsidion.core.subproc_util.run_with_pgkill` — ``("ok", CompletedProcess)``
+        :func:`core.subproc_util.run_with_pgkill` — ``("ok", CompletedProcess)``
         with any returncode, ``("launch", None)`` when uv or the script is
         unavailable, ``("timeout", None)``. Never raises.
     """
@@ -1812,7 +784,7 @@ def run_index_rebuild(
         if not script.exists():
             return "launch", None
     else:
-        source_dir = Path(__file__).resolve().parent.parent.parent
+        source_dir = Path(__file__).resolve().parent.parent
         script = next(
             (
                 candidate

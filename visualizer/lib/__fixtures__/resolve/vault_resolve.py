@@ -7,6 +7,7 @@ many times the resolver subprocess ran without child_process mocking.
 PARSIDION_STUB_FAIL=1 makes the stub exit 2 (a resolver failure that is
 not the exit-1 "unknown vault" contract).
 """
+
 import os
 import pathlib
 import sys
