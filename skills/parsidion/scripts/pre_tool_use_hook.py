@@ -171,6 +171,22 @@ def _file_query(file_path: Path, project: str) -> str:
     return f"{file_path.stem.replace('-', ' ').replace('_', ' ')} {project}"
 
 
+def _swallow_debug(settings: dict[str, Any], stage: str, exc: BaseException) -> None:
+    """Debug-gated swallow note on stderr (QA-009): stage + exception class.
+
+    Fail-open control flow is unchanged; this only surfaces a swallowed
+    stage failure when ``debug: true`` (which also sets ``PARSIDION_DEBUG``
+    so parsight_backend's internal swallows become visible too). Untrusted
+    note content never appears — the exception class name only.
+    """
+    if not settings.get("debug"):
+        return
+    print(
+        f"[pre_tool_use_hook] {stage} failed: {type(exc).__name__}",
+        file=sys.stderr,
+    )
+
+
 def _load_settings(vault: Path) -> dict[str, Any]:
     """Read the ``pre_tool_use_hook`` section, defaulting per key."""
     return load_hook_settings(
@@ -322,7 +338,8 @@ def _load_local_matches(
     """Score note_index metadata rows against the file's tokens."""
     try:
         rows = load_note_index_metadata(vault=vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(settings, "local-scan", exc)
         rows = None
     if not rows:
         return []
@@ -359,7 +376,8 @@ def _load_semantic_matches(
         return []
     try:
         probe_ok = parsight_backend.resolve_parsight_backend(vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(settings, "probe", exc)
         probe_ok = False
     if not probe_ok:
         set_stamp(stamp, True)
@@ -373,7 +391,8 @@ def _load_semantic_matches(
             timeout=settings["recall_timeout_s"],
             kill_grace_secs=_SEARCH_KILL_GRACE_S,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(settings, "search", exc)
         results = None
     if not results:
         return []
@@ -419,6 +438,10 @@ def run_injection(payload: dict) -> dict:
             vault = resolve_vault()
         _mark("resolve_vault")
         settings = _load_settings(vault)
+        if settings["debug"]:
+            # Surface parsight_backend's internal swallows under the same
+            # debug switch (QA-009); process-local, never leaves the hook.
+            os.environ["PARSIDION_DEBUG"] = "1"
         _mark("load_settings")
         if not settings["enabled"]:
             return {}
@@ -455,7 +478,8 @@ def run_injection(payload: dict) -> dict:
         # rules ride the per-file result cache like the recall body.
         try:
             matched_rules = match_rules(load_rule_notes(vault), path=str(file_path))
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _swallow_debug(settings, "rules", exc)
             matched_rules = []
         _mark("rules")
 
@@ -492,8 +516,8 @@ def run_injection(payload: dict) -> dict:
                 session_id=str(payload.get("session_id") or ""),
                 stages_ms=_stage_deltas(),
             )
-        except Exception:  # noqa: BLE001
-            pass  # observability is best-effort
+        except Exception as exc:  # noqa: BLE001
+            _swallow_debug(settings, "hook-event", exc)
         _mark("event")
 
         if settings["debug"]:

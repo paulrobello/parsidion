@@ -434,7 +434,8 @@ def _search_embeddings(
     try:
         query_vec = _embed_query(query, model_name, vault, backend)
         query_blob = _pack_vector(list(query_vec))
-    except Exception:  # noqa: BLE001 — graceful fallback
+    except Exception as exc:  # noqa: BLE001 — graceful fallback
+        print(f"vault-search: query embedding failed: {exc}", file=sys.stderr)
         return []
 
     decay_enabled: bool = get_config(
@@ -462,7 +463,8 @@ def _search_embeddings(
         if not include_superseded:
             retired = _superseded_stems(conn)
         conn.close()
-    except Exception:  # noqa: BLE001 — graceful fallback
+    except Exception as exc:  # noqa: BLE001 — graceful fallback
+        print(f"vault-search: candidate row fetch failed: {exc}", file=sys.stderr)
         return []
 
     # ARC-102: the ordering contract ("Sorted by score descending") is over

@@ -228,7 +228,8 @@ def score_index_freshness(vault: Path) -> DimensionScore:
     # --- note_index component ---
     try:
         index_age_s = note_index_age(vault)
-    except Exception:  # noqa: BLE001 — note_index_age reads files; never raise
+    except Exception as exc:  # noqa: BLE001 — note_index_age reads files; never raise
+        print(f"vault health note_index_age read failed: {exc}", file=sys.stderr)
         index_age_s = 0.0
     # Treat as days of staleness, capped at the curve ceiling so a vault that
     # has never been indexed scores 0 rather than 100 (age==0 would be fresh).
@@ -372,7 +373,8 @@ def score_metadata_quality(vault: Path, *, scan=None) -> DimensionScore:
             from parsidion.doctor.scan import scan_notes_readonly
 
             scan = scan_notes_readonly(vault)
-        except Exception:  # noqa: BLE001 — scan must not crash the report
+        except Exception as exc:  # noqa: BLE001 — scan must not crash the report
+            print(f"vault health metadata scan failed: {exc}", file=sys.stderr)
             return DimensionScore(
                 name="metadata_quality",
                 score=0,
@@ -857,7 +859,8 @@ def compute_health_report(
             from parsidion.doctor.scan import scan_notes_readonly
 
             scan_summary = scan_notes_readonly(resolved)
-        except Exception:  # noqa: BLE001 — degrade; dimension reports scan failed
+        except Exception as exc:  # noqa: BLE001 — degrade; dimension reports scan failed
+            print(f"vault health metadata scan failed: {exc}", file=sys.stderr)
             scan_summary = None
 
     if skip_metadata:

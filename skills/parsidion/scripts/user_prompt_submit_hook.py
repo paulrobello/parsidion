@@ -252,6 +252,22 @@ def _stage_deltas(ctx: _RecallContext) -> dict[str, float]:
     return deltas
 
 
+def _swallow_debug(ctx: _RecallContext, stage: str, exc: BaseException) -> None:
+    """Debug-gated swallow note on stderr (QA-009): stage + exception class.
+
+    Fail-open control flow is unchanged; this only surfaces a swallowed
+    stage failure when ``debug: true`` (which also sets ``PARSIDION_DEBUG``
+    so parsight_backend's internal swallows become visible too). Untrusted
+    note content never appears — the exception class name only.
+    """
+    if not ctx.settings.get("debug"):
+        return
+    print(
+        f"[user_prompt_submit_hook] {stage} failed: {type(exc).__name__}",
+        file=sys.stderr,
+    )
+
+
 def _emit(ctx: _RecallContext, notes: list[dict[str, object]]) -> dict:
     """Compose rules + recall into one bounded, framed injection."""
     if not notes and not ctx.matched_rules:
@@ -274,8 +290,8 @@ def _emit(ctx: _RecallContext, notes: list[dict[str, object]]) -> dict:
             session_id=str(ctx.payload.get("session_id") or ""),
             stages_ms=_stage_deltas(ctx),
         )
-    except Exception:  # noqa: BLE001
-        pass  # observability is best-effort
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "hook-event", exc)
     return {
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
@@ -290,7 +306,8 @@ def _match_rules_stage(ctx: _RecallContext, vault: Path) -> None:
     so a daemon outage never suppresses a directive."""
     try:
         ctx.matched_rules = match_rules(load_rule_notes(vault), prompt=ctx.prompt)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "rules", exc)
         ctx.matched_rules = []
     _mark(ctx, "rules")
 
@@ -299,7 +316,8 @@ def _probe_parsight(ctx: _RecallContext) -> bool:
     """Probe parsight availability for the search leg; never raises."""
     try:
         probe_ok = parsight_backend.resolve_parsight_backend(ctx.vault)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "probe", exc)
         probe_ok = False
     _mark(ctx, "probe")
     return probe_ok
@@ -316,7 +334,8 @@ def _search_notes(ctx: _RecallContext, vault: Path) -> list[dict[str, object]]:
             timeout=ctx.settings["recall_timeout_s"],
             kill_grace_secs=_SEARCH_KILL_GRACE_S,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _swallow_debug(ctx, "search", exc)
         results = None
     _mark(ctx, "search")
     if (
@@ -363,6 +382,10 @@ def run_recall(payload: dict) -> dict:
         ctx.vault = vault
         _mark(ctx, "resolve_vault")
         ctx.settings = _load_settings(vault)
+        if ctx.settings["debug"]:
+            # Surface parsight_backend's internal swallows under the same
+            # debug switch (QA-009); process-local, never leaves the hook.
+            os.environ["PARSIDION_DEBUG"] = "1"
         _mark(ctx, "load_settings")
 
         if not ctx.settings["enabled"]:
