@@ -22,7 +22,10 @@ from pathlib import Path
 
 # ARC-001: import siblings directly — core/ must not round-trip through the
 # deprecated root-shim facade.
-from .vault_index import all_vault_notes, parse_related_stems
+from .vault_index import all_vault_notes
+
+# ARC-203: note_index DB access (incl. parse_related_stems) lives in core.note_index.
+from .note_index import parse_related_stems
 from .vault_path import get_embeddings_db_path, resolve_vault
 
 __all__: list[str] = [

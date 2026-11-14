@@ -69,6 +69,10 @@ _ENFORCEMENT_SCOPE = [
     "parsidion.core.vault_schema",
     "parsidion.core.vault_path",
     "parsidion.core.vault_fs",
+    # ARC-203: the former vault_index monolith split into frontmatter +
+    # note_index + the walk/policy surface; all three share the gate.
+    "parsidion.core.frontmatter",
+    "parsidion.core.note_index",
     "parsidion.core.vault_index",
     "parsidion.core.rule_triggers",
     "parsidion.core.vault_hooks",
@@ -103,6 +107,8 @@ _ENFORCEMENT_SCOPE = [
     "codex_subagent_stop_hook",
     "antigravity_session_start_hook",
     "antigravity_session_end_hook",
+    # ARC-203: session-end pipeline stages split out of agent_adapter.
+    "parsidion.agent_pipeline",
     "parsidion.agent_adapter",
     # ARC-202: the shared recall-context pipeline is imported in-process by
     # both retrieval hooks, so it shares the stdlib-only contract.
