@@ -1,7 +1,7 @@
 """Unit tests for the detect-conflicts evaluator (ENH-008, board item #3).
 
 Exercises render / parse / score with NO AI call — render goes through the real
-``prompt_templates.render`` (whose strict variable check is the drift gate),
+``parsidion.prompt_templates.render`` (whose strict variable check is the drift gate),
 and parse/score are pure functions fed canned model outputs.
 """
 

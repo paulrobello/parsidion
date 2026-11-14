@@ -74,19 +74,19 @@ import threading  # re-exported for tests
 from datetime import date, datetime  # re-exported for tests
 from pathlib import Path  # re-exported for tests
 
-import ai_backend  # re-exported for test monkeypatch (vault_doctor.ai_backend.run_ai_prompt)
-import vault_common  # re-exported for tests
-import vault_fs  # re-exported for test monkeypatch
-import vault_links  # re-exported for test monkeypatch
+import parsidion.ai_backend as ai_backend  # re-exported for test monkeypatch (vault_doctor.ai_backend.run_ai_prompt)
+import parsidion.vault_common as vault_common  # re-exported for tests
+import parsidion.vault_fs as vault_fs  # re-exported for test monkeypatch
+import parsidion.vault_links as vault_links  # re-exported for test monkeypatch
 
 # ---------------------------------------------------------------------------
-# Constants, data model, and shared state live in doctor._state so the
+# Constants, data model, and shared state live in parsidion.doctor._state so the
 # submodules and this shim share one ``_vault_path`` / ``_backed_up_this_run``
 # object.  Re-exported here so existing ``vault_doctor.X`` attribute access
 # (including test ``monkeypatch.setattr``) keeps working byte-for-byte.
 # See doctor/_state.py for the test-patch compatibility contract.
 # ---------------------------------------------------------------------------
-from doctor._state import (  # re-exports
+from parsidion.doctor._state import (  # re-exports
     AI_TIMEOUT,
     DEFAULT_MODEL,
     PREFIX_CLUSTER_MIN,
@@ -111,9 +111,9 @@ from doctor._state import (  # re-exports
     save_state,
     should_skip,
 )
-from doctor.check import check_note  # re-export
-from doctor.daily import run_migrate_daily_notes  # re-export
-from doctor.frontmatter import (  # re-exports
+from parsidion.doctor.check import check_note  # re-export
+from parsidion.doctor.daily import run_migrate_daily_notes  # re-export
+from parsidion.doctor.frontmatter import (  # re-exports
     _FM_DELIM_RE,
     _FM_KEY_RE,
     _FM_LEAKED_MARKER_RE,
@@ -125,9 +125,12 @@ from doctor.frontmatter import (  # re-exports
     _note_is_daily,
     repair_note,
 )
-from doctor.graph import _run_reindex, commit_stale_files  # re-exports
-from doctor.headings import _auto_fix_headings, _auto_fix_self_refs  # re-exports
-from doctor.links import (  # re-exports
+from parsidion.doctor.graph import _run_reindex, commit_stale_files  # re-exports
+from parsidion.doctor.headings import (
+    _auto_fix_headings,
+    _auto_fix_self_refs,
+)  # re-exports
+from parsidion.doctor.links import (  # re-exports
     _auto_repair_broken_wikilinks,
     _find_link_replacement,
     _find_semantic_candidates,
@@ -135,14 +138,14 @@ from doctor.links import (  # re-exports
     dedup_related_links,
     resolve_wikilink,
 )
-from doctor.orchestrator import run_scan_and_repair  # re-export
-from doctor.protocol import DoctorOptions  # QA-005 re-export
-from doctor.scan import (  # re-exports (ENH-007 read-only scan path)
+from parsidion.doctor.orchestrator import run_scan_and_repair  # re-export
+from parsidion.doctor.protocol import DoctorOptions  # QA-005 re-export
+from parsidion.doctor.scan import (  # re-exports (ENH-007 read-only scan path)
     ScanSummary,
     _git_tracked_gitignored,
     scan_notes_readonly,
 )
-from doctor.permissions import (  # re-exports
+from parsidion.doctor.permissions import (  # re-exports
     _DIR_MODE,
     _FILE_MODE,
     _SECRET_FILE_GLOBS,
@@ -150,12 +153,12 @@ from doctor.permissions import (  # re-exports
     _chmod_if_exists,
     run_fix_permissions,
 )
-from doctor.prefixes import (  # re-exports
+from parsidion.doctor.prefixes import (  # re-exports
     _find_redundant_prefixes,
     run_strip_prefixes,
 )
-from doctor.protocol import FixMode, run_fix_modes  # re-exports
-from doctor.subfolder import (  # re-exports
+from parsidion.doctor.protocol import FixMode, run_fix_modes  # re-exports
+from parsidion.doctor.subfolder import (  # re-exports
     _GENERIC_PREFIX_DENYLIST,
     _common_word_prefix,
     _filter_clusters_with_claude,
@@ -165,7 +168,7 @@ from doctor.subfolder import (  # re-exports
     fix_prefix_cluster,
     run_migrate_subfolders,
 )
-from doctor.tags import (  # re-exports
+from parsidion.doctor.tags import (  # re-exports
     _TAGS_BLOCK_START_RE,
     _TAGS_INLINE_RE,
     _collect_all_tags,
@@ -177,12 +180,12 @@ from doctor.tags import (  # re-exports
     run_fix_sessions,
     run_fix_tags,
 )
-from doctor.worker import _repair_one  # re-export
+from parsidion.doctor.worker import _repair_one  # re-export
 
 # CLI entry point — imported last so the submodule graph is fully populated
 # before main() can be invoked. ``if __name__ == "__main__": main()`` below
 # keeps this file invocable as ``uv run --no-project vault_doctor.py …``.
-from doctor.cli import main  # script entry point
+from parsidion.doctor.cli import main  # script entry point
 
 
 if __name__ == "__main__":

@@ -24,8 +24,8 @@ from typing import Any
 import pytest
 
 import update_index
-import vault_common
-import vault_index
+import parsidion.vault_common as vault_common
+import parsidion.vault_index as vault_index
 
 # ---------------------------------------------------------------------------
 # Parse warning collector
@@ -33,7 +33,7 @@ import vault_index
 
 
 class TestParseWarningCollector:
-    """Tests for vault_index.record_parse_warning / drain_parse_warnings."""
+    """Tests for parsidion.vault_index.record_parse_warning / drain_parse_warnings."""
 
     @pytest.fixture(autouse=True)
     def _clear_collector(self) -> Generator[None]:
@@ -162,8 +162,8 @@ class TestSingletonGuardAtomicClaim:
 
     ARC-003: the vault path is now threaded explicitly through ``pid_file``,
     ``_write_pid``, ``_release_pid`` and ``_singleton_guard`` rather than
-    read from ``vault_common.VAULT_ROOT``. The previous
-    ``_patch_vault_root`` helper patched both ``vault_common.VAULT_ROOT``
+    read from ``parsidion.vault_common.VAULT_ROOT``. The previous
+    ``_patch_vault_root`` helper patched both ``parsidion.vault_common.VAULT_ROOT``
     and ``update_index.VAULT_ROOT``; with the global no longer consulted
     by these functions, callers pass ``tmp_path`` directly.
     """

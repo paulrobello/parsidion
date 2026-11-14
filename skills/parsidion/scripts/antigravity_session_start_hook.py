@@ -20,7 +20,7 @@ import json
 import sys
 from typing import Any
 
-from agent_adapter import _to_shared_payload, get, run_session_start
+from parsidion.agent_adapter import _to_shared_payload, get, run_session_start
 
 
 def _read_payload() -> dict[str, Any]:

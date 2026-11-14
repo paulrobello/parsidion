@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import agent_adapter  # ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)
+import parsidion.agent_adapter as agent_adapter  # ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)
 from installer.colors import dim
 from installer.hooks import _atomic_write_text, remove_legacy_hooks
 from installer.paths import (
@@ -516,7 +516,7 @@ def rebuild_index(
 ) -> None:
     """Run update_index.py to rebuild the resolved vault's CLAUDE.md.
 
-    ARC-004: delegates to ``core.vault_index.run_index_rebuild`` — the shared
+    ARC-004: delegates to ``parsidion.core.vault_index.run_index_rebuild`` — the shared
     owner of the index-rebuild subprocess contract — which also adds the
     ``--no-project`` flag the old inline launcher omitted (uv could otherwise
     sync an unrelated project found in the inherited cwd) and kills the whole
@@ -532,7 +532,7 @@ def rebuild_index(
     if dry_run:
         return
 
-    from vault_common import run_index_rebuild
+    from parsidion.vault_common import run_index_rebuild
 
     reason, proc = run_index_rebuild(scripts_dir=scripts_dir, timeout=30.0)
     if reason == "ok" and proc is not None and proc.returncode == 0:

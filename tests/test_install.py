@@ -13,7 +13,7 @@ import installer.hooks as installer_hooks
 import installer.ui as installer_ui
 import installer.paths as installer_paths
 import installer.ui  # noqa: F401 — setattr target
-from core.vault_path import get_vaults_config_path, read_vaults_yaml
+from parsidion.core.vault_path import get_vaults_config_path, read_vaults_yaml
 
 
 LEGACY_PROJECT_NAME = "parsidion" + "-cc"
@@ -279,7 +279,7 @@ class TestCodexHooks:
     def test_remove_codex_hooks_preserves_malformed_mixed_entries(
         self, tmp_path: Path
     ) -> None:
-        import agent_adapter  # noqa: PLC0415
+        import parsidion.agent_adapter as agent_adapter  # noqa: PLC0415
         from installer.hooks import _build_managed_command  # noqa: PLC0415
 
         codex_home = tmp_path / ".codex"

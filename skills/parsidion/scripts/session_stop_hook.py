@@ -3,7 +3,7 @@
 
 Registered under the SessionEnd hook — fires once when the session terminates,
 not on every turn. Since ARC-002 the classify/persist pipeline itself lives in
-``agent_adapter.run_session_end`` and is shared by every runtime (Claude,
+``parsidion.agent_adapter.run_session_end`` and is shared by every runtime (Claude,
 Codex, Gemini); this shim keeps only Claude's invocation concerns:
 
 - stdin JSON parsing and the ``--ai [MODEL]`` flag,
@@ -31,15 +31,15 @@ import sys
 import traceback
 from pathlib import Path
 
-from core import parsight_backend
-from core.vault_hooks import (
+from parsidion.core import parsight_backend
+from parsidion.core.vault_hooks import (
     allowed_transcript_roots,
     is_allowed_transcript_path,
     log_hook_error,
 )
-from core.vault_path import resolve_vault
+from parsidion.core.vault_path import resolve_vault
 
-import agent_adapter
+import parsidion.agent_adapter as agent_adapter
 
 
 def _should_skip(input_data: dict[str, object], cwd: str) -> str | None:

@@ -3,7 +3,7 @@
 Two layers of cross-language agreement, both enforced here:
 
 1. ``VAULT_FORBIDDEN_PREFIXES`` -- the *list* of forbidden path prefixes must
-   be byte-for-byte the same in Python (``vault_path._VAULT_FORBIDDEN_PREFIXES``)
+   be byte-for-byte the same in Python (``parsidion.vault_path._VAULT_FORBIDDEN_PREFIXES``)
    and TypeScript (``vaultResolver.ts``). Covered by source-text parsing in
    :class:`TestVaultForbiddenPrefixListParity`, because both are static
    compile-time constants and the Python test runner has no Node/Bun runtime.
@@ -61,7 +61,7 @@ _SCRIPTS_DIR = str(_REPO_ROOT / "skills" / "parsidion" / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-import vault_path  # noqa: E402
+import parsidion.vault_path as vault_path  # noqa: E402
 
 
 # ===========================================================================

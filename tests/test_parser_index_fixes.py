@@ -22,8 +22,8 @@ from pathlib import Path
 import pytest
 
 import update_index
-import vault_common
-import vault_links
+import parsidion.vault_common as vault_common
+import parsidion.vault_links as vault_links
 
 # ---------------------------------------------------------------------------
 # Fix 1a: frontmatter list items stay strings

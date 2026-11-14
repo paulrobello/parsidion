@@ -8,7 +8,7 @@ orders:
 
 Both were ``Path``-typed, so the type checker could not see a swapped-args
 call. QA-001 extracted a single canonical helper
-``vault_fs.backup_note(note_path, vault)`` (note_path first) and rewired
+``parsidion.vault_fs.backup_note(note_path, vault)`` (note_path first) and rewired
 both wrappers to delegate to it without changing their public signatures.
 
 This test pins the canonical order: a call with the correct order produces
@@ -28,8 +28,8 @@ from pathlib import Path
 import pytest
 
 import vault_doctor
-import vault_fs
-from summarizer import notes as summarizer_notes
+import parsidion.vault_fs as vault_fs
+from parsidion.summarizer import notes as summarizer_notes
 
 
 def _write_note(vault: Path, rel_path: str, content: str) -> Path:
@@ -52,7 +52,7 @@ def _clear_doctor_backup_run_state() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Canonical helper: vault_fs.backup_note(note_path, vault)
+# Canonical helper: parsidion.vault_fs.backup_note(note_path, vault)
 # ---------------------------------------------------------------------------
 
 
@@ -126,10 +126,10 @@ class TestCanonicalBackupNote:
 
 
 class TestLegacyWrappers:
-    """doctor._backup_note(vault, note) keeps its vault-first parameter order.
+    """parsidion.doctor._backup_note(vault, note) keeps its vault-first parameter order.
 
     Doctor's many call sites were not touched by QA-001. The summarizer
-    wrapper is gone (ARC-202): notes.py calls vault_fs.backup_note directly
+    wrapper is gone (ARC-202): notes.py calls parsidion.vault_fs.backup_note directly
     with the same (note, vault) order it always used. These tests pin the
     delegation direction so a future edit that accidentally re-forks the
     call path is caught.
@@ -157,7 +157,7 @@ class TestLegacyWrappers:
         assert backup.read_text(encoding="utf-8") == "summ\n"
 
     def test_summarizer_binds_canonical_helper(self) -> None:
-        """notes.py must import vault_fs.backup_note itself, not re-export."""
+        """notes.py must import parsidion.vault_fs.backup_note itself, not re-export."""
         assert summarizer_notes.backup_note is vault_fs.backup_note
 
     def test_doctor_wrapper_swallows_oserror(

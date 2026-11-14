@@ -11,9 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import vault_common
-import vault_hooks
-from core import vault_hooks as core_vault_hooks
+import parsidion.vault_common as vault_common
+import parsidion.vault_hooks as vault_hooks
+from parsidion.core import vault_hooks as core_vault_hooks
 
 
 def test_log_hook_error_writes_timestamped_entry(

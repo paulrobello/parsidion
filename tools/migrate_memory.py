@@ -27,7 +27,7 @@ from _migrate_common import (
     report_header,
     write_note_file,
 )
-from vault_common import (
+from parsidion.vault_common import (
     ensure_vault_dirs,
     resolve_vault,
     serialize_frontmatter,
@@ -227,7 +227,7 @@ def _build_frontmatter(
     """Build a YAML frontmatter block string.
 
     ARC-005: delegates to the shared schema-aware emitter
-    (``core.vault_index.serialize_frontmatter``); this adapter supplies the
+    (``parsidion.core.vault_index.serialize_frontmatter``); this adapter supplies the
     importer's fixed defaults.
     """
     fields: dict[str, object] = {

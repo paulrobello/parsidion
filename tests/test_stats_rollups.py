@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from cli.stats.rollups import run_monthly, run_weekly
+from parsidion.cli.stats.rollups import run_monthly, run_weekly
 
 
 def _make_daily(vault: Path, day: date, username: str = "tester") -> Path:

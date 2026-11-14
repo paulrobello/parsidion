@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Resolvable via the editable `parsidion` dependency, the same mechanism
 # tools/search.py uses for core.* / vault_search.
-from core import parsight_backend
+from parsidion.core import parsight_backend
 
 
 def code_search(

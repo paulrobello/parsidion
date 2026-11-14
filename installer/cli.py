@@ -277,7 +277,7 @@ def _connectable_runtimes() -> list[str]:
     runtime is accepted. claude/codex/antigravity wire hooks via install()/uninstall();
     pi installs its TypeScript extension via the dedicated installer.
     """
-    import agent_adapter  # noqa: PLC0415
+    import parsidion.agent_adapter as agent_adapter  # noqa: PLC0415
 
     return [a.name for a in agent_adapter.all_adapters()]
 

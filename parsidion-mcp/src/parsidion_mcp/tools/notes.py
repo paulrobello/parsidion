@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from core import vault_path
+from parsidion.core import vault_path
 
 
 class VaultToolError(Exception):

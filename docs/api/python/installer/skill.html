@@ -119,7 +119,7 @@ module load. Stdlib-only — no third-party dependencies.</p>
 </span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 </span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 </span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a>
-</span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">agent_adapter</span>  <span class="c1"># ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)</span>
+</span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">parsidion.agent_adapter</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">agent_adapter</span>  <span class="c1"># ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)</span>
 </span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">installer.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">dim</span>
 </span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">installer.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">_atomic_write_text</span><span class="p">,</span> <span class="n">remove_legacy_hooks</span>
 </span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">installer.paths</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -616,7 +616,7 @@ module load. Stdlib-only — no third-party dependencies.</p>
 </span><span id="L-516"><a href="#L-516"><span class="linenos">516</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 </span><span id="L-517"><a href="#L-517"><span class="linenos">517</span></a><span class="w">    </span><span class="sd">"""Run update_index.py to rebuild the resolved vault's CLAUDE.md.</span>
 </span><span id="L-518"><a href="#L-518"><span class="linenos">518</span></a>
-</span><span id="L-519"><a href="#L-519"><span class="linenos">519</span></a><span class="sd">    ARC-004: delegates to ``core.vault_index.run_index_rebuild`` — the shared</span>
+</span><span id="L-519"><a href="#L-519"><span class="linenos">519</span></a><span class="sd">    ARC-004: delegates to ``parsidion.core.vault_index.run_index_rebuild`` — the shared</span>
 </span><span id="L-520"><a href="#L-520"><span class="linenos">520</span></a><span class="sd">    owner of the index-rebuild subprocess contract — which also adds the</span>
 </span><span id="L-521"><a href="#L-521"><span class="linenos">521</span></a><span class="sd">    ``--no-project`` flag the old inline launcher omitted (uv could otherwise</span>
 </span><span id="L-522"><a href="#L-522"><span class="linenos">522</span></a><span class="sd">    sync an unrelated project found in the inherited cwd) and kills the whole</span>
@@ -632,7 +632,7 @@ module load. Stdlib-only — no third-party dependencies.</p>
 </span><span id="L-532"><a href="#L-532"><span class="linenos">532</span></a>    <span class="k">if</span> <span class="n">dry_run</span><span class="p">:</span>
 </span><span id="L-533"><a href="#L-533"><span class="linenos">533</span></a>        <span class="k">return</span>
 </span><span id="L-534"><a href="#L-534"><span class="linenos">534</span></a>
-</span><span id="L-535"><a href="#L-535"><span class="linenos">535</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">vault_common</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_index_rebuild</span>
+</span><span id="L-535"><a href="#L-535"><span class="linenos">535</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">parsidion.vault_common</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_index_rebuild</span>
 </span><span id="L-536"><a href="#L-536"><span class="linenos">536</span></a>
 </span><span id="L-537"><a href="#L-537"><span class="linenos">537</span></a>    <span class="n">reason</span><span class="p">,</span> <span class="n">proc</span> <span class="o">=</span> <span class="n">run_index_rebuild</span><span class="p">(</span><span class="n">scripts_dir</span><span class="o">=</span><span class="n">scripts_dir</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">30.0</span><span class="p">)</span>
 </span><span id="L-538"><a href="#L-538"><span class="linenos">538</span></a>    <span class="k">if</span> <span class="n">reason</span> <span class="o">==</span> <span class="s2">"ok"</span> <span class="ow">and</span> <span class="n">proc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">proc</span><span class="o">.</span><span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
@@ -1237,7 +1237,7 @@ integration stops loading parsidion instructions every session.</p>
 </span><span id="rebuild_index-517"><a href="#rebuild_index-517"><span class="linenos">517</span></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 </span><span id="rebuild_index-518"><a href="#rebuild_index-518"><span class="linenos">518</span></a><span class="w">    </span><span class="sd">"""Run update_index.py to rebuild the resolved vault's CLAUDE.md.</span>
 </span><span id="rebuild_index-519"><a href="#rebuild_index-519"><span class="linenos">519</span></a>
-</span><span id="rebuild_index-520"><a href="#rebuild_index-520"><span class="linenos">520</span></a><span class="sd">    ARC-004: delegates to ``core.vault_index.run_index_rebuild`` — the shared</span>
+</span><span id="rebuild_index-520"><a href="#rebuild_index-520"><span class="linenos">520</span></a><span class="sd">    ARC-004: delegates to ``parsidion.core.vault_index.run_index_rebuild`` — the shared</span>
 </span><span id="rebuild_index-521"><a href="#rebuild_index-521"><span class="linenos">521</span></a><span class="sd">    owner of the index-rebuild subprocess contract — which also adds the</span>
 </span><span id="rebuild_index-522"><a href="#rebuild_index-522"><span class="linenos">522</span></a><span class="sd">    ``--no-project`` flag the old inline launcher omitted (uv could otherwise</span>
 </span><span id="rebuild_index-523"><a href="#rebuild_index-523"><span class="linenos">523</span></a><span class="sd">    sync an unrelated project found in the inherited cwd) and kills the whole</span>
@@ -1253,7 +1253,7 @@ integration stops loading parsidion instructions every session.</p>
 </span><span id="rebuild_index-533"><a href="#rebuild_index-533"><span class="linenos">533</span></a>    <span class="k">if</span> <span class="n">dry_run</span><span class="p">:</span>
 </span><span id="rebuild_index-534"><a href="#rebuild_index-534"><span class="linenos">534</span></a>        <span class="k">return</span>
 </span><span id="rebuild_index-535"><a href="#rebuild_index-535"><span class="linenos">535</span></a>
-</span><span id="rebuild_index-536"><a href="#rebuild_index-536"><span class="linenos">536</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">vault_common</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_index_rebuild</span>
+</span><span id="rebuild_index-536"><a href="#rebuild_index-536"><span class="linenos">536</span></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">parsidion.vault_common</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_index_rebuild</span>
 </span><span id="rebuild_index-537"><a href="#rebuild_index-537"><span class="linenos">537</span></a>
 </span><span id="rebuild_index-538"><a href="#rebuild_index-538"><span class="linenos">538</span></a>    <span class="n">reason</span><span class="p">,</span> <span class="n">proc</span> <span class="o">=</span> <span class="n">run_index_rebuild</span><span class="p">(</span><span class="n">scripts_dir</span><span class="o">=</span><span class="n">scripts_dir</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">30.0</span><span class="p">)</span>
 </span><span id="rebuild_index-539"><a href="#rebuild_index-539"><span class="linenos">539</span></a>    <span class="k">if</span> <span class="n">reason</span> <span class="o">==</span> <span class="s2">"ok"</span> <span class="ow">and</span> <span class="n">proc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">proc</span><span class="o">.</span><span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
@@ -1273,7 +1273,7 @@ integration stops loading parsidion instructions every session.</p>
 
             <div class="docstring"><p>Run update_index.py to rebuild the resolved vault's CLAUDE.md.</p>
 
-<p>ARC-004: delegates to <code><a href="../core/vault_index.html#run_index_rebuild">core.vault_index.run_index_rebuild</a></code> — the shared
+<p>ARC-004: delegates to <code><a href="../parsidion/core/vault_index.html#run_index_rebuild">parsidion.core.vault_index.run_index_rebuild</a></code> — the shared
 owner of the index-rebuild subprocess contract — which also adds the
 <code>--no-project</code> flag the old inline launcher omitted (uv could otherwise
 sync an unrelated project found in the inherited cwd) and kills the whole

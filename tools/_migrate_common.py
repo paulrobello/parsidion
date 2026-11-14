@@ -3,7 +3,7 @@
 ``migrate_memory.py`` and ``migrate_research.py`` duplicated the report
 banner/footer scaffold, the write-with-error-reporting loop, and the
 keyword-tag scan. ARC-005 already moved their frontmatter building onto
-``core.vault_index.serialize_frontmatter``; this module is the remaining
+``parsidion.core.vault_index.serialize_frontmatter``; this module is the remaining
 shared surface.
 
 Stdlib-only, like both consumers.

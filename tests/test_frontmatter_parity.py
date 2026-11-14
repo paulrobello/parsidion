@@ -2,7 +2,7 @@
 
 Consumes the same fixture as the TypeScript half
 (``visualizer/lib/frontmatter.parity.test.ts``) — the ENH-005 pattern — so
-the Python emitter (:func:`core.vault_index.serialize_frontmatter`) and the
+the Python emitter (:func:`parsidion.core.vault_index.serialize_frontmatter`) and the
 visualizer's ``frontmatter.ts`` cannot drift on quoting, key order, or list
 formatting.
 
@@ -20,12 +20,12 @@ from typing import Any
 
 import pytest
 
-from core.vault_index import parse_frontmatter, serialize_frontmatter
+from parsidion.core.vault_index import parse_frontmatter, serialize_frontmatter
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "parity" / "frontmatter.json"
 
-#: The known fields both emitters order canonically (note_schema.FRONTMATTER_FIELD_ORDER).
+#: The known fields both emitters order canonically (parsidion.note_schema.FRONTMATTER_FIELD_ORDER).
 _CANONICAL_ORDER = (
     "date",
     "type",
@@ -83,7 +83,7 @@ def test_parse_round_trips_expected(vector: dict[str, Any]) -> None:
 
 
 def test_canonical_key_order_matches_note_schema() -> None:
-    from note_schema import FRONTMATTER_FIELD_ORDER
+    from parsidion.note_schema import FRONTMATTER_FIELD_ORDER
 
     assert FRONTMATTER_FIELD_ORDER == _CANONICAL_ORDER
 
@@ -118,8 +118,8 @@ def test_emitter_quoting_rules() -> None:
 
 def test_writers_route_through_shared_emitter() -> None:
     """ARC-005 contract: the four historical writers are thin adapters."""
-    import vault_merge
-    import vault_new
+    import parsidion.vault_merge as vault_merge
+    import parsidion.vault_new as vault_new
 
     out = vault_new._build_frontmatter("pattern", ["python"], "myproj")
     assert out == serialize_frontmatter(

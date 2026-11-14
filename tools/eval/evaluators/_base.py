@@ -9,7 +9,7 @@ Each evaluator knows how to:
 
 - :meth:`load_cases` — read its golden cases from
   ``tests/fixtures/prompts/golden/<id>/`` (input shape is prompt-specific).
-- :meth:`render` — render the prompt via :func:`prompt_templates.render`. That
+- :meth:`render` — render the prompt via :func:`parsidion.prompt_templates.render`. That
   function's strict bidirectional variable check is the load-bearing gate: an
   adapter whose variables drift from the template's declared ``variables`` list
   raises ``PromptError`` — caught without an AI call.
@@ -17,7 +17,7 @@ Each evaluator knows how to:
 - :meth:`score` — score the parsed output against the case's ``expected.yaml`` →
   ``(0-100, {check: fraction})``.
 
-``prompt_templates.render`` dispatches both syntaxes (``template`` ``$var`` and
+``parsidion.prompt_templates.render`` dispatches both syntaxes (``template`` ``$var`` and
 ``format`` ``{var}``), so adapters just pass the right variables.
 """
 
@@ -214,7 +214,7 @@ class BaseEvaluator:
     @property
     def version_stamp(self) -> str:
         """The ``<id>@<version>`` stamp for cache keying."""
-        import prompt_templates  # local: keeps the module import-light
+        import parsidion.prompt_templates as prompt_templates  # local: keeps the module import-light
 
         tpl = prompt_templates.load_prompt(self.prompt_id)
         return f"{tpl.id}@{tpl.version}"

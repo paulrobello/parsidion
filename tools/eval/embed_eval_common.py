@@ -29,7 +29,7 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import vault_common
+import parsidion.vault_common as vault_common
 
 console = Console()
 
@@ -45,12 +45,12 @@ def get_default_queries_file(vault: Path | None = None) -> Path:
     """Return the default queries file path for the given vault.
 
     ARC-011: Replaces the module-level ``DEFAULT_QUERIES_FILE`` constant that
-    baked ``vault_common.VAULT_ROOT`` at import time, preventing correct
+    baked ``parsidion.vault_common.VAULT_ROOT`` at import time, preventing correct
     operation when the active vault is switched at runtime.
 
     Args:
         vault: Optional explicit vault path.  When ``None``, resolves via
-            ``vault_common.resolve_vault()``.
+            ``parsidion.vault_common.resolve_vault()``.
 
     Returns:
         Path to ``embed_eval_queries.yaml`` inside the resolved vault.

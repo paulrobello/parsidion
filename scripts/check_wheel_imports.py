@@ -1,24 +1,24 @@
 """Mirror CI's shipped-module import smoke inside a clean wheel-install venv.
 
-Run through stdin from the repository root, matching CI's import search path.
+ARC-201: the wheel ships ONLY the parsidion.* namespace, so the smoke imports
+every module under the installed parsidion package (plus the console-script
+targets, which are inside it). Run through stdin from the repository root,
+matching CI's import search path.
 """
 
 import importlib
 import pathlib
-import tomllib
 
-with pathlib.Path("pyproject.toml").open("rb") as config_file:
-    cfg = tomllib.load(config_file)
-scripts_root = pathlib.Path("skills/parsidion/scripts")
-skip: set[str] = {"build_embeddings", "build_graph"}
+SCRIPTS_ROOT = pathlib.Path("skills/parsidion/scripts")
+PKG_ROOT = SCRIPTS_ROOT / "parsidion"
 
-mods: list[str] = sorted({t.split(":")[0] for t in cfg["project"]["scripts"].values()})
-mods += sorted(m for m in cfg["tool"]["setuptools"]["py-modules"] if m not in skip)
-mods += sorted(
-    str(p.with_suffix("")).replace("/", ".")
-    for p in scripts_root.rglob("*.py")
-    if p.parent != scripts_root and "__pycache__" not in p.parts
-)
-for module in sorted(set(mods)):
+mods: set[str] = set()
+for p in sorted(PKG_ROOT.rglob("*.py")):
+    if "__pycache__" in p.parts:
+        continue
+    rel = p.relative_to(SCRIPTS_ROOT).with_suffix("")
+    mods.add(str(rel).replace("/", "."))
+
+for module in sorted(mods):
     importlib.import_module(module)
-print(f"ok: imported {len(set(mods))} shipped modules/packages")
+print(f"ok: imported {len(mods)} shipped modules/packages")

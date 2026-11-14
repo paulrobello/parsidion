@@ -4,7 +4,7 @@
 ENH-009: the visualizer (and any other non-Python client) resolves vaults by
 shelling out to this script instead of reimplementing the allowlist in
 TypeScript. It is a thin wrapper over
-:func:`core.vault_path.resolve_vault_server`, so the resolution algorithm has
+:func:`parsidion.core.vault_path.resolve_vault_server`, so the resolution algorithm has
 exactly one implementation (was QA-012 / ARC-007 / SEC-P001).
 
 Usage::
@@ -27,9 +27,13 @@ import json
 import sys
 
 # This script lives at scripts/vault_resolve.py and core/ is a sibling
-# subpackage (scripts/core/), so ``core.vault_path`` resolves off the script's
+# subpackage (scripts/core/), so ``parsidion.core.vault_path`` resolves off the script's
 # own directory without any install step.
-from core.vault_path import VaultConfigError, list_named_vaults, resolve_vault_server
+from parsidion.core.vault_path import (
+    VaultConfigError,
+    list_named_vaults,
+    resolve_vault_server,
+)
 
 
 def _emit_list() -> int:

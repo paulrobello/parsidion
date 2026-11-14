@@ -76,15 +76,21 @@ config-docs-check:
 # (fastembed/sqlite_vec guard) are skipped because their top-level imports are
 # not satisfiable from the lightweight `docs` extra; html-to-md.py is a PEP 723
 # script and not importable as a module (hyphen).
-PDOC_MODULES := core installer vault_common vault_config vault_path vault_fs \
-	vault_index vault_hooks vault_adaptive vault_metrics vault_tui vault_links \
-	vault_new vault_constants vault_resolve vault_health subproc_util ai_backend \
-	vault_embed_serve parsight_backend note_schema agent_adapter prompt_templates \
+PDOC_MODULES := parsidion.core installer parsidion.vault_common parsidion.vault_config \
+	parsidion.vault_path parsidion.vault_fs parsidion.vault_index parsidion.vault_hooks \
+	parsidion.vault_adaptive parsidion.vault_metrics parsidion.vault_tui parsidion.vault_links \
+	parsidion.vault_new parsidion.vault_constants parsidion.vault_health parsidion.subproc_util \
+	parsidion.ai_backend parsidion.vault_embed_serve parsidion.parsight_backend \
+	parsidion.note_schema parsidion.agent_adapter parsidion.prompt_templates \
 	session_start_hook session_stop_hook pre_compact_hook post_compact_hook \
 	subagent_stop_hook codex_session_start_hook codex_stop_hook codex_subagent_stop_hook \
-	antigravity_session_start_hook antigravity_session_end_hook vault_search \
-	vault_review vault_export vault_merge vault_conflicts vault_doctor vault_stats \
-	update_index check_graph_coverage run_trigger_eval
+	antigravity_session_start_hook antigravity_session_end_hook parsidion.vault_search \
+	parsidion.vault_review parsidion.vault_export parsidion.vault_merge \
+	parsidion.vault_conflicts vault_doctor parsidion.vault_stats update_index \
+	check_graph_coverage run_trigger_eval vault_resolve
+
+# vault_resolve stays a bare module: the visualizer spawns it by file path, so
+# its repo path (and thus its pdoc page location) is part of the contract.
 
 docs-api:
 	$(MAKE) docs-api-gen DOCS_API_OUT=docs/api

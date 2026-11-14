@@ -309,7 +309,7 @@ def _build_note_index(out: Path) -> None:
     sys.path.insert(0, str(SCRIPTS_DIR))
     try:
         from update_index import _write_note_index_to_db, build_index
-        from vault_path import get_embeddings_db_path
+        from parsidion.vault_path import get_embeddings_db_path
     finally:
         sys.path.remove(str(SCRIPTS_DIR))
 

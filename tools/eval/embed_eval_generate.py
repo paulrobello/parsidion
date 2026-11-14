@@ -37,8 +37,8 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import ai_backend
-import vault_common
+import parsidion.ai_backend as ai_backend
+import parsidion.vault_common as vault_common
 from embed_eval_common import (
     CLAUDE_TIMEOUT,
     EvalItem,

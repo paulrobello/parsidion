@@ -23,11 +23,11 @@ def test_summarize_sessions_source_uses_ai_backend_not_claude_agent_sdk() -> Non
 
     assert "claude-agent-sdk" not in source
     assert "claude_agent_sdk" not in source
-    assert "import ai_backend" in source
+    assert "import parsidion.ai_backend" in source
 
 
 def test_summarizer_config_models_accept_none() -> None:
-    import vault_config
+    import parsidion.vault_config as vault_config
 
     assert vault_config._CONFIG_SCHEMA["summarizer"]["model"] == (str, type(None))
     assert vault_config._CONFIG_SCHEMA["summarizer"]["cluster_model"] == (
@@ -61,42 +61,42 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
     # Unit tests simulate completed/idle sessions; disable the active-session
     # guard by default. Tests that exercise the guard re-enable it explicitly.
     monkeypatch.setattr(mod, "_ACTIVE_SESSION_GRACE_SECS", 0)
-    # QA-003: _early_gate now lives in summarizer.pipeline and reads
+    # QA-003: _early_gate now lives in parsidion.summarizer.pipeline and reads
     # _ACTIVE_SESSION_GRACE_SECS from ITS globals; default-disable there too.
-    import summarizer.pipeline as _pipeline
+    import parsidion.summarizer.pipeline as _pipeline
 
     monkeypatch.setattr(_pipeline, "_ACTIVE_SESSION_GRACE_SECS", 0)
     return mod
 
 
 def _transcript_module() -> types.ModuleType:
-    """Return ``summarizer.transcript`` for monkeypatching (QA-003).
+    """Return ``parsidion.summarizer.transcript`` for monkeypatching (QA-003).
 
     The hierarchical preprocessors (``preprocess_transcript_hierarchical``,
-    ``_summarize_chunk``) moved out of the entry shim into ``summarizer.transcript``;
+    ``_summarize_chunk``) moved out of the entry shim into ``parsidion.summarizer.transcript``;
     their bare-name dependencies resolve there, so patches must target that module.
-    Imported lazily because ``summarizer.transcript`` pulls in ``summarizer.prompt``
+    Imported lazily because ``parsidion.summarizer.transcript`` pulls in ``parsidion.summarizer.prompt``
     → ``anyio``, which is only present once ``_fresh_summarize_sessions`` has
     installed its stub.
     """
-    import summarizer.transcript
+    import parsidion.summarizer.transcript as transcript
 
-    return summarizer.transcript
+    return transcript
 
 
 def _pipeline_module() -> types.ModuleType:
-    """Return ``summarizer.pipeline`` for monkeypatching (QA-003).
+    """Return ``parsidion.summarizer.pipeline`` for monkeypatching (QA-003).
 
     ``summarize_one`` and its stage helpers (_early_gate / _apply_merge_decision /
     _handle_write_gate_decision / _apply_backlinks_and_strip_links) moved out of
-    the entry shim into ``summarizer.pipeline``; their bare-name dependencies
+    the entry shim into ``parsidion.summarizer.pipeline``; their bare-name dependencies
     (preprocess / prompt runner / dedup / build_prompt / _ACTIVE_SESSION_GRACE_SECS)
     resolve there, so patches must target that module. Imported lazily — safe
     after ``_fresh_summarize_sessions`` has installed its anyio stub.
     """
-    import summarizer.pipeline
+    import parsidion.summarizer.pipeline as pipeline
 
-    return summarizer.pipeline
+    return pipeline
 
 
 def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
@@ -118,10 +118,10 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
         ),
     )
     sys.modules.pop("summarize_sessions", None)
-    # QA-003: _run_summarizer_prompt now lives in summarizer.prompt, which is
+    # QA-003: _run_summarizer_prompt now lives in parsidion.summarizer.prompt, which is
     # imported once and cached (unlike the shim, re-imported per test). Pop it
     # so this test's custom to_thread stub is picked up on the fresh import.
-    sys.modules.pop("summarizer.prompt", None)
+    sys.modules.pop("parsidion.summarizer.prompt", None)
     summarize_sessions = importlib.import_module("summarize_sessions")
     calls: list[dict[str, object]] = []
 
@@ -129,10 +129,10 @@ def test_run_summarizer_prompt_delegates_to_ai_backend_in_thread(
         calls.append({"prompt": prompt, **kwargs})
         return "summary text"
 
-    # ARC-103: summarizer.prompt binds the backend module as ``core.ai_backend``,
+    # ARC-103: parsidion.summarizer.prompt binds the backend module as ``parsidion.core.ai_backend``,
     # so the patch must land on the module object that module dereferences.
     monkeypatch.setattr(
-        sys.modules["summarizer.prompt"].ai_backend,
+        sys.modules["parsidion.summarizer.prompt"].ai_backend,
         "run_ai_prompt",
         fake_run_ai_prompt,
     )
@@ -257,8 +257,8 @@ def test_summarize_chunk_uses_small_tier_backend(
         "_run_summarizer_prompt",
         fake_run_summarizer_prompt,
     )
-    # ARC-103: summarizer.transcript imports get_config by name from
-    # core.vault_config, so patch the bound name on the consumer module.
+    # ARC-103: parsidion.summarizer.transcript imports get_config by name from
+    # parsidion.core.vault_config, so patch the bound name on the consumer module.
     monkeypatch.setattr(_transcript_module(), "get_config", fake_get_config)
 
     result = asyncio.run(
@@ -456,8 +456,8 @@ def test_summarize_one_uses_large_tier_backend_with_configured_timeout(
         "_run_summarizer_prompt_with_cause",
         fake_run_summarizer_prompt,
     )
-    # ARC-103: summarizer.pipeline imports load_typed_config by name from
-    # core.vault_config, so patch the bound name on the consumer module.
+    # ARC-103: parsidion.summarizer.pipeline imports load_typed_config by name from
+    # parsidion.core.vault_config, so patch the bound name on the consumer module.
     monkeypatch.setattr(
         _pipeline_module(),
         "load_typed_config",
@@ -860,10 +860,12 @@ def test_main_uses_backend_defaults_when_summarizer_models_are_null(
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
-    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
-    # name from core.vault_config, so the option resolution in main() needs
+    # ARC-103: parsidion.summarizer.queue._bool_option resolves get_config as a bare
+    # name from parsidion.core.vault_config, so the option resolution in main() needs
     # the stub bound there too — otherwise it reads the real machine config.
-    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
+    monkeypatch.setattr(
+        sys.modules["parsidion.summarizer.queue"], "get_config", fake_get_config
+    )
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
     )
@@ -959,10 +961,12 @@ def test_main_requeues_write_gate_skips_in_default_queue(
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
-    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
-    # name from core.vault_config, so the option resolution in main() needs
+    # ARC-103: parsidion.summarizer.queue._bool_option resolves get_config as a bare
+    # name from parsidion.core.vault_config, so the option resolution in main() needs
     # the stub bound there too — otherwise it reads the real machine config.
-    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
+    monkeypatch.setattr(
+        sys.modules["parsidion.summarizer.queue"], "get_config", fake_get_config
+    )
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: vault
     )
@@ -1043,10 +1047,12 @@ def test_main_cli_model_overrides_large_model_while_cluster_uses_backend_default
         return asyncio.run(func(*args))
 
     monkeypatch.setattr(summarize_sessions.vault_common, "get_config", fake_get_config)
-    # ARC-103: summarizer.queue._bool_option resolves get_config as a bare
-    # name from core.vault_config, so the option resolution in main() needs
+    # ARC-103: parsidion.summarizer.queue._bool_option resolves get_config as a bare
+    # name from parsidion.core.vault_config, so the option resolution in main() needs
     # the stub bound there too — otherwise it reads the real machine config.
-    monkeypatch.setattr(sys.modules["summarizer.queue"], "get_config", fake_get_config)
+    monkeypatch.setattr(
+        sys.modules["parsidion.summarizer.queue"], "get_config", fake_get_config
+    )
     monkeypatch.setattr(
         summarize_sessions.vault_common, "resolve_vault", lambda **_: tmp_path / "vault"
     )
@@ -1346,7 +1352,7 @@ def test_write_note_slug_collision_backup_failure_aborts_merge(
 ) -> None:
     """SEC-204: a failed backup aborts the merge — never mutate unprotected."""
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
-    import summarizer.notes as summarizer_notes
+    import parsidion.summarizer.notes as summarizer_notes
 
     vault = tmp_path / "vault"
     debugging = vault / "Debugging"
@@ -1515,7 +1521,7 @@ def test_note_validation_failure_detail_carries_specific_refusal(
     """Card 01a07c9f134c: the note_validation dead-letter record must carry the
     specific write_note refusal, not the generic "write_note returned None"."""
     summarize_sessions = _fresh_summarize_sessions(monkeypatch)
-    from summarizer._state_const import _FAILURE_REASON_KEY
+    from parsidion.summarizer._state_const import _FAILURE_REASON_KEY
 
     transcript_path = tmp_path / "session.jsonl"
     transcript_path.write_text(

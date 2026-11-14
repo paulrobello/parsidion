@@ -1,7 +1,7 @@
 """Unit tests for the ``repair-frontmatter`` evaluator (ENH-008, board item #3).
 
 Exercises render / parse / score with NO AI call — the render path goes through
-the real ``prompt_templates.render`` (whose strict bidirectional variable check
+the real ``parsidion.prompt_templates.render`` (whose strict bidirectional variable check
 is the drift gate), and parse/score are pure functions fed canned outputs.
 """
 

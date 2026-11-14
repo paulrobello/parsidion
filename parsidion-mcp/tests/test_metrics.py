@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from core import vault_path
+from parsidion.core import vault_path
 
 from parsidion_mcp import metrics
 

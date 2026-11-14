@@ -476,7 +476,7 @@ class TestCodexHookIntegration:
         # QA-008/ARC-020: build_session_context now lives in agent_adapter
         # (imported lazily inside run_session_start). Patch the source module
         # the entrypoint imports from.
-        agent_adapter = importlib.import_module("agent_adapter")
+        agent_adapter = importlib.import_module("parsidion.agent_adapter")
         codex_session_start_hook = importlib.import_module("codex_session_start_hook")
         seen_runtime: list[str | None] = []
 
@@ -503,7 +503,7 @@ class TestCodexHookIntegration:
             fake_build_session_context,
         )
         # QA-008: the shim no longer touches sys directly; the entrypoint in
-        # agent_adapter does. Patch agent_adapter.sys.stdin/stdout so the
+        # agent_adapter does. Patch parsidion.agent_adapter.sys.stdin/stdout so the
         # test still controls the I/O the entrypoint sees.
         monkeypatch.setattr(
             agent_adapter.sys,

@@ -1,4 +1,4 @@
-"""Tests for parsight_backend.find_code_raw / parsight_search result mapping (Task 3)."""
+"""Tests for parsidion.parsight_backend.find_code_raw / parsight_search result mapping (Task 3)."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
-import vault_common  # noqa: E402
+from parsidion.core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
+import parsidion.vault_common as vault_common  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
-# The exact embeddings-path result shape (vault_search.search()); parity is a
+# The exact embeddings-path result shape (parsidion.vault_search.search()); parity is a
 # hard requirement — parsight results must carry exactly these keys.
 EXPECTED_KEYS = {
     "score",
@@ -398,7 +398,7 @@ class TestParsightSearchMapping:
     def test_applies_temporal_decay_matching_vault_search(
         self, tmp_vault: Path, ready: FakeParsight
     ) -> None:
-        import vault_search
+        import parsidion.vault_search as vault_search
 
         _write_config(tmp_vault, "")  # decay enabled (default)
         _make_note_index(tmp_vault)
@@ -425,7 +425,7 @@ class TestParsightSearchMapping:
         # decayed score must equal decay(max=0.09), not e.g. a decayed sum
         # or a decayed average of both hits. note-b has a single hit and a
         # different mtime so the two notes' decay factors differ.
-        import vault_search
+        import parsidion.vault_search as vault_search
 
         _write_config(tmp_vault, "")  # decay enabled (default)
         _make_note_index(tmp_vault)

@@ -10,15 +10,15 @@ The deterministic child test instead captures the blocking call stack without
 loading fastembed weights. Idempotence is covered separately in
 ``test_summarizer_links_idempotence.py``.
 
-Findings (pre-fix): summarizer.pipeline._apply_backlinks_and_strip_links called
-core.vault_links.find_related_by_semantic in-process immediately after
+Findings (pre-fix): parsidion.summarizer.pipeline._apply_backlinks_and_strip_links called
+parsidion.core.vault_links.find_related_by_semantic in-process immediately after
 stripping links. That imported vault_search, routed to
-cli.search.embeddings._search_embeddings, and (with the service disabled)
+parsidion.cli.search.embeddings._search_embeddings, and (with the service disabled)
 called _get_embedding_model before model.embed -- an unbounded in-process
 model load and inference that no summarizer timeout could stop.
 
 Fixed 2026-10-25: the links stage now runs the optional semantic lookup in a
-short-lived child process via core.subproc_util.run_with_pgkill (explicit
+short-lived child process via parsidion.core.subproc_util.run_with_pgkill (explicit
 deadline, SIGTERM->SIGKILL process-group cleanup), falling back to tag links
 on timeout/launch/invalid results and skipping the child entirely when
 embeddings are disabled or no index exists. The tests below cover the killed
@@ -48,7 +48,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-# Plain pytest runs lack the entry shim's anyio dependency; summarizer.pipeline
+# Plain pytest runs lack the entry shim's anyio dependency; parsidion.summarizer.pipeline
 # imports it at module level (annotation-only use). Same stub pattern as
 # test_summarizer_links_idempotence.py.
 if "anyio" not in sys.modules and importlib.util.find_spec("anyio") is None:
@@ -69,8 +69,8 @@ import time
 
 vault = Path(sys.argv[1])
 sys.path.insert(0, sys.argv[2])
-from core import vault_links
-from core.vault_config import clear_config_cache
+from parsidion.core import vault_links
+from parsidion.core.vault_config import clear_config_cache
 clear_config_cache()
 # No build_embeddings import: it would pre-import fastembed and invalidate coldness.
 conn = sqlite3.connect(vault / "embeddings.db")
@@ -91,7 +91,7 @@ def measured_import(name, *args, **kwargs):
     start = time.perf_counter()
     module = real_import(name, *args, **kwargs)
     metrics["import_vault_search_s"] = time.perf_counter() - start
-    from cli.search import embeddings
+    from parsidion.cli.search import embeddings
     original_load = embeddings._get_embedding_model
     assert original_load.cache_info().currsize == 0
 
@@ -124,7 +124,7 @@ assert "vault_search" not in sys.modules
 builtins.__import__ = measured_import
 metrics["load_before"] = os.getloadavg()[0]
 start = time.perf_counter()
-links = vault_links.find_related_by_semantic(vault / "new-note.md", vault,
+links = parsidion.vault_links.find_related_by_semantic(vault / "new-note.md", vault,
                                             tag_strs=["link"])
 metrics["semantic_call_s"] = time.perf_counter() - start
 metrics["load_after"] = os.getloadavg()[0]
@@ -196,7 +196,7 @@ sys.modules.setdefault(
     ),
 )
 
-from summarizer.pipeline import _apply_backlinks_and_strip_links
+from parsidion.summarizer.pipeline import _apply_backlinks_and_strip_links
 
 vault = Path(sys.argv[1])
 note = vault / "new-note.md"
@@ -211,7 +211,7 @@ def test_links_stage_bounded_and_no_in_process_model_load(tmp_vault: Path) -> No
     """The post-``[links] Stripped`` stage returns instead of blocking.
 
     Pre-fix this test proved the opposite (SIGUSR1 stack pinned the block
-    inside in-process ``model.embed`` past ``summarizer.ai_timeout``). The
+    inside in-process ``model.embed`` past ``parsidion.summarizer.ai_timeout``). The
     bounded path moved that lookup into a killable child, so the contract is
     now: the stage completes, the tag fallback links the related note, and
     the parent process never imports the embedding stack at all.
@@ -309,7 +309,7 @@ def test_stalled_semantic_child_is_killed_and_stage_returns(
     wedged model load that a plain kill() escalation could leave behind. The
     bounded path must SIGKILL it at the deadline and fall back to tag links.
     """
-    import summarizer.pipeline as pipeline
+    import parsidion.summarizer.pipeline as pipeline
 
     note = _prepare_vault_with_index(tmp_vault)
     monkeypatch.setattr(pipeline, "_SEMANTIC_BACKLINK_TIMEOUT", 1.0)
@@ -345,7 +345,7 @@ def test_bounded_semantic_child_normal_result_parity(
     tmp_vault: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
     """A well-behaved child result reaches the note exactly as before."""
-    import summarizer.pipeline as pipeline
+    import parsidion.summarizer.pipeline as pipeline
 
     note = _prepare_vault_with_index(tmp_vault)
     captured: dict[str, object] = {}
@@ -380,7 +380,7 @@ def test_disabled_embeddings_skips_semantic_model_work(
     tmp_vault: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
     """embeddings.enabled=false (or a missing DB) must spawn no child."""
-    import summarizer.pipeline as pipeline
+    import parsidion.summarizer.pipeline as pipeline
 
     (tmp_vault / "config.yaml").write_text(
         "embeddings:\n  enabled: false\n", encoding="utf-8"

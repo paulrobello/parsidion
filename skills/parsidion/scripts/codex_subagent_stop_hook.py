@@ -8,7 +8,7 @@ entrypoint reads ``agent_transcript_path``, queues with
 the daily-note update (subagents fire too frequently for daily entries).
 """
 
-from agent_adapter import get, run_session_end
+from parsidion.agent_adapter import get, run_session_end
 
 
 def main() -> None:

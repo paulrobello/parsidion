@@ -33,13 +33,13 @@ import time
 import traceback
 from pathlib import Path
 
-from core.vault_config import get_config, load_typed_config
-from core.vault_fs import (
+from parsidion.core.vault_config import get_config, load_typed_config
+from parsidion.core.vault_fs import (
     append_to_pending,
     ensure_vault_dirs,
     write_hook_event,
 )
-from core.vault_hooks import (
+from parsidion.core.vault_hooks import (
     allowed_transcript_roots,
     detect_categories,
     get_project_name,
@@ -48,7 +48,7 @@ from core.vault_hooks import (
     log_hook_error,
     parse_transcript_lines,
 )
-from core.vault_path import resolve_vault
+from parsidion.core.vault_path import resolve_vault
 
 _LOG_PREFIX = "[subagent_stop_hook]"
 _DEFAULT_EXCLUDED_AGENTS = {"vault-explorer", "research-agent"}
@@ -56,7 +56,7 @@ _DEFAULT_MIN_MESSAGES = 3
 _DEFAULT_MIN_MESSAGES_PI = 1
 # SEC-111: byte ceiling on the subagent transcript tail. The line count
 # alone does not bound memory when a transcript contains a single
-# newline-free multi-MB line. Mirrors the ``summarizer.transcript_tail_bytes``
+# newline-free multi-MB line. Mirrors the ``parsidion.summarizer.transcript_tail_bytes``
 # default used by the main summarizer.
 
 
@@ -186,7 +186,7 @@ def main() -> None:
         # ENH-018: read through the unified byte-bounded reader so a
         # huge-line rollout keeps its records instead of collapsing to an
         # empty tail.
-        from core.transcript_reader import read_tail
+        from parsidion.core.transcript_reader import read_tail
 
         all_lines: list[str] = read_tail(
             agent_transcript,

@@ -40,27 +40,27 @@ from datetime import date, datetime
 from io import TextIOWrapper
 from pathlib import Path
 
-from core import ai_backend, parsight_backend
-from core.vault_adaptive import (
+from parsidion.core import ai_backend, parsight_backend
+from parsidion.core.vault_adaptive import (
     load_last_seen,
     save_injected_notes,
     save_last_seen,
 )
-from core.vault_config import load_typed_config, validate_config
-from core.vault_constants import HOOK_TIMEOUTS_MS
-from core.vault_fs import (
+from parsidion.core.vault_config import load_typed_config, validate_config
+from parsidion.core.vault_constants import HOOK_TIMEOUTS_MS
+from parsidion.core.vault_fs import (
     ensure_vault_dirs,
     existing_daily_path,
     extract_latest_snapshot,
     today_daily_path,
 )
-from core.vault_hooks import (
+from parsidion.core.vault_hooks import (
     env_without_claudecode,
     get_project_name,
     log_hook_error,
     write_hook_event,
 )
-from core.vault_index import (
+from parsidion.core.vault_index import (
     SessionIndexSnapshot,
     build_compact_index,
     build_context_block,
@@ -70,11 +70,11 @@ from core.vault_index import (
     load_session_index_snapshot,
     read_note_summary,
 )
-from core.vault_path import (
+from parsidion.core.vault_path import (
     get_embeddings_db_path,
     resolve_vault,
 )
-from prompt_templates import render
+from parsidion.prompt_templates import render
 
 # ARC-006: focused submodules.  These from-imports load the subpackage AND
 # re-export every moved symbol on this module's namespace — that is what lets
@@ -83,7 +83,7 @@ from prompt_templates import render
 # what lets the codex/gemini adapters keep doing
 # ``from session_start_hook import build_session_context``.
 # re-exports are intentional.
-from session_start.ai_selector import (
+from parsidion.session_start.ai_selector import (
     _AI_LOCK_FILENAME,
     _AI_STAMP_FILENAME,
     _ai_lock_path,
@@ -92,7 +92,7 @@ from session_start.ai_selector import (
     _try_acquire_ai_lock,
     _write_ai_cooldown_stamp,
 )
-from session_start.context import (
+from parsidion.session_start.context import (
     _assemble_context,
     _build_dead_letter_notice,
     _build_delta_section,
@@ -104,7 +104,7 @@ from session_start.context import (
     stage_timer,
     stage_timings_ms,
 )
-from session_start.graph_retrieval import (
+from parsidion.session_start.graph_retrieval import (
     _DEFAULT_GRAPH_EXPAND,
     _DEFAULT_GRAPH_EXPAND_MAX,
     _DEFAULT_GRAPH_RERANK,
@@ -113,7 +113,7 @@ from session_start.graph_retrieval import (
     _graph_neighbors,
     _rank_by_graph,
 )
-from session_start.seed_selection import (
+from parsidion.session_start.seed_selection import (
     _build_candidates,
     _rank_by_usefulness,
 )
@@ -181,7 +181,7 @@ def _run_semantic_search(
 
     PRF-101: when parsight serves retrieval (backend ``auto``/``parsight``
     and the daemon is available), the query runs in-process via
-    ``parsight_backend.parsight_search`` — a stdlib-only call already
+    ``parsidion.parsight_backend.parsight_search`` — a stdlib-only call already
     imported here. The ``uv run vault_search.py`` subprocess is kept
     exclusively for the embeddings fallback (parsight unavailable or
     backend forced to ``embeddings``): the subprocess only ever existed to
@@ -321,7 +321,7 @@ def _select_context_with_ai(
 ) -> str:
     """Use the configured AI backend to select relevant notes for session context.
 
-    Backend execution is delegated to ai_backend.run_ai_prompt so Claude and
+    Backend execution is delegated to parsidion.ai_backend.run_ai_prompt so Claude and
     Codex model defaults are resolved consistently.
 
     Args:

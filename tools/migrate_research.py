@@ -26,7 +26,7 @@ from _migrate_common import (
     report_header,
     write_note_file,
 )
-from vault_common import (
+from parsidion.vault_common import (
     ensure_vault_dirs,
     get_body,
     parse_frontmatter,
@@ -281,7 +281,7 @@ def _serialize_frontmatter(fm: dict[str, Any]) -> str:
     """Serialize a frontmatter dict to a YAML frontmatter block string.
 
     ARC-005: delegates to the shared schema-aware emitter
-    (``core.vault_index.serialize_frontmatter``). The emitter drops ``None``
+    (``parsidion.core.vault_index.serialize_frontmatter``). The emitter drops ``None``
     and empty-string values and applies the canonical key order/quoting; the
     fixture at ``tests/fixtures/parity/frontmatter.json`` pins the format
     shared with the visualizer's TS emitter.

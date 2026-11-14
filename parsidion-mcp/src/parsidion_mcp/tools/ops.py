@@ -5,13 +5,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import core
-from core import vault_index, vault_path
+import parsidion.core as core
+from parsidion.core import vault_index, vault_path
 
 # ARC-021 / ARC-200 step 1: resolve SCRIPTS_DIR from the imported package's
 # __file__ rather than the hardwired ``~/.claude/skills/parsidion/scripts``
-# constant. The ``core`` package lives at the scripts root, so SCRIPTS_DIR is
-# core.__file__'s parent — the directory holding vault_doctor.py /
+# constant. The ``core`` package lives one level below the scripts root
+# (parsidion/, ARC-201), so SCRIPTS_DIR is
+# parsidion.core.__file__'s parent — the directory holding vault_doctor.py /
 # vault_stats.py, the scripts the subprocess tools below invoke. The MCP
 # server imports the scripts layer via the editable install, so this points
 # at the *same* code the process is running — subprocessing it (rather than a
@@ -19,7 +20,7 @@ from core import vault_index, vault_path
 # On Unix this is the same path because the installer symlinks
 # ~/.claude/skills/parsidion at the repo; on Windows (where the installer
 # copies) this matters.
-SCRIPTS_DIR: Path = Path(core.__file__).resolve().parent.parent
+SCRIPTS_DIR: Path = Path(core.__file__).resolve().parent.parent.parent
 
 
 class OpsToolError(Exception):
@@ -41,7 +42,7 @@ def rebuild_index(vault: str | None = None) -> str:
     """Rebuild the vault index (CLAUDE.md, MANIFEST.md files, note_index table).
 
     ARC-004: the subprocess itself is owned by
-    ``core.vault_index.run_index_rebuild`` (shared with the installer and the
+    ``parsidion.core.vault_index.run_index_rebuild`` (shared with the installer and the
     summarizer); this wrapper keeps the MCP-specific contract — SCRIPTS_DIR
     resolves to the imported package's own directory (ARC-021, so the
     subprocess runs the same code the server imported) and errors surface as

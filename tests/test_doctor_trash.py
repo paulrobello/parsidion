@@ -31,9 +31,9 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import doctor.cli as doctor_cli  # noqa: E402
-import doctor.trash as doctor_trash  # noqa: E402
-from doctor.protocol import RULE_SPECS  # noqa: E402
+import parsidion.doctor.cli as doctor_cli  # noqa: E402
+import parsidion.doctor.trash as doctor_trash  # noqa: E402
+from parsidion.doctor.protocol import RULE_SPECS  # noqa: E402
 
 
 @pytest.fixture()
@@ -122,7 +122,7 @@ def test_cli_registers_prune_trash_mode() -> None:
 
 
 def test_cli_rejects_nonpositive_retention() -> None:
-    # The parser accepts the int; the guard lives in cli.main() post-parse
+    # The parser accepts the int; the guard lives in parsidion.cli.main() post-parse
     # (parser.error).  run_prune_trash's ValueError (tested above) is the
     # backstop when callers bypass the CLI, e.g. the fix-mode registry.
     parser = doctor_cli._build_parser()
@@ -139,5 +139,5 @@ def test_rule_catalog_carries_trash_size() -> None:
 def test_fix_all_does_not_imply_prune_trash() -> None:
     # The --fix-all expansion in cli.py must never set the prune flag:
     # deleting .trash is irreversible and needs an owner-approved window.
-    src = (SCRIPTS_DIR / "doctor" / "cli.py").read_text()
+    src = (SCRIPTS_DIR / "parsidion" / "doctor" / "cli.py").read_text()
     assert "args.prune_trash = True" not in src

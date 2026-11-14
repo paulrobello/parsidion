@@ -20,9 +20,9 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "skills" / "parsidion/scripts")
 )
 
-import vault_fs  # noqa: E402
-from doctor import cli as doctor_cli  # noqa: E402
-from doctor.daily import run_migrate_daily_notes  # noqa: E402
+import parsidion.vault_fs as vault_fs  # noqa: E402
+from parsidion.doctor import cli as doctor_cli  # noqa: E402
+from parsidion.doctor.daily import run_migrate_daily_notes  # noqa: E402
 
 
 @pytest.fixture()

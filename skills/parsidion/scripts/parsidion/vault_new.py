@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""CLI tool to scaffold a new vault note with correct frontmatter.
+
+Creates a new Markdown note in the appropriate vault folder based on note type,
+generates required YAML frontmatter, and optionally opens the note in $EDITOR.
+"""
+
+import argparse
+import os
+import shlex
+import subprocess
+import sys
+from datetime import date
+
+# ARC-001: imported directly from parsidion.core.* instead of the vault_common facade.
+from parsidion.core.otlp_metrics import emit_usage_metric
+from parsidion.core.vault_fs import ensure_vault_dirs
+from parsidion.core.vault_index import serialize_frontmatter, slugify
+from parsidion.core.vault_path import resolve_vault
+
+# ENH-008 Step 2: the type→folder map and the valid type set live once in
+# ``note_schema``. ``vault-new`` excludes ``daily`` (the stop hook owns daily
+# notes), so the public-facing choices are the canonical set minus ``daily``.
+import parsidion.note_schema as _note_schema
+
+# Mapping from note type to vault folder name. Aliased here so the existing
+# ``_TYPE_TO_FOLDER`` references keep working.
+_TYPE_TO_FOLDER: dict[str, str] = {
+    t: folder for t, folder in _note_schema.TYPE_FOLDERS.items() if t != "daily"
+}
+
+# Maximum recommended slug word count before truncation warning
+_MAX_SLUG_WORDS = 5
+
+
+def _build_slug(title: str) -> str:
+    """Build a filename slug from a title, truncating if it exceeds 5 words.
+
+    Args:
+        title: The note title to convert into a slug.
+
+    Returns:
+        A kebab-case slug derived from the title.
+    """
+    words = title.split()
+    if len(words) > _MAX_SLUG_WORDS:
+        print(
+            f"Warning: title has {len(words)} words; truncating slug to first {_MAX_SLUG_WORDS} words.",
+            file=sys.stderr,
+        )
+        title = " ".join(words[:_MAX_SLUG_WORDS])
+    return slugify(title)
+
+
+def _build_frontmatter(
+    note_type: str,
+    tags: list[str],
+    project: str | None,
+) -> str:
+    """Generate YAML frontmatter for a new vault note.
+
+    ARC-005: delegates to the shared schema-aware emitter
+    (:func:`parsidion.core.vault_index.serialize_frontmatter`); this adapter only
+    supplies the ``vault-new`` defaults.
+
+    Args:
+        note_type: The note type (pattern, debugging, research, etc.).
+        tags: List of tag strings to include.
+        project: Optional project name.
+
+    Returns:
+        A multi-line string containing the YAML frontmatter block.
+    """
+    fields: dict[str, object] = {
+        "date": date.today().strftime("%Y-%m-%d"),
+        "type": note_type,
+        "tags": tags,
+        "confidence": "medium",
+        "sources": [],
+        "related": ["[[vault-index]]"],
+        "provenance": "inferred",
+    }
+    if note_type == "rule":
+        # Empty triggers are invalid by contract (the doctor rule-triggers
+        # check reports them); the scaffold must be completed by the author
+        # before the rule can ever inject.
+        fields["triggers"] = []
+    if project:
+        fields["project"] = project
+    return serialize_frontmatter(fields)
+
+
+def _build_note_content(
+    title: str, note_type: str, tags: list[str], project: str | None
+) -> str:
+    """Build the complete note content including frontmatter and body.
+
+    Args:
+        title: The note title.
+        note_type: The note type.
+        tags: List of tag strings.
+        project: Optional project name.
+
+    Returns:
+        Complete note content as a string.
+    """
+    frontmatter = _build_frontmatter(note_type, tags, project)
+    body = f"\n# {title}\n\n<!-- Add content here -->\n"
+    return frontmatter + body
+
+
+def main() -> None:
+    """Entry point: parse arguments and create a new vault note."""
+    parser = argparse.ArgumentParser(
+        description="Scaffold a new Parsidion vault note with correct frontmatter.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  vault-new --type pattern --title "My Useful Pattern" --tags "python,hooks"
+  vault-new -t debugging -T "Fix SQLite WAL mode" -p my-project --open
+  vault-new --type research --title "FastAPI Middleware" --dry-run
+""",
+    )
+    parser.add_argument(
+        "--type",
+        "-t",
+        required=True,
+        choices=list(_TYPE_TO_FOLDER.keys()),
+        metavar="TYPE",
+        help=(
+            "Note type — determines the target folder. "
+            "Choices: " + ", ".join(_TYPE_TO_FOLDER.keys())
+        ),
+    )
+    parser.add_argument(
+        "--title",
+        "-T",
+        required=True,
+        metavar="TITLE",
+        help="Note title (used to generate the filename slug).",
+    )
+    parser.add_argument(
+        "--project",
+        "-p",
+        default=None,
+        metavar="PROJECT",
+        help="Project name to embed in frontmatter (optional).",
+    )
+    parser.add_argument(
+        "--tags",
+        "-g",
+        default=None,
+        metavar="TAGS",
+        help="Comma-separated list of tags, e.g. 'python,hooks,sqlite'.",
+    )
+    parser.add_argument(
+        "--open",
+        "-o",
+        action="store_true",
+        default=False,
+        help="Open the new note in $EDITOR after creation.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        default=False,
+        help="Print what would be created without writing anything.",
+    )
+    parser.add_argument(
+        "--vault",
+        "-V",
+        default=None,
+        metavar="VAULT",
+        help=(
+            "Explicit vault path or named vault. "
+            "If not set, uses current working directory context."
+        ),
+    )
+
+    args = parser.parse_args()
+    emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-new"})
+
+    # Parse tags
+    tags: list[str] = []
+    if args.tags:
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+
+    # Resolve vault path
+    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
+
+    # Build slug and target path
+    slug = _build_slug(args.title)
+    if not slug:
+        # A title with no ASCII letters/digits slugifies to "" and would
+        # silently create e.g. Patterns/.md.
+        print(
+            f"Error: title {args.title!r} produces an empty filename slug; "
+            "provide a title containing ASCII letters or digits.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    folder_name = _TYPE_TO_FOLDER[args.type]
+    target_dir = vault_path / folder_name
+
+    # Ensure vault directories exist (unless dry-run)
+    if not args.dry_run:
+        ensure_vault_dirs(vault_path)
+
+    # Verify the target directory exists
+    if not target_dir.exists() and not args.dry_run:
+        print(
+            f"Error: target directory does not exist: {target_dir}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    target_path = target_dir / f"{slug}.md"
+
+    # Check for duplicates
+    if not args.dry_run and target_path.exists():
+        print(
+            f"Error: note already exists: {target_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Build note content
+    content = _build_note_content(args.title, args.type, tags, args.project)
+
+    if args.dry_run:
+        print(f"[dry-run] Would create: {target_path.resolve()}")
+        print()
+        print(content)
+        return
+
+    # Write the note
+    target_path.write_text(content, encoding="utf-8")
+    print(str(target_path.resolve()))
+
+    # Open in editor if requested
+    if args.open:
+        editor = os.environ.get("EDITOR", "")
+        if editor:
+            subprocess.run([*shlex.split(editor), str(target_path)], check=False)
+        else:
+            print(
+                "Warning: $EDITOR is not set; cannot open note.",
+                file=sys.stderr,
+            )
+
+
+if __name__ == "__main__":
+    main()

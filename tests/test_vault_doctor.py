@@ -10,7 +10,7 @@ import threading
 
 import pytest
 
-import vault_common
+import parsidion.vault_common as vault_common
 import vault_doctor
 
 
@@ -20,7 +20,7 @@ import vault_doctor
 
 
 # ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var) instead
-# of monkeypatching vault_common.VAULT_ROOT directly.
+# of monkeypatching parsidion.vault_common.VAULT_ROOT directly.
 @pytest.fixture(autouse=True)
 def _patch_vault(tmp_vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Wire resolve_vault() to a fresh tmp dir and point vault_doctor there."""
@@ -550,7 +550,7 @@ class TestPrefixClusterTargetCollisions:
     """SEC-019: a variant whose stripped stem collides must not overwrite."""
 
     def test_variant_not_renamed_over_base(self, vault: Path) -> None:
-        from doctor.subfolder import fix_prefix_cluster
+        from parsidion.doctor.subfolder import fix_prefix_cluster
 
         _write_note(vault, "Patterns/foo.md", "# BASE\n")
         _write_note(vault, "Patterns/foo-foo.md", "# VARIANT\n")
@@ -576,7 +576,7 @@ class TestPrefixClusterTargetCollisions:
         assert all(old != variant for old, _ in moves)
 
     def test_existing_target_on_disk_is_not_replaced(self, vault: Path) -> None:
-        from doctor.subfolder import fix_prefix_cluster
+        from parsidion.doctor.subfolder import fix_prefix_cluster
 
         # A pre-existing subfolder file at the variant's target filename.
         _write_note(vault, "Patterns/foo.md", "# BASE\n")
@@ -618,7 +618,7 @@ class TestMigrateSubfoldersPlainPathRewrite:
         ]
 
     def test_plain_path_references_rewritten_with_move(self, vault: Path) -> None:
-        from doctor.subfolder import fix_prefix_cluster
+        from parsidion.doctor.subfolder import fix_prefix_cluster
 
         cluster = self._make_herdr_cluster(vault)
         old_abs = str(vault / "Debugging" / "herdr-808-comment-draft.md")
@@ -651,7 +651,7 @@ class TestMigrateSubfoldersPlainPathRewrite:
         assert "[[808-comment-draft]]" in updated
 
     def test_plain_path_rewrite_guards(self, vault: Path) -> None:
-        from doctor.subfolder import fix_prefix_cluster
+        from parsidion.doctor.subfolder import fix_prefix_cluster
 
         cluster = self._make_herdr_cluster(vault)
         old_abs = str(vault / "Debugging" / "herdr-808-comment-draft.md")

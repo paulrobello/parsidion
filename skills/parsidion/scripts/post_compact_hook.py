@@ -13,7 +13,7 @@ Snapshot re-injection now lives in ``session_start_hook.py``: Claude Code
 fires SessionStart with ``source == "compact"`` right after a compaction,
 and SessionStart stdout IS added to context. That script appends the latest
 ``## Pre-Compact Snapshot`` section (shared extraction in
-``core.vault_fs.extract_latest_snapshot``) under the SEC-108 untrusted-data
+``parsidion.core.vault_fs.extract_latest_snapshot``) under the SEC-108 untrusted-data
 framing.
 
 This script stays registered for its side effect: it resolves the vault
@@ -29,10 +29,14 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-# ARC-001: imported directly from core.* instead of the vault_common facade.
-from core.vault_fs import existing_daily_path, extract_latest_snapshot
-from core.vault_hooks import get_project_name, log_hook_error, write_hook_event
-from core.vault_path import resolve_vault
+# ARC-001: imported directly from parsidion.core.* instead of the vault_common facade.
+from parsidion.core.vault_fs import existing_daily_path, extract_latest_snapshot
+from parsidion.core.vault_hooks import (
+    get_project_name,
+    log_hook_error,
+    write_hook_event,
+)
+from parsidion.core.vault_path import resolve_vault
 
 
 def main() -> None:

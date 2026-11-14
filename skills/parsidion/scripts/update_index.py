@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Rebuild the resolved vault's CLAUDE.md index file.
 
-Thin re-export shim over the ``cli.index`` package (ARC-005). The bulk of
+Thin re-export shim over the ``parsidion.cli.index`` package (ARC-005). The bulk of
 the original 1,080-line God module — shared tuning constants, NamedTuple
 record types, per-note parsing, two-pass index assembly, Markdown
 rendering for TAGS.md and per-folder MANIFEST.md files, SQLite
 ``note_index`` upsert, and the post-index ``build_graph.py`` invocation —
-has moved into focused submodules under ``cli.index``; the public +
+has moved into focused submodules under ``parsidion.cli.index``; the public +
 private surface the original exposed remains importable from
 ``update_index`` so every ``import update_index`` consumer, the test
 suite's attribute access (``update_index.build_index``,
@@ -52,7 +52,7 @@ from typing import (
     NamedTuple,
 )  # re-exported (update_index.NamedTuple) for backwards compat
 
-from vault_common import (
+from parsidion.vault_common import (
     all_vault_notes_walk,  # re-exported for backwards compat
     ensure_vault_dirs,  # re-exported for backwards compat
     extract_title,  # re-exported (update_index.extract_title)
@@ -65,33 +65,38 @@ from vault_common import (
     resolve_vault,
     write_hook_event,
 )
-from vault_index import drain_parse_warnings, record_parse_warning  # re-exports
-from vault_fs import atomic_write_text  # re-exported (update_index.atomic_write_text)
+from parsidion.vault_index import (
+    drain_parse_warnings,
+    record_parse_warning,
+)  # re-exports
+from parsidion.vault_fs import (
+    atomic_write_text,
+)  # re-exported (update_index.atomic_write_text)
 
-from core.otlp_metrics import emit_usage_metric
+from parsidion.core.otlp_metrics import emit_usage_metric
 
-import parsight_backend  # re-exported (update_index.parsight_backend) for backwards compat
+import parsidion.parsight_backend as parsight_backend  # re-exported (update_index.parsight_backend) for backwards compat
 
 # ---------------------------------------------------------------------------
-# Re-exports from cli.index.* — every symbol the original update_index.py
+# Re-exports from parsidion.cli.index.* — every symbol the original update_index.py
 # exposed remains importable from ``update_index``. Function objects are
-# immutable so ``from cli.index.X import f`` + ``update_index.f(...)`` is a
+# immutable so ``from parsidion.cli.index.X import f`` + ``update_index.f(...)`` is a
 # stable binding for external callers and the test suite.
 # ---------------------------------------------------------------------------
-from cli.index._common import (  # re-exports
+from parsidion.cli.index._common import (  # re-exports
     FOLDER_ORDER,
     RECENT_DAYS,
     RECENT_MAX,
     STALE_DAYS,
     SUMMARY_MAX_CHARS,
 )
-from cli.index.db import _write_note_index_to_db  # re-export
-from cli.index.graph import (  # re-exports
+from parsidion.cli.index.db import _write_note_index_to_db  # re-export
+from parsidion.cli.index.graph import (  # re-exports
     _find_build_graph_script,
     _rebuild_graph,
 )
-from cli.index.models import NoteEntry, NoteRecord  # re-exports
-from cli.index.parse import (  # re-exports
+from parsidion.cli.index.models import NoteEntry, NoteRecord  # re-exports
+from parsidion.cli.index.parse import (  # re-exports
     _WIKILINK_RE,
     _extract_summary,
     _extract_title,
@@ -99,14 +104,14 @@ from cli.index.parse import (  # re-exports
     _folder_name,
     _wikilink,
 )
-from cli.index.build import (  # re-exports
+from parsidion.cli.index.build import (  # re-exports
     _build_note_db_rows,
     _compute_incoming_link_counts,
     _compute_incoming_link_stems,
     build_index,
 )
-from cli.index.render import build_manifests, build_tags_md  # re-exports
-from cli.index.cli import _parse_args  # re-export
+from parsidion.cli.index.render import build_manifests, build_tags_md  # re-exports
+from parsidion.cli.index.cli import _parse_args  # re-export
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +127,7 @@ def pid_file(vault: Path | None = None) -> Path:
 
     ARC-003: *vault* is threaded explicitly from ``main()``. When omitted,
     falls back to :func:`resolve_vault` so legacy callers (e.g. tests that
-    relied on the previous ``vault_common.VAULT_ROOT`` mutation) still get a
+    relied on the previous ``parsidion.vault_common.VAULT_ROOT`` mutation) still get a
     usable path.
     """
     if vault is None:
@@ -131,7 +136,7 @@ def pid_file(vault: Path | None = None) -> Path:
     return vault / "index.pid"
 
 
-# QA-007: _is_process_running removed — now imported from vault_common.
+# QA-007: _is_process_running removed — now imported from parsidion.vault_common.
 # Local alias preserves all existing call sites unchanged and is the
 # attribute ``tests/test_index_enhancements.py`` patches.
 _is_process_running = is_process_running
@@ -218,7 +223,7 @@ def _singleton_guard(vault: Path) -> None:
 def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
     """Read and parse a single note, returning its first-pass fields.
 
-    Stays in the entry shim (not in ``cli.index.parse``) because the test
+    Stays in the entry shim (not in ``parsidion.cli.index.parse``) because the test
     suite patches ``update_index.parse_frontmatter`` and the bare-name call
     below resolves through this module's globals — so the patch takes effect
     here, and ``build_index`` reaches the patched function via a late
@@ -289,7 +294,7 @@ def main() -> None:
     args = _parse_args()
 
     # ARC-003: resolve once, thread explicitly. No more mutation of
-    # ``vault_common.VAULT_ROOT`` and no more ``resolve_vault.cache_clear()``
+    # ``parsidion.vault_common.VAULT_ROOT`` and no more ``resolve_vault.cache_clear()``
     # dance — ``args.vault`` is passed as the ``explicit`` argument to
     # ``resolve_vault()`` here and the resolved path flows through the rest
     # of ``main()`` as the ``vault`` parameter.
@@ -432,7 +437,7 @@ def main() -> None:
     if args.rebuild_graph:
         # ENH-010: graph rebuild is incremental by default. The CLI flag is a
         # tri-state (None = defer); an explicit --graph-incremental /
-        # --no-graph-incremental wins, otherwise summarizer.graph_incremental
+        # --no-graph-incremental wins, otherwise parsidion.summarizer.graph_incremental
         # decides (default True). build_graph.py falls back to a full rebuild
         # if the previous graph is missing/unreadable or was built under
         # different parameters, so defaulting to incremental is always safe.

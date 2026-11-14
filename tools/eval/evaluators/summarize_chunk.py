@@ -45,7 +45,7 @@ class SummarizeChunkEvaluator(BaseEvaluator):
         return {"chunk_text": chunk_text}
 
     def render(self, case: CaseInput) -> str:
-        import prompt_templates  # local: keeps the module import-light
+        import parsidion.prompt_templates as prompt_templates  # local: keeps the module import-light
 
         return prompt_templates.render(
             self.prompt_id,

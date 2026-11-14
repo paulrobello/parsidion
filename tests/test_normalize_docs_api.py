@@ -195,7 +195,7 @@ def test_port_matches_perl_on_dirtied_docs(tmp_path: Path) -> None:
     rule against realistic surrounding markup.
     """
     docs_api = REPO_ROOT / "docs" / "api"
-    page = docs_api / "python" / "core" / "vault_path.html"
+    page = docs_api / "python" / "core" / "parsidion.vault_path.html"
     if not page.is_file():
         pytest.skip("docs/api/python/core/vault_path.html is not present")
     dirt = (

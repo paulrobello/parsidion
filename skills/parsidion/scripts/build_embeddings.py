@@ -43,9 +43,9 @@ except ImportError:
     )
     sys.exit(1)
 
-import vault_common
-from vault_path import active_vault_scope
-import vault_metrics
+import parsidion.vault_common as vault_common
+from parsidion.vault_path import active_vault_scope
+import parsidion.vault_metrics as vault_metrics
 
 _DEFAULT_MODEL: str = "BAAI/bge-small-en-v1.5"
 _EMBED_DIM: int = 384
@@ -70,7 +70,7 @@ def open_embeddings_db(db_path: Path) -> sqlite3.Connection:
 
     QA-109: schema-bootstrap wrapper, deliberately *not* named ``open_db`` —
     that name belongs to the semantically different read-only connector in
-    ``core.vault_metrics``. The sqlite-vec loading itself is the canonical
+    ``parsidion.core.vault_metrics``. The sqlite-vec loading itself is the canonical
     QA-017 connector; only WAL mode and the note_embeddings / note_index DDL
     live here.
 
@@ -253,7 +253,7 @@ def _pack_vector(vec: list[float]) -> bytes:
 def _note_title(note_path: Path, content: str) -> str:
     """Extract note title from first # heading, falling back to filename stem.
 
-    Delegates to ``vault_common.extract_title`` — the canonical implementation.
+    Delegates to ``parsidion.vault_common.extract_title`` — the canonical implementation.
     See ARC-009.
 
     Args:

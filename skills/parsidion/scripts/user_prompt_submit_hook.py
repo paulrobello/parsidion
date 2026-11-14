@@ -22,13 +22,13 @@ Retrieval is parsight-only (the embeddings backend's fastembed cold-load is
 too slow per-prompt). parsight RRF scores gate by rank, so relevance is
 decided by a distinct-token overlap gate between the prompt and each note's
 title/tags/stem — ``min_score`` deliberately does not apply (see
-``core.parsight_backend.parsight_search``). A failed availability probe is
+``parsidion.core.parsight_backend.parsight_search``). A failed availability probe is
 negative-cached via a stamp file in ``~/.claude/logs`` for
 ``probe_cache_seconds``; a budget-burning failed search (daemon busy, e.g.
 mid-reindex) writes its own cooldown stamp for the same window so subsequent
 prompts skip retrieval instantly instead of re-burning the budget.
 
-Config section: ``user_prompt_submit_hook`` (see ``core.vault_schema``);
+Config section: ``user_prompt_submit_hook`` (see ``parsidion.core.vault_schema``);
 every key falls back to the default below when absent.
 """
 
@@ -42,11 +42,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from core import parsight_backend
-from core.rule_triggers import load_rule_notes, match_rules
-from core.vault_hooks import get_project_name, write_hook_event
-from core.vault_path import resolve_vault, secure_log_dir
-from recall_context import (
+from parsidion.core import parsight_backend
+from parsidion.core.rule_triggers import load_rule_notes, match_rules
+from parsidion.core.vault_hooks import get_project_name, write_hook_event
+from parsidion.core.vault_path import resolve_vault, secure_log_dir
+from parsidion.recall_context import (
     _build_context,
     _note_tags,
     load_hook_settings,

@@ -107,7 +107,7 @@ def _observe_up(_options: Any) -> list[Any]:
 def _observe_index_age(_options: Any) -> list[Any]:
     from opentelemetry.metrics import Observation
 
-    from core import vault_path
+    from parsidion.core import vault_path
 
     db = vault_path.resolve_vault(explicit=None) / "embeddings.db"
     try:

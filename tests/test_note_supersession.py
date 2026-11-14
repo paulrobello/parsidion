@@ -1,6 +1,6 @@
 """Tests for note supersession (card 01a07c86): retirement honored everywhere.
 
-Covers the frontmatter contract (note_schema.validate_status_fields), the
+Covers the frontmatter contract (parsidion.note_schema.validate_status_fields), the
 note_index SQL/walk exclusion with its include_superseded escape hatch, the
 semantic-backend drop, backlink-suggestion exclusion, the doctor consistency
 rule, and the vault-supersede CLI round trip.
@@ -20,13 +20,13 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_links  # noqa: E402
-from core import parsight_backend  # noqa: E402
-from core.vault_index import (  # noqa: E402
+import parsidion.vault_links as vault_links  # noqa: E402
+from parsidion.core import parsight_backend  # noqa: E402
+from parsidion.core.vault_index import (  # noqa: E402
     ensure_note_index_schema,
     query_note_index,
 )
-from note_schema import (  # noqa: E402
+from parsidion.note_schema import (  # noqa: E402
     validate_status_fields,
 )
 
@@ -118,7 +118,7 @@ class TestFrontmatterContract:
         assert validate_status_fields({"status": "archived"})
 
     def test_canonical_order_contains_fields(self) -> None:
-        from note_schema import FRONTMATTER_FIELD_ORDER
+        from parsidion.note_schema import FRONTMATTER_FIELD_ORDER
 
         order = list(FRONTMATTER_FIELD_ORDER)
         assert order.index("status") == order.index("superseded_by") - 1
@@ -139,7 +139,7 @@ class TestIndexExclusion:
         assert {"live-note", "retired-note"} <= stems
 
     def test_snapshot_paths_where_excludes(self, index_vault: Path) -> None:
-        from core.vault_index import load_session_index_snapshot
+        from parsidion.core.vault_index import load_session_index_snapshot
 
         snap = load_session_index_snapshot(index_vault)
         assert snap is not None
@@ -149,7 +149,7 @@ class TestIndexExclusion:
         assert "retired-note" in escaped
 
     def test_snapshot_compact_map_excludes(self, index_vault: Path) -> None:
-        from core.vault_index import load_session_index_snapshot
+        from parsidion.core.vault_index import load_session_index_snapshot
 
         snap = load_session_index_snapshot(index_vault)
         assert snap is not None
@@ -163,7 +163,7 @@ class TestIndexExclusion:
             "retired-note",
             superseded_by="live-note",
         )
-        from core.vault_index import _find_notes_by_tag_walk
+        from parsidion.core.vault_index import _find_notes_by_tag_walk
 
         tagged = _find_notes_by_tag_walk("vault", vault=tmp_vault)
         assert retired not in tagged
@@ -177,7 +177,7 @@ class TestIndexExclusion:
             "retired-note",
             superseded_by="live-note",
         )
-        from core.vault_index import _find_recent_notes_walk, all_vault_notes
+        from parsidion.core.vault_index import _find_recent_notes_walk, all_vault_notes
 
         recent = _find_recent_notes_walk(30, vault=tmp_vault)
         assert retired not in recent
@@ -239,7 +239,7 @@ class TestSemanticDrop:
         tmp_vault: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from cli.search import embeddings as cli_embeddings
+        from parsidion.cli.search import embeddings as cli_embeddings
 
         # The search bails out early when the DB file is absent.
         conn = sqlite3.connect(str(tmp_vault / "embeddings.db"))
@@ -314,12 +314,12 @@ class TestLinkSuggestions:
 
 class TestDoctorRule:
     def test_catalog_lists_the_rule(self) -> None:
-        from doctor.protocol import RULE_SPECS
+        from parsidion.doctor.protocol import RULE_SPECS
 
         assert any(s.name == "superseded-consistency" for s in RULE_SPECS)
 
     def test_check_flags_missing_superseded_by(self, tmp_vault: Path) -> None:
-        from doctor.check import check_note
+        from parsidion.doctor.check import check_note
 
         note = _write_note(tmp_vault, "bad-note")
         note.write_text(
@@ -331,7 +331,7 @@ class TestDoctorRule:
         assert any("SUPERSEDED_CONSISTENCY" == i.code for i in issues)
 
     def test_check_flags_unresolvable_target(self, tmp_vault: Path) -> None:
-        from doctor.check import check_note
+        from parsidion.doctor.check import check_note
 
         note = _write_note(tmp_vault, "bad-note", superseded_by="missing-note")
         issues = check_note(note, {}, tmp_vault)  # empty note_map: nothing resolves
@@ -341,7 +341,7 @@ class TestDoctorRule:
         )
 
     def test_check_clean_for_consistent_pair(self, tmp_vault: Path) -> None:
-        from doctor.check import check_note
+        from parsidion.doctor.check import check_note
 
         _write_note(tmp_vault, "replacement-note")
         note = _write_note(tmp_vault, "retired-note", superseded_by="replacement-note")
@@ -365,9 +365,12 @@ class TestSupersedeCli:
         (vault / ".config" / "parsidion" / "vaults.yaml").write_text(
             f"vaults:\n  t: {vault}\n", encoding="utf-8"
         )
-        script = _SCRIPTS_DIR / "vault_supersede.py"
+        # ARC-201: vault_supersede ships as parsidion.vault_supersede —
+        # run it through -m with the scripts dir importable, since the
+        # module no longer sits at the scripts root as a path-runnable file.
+        env["PYTHONPATH"] = str(_SCRIPTS_DIR) + os.pathsep + env.get("PYTHONPATH", "")
         proc = subprocess.run(
-            [sys.executable, str(script), *args],
+            [sys.executable, "-m", "parsidion.vault_supersede", *args],
             env=env,
             capture_output=True,
             text=True,
@@ -406,7 +409,7 @@ class TestSupersedeCli:
 
 class TestConflictsResolution:
     def test_keep_a_supersedes_b_on_execute(self, tmp_vault: Path) -> None:
-        import vault_conflicts
+        import parsidion.vault_conflicts as vault_conflicts
 
         a = _write_note(tmp_vault, "a-note")
         b = _write_note(tmp_vault, "b-note")
@@ -418,7 +421,7 @@ class TestConflictsResolution:
         assert "[[a-note]]" in content_b
 
     def test_preview_describes_without_writing(self, tmp_vault: Path) -> None:
-        import vault_conflicts
+        import parsidion.vault_conflicts as vault_conflicts
 
         a = _write_note(tmp_vault, "a-note")
         b = _write_note(tmp_vault, "b-note")

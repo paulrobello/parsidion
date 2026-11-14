@@ -36,8 +36,8 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import build_embeddings  # noqa: E402
-from cli.search import embeddings as cli_embeddings  # noqa: E402
-from vault_config import apply_decay_score  # noqa: E402
+from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
+from parsidion.vault_config import apply_decay_score  # noqa: E402
 
 # Query vector [1, 0]: cosine(query, v) == v[0] for unit vectors.
 _QUERY_VEC = [1.0, 0.0]

@@ -7,7 +7,7 @@ Pins:
   its long string fields truncated.
 * ``max_bytes`` smaller than the last line still returns that record.
 * ``require_allowed=True`` rejects paths outside the transcript roots.
-* ``agent_adapter._read_transcript_tail`` routes through ``read_tail``
+* ``parsidion.agent_adapter._read_transcript_tail`` routes through ``read_tail``
   (spy via the core module attribute — the function imports lazily).
 """
 
@@ -25,8 +25,8 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from core import transcript_reader  # noqa: E402
-from core.transcript_reader import (  # noqa: E402
+from parsidion.core import transcript_reader  # noqa: E402
+from parsidion.core.transcript_reader import (  # noqa: E402
     TranscriptPathError,
     read_tail,
     truncate_oversized_fields,
@@ -118,7 +118,7 @@ class TestAdapterRouting:
     def test_agent_adapter_tail_routes_through_read_tail(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import agent_adapter
+        import parsidion.agent_adapter as agent_adapter
 
         calls: list[Path] = []
 

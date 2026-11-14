@@ -49,8 +49,8 @@ class RepairFrontmatterEvaluator(BaseEvaluator):
         return {"content": content}
 
     def render(self, case: CaseInput) -> str:
-        import note_schema
-        import prompt_templates
+        import parsidion.note_schema as note_schema
+        import parsidion.prompt_templates as prompt_templates
 
         expected = case.expected
         issues = expected.get("issues", []) or []
@@ -83,7 +83,7 @@ class RepairFrontmatterEvaluator(BaseEvaluator):
     def score(
         self, parsed: dict[str, Any], case: CaseInput
     ) -> tuple[float, dict[str, float]]:
-        import note_schema
+        import parsidion.note_schema as note_schema
 
         expected = case.expected
         raw = str(parsed["raw"])

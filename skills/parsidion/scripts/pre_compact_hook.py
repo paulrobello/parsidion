@@ -14,18 +14,18 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from core.vault_config import get_config, load_typed_config
-from core.vault_fs import (
+from parsidion.core.vault_config import get_config, load_typed_config
+from parsidion.core.vault_fs import (
     ensure_vault_dirs,
     git_commit_vault,
     today_daily_path,
 )
-from core.vault_hooks import (
+from parsidion.core.vault_hooks import (
     get_project_name,
     is_allowed_transcript_path,
     log_hook_error,
 )
-from core.vault_path import resolve_vault
+from parsidion.core.vault_path import resolve_vault
 
 # Tool names and the input fields that contain file paths.
 # Keys are lowercase to support both Claude Code (Read/Write/Edit) and
@@ -372,7 +372,7 @@ def main() -> None:
                     )
                 )
                 # ENH-018: unified byte-bounded reader (huge-line safe).
-                from core.transcript_reader import read_tail
+                from parsidion.core.transcript_reader import read_tail
 
                 raw_lines: list[str] = read_tail(
                     transcript_path,

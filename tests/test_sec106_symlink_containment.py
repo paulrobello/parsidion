@@ -23,13 +23,13 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_index  # noqa: E402
-import vault_metrics  # noqa: E402
-from vault_path import is_symlink_inside_vault  # noqa: E402
+import parsidion.vault_index as vault_index  # noqa: E402
+import parsidion.vault_metrics as vault_metrics  # noqa: E402
+from parsidion.vault_path import is_symlink_inside_vault  # noqa: E402
 
 
 class TestSymlinkGuardHelper:
-    """Direct tests for ``vault_path.is_symlink_inside_vault``."""
+    """Direct tests for ``parsidion.vault_path.is_symlink_inside_vault``."""
 
     def test_regular_file_is_safe(self, tmp_path: Path) -> None:
         f = tmp_path / "note.md"
@@ -101,7 +101,7 @@ class TestWalkVaultNotesSymlinks:
         templates_link.symlink_to(templates_target, target_is_directory=True)
 
         # Sanity: EXCLUDE_DIRS still contains Templates.
-        from vault_path import EXCLUDE_DIRS
+        from parsidion.vault_path import EXCLUDE_DIRS
 
         assert "Templates" in EXCLUDE_DIRS
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import vault_index, vault_path
+from parsidion.core import vault_index, vault_path
 
 
 def vault_context(

@@ -5,7 +5,7 @@ These tests pin the three behaviours ENH-003 added:
 
 * ``_get_embedding_model`` caches one fastembed instance per model name per
   process and does not memoise a load failure (Phase 1).
-* ``find_related_by_semantic`` calls ``vault_search.search`` in-process and
+* ``find_related_by_semantic`` calls ``parsidion.vault_search.search`` in-process and
   forwards ``vault=`` (Phase 2; ARC-027(b) regression guard).
 * ``_embeddings_service_active`` gates the persistent service behind an
   explicit opt-in AND a non-parsight backend, and the daemon's request handler
@@ -45,10 +45,10 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import vault_embed_serve  # noqa: E402
-import vault_links  # noqa: E402
-import vault_search  # noqa: E402
-from cli.search import embeddings as cli_embeddings  # noqa: E402
+import parsidion.vault_embed_serve as vault_embed_serve  # noqa: E402
+import parsidion.vault_links as vault_links  # noqa: E402
+import parsidion.vault_search as vault_search  # noqa: E402
+from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -169,8 +169,8 @@ def test_service_active_gate(
         return orig(section, key, default)
 
     # ARC-103: ``_embeddings_service_active`` resolves both dependencies as bare
-    # names in ``cli.search.embeddings`` globals, so both patches must land
-    # there. The former ``vault_search._configured_search_backend`` patch was a
+    # names in ``parsidion.cli.search.embeddings`` globals, so both patches must land
+    # there. The former ``parsidion.vault_search._configured_search_backend`` patch was a
     # no-op on the shim's re-export, which let the backend guard read the real
     # machine config instead of the parametrized value.
     monkeypatch.setattr(cli_embeddings, "get_config", fake_get)
@@ -396,7 +396,9 @@ def test_accept_loop_dispatches_handlers_on_threads() -> None:
     this, the behaviour test below would still pass while the real server went
     back to serving connections serially.
     """
-    source = (SCRIPTS_DIR / "vault_embed_serve.py").read_text(encoding="utf-8")
+    source = (SCRIPTS_DIR / "parsidion" / "vault_embed_serve.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
     main_fn = next(
         node
@@ -505,7 +507,7 @@ def test_embed_calls_are_serialised() -> None:
 def test_schema_defaults_service_enabled_true() -> None:
     """The ENH-020 flip: the schema default (what get_config falls back to)
     must be true, so the service auto-starts with no config.yaml entry."""
-    from core.vault_schema import EmbeddingsConfig
+    from parsidion.core.vault_schema import EmbeddingsConfig
 
     field = next(
         f for f in dataclasses.fields(EmbeddingsConfig) if f.name == "service_enabled"
@@ -530,7 +532,7 @@ def test_spawn_service_single_flight_cross_process(
         "import sys, time\n"
         "from pathlib import Path\n"
         f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
-        "from cli.search import embeddings as e\n"
+        "from parsidion.cli.search import embeddings as e\n"
         "spawns = []\n"
         "class _Proc:\n"
         "    pid = 4242\n"

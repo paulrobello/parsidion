@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-import vault_common
+import parsidion.vault_common as vault_common
 import installer.paths as installer_paths  # noqa: E402
 
 
@@ -23,7 +23,7 @@ import installer.paths as installer_paths  # noqa: E402
 
 
 class TestParseFrontmatter:
-    """Tests for vault_common.parse_frontmatter."""
+    """Tests for parsidion.vault_common.parse_frontmatter."""
 
     def test_empty_string(self) -> None:
         assert vault_common.parse_frontmatter("") == {}
@@ -141,7 +141,7 @@ class TestParseFrontmatter:
 
 
 class TestParseConfigYaml:
-    """Tests for vault_common._parse_config_yaml."""
+    """Tests for parsidion.vault_common._parse_config_yaml."""
 
     def test_empty_string(self) -> None:
         assert vault_common._parse_config_yaml("") == {}
@@ -365,7 +365,7 @@ class TestConfiguredAnthropicEnv:
 
 
 class TestSlugify:
-    """Tests for vault_common.slugify."""
+    """Tests for parsidion.vault_common.slugify."""
 
     def test_basic(self) -> None:
         assert vault_common.slugify("Hello World") == "hello-world"
@@ -407,7 +407,7 @@ class TestSlugify:
 
 
 class TestExtractTextFromContent:
-    """Tests for vault_common.extract_text_from_content."""
+    """Tests for parsidion.vault_common.extract_text_from_content."""
 
     def test_string_passthrough(self) -> None:
         assert vault_common.extract_text_from_content("hello") == "hello"
@@ -452,7 +452,7 @@ class TestExtractTextFromContent:
 
 
 class TestReadLastNLines:
-    """Tests for vault_common.read_last_n_lines."""
+    """Tests for parsidion.vault_common.read_last_n_lines."""
 
     def test_basic(self, tmp_path: Path) -> None:
         f = tmp_path / "test.txt"
@@ -831,7 +831,7 @@ class TestValidateVaultPath:
 
 
 class TestParseFrontmatterMultilineScalars:
-    """Tests for multiline scalar support in vault_common.parse_frontmatter.
+    """Tests for multiline scalar support in parsidion.vault_common.parse_frontmatter.
 
     The parser supports four block scalar indicators:
       ``|``  — literal block: lines joined with newlines
@@ -899,7 +899,7 @@ class TestParseFrontmatterMultilineScalars:
 
 
 class TestGetBody:
-    """Tests for vault_common.get_body."""
+    """Tests for parsidion.vault_common.get_body."""
 
     def test_with_frontmatter(self) -> None:
         content = "---\ndate: 2026-01-01\n---\n\n## Title\nBody text."

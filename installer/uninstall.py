@@ -41,9 +41,9 @@ from installer.ui import _ok, _step, _warn
 from installer.vault import remove_vault_post_merge_hook
 
 # QA-004 pattern: scripts dir is on sys.path via installer/__init__.py, so the
-# shared vaults.yaml path helper is imported from core.vault_path — the
+# shared vaults.yaml path helper is imported from parsidion.core.vault_path — the
 # --purge-config removal must target the same file the resolver reads.
-from core.vault_path import get_vaults_config_path
+from parsidion.core.vault_path import get_vaults_config_path
 
 # Local re-import so the CLAUDE.md @import stripping stays alongside the
 # uninstall path that owns it. The constants themselves live in skill.py.

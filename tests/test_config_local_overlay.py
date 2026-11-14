@@ -1,7 +1,7 @@
 """Tests for the config.local.yaml overlay (deep-merged over config.yaml).
 
 Covers:
-- ``vault_config._merge_config_dicts`` merge semantics directly.
+- ``parsidion.vault_config._merge_config_dicts`` merge semantics directly.
 - ``load_config()`` reading and merging both files from a vault root.
 - ``get_config()`` surfacing overlay-only values (e.g. secrets kept out of
   the git-synced config.yaml).
@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-import vault_config
-from core import vault_hooks as core_vault_hooks
+import parsidion.vault_config as vault_config
+from parsidion.core import vault_hooks as core_vault_hooks
 
 
 class TestMergeConfigDicts:
@@ -279,7 +279,7 @@ class TestShippedTemplateIsValid:
     ) -> None:
         """ARC-011 step 4: event_log.path is implemented (not inert)."""
         import os
-        import vault_hooks  # noqa: PLC0415
+        import parsidion.vault_hooks as vault_hooks  # noqa: PLC0415
 
         custom_log = tmp_vault / "custom_hook_events.log"
         (tmp_vault / "config.yaml").write_text(

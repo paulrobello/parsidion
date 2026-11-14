@@ -16,10 +16,10 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
-import vault_common  # noqa: E402
-import vault_config  # noqa: E402
-import vault_hooks  # noqa: E402
+from parsidion.core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_config as vault_config  # noqa: E402
+import parsidion.vault_hooks as vault_hooks  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
@@ -220,7 +220,7 @@ class TestConfigSchema:
 class TestLegacyCompat:
     """Pre-rename config spellings (``par_mem`` section, ``par-mem`` backend
     value) keep working — normalized at load time by
-    ``vault_config._apply_legacy_aliases``."""
+    ``parsidion.vault_config._apply_legacy_aliases``."""
 
     def test_legacy_par_mem_section_aliased_to_parsight(self, tmp_vault: Path) -> None:
         _write_config(tmp_vault, "par_mem:\n  binary: /opt/legacy\n  timeout_s: 4\n")
@@ -259,10 +259,22 @@ class TestLegacyCompat:
 
 class TestPackaging:
     def test_parsight_backend_registered_in_py_modules(self) -> None:
+        """ARC-201: parsight_backend ships as parsidion.parsight_backend."""
         pyproject = tomllib.loads(
             (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         )
-        assert "parsight_backend" in pyproject["tool"]["setuptools"]["py-modules"]
+        include = pyproject["tool"]["setuptools"]["packages"]["find"]["include"]
+        assert include == ["parsidion*"], (
+            f"packages.find include must ship the parsidion namespace, got {include!r}"
+        )
+        assert (
+            REPO_ROOT
+            / "skills"
+            / "parsidion"
+            / "scripts"
+            / "parsidion"
+            / "parsight_backend.py"
+        ).is_file(), "parsight_backend.py must live in the parsidion namespace package"
 
 
 class TestDocLinksRaw:

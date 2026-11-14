@@ -70,24 +70,24 @@ def _fresh_summarize_sessions(monkeypatch: pytest.MonkeyPatch) -> types.ModuleTy
     # Unit tests simulate completed/idle sessions; disable the active-session
     # guard by default. Tests that exercise the guard re-enable it explicitly.
     monkeypatch.setattr(mod, "_ACTIVE_SESSION_GRACE_SECS", 0)
-    # QA-003: _early_gate now lives in summarizer.pipeline and reads
+    # QA-003: _early_gate now lives in parsidion.summarizer.pipeline and reads
     # _ACTIVE_SESSION_GRACE_SECS from ITS globals; default-disable there too.
-    import summarizer.pipeline as _pipeline
+    import parsidion.summarizer.pipeline as _pipeline
 
     monkeypatch.setattr(_pipeline, "_ACTIVE_SESSION_GRACE_SECS", 0)
     return mod
 
 
 def _pipeline_module() -> types.ModuleType:
-    """Return ``summarizer.pipeline`` for monkeypatching (QA-003).
+    """Return ``parsidion.summarizer.pipeline`` for monkeypatching (QA-003).
 
-    ``summarize_one`` and its stage helpers moved into ``summarizer.pipeline``;
+    ``summarize_one`` and its stage helpers moved into ``parsidion.summarizer.pipeline``;
     their bare-name dependencies resolve there, so patches must target that
     module. Imported lazily — safe after ``_fresh_summarize_sessions``.
     """
-    import summarizer.pipeline
+    import parsidion.summarizer.pipeline as pipeline
 
-    return summarizer.pipeline
+    return pipeline
 
 
 def _write_pending(path: Path, entries: list[dict[str, object]]) -> None:
@@ -813,7 +813,7 @@ def test_write_note_synthesizes_frontmatter_for_frontmatterless_note(
     validation and dead-lettered with NOTE_VALIDATION (non-retryable)."""
     import importlib
 
-    mod_notes = importlib.import_module("summarizer.notes")
+    mod_notes = importlib.import_module("parsidion.summarizer.notes")
     vault = tmp_path / "vault"
     vault.mkdir()
     note = (
@@ -856,7 +856,7 @@ def test_write_note_synthesis_refuses_empty_frontmatter_block(
     refused for validation to report."""
     import importlib
 
-    mod_notes = importlib.import_module("summarizer.notes")
+    mod_notes = importlib.import_module("parsidion.summarizer.notes")
     vault = tmp_path / "vault"
     vault.mkdir()
 
@@ -878,7 +878,7 @@ def test_write_note_synthesis_skips_empty_content(tmp_path: Path) -> None:
     empty note."""
     import importlib
 
-    mod_notes = importlib.import_module("summarizer.notes")
+    mod_notes = importlib.import_module("parsidion.summarizer.notes")
     vault = tmp_path / "vault"
     vault.mkdir()
 

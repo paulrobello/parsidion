@@ -4,7 +4,7 @@ Tests cover:
 - detect_categories (via vault_common) — categorization of transcript texts
 - append_to_pending (via vault_common) — JSONL queue writes and deduplication
 
-Since ARC-002 the classify/persist pipeline lives in ``agent_adapter.run_session_end``;
+Since ARC-002 the classify/persist pipeline lives in ``parsidion.agent_adapter.run_session_end``;
 ``session_stop_hook.main`` is the Claude invocation shim. Monkeypatches that
 target pipeline internals are therefore aimed at ``agent_adapter`` (QA-002).
 These tests import vault_common directly (the canonical implementation) and
@@ -18,11 +18,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import agent_adapter
+import parsidion.agent_adapter as agent_adapter
 import pytest
 import session_stop_hook
-import vault_common
-from core import (
+import parsidion.vault_common as vault_common
+from parsidion.core import (
     ai_backend as core_ai_backend,
 )  # ARC-006: patch internals where they live
 
@@ -213,7 +213,7 @@ def test_classify_session_with_ai_uses_small_tier_backend(
 
 
 class TestDetectCategories:
-    """Tests for vault_common.detect_categories."""
+    """Tests for parsidion.vault_common.detect_categories."""
 
     def test_empty_list_returns_empty(self) -> None:
         result = vault_common.detect_categories([])
@@ -287,7 +287,7 @@ class TestDetectCategories:
 
 
 class TestParseTranscriptLines:
-    """Tests for vault_common.parse_transcript_lines."""
+    """Tests for parsidion.vault_common.parse_transcript_lines."""
 
     def test_parses_claude_assistant_entry(self) -> None:
         line = json.dumps(
@@ -344,10 +344,10 @@ class TestParseTranscriptLines:
 
 
 class TestAppendToPending:
-    """Tests for vault_common.append_to_pending."""
+    """Tests for parsidion.vault_common.append_to_pending."""
 
     # ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var +
-    # clears caches) instead of monkeypatching vault_common.VAULT_ROOT directly.
+    # clears caches) instead of monkeypatching parsidion.vault_common.VAULT_ROOT directly.
     @pytest.fixture(autouse=True)
     def _use_tmp_vault(self, tmp_vault: Path) -> None:
         """Wire resolve_vault() to a fresh tmp dir via the tmp_vault fixture."""

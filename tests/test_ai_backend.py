@@ -12,8 +12,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from core import ai_backend  # noqa: E402 — ARC-006: patch internals where they live
-import vault_config  # noqa: E402
+from parsidion.core import ai_backend  # noqa: E402 — ARC-006: patch internals where they live
+import parsidion.vault_config as vault_config  # noqa: E402
 
 
 _RUNTIME_ENV_KEYS = (
@@ -412,7 +412,7 @@ class TestRunAiPrompt:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """SEC-024: .inf in config must not become a wait-forever subprocess."""
-        import vault_config
+        import parsidion.vault_config as vault_config
 
         vault = _reset_config(monkeypatch, tmp_path, "claude_cli:\n  timeout: .inf\n")
         assert (
@@ -907,7 +907,7 @@ class TestRunAiPrompt:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # SEC-122 / ARC-048f: the killpg/escalation logic moved to
-        # ``subproc_util.run_with_pgkill`` and is tested there. Here we
+        # ``parsidion.subproc_util.run_with_pgkill`` and is tested there. Here we
         # only verify the contract: a timeout returns None and leaves no
         # output file behind. The detailed SIGTERM/SIGKILL ordering is
         # exercised in ``tests/test_subproc_util.py``.

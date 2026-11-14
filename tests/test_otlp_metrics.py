@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from core import otlp_metrics
-from core.otlp_metrics import (
+from parsidion.core import otlp_metrics
+from parsidion.core.otlp_metrics import (
     OtlpSettings,
     build_usage_payload,
     emit_usage_metric,
@@ -180,7 +180,9 @@ class TestEmit:
         # OTel enablement (config.local.yaml otlp.enabled=true) would
         # otherwise POST this "m" datapoint to the real collector — the test
         # named "no_network" must never read real config nor emit traffic.
-        monkeypatch.setattr("core.otlp_metrics.load_otlp_settings", lambda: None)
+        monkeypatch.setattr(
+            "parsidion.core.otlp_metrics.load_otlp_settings", lambda: None
+        )
         assert emit_usage_metric("m", settings=None) is False
 
     def test_delivers_within_wait(self, capture_server: str) -> None:
@@ -208,7 +210,7 @@ class TestHookEventIntegration:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """One emit per hook event, with hook+project attrs, never blocking."""
-        from core import vault_fs as vault_fs_mod
+        from parsidion.core import vault_fs as vault_fs_mod
 
         captured: list[tuple[str, float, dict[str, str]]] = []
 
@@ -217,7 +219,7 @@ class TestHookEventIntegration:
             return True
 
         monkeypatch.setattr(vault_fs_mod, "emit_usage_metric", fake_emit)
-        from core.vault_fs import write_hook_event
+        from parsidion.core.vault_fs import write_hook_event
 
         log = tmp_path / "hook_events.log"
         write_hook_event("SessionEnd", "parsidion", 12.5, vault=tmp_path)
@@ -240,10 +242,10 @@ class TestHookEventIntegration:
         def boom(*a: object, **k: object) -> bool:
             raise RuntimeError("otlp down")
 
-        from core import vault_fs as vault_fs_mod
+        from parsidion.core import vault_fs as vault_fs_mod
 
         monkeypatch.setattr(vault_fs_mod, "emit_usage_metric", boom)
-        from core.vault_fs import write_hook_event
+        from parsidion.core.vault_fs import write_hook_event
 
         write_hook_event("SessionStart", "parsidion", 5.0, vault=tmp_path)
         log = tmp_path / "hook_events.log"

@@ -2,10 +2,10 @@
 
 Covers:
 - ``vault_adaptive``: locked read-modify-write + tmp/replace persistence
-- ``vault_fs.migrate_pending_paths``: locked rewrite of the pending queue
-- ``vault_fs.append_to_pending``: dedup still works after the lock rework
-- ``vault_fs.git_commit_vault``: vault-root config.yaml excluded from auto-commits
-- ``vault_hooks.write_hook_event``: atomic log rotation
+- ``parsidion.vault_fs.migrate_pending_paths``: locked rewrite of the pending queue
+- ``parsidion.vault_fs.append_to_pending``: dedup still works after the lock rework
+- ``parsidion.vault_fs.git_commit_vault``: vault-root config.yaml excluded from auto-commits
+- ``parsidion.vault_hooks.write_hook_event``: atomic log rotation
 - ``build_graph.write_graph_json``: tmp + replace (fake numpy injected)
 - ``build_embeddings.full_rebuild``: delete + insert in one transaction after
   model load (fake fastembed / sqlite_vec injected)
@@ -25,11 +25,13 @@ from pathlib import Path
 
 import pytest
 
-import vault_adaptive
-import vault_common
-import vault_fs
-from core import vault_fs as core_vault_fs  # ARC-006: patch internals where they live
-import vault_hooks
+import parsidion.vault_adaptive as vault_adaptive
+import parsidion.vault_common as vault_common
+import parsidion.vault_fs as vault_fs
+from parsidion.core import (
+    vault_fs as core_vault_fs,
+)  # ARC-006: patch internals where they live
+import parsidion.vault_hooks as vault_hooks
 
 
 def _boom_replace(self: Path, target: object) -> None:
@@ -544,7 +546,7 @@ class TestWriteHookEventPathContainment:
         target = tmp_path.parent / "outside.log"
         self._configure_path(tmp_vault, str(target))
 
-        from core import vault_fs as core_vault_fs
+        from parsidion.core import vault_fs as core_vault_fs
 
         core_vault_fs._event_log_path_warned = False
         vault_hooks.write_hook_event("Test", "proj", 1.0, seq=1)
@@ -580,7 +582,7 @@ class TestWriteHookEventPathContainment:
 
 
 # ---------------------------------------------------------------------------
-# vault_fs.append_session_to_daily — SEC-015 sibling lock
+# parsidion.vault_fs.append_session_to_daily — SEC-015 sibling lock
 # ---------------------------------------------------------------------------
 
 
@@ -653,7 +655,7 @@ class TestGitLockHolderWarnsWithoutLsof:
         capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
     ) -> None:
-        from core import vault_fs as core_vault_fs
+        from parsidion.core import vault_fs as core_vault_fs
 
         monkeypatch.setattr(core_vault_fs.shutil, "which", lambda name: None)
         monkeypatch.setattr(core_vault_fs, "_warned_no_lsof", False)
@@ -720,7 +722,7 @@ class TestWriteGraphJson:
 
 class TestUpdateIndexAtomicWrites:
     """QA-017: update_index routes CLAUDE.md, TAGS.md, and MANIFEST.md writes
-    through ``vault_fs.atomic_write_text``. A half-written CLAUDE.md would be
+    through ``parsidion.vault_fs.atomic_write_text``. A half-written CLAUDE.md would be
     read by ``session_start_hook`` at the next session start and inject
     truncated context into a live agent session — the atomic tmp+rename
     pattern means readers either see the previous version or the new one,
@@ -792,7 +794,7 @@ class TestUpdateIndexAtomicWrites:
 
 class TestVaultDoctorGraphJsonAtomic:
     """QA-017: vault_doctor._normalize_canonical_tags_in_graph writes the
-    47.5 MB graph.json via vault_fs.atomic_write_text so an interrupt cannot
+    47.5 MB graph.json via parsidion.vault_fs.atomic_write_text so an interrupt cannot
     leave a truncated file that breaks the visualizer's SSE rebuild."""
 
     def test_graph_json_failure_preserves_original(

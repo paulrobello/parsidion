@@ -21,8 +21,8 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "skills/parsidion/scripts")
 )
 
-import vault_common  # noqa: E402
-import vault_links  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_links as vault_links  # noqa: E402
 
 
 def _fm_block(content: str) -> str:

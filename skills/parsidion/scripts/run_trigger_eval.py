@@ -18,8 +18,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-import ai_backend
-import vault_common
+import parsidion.ai_backend as ai_backend
+import parsidion.vault_common as vault_common
 
 SKILL_DIR = Path.home() / ".claude" / "skills" / "parsidion"
 RESULTS_FILE = SKILL_DIR / "eval_results.json"
@@ -142,7 +142,7 @@ EVAL_QUERIES: list[dict[str, Any]] = [
 def parse_skill_frontmatter() -> tuple[str, str]:
     """Parse name and description from SKILL.md frontmatter.
 
-    Uses ``vault_common.parse_frontmatter`` which supports multi-line
+    Uses ``parsidion.vault_common.parse_frontmatter`` which supports multi-line
     scalar block indicators (``>``, ``|``, ``>-``, ``|-``).
     """
     content = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")

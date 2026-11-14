@@ -15,13 +15,13 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsight_backend  # noqa: E402
-import vault_common  # noqa: E402
-from cli.search import embeddings as cli_embeddings  # noqa: E402
+import parsidion.parsight_backend as parsight_backend  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
 
 from tests.fake_parsight import FakeHealth, FakeParsight  # noqa: E402
 
-vault_search = importlib.import_module("vault_search")
+vault_search = importlib.import_module("parsidion.vault_search")
 
 SENTINEL: list[dict[str, object]] = [{"stem": "from-embeddings"}]
 
@@ -68,8 +68,8 @@ def _repos_payload(vault: Path, *, stale: bool = False) -> dict[str, object]:
 def embeddings_sentinel(monkeypatch: pytest.MonkeyPatch) -> list[list[object]]:
     """Replace the embeddings leg with a sentinel; records call args.
 
-    ARC-006: patched on ``cli.search.embeddings`` (where the function lives)
-    — ``vault_search.search_with_meta`` calls it through that module, so the
+    ARC-006: patched on ``parsidion.cli.search.embeddings`` (where the function lives)
+    — ``parsidion.vault_search.search_with_meta`` calls it through that module, so the
     patch resolves at call time.
     """
     calls: list[list[object]] = []
@@ -334,8 +334,8 @@ class TestInteractiveBackend:
         tmp_vault: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """--backend/-B must reach vault_tui.interactive_search, not be dropped."""
-        import vault_tui
+        """--backend/-B must reach parsidion.vault_tui.interactive_search, not be dropped."""
+        import parsidion.vault_tui as vault_tui
 
         calls: list[dict[str, object]] = []
 
@@ -366,7 +366,7 @@ class TestInteractiveBackend:
     ) -> None:
         """Stale pre-check fix: _search_notes must attempt semantic search
         even when embeddings.db is absent, as long as parsight can serve."""
-        import vault_tui
+        import parsidion.vault_tui as vault_tui
 
         assert not vault_common.get_embeddings_db_path(tmp_vault).exists()
         results = vault_tui._search_notes("q", tmp_vault)
@@ -380,7 +380,7 @@ class TestInteractiveBackend:
     ) -> None:
         """No embeddings.db and no parsight -- title-substring fallback still
         runs (the gate must not suppress the pre-existing fallback path)."""
-        import vault_tui
+        import parsidion.vault_tui as vault_tui
 
         empty = tmp_path / "empty-bin-tui"
         empty.mkdir()

@@ -243,7 +243,7 @@ class TestPostCompactInternalGuard:
 
 
 # ---------------------------------------------------------------------------
-# Unit test: extract_latest_snapshot logic (now in core.vault_fs)
+# Unit test: extract_latest_snapshot logic (now in parsidion.core.vault_fs)
 # ---------------------------------------------------------------------------
 
 
@@ -251,12 +251,12 @@ class TestExtractLatestSnapshot:
     """Direct unit tests for the snapshot extraction logic."""
 
     def test_returns_none_when_no_snapshot(self) -> None:
-        from core.vault_fs import extract_latest_snapshot
+        from parsidion.core.vault_fs import extract_latest_snapshot
 
         assert extract_latest_snapshot("no snapshot here") is None
 
     def test_returns_section_text_with_heading(self) -> None:
-        from core.vault_fs import extract_latest_snapshot
+        from parsidion.core.vault_fs import extract_latest_snapshot
 
         content = "## Pre-Compact Snapshot\n- task A\n\n## Next Section\ntrailer\n"
         result = extract_latest_snapshot(content)
@@ -268,7 +268,7 @@ class TestExtractLatestSnapshot:
         assert "trailer" not in result
 
     def test_returns_most_recent_when_multiple(self) -> None:
-        from core.vault_fs import extract_latest_snapshot
+        from parsidion.core.vault_fs import extract_latest_snapshot
 
         content = (
             "## Pre-Compact Snapshot (early)\n"

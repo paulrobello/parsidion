@@ -1,7 +1,7 @@
 """ARC-001: ``active_vault_scope`` semantics.
 
 The scope is the mechanism CLI entry points rely on after they stop mutating
-``vault_common.VAULT_ROOT`` (card 01a07d69d8d3764189f1db1878275d67):
+``parsidion.vault_common.VAULT_ROOT`` (card 01a07d69d8d3764189f1db1878275d67):
 argument-less ``resolve_vault()`` consults the scope, an explicit argument
 still wins, exit restores the outer state, and the config cache is flushed
 on both boundaries so argument-less ``load_config()`` follows the scope.
@@ -18,8 +18,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
-from vault_path import active_vault_scope  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+from parsidion.vault_path import active_vault_scope  # noqa: E402
 
 
 def test_scope_answers_argument_less_calls(tmp_vault: Path, tmp_path: Path) -> None:

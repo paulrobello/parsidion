@@ -350,7 +350,7 @@ verbatim.</p>
 </span><span id="L-277"><a href="#L-277"><span class="linenos">277</span></a><span class="sd">    runtime is accepted. claude/codex/antigravity wire hooks via install()/uninstall();</span>
 </span><span id="L-278"><a href="#L-278"><span class="linenos">278</span></a><span class="sd">    pi installs its TypeScript extension via the dedicated installer.</span>
 </span><span id="L-279"><a href="#L-279"><span class="linenos">279</span></a><span class="sd">    """</span>
-</span><span id="L-280"><a href="#L-280"><span class="linenos">280</span></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">agent_adapter</span>  <span class="c1"># noqa: PLC0415</span>
+</span><span id="L-280"><a href="#L-280"><span class="linenos">280</span></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">parsidion.agent_adapter</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">agent_adapter</span>  <span class="c1"># noqa: PLC0415</span>
 </span><span id="L-281"><a href="#L-281"><span class="linenos">281</span></a>
 </span><span id="L-282"><a href="#L-282"><span class="linenos">282</span></a>    <span class="k">return</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">agent_adapter</span><span class="o">.</span><span class="n">all_adapters</span><span class="p">()]</span>
 </span><span id="L-283"><a href="#L-283"><span class="linenos">283</span></a>

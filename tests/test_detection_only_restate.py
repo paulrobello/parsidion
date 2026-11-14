@@ -22,8 +22,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import vault_doctor  # noqa: E402
-from doctor._state import DETECTION_ONLY_CODES, REPAIRABLE_CODES, Issue  # noqa: E402
-from doctor.orchestrator import _classify_repair_candidates  # noqa: E402
+from parsidion.doctor._state import DETECTION_ONLY_CODES, REPAIRABLE_CODES, Issue  # noqa: E402
+from parsidion.doctor.orchestrator import _classify_repair_candidates  # noqa: E402
 
 
 def test_skipped_status_is_permanent() -> None:

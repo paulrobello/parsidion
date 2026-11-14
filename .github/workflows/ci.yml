@@ -145,30 +145,27 @@ jobs:
         run: uv build
 
       - name: Install into clean venv and import
-        # ARC-003: import every [project.scripts] target and every shipped
-        # module/package (derived from pyproject.toml + the scripts directory,
-        # so new modules are covered automatically). anyio is installed for the
-        # summarizer submodules (a PEP-723 dep of the summarize_sessions entry
-        # script); build_embeddings/build_graph are skipped (search-extra
-        # fastembed/numpy imports at module scope).
+        # ARC-201: the wheel ships only the parsidion.* namespace; import
+        # every module under the installed package (console-script targets
+        # included, derived from the scripts directory so new modules are
+        # covered automatically). anyio is installed for the summarizer
+        # subpackage (parsidion.summarizer.prompt imports anyio at module
+        # scope; the PEP-723 summarize_sessions entry script is not shipped).
         run: |
           uv venv --python 3.13 --seed /tmp/wheeltest
           /tmp/wheeltest/bin/pip install --quiet --force-reinstall dist/*.whl anyio
           /tmp/wheeltest/bin/python - <<'PYEOF'
-          import importlib, pathlib, tomllib
+          # ARC-201: the wheel ships only parsidion.* — import every module
+          # under the installed package (console-script targets included).
+          import importlib, pathlib
 
-          cfg = tomllib.load(open("pyproject.toml", "rb"))
           scripts_root = pathlib.Path("skills/parsidion/scripts")
-          skip = {"build_embeddings", "build_graph"}
-
-          mods = sorted({t.split(":")[0] for t in cfg["project"]["scripts"].values()})
-          mods += sorted(m for m in cfg["tool"]["setuptools"]["py-modules"] if m not in skip)
-          mods += sorted(
-              str(p.with_suffix("")).replace("/", ".")
-              for p in scripts_root.rglob("*.py")
-              if p.parent != scripts_root and "__pycache__" not in p.parts
+          mods = sorted(
+              str(p.relative_to(scripts_root).with_suffix("")).replace("/", ".")
+              for p in (scripts_root / "parsidion").rglob("*.py")
+              if "__pycache__" not in p.parts
           )
-          for m in sorted(set(mods)):
+          for m in mods:
               importlib.import_module(m)
           print(f"ok: imported {len(set(mods))} shipped modules/packages")
           PYEOF

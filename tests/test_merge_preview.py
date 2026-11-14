@@ -27,8 +27,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
-import vault_merge  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_merge as vault_merge  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

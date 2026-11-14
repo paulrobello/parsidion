@@ -24,9 +24,13 @@ from installer.paths import (
 )
 from installer.ui import _err, _ok, _print, _step, _warn
 
-# QA-004: the shared vaults.yaml reader/writer live in core.vault_path; the
+# QA-004: the shared vaults.yaml reader/writer live in parsidion.core.vault_path; the
 # scripts dir is on sys.path via installer/__init__.py (ENH-006 pattern).
-from core.vault_path import get_vaults_config_path, read_vaults_yaml, render_vaults_yaml
+from parsidion.core.vault_path import (
+    get_vaults_config_path,
+    read_vaults_yaml,
+    render_vaults_yaml,
+)
 
 # ---------------------------------------------------------------------------
 # Vault directory creation
@@ -638,7 +642,7 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
     else:
         content = ""
 
-    # QA-004: shared reader/renderer from core.vault_path — the installer
+    # QA-004: shared reader/renderer from parsidion.core.vault_path — the installer
     # no longer carries its own vaults.yaml parser/writer.
     vaults_lines, default_line = read_vaults_yaml(config_path)
     vault_path_str = str(vault_root)
@@ -671,7 +675,7 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
 
 
 def _default_vault_path() -> Path:
-    """Return the default vault root, mirroring ``vault_path.default_vault_root``.
+    """Return the default vault root, mirroring ``parsidion.vault_path.default_vault_root``.
 
     Local copy (rather than importing vault_path) so the installer keeps its
     stdlib-only constraint — vault_path imports fine standalone, but the

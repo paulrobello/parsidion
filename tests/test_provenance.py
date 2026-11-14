@@ -18,7 +18,7 @@ _TOOLS_DIR = Path(__file__).resolve().parent.parent / "tools"
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
-import vault_new  # noqa: E402
+import parsidion.vault_new as vault_new  # noqa: E402
 
 _TEMPLATES_DIR = (
     Path(__file__).resolve().parent.parent / "skills" / "parsidion" / "templates"
@@ -81,7 +81,7 @@ class TestVaultNewEmitsProvenance:
 import migrate_memory  # noqa: E402
 import migrate_research  # noqa: E402
 
-import vault_merge  # noqa: E402
+import parsidion.vault_merge as vault_merge  # noqa: E402
 
 
 class TestVaultMergePreservesProvenance:

@@ -44,7 +44,7 @@ class SelectNotesEvaluator(BaseEvaluator):
         return {"candidates_text": candidates_text}
 
     def render(self, case: CaseInput) -> str:
-        import prompt_templates
+        import parsidion.prompt_templates as prompt_templates
 
         expected = case.expected
         project_name = str(expected.get("project_name", "acme-cli"))

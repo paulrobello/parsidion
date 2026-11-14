@@ -35,7 +35,7 @@ class MergeNotesEvaluator(BaseEvaluator):
         return {"body_a": body_a, "body_b": body_b}
 
     def render(self, case: CaseInput) -> str:
-        import prompt_templates
+        import parsidion.prompt_templates as prompt_templates
 
         title = str(case.expected.get("title", "the topic"))
         return prompt_templates.render(

@@ -19,7 +19,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import parsight_backend  # noqa: E402
+import parsidion.parsight_backend as parsight_backend  # noqa: E402
 
 EXPECTED_KEYS = {
     "score",
@@ -49,7 +49,7 @@ def test_real_parsight_end_to_end(
 ) -> None:
     import importlib
 
-    vault_search = importlib.import_module("vault_search")
+    vault_search = importlib.import_module("parsidion.vault_search")
 
     # Undo the suite-wide isolation: talk to the real daemon.
     monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:4848/mcp")

@@ -27,11 +27,11 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import doctor.cli as doctor_cli  # noqa: E402
-import doctor.orchestrator as doctor_orch  # noqa: E402
+import parsidion.doctor.cli as doctor_cli  # noqa: E402
+import parsidion.doctor.orchestrator as doctor_orch  # noqa: E402
 import vault_doctor  # noqa: E402
-from doctor.check import PRE_FM_RULES, RULES  # noqa: E402
-from doctor.protocol import RULE_NAMES, RULE_SPECS  # noqa: E402
+from parsidion.doctor.check import PRE_FM_RULES, RULES  # noqa: E402
+from parsidion.doctor.protocol import RULE_NAMES, RULE_SPECS  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def _write_note(vault: Path, rel: str, body: str = "") -> Path:
 
 
 def _run_cli(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
-    """Invoke doctor.cli.main() with in-process caches cleared afterwards.
+    """Invoke parsidion.doctor.cli.main() with in-process caches cleared afterwards.
 
     main() resolves the vault through the SEC-P001 allowlist and enters an
     ``active_vault_scope`` (ARC-001), so it leaves no process-wide residue.
@@ -99,7 +99,7 @@ class _Spy:
 
 
 def _spy_all_modes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Replace the five fix-mode runners in doctor.cli with recorders.
+    """Replace the five fix-mode runners in parsidion.doctor.cli with recorders.
 
     Records the catalog rule name (not the function name) so assertions
     read in --only/--skip vocabulary.
@@ -217,7 +217,7 @@ class TestOnlySkipSelection:
         self,
         tmp_vault: Path,
     ) -> None:
-        from doctor.links import build_note_map
+        from parsidion.doctor.links import build_note_map
 
         other = _write_note(tmp_vault, "Patterns/other-note.md")
         note = tmp_vault / "Patterns/broken.md"

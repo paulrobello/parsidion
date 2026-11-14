@@ -13,7 +13,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_conflicts  # noqa: E402
+import parsidion.vault_conflicts as vault_conflicts  # noqa: E402
 
 
 class TestParseJsonArray:
@@ -132,7 +132,7 @@ class TestDetectContradictions:
         (tmp_vault / "a.md").write_text("# A\nA says X.\n", encoding="utf-8")
         (tmp_vault / "b.md").write_text("# B\nB says not-X.\n", encoding="utf-8")
 
-        import ai_backend
+        import parsidion.ai_backend as ai_backend
 
         canned = '[{"type":"contradiction","a":"a","b":"b","a_says":"X","b_says":"not-X","recommendation":"needs_review"}]'
         monkeypatch.setattr(ai_backend, "run_ai_prompt", lambda *a, **k: canned)
@@ -181,7 +181,7 @@ class TestRunScan:
                 ("note-b", [0.99, 0.01], "B"),
             ],
         )
-        import ai_backend
+        import parsidion.ai_backend as ai_backend
 
         canned = '[{"type":"contradiction","a":"note-a","b":"note-b","a_says":"X","b_says":"not-X","recommendation":"needs_review"}]'
         monkeypatch.setattr(ai_backend, "run_ai_prompt", lambda *a, **k: canned)

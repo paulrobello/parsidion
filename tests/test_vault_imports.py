@@ -31,9 +31,9 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPTS_DIR = _REPO_ROOT / "skills" / "parsidion" / "scripts"
 
-_VAULT_FS = _SCRIPTS_DIR / "core" / "vault_fs.py"
-_VAULT_SEARCH = _SCRIPTS_DIR / "vault_search.py"
-_VAULT_TUI = _SCRIPTS_DIR / "vault_tui.py"
+_VAULT_FS = _SCRIPTS_DIR / "parsidion" / "core" / "vault_fs.py"
+_VAULT_SEARCH = _SCRIPTS_DIR / "parsidion" / "vault_search.py"
+_VAULT_TUI = _SCRIPTS_DIR / "parsidion" / "vault_tui.py"
 
 
 def _top_level_imported_modules(path: Path) -> set[str]:
@@ -61,7 +61,7 @@ class TestArc023Cycle1:
     """``vault_fs`` and ``vault_hooks`` must not form a top-level cycle.
 
     Pre-ARC-023 the cycle was masked by ``append_session_to_daily`` doing a
-    function-body ``from vault_hooks import TRANSCRIPT_CATEGORY_LABELS``.
+    function-body ``from parsidion.vault_hooks import TRANSCRIPT_CATEGORY_LABELS``.
     The constant now lives in the ``vault_constants`` leaf and both modules
     top-level-import it, so neither direction of the vault_fs/vault_hooks
     edge may resurrect a cycle.
@@ -75,9 +75,13 @@ class TestArc023Cycle1:
         back.
         """
         imports = _top_level_imported_modules(
-            _SCRIPTS_DIR / "core" / "vault_constants.py"
+            _SCRIPTS_DIR / "parsidion" / "core" / "vault_constants.py"
         )
-        vault_imports = {m for m in imports if m.startswith("vault_")}
+        vault_imports = {
+            m
+            for m in imports
+            if m.startswith("vault_") or m.startswith("parsidion.vault_")
+        }
         assert vault_imports == set(), (
             f"vault_constants.py must be a leaf but top-level imports: {vault_imports}"
         )
@@ -95,9 +99,9 @@ class TestArc023Cycle1:
             [
                 sys.executable,
                 "-c",
-                "import vault_fs, vault_hooks, vault_constants; "
-                "assert vault_hooks.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
-                "== vault_fs.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
+                "import parsidion.vault_fs, parsidion.vault_hooks, parsidion.vault_constants; "
+                "assert parsidion.vault_hooks.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
+                "== parsidion.vault_fs.TRANSCRIPT_CATEGORY_LABELS['error_fix'] "
                 "== 'Error Resolution'",
             ],
             env={"PYTHONPATH": str(_SCRIPTS_DIR), "PATH": ""},
@@ -123,7 +127,9 @@ class TestArc023Cycle1:
             "from .vault_constants (ARC-023 cycle 1, ARC-004 moved vault_fs to core/)"
         )
         # The old lazy import inside append_session_to_daily must be gone.
-        assert "from vault_hooks import TRANSCRIPT_CATEGORY_LABELS" not in src, (
+        assert (
+            "from parsidion.vault_hooks import TRANSCRIPT_CATEGORY_LABELS" not in src
+        ), (
             "vault_fs.py still lazy-imports TRANSCRIPT_CATEGORY_LABELS from "
             "vault_hooks -- the cycle was not fully hoisted"
         )
@@ -133,7 +139,7 @@ class TestArc023Cycle3:
     """``vault_search`` and ``vault_tui`` have no actionable top-level cycle.
 
     Both sides already defer the cross-import to a function body
-    (``vault_search.run_interactive`` lazy-imports ``vault_tui``; the TUI's
+    (``parsidion.vault_search.run_interactive`` lazy-imports ``vault_tui``; the TUI's
     ``_search_notes`` lazy-imports ``vault_search``).  No top-level edge in
     either direction means no top-level cycle.  These tests pin that
     invariant so a future refactor promoting the lazy import to module level
@@ -164,9 +170,11 @@ class TestArc023Cycle3:
         search_src = _VAULT_SEARCH.read_text(encoding="utf-8")
         tui_src = _VAULT_TUI.read_text(encoding="utf-8")
         # The cross-imports must remain present (just deferred).
-        assert "import vault_tui" in search_src or "from vault_tui" in search_src, (
-            "vault_search should still lazy-import vault_tui inside a function"
-        )
-        assert "import vault_search" in tui_src or "from vault_search" in tui_src, (
-            "vault_tui should still lazy-import vault_search inside a function"
-        )
+        assert (
+            "import parsidion.vault_tui" in search_src
+            or "from parsidion.vault_tui" in search_src
+        ), "vault_search should still lazy-import vault_tui inside a function"
+        assert (
+            "import parsidion.vault_search" in tui_src
+            or "from parsidion.vault_search" in tui_src
+        ), "vault_tui should still lazy-import vault_search inside a function"

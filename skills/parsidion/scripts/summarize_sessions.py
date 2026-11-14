@@ -48,13 +48,13 @@ from typing import NamedTuple, cast
 
 import anyio  # type: ignore[import-untyped]
 
-import ai_backend  # re-exported for tests (summarize_sessions.ai_backend)
-import vault_common
-import vault_links  # re-exported for tests (summarize_sessions.vault_links)
-from core.subproc_util import run_with_pgkill
+import parsidion.ai_backend as ai_backend  # re-exported for tests (summarize_sessions.ai_backend)
+import parsidion.vault_common as vault_common
+import parsidion.vault_links as vault_links  # re-exported for tests (summarize_sessions.vault_links)
+from parsidion.core.subproc_util import run_with_pgkill
 
 # Constants, sentinels, enums, regexes, and default config values (ARC-009).
-from summarizer._state_const import (  # re-exported for tests
+from parsidion.summarizer._state_const import (  # re-exported for tests
     _ACTIVE_SESSION_GRACE_SECS,
     _DEAD,
     _DEAD_LETTER_RETENTION_DAYS,
@@ -81,7 +81,7 @@ from summarizer._state_const import (  # re-exported for tests
     FailureReason,
 )
 
-from summarizer.transcript import (  # re-exported for tests
+from parsidion.summarizer.transcript import (  # re-exported for tests
     _strip_code_fence,
     _summarize_chunk,
     preprocess_transcript,
@@ -89,20 +89,20 @@ from summarizer.transcript import (  # re-exported for tests
 )
 
 
-from summarizer.failure import (  # re-exported for tests
+from parsidion.summarizer.failure import (  # re-exported for tests
     _failure_record_retryable,
     _format_failure_record,
     _mark_failure,
 )
 
-from summarizer.progress import (  # re-exported for tests
+from parsidion.summarizer.progress import (  # re-exported for tests
     _PROGRESS_FILE,
     _clear_progress,
     _write_progress,
 )
 
 
-from summarizer.dedup import (  # re-exported for tests
+from parsidion.summarizer.dedup import (  # re-exported for tests
     _find_dedup_candidates,
     _resolve_note_stem,
     read_existing_tags,
@@ -110,7 +110,7 @@ from summarizer.dedup import (  # re-exported for tests
 )
 
 
-from summarizer.prompt import (  # re-exported for tests
+from parsidion.summarizer.prompt import (  # re-exported for tests
     _PROMPT_TEMPLATE_CACHE,
     _TAG_RULES_COMMON,
     _load_prompt_template,
@@ -119,10 +119,10 @@ from summarizer.prompt import (  # re-exported for tests
     _run_summarizer_prompt,
     build_prompt,
 )
-from prompt_templates import load_prompt, render  # re-exported for tests
+from parsidion.prompt_templates import load_prompt, render  # re-exported for tests
 
 
-from summarizer.notes import (  # re-exported for tests
+from parsidion.summarizer.notes import (  # re-exported for tests
     _backfill_tags_if_empty,
     _clean_tag,
     _ensure_closing_frontmatter_delimiter,
@@ -139,7 +139,7 @@ from summarizer.notes import (  # re-exported for tests
 )
 
 
-from summarizer.pipeline import (  # re-exported for tests
+from parsidion.summarizer.pipeline import (  # re-exported for tests
     _apply_backlinks_and_strip_links,
     _apply_merge_decision,
     _early_gate,
@@ -295,14 +295,14 @@ async def run_all(
     return results
 
 
-from summarizer.dead_letter import (  # re-exported for tests
+from parsidion.summarizer.dead_letter import (  # re-exported for tests
     _append_dead_letter,
     _dead_lettered_ids,
     _prune_dead_letters,
     _read_dead_letters,
     _remove_dead_letters_by_session_ids,
 )
-from summarizer.queue import (  # re-exported for tests
+from parsidion.summarizer.queue import (  # re-exported for tests
     _resolve,
     read_pending,
     rebuild_index,
@@ -310,7 +310,7 @@ from summarizer.queue import (  # re-exported for tests
 )
 
 
-from summarizer.lock import (  # re-exported for tests
+from parsidion.summarizer.lock import (  # re-exported for tests
     _load_summarizer_state,
     _summarizer_claim_lock_file,
     _summarizer_state_file,
@@ -408,7 +408,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Rebuild visualizer graph.json after indexing (passed to update_index.py "
             "--rebuild-graph). Tri-state: --rebuild-graph forces on, --no-rebuild-graph "
             "forces off (overrides a config 'true'), unset reads "
-            "summarizer.rebuild_graph from config (default false)."
+            "parsidion.summarizer.rebuild_graph from config (default false)."
         ),
     )
     parser.add_argument(
@@ -418,7 +418,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Include Daily folder notes in the graph (only used with --rebuild-graph). "
             "Same tri-state semantics as --rebuild-graph; reads "
-            "summarizer.graph_include_daily from config when unset."
+            "parsidion.summarizer.graph_include_daily from config when unset."
         ),
     )
     parser.add_argument(
@@ -655,7 +655,7 @@ _DOCTOR_TIMEOUT_SECS = 600
 
 
 def _clamp_max_parallel(value: object) -> int:
-    """Coerce ``summarizer.max_parallel`` into ``[1, 16]`` (ARC-106).
+    """Coerce ``parsidion.summarizer.max_parallel`` into ``[1, 16]`` (ARC-106).
 
     Every unit of fan-out here is a full CLI agent process, so the config value
     reached ``anyio.Semaphore`` unbounded: ``max_parallel: 500`` launched 500 of
@@ -936,7 +936,7 @@ def main() -> None:
         # summarizer indefinitely. vault_doctor --fix-all is bounded work,
         # but AI-driven repairs or large subfolder vetting passes can exceed
         # 10 minutes on large vaults (observed 2026-09-24). Configurable via
-        # summarizer.doctor_timeout (default _DOCTOR_TIMEOUT_SECS = 600).
+        # parsidion.summarizer.doctor_timeout (default _DOCTOR_TIMEOUT_SECS = 600).
         # ARC-106: routed through run_with_pgkill like every other child in
         # this pipeline. The bare subprocess.run predated ARC-004 and killed
         # only the direct child on timeout, orphaning vault_doctor's own AI

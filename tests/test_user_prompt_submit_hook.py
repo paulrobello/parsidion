@@ -6,7 +6,7 @@ never-block guarantee (malformed stdin / raising observability still print
 ``{}`` and exit 0).
 
 ARC-006 discipline: parsight internals are patched on the implementation
-module (``core.parsight_backend``), not the root shim.
+module (``parsidion.core.parsight_backend``), not the root shim.
 """
 
 from __future__ import annotations
@@ -28,9 +28,9 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import recall_context  # noqa: E402 -- ARC-202: patch where it lives
+import parsidion.recall_context as recall_context  # noqa: E402 -- ARC-202: patch where it lives
 import user_prompt_submit_hook  # noqa: E402
-from core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
+from parsidion.core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
 
 REFRIGERATOR_NOTE: dict[str, object] = {
     "score": 0.91,

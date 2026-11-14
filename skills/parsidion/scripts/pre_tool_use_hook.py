@@ -37,7 +37,7 @@ Results (including "nothing found") are cached per file for
 ``cache_seconds`` so re-reads of the same file are free — the cache lives
 across hook invocations in ``~/.claude/logs/parsidion-ptu-cache/``.
 
-Config section: ``pre_tool_use_hook`` (see ``core.vault_schema``); every
+Config section: ``pre_tool_use_hook`` (see ``parsidion.core.vault_schema``); every
 key falls back to the default below when absent.
 """
 
@@ -52,12 +52,21 @@ import time
 from pathlib import Path
 from typing import Any
 
-from core import parsight_backend
-from core.rule_triggers import load_rule_notes, match_rules
-from core.vault_hooks import get_project_name, write_hook_event
-from core.vault_index import load_note_index_metadata
-from core.vault_path import is_path_inside_vault, resolve_vault, secure_log_dir
-from recall_context import _build_context, load_hook_settings, set_stamp, stamp_fresh
+from parsidion.core import parsight_backend
+from parsidion.core.rule_triggers import load_rule_notes, match_rules
+from parsidion.core.vault_hooks import get_project_name, write_hook_event
+from parsidion.core.vault_index import load_note_index_metadata
+from parsidion.core.vault_path import (
+    is_path_inside_vault,
+    resolve_vault,
+    secure_log_dir,
+)
+from parsidion.recall_context import (
+    _build_context,
+    load_hook_settings,
+    set_stamp,
+    stamp_fresh,
+)
 
 # Defaults for the ``pre_tool_use_hook`` config section. Each is a per-key
 # fallback: the typed section (Slice A schema) wins when present.

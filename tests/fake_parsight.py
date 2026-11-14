@@ -5,7 +5,7 @@ generated Python script placed at the front of PATH; it reads its behavior
 from a sibling ``config.json``, records every invocation (argv + cwd) to a
 sibling ``calls.jsonl``, and emits canned JSON / exit codes / delays. The
 fake health server answers 200 on ``/health`` so
-``parsight_backend.resolve_parsight_backend()`` can be exercised end-to-end.
+``parsidion.parsight_backend.resolve_parsight_backend()`` can be exercised end-to-end.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 def fresh_repos_payload(vault: Path, *, stale: bool = False) -> dict:
     """Build a ``parsight repos --json`` payload classifying *vault*.
 
-    ``parsight_backend._vault_repo_state`` matches by ``os.path.realpath`` on
+    ``parsidion.parsight_backend._vault_repo_state`` matches by ``os.path.realpath`` on
     ``root_path`` or a worktree ``path`` and reads the worktree's ``stale``
     flag. By default the fake's ``repos`` payload is empty → ``"absent"``; this
     builds a payload the classifier reads as ``"fresh"`` (or ``"stale"`` with

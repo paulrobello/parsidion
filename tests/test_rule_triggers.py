@@ -21,11 +21,11 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import core.rule_triggers as rule_triggers  # noqa: E402
-import note_schema  # noqa: E402
+import parsidion.core.rule_triggers as rule_triggers  # noqa: E402
+import parsidion.note_schema as note_schema  # noqa: E402
 import pre_tool_use_hook  # noqa: E402
 import user_prompt_submit_hook  # noqa: E402
-from core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
+from parsidion.core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
 
 
 def _write_rule(
@@ -212,19 +212,19 @@ class TestPromptSubmitInjection:
 
 class TestDoctorRule:
     def test_catalog_lists_the_rule(self) -> None:
-        from doctor.protocol import RULE_SPECS
+        from parsidion.doctor.protocol import RULE_SPECS
 
         assert any(s.name == "rule-triggers" for s in RULE_SPECS)
 
     def test_check_flags_missing_triggers(self, tmp_vault: Path) -> None:
-        from doctor.check import check_note
+        from parsidion.doctor.check import check_note
 
         note = _write_rule(vault=tmp_vault, stem="bad-rule", triggers="[]")
         issues = check_note(note, {}, tmp_vault)
         assert any(i.code == "RULE_TRIGGERS" for i in issues)
 
     def test_check_flags_triggers_on_non_rule(self, tmp_vault: Path) -> None:
-        from doctor.check import check_note
+        from parsidion.doctor.check import check_note
 
         note = _write_rule(
             vault=tmp_vault,
@@ -238,7 +238,7 @@ class TestDoctorRule:
         )
 
     def test_check_clean_for_valid_rule(self, tmp_vault: Path) -> None:
-        from doctor.check import check_note
+        from parsidion.doctor.check import check_note
 
         note = _write_rule(vault=tmp_vault, stem="good-rule")
         issues = check_note(note, {}, tmp_vault)

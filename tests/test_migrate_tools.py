@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-import vault_common
+import parsidion.vault_common as vault_common
 
 _TOOLS_DIR = Path(__file__).resolve().parent.parent / "tools"
 if str(_TOOLS_DIR) not in sys.path:

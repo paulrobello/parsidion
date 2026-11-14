@@ -25,10 +25,10 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
-import vault_health  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_health as vault_health  # noqa: E402
 
-vault_stats = importlib.import_module("vault_stats")
+vault_stats = importlib.import_module("parsidion.vault_stats")
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +447,7 @@ class TestHookLatencyBreachWindow:
         }
 
     def _agg(self, events: list[dict]) -> dict:
-        from core import vault_health as core_vault_health
+        from parsidion.core import vault_health as core_vault_health
 
         return core_vault_health._hook_latency_aggregate(events)
 
@@ -505,7 +505,7 @@ class TestHookLatencyBreachWindow:
         ]
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        from core import vault_health as core_vault_health
+        from parsidion.core import vault_health as core_vault_health
 
         dim = core_vault_health.score_hook_latency(tmp_path)
         assert dim.score > 0
@@ -521,7 +521,7 @@ class TestHookLatencyBreachWindow:
         lines.append(json.dumps(self._event("SessionStart", 61_000, 9)))
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-        from core import vault_health as core_vault_health
+        from parsidion.core import vault_health as core_vault_health
 
         dim = core_vault_health.score_hook_latency(tmp_path)
         assert dim.score == 0

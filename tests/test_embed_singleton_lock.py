@@ -4,7 +4,7 @@
 spawned detached in the background by ``update_index`` on every index
 rebuild. A second trigger landing while the first build still holds the
 runtime loads another, and so on — concurrent builds deplete memory.
-``vault_fs.try_singleton_lock`` is the per-vault non-blocking guard the
+``parsidion.vault_fs.try_singleton_lock`` is the per-vault non-blocking guard the
 build holds for its lifetime; these tests pin its semantics.
 
 Note: ``fcntl.flock`` locks are per-*process*, so the real contention path
@@ -27,7 +27,7 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from vault_fs import release_singleton_lock, try_singleton_lock  # noqa: E402
+from parsidion.vault_fs import release_singleton_lock, try_singleton_lock  # noqa: E402
 
 
 def test_acquire_returns_fd_and_creates_lockfile(tmp_path: Path) -> None:
@@ -65,7 +65,7 @@ def test_concurrent_process_is_rejected(tmp_path: Path) -> None:
                 sys.executable,
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv[1]); "
-                "from vault_fs import try_singleton_lock as t; "
+                "from parsidion.vault_fs import try_singleton_lock as t; "
                 "sys.exit(0 if t(sys.argv[2]) is None else 1)",
                 str(SCRIPTS_DIR),
                 str(lock),

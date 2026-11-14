@@ -28,7 +28,7 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from core import vault_schema  # noqa: E402
+from parsidion.core import vault_schema  # noqa: E402
 
 
 def _collect_sources() -> dict[Path, str]:
@@ -49,7 +49,7 @@ def _get_config_calls(source: str) -> set[tuple[str, str]]:
     """(section, key) pairs from config-reader calls in *source*.
 
     Readers appear as bare ``get_config``, module-qualified
-    ``vault_common.get_config``, and thin wrappers (``_config_bool`` /
+    ``parsidion.vault_common.get_config``, and thin wrappers (``_config_bool`` /
     ``_config_str`` in ai_backend, ``_resolve`` in the summarizer, whose
     section/key sit at args 1-2 behind a CLI-flag override). For each
     matching call the first ADJACENT pair of string-literal arguments is

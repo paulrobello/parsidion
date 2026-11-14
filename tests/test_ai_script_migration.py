@@ -14,7 +14,7 @@ if str(EVAL_DIR) not in sys.path:
 
 import embed_eval_generate  # noqa: E402
 import run_trigger_eval  # noqa: E402
-import vault_merge  # noqa: E402
+import parsidion.vault_merge as vault_merge  # noqa: E402
 
 
 def test_vault_merge_uses_large_tier_backend(

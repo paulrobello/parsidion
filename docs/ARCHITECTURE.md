@@ -1220,7 +1220,7 @@ session_start_hook:
   graph_rerank: true  # Tier 2: re-rank by seed-cluster tag overlap + hubness
 
 # Session stop hook (session_stop_hook.py; the same pipeline runs for every
-# runtime via agent_adapter.run_session_end).
+# runtime via parsidion.agent_adapter.run_session_end).
 session_stop_hook:
   ai_model: null  # Model for AI classification (null = disabled)
   ai_timeout: 25  # AI call timeout in seconds
@@ -1345,7 +1345,7 @@ defaults:
   haiku_model: claude-haiku-4-5-20251001  # Legacy haiku-tier fallback used by session hooks and vault_doctor repair
 
 # Hook event log (all hooks — structured JSON events via
-# ``vault_hooks.write_hook_event``).
+# ``parsidion.vault_hooks.write_hook_event``).
 event_log:
   enabled: true  # Write structured JSON events to hook_events.log
   max_lines: 10000  # Rotate (keep the second half) when the log exceeds this many lines

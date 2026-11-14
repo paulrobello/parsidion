@@ -15,7 +15,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-# Plain pytest runs lack the entry shim's anyio dependency; summarizer.pipeline
+# Plain pytest runs lack the entry shim's anyio dependency; parsidion.summarizer.pipeline
 # only references it in an annotation. Same stub pattern as
 # test_summarize_sessions._fresh_summarize_sessions.
 _stubbed_anyio = (
@@ -27,9 +27,9 @@ if _stubbed_anyio:
         to_thread=types.SimpleNamespace(run_sync=lambda func, *args: func(*args)),
     )
 
-from core import vault_links  # noqa: E402
-from core.vault_index import parse_frontmatter  # noqa: E402
-from summarizer.pipeline import _apply_backlinks_and_strip_links  # noqa: E402
+from parsidion.core import vault_links  # noqa: E402
+from parsidion.core.vault_index import parse_frontmatter  # noqa: E402
+from parsidion.summarizer.pipeline import _apply_backlinks_and_strip_links  # noqa: E402
 
 if _stubbed_anyio:
     del sys.modules["anyio"]

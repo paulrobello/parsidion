@@ -16,8 +16,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
-import vault_common  # noqa: E402
+from parsidion.core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
+import parsidion.vault_common as vault_common  # noqa: E402
 
 from tests.fake_parsight import (  # noqa: E402
     FakeHealth,

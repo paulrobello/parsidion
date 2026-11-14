@@ -6,7 +6,7 @@ budget truncation, and the never-block guarantee (malformed stdin / raising
 observability still print ``{}`` and exit 0).
 
 ARC-006 discipline: parsight internals are patched on the implementation
-module (``core.parsight_backend``), not the root shim.
+module (``parsidion.core.parsight_backend``), not the root shim.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import pre_tool_use_hook  # noqa: E402
-from core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
+from parsidion.core import parsight_backend  # noqa: E402 -- ARC-006: patch where it lives
 
 TARGET_FILE = "/Users/dev/Repos/myproj/parsidion/vault_search.py"
 MATCHING_NOTE: dict[str, object] = {
@@ -498,7 +498,7 @@ class TestRegistration:
     """Installer wiring: matcher, timeout, and the single-source script map."""
 
     def test_hook_script_map_carries_pretooluse(self) -> None:
-        import agent_adapter
+        import parsidion.agent_adapter as agent_adapter
 
         assert (
             agent_adapter._CLAUDE_HOOK_SCRIPTS["PreToolUse"] == "pre_tool_use_hook.py"

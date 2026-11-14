@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-import vault_common
+import parsidion.vault_common as vault_common
 import vault_doctor
 
 

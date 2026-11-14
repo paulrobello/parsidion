@@ -24,7 +24,7 @@ from pathlib import Path
 
 import session_start_hook
 import update_index
-import vault_common
+import parsidion.vault_common as vault_common
 
 # ---------------------------------------------------------------------------
 # Helpers

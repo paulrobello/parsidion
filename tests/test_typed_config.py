@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-import vault_common
-from core import vault_config
+import parsidion.vault_common as vault_common
+from parsidion.core import vault_config
 
 # (section, key, the inline default the pre-ARC-007 callers passed)
 _HISTORICAL_DEFAULTS: list[tuple[str, str, object]] = [
@@ -141,7 +141,7 @@ def test_context_dependent_key_uses_caller_default(empty_config: Path) -> None:
 
 
 def test_typed_access_returns_schema_defaults(empty_config: Path) -> None:
-    from core.vault_config import load_typed_config
+    from parsidion.core.vault_config import load_typed_config
 
     cfg = load_typed_config()
     assert cfg.session_start_hook.max_chars == 4000
@@ -154,7 +154,7 @@ def test_typed_access_returns_schema_defaults(empty_config: Path) -> None:
 
 
 def test_typed_access_reflects_configured_values(configured_vault: Path) -> None:
-    from core.vault_config import load_typed_config
+    from parsidion.core.vault_config import load_typed_config
 
     cfg = load_typed_config()
     assert cfg.session_start_hook.max_chars == 123

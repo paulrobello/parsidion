@@ -33,23 +33,23 @@ _ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
     {
         # Registry population runs at first adapter lookup, before any hook
         # payload (and thus before any vault) exists.
-        ("agent_adapter.py", "_load_external_adapters"),
+        ("parsidion/agent_adapter.py", "_load_external_adapters"),
         # The summarizer resolves CLI/config options in _resolve_options
         # before main() resolves the vault from --vault/cwd.
-        ("summarizer/queue.py", "_resolve"),
+        ("parsidion/summarizer/queue.py", "_resolve"),
     }
 )
 
 _SCOPED_MODULES: tuple[str, ...] = (
     "session_start_hook.py",
-    "agent_adapter.py",
+    "parsidion/agent_adapter.py",
 )
 
 
 def _scoped_files() -> list[Path]:
     files = [_SCRIPTS_DIR / name for name in _SCOPED_MODULES]
-    files.extend(sorted((_SCRIPTS_DIR / "session_start").glob("*.py")))
-    files.extend(sorted((_SCRIPTS_DIR / "summarizer").glob("*.py")))
+    files.extend(sorted((_SCRIPTS_DIR / "parsidion" / "session_start").glob("*.py")))
+    files.extend(sorted((_SCRIPTS_DIR / "parsidion" / "summarizer").glob("*.py")))
     return files
 
 

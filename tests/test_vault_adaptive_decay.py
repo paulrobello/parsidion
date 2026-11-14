@@ -26,10 +26,10 @@ SCRIPTS_DIR = (
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import vault_adaptive  # noqa: E402
-from core import vault_adaptive as core_adaptive  # noqa: E402
-from session_start import seed_selection  # noqa: E402
-from session_start.seed_selection import _rank_by_usefulness  # noqa: E402
+import parsidion.vault_adaptive as vault_adaptive  # noqa: E402
+from parsidion.core import vault_adaptive as core_adaptive  # noqa: E402
+from parsidion.session_start import seed_selection  # noqa: E402
+from parsidion.session_start.seed_selection import _rank_by_usefulness  # noqa: E402
 
 
 def _ts(days_ago: float) -> str:
@@ -88,7 +88,7 @@ class TestRankByUsefulnessDecay:
     def scores_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         """Point the usefulness store at a tmp HOME and stub the config read.
 
-        The path is patched on ``core.vault_adaptive`` — the module whose
+        The path is patched on ``parsidion.core.vault_adaptive`` — the module whose
         globals ``load_usefulness_scores`` actually resolves names in (the
         flat ``vault_adaptive`` shim only re-exports).
         """

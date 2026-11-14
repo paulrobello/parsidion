@@ -240,7 +240,7 @@ class TestScriptsDirFromImportedPackage:
     """
 
     def test_scripts_dir_is_inside_imported_package(self) -> None:
-        import core
+        import parsidion.core as core
 
         from parsidion_mcp.tools.ops import SCRIPTS_DIR
 
@@ -248,7 +248,7 @@ class TestScriptsDirFromImportedPackage:
         # package — the directory the process is actually importing from. A
         # drift here would mean we are subprocess-ing a different copy of the
         # code than the one we import.
-        expected_root = Path(core.__file__).resolve().parent.parent
+        expected_root = Path(core.__file__).resolve().parent.parent.parent
         assert SCRIPTS_DIR == expected_root
 
     def test_scripts_dir_not_hardwired_to_home_claude(self, monkeypatch) -> None:

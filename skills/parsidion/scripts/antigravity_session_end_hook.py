@@ -21,7 +21,7 @@ import json
 import sys
 from typing import Any
 
-from agent_adapter import _to_shared_payload, get, run_session_end
+from parsidion.agent_adapter import _to_shared_payload, get, run_session_end
 
 _ALLOW_STOP = '{"decision": ""}'
 

@@ -8,7 +8,7 @@ entry + commits the daily note change the previous wrapper omitted — so
 no longer accumulates uncommitted daily-note changes.
 """
 
-from agent_adapter import get, run_session_end
+from parsidion.agent_adapter import get, run_session_end
 
 
 def main() -> None:

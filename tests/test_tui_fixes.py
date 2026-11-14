@@ -11,7 +11,7 @@ Covers the crash fixes around the transcript popup:
 
 from __future__ import annotations
 
-import vault_review
+import parsidion.vault_review as vault_review
 
 
 # ---------------------------------------------------------------------------

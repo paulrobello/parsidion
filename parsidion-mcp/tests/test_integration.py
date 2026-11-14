@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from core import vault_path
-from core.vault_config import clear_config_cache
+from parsidion.core import vault_path
+from parsidion.core.vault_config import clear_config_cache
 
 from parsidion_mcp.tools.context import vault_context
 from parsidion_mcp.tools.notes import vault_read

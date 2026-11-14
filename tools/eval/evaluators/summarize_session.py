@@ -121,8 +121,8 @@ class SummarizeSessionEvaluator(BaseEvaluator):
         return {"cleaned_transcript": transcript}
 
     def render(self, case: CaseInput) -> str:
-        import note_schema
-        import prompt_templates
+        import parsidion.note_schema as note_schema
+        import parsidion.prompt_templates as prompt_templates
 
         return prompt_templates.render(
             self.prompt_id,
@@ -161,7 +161,7 @@ class SummarizeSessionEvaluator(BaseEvaluator):
     def score(
         self, parsed: dict[str, Any], case: CaseInput
     ) -> tuple[float, dict[str, float]]:
-        import note_schema
+        import parsidion.note_schema as note_schema
 
         expected = case.expected
         should_produce = bool(expected.get("should_produce_note", True))

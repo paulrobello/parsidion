@@ -586,7 +586,7 @@ class TestFixPermissionsDryVsExecute:
 
 
 class TestFixModeRegistry:
-    """The --fix-all dispatch is now data-driven via doctor.protocol.FixMode.
+    """The --fix-all dispatch is now data-driven via parsidion.doctor.protocol.FixMode.
     A new mode is one tuple append + its argparse declaration; the dispatch
     loop and the --fix-all implication stay in lockstep because they read the
     same registry."""
@@ -594,7 +594,7 @@ class TestFixModeRegistry:
     def test_fix_mode_is_frozen_dataclass(self) -> None:
         from dataclasses import FrozenInstanceError
 
-        from doctor.protocol import FixMode
+        from parsidion.doctor.protocol import FixMode
 
         m = FixMode("fix_x", lambda v, d: None, "label")
         # Frozen: callers can't mutate the registry in place.
@@ -602,7 +602,7 @@ class TestFixModeRegistry:
             m.flag = "fix_y"  # type: ignore[misc]
 
     def test_run_fix_modes_dispatches_selected(self, tmp_vault: Path) -> None:
-        from doctor.protocol import FixMode, run_fix_modes
+        from parsidion.doctor.protocol import FixMode, run_fix_modes
 
         called: list[str] = []
 
@@ -626,7 +626,7 @@ class TestFixModeRegistry:
         assert called == [f"{tmp_vault.name}:False"]
 
     def test_run_fix_modes_fix_all_runs_every_selected(self, tmp_vault: Path) -> None:
-        from doctor.protocol import FixMode, run_fix_modes
+        from parsidion.doctor.protocol import FixMode, run_fix_modes
 
         called: list[str] = []
 
@@ -931,7 +931,7 @@ class TestInScanPrefixClusterGuards:
         tmp_vault: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import doctor.orchestrator as orch
+        import parsidion.doctor.orchestrator as orch
 
         _write_note(tmp_vault, "Patterns/other-note.md")
         # quartz sorts before zephyr, so the quartz cluster moves first; its

@@ -1,9 +1,9 @@
 """Tests for code-fence-aware wikilink rewriting.
 
-Covers ``vault_links.replace_wikilinks_outside_code`` /
-``vault_links.sub_wikilinks_outside_code`` directly, plus one end-to-end
+Covers ``parsidion.vault_links.replace_wikilinks_outside_code`` /
+``parsidion.vault_links.sub_wikilinks_outside_code`` directly, plus one end-to-end
 regression per adopting call site (``vault_doctor.run_strip_prefixes`` and
-``vault_merge._update_wikilinks_in_vault``) to prove wikilink examples
+``parsidion.vault_merge._update_wikilinks_in_vault``) to prove wikilink examples
 inside fenced code blocks survive a real rename/merge without corruption.
 """
 
@@ -21,10 +21,10 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
 import vault_doctor  # noqa: E402
-import vault_links  # noqa: E402
-import vault_merge  # noqa: E402
+import parsidion.vault_links as vault_links  # noqa: E402
+import parsidion.vault_merge as vault_merge  # noqa: E402
 
 
 @pytest.fixture()
@@ -203,7 +203,7 @@ class TestStripPrefixesFenceAware:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end: vault_merge._update_wikilinks_in_vault
+# End-to-end: parsidion.vault_merge._update_wikilinks_in_vault
 # ---------------------------------------------------------------------------
 
 

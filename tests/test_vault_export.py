@@ -19,8 +19,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
-import vault_export  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_export as vault_export  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ import vault_export  # noqa: E402
 
 
 # ARC-009: use the shared tmp_vault fixture (sets CLAUDE_VAULT env var) instead
-# of monkeypatching vault_common.VAULT_ROOT directly.
+# of monkeypatching parsidion.vault_common.VAULT_ROOT directly.
 @pytest.fixture(autouse=True)
 def _patch_vault(tmp_vault: Path) -> None:  # noqa: ARG001
     """Wire resolve_vault() to a fresh tmp dir via the tmp_vault fixture."""

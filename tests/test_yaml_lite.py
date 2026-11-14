@@ -9,8 +9,8 @@ Two layers:
   quoted, and that emitted values round-trip through the readers).
 - **Differential fixture tests**: the committed corpora under
   ``tests/fixtures/yaml_lite/`` are replayed through the three consumers
-  (``vault_config._parse_config_yaml``, ``vault_index.parse_frontmatter``,
-  ``vault_path.read_vaults_yaml``) and compared against outputs captured
+  (``parsidion.vault_config._parse_config_yaml``, ``parsidion.vault_index.parse_frontmatter``,
+  ``parsidion.vault_path.read_vaults_yaml``) and compared against outputs captured
   from the PRE-ENH-024 private parsers (commit f936bc1). This pins the
   consolidation as behavior-preserving: byte-for-byte identical parse
   output over every corpus shape, including the historical doctor
@@ -28,8 +28,8 @@ from typing import Any
 
 import pytest
 
-from core import vault_config, vault_path, yaml_lite
-from core.vault_index import parse_frontmatter
+from parsidion.core import vault_config, vault_path, yaml_lite
+from parsidion.core.vault_index import parse_frontmatter
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures" / "yaml_lite"
 
@@ -392,7 +392,7 @@ class TestLegacyAliases:
         assert vault_config._strip_inline_comment is yaml_lite.strip_inline_comment
 
     def test_vault_common_still_reexports_them(self) -> None:
-        import vault_common
+        import parsidion.vault_common as vault_common
 
         assert vault_common._parse_scalar is yaml_lite.parse_scalar
         assert vault_common._split_list_items is yaml_lite.split_list_items

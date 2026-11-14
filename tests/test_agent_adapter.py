@@ -1,6 +1,6 @@
 """QA-008 / ARC-020: parameterized test for the agent-adapter registry.
 
-The five codex/antigravity hook shims delegate to ``agent_adapter.run_session_start``
+The five codex/antigravity hook shims delegate to ``parsidion.agent_adapter.run_session_start``
 and ``run_session_end``; this test pins the contract for every registered
 runtime in one place, replacing the five copies a per-runtime test would
 otherwise require.
@@ -22,7 +22,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import agent_adapter  # noqa: E402
+import parsidion.agent_adapter as agent_adapter  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +142,8 @@ class TestRunSessionStartAcrossRuntimes:
         monkeypatch.setattr(session_start_hook, "build_session_context", fake_build)
         # Point resolve_vault at tmp_path so the hook event emission doesn't
         # touch the real vault.
-        # ARC-103: agent_adapter imports these by name from core.vault_path /
-        # core.vault_hooks, so patch the bound names on agent_adapter itself.
+        # ARC-103: agent_adapter imports these by name from parsidion.core.vault_path /
+        # parsidion.core.vault_hooks, so patch the bound names on agent_adapter itself.
         monkeypatch.setattr(agent_adapter, "resolve_vault", lambda **_kw: tmp_path)
         monkeypatch.setattr(agent_adapter, "get_project_name", lambda _cwd: "test")
 
@@ -226,7 +226,7 @@ class TestShimsResolveAdapter:
     ) -> None:
         import importlib
 
-        # Import the shim and confirm agent_adapter.get(name) returns the
+        # Import the shim and confirm parsidion.agent_adapter.get(name) returns the
         # adapter the shim is supposed to use. The shim's main() does
         # `adapter = get("<name>")`; we don't invoke main() (it would read
         # stdin), but we verify the registry contract holds.
@@ -277,13 +277,13 @@ class TestExternalLoading:
     def test_off_by_default(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import vault_common
+        import parsidion.vault_common as vault_common
 
         home = tmp_path / "home"
         ad = home / ".config" / "parsidion" / "adapters"
         ad.mkdir(parents=True)
         (ad / "x.py").write_text(
-            "from agent_adapter import AgentAdapter\nADAPTER = AgentAdapter(name='x')\n"
+            "from parsidion.agent_adapter import AgentAdapter\nADAPTER = AgentAdapter(name='x')\n"
         )
         monkeypatch.setenv(
             "CLAUDE_VAULT", str(tmp_path)
@@ -300,7 +300,7 @@ class TestExternalLoading:
     def test_loads_when_enabled_and_refuses_world_writable(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import vault_common
+        import parsidion.vault_common as vault_common
 
         vault_dir = tmp_path / "vault"
         vault_dir.mkdir()
@@ -313,7 +313,7 @@ class TestExternalLoading:
         # test from "loads fine" to "refused by the dir gate".
         ad.chmod(0o755)
         (ad / "acme.py").write_text(
-            "from agent_adapter import AgentAdapter, InstallerSpec\n"
+            "from parsidion.agent_adapter import AgentAdapter, InstallerSpec\n"
             "ADAPTER = AgentAdapter(name='acme', "
             "install=InstallerSpec(display_name='Acme'))\n"
         )
@@ -351,7 +351,7 @@ class TestExternalLoading:
         """SEC-205: a group-writable adapters dir means every adapter is
         planted-code — refuse the whole directory even when the files
         themselves look clean."""
-        import vault_common
+        import parsidion.vault_common as vault_common
 
         vault_dir = tmp_path / "vault"
         vault_dir.mkdir()
@@ -361,7 +361,7 @@ class TestExternalLoading:
         ad.mkdir(parents=True)
         ad.chmod(0o775)  # group-writable directory -> dir gate must refuse
         (ad / "acme.py").write_text(
-            "from agent_adapter import AgentAdapter, InstallerSpec\n"
+            "from parsidion.agent_adapter import AgentAdapter, InstallerSpec\n"
             "ADAPTER = AgentAdapter(name='acme', "
             "install=InstallerSpec(display_name='Acme'))\n"
         )
@@ -392,9 +392,9 @@ class TestExternalLoading:
 
         Tests cannot chown, so simulate foreign ownership by answering
         ``os.getuid()`` with an uid that owns nothing in the temp tree (the
-        same check ``vault_fs.is_trusted_executable`` applies).
+        same check ``parsidion.vault_fs.is_trusted_executable`` applies).
         """
-        import vault_common
+        import parsidion.vault_common as vault_common
 
         vault_dir = tmp_path / "vault"
         vault_dir.mkdir()
@@ -404,7 +404,7 @@ class TestExternalLoading:
         ad.mkdir(parents=True)
         ad.chmod(0o755)
         (ad / "acme.py").write_text(
-            "from agent_adapter import AgentAdapter, InstallerSpec\n"
+            "from parsidion.agent_adapter import AgentAdapter, InstallerSpec\n"
             "ADAPTER = AgentAdapter(name='acme', "
             "install=InstallerSpec(display_name='Acme'))\n"
         )

@@ -18,11 +18,11 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "skills" / "parsidion/scripts")
 )
 
-import vault_common  # noqa: E402
-import vault_conflicts  # noqa: E402
-import vault_merge  # noqa: E402
-from core.vault_links import inject_related_links  # noqa: E402
-from doctor.frontmatter import splice_frontmatter_onto_original  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_conflicts as vault_conflicts  # noqa: E402
+import parsidion.vault_merge as vault_merge  # noqa: E402
+from parsidion.core.vault_links import inject_related_links  # noqa: E402
+from parsidion.doctor.frontmatter import splice_frontmatter_onto_original  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

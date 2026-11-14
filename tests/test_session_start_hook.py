@@ -34,7 +34,7 @@ def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> No
     import dataclasses
     import types as _types
 
-    from core.vault_schema import VaultAppConfig
+    from parsidion.core.vault_schema import VaultAppConfig
 
     base = VaultAppConfig()
     base.session_start_hook = dataclasses.replace(base.session_start_hook, **ssh_fields)
@@ -44,9 +44,9 @@ def _patch_hook_cfg(monkeypatch: pytest.MonkeyPatch, **ssh_fields: object) -> No
     )
 
 
-import vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
-from core import ai_backend as core_ai_backend  # noqa: E402 -- ARC-006: patch internals where they live
-from core import vault_index as core_vault_index  # noqa: E402 -- same rule
+import parsidion.vault_common as vault_common  # noqa: E402 -- constants/helpers ssh no longer re-exports
+from parsidion.core import ai_backend as core_ai_backend  # noqa: E402 -- ARC-006: patch internals where they live
+from parsidion.core import vault_index as core_vault_index  # noqa: E402 -- same rule
 
 
 def _write_codex_config(vault: Path) -> None:
@@ -766,7 +766,7 @@ def _build_meta(
 
 
 class TestLoadGraphMetadata:
-    """Tier 1 data layer: vault_common.load_graph_metadata()."""
+    """Tier 1 data layer: parsidion.vault_common.load_graph_metadata()."""
 
     def test_returns_none_when_db_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1350,7 +1350,7 @@ class TestBuildCandidatesRanking:
         import os
         import time as _time
 
-        from session_start import seed_selection
+        from parsidion.session_start import seed_selection
 
         vault, _proj, _nbr, _recent = _setup_graph_vault(monkeypatch, tmp_path)
         plain = vault / "Patterns" / "plain-note.md"

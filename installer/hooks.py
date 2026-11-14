@@ -28,7 +28,7 @@ from installer.paths import (
 )
 from installer.ui import _confirm, _err, _ok, _print, _step, _warn
 
-import agent_adapter  # ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)
+import parsidion.agent_adapter as agent_adapter  # ENH-006: runtime registry (scripts/ on sys.path via installer/__init__)
 
 # ---------------------------------------------------------------------------
 # Atomic-write + flock helpers (SEC-105 / ARC-018)

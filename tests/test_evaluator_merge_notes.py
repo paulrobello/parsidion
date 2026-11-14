@@ -1,6 +1,6 @@
 """Unit tests for the ``merge-notes`` prompt evaluator (ENH-008, board item #3).
 
-Render goes through the real ``prompt_templates.render`` (its strict variable
+Render goes through the real ``parsidion.prompt_templates.render`` (its strict variable
 check is the drift gate); parse/score are pure functions fed canned bodies, with
 NO AI call.
 """

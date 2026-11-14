@@ -34,14 +34,14 @@ docs = [
 ]
 
 [project.scripts]
-vault-search = "vault_search:main"
-vault-new = "vault_new:main"
-vault-stats = "vault_stats:main"
-vault-review = "vault_review:main"
-vault-export = "vault_export:main"
-vault-merge = "vault_merge:main"
-vault-conflicts = "vault_conflicts:main"
-vault-supersede = "vault_supersede:main"
+vault-search = "parsidion.vault_search:main"
+vault-new = "parsidion.vault_new:main"
+vault-stats = "parsidion.vault_stats:main"
+vault-review = "parsidion.vault_review:main"
+vault-export = "parsidion.vault_export:main"
+vault-merge = "parsidion.vault_merge:main"
+vault-conflicts = "parsidion.vault_conflicts:main"
+vault-supersede = "parsidion.vault_supersede:main"
 
 [build-system]
 requires = [
@@ -49,72 +49,17 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
-# ARC-003: every flat module under skills/parsidion/scripts/ ships. The list is
-# enforced against the directory by tests/test_packaging_manifest.py, so adding
-# a module without declaring it fails the gate instead of shipping a wheel whose
-# console scripts die on first import. (html-to-md.py is excluded: its hyphenated
-# filename is not importable as a module.)
-[tool.setuptools]
-py-modules = [
-    "agent_adapter",
-    "ai_backend",
-    "build_embeddings",
-    "build_graph",
-    "check_graph_coverage",
-    "codex_session_start_hook",
-    "codex_stop_hook",
-    "codex_subagent_stop_hook",
-    "antigravity_session_end_hook",
-    "antigravity_session_start_hook",
-    "note_schema",
-    "parsight_backend",
-    "post_compact_hook",
-    "pre_compact_hook",
-    "pre_tool_use_hook",
-    "prompt_templates",
-    "recall_context",
-    "run_trigger_eval",
-    "session_start_hook",
-    "session_stop_hook",
-    "subagent_stop_hook",
-    "subproc_util",
-    "summarize_sessions",
-    "update_index",
-    "user_prompt_submit_hook",
-    "vault_adaptive",
-    "vault_common",
-    "vault_config",
-    "vault_conflicts",
-    "vault_constants",
-    "vault_doctor",
-    "vault_embed_serve",
-    "vault_export",
-    "vault_fs",
-    "vault_health",
-    "vault_hooks",
-    "vault_index",
-    "vault_links",
-    "vault_merge",
-    "vault_metrics",
-    "vault_new",
-    "vault_path",
-    "vault_resolve",
-    "vault_review",
-    "vault_supersede",
-    "vault_search",
-    "vault_stats",
-    "vault_tui",
-  "transcript_reader",
-]
-
-# Subpackages under skills/parsidion/scripts/ — discovered by find so a new
-# package (or subpackage) ships without a manifest edit; the include patterns
-# are enforced against the directory by tests/test_packaging_manifest.py.
-# core/ is the stdlib-only library package (ARC-004); cli/ is the decomposed
-# CLI layer (ARC-005); doctor/ and summarizer/ pre-date core/.
+# ARC-201: the wheel ships ONLY the parsidion.* namespace. The by-path entry
+# scripts that remain at the scripts/ root (hooks, update_index, build_graph,
+# vault_doctor, ...) are NOT shipped: they are invoked by file path from hook
+# registrations and Makefile targets against a repo/symlink install, never
+# imported from an installed wheel, and several carry test monkeypatch surfaces
+# that depend on their root module names. (html-to-md.py is additionally
+# excluded from import-surface checks: its hyphenated filename is not
+# importable as a module.)
 [tool.setuptools.packages.find]
 where = ["skills/parsidion/scripts"]
-include = ["core*", "cli*", "doctor*", "summarizer*", "session_start*"]
+include = ["parsidion*"]
 
 [tool.setuptools.package-dir]
 "" = "skills/parsidion/scripts"
@@ -153,26 +98,26 @@ ignore = [
 # QA-019: the ARC-005/ARC-006 flat compatibility shims exist to re-export
 # names for tests, parsidion-mcp, and the installer — every F401 there is
 # deliberate, so the exemption lives here instead of on each line.
-"skills/parsidion/scripts/vault_common.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_common.py" = ["F401"]
 "skills/parsidion/scripts/vault_doctor.py" = ["F401", "E402"]
 "skills/parsidion/scripts/update_index.py" = ["F401", "E402"]
-"skills/parsidion/scripts/vault_merge.py" = ["F401"]
-"skills/parsidion/scripts/vault_stats.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_merge.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_stats.py" = ["F401"]
 "skills/parsidion/scripts/summarize_sessions.py" = ["F401", "E402"]
 "skills/parsidion/scripts/session_start_hook.py" = ["F401"]
-"skills/parsidion/scripts/ai_backend.py" = ["F401"]
-"skills/parsidion/scripts/parsight_backend.py" = ["F401"]
-"skills/parsidion/scripts/subproc_util.py" = ["F401"]
-"skills/parsidion/scripts/vault_config.py" = ["F401"]
-"skills/parsidion/scripts/vault_constants.py" = ["F401"]
-"skills/parsidion/scripts/vault_adaptive.py" = ["F401"]
-"skills/parsidion/scripts/vault_hooks.py" = ["F401"]
-"skills/parsidion/scripts/vault_fs.py" = ["F401"]
-"skills/parsidion/scripts/vault_health.py" = ["F401"]
-"skills/parsidion/scripts/vault_links.py" = ["F401"]
-"skills/parsidion/scripts/vault_index.py" = ["F401"]
-"skills/parsidion/scripts/vault_path.py" = ["F401"]
-"skills/parsidion/scripts/vault_metrics.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/ai_backend.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/parsight_backend.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/subproc_util.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_config.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_constants.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_adaptive.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_hooks.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_fs.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_health.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_links.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_index.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_path.py" = ["F401"]
+"skills/parsidion/scripts/parsidion/vault_metrics.py" = ["F401"]
 # tools/eval: the sys.path bootstrap must precede the imports it enables.
 "tools/eval/*.py" = ["E402"]
 

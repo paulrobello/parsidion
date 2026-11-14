@@ -26,7 +26,7 @@ sys.path.insert(
 )
 
 import vault_doctor  # noqa: E402
-from doctor import frontmatter as doctor_frontmatter  # noqa: E402
+from parsidion.doctor import frontmatter as doctor_frontmatter  # noqa: E402
 
 
 @pytest.fixture

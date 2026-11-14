@@ -4,7 +4,7 @@ The prompt inlines a block of semantically-similar notes and asks the model to
 return ONLY a JSON array of contradiction pairs. This evaluator scores the
 parsed array on four axes (valid JSON array, per-element schema, contradiction
 recall against expected conflicting stems, and contradiction precision) — with
-NO AI call. The render path goes through the real ``prompt_templates.render``,
+NO AI call. The render path goes through the real ``parsidion.prompt_templates.render``,
 whose strict bidirectional variable check is the drift gate.
 """
 
@@ -35,7 +35,7 @@ class DetectConflictsEvaluator(BaseEvaluator):
         return {"note_block": note_block}
 
     def render(self, case: CaseInput) -> str:
-        import prompt_templates  # local: keeps the module import-light
+        import parsidion.prompt_templates as prompt_templates  # local: keeps the module import-light
 
         note_count = str(
             case.expected.get(

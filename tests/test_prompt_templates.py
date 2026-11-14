@@ -27,8 +27,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import note_schema  # noqa: E402
-from prompt_templates import PromptError, load_prompt, render, reset_cache  # noqa: E402
+import parsidion.note_schema as note_schema  # noqa: E402
+from parsidion.prompt_templates import PromptError, load_prompt, render, reset_cache  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -422,12 +422,12 @@ def test_all_consumers_share_one_note_type_set() -> None:
 
     The original bug was a silent drift between two separately-defined
     frozensets. ENH-008 makes ``note_schema`` the single source, so
-    ``summarizer._state_const._VALID_NOTE_TYPES``, ``doctor._state.VALID_TYPES``,
-    and ``note_schema.VALID_NOTE_TYPES`` must all be the same object — not
+    ``parsidion.summarizer._state_const._VALID_NOTE_TYPES``, ``parsidion.doctor._state.VALID_TYPES``,
+    and ``parsidion.note_schema.VALID_NOTE_TYPES`` must all be the same object — not
     merely equal.
     """
-    from doctor import _state
-    from summarizer import _state_const
+    from parsidion.doctor import _state
+    from parsidion.summarizer import _state_const
 
     assert _state.VALID_TYPES is note_schema.VALID_NOTE_TYPES
     assert _state_const._VALID_NOTE_TYPES is note_schema.VALID_NOTE_TYPES

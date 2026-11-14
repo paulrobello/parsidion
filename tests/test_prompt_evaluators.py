@@ -1,7 +1,7 @@
 """Unit tests for the per-prompt evaluator package (ENH-008, board item #3).
 
 These exercise render / parse / score with NO AI call — the render path goes
-through the real ``prompt_templates.render`` (whose strict variable check is the
+through the real ``parsidion.prompt_templates.render`` (whose strict variable check is the
 drift gate), and parse/score are pure functions fed canned model outputs.
 """
 

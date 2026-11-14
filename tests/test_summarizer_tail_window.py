@@ -1,4 +1,4 @@
-"""Adaptive tail-window tests for ``summarizer.transcript.preprocess_transcript``.
+"""Adaptive tail-window tests for ``parsidion.summarizer.transcript.preprocess_transcript``.
 
 A transcript whose final ``tail_bytes`` window holds only telemetry records
 (codex ``event_msg``/``token_count``, claude ``attachment``) preprocesses to
@@ -21,7 +21,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import core.transcript_reader  # noqa: E402
+import parsidion.core.transcript_reader as transcript_reader  # noqa: E402
 
 # The summarizer-section schema default (256 KiB) — the window that fails on
 # telemetry-dense tails.
@@ -56,8 +56,8 @@ def _write_transcript(path: Path, lines: list[str]) -> None:
 def preprocess(monkeypatch: pytest.MonkeyPatch):
     """``preprocess_transcript`` with a per-test anyio stub.
 
-    Lazy import per the suite convention: ``summarizer.transcript`` pulls in
-    ``summarizer.prompt`` → ``anyio``, and a stub left in ``sys.modules`` at
+    Lazy import per the suite convention: ``parsidion.summarizer.transcript`` pulls in
+    ``parsidion.summarizer.prompt`` → ``anyio``, and a stub left in ``sys.modules`` at
     collection time would defeat ``pytest.importorskip("anyio")`` in
     test_summarize_sessions' real-task-group test.
     """
@@ -69,16 +69,16 @@ def preprocess(monkeypatch: pytest.MonkeyPatch):
             to_thread=types.SimpleNamespace(run_sync=lambda func, *args: func(*args)),
         ),
     )
-    import summarizer.transcript
+    import parsidion.summarizer.transcript as transcript
 
-    return summarizer.transcript.preprocess_transcript
+    return transcript.preprocess_transcript
 
 
 @pytest.fixture()
 def _spy_read_tail(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
     """Record every (max_bytes, max_line_bytes) read_tail call, pass through."""
     calls: list[tuple[int, int]] = []
-    real = core.transcript_reader.read_tail
+    real = transcript_reader.read_tail
 
     def spy(path: Path, *, tail_lines: int, max_bytes: int, max_line_bytes: int):
         calls.append((max_bytes, max_line_bytes))
@@ -89,7 +89,7 @@ def _spy_read_tail(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
             max_line_bytes=max_line_bytes,
         )
 
-    monkeypatch.setattr(core.transcript_reader, "read_tail", spy)
+    monkeypatch.setattr(transcript_reader, "read_tail", spy)
     return calls
 
 

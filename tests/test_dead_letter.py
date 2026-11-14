@@ -3,7 +3,7 @@
 Covers:
 - summarize_sessions._append_dead_letter(): written on purge at _MAX_ATTEMPTS,
   best-effort (never raises) when the write itself fails.
-- vault_metrics.collect_dead_letters(): parses dead_letters.jsonl.
+- parsidion.vault_metrics.collect_dead_letters(): parses dead_letters.jsonl.
 - session_start_hook._build_dead_letter_notice(): warning line construction,
   and its inclusion in build_session_context()'s injected context.
 """
@@ -22,8 +22,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "parsidion" / "sc
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
-import vault_metrics  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
+import parsidion.vault_metrics as vault_metrics  # noqa: E402
 
 session_start_hook = importlib.import_module("session_start_hook")
 
@@ -118,7 +118,7 @@ def test_purge_at_max_attempts_writes_dead_letter(
     assert record["last_failure"] == "merge target unresolvable"
     assert "dead_lettered_at" in record and record["dead_lettered_at"]
 
-    # Permissions match the 0o600 convention used by vault_fs.append_to_pending.
+    # Permissions match the 0o600 convention used by parsidion.vault_fs.append_to_pending.
     mode = dead_letter_path.stat().st_mode & 0o777
     assert mode == 0o600
 
@@ -302,7 +302,7 @@ def test_arc013_prune_preserves_0600_mode(
 
 
 # ---------------------------------------------------------------------------
-# vault_metrics.collect_dead_letters
+# parsidion.vault_metrics.collect_dead_letters
 # ---------------------------------------------------------------------------
 
 
@@ -712,14 +712,14 @@ def test_rebuild_index_timeout_is_swallowed(
     """QA-005: a hung update_index/build_graph child must not propagate a
     timeout into the caller (the summarizer and the hooks that drive it).
     ARC-004: ``rebuild_index`` delegates the subprocess to
-    ``vault_common.run_index_rebuild``; a ``("timeout", None)`` result is
+    ``parsidion.vault_common.run_index_rebuild``; a ``("timeout", None)`` result is
     logged as a warning and the run continues with a stale index rather
     than dying mid-run.
     """
     mod = _fresh_summarize_sessions(monkeypatch)
 
     monkeypatch.setattr(
-        sys.modules["summarizer.queue"],
+        sys.modules["parsidion.summarizer.queue"],
         "run_index_rebuild",
         lambda *args, **kwargs: ("timeout", None),
     )

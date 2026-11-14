@@ -29,7 +29,7 @@ def test_connect_choices_match_registry() -> None:
     Guards the class of drift where the CLI hardcodes a runtime list that
     disagrees with the registry.
     """
-    import agent_adapter  # noqa: PLC0415
+    import parsidion.agent_adapter as agent_adapter  # noqa: PLC0415
 
     assert set(installer_cli._connectable_runtimes()) == set(
         agent_adapter.known_runtimes()
@@ -482,7 +482,7 @@ class TestInstructionsFilenameWired:
     def _patch_custom_codex(self, monkeypatch, tmp_path: Path, filename: str) -> None:
         import dataclasses
 
-        import agent_adapter
+        import parsidion.agent_adapter as agent_adapter
 
         monkeypatch.setattr(
             skill, "AGENT_INSTRUCTIONS_SRC", _fake_instructions(tmp_path)
@@ -529,7 +529,7 @@ class TestInstructionsFilenameWired:
         # instructions_filename=None (claude/pi shape) → wrapper must not write
         import dataclasses
 
-        import agent_adapter
+        import parsidion.agent_adapter as agent_adapter
 
         base = agent_adapter.get("codex")
         assert base is not None and base.install is not None

@@ -9,7 +9,7 @@ import pytest
 def _parsight_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PARSIGHT_MCP_URL", "http://127.0.0.1:1/mcp")
     try:
-        from core import parsight_backend
+        from parsidion.core import parsight_backend
 
         parsight_backend.reset_parsight_cache()
     except ImportError:

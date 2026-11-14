@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from core import vault_path  # noqa: E402 -- conftest puts scripts/ on sys.path
+from parsidion.core import vault_path  # noqa: E402 -- conftest puts scripts/ on sys.path
 
 # Exact bytes of the fresh template (no column-0 ``vaults:`` section).
 _TEMPLATE = (

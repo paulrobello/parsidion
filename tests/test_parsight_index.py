@@ -1,4 +1,4 @@
-"""Tests for parsight_backend.ensure_vault_indexed / spawn_background_index (Task 4)."""
+"""Tests for parsidion.parsight_backend.ensure_vault_indexed / spawn_background_index (Task 4)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
+from parsidion.core import parsight_backend  # noqa: E402 — ARC-006: patch internals where they live
 
 from tests.fake_parsight import (  # noqa: E402
     FakeHealth,

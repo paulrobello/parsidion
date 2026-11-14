@@ -52,7 +52,7 @@ for _p in (_SCRIPT_DIR, _SCRIPTS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import vault_common
+import parsidion.vault_common as vault_common
 from embed_eval_common import (
     DEFAULT_WORKERS,
     ComboResult,

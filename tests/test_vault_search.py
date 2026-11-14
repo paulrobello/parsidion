@@ -20,9 +20,9 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import vault_common  # noqa: E402
+import parsidion.vault_common as vault_common  # noqa: E402
 
-vault_search = importlib.import_module("vault_search")
+vault_search = importlib.import_module("parsidion.vault_search")
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +313,7 @@ class TestApplyGrepFilter:
                 "incoming_links": 0,
             }
         ]
-        from cli.search import metadata as _metadata_mod  # noqa: PLC0415
+        from parsidion.cli.search import metadata as _metadata_mod  # noqa: PLC0415
 
         _metadata_mod._skipped_outside_warned = False
         matched = vault_search._apply_grep_filter(

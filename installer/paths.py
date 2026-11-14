@@ -17,8 +17,8 @@ from pathlib import Path
 # skill's ``scripts/`` directory before any installer submodule body runs).
 # Importing it here lets installer/paths.py re-export the maps under their
 # historical installer-side names so existing call sites continue to work.
-import agent_adapter as _agent_adapter
-from core.vault_path import get_vaults_config_path, read_vaults_yaml
+import parsidion.agent_adapter as _agent_adapter
+from parsidion.core.vault_path import get_vaults_config_path, read_vaults_yaml
 
 # ---------------------------------------------------------------------------
 # Source layout (relative to the install script at repo root)
@@ -115,7 +115,7 @@ def _wants_antigravity_runtime(runtime: str) -> bool:
 # ---------------------------------------------------------------------------
 
 # Hardcoded fallback used only when neither the import nor the regex can
-# resolve the canonical list.Drift between this and vault_path.VAULT_DIRS
+# resolve the canonical list.Drift between this and parsidion.vault_path.VAULT_DIRS
 # is caught by tests/test_vault_dirs_sync.py.
 _VAULT_DIRS_FALLBACK: list[str] = [
     "Daily",
@@ -146,17 +146,17 @@ def _extract_vault_dirs() -> list[str]:
     """
     scripts_dir = SKILL_SRC / "scripts"
     # Prefer importing vault_path directly so installer.VAULT_DIRS tracks
-    # runtime mutations of vault_path.VAULT_DIRS (the mechanism test patches
-    # vault_path.VAULT_DIRS and expects installer to follow). The scripts dir
+    # runtime mutations of parsidion.vault_path.VAULT_DIRS (the mechanism test patches
+    # parsidion.vault_path.VAULT_DIRS and expects installer to follow). The scripts dir
     # is already on sys.path — installer/__init__.py inserts it at package
     # import (ARC-008 removed this duplicate insert).
     try:
-        import vault_path as _vault_path  # type: ignore[import-not-found]
+        import parsidion.vault_path as _vault_path  # type: ignore[import-not-found]
 
         return list(_vault_path.VAULT_DIRS)
     except Exception as e:  # noqa: BLE001 — fall back to regex on any failure
         print(
-            f"installer/paths.py: could not import vault_path.VAULT_DIRS ({e!r}); "
+            f"installer/paths.py: could not import parsidion.vault_path.VAULT_DIRS ({e!r}); "
             "falling back to regex parse",
             file=sys.stderr,
         )
@@ -280,7 +280,7 @@ def _resolve_vault_root_for_uninstall() -> Path:
     """
     default = _default_vault_path()
     config_path = get_vaults_config_path()
-    # QA-004: shared reader from core.vault_path instead of a third
+    # QA-004: shared reader from parsidion.core.vault_path instead of a third
     # hand-rolled vaults.yaml parse.
     named, default_ref = read_vaults_yaml(config_path)
 

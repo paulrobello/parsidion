@@ -2,7 +2,7 @@
 
 ``_search_embeddings`` must order results by the DECAYED score, not the raw
 cosine the SQL fetches by: over-fetch 3x, apply decay, filter by min_score,
-sort descending, truncate — the same contract ``parsight_backend.parsight_search``
+sort descending, truncate — the same contract ``parsidion.parsight_backend.parsight_search``
 implements. These tests seed a real sqlite-vec DB with controlled cosines and
 mtimes and pin the decayed ordering; the expected values are computed with the
 shared ``apply_decay_score`` (the exact function the parsight path uses), which
@@ -31,8 +31,8 @@ _SCRIPTS_DIR = (
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from cli.search import embeddings as cli_embeddings  # noqa: E402
-from vault_config import apply_decay_score  # noqa: E402
+from parsidion.cli.search import embeddings as cli_embeddings  # noqa: E402
+from parsidion.vault_config import apply_decay_score  # noqa: E402
 
 # Query vector [1, 0]: cosine(query, v) == v[0] for unit vectors, so each
 # note's raw score is directly controlled by its first vector component.
@@ -191,7 +191,7 @@ class TestDecayConfigHoistedOutOfLoops:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Explicit decay parameters must not read config at all."""
-        from core import vault_config as core_vc
+        from parsidion.core import vault_config as core_vc
 
         def _boom(*args: object, **kwargs: object) -> None:
             raise AssertionError(
@@ -210,7 +210,7 @@ class TestDecayConfigHoistedOutOfLoops:
         self, decay_env: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The row loop must not touch get_config (previously 2 calls/row)."""
-        from core import vault_config as core_vc
+        from parsidion.core import vault_config as core_vc
 
         def _boom(*args: object, **kwargs: object) -> None:
             raise AssertionError("scoring loop must not read config per row (PRF-103)")
@@ -227,8 +227,8 @@ class TestDecayConfigHoistedOutOfLoops:
         assert len(results) == 5
 
     def test_resolve_decay_params_defaults_and_overrides(self, tmp_vault: Path) -> None:
-        import vault_common
-        from vault_config import resolve_decay_params
+        import parsidion.vault_common as vault_common
+        from parsidion.vault_config import resolve_decay_params
 
         assert resolve_decay_params(vault=tmp_vault) == (90.0, 0.5)
         (tmp_vault / "config.yaml").write_text(
@@ -241,8 +241,8 @@ class TestDecayConfigHoistedOutOfLoops:
     def test_resolve_decay_params_garbage_falls_back_to_defaults(
         self, tmp_vault: Path
     ) -> None:
-        import vault_common
-        from vault_config import resolve_decay_params
+        import parsidion.vault_common as vault_common
+        from parsidion.vault_config import resolve_decay_params
 
         (tmp_vault / "config.yaml").write_text(
             "embeddings:\n"
@@ -255,13 +255,13 @@ class TestDecayConfigHoistedOutOfLoops:
 
     def test_omitted_params_still_read_config(self, tmp_vault: Path) -> None:
         """Back-compat path: apply_decay_score without params reads config."""
-        from vault_config import apply_decay_score
+        from parsidion.vault_config import apply_decay_score
 
         (tmp_vault / "config.yaml").write_text(
             "embeddings:\n  decay_half_life_days: 30\n  decay_min_factor: 0.5\n",
             encoding="utf-8",
         )
-        import vault_common
+        import parsidion.vault_common as vault_common
 
         vault_common.clear_config_cache()
         now = time.time()

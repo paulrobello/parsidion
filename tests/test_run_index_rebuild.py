@@ -1,6 +1,6 @@
 """ARC-004: contract tests for the shared index-rebuild subprocess owner.
 
-``core.vault_index.run_index_rebuild`` replaced three independent launchers
+``parsidion.core.vault_index.run_index_rebuild`` replaced three independent launchers
 (installer, MCP ``rebuild_index``, summarizer queue) whose argv/env/discovery
 contracts had drifted — most importantly the installer copy omitted
 ``--no-project``. These tests pin the unified contract.
@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import core.vault_index as vi
+import parsidion.core.vault_index as vi
 
 
 def _capture_run(monkeypatch):
@@ -101,6 +101,6 @@ def test_default_discovery_finds_a_script(monkeypatch):
     assert script.name == "update_index.py"
     # Source checkout first (ARC-021: same code as the running process),
     # installed SCRIPTS_DIR second.
-    assert script.parent == Path(vi.__file__).resolve().parent.parent or (
+    assert script.parent == Path(vi.__file__).resolve().parent.parent.parent or (
         script.parent == vi.SCRIPTS_DIR
     )
