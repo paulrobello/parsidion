@@ -294,7 +294,7 @@ def _launch_summarizer_if_pending(vault_path: Path) -> None:
         rotate_log_file(log_path)
         with open(log_path, "ab") as log_file:
             subprocess.Popen(
-                ["uv", "run", "--no-project", str(summarizer)],
+                ["uv", "run", "--no-project", str(summarizer), "-V", str(vault_path)],
                 stdin=subprocess.DEVNULL,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
@@ -427,6 +427,7 @@ def _persist_and_report(
     hook_start: float,
     subagent: bool,
     payload: dict[str, object],
+    resolution_warnings: list[str] | None = None,
 ) -> None:
     """QA-002: the single persist tail shared by the AI and keyword paths.
 
@@ -516,6 +517,8 @@ def _persist_and_report(
     if not subagent:
         event_extra["queued"] = queued
         event_extra["mode"] = mode
+    if resolution_warnings:
+        event_extra["resolution_warnings"] = resolution_warnings
     try:
         write_hook_event(
             hook=adapter.hook_event_name_end

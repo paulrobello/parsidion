@@ -403,8 +403,12 @@ def render_vaults_yaml(
     vault_name: str,
     vault_path_str: str,
     original: str,
+    set_default: bool = True,
 ) -> str:
     """Return new vaults.yaml content with *vault_name* and ``default:`` set.
+
+    With ``set_default=False`` only the named entry is written and any
+    existing ``default:`` line is left untouched (none is added).
 
     QA-004: the single ``vaults.yaml`` writer body. QA-104: rewritten as
     parse -> mutate -> serialize over :class:`_VaultsFile`, so the named
@@ -414,14 +418,20 @@ def render_vaults_yaml(
     the file is empty or has no column-0 ``vaults:`` section. The output
     round-trips through ``read_vaults_yaml`` unchanged and re-rendering it
     is a byte-identical no-op. The caller's ``vaults`` dict is not
-    modified; *default* is accepted for signature compatibility and the
-    new default is always *vault_path_str*.
+    modified; with ``set_default=True`` the new default is always
+    *vault_path_str*, otherwise an existing *default* is preserved.
     """
     model = _parse_vaults_file(original)
     if not model.has_section:
-        return "\n".join([*_template_lines(vaults, vault_name, vault_path_str), ""])
+        lines = _template_lines(vaults, vault_name, vault_path_str)
+        if not set_default:
+            lines = [ln for ln in lines if not ln.startswith("default:")]
+            if default:
+                lines.append(f"default: {default}")
+        return "\n".join([*lines, ""])
     model.set_entry(vault_name, vault_path_str)
-    model.set_default(vault_path_str)
+    if set_default:
+        model.set_default(vault_path_str)
     return model.serialize()
 
 
@@ -659,6 +669,54 @@ _active_vault: ContextVar[Path | None] = ContextVar(
 )
 
 
+_resolution_warnings: ContextVar[list[str] | None] = ContextVar(
+    "parsidion_resolution_warnings", default=None
+)
+
+
+_WARNING_FIELD_MAX = 80
+
+
+def _sanitize_warning_field(value: str) -> str:
+    """Collapse *value* to one capped line, repr-quoted.
+
+    ``.claude/vault`` content is attacker-controlled and the warning is
+    injected into model context, so no multi-line or oversized payload may
+    ride along.
+    """
+    one_line = " ".join(value.split())
+    if len(one_line) > _WARNING_FIELD_MAX:
+        one_line = one_line[:_WARNING_FIELD_MAX] + "..."
+    return repr(one_line)
+
+
+def _record_resolution_warning(ref: str, where: str, next_branch: str) -> None:
+    """Record that a vault reference did not resolve and was skipped."""
+    ref = _sanitize_warning_field(ref)
+    where = _sanitize_warning_field(where)
+    warnings = _resolution_warnings.get()
+    if warnings is None:
+        warnings = []
+        _resolution_warnings.set(warnings)
+    warnings.append(
+        f"vault reference {ref} in {where} did not resolve; "
+        f"falling through to {next_branch}"
+    )
+
+
+def drain_resolution_warnings() -> list[str]:
+    """Return and clear the warnings recorded by ``resolve_vault()``.
+
+    Warnings are recorded only on a cache miss, so a hook should drain right
+    after its first ``resolve_vault()`` call.
+    """
+    warnings = _resolution_warnings.get()
+    if not warnings:
+        return []
+    _resolution_warnings.set([])
+    return warnings
+
+
 @contextmanager
 def active_vault_scope(vault: Path | str) -> Generator[Path]:
     """Scope argument-less ``resolve_vault()`` calls to *vault* (ARC-001).
@@ -787,19 +845,27 @@ def _resolve_vault_cached(
     # 2. Project-local vault (.claude/vault file)
     # SEC-P001: .claude/vault is attacker-controlled (any repo can plant
     # one), so the reference must pass the allowlist check.  A reference
-    # that resolves to a non-allowlisted path is silently skipped so a
+    # that resolves to a non-allowlisted path is skipped (with a recorded
+    # warning, see drain_resolution_warnings) so a
     # malicious repo cannot crash the hook -- it simply falls through to
     # the next resolution branch instead of writing vault content into
     # the attacker-chosen location.
     work_dir = Path(cwd) if cwd else Path.cwd()
     project_vault_file = work_dir / ".claude" / "vault"
     if project_vault_file.exists():
+        vault_ref = ""
         try:
             vault_ref = project_vault_file.read_text(encoding="utf-8").strip()
             if vault_ref:
                 return _resolve_vault_reference(vault_ref)
         except (OSError, VaultConfigError):
-            pass  # Fall through to next option
+            # Fall through to next option, but never silently: a project that
+            # names a vault it cannot reach would otherwise read another one.
+            _record_resolution_warning(
+                vault_ref or str(project_vault_file),
+                str(project_vault_file),
+                "CLAUDE_VAULT / the default vault",
+            )
 
     # 3. Environment variable
     # SEC-P001: CLAUDE_VAULT is user-controlled but fall through to the
@@ -809,7 +875,7 @@ def _resolve_vault_cached(
         try:
             return _resolve_vault_reference(env_vault)
         except VaultConfigError:
-            pass  # Fall through to default
+            _record_resolution_warning(env_vault, "CLAUDE_VAULT", "the default vault")
 
     # 4. Default vault
     # ARC-003: this branch is DEPRECATED. The previous production caller

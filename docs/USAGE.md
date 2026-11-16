@@ -218,7 +218,8 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --s
 
 # Other flags: --model MODEL, --vault/-V PATH|NAME, --retry-dead-letters
 #               (pairs with --reason CODE, --min-age-days N, --max-count N),
-#               --run-doctor, --rebuild-graph, --graph-include-daily
+#               --run-doctor, --rebuild-graph, --graph-include-daily,
+#               --all-vaults (every registered vault; exclusive with --vault/--sessions)
 ```
 
 ### Dead-letter reason codes

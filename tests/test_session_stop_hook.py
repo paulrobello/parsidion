@@ -535,7 +535,8 @@ class TestLaunchSummarizerLogging:
         assert captured["stderr"] is subprocess.STDOUT
         assert captured["stdout"] is not subprocess.DEVNULL
         assert captured["cmd"][:3] == ["uv", "run", "--no-project"]
-        assert captured["cmd"][-1].endswith("summarize_sessions.py")
+        assert captured["cmd"][3].endswith("summarize_sessions.py")
+        assert captured["cmd"][4:] == ["-V", str(vault)]
         assert (log_dir / "parsidion-summarizer.log").exists()
 
     def test_unwritable_log_skips_launch_without_raising(

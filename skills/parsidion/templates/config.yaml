@@ -273,3 +273,13 @@ transcripts:
 # if group/world-writable and every load is logged.
 adapters:
   load_external: false  # Opt-in: load ~/.config/parsidion/adapters/*.py drop-in AgentAdapter descriptors (permission-checked, logged)
+
+# Per-vault folder taxonomy (``resolve_taxonomy``). Values are scalar- encoded
+# because the config parser has no list support. In addition to the fields
+# below, ``type_folder.<type>: <Folder>`` dotted keys map a note type to a
+# folder; they are open-ended (one per note type), are not schema fields, and
+# are accepted by ``validate_config``. An unset section keeps the built-in
+# taxonomy.
+taxonomy:
+  folders: ""  # Comma-separated folder list replacing the built-in taxonomy, e.g. 'Home, Family, Daily'; empty keeps the built-ins (type_folder.* and default_folder are ignored without it)
+  default_folder: ""  # Folder for note types with no mapping; must appear in folders, else the first folder is used; empty keeps the built-in default

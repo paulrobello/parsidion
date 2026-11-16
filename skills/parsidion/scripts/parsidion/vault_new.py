@@ -14,17 +14,17 @@ from datetime import date
 
 # ARC-001: imported directly from parsidion.core.* instead of the vault_common facade.
 from parsidion.core.otlp_metrics import emit_usage_metric
+from parsidion.core.vault_config import resolve_taxonomy
 from parsidion.core.vault_fs import ensure_vault_dirs
 from parsidion.core.vault_index import serialize_frontmatter, slugify
-from parsidion.core.vault_path import resolve_vault
+from parsidion.core.vault_path import is_path_inside_vault, resolve_vault
 
 # ENH-008 Step 2: the type→folder map and the valid type set live once in
 # ``note_schema``. ``vault-new`` excludes ``daily`` (the stop hook owns daily
 # notes), so the public-facing choices are the canonical set minus ``daily``.
 import parsidion.note_schema as _note_schema
 
-# Mapping from note type to vault folder name. Aliased here so the existing
-# ``_TYPE_TO_FOLDER`` references keep working.
+# Only feeds the ``--type`` choices; actual routing uses ``resolve_taxonomy``.
 _TYPE_TO_FOLDER: dict[str, str] = {
     t: folder for t, folder in _note_schema.TYPE_FOLDERS.items() if t != "daily"
 }
@@ -200,7 +200,8 @@ Examples:
             file=sys.stderr,
         )
         sys.exit(1)
-    folder_name = _TYPE_TO_FOLDER[args.type]
+    taxonomy = resolve_taxonomy(vault_path)
+    folder_name = taxonomy.type_folders.get(args.type, taxonomy.default_folder)
     target_dir = vault_path / folder_name
 
     # Ensure vault directories exist (unless dry-run)
@@ -216,6 +217,13 @@ Examples:
         sys.exit(1)
 
     target_path = target_dir / f"{slug}.md"
+
+    if not is_path_inside_vault(target_path, vault_path):
+        print(
+            f"Error: target path escapes the vault: {target_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Check for duplicates
     if not args.dry_run and target_path.exists():

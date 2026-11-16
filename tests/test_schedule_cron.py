@@ -62,5 +62,6 @@ class TestLaunchdPlist:
             rebuild_graph=True,
         )
         assert "<string>--run-doctor</string>" in plist
+        assert "<string>--all-vaults</string>" in plist
         assert "<string>--rebuild-graph</string>" in plist
         assert "<key>PATH</key>" in plist

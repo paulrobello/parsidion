@@ -396,6 +396,17 @@
       ],
       "explicit": null,
       "expect": "{TMP}/env-root"
+    },
+    {
+      "name": "project-vault-unresolvable-name-falls-through",
+      "applies_to": ["python"],
+      "description": "A .claude/vault naming a vault that is not registered in vaults.yaml does not resolve and falls through to the default vault. The resolution result is unchanged; a warning is recorded for hooks via drain_resolution_warnings(). No CLAUDE_VAULT is set.",
+      "env_HOME": "{TMP}",
+      "cwd": "{TMP}/proj",
+      "cwd_marker": "{TMP}/proj/.claude/vault",
+      "cwd_marker_content": "no-such-name",
+      "explicit": null,
+      "expect": "{TMP}/ParsidionVault"
     }
   ]
 }

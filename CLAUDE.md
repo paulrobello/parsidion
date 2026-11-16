@@ -64,7 +64,8 @@ uv run install.py connect pi        # installs the pi TypeScript extension (~/.p
 uv run install.py connect omp       # installs the same extension for omp (~/.omp/agent/extensions)
 uv run install.py disconnect codex  # remove codex integration only
 # Other flags: --runtime RUNTIME (limit the run to one runtime), --vault PATH,
-#               --vault-username NAME, --enable-ai / --enable-embeddings (write the
+#               --vault-name NAME (register under that name), --no-set-default
+#               (keep the existing default vault), --vault-username NAME, --enable-ai / --enable-embeddings (write the
 #               matching keys into vault config.yaml), --migrate-vault (rename legacy
 #               ~/ClaudeVault -> ~/ParsidionVault; --no-legacy-vault-symlink skips the
 #               compat symlink), --create-vaults-config, --skip-agent, --skip-hooks,
@@ -93,6 +94,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --d
 # Other flags: --sessions FILE (process explicit JSONL), --model MODEL,
 #               --persist (legacy no-op), --run-doctor, --rebuild-graph,
 #               --graph-include-daily, --vault/-V PATH|NAME,
+#               --all-vaults (every registered vault; exclusive with --vault/--sessions),
 #               --retry-dead-letters (re-queue dead-lettered entries; pairs with
 #               --reason CODE, --min-age-days N, --max-count N)
 
@@ -295,6 +297,7 @@ Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_do
 | `vault` | `username` | vault_fs.py, installer |
 | `transcripts` | `tail_lines`, `tail_bytes`, `max_line_bytes` | agent_adapter.py, subagent_stop_hook.py, pre_compact_hook.py, summarizer/transcript.py, core/transcript_reader.py |
 | `adapters` | `load_external` | agent_adapter.py |
+| `taxonomy` | `folders`, `default_folder` | vault_config.resolve_taxonomy |
 <!-- config-table:end -->
 
 The config is parsed by `parsidion.core.vault_config.load_config()` (simple stdlib YAML parser — supports

@@ -190,6 +190,7 @@ describe('ENH-005 / ENH-009 — vault-resolution parity (shared fixture)', () =>
         'claude-vault-arbitrary-falls-through-python',
         'claude-vault-forbidden-falls-through-python',
         'claude-vault-env-beats-config-default-python',
+        'project-vault-unresolvable-name-falls-through',
       ]),
     )
     // ARC-007: the four TS-only vectors are the inverse of the python-only

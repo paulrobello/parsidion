@@ -15,17 +15,16 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from parsidion.core.vault_config import resolve_taxonomy
 from parsidion.core.vault_fs import atomic_write_text, backup_note
 from parsidion.core.vault_index import parse_frontmatter, slugify
 from parsidion.core.vault_path import is_path_inside_vault
 
 from parsidion.summarizer._state_const import (
-    _DEFAULT_FOLDER,
     _FRONTMATTER_KEY_LINE_RE,
     _RELATED_LINE_RE,
     _RELATED_STEM_RE,
     _REQUIRED_FRONTMATTER_FIELDS,
-    _TYPE_FOLDERS,
     _VALID_NOTE_TYPES,
     _VALID_PROVENANCE_VALUES,
 )
@@ -531,7 +530,8 @@ def write_note_with_reason(
         return None, fm_error
 
     note_type = parse_note_type(note_content)
-    folder_name = _TYPE_FOLDERS.get(note_type, _DEFAULT_FOLDER)
+    taxonomy = resolve_taxonomy(vault)
+    folder_name = taxonomy.type_folders.get(note_type, taxonomy.default_folder)
     slug = parse_note_title_slug(note_content)
 
     # Never write to Daily/ for today — the stop hook manages today's daily note

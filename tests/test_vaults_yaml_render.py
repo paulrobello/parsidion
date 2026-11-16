@@ -283,3 +283,11 @@ class TestIdempotenceAndRoundTrip:
         vaults, default = _round_trip(tmp_path, rendered)
         assert vaults == {"alpha": "/new", "beta": "/b"}
         assert default == "/new"
+
+
+def test_sectionless_file_keeps_default_when_set_default_false() -> None:
+    out = vault_path.render_vaults_yaml(
+        {}, "/main", "pv", "/p", "default: /main\n", set_default=False
+    )
+    assert "default: /main" in out.splitlines()
+    assert "  pv: /p" in out.splitlines()

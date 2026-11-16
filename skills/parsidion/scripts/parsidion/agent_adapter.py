@@ -57,7 +57,7 @@ from parsidion.core.vault_hooks import (
     parse_transcript_lines,
     write_hook_event,
 )
-from parsidion.core.vault_path import resolve_vault
+from parsidion.core.vault_path import drain_resolution_warnings, resolve_vault
 
 # ARC-203: session-end pipeline stage bodies live in ``parsidion.agent_pipeline``;
 # the names are re-exported here so ``session_stop_hook``'s
@@ -648,6 +648,7 @@ def run_session_start(
         cwd = str(cwd_value) if cwd_value else str(Path.cwd())
 
         vault_path = resolve_vault(cwd=cwd)
+        resolution_warnings = drain_resolution_warnings()
         max_chars = int(
             load_typed_config(vault=vault_path).session_start_hook.max_chars
         )
@@ -665,6 +666,10 @@ def run_session_start(
                 os.environ.pop("PARSIDION_RUNTIME", None)
             else:
                 os.environ["PARSIDION_RUNTIME"] = old_runtime
+
+        if resolution_warnings:
+            warning_block = "\n".join(f"WARNING: {w}" for w in resolution_warnings)
+            context = f"{warning_block}\n\n{context}" if context else warning_block
 
         output = (
             wrap_output(context)
@@ -739,6 +744,7 @@ def run_session_end(
             return
 
         vault_path = resolve_vault(cwd=cwd)
+        resolution_warnings = drain_resolution_warnings()
         ensure_vault_dirs(vault=vault_path)
         project = get_project_name(cwd) if cwd else "unknown"
         hook_start = time.monotonic()
@@ -848,6 +854,7 @@ def run_session_end(
             hook_start=hook_start,
             subagent=subagent,
             payload=payload,
+            resolution_warnings=resolution_warnings,
         )
 
         sys.stdout.write(final_output)

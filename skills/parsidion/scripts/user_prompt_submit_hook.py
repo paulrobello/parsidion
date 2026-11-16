@@ -46,7 +46,11 @@ from typing import Any
 from parsidion.core import parsight_backend
 from parsidion.core.rule_triggers import load_rule_notes, match_rules
 from parsidion.core.vault_hooks import get_project_name, write_hook_event
-from parsidion.core.vault_path import resolve_vault, secure_log_dir
+from parsidion.core.vault_path import (
+    drain_resolution_warnings,
+    resolve_vault,
+    secure_log_dir,
+)
 from parsidion.recall_context import (
     _build_context,
     _note_tags,
@@ -364,7 +368,31 @@ def run_recall(payload: dict) -> dict:
 
     Pure function of *payload* — no stdin/stdout here. ``prompt``, ``cwd``
     and ``session_id`` payload keys are all optional. Never raises.
+
+    Vault-resolution warnings (an unresolvable ``.claude/vault`` reference)
+    are surfaced even when recall itself produced nothing.
     """
+    warnings: list[str] = []
+    result = _run_recall(payload, warnings)
+    if not warnings:
+        return result
+    block = "\n".join(f"WARNING: {w}" for w in warnings)
+    hook_output = result.get("hookSpecificOutput")
+    if isinstance(hook_output, dict) and hook_output.get("additionalContext"):
+        hook_output["additionalContext"] = (
+            f"{block}\n\n{hook_output['additionalContext']}"
+        )
+        return result
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": block,
+        }
+    }
+
+
+def _run_recall(payload: dict, warnings: list[str]) -> dict:
+    """run_recall body; resolution warnings are appended to *warnings*."""
     ctx = _RecallContext(payload={}, started=time.perf_counter())
     try:
         if not isinstance(payload, dict):
@@ -379,6 +407,7 @@ def run_recall(payload: dict) -> dict:
             vault = resolve_vault(cwd=ctx.cwd)
         except Exception:  # noqa: BLE001
             vault = resolve_vault()
+        warnings.extend(drain_resolution_warnings())
         ctx.vault = vault
         _mark(ctx, "resolve_vault")
         ctx.settings = _load_settings(vault)

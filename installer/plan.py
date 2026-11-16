@@ -83,6 +83,8 @@ class InstallPlan:
     settings_file: Path
     vault_root: Path
     vault_username: str
+    vault_name: str | None
+    set_default: bool
     install_tools: bool
     do_schedule: bool
     enable_ai: bool
@@ -549,7 +551,12 @@ def build_install_steps(plan: InstallPlan) -> StepList:
         steps.append(
             Step(
                 "record_installed_vault",
-                lambda: record_installed_vault(plan.vault_root, dry_run=plan.dry_run),
+                lambda: record_installed_vault(
+                    plan.vault_root,
+                    dry_run=plan.dry_run,
+                    name=plan.vault_name,
+                    set_default=plan.set_default,
+                ),
             )
         )
 

@@ -208,6 +208,7 @@ def _resolve(
     section: str,
     key: str,
     default: bool,
+    vault: Path | None = None,
 ) -> bool:
     """Resolve a tri-state CLI bool against config and a default.
 
@@ -231,10 +232,7 @@ def _resolve(
     """
     if cli_value is not None:
         return cli_value
-    # ARC-101 allowlist: the summarizer resolves CLI/config options in
-    # ``_resolve_options`` before it resolves the vault (summarize_sessions
-    # ``main``), so there is no resolved vault to thread here yet.
-    configured = get_config(section, key, default)
+    configured = get_config(section, key, default, vault=vault)
     if isinstance(configured, bool):
         return configured
     return default

@@ -67,6 +67,7 @@ __all__ = [
     "VaultSectionConfig",
     "TranscriptsConfig",
     "AdaptersConfig",
+    "TaxonomyConfig",
     "VaultAppConfig",
     "schema_dict",
 ]
@@ -1216,6 +1217,33 @@ class AdaptersConfig:
     )
 
 
+@dataclass
+class TaxonomyConfig:
+    """Per-vault folder taxonomy (``resolve_taxonomy``). Values are scalar-
+    encoded because the config parser has no list support. In addition to
+    the fields below, ``type_folder.<type>: <Folder>`` dotted keys map a note
+    type to a folder; they are open-ended (one per note type), are not schema
+    fields, and are accepted by ``validate_config``. An unset section keeps
+    the built-in taxonomy."""
+
+    folders: str = field(
+        default="",
+        metadata={
+            "doc": "Comma-separated folder list replacing the built-in taxonomy, e.g. 'Home, Family, Daily'; empty keeps the built-ins (type_folder.* and default_folder are ignored without it)",
+            "read_by": "vault_config.resolve_taxonomy",
+            "section_read": True,
+        },
+    )
+    default_folder: str = field(
+        default="",
+        metadata={
+            "doc": "Folder for note types with no mapping; must appear in folders, else the first folder is used; empty keeps the built-in default",
+            "read_by": "vault_config.resolve_taxonomy",
+            "section_read": True,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Top-level aggregate
 # ---------------------------------------------------------------------------
@@ -1281,6 +1309,7 @@ class VaultAppConfig:
     vault: VaultSectionConfig = field(default_factory=lambda: VaultSectionConfig())
     transcripts: TranscriptsConfig = field(default_factory=lambda: TranscriptsConfig())
     adapters: AdaptersConfig = field(default_factory=lambda: AdaptersConfig())
+    taxonomy: TaxonomyConfig = field(default_factory=lambda: TaxonomyConfig())
 
     @classmethod
     def from_dict(cls, parsed: dict[str, Any]) -> VaultAppConfig:

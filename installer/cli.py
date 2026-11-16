@@ -115,6 +115,8 @@ def install(args: argparse.Namespace) -> int:
             settings_file=settings_file,
             vault_root=vault_root,
             vault_username=vault_username,
+            vault_name=args.vault_name,
+            set_default=not args.no_set_default,
             install_tools=install_tools,
             do_schedule=do_schedule,
             enable_ai=enable_ai,
@@ -159,6 +161,8 @@ def install(args: argparse.Namespace) -> int:
         settings_file=settings_file,
         vault_root=vault_root,
         vault_username=vault_username,
+        vault_name=args.vault_name,
+        set_default=not args.no_set_default,
         install_tools=install_tools,
         do_schedule=do_schedule,
         enable_ai=enable_ai,
@@ -570,6 +574,23 @@ def parse_args() -> argparse.Namespace:
             "Written to vault config.yaml so it persists across sessions. "
             "Defaults to $USER when not set. "
             "The interactive installer prompts for this."
+        ),
+    )
+    parser.add_argument(
+        "--vault-name",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Name to register the vault under in vaults.yaml "
+            "(default: the vault directory name)."
+        ),
+    )
+    parser.add_argument(
+        "--no-set-default",
+        action="store_true",
+        help=(
+            "Register the vault in vaults.yaml without changing the default: "
+            "entry (for secondary vaults)."
         ),
     )
     parser.add_argument(

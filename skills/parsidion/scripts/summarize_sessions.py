@@ -313,7 +313,11 @@ from parsidion.summarizer.queue import (  # re-exported for tests
 )
 
 
-from parsidion.core.vault_path import resolve_vault
+from parsidion.core.vault_path import (
+    active_vault_scope,
+    list_named_vaults,
+    resolve_vault,
+)
 from parsidion.summarizer.lock import (  # re-exported for tests
     _load_summarizer_state,
     _summarizer_claim_lock_file,
@@ -431,6 +435,12 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH|NAME",
         default=None,
         help="Vault path or named vault (default: ~/ParsidionVault, or legacy ~/ClaudeVault if it exists)",
+    )
+    parser.add_argument(
+        "--all-vaults",
+        action="store_true",
+        default=False,
+        help="Process every registered vault (default + named) in one run",
     )
     return parser
 
@@ -695,9 +705,11 @@ def _clamp_max_parallel(value: object) -> int:
     return clamped
 
 
-def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
+def _resolve_options(
+    args: argparse.Namespace, vault: Path | None = None
+) -> _SummarizerOptions:
     """Resolve defaults → config → CLI args (CLI wins) into a typed bundle."""
-    configured_model = vault_config.get_config("summarizer", "model", None)
+    configured_model = vault_config.get_config("summarizer", "model", None, vault=vault)
     if args.model is not None:
         model: str | None = args.model
     elif isinstance(configured_model, str) and configured_model.strip():
@@ -708,21 +720,32 @@ def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
     # overridden off via --no-<flag>; the previous `or` short-circuit treated
     # an absent CLI flag the same as `--flag False`, so once config was true
     # there was no way to disable from the CLI for a single run.
-    persist: bool = _resolve(args.persist, "summarizer", "persist", False)
+    persist: bool = _resolve(args.persist, "summarizer", "persist", False, vault=vault)
     max_parallel: int = _clamp_max_parallel(
-        vault_config.get_config("summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL)
+        vault_config.get_config(
+            "summarizer", "max_parallel", _DEFAULT_MAX_PARALLEL, vault=vault
+        )
     )
     tail_lines: int = vault_config.get_config(
-        "summarizer", "transcript_tail_lines", _DEFAULT_TRANSCRIPT_TAIL_LINES
+        "summarizer",
+        "transcript_tail_lines",
+        _DEFAULT_TRANSCRIPT_TAIL_LINES,
+        vault=vault,
     )
     tail_bytes: int | None = vault_config.get_config(
-        "summarizer", "transcript_tail_bytes", _DEFAULT_TRANSCRIPT_TAIL_BYTES
+        "summarizer",
+        "transcript_tail_bytes",
+        _DEFAULT_TRANSCRIPT_TAIL_BYTES,
+        vault=vault,
     )
     max_cleaned_chars: int = vault_config.get_config(
-        "summarizer", "max_cleaned_chars", _DEFAULT_MAX_CLEANED_CHARS
+        "summarizer",
+        "max_cleaned_chars",
+        _DEFAULT_MAX_CLEANED_CHARS,
+        vault=vault,
     )
     configured_cluster_model = vault_config.get_config(
-        "summarizer", "cluster_model", None
+        "summarizer", "cluster_model", None, vault=vault
     )
     cluster_model: str | None = (
         configured_cluster_model
@@ -731,10 +754,14 @@ def _resolve_options(args: argparse.Namespace) -> _SummarizerOptions:
         else None
     )
     rebuild_graph: bool | None = _resolve(
-        args.rebuild_graph, "summarizer", "rebuild_graph", False
+        args.rebuild_graph, "summarizer", "rebuild_graph", False, vault=vault
     )
     graph_include_daily: bool | None = _resolve(
-        args.graph_include_daily, "summarizer", "graph_include_daily", False
+        args.graph_include_daily,
+        "summarizer",
+        "graph_include_daily",
+        False,
+        vault=vault,
     )
     return _SummarizerOptions(
         model=model,
@@ -893,19 +920,53 @@ def _print_run_summary(total: int, totals: _RunTotals) -> None:
     _clear_progress()  # Remove progress file when done (#13)
 
 
-def main() -> None:
-    """Parse arguments and run the summarizer."""
-    parser = _build_parser()
-    args = parser.parse_args()
-    options = _resolve_options(args)
+def _iter_registered_vaults() -> list[Path]:
+    """Return the default vault then every named vault, deduped and existing.
 
-    # Resolve vault
-    vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
+    Entries whose path no longer exists are skipped so a stale
+    ``vaults.yaml`` row can never crash the nightly run.
+    """
+    seen: set[Path] = set()
+    vaults: list[Path] = []
+    for candidate in [resolve_vault(), *list_named_vaults().values()]:
+        resolved = Path(candidate).resolve()
+        if resolved in seen:
+            continue
+        if not resolved.is_dir():
+            print(
+                f"Warning: skipping registered vault with missing path: {resolved}",
+                file=sys.stderr,
+            )
+            continue
+        seen.add(resolved)
+        vaults.append(resolved)
+    return vaults
+
+
+def _process_vault(vault_path: Path, args: argparse.Namespace) -> int:
+    """Run the summarizer pipeline against one vault. Returns an exit code.
+
+    The process environment is snapshotted and restored so one vault's
+    ``anthropic_env`` defaults never leak into the next ``--all-vaults`` pass,
+    and the body runs inside ``active_vault_scope`` so argument-less
+    ``resolve_vault()`` calls in helpers land on this vault.
+    """
+    env_snapshot = dict(os.environ)
+    try:
+        with active_vault_scope(vault_path):
+            return _process_vault_body(vault_path, args)
+    finally:
+        os.environ.clear()
+        os.environ.update(env_snapshot)
+
+
+def _process_vault_body(vault_path: Path, args: argparse.Namespace) -> int:
+    options = _resolve_options(args, vault_path)
     vault_hooks.apply_configured_env_defaults(vault=vault_path)
 
     # Singleton guard — only one summarizer may run at a time per vault.
     if not claim_summarizer_lock(vault_path):
-        sys.exit(1)
+        return 1
     atexit.register(release_summarizer_lock, vault_path)
 
     # Retention: prune dead-letter records older than the configured window so
@@ -955,8 +1016,10 @@ def main() -> None:
                 vault=vault_path,
             )
         )
+        # --all-vaults must point the doctor at THIS vault, not the default.
+        _doctor_vault_args = ["--vault", str(vault_path)] if args.all_vaults else []
         _reason, _proc = run_with_pgkill(
-            [sys.executable, str(_doctor), "--fix-all"],
+            [sys.executable, str(_doctor), "--fix-all", *_doctor_vault_args],
             cwd=Path.cwd(),
             timeout=_doctor_timeout,
         )
@@ -1006,7 +1069,7 @@ def main() -> None:
                     f"[dry-run] would refuse {result.unchanged} write-gate-skip "
                     "record(s) whose transcript is unchanged since the verdict."
                 )
-            return
+            return 0
         if result.unrecoverable:
             print(
                 f"Skipped {result.unrecoverable} unrecoverable dead-letter "
@@ -1030,7 +1093,7 @@ def main() -> None:
                 )
                 + " to retry."
             )
-            return
+            return 0
         print(
             f"Re-queued {result.requeued} dead-lettered session(s) into the "
             "pending queue."
@@ -1046,7 +1109,7 @@ def main() -> None:
     entries = read_pending(source_path)
     if not entries:
         print(f"No pending sessions in {source_path}")
-        return
+        return 0
 
     model_label = options.model or "backend large default"
     print(f"Processing {len(entries)} session(s) with model {model_label}...")
@@ -1083,6 +1146,35 @@ def main() -> None:
         )
 
     _print_run_summary(len(entries), totals)
+    return 0
+
+
+def main() -> None:
+    """Parse arguments and run the summarizer."""
+    parser = _build_parser()
+    args = parser.parse_args()
+    # --all-vaults walks every registered vault's own queue, so it cannot be
+    # combined with a single explicit queue file or vault (--sessions with
+    # --vault stays valid).
+    if args.all_vaults and (args.sessions or args.vault):
+        parser.error("--all-vaults is mutually exclusive with --sessions and --vault")
+    if args.all_vaults:
+        rc = 0
+        for vault_path in _iter_registered_vaults():
+            print(f"=== Vault: {vault_path} ===")
+            try:
+                vault_rc = _process_vault(vault_path, args)
+            except Exception as exc:  # noqa: BLE001 - one bad vault must not stop the rest
+                print(
+                    f"Error: vault {vault_path} failed: {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
+                vault_rc = 1
+            rc = max(rc, vault_rc)
+        sys.exit(rc)
+    rc = _process_vault(resolve_vault(explicit=args.vault, cwd=os.getcwd()), args)
+    if rc:
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

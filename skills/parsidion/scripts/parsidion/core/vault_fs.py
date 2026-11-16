@@ -22,9 +22,10 @@ from pathlib import Path
 from typing import IO, Any
 
 from .otlp_metrics import emit_usage_metric
-from .vault_config import get_config
+from .vault_config import get_config, resolve_taxonomy, taxonomy_is_set
 from .vault_constants import TRANSCRIPT_CATEGORY_LABELS
 from .vault_path import (
+    EXCLUDE_DIRS,
     is_path_inside_vault,
     resolve_vault,
     resolve_templates_dir,
@@ -1291,6 +1292,10 @@ def append_session_to_daily(
 # ---------------------------------------------------------------------------
 
 
+# Folders outside taxonomy control: always created, never pruned.
+_SYSTEM_DIRS: frozenset[str] = frozenset({"Daily", "Templates", "History"})
+
+
 def ensure_vault_dirs(vault: Path | None = None) -> None:
     """Create any missing vault directories.
 
@@ -1311,8 +1316,29 @@ def ensure_vault_dirs(vault: Path | None = None) -> None:
         os.chmod(vault, 0o700)
     except OSError:
         pass
-    for dirname in VAULT_DIRS:
-        (vault / dirname).mkdir(exist_ok=True)
+    if taxonomy_is_set(vault):
+        taxonomy = resolve_taxonomy(vault)
+        keep = set(taxonomy.folders) | _SYSTEM_DIRS
+        for dirname in sorted(keep):
+            (vault / dirname).mkdir(exist_ok=True)
+        # Prune only truly empty top-level folders a taxonomy displaced.
+        protected = keep | EXCLUDE_DIRS
+        for child in vault.iterdir():
+            if (
+                child.name in protected
+                or child.name.startswith(".")
+                or child.is_symlink()
+                or not child.is_dir()
+            ):
+                continue
+            try:
+                if not any(child.iterdir()):
+                    child.rmdir()
+            except OSError:
+                pass
+    else:
+        for dirname in VAULT_DIRS:
+            (vault / dirname).mkdir(exist_ok=True)
 
     # Ensure Templates symlink points to the skill templates
     templates_dir = resolve_templates_dir()

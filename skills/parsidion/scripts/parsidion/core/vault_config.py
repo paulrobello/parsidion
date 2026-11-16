@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .vault_path import resolve_vault
+from ..note_schema import DEFAULT_FOLDER, TYPE_FOLDERS
+from .vault_path import EXCLUDE_DIRS, VAULT_DIRS, resolve_vault
 from .yaml_lite import (
     parse_list_item,
     parse_scalar,
@@ -26,6 +27,7 @@ from .yaml_lite import (
 )
 from .vault_schema import (
     AdaptersConfig,
+    TaxonomyConfig,
     AdaptiveContextConfig,
     AIConfig,
     AIModelsConfig,
@@ -96,6 +98,11 @@ __all__: list[str] = [
     "AdaptiveContextConfig",
     "VaultSectionConfig",
     "AdaptersConfig",
+    "TaxonomyConfig",
+    # Per-vault folder taxonomy
+    "Taxonomy",
+    "resolve_taxonomy",
+    "taxonomy_is_set",
 ]
 
 # ---------------------------------------------------------------------------
@@ -665,6 +672,100 @@ def apply_decay_score(
 # Config validation
 # ---------------------------------------------------------------------------
 
+
+@dataclasses.dataclass
+class Taxonomy:
+    """Resolved folder layout for one vault."""
+
+    folders: list[str]
+    type_folders: dict[str, str]
+    default_folder: str
+
+
+def _taxonomy_section(vault: Path) -> dict[str, Any]:
+    """Return the vault's ``taxonomy`` config mapping (empty when absent or malformed)."""
+    section = load_config(vault).get("taxonomy", {})
+    return section if isinstance(section, dict) else {}
+
+
+def taxonomy_is_set(vault: Path) -> bool:
+    """True when the vault's config declares a non-empty ``taxonomy.folders``."""
+    return bool(str(_taxonomy_section(vault).get("folders", "")).strip())
+
+
+# Folders routed by built-in type regardless of taxonomy (spec: system folders).
+_SYSTEM_TYPE_FOLDERS: dict[str, str] = {"daily": "Daily"}
+
+
+def _valid_folder_name(name: str) -> bool:
+    """A taxonomy folder must be a single plain top-level directory name."""
+    return not (
+        not name
+        or "/" in name
+        or "\\" in name
+        or name in {".", ".."}
+        or name.startswith(".")
+        or name in EXCLUDE_DIRS
+        or name == "Templates"
+    )
+
+
+def resolve_taxonomy(vault: Path) -> Taxonomy:
+    """Resolve the vault's folder taxonomy from its ``taxonomy`` config section.
+
+    Without a ``folders`` entry the built-in engineering layout is returned.
+    With one, only ``type_folder.<type>`` overrides and built-in type folders
+    that appear in ``folders`` are kept; every other type routes to
+    ``default_folder``. System folders (``Daily``) stay outside taxonomy
+    control. Folder names that are not a plain top-level directory name are
+    dropped with a stderr warning.
+    """
+    section = _taxonomy_section(vault)
+    if not taxonomy_is_set(vault):
+        return Taxonomy(list(VAULT_DIRS), dict(TYPE_FOLDERS), DEFAULT_FOLDER)
+
+    folders: list[str] = []
+    for raw in str(section.get("folders", "")).split(","):
+        name = raw.strip()
+        if not name:
+            continue
+        if not _valid_folder_name(name):
+            print(
+                f"parsidion: ignoring invalid taxonomy folder {name!r}", file=sys.stderr
+            )
+            continue
+        if name not in folders:
+            folders.append(name)
+    if not folders:
+        return Taxonomy(list(VAULT_DIRS), dict(TYPE_FOLDERS), DEFAULT_FOLDER)
+
+    default = str(section.get("default_folder", DEFAULT_FOLDER)).strip()
+    if default not in folders:
+        default = folders[0]
+
+    prefix = "type_folder."
+    type_folders: dict[str, str] = {}
+    for key, value in section.items():
+        if not key.startswith(prefix):
+            continue
+        folder = str(value).strip()
+        if not _valid_folder_name(folder):
+            print(
+                f"parsidion: ignoring invalid taxonomy {key}={folder!r}",
+                file=sys.stderr,
+            )
+            continue
+        type_folders[key[len(prefix) :]] = folder
+    for note_type, folder in TYPE_FOLDERS.items():
+        if note_type in type_folders:
+            continue
+        if note_type in _SYSTEM_TYPE_FOLDERS:
+            type_folders[note_type] = _SYSTEM_TYPE_FOLDERS[note_type]
+        else:
+            type_folders[note_type] = folder if folder in folders else default
+    return Taxonomy(folders, type_folders, default)
+
+
 # Schema: section -> key -> expected Python type(s).
 # ENH-014: derived from the dataclass annotations in vault_schema (the single
 # source of truth) rather than hand-maintained here. ``schema_dict()`` returns
@@ -709,6 +810,8 @@ def validate_config(vault: Path | None = None) -> list[str]:
 
         schema_keys = _CONFIG_SCHEMA[section]
         for key, value in section_value.items():
+            if section == "taxonomy" and key.startswith("type_folder."):
+                continue
             if key not in schema_keys:
                 warnings.append(f"config.yaml: unknown key '{section}.{key}'")
                 continue

@@ -7,6 +7,7 @@ How to use more than one Parsidion vault on a single machine — separate work f
 - [Overview](#overview)
 - [Setup](#setup)
 - [Using Multiple Vaults](#using-multiple-vaults)
+- [Personal Vault](#personal-vault)
 - [Vault-Aware Tools](#vault-aware-tools)
 - [Vault-Aware Hooks](#vault-aware-hooks)
 - [Default Vault Resolution](#default-vault-resolution)
@@ -61,6 +62,54 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/vault_doctor.py --vault w
 # Build embeddings / rebuild index for a vault
 uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py --vault work
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault work
+```
+
+## Personal Vault
+
+A personal vault holds household knowledge (home, family, pets, appliances, vehicles, health) with its own folders instead of the engineering ones. It is registered by name but is not made the default, so engineering sessions keep resolving to the main vault.
+
+> **Warning:** Never store secrets in vault notes. Alarm codes, passwords, SSNs, account numbers and similar belong in a secrets manager (parvault), not in markdown. Vault notes are plain text, are git-committed, and are injected into agent context.
+
+### Bootstrap
+
+```bash
+uv run install.py --vault ~/ParsidionPersonalVault --vault-name personal --no-set-default --vault-username <name>
+```
+
+`--vault-name` registers the vault under that name in `vaults.yaml`. `--no-set-default` leaves the top-level `default:` entry unchanged.
+
+### Taxonomy config
+
+Add a `taxonomy` section to `~/ParsidionPersonalVault/config.yaml`. Values are scalar-encoded because the config parser has no list support:
+
+```yaml
+taxonomy:
+  folders: Home, Family, Pets, Appliances, Vehicles, Health, Finance, Reference
+  default_folder: Reference
+  type_folder.knowledge: Reference
+  type_folder.debugging: Home
+  type_folder.tool: Appliances
+```
+
+- `folders` replaces the built-in folder set. Without it, `default_folder` and `type_folder.*` are ignored.
+- `type_folder.<type>` routes a note type to a folder. Unlisted types keep their built-in folder if it is in `folders`, otherwise they go to `default_folder`.
+- `default_folder` must appear in `folders`, otherwise the first folder is used.
+
+### Dedicated folder wiring
+
+Bind a directory to the vault so sessions started there use it:
+
+```bash
+mkdir -p ~/Repos/personal/.claude
+echo personal > ~/Repos/personal/.claude/vault
+```
+
+### Nightly maintenance
+
+`summarize_sessions.py --all-vaults` processes the default vault and every named vault in one run, each against its own queue. A failure in one vault is reported and the remaining vaults still run. It cannot be combined with `--vault` or `--sessions`. An already-scheduled nightly job keeps its old command line, so re-run `install.py --schedule-summarizer` to pick up `--all-vaults` (it is opt-in).
+
+```bash
+uv run --no-project ~/.claude/skills/parsidion/scripts/summarize_sessions.py --all-vaults
 ```
 
 ## Vault-Aware Tools

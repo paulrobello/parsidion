@@ -196,6 +196,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "max_line_bytes": (int,),
     },
     "adapters": {"load_external": (bool,)},
+    "taxonomy": {"folders": (str,), "default_folder": (str,)},
 }
 
 
@@ -257,7 +258,7 @@ class TestSchemaEquivalence:
         assert vault_config._CONFIG_SCHEMA == vault_config.schema_dict()
 
     def test_section_count_matches(self) -> None:
-        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 24
+        assert len(vault_config.schema_dict()) == len(GOLDEN_SCHEMA) == 25
 
     def test_no_schema_key_dropped_or_added(self) -> None:
         derived = vault_config.schema_dict()
@@ -501,3 +502,40 @@ class TestLoadTypedConfig:
         # isinstance check still passes against the re-exported names.
         assert isinstance(cfg.summarizer, SummarizerConfig) is True
         assert isinstance(cfg.embeddings, EmbeddingsConfig) is True
+
+
+class TestTaxonomySection:
+    """The ``taxonomy`` section (personal-vault): typed fields + open-ended dotted keys."""
+
+    def test_taxonomy_section_parses(self, tmp_vault: Path) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "taxonomy:\n  folders: Home, Family\n  default_folder: Home\n",
+            encoding="utf-8",
+        )
+        vault_config.clear_config_cache()
+        cfg = vault_config.load_typed_config()
+        assert cfg.taxonomy.folders == "Home, Family"
+        assert cfg.taxonomy.default_folder == "Home"
+
+    def test_taxonomy_defaults_are_unset(self) -> None:
+        cfg = VaultAppConfig.from_dict({})
+        assert cfg.taxonomy.folders == ""
+        assert cfg.taxonomy.default_folder == ""
+
+    def test_dotted_type_folder_keys_accepted(self, tmp_vault: Path) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "taxonomy:\n  folders: Home, Reference\n"
+            "  type_folder.knowledge: Reference\n",
+            encoding="utf-8",
+        )
+        vault_config.clear_config_cache()
+        assert vault_config.validate_config() == []
+
+    def test_unknown_taxonomy_key_still_warned(self, tmp_vault: Path) -> None:
+        (tmp_vault / "config.yaml").write_text(
+            "taxonomy:\n  bogus: 1\n", encoding="utf-8"
+        )
+        vault_config.clear_config_cache()
+        assert vault_config.validate_config() == [
+            "config.yaml: unknown key 'taxonomy.bogus'"
+        ]

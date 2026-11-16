@@ -78,7 +78,8 @@ def _build_launchd_plist(
         <string>run</string>
         <string>--no-project</string>
         <string>{script_path_safe}</string>
-        <string>--run-doctor</string>{extra_args}
+        <string>--run-doctor</string>
+        <string>--all-vaults</string>{extra_args}
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -226,7 +227,7 @@ def _schedule_summarizer_cron(
     # the cron shell.
     cron_line = (
         f"0 {hour} * * * {shlex.quote(str(uv_path))} run --no-project "
-        f"{shlex.quote(str(script_path))} --run-doctor{extra} "
+        f"{shlex.quote(str(script_path))} --run-doctor --all-vaults{extra} "
         f">> {shlex.quote(str(_cron_log))} 2>&1  {_CRON_MARKER}"
     )
     _step(f"Schedule nightly summarizer via cron (hour={hour})", dry_run=dry_run)

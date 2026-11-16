@@ -604,7 +604,12 @@ vaults:
     _ok(f"Created {config_path}")
 
 
-def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
+def record_installed_vault(
+    vault_root: Path,
+    dry_run: bool = False,
+    name: str | None = None,
+    set_default: bool = True,
+) -> None:
     """Persist *vault_root* into the resolver's vaults.yaml (honors
     ``$XDG_CONFIG_HOME`` via ``get_vaults_config_path``).
 
@@ -617,6 +622,10 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
     under ``vaults:`` (named after the directory stem — e.g. ``WorkVault``)
     and as the ``default:`` so subsequent ``resolve_vault()`` calls land on
     it without any extra env var.
+
+    *name* overrides the directory-stem entry name (``--vault-name``).
+    ``set_default=False`` (``--no-set-default``) registers a secondary vault
+    without touching the ``default:`` line.
 
     Creates the file when absent — does *not* require ``--create-vaults-config``.
     No-op when *vault_root* already matches the default vault path (the
@@ -632,7 +641,7 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
     config_dir = config_path.parent
 
     # Stable-ish name from the directory stem — what a human would pick.
-    vault_name = vault_root.name or "custom"
+    vault_name = name or vault_root.name or "custom"
 
     if config_path.exists():
         try:
@@ -649,14 +658,18 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
 
     # Idempotency: if both the named entry and default already point at this
     # path, there's nothing to do.
-    if (
-        vaults_lines.get(vault_name) == vault_path_str
-        and default_line == vault_path_str
+    if vaults_lines.get(vault_name) == vault_path_str and (
+        not set_default or default_line == vault_path_str
     ):
         return
 
     new_content = render_vaults_yaml(
-        vaults_lines, default_line or "", vault_name, vault_path_str, content
+        vaults_lines,
+        default_line or "",
+        vault_name,
+        vault_path_str,
+        content,
+        set_default=set_default,
     )
 
     _step(
@@ -669,7 +682,10 @@ def record_installed_vault(vault_root: Path, dry_run: bool = False) -> None:
     config_dir.mkdir(parents=True, exist_ok=True)
     try:
         _atomic_write_text(config_path, new_content)
-        _ok(f"Recorded {vault_name} as default vault in {config_path}")
+        _ok(
+            f"Recorded {vault_name}"
+            f"{' as default vault' if set_default else ''} in {config_path}"
+        )
     except OSError as exc:
         _warn(f"Could not record vault in {config_path}: {exc}")
 

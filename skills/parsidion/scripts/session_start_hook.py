@@ -72,6 +72,7 @@ from parsidion.core.vault_index import (
 )
 from parsidion.core.vault_path import (
     get_embeddings_db_path,
+    drain_resolution_warnings,
     resolve_vault,
 )
 from parsidion.prompt_templates import render
@@ -779,6 +780,7 @@ def main() -> None:
 
         # Resolve vault path from cwd (supports multi-vault)
         vault_path: Path = resolve_vault(cwd=cwd)
+        resolution_warnings: list[str] = drain_resolution_warnings()
 
         # Resolve options: defaults → config → CLI args
         ai_model: str | None
@@ -853,6 +855,8 @@ def main() -> None:
             event_extra["stages_ms"] = stages
         if _AI_BUDGET_CLAMPED:
             event_extra["ai_budget_clamped"] = True
+        if resolution_warnings:
+            event_extra["resolution_warnings"] = resolution_warnings
         write_hook_event(
             hook="SessionStart",
             project=project_name,
@@ -881,6 +885,10 @@ def main() -> None:
                 elapsed_ms=elapsed_ms,
                 verbose_mode=verbose_mode,
             )
+
+        if resolution_warnings:
+            warning_block = "\n".join(f"WARNING: {w}" for w in resolution_warnings)
+            context = f"{warning_block}\n\n{context}" if context else warning_block
 
         output: dict = {
             "hookSpecificOutput": {

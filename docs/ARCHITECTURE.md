@@ -458,7 +458,7 @@ An on-demand PEP 723 script (requires `anyio`) that processes the `pending_summa
 
 The note-writing and chunk-summarizer prompts are externalized versioned templates under `skills/parsidion/templates/prompts/`, rendered through the strict-variable loader in `prompt_templates.py`, and every AI-generated note is stamped with a `prompt_version: <id>@<semver>` field in its frontmatter. See [docs/PROMPTS.md](PROMPTS.md) for the template format, the variable contract, and the opt-in eval harness that scores a prompt edit against a golden transcript set.
 
-**CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`, `--run-doctor`, `--rebuild-graph` / `--no-rebuild-graph` (tri-state override of the `rebuild_graph` config), `--graph-include-daily`, `--retry-dead-letters` (re-queue dead-lettered entries; pairs with `--reason CODE`, `--min-age-days N`, `--max-count N` — the valid reason codes are cataloged in [Dead-letter reason codes](USAGE.md#dead-letter-reason-codes)), `--vault PATH`
+**CLI flags:** `--sessions FILE`, `--dry-run`, `--model MODEL`, `--persist`, `--run-doctor`, `--rebuild-graph` / `--no-rebuild-graph` (tri-state override of the `rebuild_graph` config), `--graph-include-daily`, `--retry-dead-letters` (re-queue dead-lettered entries; pairs with `--reason CODE`, `--min-age-days N`, `--max-count N` — the valid reason codes are cataloged in [Dead-letter reason codes](USAGE.md#dead-letter-reason-codes)), `--vault PATH`, `--all-vaults` (process the default and every named vault in one run; mutually exclusive with `--vault` and `--sessions`)
 
 **Configurable options** (section `summarizer` in `config.yaml`):
 
@@ -1390,6 +1390,16 @@ transcripts:
 # if group/world-writable and every load is logged.
 adapters:
   load_external: false  # Opt-in: load ~/.config/parsidion/adapters/*.py drop-in AgentAdapter descriptors (permission-checked, logged)
+
+# Per-vault folder taxonomy (``resolve_taxonomy``). Values are scalar- encoded
+# because the config parser has no list support. In addition to the fields
+# below, ``type_folder.<type>: <Folder>`` dotted keys map a note type to a
+# folder; they are open-ended (one per note type), are not schema fields, and
+# are accepted by ``validate_config``. An unset section keeps the built-in
+# taxonomy.
+taxonomy:
+  folders: ""  # Comma-separated folder list replacing the built-in taxonomy, e.g. 'Home, Family, Daily'; empty keeps the built-ins (type_folder.* and default_folder are ignored without it)
+  default_folder: ""  # Folder for note types with no mapping; must appear in folders, else the first folder is used; empty keeps the built-in default
 ```
 <!-- config-reference:end -->
 

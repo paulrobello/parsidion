@@ -28,3 +28,4 @@
 | `vault` | `username` | vault_fs.py, installer |
 | `transcripts` | `tail_lines`, `tail_bytes`, `max_line_bytes` | agent_adapter.py, subagent_stop_hook.py, pre_compact_hook.py, summarizer/transcript.py, core/transcript_reader.py |
 | `adapters` | `load_external` | agent_adapter.py |
+| `taxonomy` | `folders`, `default_folder` | vault_config.resolve_taxonomy |
