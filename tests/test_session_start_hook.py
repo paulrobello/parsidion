@@ -2058,3 +2058,21 @@ class TestPostCompactSnapshotReinjection:
         assert "BASE CONTEXT" in ctx
         assert "Context restored from pre-compact snapshot" not in ctx
         assert all("snapshot_restored" not in event for event in events)
+
+
+class TestStdinDegradesGracefully:
+    """Invalid stdin must never traceback (2026-11-14/15 crash storm).
+
+    The 197cd31 guard covered only empty stdin (``read() or "{}"``); the
+    storm's live signature was non-empty invalid payloads (whitespace,
+    truncated JSON) raising JSONDecodeError inside ``json.loads``.
+    """
+
+    @pytest.mark.parametrize("payload", ["", " ", "\n", "garbage", "{truncated"])
+    def test_invalid_stdin_degrades_without_crash(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_vault: Path, payload: str
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["session_start_hook.py"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+        monkeypatch.setattr(sys, "stdout", io.StringIO())
+        session_start_hook.main()
