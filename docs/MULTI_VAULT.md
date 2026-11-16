@@ -68,7 +68,7 @@ uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --vault w
 
 A personal vault holds household knowledge (home, family, pets, appliances, vehicles, health) with its own folders instead of the engineering ones. It is registered by name but is not made the default, so engineering sessions keep resolving to the main vault.
 
-> **Warning:** Never store secrets in vault notes. Alarm codes, passwords, SSNs, account numbers and similar belong in a secrets manager (parvault), not in markdown. Vault notes are plain text, are git-committed, and are injected into agent context.
+> **Warning:** Never store secrets in vault notes. Alarm codes, passwords, SSNs, PINs and similar live-auth credentials belong in a secrets manager (parvault), not in markdown. Vault notes are plain text, are git-committed, and are injected into agent context. **Account numbers, customer IDs, policy numbers and similar identifiers are allowed** in vault notes (Paul's ruling 2026-11-16) — they identify an account and are not by themselves usable to authenticate.
 
 ### Bootstrap
 
