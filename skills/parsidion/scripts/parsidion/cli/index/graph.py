@@ -47,7 +47,11 @@ def _find_build_graph_script() -> Path | None:
     return None
 
 
-def _rebuild_graph(include_daily: bool, incremental: bool = False) -> None:
+def _rebuild_graph(
+    include_daily: bool,
+    incremental: bool = False,
+    vault_path: Path | None = None,
+) -> None:
     """Run build_graph.py synchronously and print its output.
 
     Args:
@@ -61,6 +65,8 @@ def _rebuild_graph(include_daily: bool, incremental: bool = False) -> None:
             reuses the previous graph.json and recomputes only changed notes.
             build_graph.py falls back to a full rebuild on any compatibility
             mismatch, so passing this is always safe.
+        vault_path: Vault whose graph.json is rebuilt. Passed as ``--vault`` so
+            a named vault is never silently swapped for the default one.
     """
     graph_script = _find_build_graph_script()
     if graph_script is None:
@@ -78,6 +84,8 @@ def _rebuild_graph(include_daily: bool, incremental: bool = False) -> None:
     cmd.append("--include-daily" if include_daily else "--no-daily")
     if incremental:
         cmd.append("--incremental")
+    if vault_path is not None:
+        cmd.extend(["--vault", str(vault_path)])
 
     mode = "incremental" if incremental else "full"
     print(

@@ -66,3 +66,52 @@ def test_set_default_true_preserves_current_behavior(
     assert f"  WorkVault: {work}" in lines
     assert f"default: {work}" in lines
     assert "default: /main" not in lines
+
+
+def test_validate_registered_vault_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _setup(tmp_path, monkeypatch, "")
+    vault = tmp_path / "personal"
+    vault.mkdir()
+    installer_vault.record_installed_vault(vault, name="personal", set_default=False)
+
+    assert installer_vault.validate_installed_vault(vault, "personal") is True
+    assert "does not resolve" not in capsys.readouterr().out
+
+
+def test_validate_registered_vault_warns_on_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _setup(tmp_path, monkeypatch, "")
+    vault = tmp_path / "personal"
+    vault.mkdir()
+
+    assert installer_vault.validate_installed_vault(vault, "personal") is False
+    out = capsys.readouterr()
+    assert "does not resolve" in out.out + out.err
+
+
+def test_validate_registered_vault_warns_when_name_points_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    other = tmp_path / "other"
+    other.mkdir()
+    _setup(tmp_path, monkeypatch, f"vaults:\n  personal: {other}\n")
+    vault = tmp_path / "personal"
+    vault.mkdir()
+
+    assert installer_vault.validate_installed_vault(vault, "personal") is False
+    out = capsys.readouterr().out
+    assert "resolves to" in out
+    assert str(other) in out
+
+
+def test_validate_default_vault_install_is_silent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _setup(tmp_path, monkeypatch, "")
+    default = installer_vault._default_vault_path()
+
+    assert installer_vault.validate_installed_vault(default, None) is True
+    assert capsys.readouterr().out == ""

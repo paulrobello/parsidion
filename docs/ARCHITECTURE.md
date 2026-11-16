@@ -1312,6 +1312,7 @@ search:
   backend: auto  # auto | parsight | embeddings | none (legacy 'par-mem' accepted as an alias for parsight)
   use_note_index: true  # ENH-004: read note metadata from the note_index DB; false forces filesystem walks (index builders always walk)
   max_index_age_seconds: null  # Max note_index age in seconds before falling back to filesystem walk (null disables staleness fallback)
+  incremental_note_index: true  # ENH-067: update_index.py updates note_index from changed notes only; false forces the full rebuild (--incremental / --full override per run)
 
 # Anthropic-compatible transport/env settings. Keys mirror real env var names
 # so values can be copied directly from env-based configs. Precedence: real
@@ -1799,6 +1800,10 @@ stateDiagram-v2
         then recent notes
     end note
 ```
+
+### Incremental Index Path (ENH-067)
+
+Write paths (`SessionEnd`, the summarizer, the `post-merge` hook) no longer rebuild `note_index` from scratch. `update_index.py` defaults to incremental mode: an `index_state` table in `embeddings.db` records each note's mtime and content sha, and a run re-parses only notes whose mtime changed and whose sha differs. Added, changed, and removed notes are applied, and incoming-link counts and `incoming_stems` of their link targets are updated in the same SQLite transaction (reverse-link propagation). Fallback triggers (missing or corrupt `index_state`, schema marker mismatch, `EXCLUDE_DIRS` change) self-heal by running the full rebuild and log an `IndexFallback` event to `hook_events.log`. `--full` forces the full rebuild and `search.incremental_note_index: false` makes it the default. The database update re-parses only changed notes (the vault walk in the diff and the reverse-link re-inversion still scale with vault size), but `CLAUDE.md`/`TAGS.md`/`MANIFEST.md` generation still reads every note, so end-to-end the run was measured about 2x faster (2.9 s vs 5.9 s) on a 16.5k-note vault. Making doc generation O(changed) is the ENH-067 follow-up (card 01a1e674). Known divergence from `--full`: untouched notes keep their stored `is_stale` value until a full rebuild or a neighbor edit.
 
 ## Obsidian Graph View
 

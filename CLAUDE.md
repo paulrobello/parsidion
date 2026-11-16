@@ -75,6 +75,15 @@ uv run install.py disconnect codex  # remove codex integration only
 
 # Rebuild the vault index (after creating/renaming/deleting notes)
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py
+# Default is incremental (ENH-067): only changed notes (mtime+sha vs the index_state table) are re-indexed,
+# with reverse-link propagation in one transaction. --full forces the old full rebuild;
+# search.incremental_note_index: false in config.yaml makes full the default. Fallback triggers
+# (missing or corrupt state, schema marker mismatch, EXCLUDE_DIRS change) self-heal via a full rebuild, logged as
+# IndexFallback in hook_events.log.
+# The DB update re-parses only changed notes (the vault walk and the reverse-link re-inversion still scale with vault size), but CLAUDE.md/TAGS.md/MANIFEST.md generation still reads every note:
+# end-to-end measured ~2x faster (2.9s vs 5.9s) on a 16.5k-note vault. Making doc generation O(changed) is the ENH-067 follow-up.
+# Untouched notes keep their stored is_stale value until a full rebuild or a neighbor edit (known divergence from --full).
+uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --full
 
 # Rebuild index AND regenerate visualizer graph.json in one pass
 uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py --rebuild-graph
@@ -242,8 +251,8 @@ The index rebuild is unconditional and auto-commits regenerated `CLAUDE.md`/`TAG
 as a side effect (respecting `git.auto_commit`). The embeddings step can be skipped per invocation
 with `PARSIDION_STATIC_ONLY=1 git pull` (no embedding-model load/fetch — the env var propagates into
 `update_index.py`, suppressing its own background embeddings and parsight index spawns); the
-config-level equivalent is `embeddings.enabled: false` in `<vault>/config.yaml` (hook template v3).
-Existing v1/v2 hooks are
+config-level equivalent is `embeddings.enabled: false` in `<vault>/config.yaml` (hook template v4).
+Existing v1–v3 hooks are
 regenerated on the next `uv run install.py --force --yes` — the hook file is copied into the vault,
 not symlinked, so a reinstall is required to pick up template changes.
 
@@ -287,7 +296,7 @@ Config sections (generated from `core/vault_schema.py` by `scripts/gen_config_do
 | `summarizer` | `model`, `max_parallel`, `transcript_tail_lines`, `transcript_tail_bytes`, `max_cleaned_chars`, `ai_timeout`, `cluster_model`, `dedup_threshold`, `dead_letter_retention_days`, `doctor_timeout`, `rebuild_graph`, `graph_include_daily`, `graph_incremental`, `persist` (reserved) | summarize_sessions.py, summarizer/transcript.py |
 | `embeddings` | `enabled`, `model`, `min_score`, `top_k`, `decay_enabled`, `decay_half_life_days`, `decay_min_factor`, `service_enabled`, `service_idle_exit` | build_embeddings.py, update_index.py, vault_search.py, vault_embed_serve.py |
 | `parsight` | `enabled`, `binary`, `timeout_s` | parsight_backend.py, vault_search.py |
-| `search` | `backend`, `use_note_index`, `max_index_age_seconds` | vault_search.py, vault_index.py, core/vault_index.py |
+| `search` | `backend`, `use_note_index`, `max_index_age_seconds`, `incremental_note_index` | vault_search.py, vault_index.py, core/vault_index.py, update_index.py |
 | `anthropic_env` | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `API_TIMEOUT_MS`, `HTTPS_PROXY`, `HTTP_PROXY` | vault_hooks.py |
 | `git` | `auto_commit` | parsidion.core.vault_fs.git_commit_vault |
 | `defaults` | `haiku_model` | ai_backend.py |

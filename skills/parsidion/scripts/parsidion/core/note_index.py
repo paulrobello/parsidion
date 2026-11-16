@@ -25,15 +25,18 @@ compatibility.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
 from .vault_path import (
+    EXCLUDE_DIRS,
     get_embeddings_db_path,
     is_path_inside_vault,
     resolve_vault,
@@ -45,6 +48,15 @@ from parsidion.note_schema import STATUS_SUPERSEDED
 __all__: list[str] = [
     # DB schema
     "ensure_note_index_schema",
+    # ENH-067 incremental change detection
+    "ChangedSet",
+    "ensure_index_state_table",
+    "_state_key",
+    "diff_changed_notes",
+    "IncrementalResult",
+    "apply_incremental_update",
+    "snapshot_index_state",
+    "seed_index_state",
     # DB-first queries
     "query_note_index",
     "load_note_index_metadata",
@@ -132,6 +144,490 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_tags      ON note_index(tags)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ni_date      ON note_index(date)")
     conn.commit()
+
+
+def ensure_index_state_table(conn: sqlite3.Connection) -> None:
+    """Create the ``index_state`` change-detection table if it doesn't exist.
+
+    One row per indexed note path: the mtime and sha256 recorded when the note
+    was last indexed (ENH-067). Rows are written by the incremental apply
+    step; this module only creates the table and reads it.
+
+    Args:
+        conn: An open sqlite3.Connection (caller sets WAL mode).
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS index_state (
+            path       TEXT PRIMARY KEY,
+            mtime      REAL,
+            sha256     TEXT,
+            indexed_at REAL
+        )
+        """
+    )
+    conn.commit()
+
+
+@dataclass
+class ChangedSet:
+    """Notes that differ from the recorded ``index_state`` (ENH-067)."""
+
+    added: list[Path] = field(default_factory=list)
+    modified: list[Path] = field(default_factory=list)
+    deleted: list[Path] = field(default_factory=list)
+    # mtime changed but sha256 did not: no reindex, only a stored-mtime refresh.
+    touched: list[Path] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.added or self.modified or self.deleted)
+
+
+def _state_key(vault: Path, note_path: Path) -> str:
+    """Return the ``index_state.path`` key for a note: vault-relative, POSIX.
+
+    The single key form for reading and writing ``index_state``, independent
+    of how the vault root was spelled (relative, absolute, symlinked).
+
+    Args:
+        vault: Vault root.
+        note_path: A note path, absolute or already vault-relative.
+    """
+    note_path = Path(note_path)
+    if not note_path.is_absolute():
+        return note_path.as_posix()
+    for root in (Path(vault).absolute(), Path(vault).resolve()):
+        try:
+            return note_path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return note_path.resolve().relative_to(Path(vault).resolve()).as_posix()
+
+
+def _sha256_file(path: Path) -> str | None:
+    """Return the hex sha256 of *path*, or None when it cannot be read."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def diff_changed_notes(vault: Path) -> ChangedSet:
+    """Diff the vault's notes against the recorded ``index_state``.
+
+    Walks the vault with the indexer's own traversal rules (EXCLUDE_DIRS,
+    root CLAUDE.md/TAGS.md, MANIFEST.md, symlink guard). A note absent from
+    ``index_state`` is *added*. A note whose mtime differs from the stored one
+    is hashed and reported *modified* only when its sha256 also differs, so a
+    ``touch`` is not a change. A stored path missing from the walk is
+    *deleted*. Same-mtime content edits are invisible (mtime gating is
+    inherent to this design). Keys are vault-relative via :func:`_state_key`;
+    returned paths are absolute under *vault*. Read-only: never creates or writes the database. A missing
+    database or table means nothing is recorded, so every note is *added*.
+
+    Args:
+        vault: Vault root.
+    """
+    # Lazy import: vault_index imports this module, and owns the walk rules.
+    from .vault_index import _walk_vault_notes
+
+    stored: dict[str, tuple[float | None, str | None]] = {}
+    db_path = get_embeddings_db_path(vault)
+    if db_path.is_file():
+        conn = sqlite3.connect(str(db_path))
+        try:
+            for path, mtime, sha in conn.execute(
+                "SELECT path, mtime, sha256 FROM index_state"
+            ):
+                stored[path] = (mtime, sha)
+        except sqlite3.OperationalError:
+            pass  # table not created yet
+        finally:
+            conn.close()
+
+    root = Path(vault).absolute()
+    changes = ChangedSet()
+    seen: set[str] = set()
+    for note in sorted(_walk_vault_notes(vault)):
+        key = _state_key(vault, note)
+        note = root / key
+        seen.add(key)
+        row = stored.get(key)
+        if row is None:
+            changes.added.append(note)
+            continue
+        try:
+            mtime = note.stat().st_mtime
+        except OSError:
+            continue
+        if mtime == row[0]:
+            continue
+        if _sha256_file(note) != row[1]:
+            changes.modified.append(note)
+        else:
+            changes.touched.append(note)
+    changes.deleted = [root / p for p in sorted(stored) if p not in seen]
+    return changes
+
+
+@dataclass
+class IncrementalResult:
+    """Outcome of :func:`apply_incremental_update` (ENH-067)."""
+
+    changed: int
+    fallback_reason: str | None = None
+
+
+def _safe_state_key(vault: Path, note_path: Path) -> str | None:
+    """Return the vault-relative key for *note_path*, or None when unsafe.
+
+    SEC-005: keys and paths that originate in (or round-trip through) the
+    database must stay inside the vault; anything else is refused.
+    """
+    try:
+        key = _state_key(vault, note_path)
+    except ValueError:
+        return None
+    parts = Path(key).parts
+    if not parts or Path(key).is_absolute() or ".." in parts:
+        return None
+    return key
+
+
+# Bumped when the index_state / incremental-apply contract changes in a way
+# old rows cannot be trusted across; a stored mismatch forces a full rebuild.
+INDEX_STATE_SCHEMA_MARKER = "1"
+
+
+def _ensure_state_meta(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS index_state_meta (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    conn.commit()
+
+
+def _current_markers() -> dict[str, str]:
+    return {
+        "schema": INDEX_STATE_SCHEMA_MARKER,
+        "exclude_dirs": json.dumps(sorted(EXCLUDE_DIRS)),
+    }
+
+
+def _fallback_reason(conn: sqlite3.Connection) -> str | None:
+    """Return why the incremental path cannot be trusted, or None when it can.
+
+    Triggers: unreadable or garbage ``index_state`` rows, a populated
+    ``note_index`` with no recorded ``index_state`` (first run after upgrade),
+    a schema-marker mismatch, or an ``EXCLUDE_DIRS`` change since the markers
+    were stored (the stored diff baseline then covers a different note set).
+    """
+    try:
+        (bad,) = conn.execute(
+            "SELECT COUNT(*) FROM index_state WHERE typeof(path) != 'text'"
+            " OR typeof(mtime) NOT IN ('real', 'integer')"
+            " OR typeof(sha256) != 'text'"
+        ).fetchone()
+        (state_rows,) = conn.execute("SELECT COUNT(*) FROM index_state").fetchone()
+        (index_rows,) = conn.execute("SELECT COUNT(*) FROM note_index").fetchone()
+        markers = dict(conn.execute("SELECT key, value FROM index_state_meta"))
+    except sqlite3.DatabaseError:
+        return "index_state_corrupt"
+    if bad:
+        return "index_state_corrupt"
+    if not state_rows and index_rows:
+        return "index_state_missing"
+    current = _current_markers()
+    if markers.get("schema", current["schema"]) != current["schema"]:
+        return "schema_marker_mismatch"
+    if markers.get("exclude_dirs", current["exclude_dirs"]) != current["exclude_dirs"]:
+        return "exclude_dirs_changed"
+    return None
+
+
+def snapshot_index_state(vault: Path) -> list[tuple[str, float, str]]:
+    """Record ``(key, mtime, sha256)`` for every note the indexer walks.
+
+    Taken *before* a full rebuild reads the notes, so a note edited during
+    the rebuild shows up as changed on the next incremental run instead of
+    being recorded as already indexed.
+    """
+    from .vault_index import _walk_vault_notes
+
+    out: list[tuple[str, float, str]] = []
+    for note in sorted(_walk_vault_notes(vault)):
+        key = _safe_state_key(vault, note)
+        sha = _sha256_file(note)
+        if key is None or sha is None:
+            continue
+        try:
+            out.append((key, note.stat().st_mtime, sha))
+        except OSError:
+            continue
+    return out
+
+
+def seed_index_state(
+    conn: sqlite3.Connection, snapshot: list[tuple[str, float, str]]
+) -> None:
+    """Replace ``index_state`` and its markers with *snapshot* in one transaction."""
+    import time
+
+    ensure_index_state_table(conn)
+    _ensure_state_meta(conn)
+    now = time.time()
+    conn.execute("BEGIN")
+    try:
+        conn.execute("DELETE FROM index_state")
+        conn.executemany(
+            "INSERT INTO index_state VALUES (?, ?, ?, ?)",
+            [(k, m, h, now) for k, m, h in snapshot],
+        )
+        conn.execute("DELETE FROM index_state_meta")
+        conn.executemany(
+            "INSERT INTO index_state_meta VALUES (?, ?)", _current_markers().items()
+        )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _full_rebuild_fallback(
+    vault: Path, conn: sqlite3.Connection, reason: str
+) -> IncrementalResult:
+    """Run the full note_index rebuild, reseed ``index_state``, log *reason*."""
+    import time
+
+    import update_index as _ui  # noqa: PLC0415
+    from parsidion.cli.index.build import build_index  # noqa: PLC0415
+    from .vault_fs import write_hook_event  # noqa: PLC0415
+
+    started = time.monotonic()
+    snapshot = snapshot_index_state(vault)
+    *_head, db_rows, _counter = build_index(vault=vault)
+    written = _ui._write_note_index_to_db(
+        db_rows, {row.stem for row in db_rows}, vault=vault
+    )
+    conn.commit()
+    if not written:
+        # Rows may be stale: leave index_state unseeded so the next run
+        # detects the problem and retries instead of sealing it in.
+        print(f"note_index: full rebuild write failed ({reason})", file=sys.stderr)
+        return IncrementalResult(changed=0, fallback_reason=f"{reason}; write failed")
+    seed_index_state(conn, snapshot)
+    write_hook_event(
+        hook="IndexFallback",
+        project=Path(vault).name,
+        duration_ms=(time.monotonic() - started) * 1000,
+        vault=vault,
+        reason=reason,
+        notes_indexed=len(db_rows),
+    )
+    return IncrementalResult(changed=len(db_rows), fallback_reason=reason)
+
+
+def apply_incremental_update(
+    vault: Path, conn: sqlite3.Connection
+) -> IncrementalResult:
+    """Apply the vault's change diff to ``note_index`` in one transaction.
+
+    Recomputes rows for added/modified notes with the full rebuild's own
+    extraction (``update_index._parse_note_record`` and
+    ``cli.index.build._build_note_db_rows``), drops rows for deleted notes,
+    then repairs ``incoming_stems`` / ``incoming_links`` / ``is_stale`` for
+    every note whose link set could have changed: the changed notes
+    themselves plus every note they linked to before or link to now (this
+    also resolves previously dangling links to a newly added note). Touched
+    files (mtime changed, content identical) only get their stored mtime
+    refreshed. Row changes and ``index_state`` writes commit together, so a
+    crash leaves the previous consistent state.
+
+    Safety net: a corrupt or missing ``index_state``, a changed
+    ``EXCLUDE_DIRS`` set, or a schema-marker mismatch abandons the
+    incremental path, runs the full rebuild, reseeds ``index_state`` and
+    returns the reason in ``fallback_reason`` (also logged to
+    ``hook_events.log`` as an ``IndexFallback`` event).
+
+    Caveat: ``is_stale`` is only repaired for notes whose link set changed.
+    Untouched notes keep their stored value, which under-reports staleness as
+    time passes until a full rebuild or a neighbor edit. Equivalence with the
+    full rebuild covers content, links and incoming sets, not live staleness.
+
+    Args:
+        vault: Vault root.
+        conn: Open connection to the vault's ``embeddings.db``.
+
+    Returns:
+        :class:`IncrementalResult` with the number of added, modified and
+        deleted notes applied.
+    """
+    # Lazy imports: the index CLI package sits above core in the layering.
+    import time
+    from datetime import datetime, timedelta
+
+    import update_index as _ui  # noqa: PLC0415
+    from parsidion.cli.index._common import STALE_DAYS  # noqa: PLC0415
+    from parsidion.cli.index.build import _build_note_db_rows  # noqa: PLC0415
+
+    ensure_note_index_schema(conn)
+    ensure_index_state_table(conn)
+    _ensure_state_meta(conn)
+    reason = _fallback_reason(conn)
+    if reason is not None:
+        return _full_rebuild_fallback(vault, conn, reason)
+    conn.executemany(
+        "INSERT OR IGNORE INTO index_state_meta VALUES (?, ?)",
+        _current_markers().items(),
+    )
+    conn.commit()
+    diff = diff_changed_notes(vault)
+    now = time.time()
+    stale_cutoff_ts = (datetime.now() - timedelta(days=STALE_DAYS)).timestamp()
+
+    affected: set[str] = set()
+
+    def old_targets(stem: str) -> None:
+        row = conn.execute(
+            "SELECT related FROM note_index WHERE stem = ?", (stem,)
+        ).fetchone()
+        if row:
+            affected.update(parse_related_stems(row[0] or ""))
+
+    # Winner re-parse: note_index is keyed by stem and the full rebuild lets
+    # the LAST parseable file in walk order own a colliding stem. Replicate
+    # that for every changed stem instead of assuming one file per stem.
+    from .vault_index import _walk_vault_notes
+
+    changed = 0
+    changed_stems: set[str] = set()
+    conn.execute("BEGIN")
+    try:
+        for note in diff.deleted:
+            key = _safe_state_key(vault, note)
+            if key is None:
+                continue
+            conn.execute("DELETE FROM index_state WHERE path = ?", (key,))
+            changed_stems.add(Path(key).stem)
+            changed += 1
+
+        for note in [*diff.added, *diff.modified]:
+            key = _safe_state_key(vault, note)
+            if key is None:
+                continue
+            changed_stems.add(note.stem)
+            try:
+                mtime = note.stat().st_mtime
+            except OSError:
+                continue
+            sha = _sha256_file(note)
+            if sha is None:
+                conn.execute("DELETE FROM index_state WHERE path = ?", (key,))
+                continue
+            conn.execute(
+                "INSERT OR REPLACE INTO index_state VALUES (?, ?, ?, ?)",
+                (key, mtime, sha, now),
+            )
+            changed += 1
+
+        candidates: dict[str, list[Path]] = {}
+        if changed_stems:
+            for walked in _walk_vault_notes(vault):
+                if walked.stem in changed_stems:
+                    candidates.setdefault(walked.stem, []).append(walked)
+
+        for stem in changed_stems:
+            old_targets(stem)
+            affected.add(stem)
+            record = None
+            winner = None
+            for walked in reversed(candidates.get(stem, [])):
+                record = _ui._parse_note_record(walked, vault)
+                if record is not None:
+                    winner = walked
+                    break
+            if record is None or winner is None:
+                conn.execute("DELETE FROM note_index WHERE stem = ?", (stem,))
+                continue
+            rows, _folders, _stale = _build_note_db_rows(
+                {
+                    winner: (
+                        record.content,
+                        record.frontmatter,
+                        record.title,
+                        record.summary,
+                        record.folder,
+                        record.mtime,
+                        record.tags,
+                    )
+                },
+                {stem: (record.mtime, record.related_stems)},
+                {stem: 0},
+                {stem: []},
+                stale_cutoff_ts,
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO note_index (
+                    stem, path, folder, title, summary, tags, note_type,
+                    project, confidence, mtime, related, is_stale,
+                    incoming_links, date, prompt_version, incoming_stems, status
+                ) VALUES (
+                    :stem, :path, :folder, :title, :summary, :tags, :note_type,
+                    :project, :confidence, :mtime, :related, :is_stale,
+                    :incoming_links, :date, :prompt_version, :incoming_stems,
+                    :status
+                )
+                """,
+                rows[0]._asdict(),
+            )
+            affected.update(record.related_stems)
+
+        for note in diff.touched:
+            key = _safe_state_key(vault, note)
+            if key is None:
+                continue
+            try:
+                mtime = note.stat().st_mtime
+            except OSError:
+                continue
+            conn.execute(
+                "UPDATE index_state SET mtime = ?, indexed_at = ? WHERE path = ?",
+                (mtime, now, key),
+            )
+
+        if affected:
+            # Mirrors the full rebuild: the stem set is deduplicated while the
+            # link count keeps one per occurrence (repeated related entries).
+            incoming: dict[str, set[str]] = {}
+            link_counts: dict[str, int] = {}
+            for stem, related in conn.execute("SELECT stem, related FROM note_index"):
+                for target in parse_related_stems(related or ""):
+                    if target in affected:
+                        incoming.setdefault(target, set()).add(stem)
+                        link_counts[target] = link_counts.get(target, 0) + 1
+            for stem in affected:
+                row = conn.execute(
+                    "SELECT mtime FROM note_index WHERE stem = ?", (stem,)
+                ).fetchone()
+                if row is None:
+                    continue
+                sources = sorted(incoming.get(stem, ()))
+                count = link_counts.get(stem, 0)
+                conn.execute(
+                    "UPDATE note_index SET incoming_stems = ?, incoming_links = ?,"
+                    " is_stale = ? WHERE stem = ?",
+                    (
+                        json.dumps(sources),
+                        count,
+                        1 if (not count and (row[0] or 0.0) < stale_cutoff_ts) else 0,
+                        stem,
+                    ),
+                )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return IncrementalResult(changed=changed, fallback_reason=None)
 
 
 def _paths_from_rows(rows: list[Any], vault_root_resolved: Path) -> list[Path]:

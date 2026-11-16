@@ -56,4 +56,22 @@ def _parse_args() -> argparse.Namespace:
             "different parameters, so incremental is always safe."
         ),
     )
+    # ENH-067: an explicit mode beats the search.incremental_note_index config.
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--incremental",
+        action="store_true",
+        default=False,
+        help=(
+            "Update note_index from changed notes only (the default unless "
+            "search.incremental_note_index is false). Falls back to a full "
+            "rebuild when index_state is missing or corrupt."
+        ),
+    )
+    mode.add_argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Force the full note_index rebuild (and reseed index_state).",
+    )
     return parser.parse_args()

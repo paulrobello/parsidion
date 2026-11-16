@@ -27,7 +27,9 @@ from installer.ui import _err, _ok, _print, _step, _warn
 # QA-004: the shared vaults.yaml reader/writer live in parsidion.core.vault_path; the
 # scripts dir is on sys.path via installer/__init__.py (ENH-006 pattern).
 from parsidion.core.vault_path import (
+    VaultConfigError,
     get_vaults_config_path,
+    resolve_vault,
     read_vaults_yaml,
     render_vaults_yaml,
 )
@@ -239,7 +241,10 @@ def init_vault_git(vault_root: Path, dry_run: bool = False) -> None:
 # (per-invocation escape: `PARSIDION_STATIC_ONLY=1 git pull` skips the model
 # fetch while keeping the index rebuild). v1/v2 hooks are recognised as
 # stale-ours and regenerated on the next install.
-_POST_MERGE_MARKER = "# parsidion post-merge hook v3"
+# Bumped to v4 (ENH-067) — update_index.py now updates note_index
+# incrementally by default, so the template documents that the rebuild call
+# deliberately passes no mode flag. v1-v3 hooks are regenerated on reinstall.
+_POST_MERGE_MARKER = "# parsidion post-merge hook v4"
 # Markers from older parsidion releases whose hooks are still installed on
 # real machines. Recognising them lets install_vault_post_merge_hook
 # regenerate a stale hook instead of skipping it as "not ours". SEC-101/SEC-012.
@@ -247,6 +252,7 @@ _POST_MERGE_LEGACY_MARKERS = (
     "# parsidion-cc post-merge hook",
     "# parsidion post-merge hook",
     "# parsidion post-merge hook v2",
+    "# parsidion post-merge hook v3",
 )
 
 _POST_MERGE_HOOK_TEMPLATE = """\
@@ -258,6 +264,8 @@ _POST_MERGE_HOOK_TEMPLATE = """\
 # parsight index spawns while still rebuilding the metadata index. The
 # config-level equivalent is embeddings.enabled: false in the vault's
 # config.yaml (build_embeddings.py exits early when embeddings are off).
+# The update_index.py call passes no --full/--incremental flag on purpose: the
+# vault's search.incremental_note_index setting (default true) picks the mode.
 set -e
 echo "[parsidion] Rebuilding vault index..."
 uv run --no-project {update_index_script}
@@ -276,9 +284,9 @@ def _is_current_post_merge_hook(existing: str) -> bool:
 
     A hook that carries our current marker but lacks `--no-project` on every
     `uv run` line is the SEC-101 defect and must be regenerated, not skipped.
-    A hook carrying any pre-v3 marker is stale (SEC-012 double-quoted-`~` for
-    v1, no PARSIDION_STATIC_ONLY gate for v2) and is likewise not current
-    (the marker itself must match v3 exactly).
+    A hook carrying any pre-v4 marker is stale (SEC-012 double-quoted-`~` for
+    v1, no PARSIDION_STATIC_ONLY gate for v2, no incremental-mode note for v3)
+    and is likewise not current (the marker itself must match v4 exactly).
     """
     if _POST_MERGE_MARKER not in existing:
         return False
@@ -688,6 +696,38 @@ def record_installed_vault(
         )
     except OSError as exc:
         _warn(f"Could not record vault in {config_path}: {exc}")
+
+
+def validate_installed_vault(vault_root: Path, name: str | None = None) -> bool:
+    """Dry-run ``resolve_vault(explicit=<name>)`` and warn if it misses *vault_root*.
+
+    A ``.claude/vault`` file naming this vault only works when the name is
+    registered and resolvable; an unregistered name silently falls through to
+    the default vault at runtime. Returns True when the name resolves to the
+    vault just installed.
+    """
+    # record_installed_vault registers nothing for the default vault, so there
+    # is no name to validate.
+    if vault_root == _default_vault_path():
+        return True
+    vault_name = name or vault_root.name or "custom"
+    resolve_vault.cache_clear()  # type: ignore[attr-defined]  # vaults.yaml just changed
+    try:
+        resolved = resolve_vault(explicit=vault_name)
+    except (VaultConfigError, OSError) as exc:
+        _warn(
+            f"Vault name '{vault_name}' does not resolve ({exc}); "
+            f"a .claude/vault naming it will fall back to the default vault."
+        )
+        return False
+    if resolved.resolve() != vault_root.resolve():
+        _warn(
+            f"Vault name '{vault_name}' resolves to {resolved}, not {vault_root}; "
+            f"a .claude/vault naming it will serve the wrong vault."
+        )
+        return False
+    _ok(f"Vault name '{vault_name}' resolves to {vault_root}")
+    return True
 
 
 def _default_vault_path() -> Path:

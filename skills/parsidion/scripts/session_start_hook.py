@@ -71,6 +71,7 @@ from parsidion.core.vault_index import (
     read_note_summary,
 )
 from parsidion.core.vault_path import (
+    default_vault_root,
     get_embeddings_db_path,
     drain_resolution_warnings,
     resolve_vault,
@@ -523,7 +524,15 @@ def build_session_context(
     # exactly as it did before.
     snapshot = load_session_index_snapshot(vault=vault_path)
 
-    header: str = f"# Vault Context for {project_name}\n**Date:** {today_str}\n\n"
+    # Name the vault actually served so a fall-through to the default vault
+    # never reads as the project's own; the path is shown only off-default.
+    vault_label: str = vault_path.name
+    if vault_path != default_vault_root():
+        vault_label = f"{vault_label} at {vault_path}"
+    header: str = (
+        f"# Vault Context for {project_name} (vault: {vault_label})\n"
+        f"**Date:** {today_str}\n\n"
+    )
 
     # --- Pending queue warning (#3) ---
     pending_notice = _build_pending_notice(vault_path)

@@ -160,6 +160,7 @@ GOLDEN_SCHEMA: dict[str, dict[str, tuple[type, ...]]] = {
         "backend": (str,),
         "use_note_index": (bool,),
         "max_index_age_seconds": (float, int, type(None)),
+        "incremental_note_index": (bool,),
     },
     "anthropic_env": {
         "ANTHROPIC_API_KEY": (str, type(None)),
@@ -539,3 +540,9 @@ class TestTaxonomySection:
         assert vault_config.validate_config() == [
             "config.yaml: unknown key 'taxonomy.bogus'"
         ]
+
+
+def test_incremental_note_index_config_key_defaults_true() -> None:
+    from parsidion.core.vault_schema import SearchConfig
+
+    assert SearchConfig().incremental_note_index is True

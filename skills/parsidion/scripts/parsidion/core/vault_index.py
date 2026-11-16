@@ -736,6 +736,7 @@ def run_index_rebuild(
     graph_include_daily: bool | None = None,
     timeout: float = 300.0,
     scripts_dir: Path | None = None,
+    mode: str | None = None,
 ) -> tuple[str, subprocess.CompletedProcess[str] | None]:
     """Run ``update_index.py`` via ``uv run --no-project``.
 
@@ -772,12 +773,17 @@ def run_index_rebuild(
         timeout: Seconds before the process group is killed.
         scripts_dir: Directory containing ``update_index.py``; see discovery
             rules above.
+        mode: ``"incremental"`` passes ``--incremental``, ``"full"`` passes
+            ``--full`` (ENH-067); ``None`` sends no flag so the
+            ``search.incremental_note_index`` config decides. Any other
+            value raises ``ValueError`` (programmer error, before launch).
 
     Returns:
         ``(reason, proc)`` as documented for
         :func:`core.subproc_util.run_with_pgkill` — ``("ok", CompletedProcess)``
         with any returncode, ``("launch", None)`` when uv or the script is
-        unavailable, ``("timeout", None)``. Never raises.
+        unavailable, ``("timeout", None)``. Never raises at runtime; only an
+        invalid *mode* raises ``ValueError``.
     """
     if scripts_dir is not None:
         script = scripts_dir / "update_index.py"
@@ -806,6 +812,10 @@ def run_index_rebuild(
         argv.append("--rebuild-graph")
     if graph_include_daily:
         argv.append("--graph-include-daily")
+    if mode is not None:
+        if mode not in ("incremental", "full"):
+            raise ValueError(f"mode must be 'incremental' or 'full', got {mode!r}")
+        argv.append(f"--{mode}")
 
     return run_with_pgkill(
         argv,

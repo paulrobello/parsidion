@@ -215,20 +215,22 @@ without `--no-project`, `uv run` would walk up from the vault looking for a
 arbitrary code from whatever file lands in the vault worktree.
 
 **Idempotency:** running the installer again does not duplicate the hook.  The
-hook is identified by a marker comment (`# parsidion post-merge hook v3`).
+hook is identified by a marker comment (`# parsidion post-merge hook v4`).
 The installer also recognises legacy markers (`# parsidion-cc post-merge hook`,
 the pre-v2 `# parsidion post-merge hook`, and
-`# parsidion post-merge hook v2`) from earlier releases.  The v1
+`# parsidion post-merge hook v2`, `# parsidion post-merge hook v3`) from earlier releases.  The v1
 template interpolated `~/...` paths inside double quotes, where neither bash
 nor `uv` expands `~`, so every post-merge run died under `set -e`; v2 emits
 shell-quoted absolute script paths.  v3 gates the embeddings step on
-`PARSIDION_STATIC_ONLY=1`.  A hook that carries our marker but
+`PARSIDION_STATIC_ONLY=1`.  v4 documents that the index rebuild passes no
+mode flag, so `search.incremental_note_index` (default true) selects the
+incremental note_index update.  A hook that carries our marker but
 predates the `--no-project` fix is also treated as stale-but-ours — in every
 case the installer regenerates the hook rather than leaving the vulnerable or
 dead version in place.
 
 **Existing installations:** run `uv run install.py --force --yes` from the
-updated source checkout to refresh a v1/v2 hook to v3. The hook is a generated
+updated source checkout to refresh a v1-v3 hook to v4. The hook is a generated
 file written into the vault's `.git/hooks/`, not a symlink, so live script
 changes on macOS/Linux do not update its body without reinstalling.
 

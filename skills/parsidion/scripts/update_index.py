@@ -40,6 +40,7 @@ import atexit
 import json  # re-exported (update_index.json) for backwards compat
 import os
 import re  # re-exported (update_index.re) for backwards compat
+import sqlite3
 import subprocess  # re-exported (update_index.subprocess) for backwards compat
 import sys
 import time
@@ -63,6 +64,11 @@ from parsidion.core.vault_fs import (
     git_commit_vault,
 )
 from parsidion.core.vault_config import get_config
+from parsidion.core.note_index import (
+    apply_incremental_update,
+    seed_index_state,
+    snapshot_index_state,
+)
 from parsidion.core.vault_hooks import (
     is_process_running,
     write_hook_event,
@@ -293,6 +299,40 @@ def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
     )
 
 
+def _incremental_note_index(
+    vault: Path, db_rows: list[NoteEntry], current_stems: set[str]
+) -> None:
+    """Update ``note_index`` from changed notes, or fall back to a full write."""
+    db_path = get_embeddings_db_path(vault=vault)
+    if not db_path.exists():
+        return  # same no-op as the full write: the embeddings build creates the DB
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            result = apply_incremental_update(vault, conn)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"update_index incremental error, full write: {exc}", file=sys.stderr)
+        _write_note_index_to_db(db_rows, current_stems, vault=vault)
+        return
+    if result.fallback_reason:
+        print(f"note_index: full rebuild ({result.fallback_reason})")
+
+
+def _reseed_index_state(vault: Path, snapshot: list[tuple[str, float, str]]) -> None:
+    """Record index_state after a forced full rebuild; failures are non-fatal."""
+    try:
+        conn = sqlite3.connect(str(get_embeddings_db_path(vault=vault)))
+        try:
+            seed_index_state(conn, snapshot)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"update_index index_state error: {exc}", file=sys.stderr)
+
+
 def main() -> None:
     """Entry point: rebuild the index, write CLAUDE.md, and generate MANIFEST.md files."""
     _hook_start = time.monotonic()
@@ -307,6 +347,20 @@ def main() -> None:
     vault_path = resolve_vault(explicit=args.vault, cwd=os.getcwd())
 
     _singleton_guard(vault_path)
+    # ENH-067: explicit --full/--incremental beats search.incremental_note_index.
+    if args.full:
+        incremental_index = False
+    elif args.incremental:
+        incremental_index = True
+    else:
+        incremental_index = bool(
+            get_config("search", "incremental_note_index", True, vault=vault_path)
+        )
+    full_state_snapshot = (
+        snapshot_index_state(vault_path)
+        if not incremental_index and get_embeddings_db_path(vault=vault_path).exists()
+        else None
+    )
     (
         content,
         note_count,
@@ -338,7 +392,12 @@ def main() -> None:
     )
 
     current_stems: set[str] = {row.stem for row in db_rows}
-    _write_note_index_to_db(db_rows, current_stems, vault=vault_path)
+    if incremental_index:
+        _incremental_note_index(vault_path, db_rows, current_stems)
+    else:
+        written = _write_note_index_to_db(db_rows, current_stems, vault=vault_path)
+        if written and full_state_snapshot is not None:
+            _reseed_index_state(vault_path, full_state_snapshot)
 
     print(
         f"Updated CLAUDE.md: {note_count} notes indexed, {tag_count} tags; "
@@ -381,7 +440,7 @@ def main() -> None:
     static_only = os.environ.get("PARSIDION_STATIC_ONLY") == "1"
     if static_only:
         print("PARSIDION_STATIC_ONLY=1: skipping embeddings and parsight indexing")
-    if not static_only and get_config("embeddings", "enabled", True):
+    if not static_only and get_config("embeddings", "enabled", True, vault=vault_path):
         db_path = get_embeddings_db_path(vault=vault_path)
         build_script = Path(__file__).parent / "build_embeddings.py"
         if build_script.exists():
@@ -450,8 +509,14 @@ def main() -> None:
         if args.graph_incremental is not None:
             incremental = args.graph_incremental
         else:
-            incremental = bool(get_config("summarizer", "graph_incremental", True))
-        _rebuild_graph(include_daily=args.graph_include_daily, incremental=incremental)
+            incremental = bool(
+                get_config("summarizer", "graph_incremental", True, vault=vault_path)
+            )
+        _rebuild_graph(
+            include_daily=args.graph_include_daily,
+            incremental=incremental,
+            vault_path=vault_path,
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover — entry shim

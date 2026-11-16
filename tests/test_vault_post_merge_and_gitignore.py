@@ -57,6 +57,35 @@ class TestTemplateInvariants:
         assert "# parsidion-cc post-merge hook" in _POST_MERGE_LEGACY_MARKERS
 
 
+class TestIncrementalPostMergeHook:
+    """ENH-067: the hook defers to update_index.py's incremental default."""
+
+    def test_rebuild_invocation_does_not_force_full_mode(self) -> None:
+        rendered = _POST_MERGE_HOOK_TEMPLATE.format(
+            marker=_POST_MERGE_MARKER,
+            update_index_script="/opt/scripts/update_index.py",
+            build_embeddings_script="/opt/scripts/build_embeddings.py",
+        )
+        rebuild = [
+            ln
+            for ln in rendered.splitlines()
+            if ln.startswith("uv run") and "update_index.py" in ln
+        ]
+        assert rebuild == ["uv run --no-project /opt/scripts/update_index.py"]
+        code = [ln for ln in rendered.splitlines() if not ln.startswith("#")]
+        assert not any("--full" in ln for ln in code)
+        assert "search.incremental_note_index" in rendered
+
+    def test_v3_hook_is_stale(self) -> None:
+        v3 = _POST_MERGE_HOOK_TEMPLATE.format(
+            marker="# parsidion post-merge hook v3",
+            update_index_script="/opt/scripts/update_index.py",
+            build_embeddings_script="/opt/scripts/build_embeddings.py",
+        )
+        assert not _is_current_post_merge_hook(v3)
+        assert "# parsidion post-merge hook v3" in _POST_MERGE_LEGACY_MARKERS
+
+
 class TestStaticOnlyPostMergeHook:
     """Static-only merges rebuild the index without starting model work."""
 
@@ -64,7 +93,7 @@ class TestStaticOnlyPostMergeHook:
         assert 'if [ "$PARSIDION_STATIC_ONLY" = "1" ]; then' in (
             _POST_MERGE_HOOK_TEMPLATE
         )
-        assert _POST_MERGE_MARKER == "# parsidion post-merge hook v3"
+        assert _POST_MERGE_MARKER == "# parsidion post-merge hook v4"
 
     @pytest.mark.parametrize("static_only", [None, "0", "1"])
     def test_invocation_rebuilds_index_and_conditionally_embeds(
@@ -318,7 +347,7 @@ class TestSec012PostMergeHookPath:
             '/build_embeddings.py" --incremental\n'
         )
         hook_path.write_text(v1_body, encoding="utf-8")
-        assert not _is_current_post_merge_hook(v1_body)  # v3 marker required
+        assert not _is_current_post_merge_hook(v1_body)  # v4 marker required
 
         claude_dir = tmp_path / ".claude"
         (claude_dir / "skills" / "parsidion" / "scripts").mkdir(parents=True)

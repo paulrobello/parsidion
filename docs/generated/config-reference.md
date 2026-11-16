@@ -184,6 +184,7 @@ search:
   backend: auto  # auto | parsight | embeddings | none (legacy 'par-mem' accepted as an alias for parsight)
   use_note_index: true  # ENH-004: read note metadata from the note_index DB; false forces filesystem walks (index builders always walk)
   max_index_age_seconds: null  # Max note_index age in seconds before falling back to filesystem walk (null disables staleness fallback)
+  incremental_note_index: true  # ENH-067: update_index.py updates note_index from changed notes only; false forces the full rebuild (--incremental / --full override per run)
 
 # Anthropic-compatible transport/env settings. Keys mirror real env var names
 # so values can be copied directly from env-based configs. Precedence: real

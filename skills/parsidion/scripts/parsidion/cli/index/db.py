@@ -20,7 +20,7 @@ from parsidion.cli.index.models import NoteEntry
 
 def _write_note_index_to_db(
     db_rows: list[NoteEntry], current_stems: set[str], vault: Path
-) -> None:
+) -> bool:
     """Write per-note metadata rows to the note_index table in embeddings.db.
     No-op if the DB file does not exist. Errors are printed to stderr so DB
     failures are visible without crashing the indexer.
@@ -29,6 +29,11 @@ def _write_note_index_to_db(
         db_rows: List of NoteEntry records to upsert into note_index.
         current_stems: Set of stems currently in the vault (used to prune deleted notes).
         vault: Path to the vault directory.
+
+    Returns:
+        True when the write committed or the DB is absent (nothing to
+        write), False when it failed (callers must not record the index as
+        up to date).
     """
     try:
         import sqlite3 as _sqlite3
@@ -36,7 +41,7 @@ def _write_note_index_to_db(
 
         db_path = get_embeddings_db_path(vault=vault)
         if not db_path.exists():
-            return
+            return True
 
         conn = _sqlite3.connect(str(db_path))
         try:
@@ -85,5 +90,7 @@ def _write_note_index_to_db(
         finally:
             # Close on all paths -- the broad except below must not leak conn
             conn.close()
+        return True
     except Exception as exc:  # noqa: BLE001
         print(f"update_index DB error: {exc}", file=sys.stderr)
+        return False

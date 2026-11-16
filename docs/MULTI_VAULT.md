@@ -143,7 +143,7 @@ Hooks take no `--vault` flag. Each one resolves its vault with the order in [Def
 echo work > ~/code/client-app/.claude/vault
 ```
 
-The reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path; an unregistered reference is skipped and resolution falls through to `CLAUDE_VAULT` and the default vault.
+The reference must resolve to a named vault registered in `vaults.yaml` or to the default vault path; an unregistered reference is skipped and resolution falls through to `CLAUDE_VAULT` and the default vault. A `.claude/vault` file must therefore name a REGISTERED vault: otherwise the session is served the default vault, a warning is shown, and the SessionStart header names the vault actually served. The installer checks that the name it registers resolves.
 
 - `session_start_hook.py` — loads context from the project's associated vault
 - `session_stop_hook.py` — queues sessions to the appropriate vault

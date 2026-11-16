@@ -54,6 +54,7 @@ from installer.vault import (
     install_vault_post_merge_hook,
     read_embeddings_enabled,
     record_installed_vault,
+    validate_installed_vault,
 )
 from installer.hooks import (
     enable_codex_hooks_config,
@@ -557,6 +558,12 @@ def build_install_steps(plan: InstallPlan) -> StepList:
                     name=plan.vault_name,
                     set_default=plan.set_default,
                 ),
+            )
+        )
+        steps.append(
+            Step(
+                "validate_installed_vault",
+                lambda: validate_installed_vault(plan.vault_root, plan.vault_name),
             )
         )
 

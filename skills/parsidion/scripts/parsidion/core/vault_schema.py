@@ -924,6 +924,13 @@ class SearchConfig:
             "read_by": "core/vault_index.py",
         },
     )
+    incremental_note_index: bool = field(
+        default=True,
+        metadata={
+            "doc": "ENH-067: update_index.py updates note_index from changed notes only; false forces the full rebuild (--incremental / --full override per run)",
+            "read_by": "update_index.py",
+        },
+    )
 
 
 @dataclass

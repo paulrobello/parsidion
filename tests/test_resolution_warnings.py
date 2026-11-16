@@ -149,3 +149,39 @@ def test_codex_session_start_shows_resolution_warning(
     assert "WARNING" in context
     assert "no-such-name" in context
     assert context.endswith("ctx")
+
+
+def test_header_names_default_vault_when_reference_unresolvable(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import session_start_hook
+
+    project = home / "proj"
+    _plant_marker(project, "no-such-name\n")
+
+    context, _ = session_start_hook.build_session_context(str(project))
+
+    header = context.splitlines()[0]
+    assert header.startswith("# Vault Context for proj")
+    assert "ParsidionVault" in header
+    assert "no-such-name" not in header
+
+
+def test_header_names_resolved_project_vault(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import session_start_hook
+
+    personal = home / "vaults" / "personal"
+    personal.mkdir(parents=True)
+    cfg = home / ".config" / "parsidion"
+    cfg.mkdir(parents=True)
+    (cfg / "vaults.yaml").write_text(f"vaults:\n  personal: {personal}\n")
+    project = home / "proj"
+    _plant_marker(project, "personal\n")
+
+    context, _ = session_start_hook.build_session_context(str(project))
+
+    header = context.splitlines()[0]
+    assert "personal" in header
+    assert str(personal) in header
