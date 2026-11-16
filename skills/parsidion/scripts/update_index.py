@@ -359,9 +359,10 @@ def main() -> None:
         incremental_index = bool(
             get_config("search", "incremental_note_index", True, vault=vault_path)
         )
+    db_existed_at_start = get_embeddings_db_path(vault=vault_path).exists()
     full_state_snapshot = (
         snapshot_index_state(vault_path)
-        if not incremental_index and get_embeddings_db_path(vault=vault_path).exists()
+        if not incremental_index or not db_existed_at_start
         else None
     )
     (
@@ -441,6 +442,7 @@ def main() -> None:
     # intentionally inherited by the detached child, but the parent leaking
     # its own handle is unnecessary.
     exit_code = 0
+    embed_spawned_this_run = False
     static_only = os.environ.get("PARSIDION_STATIC_ONLY") == "1"
     if static_only:
         print("PARSIDION_STATIC_ONLY=1: skipping embeddings and parsight indexing")
@@ -463,6 +465,7 @@ def main() -> None:
                 "a",
                 encoding="utf-8",
             )
+            embed_spawned_this_run = True
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
@@ -488,6 +491,15 @@ def main() -> None:
                 print(f"Embeddings: {label} rebuild launched in background")
             elif proc.returncode == 0:
                 print(f"Embeddings: {label} rebuild completed")
+                if not db_existed_at_start:
+                    # The note_index write above was a no-op (no db yet); the
+                    # child has now created it, so populate note_index before
+                    # the graph leg reads it.
+                    written = _write_note_index_to_db(
+                        db_rows, current_stems, vault=vault_path
+                    )
+                    if written and full_state_snapshot is not None:
+                        _reseed_index_state(vault_path, full_state_snapshot)
             else:
                 exit_code = 1
                 verb = "failed" if waited else "FAILED to start"
@@ -537,6 +549,15 @@ def main() -> None:
             vault_path=vault_path,
         ):
             exit_code = 1
+            if embed_spawned_this_run and not db_existed_at_start:
+                print(
+                    "Graph: embeddings.db did not exist at the start of this run "
+                    "and was (re)built by it, so the failure above may reflect an "
+                    "unfinished or failed rebuild, not an empty vault. Re-run "
+                    "update_index.py --rebuild-graph once the embeddings "
+                    "rebuild has completed.",
+                    file=sys.stderr,
+                )
 
     if exit_code:
         sys.exit(exit_code)

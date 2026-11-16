@@ -876,7 +876,13 @@ def main() -> None:
     )
 
     if not filtered_notes:
-        print("Error: no notes with valid embeddings found.", file=sys.stderr)
+        print(
+            "Error: no notes with valid embeddings found "
+            f"({len(notes)} in note_index, {len(stem_to_embedding)} embeddings "
+            "matched). If an embeddings rebuild just ran, re-run "
+            "update_index.py; otherwise run build_embeddings.py.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     valid_stems = {n["stem"] for n in filtered_notes}

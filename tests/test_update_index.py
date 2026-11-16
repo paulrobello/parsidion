@@ -394,3 +394,127 @@ def test_late_embed_failure_says_failed_not_failed_to_start(
         update_index.main()
     err = capsys.readouterr().err
     assert "rebuild failed" in err and "FAILED to start" not in err
+
+
+class TestMissingDbGraphLeg:
+    """Card 01a1e696: db missing at invocation -> graph leg must see note_index."""
+
+    def _setup(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch, *, graph_ok: bool
+    ) -> list[str]:
+        import sqlite3
+        import sys
+
+        h = TestEmbedChildVaultAndExitCodes()
+        h._run_main(
+            tmp_vault,
+            monkeypatch,
+            child_rc=0,
+            graph_ok=graph_ok,
+            extra_args=["--rebuild-graph"],
+        )
+        events: list[str] = []
+        db = tmp_vault / "embeddings.db"
+        assert not db.exists()
+
+        class _Child:
+            returncode = 0
+
+            @staticmethod
+            def poll() -> int | None:
+                return None if not db.exists() else 0
+
+            @staticmethod
+            def wait(timeout: float | None = None) -> int:
+                # The child creates the db with an empty note_index.
+                conn = sqlite3.connect(str(db))
+                from parsidion.core.vault_index import ensure_note_index_schema
+
+                ensure_note_index_schema(conn)
+                conn.commit()
+                conn.close()
+                events.append("child_done")
+                return 0
+
+        monkeypatch.setattr(
+            update_index,
+            "subprocess",
+            SimpleNamespace(
+                Popen=lambda *a, **k: _Child(), DEVNULL=-3, TimeoutExpired=TimeoutError
+            ),
+        )
+
+        def fake_graph(**kw: object) -> bool:
+            conn = sqlite3.connect(str(db))
+            n = conn.execute("SELECT COUNT(*) FROM note_index").fetchone()[0]
+            conn.close()
+            events.append(f"graph_sees_{n}")
+            return graph_ok
+
+        monkeypatch.setattr(update_index, "_rebuild_graph", fake_graph)
+        monkeypatch.setattr(sys, "argv", sys.argv)
+        return events
+
+    def test_graph_leg_waits_and_sees_note_index(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        events = self._setup(tmp_vault, monkeypatch, graph_ok=True)
+        update_index.main()
+        assert events[0] == "child_done"
+        assert events[1] != "graph_sees_0", events
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_vault / "embeddings.db"))
+        n = conn.execute("SELECT COUNT(*) FROM index_state").fetchone()[0]
+        conn.close()
+        assert n > 0
+
+    def test_failed_write_does_not_reseed(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sqlite3
+
+        events = self._setup(tmp_vault, monkeypatch, graph_ok=True)
+        monkeypatch.setattr(
+            update_index, "_write_note_index_to_db", lambda *a, **k: False
+        )
+        update_index.main()
+        assert events
+        conn = sqlite3.connect(str(tmp_vault / "embeddings.db"))
+        has = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='index_state'"
+        ).fetchone()
+        n = conn.execute("SELECT COUNT(*) FROM index_state").fetchone()[0] if has else 0
+        conn.close()
+        assert n == 0
+
+    def test_graph_failure_message_names_rebuild_case(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self._setup(tmp_vault, monkeypatch, graph_ok=False)
+        with pytest.raises(SystemExit):
+            update_index.main()
+        err = capsys.readouterr().err
+        assert "did not exist at the start" in err and "Re-run" in err
+
+    def test_graph_failure_message_absent_when_db_preexisted(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        h = TestEmbedChildVaultAndExitCodes()
+        h._run_main(
+            tmp_vault,
+            monkeypatch,
+            child_rc=0,
+            graph_ok=False,
+            extra_args=["--rebuild-graph"],
+        )
+        (tmp_vault / "embeddings.db").write_bytes(b"")
+        with pytest.raises(SystemExit):
+            update_index.main()
+        assert "did not exist at the start" not in capsys.readouterr().err
