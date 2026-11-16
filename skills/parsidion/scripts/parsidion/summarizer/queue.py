@@ -238,6 +238,10 @@ def _resolve(
     return default
 
 
+# Covers update_index's serial legs: embeddings child wait (300 s) + graph rebuild (300 s) + margin.
+REBUILD_INDEX_TIMEOUT_S = 720.0
+
+
 def rebuild_index(
     vault: Path,
     rebuild_graph: bool | None = None,
@@ -266,16 +270,17 @@ def rebuild_index(
         vault,
         rebuild_graph=rebuild_graph,
         graph_include_daily=graph_include_daily,
-        timeout=300.0,
+        timeout=REBUILD_INDEX_TIMEOUT_S,
     )
     if reason == "ok" and proc is not None and proc.returncode == 0:
         print("Vault index rebuilt.")
     elif reason == "timeout":
         # QA-005: a hung update_index/build_graph child would otherwise stall
         # the summarizer mid-run and leave the index stale with no error.
-        # 300 s mirrors the bound the graph rebuild applies to its own child.
+        # The bound covers update_index's serial legs (embeddings child wait
+        # plus graph rebuild).
         print(
-            "Warning: index rebuild timed out after 300 s; index may be stale.",
+            f"Warning: index rebuild timed out after {REBUILD_INDEX_TIMEOUT_S:.0f} s; index may be stale.",
             file=sys.stderr,
         )
     elif reason == "launch":

@@ -333,6 +333,9 @@ def _reseed_index_state(vault: Path, snapshot: list[tuple[str, float, str]]) -> 
         print(f"update_index index_state error: {exc}", file=sys.stderr)
 
 
+_EMBED_WAIT_S = 300  # bound on waiting for the embeddings child before --rebuild-graph
+
+
 def main() -> None:
     """Entry point: rebuild the index, write CLAUDE.md, and generate MANIFEST.md files."""
     _hook_start = time.monotonic()
@@ -437,6 +440,7 @@ def main() -> None:
     # QA-021: close the parent's copy of `_embed_log` after spawn. The fd is
     # intentionally inherited by the detached child, but the parent leaking
     # its own handle is unnecessary.
+    exit_code = 0
     static_only = os.environ.get("PARSIDION_STATIC_ONLY") == "1"
     if static_only:
         print("PARSIDION_STATIC_ONLY=1: skipping embeddings and parsight indexing")
@@ -445,6 +449,8 @@ def main() -> None:
         build_script = Path(__file__).parent / "build_embeddings.py"
         if build_script.exists():
             cmd = ["uv", "run", "--no-project", str(build_script)]
+            # The child must target the resolved vault, not its own default.
+            cmd.extend(["--vault", str(vault_path)])
             if db_path.exists():
                 cmd.append("--incremental")
                 label = "incremental"
@@ -469,11 +475,24 @@ def main() -> None:
             import time as _time
 
             _time.sleep(1.0)
+            waited = False
+            if proc.poll() is None and args.rebuild_graph:
+                waited = True
+                # The graph leg reads embeddings.db, so it must not race the
+                # child: wait for it instead of leaving it in the background.
+                try:
+                    proc.wait(timeout=_EMBED_WAIT_S)
+                except subprocess.TimeoutExpired:
+                    pass
             if proc.poll() is None:
                 print(f"Embeddings: {label} rebuild launched in background")
+            elif proc.returncode == 0:
+                print(f"Embeddings: {label} rebuild completed")
             else:
+                exit_code = 1
+                verb = "failed" if waited else "FAILED to start"
                 print(
-                    f"Embeddings: {label} rebuild FAILED to start "
+                    f"Embeddings: {label} rebuild {verb} "
                     f"(child exited {proc.returncode}). "
                     f"See {_embed_log_dir / 'parsidion-embed.log'}. "
                     f"Hint: uv tool install --editable '.[search]'",
@@ -512,11 +531,15 @@ def main() -> None:
             incremental = bool(
                 get_config("summarizer", "graph_incremental", True, vault=vault_path)
             )
-        _rebuild_graph(
+        if not _rebuild_graph(
             include_daily=args.graph_include_daily,
             incremental=incremental,
             vault_path=vault_path,
-        )
+        ):
+            exit_code = 1
+
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":  # pragma: no cover — entry shim

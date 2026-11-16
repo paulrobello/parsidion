@@ -540,7 +540,7 @@ def test_main_rebuild_graph_passes_resolved_vault(tmp_vault, monkeypatch) -> Non
 
     vault = _main_vault(tmp_vault)
     seen: dict = {}
-    monkeypatch.setattr(ui, "_rebuild_graph", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(ui, "_rebuild_graph", lambda **kw: seen.update(kw) or True)
     for name in (
         "_incremental_note_index",
         "_reseed_index_state",
@@ -628,3 +628,20 @@ def test_failed_full_write_does_not_reseed_index_state(
     conn.close()
     assert res.fallback_reason is not None
     assert n == 0
+
+
+def test_rebuild_graph_returns_false_on_failure(tmp_path, monkeypatch) -> None:
+    from parsidion.cli.index import graph as graph_mod
+
+    monkeypatch.setattr(
+        graph_mod.subprocess,
+        "run",
+        lambda cmd, **kw: type("R", (), {"returncode": 1})(),
+    )
+    assert graph_mod._rebuild_graph(True, False, tmp_path) is False
+    monkeypatch.setattr(
+        graph_mod.subprocess,
+        "run",
+        lambda cmd, **kw: type("R", (), {"returncode": 0})(),
+    )
+    assert graph_mod._rebuild_graph(True, False, tmp_path) is True

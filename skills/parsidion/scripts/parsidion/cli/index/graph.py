@@ -51,7 +51,7 @@ def _rebuild_graph(
     include_daily: bool,
     incremental: bool = False,
     vault_path: Path | None = None,
-) -> None:
+) -> bool:
     """Run build_graph.py synchronously and print its output.
 
     Args:
@@ -67,6 +67,10 @@ def _rebuild_graph(
             mismatch, so passing this is always safe.
         vault_path: Vault whose graph.json is rebuilt. Passed as ``--vault`` so
             a named vault is never silently swapped for the default one.
+
+    Returns:
+        False when the build ran and failed (non-zero exit or timeout), True
+        otherwise, so callers can propagate the failure to their exit code.
     """
     graph_script = _find_build_graph_script()
     if graph_script is None:
@@ -75,7 +79,7 @@ def _rebuild_graph(
             "Run from the parsidion repo or co-install build_graph.py.",
             file=sys.stderr,
         )
-        return
+        return True
 
     cmd = ["uv", "run", "--no-project", str(graph_script)]
     # DOC-003: pass --no-daily when False — build_graph.py defaults to
@@ -102,6 +106,8 @@ def _rebuild_graph(
             "Run `make graph` manually to investigate.",
             file=sys.stderr,
         )
-        return
+        return False
     if result.returncode != 0:
         print(f"Graph rebuild failed (exit {result.returncode})", file=sys.stderr)
+        return False
+    return True

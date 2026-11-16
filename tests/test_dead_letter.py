@@ -732,4 +732,4 @@ def test_rebuild_index_timeout_is_swallowed(
 
     err = capsys.readouterr().err
     assert "timed out" in err.lower()
-    assert "300" in err
+    assert "720" in err

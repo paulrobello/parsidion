@@ -104,3 +104,28 @@ def test_default_discovery_finds_a_script(monkeypatch):
     assert script.parent == Path(vi.__file__).resolve().parent.parent.parent or (
         script.parent == vi.SCRIPTS_DIR
     )
+
+
+def test_summarizer_rebuild_timeout_covers_serial_legs(monkeypatch, tmp_path):
+    from parsidion.summarizer import queue as q
+
+    seen: dict[str, Any] = {}
+
+    def fake(vault, **kw):
+        seen.update(kw)
+        return "ok", subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(q, "run_index_rebuild", fake)
+    q.rebuild_index(tmp_path)
+    assert seen["timeout"] == q.REBUILD_INDEX_TIMEOUT_S >= 600
+
+
+def test_doctor_reindex_exit_1_warns_not_raises(monkeypatch, tmp_path, capsys):
+    from parsidion.doctor import graph as dg
+
+    def fake_run(cmd, **kw):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(dg.subprocess, "run", fake_run)
+    dg._run_reindex(tmp_path)
+    assert "update_index.py failed" in capsys.readouterr().err

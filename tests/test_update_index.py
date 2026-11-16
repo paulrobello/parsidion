@@ -257,3 +257,140 @@ class TestStaticOnlySuppressesModelWork:
         assert "--no-project" in cmds[0]
         assert calls.get("parsight_spawn", 0) == 1
         assert "Embeddings: " in capsys.readouterr().out
+
+
+class TestEmbedChildVaultAndExitCodes:
+    """Card 01a1e686: embeddings child targets the named vault; failures exit non-zero."""
+
+    def _run_main(
+        self,
+        tmp_vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        child_rc: int,
+        graph_ok: bool,
+        extra_args: list[str],
+    ) -> list[list[str]]:
+        import sys
+
+        (tmp_vault / "Patterns").mkdir(parents=True, exist_ok=True)
+        (tmp_vault / "Patterns" / "n.md").write_text(
+            "---\ndate: 2026-10-25\ntype: pattern\ntags: [hook]\n"
+            'related: ["[[other-note]]"]\n---\n\n# N\nBody.\n',
+            encoding="utf-8",
+        )
+        (tmp_vault / "config.yaml").write_text(
+            "embeddings:\n  enabled: true\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("HOME", str(tmp_vault / "home"))
+        monkeypatch.delenv("PARSIDION_STATIC_ONLY", raising=False)
+        cmds: list[list[str]] = []
+
+        class _Proc:
+            returncode = child_rc
+
+            @staticmethod
+            def poll() -> int:
+                return child_rc
+
+        def fake_popen(*args: object, **kwargs: object) -> _Proc:
+            cmds.append([str(a) for a in args[0]])  # type: ignore[index]
+            return _Proc()
+
+        monkeypatch.setattr(
+            update_index,
+            "subprocess",
+            SimpleNamespace(Popen=fake_popen, DEVNULL=-3),
+        )
+        import parsidion.core.parsight_backend as pb
+
+        monkeypatch.setattr(pb, "resolve_parsight_backend", lambda v: False)
+        monkeypatch.setattr(update_index, "_rebuild_graph", lambda **kw: graph_ok)
+        monkeypatch.setattr(
+            sys, "argv", ["update_index", "--vault", str(tmp_vault), *extra_args]
+        )
+        return cmds
+
+    def test_embed_child_receives_resolved_vault(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cmds = self._run_main(
+            tmp_vault, monkeypatch, child_rc=0, graph_ok=True, extra_args=[]
+        )
+        update_index.main()
+        cmd = cmds[0]
+        assert "--vault" in cmd
+        assert Path(cmd[cmd.index("--vault") + 1]).resolve() == tmp_vault.resolve()
+
+    def test_embed_child_failure_exits_nonzero(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._run_main(tmp_vault, monkeypatch, child_rc=1, graph_ok=True, extra_args=[])
+        with pytest.raises(SystemExit) as exc:
+            update_index.main()
+        assert exc.value.code != 0
+
+    def test_graph_failure_exits_nonzero(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._run_main(
+            tmp_vault,
+            monkeypatch,
+            child_rc=0,
+            graph_ok=False,
+            extra_args=["--rebuild-graph"],
+        )
+        with pytest.raises(SystemExit) as exc:
+            update_index.main()
+        assert exc.value.code != 0
+
+    def test_success_exits_zero(
+        self, tmp_vault: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._run_main(
+            tmp_vault,
+            monkeypatch,
+            child_rc=0,
+            graph_ok=True,
+            extra_args=["--rebuild-graph"],
+        )
+        update_index.main()  # returns normally
+
+
+def test_late_embed_failure_says_failed_not_failed_to_start(
+    tmp_vault: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    h = TestEmbedChildVaultAndExitCodes()
+    h._run_main(
+        tmp_vault,
+        monkeypatch,
+        child_rc=1,
+        graph_ok=True,
+        extra_args=["--rebuild-graph"],
+    )
+    polls = iter([None])
+
+    class _Late:
+        returncode = 1
+
+        @staticmethod
+        def poll() -> int | None:
+            return next(polls, 1)
+
+        @staticmethod
+        def wait(timeout: float | None = None) -> int:
+            return 1
+
+    monkeypatch.setattr(
+        update_index,
+        "subprocess",
+        SimpleNamespace(
+            Popen=lambda *a, **k: _Late(),
+            DEVNULL=-3,
+            TimeoutExpired=TimeoutError,
+        ),
+    )
+    with pytest.raises(SystemExit):
+        update_index.main()
+    err = capsys.readouterr().err
+    assert "rebuild failed" in err and "FAILED to start" not in err

@@ -122,5 +122,5 @@ def _run_reindex(vault_path: Path | None = None) -> None:
             "Warning: update_index.py timed out after 600s — index left stale.",
             file=sys.stderr,
         )
-    except OSError as exc:
+    except (OSError, subprocess.CalledProcessError) as exc:
         print(f"Warning: update_index.py failed: {exc}", file=sys.stderr)
