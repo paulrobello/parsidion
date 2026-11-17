@@ -342,7 +342,7 @@ Variables Parsidion reads at runtime. Real environment variables always win over
 | Variable | Read by | Effect | Default |
 |---|---|---|---|
 | `CLAUDE_VAULT` | `core/vault_path.py` (resolver channel 3) | Resolve the vault by path or by name from `vaults.yaml` | unset |
-| `VAULT_ROOT` | `core/vault_path.py` (`resolve_vault_server`) | Override the default vault root for server-side resolution (visualizer/MCP path) | unset |
+| `VAULT_ROOT` | `core/vault_path.py` (`resolve_vault_server`) | Fallback default vault root for server-side resolution (visualizer/MCP path); the `vaults.yaml` `default:` key outranks it | unset |
 | `CLAUDE_TEMPLATES_DIR` | `core/vault_path.py` | Override the note-templates directory | `~/.claude/skills/parsidion/templates` |
 | `XDG_CONFIG_HOME` | `core/vault_path.py` | Base for `~/.config/parsidion/vaults.yaml` lookup | `~/.config` |
 | `XDG_CACHE_HOME` | `tools/eval/prompt_eval_run.py` | Cache dir for prompt-eval results | `~/.cache` |

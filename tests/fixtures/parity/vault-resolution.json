@@ -7,7 +7,7 @@
     "cwd_marker": "Path of a .claude/vault file to write (Python branch 2). cwd_marker_content supplies its body.",
     "env_HOME": "Sets $HOME (both sides). Defaults to {TMP}.",
     "env_CLAUDE_VAULT": "Python branch 3 env var. null = unset. TS does not read this var.",
-    "env_VAULT_ROOT": "TS getDefaultVault() override. null = unset. Python resolve_vault() does not read this var.",
+    "env_VAULT_ROOT": "Server-contract default-vault override (the vaults.yaml default: key outranks it). null = unset. Python resolve_vault() does not read this var.",
     "vaults_yaml": "Body written to $HOME/.config/parsidion/vaults.yaml before the call.",
     "mkdir": "Directories to create before the call.",
     "worktrees": "Linked Git worktrees to create (Python harness only, before the call). Each entry: {root (the registered repo root, initialized as a git repo with one commit), path (the linked worktree directory git creates)}. The TS harness delegates to the Python resolver, so these vectors run end-to-end there too.",
@@ -382,14 +382,30 @@
       "expect_error": "not-allowlisted"
     },
     {
-      "name": "vault-root-env-beats-config-default-typescript",
+      "name": "config-default-beats-vault-root-typescript",
       "applies_to": [
         "typescript"
       ],
-      "description": "TS getDefaultVault() still honors $VAULT_ROOT ahead of the vaults.yaml default key: an explicit per-process override outranks the config file.",
+      "description": "The vaults.yaml default: key outranks $VAULT_ROOT in the server contract: a stale VAULT_ROOT inherited by the visualizer's environment can no longer pin the default while vaults.yaml says otherwise.",
       "env_HOME": "{TMP}",
       "env_VAULT_ROOT": "{TMP}/env-root",
       "vaults_yaml": "vaults:\n  a: {TMP}/vault-a\ndefault: a\n",
+      "mkdir": [
+        "{TMP}/env-root",
+        "{TMP}/vault-a"
+      ],
+      "explicit": null,
+      "expect": "{TMP}/vault-a"
+    },
+    {
+      "name": "vault-root-fallback-no-default-typescript",
+      "applies_to": [
+        "typescript"
+      ],
+      "description": "With no default: key in vaults.yaml, $VAULT_ROOT remains the default-vault fallback so installs that never wrote a default keep their override.",
+      "env_HOME": "{TMP}",
+      "env_VAULT_ROOT": "{TMP}/env-root",
+      "vaults_yaml": "vaults:\n  a: {TMP}/vault-a\n",
       "mkdir": [
         "{TMP}/env-root",
         "{TMP}/vault-a"

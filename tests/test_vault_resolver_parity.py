@@ -281,7 +281,8 @@ class TestVaultResolutionVectors:
             "vault-root-forbidden-rejected-typescript",
             "cwd-marker-ignored-typescript",
             "claude-vault-env-ignored-typescript",
-            "vault-root-env-beats-config-default-typescript",
+            "config-default-beats-vault-root-typescript",
+            "vault-root-fallback-no-default-typescript",
         }, (
             "TypeScript-only vector set changed; update this assertion to "
             "acknowledge the new exclusion (or make the vector shared)."
@@ -420,6 +421,29 @@ class TestResolveVaultServer:
         custom.mkdir()
         monkeypatch.setenv("VAULT_ROOT", str(custom))
         assert vault_path.resolve_vault_server(None).resolve() == custom.resolve()
+
+    def test_config_default_beats_vault_root_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale inherited VAULT_ROOT must not pin the server default.
+
+        The vaults.yaml ``default:`` key outranks the env override so the
+        visualizer follows vault config even when its Next.js environment
+        carries an old ``VAULT_ROOT`` (kanban 01a1e7c: .env.local leak).
+        """
+        _server_env(
+            tmp_path,
+            monkeypatch,
+            vaults_yaml=(f"vaults:\n  a: {tmp_path / 'vault-a'}\ndefault: a\n"),
+        )
+        (tmp_path / "vault-a").mkdir()
+        stale = tmp_path / "stale-env-vault"
+        stale.mkdir()
+        monkeypatch.setenv("VAULT_ROOT", str(stale))
+        assert (
+            vault_path.resolve_vault_server(None).resolve()
+            == (tmp_path / "vault-a").resolve()
+        )
 
     def test_named_vault_by_name(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

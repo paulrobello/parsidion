@@ -531,7 +531,7 @@ All API routes accept an optional `vault` query parameter:
 
 When no `vaults.yaml` exists or only one vault is configured:
 - Vault selector is hidden in the toolbar
-- All operations use the default vault (`~/ParsidionVault`, legacy `~/ClaudeVault` if it exists and `~/ParsidionVault` does not, or `VAULT_ROOT` environment variable)
+- All operations use the default vault: the `default:` key in `vaults.yaml` if present, else the `VAULT_ROOT` environment variable as a fallback, else `~/ParsidionVault` (legacy `~/ClaudeVault` if it exists and `~/ParsidionVault` does not)
 
 ## Running the Visualizer
 
@@ -577,10 +577,9 @@ Configure the token by exporting it before starting the server, or by placing it
 ```bash
 # visualizer/.env.local
 VISUALIZER_TOKEN=<long-random-string>
-VAULT_ROOT=/Users/yourname/ParsidionVault
 ```
 
-The resolved vault is `~/ParsidionVault` for new installs, with the legacy `~/ClaudeVault` fallback handled in code.
+Vault selection does not use `.env.local`: vaults come from `vaults.yaml` (the `default:` key plus the named entries the toolbar selector offers). `VAULT_ROOT` exists only as a fallback default when `vaults.yaml` has no `default:` key. New installs resolve to `~/ParsidionVault`, with the legacy `~/ClaudeVault` fallback handled in code.
 
 If you expose the visualizer beyond loopback (LAN, tunnel), set `VISUALIZER_TOKEN`. The same-origin guard prevents browser drive-by attacks; the token prevents non-browser clients from reading or mutating the vault.
 
@@ -1003,7 +1002,7 @@ For local (2-hop) view:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VAULT_ROOT` | `~/ParsidionVault` (legacy: `~/ClaudeVault`) | Custom vault root path |
+| `VAULT_ROOT` | `~/ParsidionVault` (legacy: `~/ClaudeVault`) | Fallback default vault root, used only when `vaults.yaml` has no `default:` key. Vault switching uses `vaults.yaml`, not this variable. |
 
 ### Dev Server Port
 

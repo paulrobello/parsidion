@@ -938,20 +938,21 @@ def _configured_default_vault() -> Path | None:
 def _server_default_vault() -> Path:
     """Default vault for a non-project context (the visualizer, CLIs).
 
-    Honors the ``VAULT_ROOT`` environment override -- the one default-vault
-    override the long-lived visualizer server has historically supported
-    (formerly TS ``getDefaultVault()``) -- then the vaults.yaml top-level
-    ``default:`` key (ARC-019), then falls back to
-    :func:`default_vault_root`. Unlike :func:`resolve_vault`, a server has no
-    project context, so this never consults ``cwd/.claude/vault`` or
-    ``CLAUDE_VAULT``.
+    Precedence: the vaults.yaml top-level ``default:`` key first, then the
+    ``VAULT_ROOT`` environment override as a fallback for installs whose
+    config has no default, then :func:`default_vault_root`. The config key
+    outranks the inherited env var so a stale ``VAULT_ROOT`` in a server's
+    environment (e.g. a Next.js ``.env.local``) can no longer pin the
+    visualizer to the wrong vault while ``vaults.yaml`` says otherwise.
+    Unlike :func:`resolve_vault`, a server has no project context, so this
+    never consults ``cwd/.claude/vault`` or ``CLAUDE_VAULT``.
     """
-    env_root = os.environ.get("VAULT_ROOT")
-    if env_root:
-        return Path(env_root).expanduser()
     configured = _configured_default_vault()
     if configured is not None:
         return configured
+    env_root = os.environ.get("VAULT_ROOT")
+    if env_root:
+        return Path(env_root).expanduser()
     return default_vault_root()
 
 
@@ -967,12 +968,12 @@ def resolve_vault_server(reference: str | None = None) -> Path:
 
     Resolution is an allowlist: *reference* must match either (a) a named vault
     registered in ``vaults.yaml`` or (b) the default vault by its own path.
-    With no *reference* the default vault is returned -- honoring ``VAULT_ROOT``,
-    then the vaults.yaml top-level ``default:`` key (ARC-019), then the
-    filesystem default. The ``cwd/.claude/vault`` and ``CLAUDE_VAULT``
-    channels of :func:`resolve_vault` are intentionally absent -- a long-lived
-    server has no current project and no inherited runtime environment
-    (ARC-007).
+    With no *reference* the default vault is returned -- honoring the
+    vaults.yaml top-level ``default:`` key (ARC-019), then the ``VAULT_ROOT``
+    environment override as a fallback, then the filesystem default. The
+    ``cwd/.claude/vault`` and ``CLAUDE_VAULT`` channels of
+    :func:`resolve_vault` are intentionally absent -- a long-lived server has
+    no current project and no inherited runtime environment (ARC-007).
 
     Args:
         reference: Optional vault name or path. ``None``/empty resolves the

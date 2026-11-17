@@ -93,7 +93,10 @@ export function VaultSelector({ selectedVault, onSelect }: VaultSelectorProps) {
             <button
               key={vault.name}
               onClick={() => {
-                onSelect(vault.isDefault ? null : vault.name)
+                // Always carry the explicit vault name, even for the default
+                // vault: a null mapping would degrade the request to unnamed
+                // default resolution instead of the vault the user picked.
+                onSelect(vault.name)
                 setIsOpen(false)
               }}
               className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
