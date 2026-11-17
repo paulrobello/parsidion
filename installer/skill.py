@@ -53,6 +53,95 @@ def _can_symlink(target: Path) -> bool:
         return False
 
 
+def _skill_symlink_is_current(dest: Path, force: bool, verbose: bool) -> bool:
+    """Return True when the existing symlink already points at ``SKILL_SRC``.
+
+    DOC-039 idempotence: unless ``force`` asks for replacement, the caller
+    leaves the install untouched; the verbose-only "already correct" notice
+    prints here, exactly as the pre-extraction code printed it.
+    """
+    if force or not (dest.is_symlink() and dest.resolve() == SKILL_SRC.resolve()):
+        return False
+    _print(
+        dim(f"  Skill symlink already correct: {dest} → {SKILL_SRC}"),
+        verbose_only=True,
+        verbose=verbose,
+    )
+    return True
+
+
+def _confirm_replace(
+    dest: Path,
+    use_symlink: bool,
+    force: bool,
+    yes: bool,
+    dry_run: bool,
+    verbose: bool,
+) -> bool:
+    """Warn about an existing install and confirm replacement.
+
+    Returns False when the caller should skip installation (destination
+    exists and the user declined); True otherwise, including when the
+    destination is absent, ``force`` is set, or this is a ``dry_run``.
+    Prints the ``--yes`` overwrite notice exactly as the pre-extraction
+    code printed it.
+    """
+    if not ((dest.exists() or dest.is_symlink()) and not force and not dry_run):
+        return True
+    _warn(f"Skill already exists at {dest}")
+    action = (
+        "Replace with symlink to repo?"
+        if use_symlink
+        else "Overwrite existing skill files?"
+    )
+    if not yes and not _confirm(action, default=False):
+        print(f"  {dim('Skipping skill installation.')}")
+        return False
+    if yes:
+        _print(
+            dim("  Overwriting existing skill (--yes)"),
+            verbose_only=True,
+            verbose=verbose,
+        )
+    return True
+
+
+def _clear_existing_skill(dest: Path, dry_run: bool) -> None:
+    """Remove any existing file, symlink, or directory at *dest* before reinstall."""
+    if dry_run:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    elif dest.exists():
+        shutil.rmtree(dest)
+
+
+def _install_skill_symlink(dest: Path, dry_run: bool) -> None:
+    """Install the skill as a directory symlink and chmod its scripts +x."""
+    _step(f"Install skill (symlink): {dest} → {SKILL_SRC}", dry_run=dry_run)
+    if not dry_run:
+        dest.symlink_to(SKILL_SRC)
+        for script in SKILL_SRC.glob("scripts/*.py"):
+            script.chmod(script.stat().st_mode | 0o755)
+        for script in SKILL_SRC.glob("scripts/*.sh"):
+            script.chmod(script.stat().st_mode | 0o755)
+
+
+def _install_skill_copy(dest: Path, dry_run: bool) -> None:
+    """Install the skill as a recursive copy, pruning ``__pycache__`` and chmod'ing scripts."""
+    _step(f"Install skill (copy): {SKILL_SRC} → {dest}", dry_run=dry_run)
+    if not dry_run:
+        shutil.copytree(SKILL_SRC, dest)
+        for pycache in dest.rglob("__pycache__"):
+            shutil.rmtree(pycache, ignore_errors=True)
+        if sys.platform != "win32":
+            for script in (dest / "scripts").glob("*.py"):
+                script.chmod(script.stat().st_mode | 0o755)
+            for script in (dest / "scripts").glob("*.sh"):
+                script.chmod(script.stat().st_mode | 0o755)
+
+
 def install_skill(
     claude_dir: Path,
     vault_root: Path,
@@ -97,58 +186,18 @@ def install_skill(
     dest = claude_dir / "skills" / SKILL_NAME
     use_symlink = sys.platform != "win32" or _can_symlink(dest)
 
-    if use_symlink and dest.is_symlink() and dest.resolve() == SKILL_SRC.resolve():
-        if not force:
-            _print(
-                dim(f"  Skill symlink already correct: {dest} → {SKILL_SRC}"),
-                verbose_only=True,
-                verbose=verbose,
-            )
-            return dest
+    if use_symlink and _skill_symlink_is_current(dest, force, verbose):
+        return dest
 
-    if (dest.exists() or dest.is_symlink()) and not force and not dry_run:
-        _warn(f"Skill already exists at {dest}")
-        action = (
-            "Replace with symlink to repo?"
-            if use_symlink
-            else "Overwrite existing skill files?"
-        )
-        if not yes and not _confirm(action, default=False):
-            print(f"  {dim('Skipping skill installation.')}")
-            return dest
-        elif yes:
-            _print(
-                dim("  Overwriting existing skill (--yes)"),
-                verbose_only=True,
-                verbose=verbose,
-            )
+    if not _confirm_replace(dest, use_symlink, force, yes, dry_run, verbose):
+        return dest
 
-    if not dry_run:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.is_symlink() or dest.is_file():
-            dest.unlink()
-        elif dest.exists():
-            shutil.rmtree(dest)
+    _clear_existing_skill(dest, dry_run)
 
     if use_symlink:
-        _step(f"Install skill (symlink): {dest} → {SKILL_SRC}", dry_run=dry_run)
-        if not dry_run:
-            dest.symlink_to(SKILL_SRC)
-            for script in SKILL_SRC.glob("scripts/*.py"):
-                script.chmod(script.stat().st_mode | 0o755)
-            for script in SKILL_SRC.glob("scripts/*.sh"):
-                script.chmod(script.stat().st_mode | 0o755)
+        _install_skill_symlink(dest, dry_run)
     else:
-        _step(f"Install skill (copy): {SKILL_SRC} → {dest}", dry_run=dry_run)
-        if not dry_run:
-            shutil.copytree(SKILL_SRC, dest)
-            for pycache in dest.rglob("__pycache__"):
-                shutil.rmtree(pycache, ignore_errors=True)
-            if sys.platform != "win32":
-                for script in (dest / "scripts").glob("*.py"):
-                    script.chmod(script.stat().st_mode | 0o755)
-                for script in (dest / "scripts").glob("*.sh"):
-                    script.chmod(script.stat().st_mode | 0o755)
+        _install_skill_copy(dest, dry_run)
 
     return dest
 

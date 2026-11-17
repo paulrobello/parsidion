@@ -365,6 +365,74 @@ def _disconnect_omp(args: argparse.Namespace) -> None:
     _disconnect_extension_runtime(args, _omp_extensions_dir(args), "omp")
 
 
+def _disconnect_agent(args: argparse.Namespace) -> None:
+    """Run the ``disconnect <agent>`` completion path for one runtime.
+
+    pi-family runtimes remove their TypeScript extension; claude/codex/
+    antigravity run the shared uninstaller with ``hooks_only=False``.
+    """
+    if args.agent == "pi":
+        _disconnect_pi(args)
+        return
+    if args.agent == "omp":
+        _disconnect_omp(args)
+        return
+    claude_dir = Path(args.claude_dir).expanduser().resolve()
+    settings_file = claude_dir / "settings.json"
+    runtime = resolve_runtime_choice(
+        args.runtime, yes=args.yes, interactive=not args.yes
+    )
+    codex_home = Path(args.codex_home).expanduser().resolve()
+    antigravity_home = Path(args.antigravity_home).expanduser().resolve()
+    uninstall(
+        claude_dir,
+        settings_file,
+        dry_run=args.dry_run,
+        yes=args.yes,
+        hooks_only=False,
+        runtime=runtime,
+        codex_home=codex_home,
+        antigravity_home=antigravity_home,
+        purge_config=args.purge_config,
+    )
+
+
+def _connect_agent(args: argparse.Namespace) -> None:
+    """Run the ``connect <agent>`` completion path — a targeted install.
+
+    pi-family runtimes install their TypeScript extension; every other
+    runtime falls through to the full ``install()`` flow, which the
+    ``--runtime`` override scopes to just this agent.
+    """
+    if args.agent == "pi":
+        _connect_pi(args)
+        return
+    if args.agent == "omp":
+        _connect_omp(args)
+        return
+    install(args)
+
+
+def _handle_connect_disconnect(args: argparse.Namespace) -> bool:
+    """Handle the friendly ``connect <agent>`` / ``disconnect <agent>`` verbs.
+
+    Returns True when a verb was recognized and fully handled (``main``
+    returns immediately); False when no verb was supplied so the plain
+    install/uninstall flow continues.
+    """
+    if args.verb not in ("connect", "disconnect"):
+        return False
+    if args.agent is None:
+        _err(f"{args.verb} requires an agent: {' | '.join(_connectable_runtimes())}")
+        sys.exit(2)
+    args.runtime = args.agent
+    if args.verb == "disconnect":
+        _disconnect_agent(args)
+        return True
+    _connect_agent(args)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -621,52 +689,97 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _run_migrate_vault(args: argparse.Namespace) -> None:
+    """Run the ``--migrate-vault`` stage: banner, guards, confirm, migrate.
+
+    Refuses to combine with the uninstall modes or ``--vault``, shows the
+    migration banner unless ``--yes``/``--dry-run``, and always terminates
+    the process with ``migrate_default_vault``'s exit code.
+    """
+    if args.uninstall or args.uninstall_hooks:
+        _err("Choose only one mode: --migrate-vault, --uninstall, or --uninstall-hooks")
+        sys.exit(2)
+    if args.vault:
+        _err(
+            "--migrate-vault migrates the default legacy vault; do not combine it with --vault"
+        )
+        sys.exit(2)
+    if not args.yes and not args.dry_run:
+        print()
+        print(bold("Parsidion Vault Migration"))
+        print("This will move ~/ClaudeVault to ~/ParsidionVault.")
+        if not args.no_legacy_vault_symlink:
+            print("It will also leave ~/ClaudeVault as a compatibility symlink.")
+        if not _confirm("Proceed with vault migration?", default=False):
+            print(dim("Aborted."))
+            sys.exit(0)
+    sys.exit(
+        migrate_default_vault(
+            dry_run=args.dry_run,
+            create_legacy_symlink=not args.no_legacy_vault_symlink,
+        )
+    )
+
+
+def _run_uninstall(
+    args: argparse.Namespace, claude_dir: Path, settings_file: Path
+) -> None:
+    """Run the ``--uninstall`` / ``--uninstall-hooks`` stage.
+
+    Resolves the runtime choice and codex/antigravity homes, shows the
+    uninstall banner unless ``--yes``/``--dry-run``, runs the uninstaller,
+    and always terminates the process with exit code 0.
+    """
+    runtime = resolve_runtime_choice(
+        args.runtime,
+        yes=args.yes,
+        interactive=not args.yes,
+    )
+    codex_home = Path(args.codex_home).expanduser().resolve()
+    antigravity_home = Path(args.antigravity_home).expanduser().resolve()
+    if not args.yes and not args.dry_run:
+        print()
+        print(
+            bold(
+                "Parsidion Hook Uninstaller"
+                if args.uninstall_hooks
+                else "Parsidion Uninstaller"
+            )
+        )
+        print(f"  {dim('Runtime   :')} {runtime}")
+        print(f"  {dim('Claude dir:')} {claude_dir}")
+        if _wants_codex_runtime(runtime):
+            print(f"  {dim('Codex home:')} {codex_home}")
+        if _wants_antigravity_runtime(runtime):
+            print(f"  {dim('Antigravity home:')} {antigravity_home}")
+        prompt = (
+            "Proceed with hook uninstall?"
+            if args.uninstall_hooks
+            else "Proceed with uninstall?"
+        )
+        if not _confirm(prompt, default=False):
+            print(dim("Aborted."))
+            sys.exit(0)
+    uninstall(
+        claude_dir,
+        settings_file,
+        dry_run=args.dry_run,
+        yes=args.yes,
+        hooks_only=args.uninstall_hooks,
+        runtime=runtime,
+        codex_home=codex_home,
+        antigravity_home=antigravity_home,
+        purge_config=args.purge_config,
+    )
+    sys.exit(0)
+
+
 def main() -> None:
     """Entry point for the Parsidion installer."""
     args = parse_args()
 
     # Friendly multi-agent verbs: 'connect <agent>' / 'disconnect <agent>'.
-    if args.verb in ("connect", "disconnect"):
-        if args.agent is None:
-            _err(
-                f"{args.verb} requires an agent: {' | '.join(_connectable_runtimes())}"
-            )
-            sys.exit(2)
-        args.runtime = args.agent
-        if args.verb == "disconnect":
-            if args.agent == "pi":
-                _disconnect_pi(args)
-                return
-            if args.agent == "omp":
-                _disconnect_omp(args)
-                return
-            claude_dir = Path(args.claude_dir).expanduser().resolve()
-            settings_file = claude_dir / "settings.json"
-            runtime = resolve_runtime_choice(
-                args.runtime, yes=args.yes, interactive=not args.yes
-            )
-            codex_home = Path(args.codex_home).expanduser().resolve()
-            antigravity_home = Path(args.antigravity_home).expanduser().resolve()
-            uninstall(
-                claude_dir,
-                settings_file,
-                dry_run=args.dry_run,
-                yes=args.yes,
-                hooks_only=False,
-                runtime=runtime,
-                codex_home=codex_home,
-                antigravity_home=antigravity_home,
-                purge_config=args.purge_config,
-            )
-            return
-        # connect == targeted install for one runtime
-        if args.agent == "pi":
-            _connect_pi(args)
-            return
-        if args.agent == "omp":
-            _connect_omp(args)
-            return
-        install(args)
+    if _handle_connect_disconnect(args):
         return
 
     claude_dir = Path(args.claude_dir).expanduser().resolve()
@@ -677,74 +790,9 @@ def main() -> None:
         sys.exit(2)
 
     if args.migrate_vault:
-        if args.uninstall or args.uninstall_hooks:
-            _err(
-                "Choose only one mode: --migrate-vault, --uninstall, or --uninstall-hooks"
-            )
-            sys.exit(2)
-        if args.vault:
-            _err(
-                "--migrate-vault migrates the default legacy vault; do not combine it with --vault"
-            )
-            sys.exit(2)
-        if not args.yes and not args.dry_run:
-            print()
-            print(bold("Parsidion Vault Migration"))
-            print("This will move ~/ClaudeVault to ~/ParsidionVault.")
-            if not args.no_legacy_vault_symlink:
-                print("It will also leave ~/ClaudeVault as a compatibility symlink.")
-            if not _confirm("Proceed with vault migration?", default=False):
-                print(dim("Aborted."))
-                sys.exit(0)
-        sys.exit(
-            migrate_default_vault(
-                dry_run=args.dry_run,
-                create_legacy_symlink=not args.no_legacy_vault_symlink,
-            )
-        )
+        _run_migrate_vault(args)
 
     if args.uninstall or args.uninstall_hooks:
-        runtime = resolve_runtime_choice(
-            args.runtime,
-            yes=args.yes,
-            interactive=not args.yes,
-        )
-        codex_home = Path(args.codex_home).expanduser().resolve()
-        antigravity_home = Path(args.antigravity_home).expanduser().resolve()
-        if not args.yes and not args.dry_run:
-            print()
-            print(
-                bold(
-                    "Parsidion Hook Uninstaller"
-                    if args.uninstall_hooks
-                    else "Parsidion Uninstaller"
-                )
-            )
-            print(f"  {dim('Runtime   :')} {runtime}")
-            print(f"  {dim('Claude dir:')} {claude_dir}")
-            if _wants_codex_runtime(runtime):
-                print(f"  {dim('Codex home:')} {codex_home}")
-            if _wants_antigravity_runtime(runtime):
-                print(f"  {dim('Antigravity home:')} {antigravity_home}")
-            prompt = (
-                "Proceed with hook uninstall?"
-                if args.uninstall_hooks
-                else "Proceed with uninstall?"
-            )
-            if not _confirm(prompt, default=False):
-                print(dim("Aborted."))
-                sys.exit(0)
-        uninstall(
-            claude_dir,
-            settings_file,
-            dry_run=args.dry_run,
-            yes=args.yes,
-            hooks_only=args.uninstall_hooks,
-            runtime=runtime,
-            codex_home=codex_home,
-            antigravity_home=antigravity_home,
-            purge_config=args.purge_config,
-        )
-        sys.exit(0)
+        _run_uninstall(args, claude_dir, settings_file)
 
     sys.exit(install(args))

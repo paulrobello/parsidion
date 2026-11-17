@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useTransition, useRef } from 'react'
+import { useState, useCallback, useTransition, useRef } from 'react'
 import { getNodeColor } from '@/lib/sigma-colors'
 import type { NoteNode } from '@/lib/graph'
 import { ConfirmDialog } from './ConfirmDialog'
 import { useConfirmDelete } from '@/lib/useConfirmDelete'
-import { parseFrontmatter, serializeFrontmatter } from '@/lib/frontmatter'
-import type { FrontmatterFields } from '@/lib/frontmatter'
 import { useNoteContent } from '@/lib/useNoteContent'
+import { useNoteEditing } from '@/lib/useNoteEditing'
 import { NoteEditor } from './reading-pane/NoteEditor'
 import { NoteMarkdown } from './reading-pane/NoteMarkdown'
 import { NoteLinkCluster } from './reading-pane/NoteLinkCluster'
@@ -31,11 +30,6 @@ interface Props {
 export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0, visible = true, linkedStems = [] }: Props) {
   const [isPending, startTransition] = useTransition()
   const [isEditing, setIsEditing] = useState(false)
-  const [editFields, setEditFields] = useState<FrontmatterFields | null>(null)
-  const [editBody, setEditBody] = useState<string>('')
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [previewMode, setPreviewMode] = useState(false)
   const {
     pendingDelete,
     isDeleting,
@@ -44,7 +38,6 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     cancelDelete,
     handleConfirmDelete,
   } = useConfirmDelete(onDelete)
-  const [conflictData, setConflictData] = useState<{ serverContent: string; mtimeMs: number } | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Stable note identifier (path, falling back to id) — a background graph reload
@@ -72,84 +65,22 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     scrollRef: scrollContainerRef,
   })
 
-  const handleStartEdit = useCallback(() => {
-    if (!content) return
-    const { fields, body } = parseFrontmatter(content)
-    setEditFields(fields)
-    setEditBody(body)
-    setSaveError(null)
-    setIsEditing(true)
-  }, [content])
-
-  // ⌘E to enter edit mode — only while this pane is actually visible
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!visible) return
-      if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !isEditing) {
-        e.preventDefault()
-        handleStartEdit()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [isEditing, handleStartEdit, visible])
-
-  const handleCancelEdit = useCallback(() => {
-    setIsEditing(false)
-    setPreviewMode(false)
-    setSaveError(null)
-    setExternallyModified(false)
-  }, [setExternallyModified])
-
-  const handleSave = useCallback(async () => {
-    if (!node || !editFields) return
-    setIsSaving(true)
-    setSaveError(null)
-    try {
-      const fullContent = serializeFrontmatter(editFields, editBody)
-      const result = await onSave(node.id, fullContent, baseMtime, node.path)
-      if ('conflict' in result && result.conflict) {
-        setConflictData({ serverContent: result.serverContent, mtimeMs: result.mtimeMs })
-        return
-      }
-      setContent(fullContent)
-      setBaseMtime(result.mtimeMs)
-      setIsEditing(false)
-      setPreviewMode(false)
-      setExternallyModified(false)
-    } catch (e) {
-      setSaveError((e as Error).message)
-    } finally {
-      setIsSaving(false)
-    }
-  }, [node, editFields, editBody, onSave, baseMtime, setContent, setBaseMtime, setExternallyModified])
-
-  const handleConflictResolve = useCallback(async (resolved: string) => {
-    if (!node || !conflictData) return
-    // Base the retry on the mtime seen at conflict time — the file the user just
-    // reviewed — so the overwrite succeeds unless it changed again in the meantime.
-    const retryBaseMtime = conflictData.mtimeMs
-    setConflictData(null)
-    setIsSaving(true)
-    setSaveError(null)
-    try {
-      const result = await onSave(node.id, resolved, retryBaseMtime, node.path)
-      if ('conflict' in result && result.conflict) {
-        // Modified again during resolution — surface the new conflict instead of silently overwriting.
-        setConflictData({ serverContent: result.serverContent, mtimeMs: result.mtimeMs })
-        return
-      }
-      setContent(resolved)
-      setBaseMtime(result.mtimeMs)
-      setIsEditing(false)
-      setPreviewMode(false)
-      setExternallyModified(false)
-    } catch (e) {
-      setSaveError((e as Error).message)
-    } finally {
-      setIsSaving(false)
-    }
-  }, [node, onSave, conflictData, setContent, setBaseMtime, setExternallyModified])
+  const {
+    editFields, setEditFields, editBody, setEditBody, isSaving, saveError,
+    previewMode, setPreviewMode, conflictData, setConflictData,
+    handleStartEdit, handleCancelEdit, handleSave, handleConflictResolve,
+  } = useNoteEditing({
+    node,
+    content,
+    setContent,
+    setBaseMtime,
+    setExternallyModified,
+    baseMtime,
+    onSave,
+    visible,
+    isEditing,
+    setIsEditing,
+  })
 
   const handleWikilink = useCallback((stem: string, e: React.MouseEvent) => {
     onNavigate(stem, e.metaKey || e.ctrlKey)
