@@ -127,6 +127,20 @@ landing a prompt change. The byte-identical rendering gate
 (`tests/test_prompt_templates.py -k identical`) must stay green — separate the
 mechanical move of text from any wording change into distinct commits.
 
+**Untrusted-content framing rule (ENH-068).** Any template variable that
+carries transcript, note-body, or other vault content is untrusted data and
+must be framed: the template body contains a `SYSTEM:` line declaring the
+inlined block untrusted, and the variable reference sits on a line of its own
+between explicit delimiter markers (`---BEGIN X---` / `---END---` or
+`<tag>` / `</tag>`). Scaffolding variables (dates, counts, enums, generated
+guidance) are exempt. The enforcement gate is
+`tests/test_prompt_framing_gate.py`: every template and every variable must be
+classified in its registry — content variables as untrusted (each entry
+carries a comment naming what flows in), scaffolding as trusted (allowlist,
+each entry carries a justification). A new template or variable that is not
+classified fails the gate, forcing the classification review; a content
+variable left unframed fails it too.
+
 ### Cross-language parity fixtures (ENH-005)
 
 Two contracts are shared between Python and TypeScript and must stay in sync:

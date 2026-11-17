@@ -1,6 +1,6 @@
 ---
 id: summarize-session
-version: 1.1.1
+version: 1.2.0
 syntax: template
 variables: [project, cats_str, today, dedup_block, cleaned_transcript, tags_instruction, valid_types, session_id]
 description: Generate a structured vault note from a cleaned session transcript (summarize_sessions). Transcript is inlined as untrusted data.
@@ -16,7 +16,9 @@ Detected topics: $cats_str
 Today's date: $today
 $dedup_block
 Session transcript (cleaned):
+---BEGIN TRANSCRIPT---
 $cleaned_transcript
+---END---
 
 Before writing the note, evaluate: Will the insights from this session change behavior
 in future sessions? Is there something learnable, reusable, or architecturally significant?
