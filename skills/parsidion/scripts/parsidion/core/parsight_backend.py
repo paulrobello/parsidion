@@ -753,6 +753,124 @@ def _is_superseded_stem(
         return False
 
 
+def _aggregate_hits_by_stem(
+    hits: list[dict[str, Any]], vault: Path
+) -> dict[str, tuple[float, str]]:
+    """Aggregate raw parsight hits to one best-score row per note stem.
+
+    Drops non-note paths and SEC-020 outside-vault paths; a hit without a
+    numeric score keeps its relevance order via a rank-preserving synthetic
+    value instead of collapsing into a tie.
+    """
+    best: dict[str, tuple[float, str]] = {}
+    for idx, hit in enumerate(hits):
+        rel = hit.get("file_path")
+        raw_score = hit.get("score")
+        if not isinstance(rel, str) or not rel.lower().endswith(".md"):
+            continue
+        # SEC-020: parsight JSON is external input; a file_path outside
+        # the vault (absolute or ../-laden) must be dropped before it
+        # reaches the result set or a file read. `vault / rel` collapses
+        # an absolute rel to itself, so the containment check holds for
+        # both shapes.
+        if not is_path_inside_vault(vault / rel, vault):
+            continue
+        if raw_score is None:
+            # Rank-preserving fallback: a hit without a score (older
+            # daemon predating --diagnostics, or a lane that omits one)
+            # still carries relevance information in its position in
+            # parsight's response — synthesize from that instead of
+            # flooring to 0.0, so aggregation/decay/sort don't collapse
+            # score-less hits into an arbitrary tie.
+            score = 1.0 / (1.0 + idx)
+        elif isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
+            continue
+        else:
+            score = float(raw_score)
+        stem = Path(rel).stem
+        prev = best.get(stem)
+        if prev is None or score > prev[0]:
+            best[stem] = (score, rel)
+    return best
+
+
+def _scored_from_index_rows(
+    best: dict[str, tuple[float, str]],
+    index_rows: dict[str, dict[str, Any]],
+    vault: Path,
+    *,
+    decay_enabled: bool,
+    half_life: float,
+    min_factor: float,
+    now: float,
+) -> list[tuple[float, dict[str, object]]]:
+    """Score aggregated stems against note_index rows.
+
+    Stems with no row (generated files like MANIFEST.md, or outside-vault
+    row paths per SEC-020) are skipped. Called under parsight_search's
+    never-raises wrapper.
+    """
+    scored: list[tuple[float, dict[str, object]]] = []
+    for stem, (raw_score, _rel) in best.items():
+        row = index_rows.get(stem)
+        if row is None:
+            continue  # not a vault note (MANIFEST.md, TAGS.md, ...)
+        # SEC-020: note_index rows carry DB-sourced path strings; a
+        # tampered row must not inject an outside path into results.
+        row_path = Path(str(row.get("path") or ""))
+        if row_path.name and not is_path_inside_vault(row_path, vault):
+            continue
+        final = _decayed_score(
+            raw_score,
+            row.get("mtime"),
+            decay_enabled=decay_enabled,
+            half_life=half_life,
+            min_factor=min_factor,
+            now=now,
+        )
+        scored.append((final, _result_from_index_row(row, final)))
+    return scored
+
+
+def _scored_from_paths(
+    best: dict[str, tuple[float, str]],
+    vault: Path,
+    *,
+    include_superseded: bool,
+    decay_enabled: bool,
+    half_life: float,
+    min_factor: float,
+    now: float,
+) -> list[tuple[float, dict[str, object]]]:
+    """Score aggregated stems straight from files (no note_index available).
+
+    Mirrors parsidion.vault_search's file-walk fallback: generated note
+    names are excluded and superseded stems are dropped unless requested.
+    Called under parsight_search's never-raises wrapper.
+    """
+    scored: list[tuple[float, dict[str, object]]] = []
+    for stem, (raw_score, rel) in best.items():
+        note_path = vault / rel
+        if note_path.name in _GENERATED_NOTE_NAMES or not note_path.is_file():
+            continue
+        if not include_superseded and _is_superseded_stem(stem, None, vault):
+            continue
+        try:
+            file_mtime: float | None = note_path.stat().st_mtime
+        except OSError:
+            file_mtime = None
+        final = _decayed_score(
+            raw_score,
+            file_mtime,
+            decay_enabled=decay_enabled,
+            half_life=half_life,
+            min_factor=min_factor,
+            now=now,
+        )
+        scored.append((final, _result_from_path(note_path, vault, final, file_mtime)))
+    return scored
+
+
 def parsight_search(
     query: str,
     top_k: int = 10,
@@ -789,35 +907,7 @@ def parsight_search(
         )
         if hits is None:
             return None
-        best: dict[str, tuple[float, str]] = {}
-        for idx, hit in enumerate(hits):
-            rel = hit.get("file_path")
-            raw_score = hit.get("score")
-            if not isinstance(rel, str) or not rel.lower().endswith(".md"):
-                continue
-            # SEC-020: parsight JSON is external input; a file_path outside
-            # the vault (absolute or ../-laden) must be dropped before it
-            # reaches the result set or a file read. `vault / rel` collapses
-            # an absolute rel to itself, so the containment check holds for
-            # both shapes.
-            if not is_path_inside_vault(vault / rel, vault):
-                continue
-            if raw_score is None:
-                # Rank-preserving fallback: a hit without a score (older
-                # daemon predating --diagnostics, or a lane that omits one)
-                # still carries relevance information in its position in
-                # parsight's response — synthesize from that instead of
-                # flooring to 0.0, so aggregation/decay/sort don't collapse
-                # score-less hits into an arbitrary tie.
-                score = 1.0 / (1.0 + idx)
-            elif isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
-                continue
-            else:
-                score = float(raw_score)
-            stem = Path(rel).stem
-            prev = best.get(stem)
-            if prev is None or score > prev[0]:
-                best[stem] = (score, rel)
+        best = _aggregate_hits_by_stem(hits, vault)
         if not best:
             return []
         index_rows = _load_note_index_rows(list(best.keys()), vault)
@@ -839,47 +929,26 @@ def parsight_search(
         )
         half_life, min_factor = resolve_decay_params(vault)
         now = time.time()
-        scored: list[tuple[float, dict[str, object]]] = []
-        for stem, (raw_score, rel) in best.items():
-            if index_rows is not None:
-                row = index_rows.get(stem)
-                if row is None:
-                    continue  # not a vault note (MANIFEST.md, TAGS.md, ...)
-                # SEC-020: note_index rows carry DB-sourced path strings; a
-                # tampered row must not inject an outside path into results.
-                row_path = Path(str(row.get("path") or ""))
-                if row_path.name and not is_path_inside_vault(row_path, vault):
-                    continue
-                final = _decayed_score(
-                    raw_score,
-                    row.get("mtime"),
-                    decay_enabled=decay_enabled,
-                    half_life=half_life,
-                    min_factor=min_factor,
-                    now=now,
-                )
-                scored.append((final, _result_from_index_row(row, final)))
-            else:
-                note_path = vault / rel
-                if note_path.name in _GENERATED_NOTE_NAMES or not note_path.is_file():
-                    continue
-                if not include_superseded and _is_superseded_stem(stem, None, vault):
-                    continue
-                try:
-                    file_mtime: float | None = note_path.stat().st_mtime
-                except OSError:
-                    file_mtime = None
-                final = _decayed_score(
-                    raw_score,
-                    file_mtime,
-                    decay_enabled=decay_enabled,
-                    half_life=half_life,
-                    min_factor=min_factor,
-                    now=now,
-                )
-                scored.append(
-                    (final, _result_from_path(note_path, vault, final, file_mtime))
-                )
+        if index_rows is not None:
+            scored = _scored_from_index_rows(
+                best,
+                index_rows,
+                vault,
+                decay_enabled=decay_enabled,
+                half_life=half_life,
+                min_factor=min_factor,
+                now=now,
+            )
+        else:
+            scored = _scored_from_paths(
+                best,
+                vault,
+                include_superseded=include_superseded,
+                decay_enabled=decay_enabled,
+                half_life=half_life,
+                min_factor=min_factor,
+                now=now,
+            )
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [entry for _, entry in scored[:top_k]]
     except Exception as exc:  # noqa: BLE001 — contract: never raises

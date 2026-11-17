@@ -7,6 +7,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { useConfirmDelete } from '@/lib/useConfirmDelete'
 import { parseFrontmatter, serializeFrontmatter } from '@/lib/frontmatter'
 import type { FrontmatterFields } from '@/lib/frontmatter'
+import { useNoteContent } from '@/lib/useNoteContent'
 import { NoteEditor } from './reading-pane/NoteEditor'
 import { NoteMarkdown } from './reading-pane/NoteMarkdown'
 import { NoteLinkCluster } from './reading-pane/NoteLinkCluster'
@@ -28,8 +29,6 @@ interface Props {
 }
 
 export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, onOpenHistory, nodes, refreshTrigger = 0, visible = true, linkedStems = [] }: Props) {
-  const [content, setContent] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const [isEditing, setIsEditing] = useState(false)
   const [editFields, setEditFields] = useState<FrontmatterFields | null>(null)
@@ -45,39 +44,33 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     cancelDelete,
     handleConfirmDelete,
   } = useConfirmDelete(onDelete)
-  // Conflict-detection token: the server's mtimeMs for the note as currently loaded.
-  const [baseMtime, setBaseMtime] = useState<number | undefined>(undefined)
   const [conflictData, setConflictData] = useState<{ serverContent: string; mtimeMs: number } | null>(null)
-  const [externallyModified, setExternallyModified] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const savedScrollRef = useRef(0)
 
   // Stable note identifier (path, falling back to id) — a background graph reload
   // (e.g. after the summarizer runs) produces a new `node` object for the same note,
-  // which must not re-trigger this effect or discard in-progress edits.
+  // which must not re-trigger the content fetch or discard in-progress edits.
   const noteKey = node ? (node.path || node.id) : null
 
-  useEffect(() => {
-    if (!node) return
-    setIsEditing(false)
-    let cancelled = false
-    startTransition(async () => {
-      try {
-        const { content: c, mtimeMs } = await fetchContent(node.id, node.path)
-        if (!cancelled) {
-          setContent(c)
-          setBaseMtime(mtimeMs)
-          setError(null)
-        }
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message)
-      }
-    })
-    return () => { cancelled = true }
-  // Keyed on noteKey (not the `node` object) so a same-note reload with a new object
-  // identity doesn't re-run this effect and reset isEditing / refetch content.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noteKey, fetchContent])
+  const {
+    content,
+    setContent,
+    error,
+    baseMtime,
+    setBaseMtime,
+    externallyModified,
+    setExternallyModified,
+  } = useNoteContent({
+    noteKey,
+    noteId: node?.id ?? null,
+    notePath: node?.path,
+    fetchContent,
+    startTransition,
+    refreshTrigger,
+    isEditing,
+    onNoteChange: () => setIsEditing(false),
+    scrollRef: scrollContainerRef,
+  })
 
   const handleStartEdit = useCallback(() => {
     if (!content) return
@@ -101,45 +94,12 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     return () => window.removeEventListener('keydown', handler)
   }, [isEditing, handleStartEdit, visible])
 
-  useEffect(() => {
-    if (refreshTrigger === 0 || !node) return
-    if (isEditing) {
-      setExternallyModified(true)
-      return
-    }
-    savedScrollRef.current = scrollContainerRef.current?.scrollTop ?? 0
-    let cancelled = false
-    startTransition(async () => {
-      try {
-        const { content: c, mtimeMs } = await fetchContent(node.id, node.path)
-        if (!cancelled) {
-          setContent(c)
-          setBaseMtime(mtimeMs)
-          setError(null)
-        }
-      } catch { /* ignore refresh errors */ }
-    })
-    return () => { cancelled = true }
-  // QA-017: Only re-fetches when refreshTrigger changes (a counter incremented
-  // by the WebSocket file-watcher).  Including `stem`, `vault`, or `setContent`
-  // would cause re-fetches when switching tabs, which is handled by the initial
-  // load effect above this one.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshTrigger])
-
-  useEffect(() => {
-    if (savedScrollRef.current > 0 && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = savedScrollRef.current
-      savedScrollRef.current = 0
-    }
-  }, [content])
-
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false)
     setPreviewMode(false)
     setSaveError(null)
     setExternallyModified(false)
-  }, [])
+  }, [setExternallyModified])
 
   const handleSave = useCallback(async () => {
     if (!node || !editFields) return
@@ -162,7 +122,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     } finally {
       setIsSaving(false)
     }
-  }, [node, editFields, editBody, onSave, baseMtime])
+  }, [node, editFields, editBody, onSave, baseMtime, setContent, setBaseMtime, setExternallyModified])
 
   const handleConflictResolve = useCallback(async (resolved: string) => {
     if (!node || !conflictData) return
@@ -189,7 +149,7 @@ export function ReadingPane({ node, fetchContent, onNavigate, onSave, onDelete, 
     } finally {
       setIsSaving(false)
     }
-  }, [node, onSave, conflictData])
+  }, [node, onSave, conflictData, setContent, setBaseMtime, setExternallyModified])
 
   const handleWikilink = useCallback((stem: string, e: React.MouseEvent) => {
     onNavigate(stem, e.metaKey || e.ctrlKey)

@@ -23,7 +23,10 @@ What stays here and why:
     ``_build_frontmatter`` via bare-name calls that resolve in this
     module's globals; ``_write_preview`` and ``_load_fresh_preview`` do
     the same with ``_hash_content`` and ``_preview_cache_path``; ``main``
-    orchestrates the whole shim-resident pipeline. The test suite patches
+    orchestrates the whole shim-resident pipeline through its stage
+    helpers ``_build_arg_parser``, ``_resolve_merge_targets``,
+    ``_resolve_precomputed_body``, ``_emit_dry_run``, and
+    ``_execute_merge``, which are likewise shim-resident. The test suite patches
     ``parsidion.vault_merge.ai_backend.run_ai_prompt`` (a module-attribute patch
     that reaches the singleton ``ai_backend`` from any caller), so
     ``ai_backend`` is re-exported here, and ``_ai_merge_bodies`` stays in
@@ -464,12 +467,8 @@ def _update_wikilinks_in_vault(old_stem: str, new_stem: str, vault_path: Path) -
     return updated
 
 
-def main() -> None:
-    """Parse CLI arguments and perform (or preview) the note merge.
-
-    Raises:
-        SystemExit: On invalid arguments or after completion.
-    """
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build the ``vault-merge`` argument parser."""
     parser = argparse.ArgumentParser(
         prog="vault-merge",
         description="Merge two vault notes into one, or scan for near-duplicate pairs.",
@@ -547,6 +546,188 @@ def main() -> None:
         action="store_true",
         help="Skip AI-powered content deduplication; use naive concatenation.",
     )
+    return parser
+
+
+def _resolve_merge_targets(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    vault_path: Path,
+) -> tuple[Path, Path]:
+    """Resolve NOTE_A and NOTE_B to vault paths, exiting the CLI on failure.
+
+    Require both notes when not scanning (SEC-011: ``LookupError`` means the
+    query resolved to an existing path outside the vault — refuse rather
+    than merge it); a stem that matches nothing is also fatal.
+    """
+    if not args.note_a or not args.note_b:
+        parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
+
+    try:
+        path_a = _find_note(args.note_a, vault_path)
+    except LookupError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if path_a is None:
+        print(f"Error: note not found: {args.note_a}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        path_b = _find_note(args.note_b, vault_path)
+    except LookupError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if path_b is None:
+        print(f"Error: note not found: {args.note_b}", file=sys.stderr)
+        sys.exit(1)
+
+    if path_a.resolve() == path_b.resolve():
+        print("Error: NOTE_A and NOTE_B are the same file.", file=sys.stderr)
+        sys.exit(1)
+
+    return path_a, path_b
+
+
+def _resolve_precomputed_body(
+    vault_path: Path,
+    path_a: Path,
+    content_a: str,
+    path_b: Path,
+    content_b: str,
+    *,
+    enabled: bool,
+) -> str | None:
+    """Return the cached preview body when ``--from-preview`` applies.
+
+    ``enabled`` is ``is_execute and args.from_preview``: the cache applies
+    only on the mutating path. Prints the reuse/fallback notice (reuse on
+    stdout, fallback on stderr) exactly as the pre-extraction code did.
+    """
+    if not enabled:
+        return None
+    precomputed_ai_body = _load_fresh_preview(
+        vault_path, path_a, content_a, path_b, content_b
+    )
+    if precomputed_ai_body is not None:
+        print(
+            "Reusing cached preview merge from a prior dry-run "
+            "(source notes unchanged) — skipping AI call."
+        )
+    else:
+        print(
+            "No matching cached preview for this pair (or a "
+            "source note changed since the preview) — falling "
+            "back to a fresh AI merge.",
+            file=sys.stderr,
+        )
+    return precomputed_ai_body
+
+
+def _emit_dry_run(
+    vault_path: Path,
+    path_a: Path,
+    content_a: str,
+    path_b: Path,
+    content_b: str,
+    ai_body_out: dict[str, str],
+    proposed: str,
+    *,
+    execute: bool,
+) -> None:
+    """Print the proposed merge (caching its AI body) without touching notes.
+
+    Runs when ``--dry-run`` is set or ``--execute`` is absent. ``execute``
+    mirrors ``args.execute``: only when it is False does the trailing
+    dry-run hint print.
+    """
+    print("=== Proposed merged content ===\n")
+    print(proposed)
+    if "body" in ai_body_out:
+        _write_preview(
+            vault_path, path_a, content_a, path_b, content_b, ai_body_out["body"]
+        )
+        print(
+            "\nPreview cached — re-run with "
+            "--execute --from-preview to apply this exact merge "
+            "without another AI call."
+        )
+    if not execute:
+        print("(dry-run — pass --execute to apply changes)")
+
+
+def _execute_merge(
+    vault_path: Path,
+    path_a: Path,
+    path_b: Path,
+    merged: str,
+    output: str | None,
+    *,
+    rebuild_index: bool,
+) -> None:
+    """Apply a merge: write, trash NOTE_B, rewrite wikilinks, commit, reindex.
+
+    Writing goes through a sibling tmp + atomic replace so a kill mid-write
+    can never leave the keeper truncated; NOTE_B is only trashed after the
+    replace succeeds.
+    """
+    # SEC-011: --output must land inside the vault.
+    output_path = Path(output).expanduser() if output else path_a
+    if not is_path_inside_vault(output_path, vault_path):
+        print(
+            f"Error: --output path is outside the vault: {output}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    try:
+        tmp_path.write_text(merged, encoding="utf-8")
+        tmp_path.replace(output_path)
+    except OSError:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    print(f"Merged note written to: {output_path}")
+
+    # Move NOTE_B to .trash/
+    trash_dir = vault_path / ".trash"
+    trash_dir.mkdir(exist_ok=True)
+    trash_dest = trash_dir / path_b.name
+    # Avoid clobbering existing trash file
+    if trash_dest.exists():
+        suffix = 1
+        while (trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}").exists():
+            suffix += 1
+        trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
+    shutil.move(str(path_b), str(trash_dest))
+    print(f"Moved {path_b.name} to .trash/")
+
+    # Update wikilinks
+    n_updated = _update_wikilinks_in_vault(path_b.stem, output_path.stem, vault_path)
+    if n_updated:
+        print(
+            f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
+        )
+
+    # This pair's cached preview (if any) has now been applied.
+    _delete_preview(vault_path, path_a, path_b)
+
+    # Commit
+    vault_fs.git_commit_vault(
+        f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
+        vault=vault_path,
+    )
+
+    # Rebuild index
+    if rebuild_index:
+        _rebuild_index()
+
+
+def main() -> None:
+    """Parse CLI arguments and perform (or preview) the note merge.
+
+    Raises:
+        SystemExit: On invalid arguments or after completion.
+    """
+    parser = _build_arg_parser()
     args = parser.parse_args()
     emit_usage_metric("parsidion_cli_invocations", 1.0, {"tool": "vault-merge"})
 
@@ -572,33 +753,7 @@ def main() -> None:
                     sys.exit(1)
                 return
 
-            # Require NOTE_A and NOTE_B when not scanning
-            if not args.note_a or not args.note_b:
-                parser.error("NOTE_A and NOTE_B are required unless --scan is used.")
-
-            # Resolve notes. SEC-011: LookupError means the query resolved to an
-            # existing path outside the vault — refuse rather than merge it.
-            try:
-                path_a = _find_note(args.note_a, vault_path)
-            except LookupError as exc:
-                print(f"Error: {exc}", file=sys.stderr)
-                sys.exit(1)
-            if path_a is None:
-                print(f"Error: note not found: {args.note_a}", file=sys.stderr)
-                sys.exit(1)
-
-            try:
-                path_b = _find_note(args.note_b, vault_path)
-            except LookupError as exc:
-                print(f"Error: {exc}", file=sys.stderr)
-                sys.exit(1)
-            if path_b is None:
-                print(f"Error: note not found: {args.note_b}", file=sys.stderr)
-                sys.exit(1)
-
-            if path_a.resolve() == path_b.resolve():
-                print("Error: NOTE_A and NOTE_B are the same file.", file=sys.stderr)
-                sys.exit(1)
+            path_a, path_b = _resolve_merge_targets(parser, args, vault_path)
 
             # Only the mutating (--execute, non-dry-run) path needs to serialize
             # against other invocations; a preview is read-only w.r.t. the vault
@@ -616,23 +771,14 @@ def main() -> None:
                     path_a, content_a, path_b, content_b, vault_path=vault_path
                 )
 
-                precomputed_ai_body: str | None = None
-                if is_execute and args.from_preview:
-                    precomputed_ai_body = _load_fresh_preview(
-                        vault_path, path_a, content_a, path_b, content_b
-                    )
-                    if precomputed_ai_body is not None:
-                        print(
-                            "Reusing cached preview merge from a prior dry-run "
-                            "(source notes unchanged) — skipping AI call."
-                        )
-                    else:
-                        print(
-                            "No matching cached preview for this pair (or a "
-                            "source note changed since the preview) — falling "
-                            "back to a fresh AI merge.",
-                            file=sys.stderr,
-                        )
+                precomputed_ai_body = _resolve_precomputed_body(
+                    vault_path,
+                    path_a,
+                    content_a,
+                    path_b,
+                    content_b,
+                    enabled=is_execute and args.from_preview,
+                )
 
                 # Build merged content
                 ai_body_out: dict[str, str] = {}
@@ -657,82 +803,26 @@ def main() -> None:
                     sys.exit(1)
 
                 if args.dry_run or not args.execute:
-                    print("=== Proposed merged content ===\n")
-                    print(merged)
-                    if "body" in ai_body_out:
-                        _write_preview(
-                            vault_path,
-                            path_a,
-                            content_a,
-                            path_b,
-                            content_b,
-                            ai_body_out["body"],
-                        )
-                        print(
-                            "\nPreview cached — re-run with "
-                            "--execute --from-preview to apply this exact merge "
-                            "without another AI call."
-                        )
-                    if not args.execute:
-                        print("(dry-run — pass --execute to apply changes)")
+                    _emit_dry_run(
+                        vault_path,
+                        path_a,
+                        content_a,
+                        path_b,
+                        content_b,
+                        ai_body_out,
+                        proposed=merged,
+                        execute=args.execute,
+                    )
                     return
 
-                # --execute: write merged note via sibling tmp + atomic replace so a
-                # kill mid-write can never leave the keeper truncated. NOTE_B is only
-                # trashed after the replace succeeds.
-                # SEC-011: --output must land inside the vault.
-                output_path = Path(args.output).expanduser() if args.output else path_a
-                if not is_path_inside_vault(output_path, vault_path):
-                    print(
-                        f"Error: --output path is outside the vault: {args.output}",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-                tmp_path = output_path.with_name(output_path.name + ".tmp")
-                try:
-                    tmp_path.write_text(merged, encoding="utf-8")
-                    tmp_path.replace(output_path)
-                except OSError:
-                    tmp_path.unlink(missing_ok=True)
-                    raise
-                print(f"Merged note written to: {output_path}")
-
-                # Move NOTE_B to .trash/
-                trash_dir = vault_path / ".trash"
-                trash_dir.mkdir(exist_ok=True)
-                trash_dest = trash_dir / path_b.name
-                # Avoid clobbering existing trash file
-                if trash_dest.exists():
-                    suffix = 1
-                    while (
-                        trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
-                    ).exists():
-                        suffix += 1
-                    trash_dest = trash_dir / f"{path_b.stem}.{suffix}{path_b.suffix}"
-                shutil.move(str(path_b), str(trash_dest))
-                print(f"Moved {path_b.name} to .trash/")
-
-                # Update wikilinks
-                n_updated = _update_wikilinks_in_vault(
-                    path_b.stem, output_path.stem, vault_path
+                _execute_merge(
+                    vault_path,
+                    path_a,
+                    path_b,
+                    merged,
+                    args.output,
+                    rebuild_index=not args.no_index,
                 )
-                if n_updated:
-                    print(
-                        f"Updated wikilinks in {n_updated} file(s): {path_b.stem} → {output_path.stem}"
-                    )
-
-                # This pair's cached preview (if any) has now been applied.
-                _delete_preview(vault_path, path_a, path_b)
-
-                # Commit
-                vault_fs.git_commit_vault(
-                    f"refactor(vault): merge {path_b.stem} into {output_path.stem}",
-                    vault=vault_path,
-                )
-
-                # Rebuild index
-                if not args.no_index:
-                    _rebuild_index()
 
         except KeyboardInterrupt:
             print("\nInterrupted.", file=sys.stderr)

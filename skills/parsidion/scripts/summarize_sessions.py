@@ -943,6 +943,82 @@ def _iter_registered_vaults() -> list[Path]:
     return vaults
 
 
+def _prune_dead_letter_retention(vault_path: Path) -> None:
+    """Prune dead-letter records older than the configured retention window.
+
+    dead_letters.jsonl accumulates every sticky write-gate skip; pruning
+    keeps it bounded. Runs every invocation regardless of pending work.
+    """
+    _retention_days = int(
+        vault_config.get_config(
+            "summarizer",
+            "dead_letter_retention_days",
+            _DEAD_LETTER_RETENTION_DAYS,
+        )
+    )
+    _pruned_dl = _prune_dead_letters(vault_path, _retention_days)
+    if _pruned_dl:
+        print(
+            f"Pruned {_pruned_dl} dead-letter record(s) older than "
+            f"{_retention_days} day(s)"
+        )
+
+
+def _run_doctor_stage(vault_path: Path, args: argparse.Namespace) -> None:
+    """Run ``vault_doctor --fix-all`` ahead of summarization when requested.
+
+    Bounded by ``summarizer.doctor_timeout`` (a hung doctor must not stall
+    the summarizer — QA-005); killed via run_with_pgkill so the doctor's
+    own AI workers die with it (ARC-106). Doctor output is relayed to keep
+    the pre-extraction console behaviour.
+    """
+    _doctor = Path(__file__).parent / "vault_doctor.py"
+    print("Running vault_doctor --fix-all before summarizing…")
+    # QA-005: bound the run so a hung vault_doctor cannot stall the
+    # summarizer indefinitely. vault_doctor --fix-all is bounded work,
+    # but AI-driven repairs or large subfolder vetting passes can exceed
+    # 10 minutes on large vaults (observed 2026-09-24). Configurable via
+    # parsidion.summarizer.doctor_timeout (default _DOCTOR_TIMEOUT_SECS = 600).
+    # ARC-106: routed through run_with_pgkill like every other child in
+    # this pipeline. The bare subprocess.run predated ARC-004 and killed
+    # only the direct child on timeout, orphaning vault_doctor's own AI
+    # worker processes -- exactly the zombie class the SessionStart
+    # semantic-search comment documents. run_with_pgkill captures output,
+    # so it is relayed here to preserve the previous console behaviour.
+    _doctor_timeout = int(
+        vault_config.get_config(
+            "summarizer",
+            "doctor_timeout",
+            _DOCTOR_TIMEOUT_SECS,
+            vault=vault_path,
+        )
+    )
+    # --all-vaults must point the doctor at THIS vault, not the default.
+    _doctor_vault_args = ["--vault", str(vault_path)] if args.all_vaults else []
+    _reason, _proc = run_with_pgkill(
+        [sys.executable, str(_doctor), "--fix-all", *_doctor_vault_args],
+        cwd=Path.cwd(),
+        timeout=_doctor_timeout,
+    )
+    if _reason == "timeout":
+        print(
+            f"Warning: vault_doctor --fix-all timed out after "
+            f"{_doctor_timeout}s; continuing with summarization.",
+            file=sys.stderr,
+        )
+    elif _reason == "launch":
+        print(
+            "Warning: vault_doctor --fix-all could not be started; "
+            "continuing with summarization.",
+            file=sys.stderr,
+        )
+    elif _proc is not None:
+        if _proc.stdout:
+            print(_proc.stdout, end="")
+        if _proc.stderr:
+            print(_proc.stderr, end="", file=sys.stderr)
+
+
 def _process_vault(vault_path: Path, args: argparse.Namespace) -> int:
     """Run the summarizer pipeline against one vault. Returns an exit code.
 
@@ -960,6 +1036,85 @@ def _process_vault(vault_path: Path, args: argparse.Namespace) -> int:
         os.environ.update(env_snapshot)
 
 
+def _retry_dead_letters_stage(vault_path: Path, args: argparse.Namespace) -> int | None:
+    """Re-queue retryable dead-letter failures when ``--retry-dead-letters`` is set.
+
+    Returns an exit code when the caller should stop (dry-run report, or
+    nothing matched), or None to fall through to the normal pending flow.
+    Runs before read_pending so re-queued entries are picked up; removing
+    them from dead_letters.jsonl is what lets _early_gate process them
+    instead of skipping as already-dead-lettered.
+    """
+    result = _requeue_dead_letters(
+        vault_path,
+        reason=args.reason,
+        min_age_days=args.min_age_days,
+        max_count=args.max_count,
+        dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        print(
+            f"[dry-run] would re-queue {result.requeued} dead-lettered "
+            f"session(s) matching --reason '{args.reason}'."
+        )
+        if result.unrecoverable:
+            print(
+                f"[dry-run] would drop {result.unrecoverable} unrecoverable "
+                "record(s) whose transcript no longer exists."
+            )
+        if result.unchanged:
+            print(
+                f"[dry-run] would refuse {result.unchanged} write-gate-skip "
+                "record(s) whose transcript is unchanged since the verdict."
+            )
+        return 0
+    if result.unrecoverable:
+        print(
+            f"Skipped {result.unrecoverable} unrecoverable dead-letter "
+            "record(s): transcript no longer exists (typically removed "
+            "with its worktree); dropped them from dead_letters.jsonl."
+        )
+    if result.unchanged:
+        print(
+            f"Refused {result.unchanged} write-gate-skip dead-letter "
+            "record(s): transcript unchanged since the skip verdict — "
+            "retrying would re-derive the same skip. They stay in "
+            "dead_letters.jsonl."
+        )
+    if result.requeued == 0:
+        print(
+            f"No dead-lettered sessions matching --reason '{args.reason}'"
+            + (f" (min-age-days={args.min_age_days})" if args.min_age_days > 0 else "")
+            + " to retry."
+        )
+        return 0
+    print(
+        f"Re-queued {result.requeued} dead-lettered session(s) into the pending queue."
+    )
+    return None
+
+
+def _load_queue_entries(
+    args: argparse.Namespace, vault_path: Path
+) -> tuple[Path, list[dict[str, object]]] | None:
+    """Resolve the queue source and read its pending entries.
+
+    Returns None (after printing the empty-queue notice) when nothing is
+    pending, so the caller exits 0.
+    """
+    if args.sessions:
+        source_path = Path(args.sessions).expanduser()
+    else:
+        # Default: pending file in resolved vault
+        source_path = vault_path / "pending_summaries.jsonl"
+
+    entries = read_pending(source_path)
+    if not entries:
+        print(f"No pending sessions in {source_path}")
+        return None
+    return source_path, entries
+
+
 def _process_vault_body(vault_path: Path, args: argparse.Namespace) -> int:
     options = _resolve_options(args, vault_path)
     vault_hooks.apply_configured_env_defaults(vault=vault_path)
@@ -969,22 +1124,8 @@ def _process_vault_body(vault_path: Path, args: argparse.Namespace) -> int:
         return 1
     atexit.register(release_summarizer_lock, vault_path)
 
-    # Retention: prune dead-letter records older than the configured window so
-    # dead_letters.jsonl (which accumulates every sticky write-gate skip) stays
-    # bounded. Runs every invocation regardless of pending work.
-    _retention_days = int(
-        vault_config.get_config(
-            "summarizer",
-            "dead_letter_retention_days",
-            _DEAD_LETTER_RETENTION_DAYS,
-        )
-    )
-    _pruned_dl = _prune_dead_letters(vault_path, _retention_days)
-    if _pruned_dl:
-        print(
-            f"Pruned {_pruned_dl} dead-letter record(s) older than "
-            f"{_retention_days} day(s)"
-        )
+    # Retention: prune dead-letter records older than the configured window.
+    _prune_dead_letter_retention(vault_path)
 
     # A write-gate skip verdict only covers the transcript content it judged.
     # Re-queue skips whose transcript changed after the verdict (session kept
@@ -995,51 +1136,7 @@ def _process_vault_body(vault_path: Path, args: argparse.Namespace) -> int:
 
     # Optionally run vault_doctor first (--fix-all: frontmatter, tags, subfolders)
     if args.run_doctor:
-        _doctor = Path(__file__).parent / "vault_doctor.py"
-        print("Running vault_doctor --fix-all before summarizing…")
-        # QA-005: bound the run so a hung vault_doctor cannot stall the
-        # summarizer indefinitely. vault_doctor --fix-all is bounded work,
-        # but AI-driven repairs or large subfolder vetting passes can exceed
-        # 10 minutes on large vaults (observed 2026-09-24). Configurable via
-        # parsidion.summarizer.doctor_timeout (default _DOCTOR_TIMEOUT_SECS = 600).
-        # ARC-106: routed through run_with_pgkill like every other child in
-        # this pipeline. The bare subprocess.run predated ARC-004 and killed
-        # only the direct child on timeout, orphaning vault_doctor's own AI
-        # worker processes -- exactly the zombie class the SessionStart
-        # semantic-search comment documents. run_with_pgkill captures output,
-        # so it is relayed here to preserve the previous console behaviour.
-        _doctor_timeout = int(
-            vault_config.get_config(
-                "summarizer",
-                "doctor_timeout",
-                _DOCTOR_TIMEOUT_SECS,
-                vault=vault_path,
-            )
-        )
-        # --all-vaults must point the doctor at THIS vault, not the default.
-        _doctor_vault_args = ["--vault", str(vault_path)] if args.all_vaults else []
-        _reason, _proc = run_with_pgkill(
-            [sys.executable, str(_doctor), "--fix-all", *_doctor_vault_args],
-            cwd=Path.cwd(),
-            timeout=_doctor_timeout,
-        )
-        if _reason == "timeout":
-            print(
-                f"Warning: vault_doctor --fix-all timed out after "
-                f"{_doctor_timeout}s; continuing with summarization.",
-                file=sys.stderr,
-            )
-        elif _reason == "launch":
-            print(
-                "Warning: vault_doctor --fix-all could not be started; "
-                "continuing with summarization.",
-                file=sys.stderr,
-            )
-        elif _proc is not None:
-            if _proc.stdout:
-                print(_proc.stdout, end="")
-            if _proc.stderr:
-                print(_proc.stderr, end="", file=sys.stderr)
+        _run_doctor_stage(vault_path, args)
 
     # --retry-dead-letters: pull retryable failures out of the dead-letter
     # graveyard back into the live pending queue, then fall through to the
@@ -1047,69 +1144,15 @@ def _process_vault_body(vault_path: Path, args: argparse.Namespace) -> int:
     # entries are picked up; removing them from dead_letters.jsonl is what lets
     # _early_gate process them instead of skipping as already-dead-lettered.
     if args.retry_dead_letters:
-        result = _requeue_dead_letters(
-            vault_path,
-            reason=args.reason,
-            min_age_days=args.min_age_days,
-            max_count=args.max_count,
-            dry_run=args.dry_run,
-        )
-        if args.dry_run:
-            print(
-                f"[dry-run] would re-queue {result.requeued} dead-lettered "
-                f"session(s) matching --reason '{args.reason}'."
-            )
-            if result.unrecoverable:
-                print(
-                    f"[dry-run] would drop {result.unrecoverable} unrecoverable "
-                    "record(s) whose transcript no longer exists."
-                )
-            if result.unchanged:
-                print(
-                    f"[dry-run] would refuse {result.unchanged} write-gate-skip "
-                    "record(s) whose transcript is unchanged since the verdict."
-                )
-            return 0
-        if result.unrecoverable:
-            print(
-                f"Skipped {result.unrecoverable} unrecoverable dead-letter "
-                "record(s): transcript no longer exists (typically removed "
-                "with its worktree); dropped them from dead_letters.jsonl."
-            )
-        if result.unchanged:
-            print(
-                f"Refused {result.unchanged} write-gate-skip dead-letter "
-                "record(s): transcript unchanged since the skip verdict — "
-                "retrying would re-derive the same skip. They stay in "
-                "dead_letters.jsonl."
-            )
-        if result.requeued == 0:
-            print(
-                f"No dead-lettered sessions matching --reason '{args.reason}'"
-                + (
-                    f" (min-age-days={args.min_age_days})"
-                    if args.min_age_days > 0
-                    else ""
-                )
-                + " to retry."
-            )
-            return 0
-        print(
-            f"Re-queued {result.requeued} dead-lettered session(s) into the "
-            "pending queue."
-        )
+        retry_rc = _retry_dead_letters_stage(vault_path, args)
+        if retry_rc is not None:
+            return retry_rc
 
-    # Determine source file
-    if args.sessions:
-        source_path = Path(args.sessions).expanduser()
-    else:
-        # Default: pending file in resolved vault
-        source_path = vault_path / "pending_summaries.jsonl"
-
-    entries = read_pending(source_path)
-    if not entries:
-        print(f"No pending sessions in {source_path}")
+    # Load the pending queue (source resolution + empty-queue early exit).
+    loaded = _load_queue_entries(args, vault_path)
+    if loaded is None:
         return 0
+    source_path, entries = loaded
 
     model_label = options.model or "backend large default"
     print(f"Processing {len(entries)} session(s) with model {model_label}...")
