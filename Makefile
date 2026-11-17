@@ -108,11 +108,11 @@ checkall: fmt-check lint typecheck test test-graph test-search visualizer-check 
 
 # CI-parity gate (ci-gate-parity convention): checkall plus every CI check
 # that checkall alone does not run — the parity-fixtures drift gate, the wheel
-# clean-room import smoke, and the pi extension bun tests. ARC-206: the
-# docs-api drift gate is gone — CI generates docs/api as an artifact and Pages
-# deploys it; there is no committed snapshot left to drift.
+# clean-room import smoke, the pi extension bun tests, and API generation.
+# ARC-206: docs/api is an uncommitted artifact, so API generation is a build
+# check rather than a snapshot drift check.
 # checkall stays the fast inner loop; the heavier parity checks live here.
-checkall-ci: checkall parity-fixtures-check wheel-install pi-extension-check
+checkall-ci: checkall parity-fixtures-check wheel-install pi-extension-check docs-api
 
 # Mirror of CI's wheel-install job (ARC-003): build the wheel, install it
 # plus anyio into a throwaway seeded venv, and import every shipped module
