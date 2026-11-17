@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-17
+
+Multi-vault support and incremental indexing (ENH-067/ENH-068, personal-vault work):
+
+### Added
+- **Personal vaults** — per-vault taxonomy (`taxonomy.folders` / `default_folder`), multi-vault bootstrap and maintenance; multiple named vaults register in `~/.config/parsidion/vaults.yaml`.
+- **Incremental note_index** (ENH-067) — index updates apply per-note on the write paths instead of full rebuilds, and generated docs (CLAUDE.md / TAGS.md / MANIFEST.md) derive from stored rows: end-to-end index runs measured 5.49s → 1.43s on a 16.5k-note vault.
+- **SEC-108 injection framing** (ENH-068) — untrusted-content framing added to the prompt templates with a gate that keeps it there.
+- **Vault Visualizer launch guide** in the skill.
+
+### Changed
+- **Named vaults resolve through the shared resolver everywhere** — `build_graph --vault NAME`, hook vault selection, and the visualizer VaultSelector agree on `vaults.yaml` (whose `default:` now wins over `VAULT_ROOT`).
+- **Visualizer seams split** — ReadingPane render extracted into `reading-pane/` subcomponents with a `useNoteEditing` hook; HUDPanel split into `hud/` section components; installer `cli.main` / `install_skill` stage helpers extracted from complexity hotspots.
+- **MULTI_VAULT guidance** — account/customer/policy numbers are identifiers, allowed in vault notes (Paul's ruling 2026-11-16); live-auth secrets stay in parvault.
+
+### Fixed
+- **session_start hook survives malformed stdin** — whitespace/garbage payloads degrade to an empty payload instead of crashing (crash-storm signature, pinned by tests).
+- **note_index backfills after the embeddings child lands** on db-missing runs; `--vault` threads to the embeddings child and leg failures propagate to the exit code.
+- **Legacy docs slideshows** — impeccable design findings fixed (gradient text → solid accents, side-tab borders → tinted surfaces, contrast bumps), one all-caps label shortened.
+
 ## [0.29.0] - 2026-11-14
 
 Audit remediation (2026-11-13 fable audit, 25 issues — per-issue evidence on the fix-audit board cards; commits 7cd3b6c..60266c6):
