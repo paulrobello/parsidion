@@ -12,7 +12,7 @@
     --bg-card: #161b22;
     --border: #30363d;
     --cyan: #06B6D4;
-    --purple: #8B5CF6;
+    --purple: #A78BFA;
     --green: #22c55e;
     --yellow: #eab308;
     --red: #ef4444;
@@ -92,10 +92,7 @@ body {
 .slide-title {
     font-size: 22px;
     font-weight: 700;
-    background: var(--gradient);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--cyan);
     line-height: 1.3;
 }
 
@@ -146,7 +143,8 @@ body {
 }
 
 .output.highlight {
-    border-left: 3px solid var(--cyan);
+    background: rgba(6,182,212,0.06);
+    border-color: rgba(6,182,212,0.25);
     color: var(--text);
 }
 
@@ -198,7 +196,7 @@ ul.feature-list li.yellow::before { color: var(--yellow); }
 .kw  { color: var(--purple); }
 .fn  { color: var(--cyan); }
 .str { color: var(--yellow); }
-.cm  { color: #4d5566; }
+.cm  { color: var(--text-muted); }
 .ty  { color: #fb923c; }
 
 /* ── Section label ── */
@@ -436,7 +434,7 @@ Model: Claude Haiku for the new agent.</div>
 
       <div class="checklist">
         <div class="check-item"><span class="ck" style="background:var(--cyan);color:#000;">1</span><span><strong>Semantic search</strong> — <span class="hl-cyan">vault_search.py --json</span>; if ≥3 results with score ≥0.35 <span class="hl-green">→ skip to step 6</span></span></div>
-        <div class="check-item"><span class="ck" style="background:var(--purple);color:#fff;">2</span><span><strong>Metadata search</strong> — <span class="hl-purple">vault-search (filter mode)</span> with inferred filters (--tag, --folder, --type, --project, --recent-days); if ≥3 results <span class="hl-green">→ skip to step 6</span></span></div>
+        <div class="check-item"><span class="ck" style="background:var(--purple);color:#000;">2</span><span><strong>Metadata search</strong> — <span class="hl-purple">vault-search (filter mode)</span> with inferred filters (--tag, --folder, --type, --project, --recent-days); if ≥3 results <span class="hl-green">→ skip to step 6</span></span></div>
         <div class="check-item"><span class="ck">3</span><span><strong>Orient</strong> — Read <span class="hl-cyan">~/ClaudeVault/CLAUDE.md</span> index</span></div>
         <div class="check-item"><span class="ck">4</span><span><strong>Extract signals</strong> — exception class, package name, keyword</span></div>
         <div class="check-item"><span class="ck">5</span><span><strong>Search by priority folder</strong> (Grep by query type)</span></div>
