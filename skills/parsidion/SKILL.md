@@ -234,6 +234,33 @@ Flags, single-file mode, write-gate, hierarchical summarization, automated backl
 
 `vault-merge` detects near-duplicate notes and merges them via the prompt AI backend, updating all bidirectional backlinks. Usage and flags: `references/vault-merge.md`.
 
+## Vault Visualizer
+
+Interactive web app for browsing a vault in Read mode (wikilink navigation,
+tabs, ⌘K search) and Graph mode (Sigma.js force graph over the pre-computed
+`graph.json`). Local Next.js dev server on **port 3999**, source in the
+parsidion repo's `visualizer/` directory. Full architecture:
+`docs/VISUALIZER.md` in the repo.
+
+Launch it (from the parsidion repo root):
+
+```bash
+# One-time: deps + embeddings + graph data for the target vault
+make visualizer-setup                                            # bun install in visualizer/
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_embeddings.py --vault <name-or-path>
+uv run --no-project ~/.claude/skills/parsidion/scripts/build_graph.py --vault <vault-path>
+
+# Serve (dev) — run in a par-mux pane, never a detached background job
+cd visualizer && bun dev
+```
+
+Then open `http://localhost:3999/?vault=<name>` (registered name from
+`~/.config/parsidion/vaults.yaml`; the UI also has a vault picker). Stop by
+killing the pane, or serve production with `make build-visualizer` +
+`bun start`. Known issue (card `01a1e7c1`): the *default* vault resolution can
+be overridden by `VAULT_ROOT` in `visualizer/.env.local` — pass `?vault=<name>`
+explicitly or select the vault in the picker rather than trusting the default.
+
 ## Complementary Tools
 
 ### NotebookLM
