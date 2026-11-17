@@ -614,14 +614,18 @@ def test_dup_stem_edit_of_loser_matches_full_rebuild(tmp_path: Path) -> None:
 def test_failed_full_write_does_not_reseed_index_state(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import update_index as ui
+    import parsidion.core.note_index as note_index_module
 
     _base_vault(tmp_path)
     conn = _open(tmp_path)
     conn.execute("DELETE FROM index_state")  # corrupt state -> fallback trigger
     conn.commit()
     conn.close()
-    monkeypatch.setattr(ui, "_write_note_index_to_db", lambda *a, **k: False)
+    # The fallback's full write lives in core now; patch it there (same
+    # intent: a failed write must not record index_state as fresh).
+    monkeypatch.setattr(
+        note_index_module, "_write_note_index_to_db", lambda *a, **k: False
+    )
     conn = _open(tmp_path)
     res = apply_incremental_update(tmp_path, conn)
     n = conn.execute("SELECT COUNT(*) FROM index_state").fetchone()[0]

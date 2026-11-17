@@ -15,12 +15,13 @@ Owns every read of the ``note_index`` table in ``embeddings.db``:
   to every DB-derived path string.
 
 Split out of the former monolithic ``core/vault_index.py`` (ARC-203). This
-module has NO filesystem-walk dependency: the DB-first *policy* (deciding
-between a DB read and a walk) and the walk implementations stay in
+module has NO top-level filesystem-walk dependency: the DB-first *policy*
+(deciding between a DB read and a walk) and the walk implementations stay in
 ``core.vault_index``, which imports this module — one dependency direction,
-no cycle. All public symbols are re-exported from ``core.vault_index``
-(and its ``vault_index`` / ``vault_common`` shims) for backward
-compatibility.
+no cycle. Walk/parse helpers are reached via in-function lazy imports (the
+pattern ``diff_changed_notes`` established). All public symbols are
+re-exported from ``core.vault_index`` (and its ``vault_index`` /
+``vault_common`` shims) for backward compatibility.
 """
 
 from __future__ import annotations
@@ -30,11 +31,21 @@ import json
 import re
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from .frontmatter import (
+    _extract_summary,
+    _extract_wikilink_stems,
+    _folder_name,
+    _wikilink,
+    extract_title,
+    parse_frontmatter,
+    record_parse_warning,
+)
 from .vault_path import (
     EXCLUDE_DIRS,
     get_embeddings_db_path,
@@ -48,6 +59,16 @@ from parsidion.note_schema import STATUS_SUPERSEDED
 __all__: list[str] = [
     # DB schema
     "ensure_note_index_schema",
+    # Row engine (hoisted from cli.index.build / cli.index.db)
+    "STALE_DAYS",
+    "NoteEntry",
+    "NoteRecord",
+    "_compute_incoming_link_counts",
+    "_compute_incoming_link_stems",
+    "_build_note_db_rows",
+    "parse_note_record",
+    "_write_note_index_to_db",
+    "rebuild_note_index_rows",
     # ENH-067 incremental change detection
     "ChangedSet",
     "ensure_index_state_table",
@@ -146,6 +167,488 @@ def ensure_note_index_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# ---------------------------------------------------------------------------
+# Row engine (hoisted from cli.index.build / cli.index.db / cli.index.parse)
+#
+# The ENH-067 incremental apply previously lazy-imported these from the index
+# CLI package (an up-down layering violation); they live in core now and the
+# CLI package re-exports them for compatibility. Every field the generated
+# vault docs render (title, tags, type, project, date, confidence, summary,
+# folder, mtime, is_stale) is carried by a NoteEntry row, which is what lets
+# core.note_docs regenerate CLAUDE.md / TAGS.md / MANIFEST.md from the
+# note_index table without re-parsing note files.
+# ---------------------------------------------------------------------------
+
+# Notes with no incoming links older than this are is_stale=1 in note_index.
+STALE_DAYS: int = 30
+
+
+class NoteEntry(NamedTuple):
+    """Per-note metadata row for the ``note_index`` SQLite table.
+
+    Field-for-field mirror of the ``note_index`` schema (see
+    :func:`ensure_note_index_schema`). Hoisted from ``cli.index.models`` so
+    core owns the row shape; the CLI package re-exports it.
+
+    Attributes:
+        stem: Filename without extension (primary key in note_index).
+        path: Absolute path string to the note file.
+        folder: Immediate parent folder name relative to VAULT_ROOT.
+        title: First ``#`` heading text, or filename stem as fallback.
+        summary: First non-heading body line, truncated to 80 chars.
+        tags: Comma-separated tag string (canonical: sorted, ", " delimiter).
+        note_type: ``type`` frontmatter value.
+        project: ``project`` frontmatter value.
+        confidence: ``confidence`` frontmatter value.
+        mtime: File modification timestamp (float seconds since epoch).
+        related: Comma-separated wikilink stems from ``related`` frontmatter.
+        is_stale: 1 if the note has no incoming links and is >30 days old, else 0.
+        incoming_links: Number of other notes that link to this one.
+        date: ``date`` frontmatter value (``YYYY-MM-DD`` string) for point-in-time search.
+        prompt_version: ``prompt_version`` frontmatter value (``<id>@<semver>``, e.g.
+            ``summarize-session@1.0.0``) for AI-generated notes. Empty for notes
+            written by hand or by older summarizer versions. Lets evaluation slice
+            note quality by the prompt that produced it (ENH-008 Step 3).
+        incoming_stems: ENH-021 -- JSON array of the sorted stems whose
+            ``related`` field links to this note (the reverse-link adjacency,
+            inverted at index time). ``"[]"`` when no note files link here.
+        status: Supersession — ``"superseded"`` for retired notes, ``"live"``
+            otherwise (frontmatter ``status`` value, default ``live``).
+    """
+
+    stem: str
+    path: str
+    folder: str
+    title: str
+    summary: str
+    tags: str
+    note_type: str
+    project: str
+    confidence: str
+    mtime: float
+    related: str
+    is_stale: int
+    incoming_links: int
+    date: str = ""
+    prompt_version: str = ""
+    incoming_stems: str = ""
+    status: str = "live"
+
+
+class NoteRecord(NamedTuple):
+    """First-pass parsed fields for a single note.
+
+    Produced by :func:`parse_note_record` and consumed by the index build
+    passes to update their accumulators (tag counters, per-note link data,
+    recent-activity lists, folder manifests). Hoisted from
+    ``cli.index.models`` alongside :class:`NoteEntry`.
+    """
+
+    content: str
+    frontmatter: dict[str, object]
+    title: str
+    summary: str
+    folder: str
+    tags: list[str]
+    mtime: float
+    related_stems: list[str]
+
+
+def _normalize_tag_tokens(tags_list: list[str]) -> list[str]:
+    """Reduce tag tokens to what the stored tags column can round-trip.
+
+    The column stores ``", ".join(sorted(tokens))`` and every reader splits
+    it on commas, so a token carrying its own comma (``tags: [a,]`` storing
+    ``a,``) reads back as two tokens. Splitting here makes the parse path
+    count exactly what the row round-trip yields, keeping the two doc
+    generations identical on arbitrary vaults.
+    """
+    return [piece.strip() for t in tags_list for piece in t.split(",") if piece.strip()]
+
+
+def _compute_incoming_link_counts(
+    per_note_data: dict[str, tuple[float, list[str]]],
+) -> dict[str, int]:
+    """Build the reverse link count: stem -> number of incoming wikilinks."""
+    link_count: dict[str, int] = {stem: 0 for stem in per_note_data}
+    for _stem, (_, related_stems) in per_note_data.items():
+        for target_stem in related_stems:
+            if target_stem in link_count:
+                link_count[target_stem] += 1
+    return link_count
+
+
+def _compute_incoming_link_stems(
+    per_note_data: dict[str, tuple[float, list[str]]],
+) -> dict[str, list[str]]:
+    """Build the reverse link adjacency: stem -> sorted source stems.
+
+    ENH-021: the inversion of every note's outgoing ``related`` links,
+    persisted in ``note_index.incoming_stems`` so retrieval reads an
+    O(1)-per-note adjacency instead of re-deriving incoming links per
+    query. Dangling targets are dropped (a target that is not itself an
+    indexed note has no row to store the adjacency on), mirroring
+    :func:`_compute_incoming_link_counts`.
+    """
+    incoming: dict[str, set[str]] = {stem: set() for stem in per_note_data}
+    for stem, (_, related_stems) in per_note_data.items():
+        for target_stem in related_stems:
+            if target_stem in incoming:
+                incoming[target_stem].add(stem)
+    return {stem: sorted(sources) for stem, sources in incoming.items()}
+
+
+def _build_note_db_rows(
+    note_contents: dict[
+        Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
+    ],
+    per_note_data: dict[str, tuple[float, list[str]]],
+    link_count: dict[str, int],
+    incoming_stems: dict[str, list[str]],
+    stale_cutoff_ts: float,
+) -> tuple[
+    list[NoteEntry],
+    dict[str, list[tuple[str, str, str, list[str], bool]]],
+    int,
+]:
+    """Second pass: compute staleness, build NoteEntry row + folder entries.
+
+    Tag tokens are normalized (stripped, empties dropped) before joining and
+    grouping: a stray trailing comma in a note's inline list otherwise makes
+    the parse path count ``code-review,`` where the row round-trip yields
+    ``code-review`` -- the two doc generations must agree on arbitrary
+    vaults, not just well-formed fixtures.
+
+    Returns ``(db_rows, folder_notes, stale_count)``.
+    """
+    stale_count: int = 0
+    db_rows: list[NoteEntry] = []
+    # Extended folder_notes: folder -> [(wikilink, title, summary, tags, is_stale)]
+    folder_notes: dict[str, list[tuple[str, str, str, list[str], bool]]] = {}
+    for note_path, (
+        _content,
+        fm,
+        title,
+        summary,
+        folder,
+        mtime,
+        tags_list,
+    ) in note_contents.items():
+        stem: str = note_path.stem
+        incoming: int = link_count.get(stem, 0)
+        is_stale: bool = incoming == 0 and mtime < stale_cutoff_ts
+        if is_stale:
+            stale_count += 1
+
+        tags_list = _normalize_tag_tokens(tags_list)
+        db_rows.append(
+            NoteEntry(
+                stem=stem,
+                path=str(note_path),
+                folder=folder,
+                title=title,
+                summary=summary,
+                # ARC-004: canonical tag format is ", ".join(sorted(tags)) — sorted
+                # alphabetically with a single space after each comma.  This ensures
+                # consistent LIKE matching in query_note_index and vault_search.py.
+                tags=", ".join(sorted(tags_list)),
+                note_type=str(fm.get("type", "") or ""),
+                project=str(fm.get("project", "") or ""),
+                confidence=str(fm.get("confidence", "") or ""),
+                mtime=mtime,
+                related=", ".join(per_note_data.get(stem, (0.0, []))[1]),
+                is_stale=1 if is_stale else 0,
+                incoming_links=incoming,
+                date=str(fm.get("date", "") or ""),
+                prompt_version=str(fm.get("prompt_version", "") or ""),
+                status=str(fm.get("status", "") or "live"),
+                # ENH-021: persisted reverse-link adjacency (sorted source
+                # stems as a JSON array) -- see _compute_incoming_link_stems.
+                incoming_stems=json.dumps(incoming_stems.get(stem, [])),
+            )
+        )
+
+        if folder:
+            folder_notes.setdefault(folder, []).append(
+                (_wikilink(note_path), title, summary, sorted(tags_list), is_stale)
+            )
+
+    return db_rows, folder_notes, stale_count
+
+
+def parse_note_record(
+    note_path: Path,
+    vault: Path,
+    *,
+    parse_fm: Callable[[str], dict[str, object]] | None = None,
+) -> NoteRecord | None:
+    """Read and parse a single note, returning its first-pass fields.
+
+    Core home of the per-note parse that was previously only reachable via
+    ``update_index._parse_note_record``. The entry shim keeps a delegating
+    wrapper that resolves ``parse_frontmatter`` through its own module
+    globals so the test suite's ``update_index.parse_frontmatter`` patches
+    keep working; core callers go through this function directly.
+
+    Returns ``None`` when the file cannot be read (matching the indexer's
+    skip-on-``OSError``/``UnicodeDecodeError`` behaviour).
+
+    Non-string tags from a legacy parser are coerced to ``str(tag)`` with a
+    stderr warning (mirroring ``build_embeddings.py``) so the note_index and
+    note_embeddings tables never desync.
+
+    Args:
+        note_path: Path of the note to parse.
+        vault: Vault root (drives the folder attribution).
+        parse_fm: Optional frontmatter parser override. Callers that must
+            honor a runtime patch of ``parse_frontmatter`` (the
+            ``update_index`` test surface) pass their module-global binding
+            here; None uses :func:`core.frontmatter.parse_frontmatter`.
+    """
+    fm_fn = parse_fm if parse_fm is not None else parse_frontmatter
+    try:
+        content: str = note_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    fm: dict[str, object] = fm_fn(content)
+    title: str = extract_title(content, note_path.stem)
+    summary: str = _extract_summary(content)
+    folder: str = _folder_name(note_path, vault)
+
+    # Collect tags
+    tags_raw: object = fm.get("tags")
+    tags_list: list[str] = []
+    if isinstance(tags_raw, list):
+        for tag in tags_raw:
+            if not isinstance(tag, str) and tag is not None:
+                # Defensive: numeric-looking tags (e.g. `tags: [2026]`)
+                # coerced by older parsers must not be silently dropped --
+                # build_embeddings.py writes str(t), so dropping here would
+                # desync the note_index and note_embeddings tables.
+                _tag_warning = (
+                    f"update_index: coercing non-string tag {tag!r} "
+                    f"to string in {note_path}"
+                )
+                print(_tag_warning, file=sys.stderr)
+                record_parse_warning(_tag_warning)
+                tag = str(tag)
+            if isinstance(tag, str) and tag:
+                tags_list.append(tag)
+
+    # Mtime
+    try:
+        mtime: float = note_path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+
+    # Collect wikilink stems from related field
+    related_stems: list[str] = _extract_wikilink_stems(fm.get("related"))
+
+    return NoteRecord(
+        content=content,
+        frontmatter=fm,
+        title=title,
+        summary=summary,
+        folder=folder,
+        tags=tags_list,
+        mtime=mtime,
+        related_stems=related_stems,
+    )
+
+
+def _write_note_index_to_db(
+    db_rows: list[NoteEntry], current_stems: set[str], vault: Path
+) -> bool:
+    """Write per-note metadata rows to the note_index table in embeddings.db.
+
+    No-op if the DB file does not exist. Errors are printed to stderr so DB
+    failures are visible without crashing the indexer. Hoisted from
+    ``cli.index.db`` so the core incremental fallback can run the full write
+    without reaching into the CLI package.
+
+    Args:
+        db_rows: List of NoteEntry records to upsert into note_index.
+        current_stems: Set of stems currently in the vault (used to prune deleted notes).
+        vault: Path to the vault directory.
+
+    Returns:
+        True when the write committed or the DB is absent (nothing to
+        write), False when it failed (callers must not record the index as
+        up to date).
+    """
+    db_path = get_embeddings_db_path(vault=vault)
+    if not db_path.exists():
+        return True
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        ensure_note_index_schema(conn)
+        ensure_note_variants_schema(conn)
+
+        conn.executemany(
+            """
+            INSERT INTO note_index (
+                stem, path, folder, title, summary, tags, note_type,
+                project, confidence, mtime, related, is_stale, incoming_links, date, prompt_version,
+                incoming_stems, status
+            ) VALUES (
+                :stem, :path, :folder, :title, :summary, :tags, :note_type,
+                :project, :confidence, :mtime, :related, :is_stale, :incoming_links, :date, :prompt_version,
+                :incoming_stems, :status
+            )
+            ON CONFLICT(stem) DO UPDATE SET
+                path=excluded.path,
+                folder=excluded.folder,
+                title=excluded.title,
+                summary=excluded.summary,
+                tags=excluded.tags,
+                note_type=excluded.note_type,
+                project=excluded.project,
+                confidence=excluded.confidence,
+                mtime=excluded.mtime,
+                related=excluded.related,
+                is_stale=excluded.is_stale,
+                incoming_links=excluded.incoming_links,
+                date=excluded.date,
+                prompt_version=excluded.prompt_version,
+                incoming_stems=excluded.incoming_stems,
+                status=excluded.status
+            """,
+            [row._asdict() for row in db_rows],
+        )
+
+        # Per-FILE doc rows: note_index keeps one winner per stem, so the
+        # non-winner rows (same stem, other paths) land in note_variants --
+        # the docs read the union and stay per-file complete. The winner is
+        # the LAST row per stem in *rows order* (INSERT OR REPLACE above
+        # resolves stem collisions the same way).
+        last_by_stem: dict[str, int] = {}
+        for idx, row in enumerate(db_rows):
+            last_by_stem[row.stem] = idx
+        conn.execute("DELETE FROM note_variants")
+        conn.executemany(
+            "INSERT OR REPLACE INTO note_variants (path, stem, folder, title,"
+            " summary, tags, mtime, is_stale) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    row.path,
+                    row.stem,
+                    row.folder,
+                    row.title,
+                    row.summary,
+                    row.tags,
+                    row.mtime,
+                    row.is_stale,
+                )
+                for idx, row in enumerate(db_rows)
+                if idx != last_by_stem[row.stem]
+            ],
+        )
+
+        # Prune rows for notes that no longer exist in the vault
+        db_stems = conn.execute("SELECT stem FROM note_index").fetchall()
+        stale = [(row[0],) for row in db_stems if row[0] not in current_stems]
+        if stale:
+            conn.executemany("DELETE FROM note_index WHERE stem = ?", stale)
+
+        conn.commit()
+    finally:
+        conn.close()
+    return True
+
+
+def rebuild_note_index_rows(
+    vault: Path,
+    *,
+    notes: list[Path] | None = None,
+) -> tuple[list[NoteEntry], int]:
+    """Parse the vault and build every ``note_index`` row (the full engine).
+
+    Core home of the full-rebuild pipeline previously owned by
+    ``cli.index.build.build_index``: walk (sorted for determinism), parse
+    every note, invert the link graph, and assemble the rows. The CLI's
+    ``build_index`` keeps its own loop because it also accumulates the
+    legacy doc structures (tag counter, recent list, per-folder manifest
+    entries) and must reach ``update_index._parse_note_record`` for the
+    test-suite patch surface.
+
+    Args:
+        vault: Vault root.
+        notes: Optional pre-walked note list (sorted by the caller or here);
+            None walks the vault. Sharing one walk between the change diff
+            and a rebuild avoids walking the tree twice per run.
+
+    Returns:
+        ``(rows, walked)`` -- the NoteEntry rows (walk order) and the number
+        of walked note files, so callers can keep CLAUDE.md's walk-derived
+        "Total notes" semantics without a second walk.
+    """
+    from .vault_index import _walk_vault_notes  # lazy: vault_index imports us
+
+    notes = sorted(notes) if notes is not None else sorted(_walk_vault_notes(vault))
+    now = datetime.now()
+    stale_cutoff_ts = (now - timedelta(days=STALE_DAYS)).timestamp()
+
+    per_note_data: dict[str, tuple[float, list[str]]] = {}
+    note_contents: dict[
+        Path, tuple[str, dict[str, object], str, str, str, float, list[str]]
+    ] = {}
+    for note_path in notes:
+        record = parse_note_record(note_path, vault)
+        if record is None:
+            continue
+        per_note_data[note_path.stem] = (record.mtime, record.related_stems)
+        note_contents[note_path] = (
+            record.content,
+            record.frontmatter,
+            record.title,
+            record.summary,
+            record.folder,
+            record.mtime,
+            record.tags,
+        )
+
+    rows, _folder_notes, _stale = _build_note_db_rows(
+        note_contents,
+        per_note_data,
+        _compute_incoming_link_counts(per_note_data),
+        _compute_incoming_link_stems(per_note_data),
+        stale_cutoff_ts,
+    )
+    return rows, len(notes)
+
+
+def ensure_note_variants_schema(conn: sqlite3.Connection) -> None:
+    """Create the ``note_variants`` table if it doesn't exist.
+
+    ``note_index`` is stem-keyed: when two note files share a stem the table
+    keeps only the walk-order winner's row. The generated docs, however, are
+    per-FILE (every file gets a manifest entry, tags in the cloud, a recent
+    slot), so the non-winner files are carried here, keyed by path. Written
+    by the full write and the incremental apply; read by
+    ``core.note_docs.load_note_index_rows``. A table added by this change
+    pair (docs-from-rows); readers treat absence as "no variants recorded".
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS note_variants (
+            path     TEXT    NOT NULL PRIMARY KEY,
+            stem     TEXT    NOT NULL,
+            folder   TEXT    NOT NULL DEFAULT '',
+            title    TEXT    NOT NULL DEFAULT '',
+            summary  TEXT    NOT NULL DEFAULT '',
+            tags     TEXT    NOT NULL DEFAULT '',
+            mtime    REAL    NOT NULL DEFAULT 0.0,
+            is_stale INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_nv_stem ON note_variants(stem)")
+    conn.commit()
+
+
 def ensure_index_state_table(conn: sqlite3.Connection) -> None:
     """Create the ``index_state`` change-detection table if it doesn't exist.
 
@@ -212,7 +715,7 @@ def _sha256_file(path: Path) -> str | None:
         return None
 
 
-def diff_changed_notes(vault: Path) -> ChangedSet:
+def diff_changed_notes(vault: Path, notes: list[Path] | None = None) -> ChangedSet:
     """Diff the vault's notes against the recorded ``index_state``.
 
     Walks the vault with the indexer's own traversal rules (EXCLUDE_DIRS,
@@ -227,6 +730,8 @@ def diff_changed_notes(vault: Path) -> ChangedSet:
 
     Args:
         vault: Vault root.
+        notes: Optional pre-walked note list (e.g. shared with a doc render
+            that needs the same walk); None walks the vault.
     """
     # Lazy import: vault_index imports this module, and owns the walk rules.
     from .vault_index import _walk_vault_notes
@@ -248,7 +753,9 @@ def diff_changed_notes(vault: Path) -> ChangedSet:
     root = Path(vault).absolute()
     changes = ChangedSet()
     seen: set[str] = set()
-    for note in sorted(_walk_vault_notes(vault)):
+    for note in (
+        sorted(notes) if notes is not None else sorted(_walk_vault_notes(vault))
+    ):
         key = _state_key(vault, note)
         note = root / key
         seen.add(key)
@@ -298,6 +805,12 @@ def _safe_state_key(vault: Path, note_path: Path) -> str | None:
 # old rows cannot be trusted across; a stored mismatch forces a full rebuild.
 INDEX_STATE_SCHEMA_MARKER = "1"
 
+# Set when the incremental contract gains a data source the docs read but a
+# pre-change database cannot be trusted to hold (``note_variants``). Stored
+# markers missing this key force one full rebuild so the table populates --
+# the ENH-067 self-heal convention, without bumping the schema marker itself.
+VARIANTS_MARKER = "1"
+
 
 def _ensure_state_meta(conn: sqlite3.Connection) -> None:
     conn.execute(
@@ -310,6 +823,7 @@ def _current_markers() -> dict[str, str]:
     return {
         "schema": INDEX_STATE_SCHEMA_MARKER,
         "exclude_dirs": json.dumps(sorted(EXCLUDE_DIRS)),
+        "variants": VARIANTS_MARKER,
     }
 
 
@@ -339,6 +853,12 @@ def _fallback_reason(conn: sqlite3.Connection) -> str | None:
     current = _current_markers()
     if markers.get("schema", current["schema"]) != current["schema"]:
         return "schema_marker_mismatch"
+    # A populated note_index without the variants marker is a pre-variants
+    # database: the per-FILE doc rows do not exist yet, so one full rebuild
+    # populates them. A fresh (empty) database needs no migration -- the
+    # apply step writes variants as it writes changed stems.
+    if index_rows and markers.get("variants", "") != VARIANTS_MARKER:
+        return "variants_missing"
     if markers.get("exclude_dirs", current["exclude_dirs"]) != current["exclude_dirs"]:
         return "exclude_dirs_changed"
     return None
@@ -395,17 +915,20 @@ def seed_index_state(
 def _full_rebuild_fallback(
     vault: Path, conn: sqlite3.Connection, reason: str
 ) -> IncrementalResult:
-    """Run the full note_index rebuild, reseed ``index_state``, log *reason*."""
+    """Run the full note_index rebuild, reseed ``index_state``, log *reason*.
+
+    Uses the core row engine (:func:`rebuild_note_index_rows` +
+    :func:`_write_note_index_to_db`) instead of the CLI package's
+    ``build_index``, so core never imports the layer above it.
+    """
     import time
 
-    import update_index as _ui  # noqa: PLC0415
-    from parsidion.cli.index.build import build_index  # noqa: PLC0415
     from .vault_fs import write_hook_event  # noqa: PLC0415
 
     started = time.monotonic()
     snapshot = snapshot_index_state(vault)
-    *_head, db_rows, _counter = build_index(vault=vault)
-    written = _ui._write_note_index_to_db(
+    db_rows, _walked = rebuild_note_index_rows(vault)
+    written = _write_note_index_to_db(
         db_rows, {row.stem for row in db_rows}, vault=vault
     )
     conn.commit()
@@ -427,20 +950,19 @@ def _full_rebuild_fallback(
 
 
 def apply_incremental_update(
-    vault: Path, conn: sqlite3.Connection
+    vault: Path, conn: sqlite3.Connection, notes: list[Path] | None = None
 ) -> IncrementalResult:
     """Apply the vault's change diff to ``note_index`` in one transaction.
 
-    Recomputes rows for added/modified notes with the full rebuild's own
-    extraction (``update_index._parse_note_record`` and
-    ``cli.index.build._build_note_db_rows``), drops rows for deleted notes,
-    then repairs ``incoming_stems`` / ``incoming_links`` / ``is_stale`` for
-    every note whose link set could have changed: the changed notes
-    themselves plus every note they linked to before or link to now (this
-    also resolves previously dangling links to a newly added note). Touched
-    files (mtime changed, content identical) only get their stored mtime
-    refreshed. Row changes and ``index_state`` writes commit together, so a
-    crash leaves the previous consistent state.
+    Recomputes rows for added/modified notes with the core row engine
+    (:func:`parse_note_record` and :func:`_build_note_db_rows`), drops rows
+    for deleted notes, then repairs ``incoming_stems`` / ``incoming_links`` /
+    ``is_stale`` for every note whose link set could have changed: the
+    changed notes themselves plus every note they linked to before or link
+    to now (this also resolves previously dangling links to a newly added
+    note). Touched files (mtime changed, content identical) only get their
+    stored mtime refreshed. Row changes and ``index_state`` writes commit
+    together, so a crash leaves the previous consistent state.
 
     Safety net: a corrupt or missing ``index_state``, a changed
     ``EXCLUDE_DIRS`` set, or a schema-marker mismatch abandons the
@@ -456,21 +978,20 @@ def apply_incremental_update(
     Args:
         vault: Vault root.
         conn: Open connection to the vault's ``embeddings.db``.
+        notes: Optional pre-walked note list shared with the caller's other
+            per-run walks (doc rendering, CLAUDE.md's note count); None
+            walks the vault. Only the diff and the winner re-parse consume
+            it, so a no-change run never re-walks.
 
     Returns:
         :class:`IncrementalResult` with the number of added, modified and
         deleted notes applied.
     """
-    # Lazy imports: the index CLI package sits above core in the layering.
     import time
-    from datetime import datetime, timedelta
-
-    import update_index as _ui  # noqa: PLC0415
-    from parsidion.cli.index._common import STALE_DAYS  # noqa: PLC0415
-    from parsidion.cli.index.build import _build_note_db_rows  # noqa: PLC0415
 
     ensure_note_index_schema(conn)
     ensure_index_state_table(conn)
+    ensure_note_variants_schema(conn)
     _ensure_state_meta(conn)
     reason = _fallback_reason(conn)
     if reason is not None:
@@ -480,7 +1001,7 @@ def apply_incremental_update(
         _current_markers().items(),
     )
     conn.commit()
-    diff = diff_changed_notes(vault)
+    diff = diff_changed_notes(vault, notes)
     now = time.time()
     stale_cutoff_ts = (datetime.now() - timedelta(days=STALE_DAYS)).timestamp()
 
@@ -497,6 +1018,8 @@ def apply_incremental_update(
     # the LAST parseable file in walk order own a colliding stem. Replicate
     # that for every changed stem instead of assuming one file per stem.
     from .vault_index import _walk_vault_notes
+
+    walked_notes = notes if notes is not None else _walk_vault_notes(vault)
 
     changed = 0
     changed_stems: set[str] = set()
@@ -531,26 +1054,47 @@ def apply_incremental_update(
 
         candidates: dict[str, list[Path]] = {}
         if changed_stems:
-            for walked in _walk_vault_notes(vault):
+            for walked in walked_notes:
                 if walked.stem in changed_stems:
                     candidates.setdefault(walked.stem, []).append(walked)
 
         for stem in changed_stems:
             old_targets(stem)
             affected.add(stem)
-            record = None
-            winner = None
-            for walked in reversed(candidates.get(stem, [])):
-                record = _ui._parse_note_record(walked, vault)
+            cands = sorted(candidates.get(stem, []))
+            parsed: list[tuple[Path, NoteRecord]] = []
+            for walked in cands:
+                record = parse_note_record(walked, vault)
                 if record is not None:
-                    winner = walked
-                    break
-            if record is None or winner is None:
+                    parsed.append((walked, record))
+            conn.execute("DELETE FROM note_variants WHERE stem = ?", (stem,))
+            if not parsed:
                 conn.execute("DELETE FROM note_index WHERE stem = ?", (stem,))
                 continue
+            # Winner = the LAST parseable file in path order (the full
+            # rebuild's INSERT OR REPLACE resolves collisions the same way:
+            # db_rows arrive in sorted-walk order and the last row per stem
+            # wins). The earlier parseable files land in note_variants so
+            # docs stay per-file complete.
+            winner_path, record = parsed[-1]
+            for walked, losing in parsed[:-1]:
+                conn.execute(
+                    "INSERT OR REPLACE INTO note_variants (path, stem, folder,"
+                    " title, summary, tags, mtime, is_stale) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(walked),
+                        stem,
+                        losing.folder,
+                        losing.title,
+                        losing.summary,
+                        ", ".join(sorted(_normalize_tag_tokens(losing.tags))),
+                        losing.mtime,
+                        1 if losing.mtime < stale_cutoff_ts else 0,
+                    ),
+                )
             rows, _folders, _stale = _build_note_db_rows(
                 {
-                    winner: (
+                    winner_path: (
                         record.content,
                         record.frontmatter,
                         record.title,
@@ -613,15 +1157,21 @@ def apply_incremental_update(
                     continue
                 sources = sorted(incoming.get(stem, ()))
                 count = link_counts.get(stem, 0)
+                stale_val = (
+                    1 if (not count and (row[0] or 0.0) < stale_cutoff_ts) else 0
+                )
                 conn.execute(
                     "UPDATE note_index SET incoming_stems = ?, incoming_links = ?,"
                     " is_stale = ? WHERE stem = ?",
-                    (
-                        json.dumps(sources),
-                        count,
-                        1 if (not count and (row[0] or 0.0) < stale_cutoff_ts) else 0,
-                        stem,
-                    ),
+                    (json.dumps(sources), count, stale_val, stem),
+                )
+                # Variants share the stem's incoming-link count but carry
+                # their own mtime, mirroring the parse path's per-file
+                # staleness (stem-shared count, per-file cutoff comparison).
+                conn.execute(
+                    "UPDATE note_variants SET is_stale = CASE WHEN ? = 1"
+                    " AND mtime < ? THEN 1 ELSE 0 END WHERE stem = ?",
+                    (1 if not count else 0, stale_cutoff_ts, stem),
                 )
         conn.commit()
     except BaseException:
@@ -862,9 +1412,9 @@ def _query_note_index_results(
 ) -> list[dict[str, object]]:
     """Run the note_index metadata query and return vault-search result dicts.
 
-    QA-002: single home of the SQL previously duplicated in
-    ``parsidion.cli.search.metadata.query`` -- the CLI function is now a
-    thin delegate. Same guard semantics as :func:`query_note_index`
+    QA-002: single home of the SQL previously duplicated in the search CLI's
+    metadata query (now a thin delegate). Same guard semantics as
+    :func:`query_note_index`
     (empty list when the DB or the note_index table is absent), plus the
     CLI-specific details that :func:`query_note_index` intentionally does
     not carry: the full result-dict projection, ``date``-column detection

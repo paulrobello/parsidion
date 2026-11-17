@@ -31,6 +31,11 @@ from pathlib import Path
 from .frontmatter import (  # noqa: F401 -- re-exported (ARC-203)
     _FRONTMATTER_RE,
     _PARSE_WARNINGS_MAX,
+    _WIKILINK_RE,
+    _extract_summary,
+    _extract_wikilink_stems,
+    _folder_name,
+    _wikilink,
     drain_parse_warnings,
     extract_title,
     get_body,
@@ -38,6 +43,7 @@ from .frontmatter import (  # noqa: F401 -- re-exported (ARC-203)
     record_parse_warning,
     serialize_frontmatter,
     slugify,
+    SUMMARY_MAX_CHARS,
 )
 from .note_index import (  # noqa: F401 -- re-exported (ARC-203)
     SessionIndexRow,
@@ -77,6 +83,13 @@ __all__: list[str] = [
     "serialize_frontmatter",
     "get_body",
     "extract_title",
+    # Indexer per-note extraction helpers (hoisted from cli.index.parse)
+    "SUMMARY_MAX_CHARS",
+    "_WIKILINK_RE",
+    "_wikilink",
+    "_extract_summary",
+    "_folder_name",
+    "_extract_wikilink_stems",
     # Parse warning collector
     "record_parse_warning",
     "drain_parse_warnings",

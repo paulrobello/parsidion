@@ -66,6 +66,8 @@ from parsidion.core.vault_fs import (
 from parsidion.core.vault_config import get_config
 from parsidion.core.note_index import (
     apply_incremental_update,
+    parse_note_record,
+    rebuild_note_index_rows,
     seed_index_state,
     snapshot_index_state,
 )
@@ -84,6 +86,10 @@ from parsidion.core.vault_index import (
 from parsidion.core.vault_fs import (
     atomic_write_text,
 )  # re-exported (update_index.atomic_write_text)
+from parsidion.core.note_docs import (
+    load_note_index_rows,
+    render_docs_from_rows,
+)
 
 from parsidion.core.otlp_metrics import emit_usage_metric
 
@@ -235,10 +241,10 @@ def _singleton_guard(vault: Path) -> None:
 def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
     """Read and parse a single note, returning its first-pass fields.
 
-    Stays in the entry shim (not in ``parsidion.cli.index.parse``) because the test
-    suite patches ``update_index.parse_frontmatter`` and the bare-name call
-    below resolves through this module's globals — so the patch takes effect
-    here, and ``build_index`` reaches the patched function via a late
+    Stays in the entry shim (as a delegation to the core parser) because the
+    test suite patches ``update_index.parse_frontmatter``: the shim resolves
+    the parser through its own module globals and passes it in, so a patched
+    attribute is honored. ``build_index`` reaches this shim via its late
     ``import update_index`` (see ``cli/index/build.py``).
 
     Returns ``None`` when the file cannot be read (matching the original
@@ -248,61 +254,16 @@ def _parse_note_record(note_path: Path, vault: Path) -> NoteRecord | None:
     stderr warning (mirroring ``build_embeddings.py``) so the note_index and
     note_embeddings tables never desync; the caller counts the returned tags.
     """
-    try:
-        content: str = note_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-
-    fm: dict[str, object] = parse_frontmatter(content)
-    title: str = _extract_title(content, note_path.stem)
-    summary: str = _extract_summary(content)
-    folder: str = _folder_name(note_path, vault)
-
-    # Collect tags
-    tags_raw: object = fm.get("tags")
-    tags_list: list[str] = []
-    if isinstance(tags_raw, list):
-        for tag in tags_raw:
-            if not isinstance(tag, str) and tag is not None:
-                # Defensive: numeric-looking tags (e.g. `tags: [2026]`)
-                # coerced by older parsers must not be silently dropped --
-                # build_embeddings.py writes str(t), so dropping here would
-                # desync the note_index and note_embeddings tables.
-                _tag_warning = (
-                    f"update_index: coercing non-string tag {tag!r} "
-                    f"to string in {note_path}"
-                )
-                print(_tag_warning, file=sys.stderr)
-                record_parse_warning(_tag_warning)
-                tag = str(tag)
-            if isinstance(tag, str) and tag:
-                tags_list.append(tag)
-
-    # Mtime
-    try:
-        mtime: float = note_path.stat().st_mtime
-    except OSError:
-        mtime = 0.0
-
-    # Collect wikilink stems from related field
-    related_stems: list[str] = _extract_wikilink_stems(fm.get("related"))
-
-    return NoteRecord(
-        content=content,
-        frontmatter=fm,
-        title=title,
-        summary=summary,
-        folder=folder,
-        tags=tags_list,
-        mtime=mtime,
-        related_stems=related_stems,
-    )
+    return parse_note_record(note_path, vault, parse_fm=parse_frontmatter)
 
 
-def _incremental_note_index(
-    vault: Path, db_rows: list[NoteEntry], current_stems: set[str]
-) -> None:
-    """Update ``note_index`` from changed notes, or fall back to a full write."""
+def _incremental_note_index(vault: Path, notes: list[Path] | None = None) -> None:
+    """Update ``note_index`` from changed notes, or fall back to a full write.
+
+    The full write on an unexpected error uses the core row engine
+    (:func:`rebuild_note_index_rows`), so the incremental mode no longer
+    needs parse-derived rows from a full parse.
+    """
     db_path = get_embeddings_db_path(vault=vault)
     if not db_path.exists():
         return  # same no-op as the full write: the embeddings build creates the DB
@@ -310,12 +271,13 @@ def _incremental_note_index(
         conn = sqlite3.connect(str(db_path))
         try:
             conn.execute("PRAGMA journal_mode=WAL")
-            result = apply_incremental_update(vault, conn)
+            result = apply_incremental_update(vault, conn, notes=notes)
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001
         print(f"update_index incremental error, full write: {exc}", file=sys.stderr)
-        _write_note_index_to_db(db_rows, current_stems, vault=vault)
+        db_rows, _walked = rebuild_note_index_rows(vault)
+        _write_note_index_to_db(db_rows, {row.stem for row in db_rows}, vault=vault)
         return
     if result.fallback_reason:
         print(f"note_index: full rebuild ({result.fallback_reason})")
@@ -365,26 +327,54 @@ def main() -> None:
         if not incremental_index or not db_existed_at_start
         else None
     )
-    (
-        content,
-        note_count,
-        tag_count,
-        folder_notes,
-        db_rows,
-        tag_counter,
-    ) = build_index(vault=vault_path)
-    now_str: str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Docs + note_index rows. Incremental mode with an existing DB renders
+    # the docs from the indexed rows (O(changed): no note parsing) and lets
+    # the apply step update note_index; every other case runs the parse-based
+    # generation (also the byte-equivalence seam's parse side).
+    now_dt: datetime = datetime.now()
+    now_str: str = now_dt.strftime("%Y-%m-%d %H:%M")
+    rows_read: list[NoteEntry] | None = None
+    notes: list[Path] = []
+    if incremental_index and db_existed_at_start:
+        notes = all_vault_notes_walk(vault=vault_path)
+        _incremental_note_index(vault_path, notes=notes)
+        rows_read = load_note_index_rows(vault_path)
+    if rows_read is not None:
+        claude_md, tags_md, folder_notes, tag_counter = render_docs_from_rows(
+            rows_read,
+            vault=vault_path,
+            total_notes=len(notes),
+            now=now_dt,
+        )
+        note_count = len(notes)
+        tag_count = len(tag_counter)
+        db_rows: list[NoteEntry] = []
+        current_stems: set[str] = set()
+    else:
+        (
+            claude_md,
+            note_count,
+            tag_count,
+            folder_notes,
+            db_rows,
+            tag_counter,
+        ) = build_index(vault=vault_path, now=now_dt)
+        tags_md = build_tags_md(tag_counter, now_str)
+        current_stems = {row.stem for row in db_rows}
 
     index_path: Path = vault_path / "CLAUDE.md"
     # QA-017: atomic write — CLAUDE.md is read by session_start_hook at every
     # session start, so a half-written file injects truncated context into a
     # live agent session. Same pattern vault_links/vault_doctor already use.
-    atomic_write_text(index_path, content)
+    atomic_write_text(index_path, claude_md)
 
     tags_path: Path = vault_path / "TAGS.md"
-    atomic_write_text(tags_path, build_tags_md(tag_counter, now_str))
+    atomic_write_text(tags_path, tags_md)
 
-    manifest_paths: list[Path] = build_manifests(folder_notes, vault=vault_path)
+    manifest_paths: list[Path] = build_manifests(
+        folder_notes, vault=vault_path, now_str=now_str
+    )
     manifest_count: int = len(manifest_paths)
 
     # Commit CLAUDE.md + TAGS.md + all MANIFEST.md files together
@@ -395,10 +385,11 @@ def main() -> None:
         vault=vault_path,
     )
 
-    current_stems: set[str] = {row.stem for row in db_rows}
-    if incremental_index:
-        _incremental_note_index(vault_path, db_rows, current_stems)
-    else:
+    if not incremental_index:
+        # Full mode: land the parse-built rows (the incremental branch already
+        # updated note_index inside _incremental_note_index; when that ran
+        # against a missing/broken DB the post-embeddings branch below or the
+        # apply step's own fallback covers the write).
         written = _write_note_index_to_db(db_rows, current_stems, vault=vault_path)
         if written and full_state_snapshot is not None:
             _reseed_index_state(vault_path, full_state_snapshot)
