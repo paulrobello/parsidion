@@ -31,6 +31,8 @@ from typing import IO
 # and numpy usage type-checks as Unknown under the `basic` directive.
 import numpy as np  # type: ignore[import-not-found]
 
+from parsidion.core.vault_path import resolve_vault
+
 
 # ENH-002: bump whenever the on-disk graph.json shape changes in a way that
 # invalidates previously-computed edges. The incremental loader compares this
@@ -264,7 +266,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="PATH",
         help=(
-            "Override VAULT_ROOT (default: $VAULT_ROOT env var, ~/ParsidionVault, "
+            "Vault NAME or PATH (default: $VAULT_ROOT env var, ~/ParsidionVault, "
             "or legacy ~/ClaudeVault if it exists)"
         ),
     )
@@ -307,7 +309,10 @@ def _default_vault_root() -> Path:
 def get_vault_root(args: argparse.Namespace) -> Path:
     """Resolve the vault root path."""
     if args.vault is not None:
-        return args.vault.expanduser().resolve()
+        # --vault follows the shared resolver contract (name OR path via
+        # vaults.yaml); a bare expanduser().resolve() would drop registered
+        # names on the floor.
+        return resolve_vault(explicit=args.vault)
     env_vault = os.environ.get("VAULT_ROOT", "")
     if env_vault:
         return Path(env_vault).expanduser().resolve()
