@@ -56,6 +56,24 @@
         ],
         "createdAt": "2026-11-14T08:51:17.835Z",
         "reason": "generated typedoc/pdoc API snapshot; markup owned by doc generators, not repo design (orchestrator, fix-audit run; tree being untracked by ARC-206)"
+      },
+      {
+        "rule": "ai-color-palette",
+        "value": "*",
+        "files": [
+          "docs/vault-explorer-slideshow.html"
+        ],
+        "createdAt": "2026-11-17T16:24:06.547Z",
+        "reason": "Intentional demo fixture: slideshow depicts Claude Code sessions in Claude's own cyan/purple brand palette; palette is subject fidelity, preserved by the 2026-11-17 design-polish scope decision"
+      },
+      {
+        "rule": "ai-color-palette",
+        "value": "*",
+        "files": [
+          "docs/vault-deduplicator-slideshow.html"
+        ],
+        "createdAt": "2026-11-17T16:24:06.560Z",
+        "reason": "Intentional demo fixture: slideshow depicts Claude Code sessions in Claude's own cyan/purple brand palette; palette is subject fidelity, preserved by the 2026-11-17 design-polish scope decision"
       }
     ]
   }
