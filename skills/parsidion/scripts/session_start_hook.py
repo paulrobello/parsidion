@@ -775,9 +775,13 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        # Empty/invalid stdin (manual invocation, non-hook caller): degrade to
-        # an empty payload instead of a JSONDecodeError traceback.
-        input_data: dict = json.loads(sys.stdin.read() or "{}")
+        raw_stdin = sys.stdin.read()
+        try:
+            # Empty/invalid stdin (manual invocation, non-hook caller): degrade to
+            # an empty payload instead of a JSONDecodeError traceback.
+            input_data: dict = json.loads(raw_stdin or "{}")
+        except json.JSONDecodeError:
+            input_data = {}
         cwd: str = input_data.get("cwd", "")
         # SessionStart payloads carry the invocation source (startup / resume /
         # clear / compact per the Claude Code hooks reference). Only the

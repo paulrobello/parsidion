@@ -2066,6 +2066,9 @@ class TestStdinDegradesGracefully:
     The 197cd31 guard covered only empty stdin (``read() or "{}"``); the
     storm's live signature was non-empty invalid payloads (whitespace,
     truncated JSON) raising JSONDecodeError inside ``json.loads``.
+    Card 01a1e7c2: the parse itself is now guarded, so non-empty garbage
+    degrades to the empty payload instead of falling through to the broad
+    ``except Exception`` handler (stderr traceback + hook-error log).
     """
 
     @pytest.mark.parametrize("payload", ["", " ", "\n", "garbage", "{truncated"])
@@ -2074,5 +2077,20 @@ class TestStdinDegradesGracefully:
     ) -> None:
         monkeypatch.setattr(sys, "argv", ["session_start_hook.py"])
         monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
-        monkeypatch.setattr(sys, "stdout", io.StringIO())
+        out = io.StringIO()
+        err = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", out)
+        monkeypatch.setattr(sys, "stderr", err)
+        logged_errors: list[tuple] = []
+        monkeypatch.setattr(
+            session_start_hook,
+            "log_hook_error",
+            lambda *args, **kwargs: logged_errors.append(args),
+        )
         session_start_hook.main()
+        # The guarded parse keeps malformed stdin off the broad except path:
+        # no hook-error logging, no traceback, valid hook JSON out.
+        assert logged_errors == []
+        assert "Traceback" not in err.getvalue()
+        parsed = json.loads(out.getvalue())
+        assert parsed["hookSpecificOutput"]["hookEventName"] == "SessionStart"
