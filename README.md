@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.30.0:** Personal vaults with per-vault taxonomy and multi-vault bootstrap, incremental note_index updates on the write paths (5.5s → 1.4s full index on a 16.5k-note vault), and a session_start hook hardening against malformed stdin. See the [Changelog](CHANGELOG.md).
+> **New in 0.31.0:** Vanished-working-directory hardening across every vault hook — a worktree deleted mid-session no longer crashes session end or the recall hooks — plus stale index manifests cleared in emptied note folders and the docs-api build wired into `make checkall-ci`. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -675,7 +675,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.30.0** (personal vaults with per-vault taxonomy; incremental note_index on the write paths; named-vault resolution unified through vaults.yaml). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.31.0** (vanished-cwd hardening across the hook family; stale manifests cleared in emptied note folders; docs-api leg added to checkall-ci). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

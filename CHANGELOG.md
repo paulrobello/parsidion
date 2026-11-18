@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-17
+
+Vanished-cwd hardening family (rounds 1–3), manifest fix, and gate parity:
+
+### Added
+- **`safe_cwd()` in the shared core** — the one helper every hook and CLI funnel uses for process-cwd fallbacks: the cwd, or the home dir when it has vanished.
+
+### Changed
+- **`make checkall-ci` now runs the docs-api leg** — the CI-parity gate covers CI's API-reference build job (ARC-206 build check, not a committed snapshot).
+
+### Fixed
+- **A worktree deleted mid-session no longer crashes the vault hooks** — session_start degrades to the home dir; session_stop/subagent_stop's session-end pipeline still reads the transcript, updates the daily note and queue; pre_compact still snapshots; user_prompt_submit and pre_tool_use run their recall instead of skipping; the codex/antigravity/pi SessionStart adapter path is covered too. Pinned by subprocess regressions reproducing the deleted-cwd shape.
+- **No-cwd `resolve_vault()`/`get_config()` callers no longer raise** on a vanished process cwd, including the empty-cwd-string detonation (`realpath(".")` needs `getcwd()`).
+- **Index manifests cleared in emptied folders** — relocating a folder's last note leaves a "(0 notes)" MANIFEST instead of stale entries, in both full and incremental modes.
+
 ## [0.30.0] - 2026-11-17
 
 Multi-vault support and incremental indexing (ENH-067/ENH-068, personal-vault work):
