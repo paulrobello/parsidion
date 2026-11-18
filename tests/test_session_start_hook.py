@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -2094,3 +2095,131 @@ class TestStdinDegradesGracefully:
         assert "Traceback" not in err.getvalue()
         parsed = json.loads(out.getvalue())
         assert parsed["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+
+
+class TestVanishedCwdDegradesGracefully:
+    """A deleted cwd must never traceback (card 01a1e7c2, incident 01a1e7e9d8d).
+
+    2026-11-16 21:07: a worktree was deleted mid-start and the session then
+    started inside the vanished directory — ``Path.cwd()`` raised
+    FileNotFoundError into the broad ``except Exception`` handler (stderr
+    traceback + hook-error log). The fallback now degrades to the stable
+    home dir, the same never-crash-the-session-start contract the
+    malformed-stdin guard gives bad payloads.
+    """
+
+    @pytest.mark.parametrize("payload", ["", '{"cwd": "", "source": "startup"}'])
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows cannot rmdir the cwd of a live process",
+    )
+    def test_vanished_cwd_falls_back_to_home(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_vault: Path,
+        tmp_path: Path,
+        payload: str,
+    ) -> None:
+        # Make the process cwd GENUINELY vanished — the incident shape — so
+        # both Path.cwd() detonation points are exercised: the hook's own
+        # fallback (session_start_hook.py) and the no-arg resolve_vault()
+        # inside load_config/get_vault_username (vault_path.py).
+        scratch = tmp_path / "gone"
+        scratch.mkdir()
+        original_cwd = os.getcwd()
+        os.chdir(scratch)
+        os.rmdir(scratch)
+        try:
+            monkeypatch.setattr(sys, "argv", ["session_start_hook.py"])
+            monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+            out = io.StringIO()
+            err = io.StringIO()
+            monkeypatch.setattr(sys, "stdout", out)
+            monkeypatch.setattr(sys, "stderr", err)
+            logged_errors: list[tuple] = []
+            monkeypatch.setattr(
+                session_start_hook,
+                "log_hook_error",
+                lambda *args, **kwargs: logged_errors.append(args),
+            )
+            # Keep the event write hermetic even when the home-dir fallback
+            # resolves a vault outside tmp_vault; the subprocess test below
+            # exercises the real write path instead.
+            events: list[dict] = []
+            monkeypatch.setattr(
+                session_start_hook, "write_hook_event", lambda **kw: events.append(kw)
+            )
+            seen_cwd: list[str] = []
+            real_build = session_start_hook.build_session_context
+
+            def _spy_build(cwd: str, **kwargs: Any) -> Any:
+                seen_cwd.append(cwd)
+                return real_build(cwd, **kwargs)
+
+            monkeypatch.setattr(session_start_hook, "build_session_context", _spy_build)
+            session_start_hook.main()
+        finally:
+            os.chdir(original_cwd)
+        # The guarded fallback keeps a vanished cwd off the broad except path:
+        # the pipeline ran from the stable home dir instead, with no
+        # hook-error log, no traceback, and valid hook JSON out.
+        assert seen_cwd == [str(Path.home())]
+        assert events and events[0]["project"] == Path.home().name
+        assert logged_errors == []
+        assert "Traceback" not in err.getvalue()
+        parsed = json.loads(out.getvalue())
+        assert parsed["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows cannot rmdir the cwd of a live process",
+    )
+    def test_deleted_cwd_process_end_to_end(
+        self, tmp_path: Path, tmp_vault: Path
+    ) -> None:
+        """Real reproduction: a process whose cwd is deleted mid-start.
+
+        The child chdirs into a scratch dir, removes it, then runs the hook
+        entry with an empty payload — the incident 01a1e7e9d8d shape.
+        Asserts exit 0, no traceback, valid SessionStart JSON, and that the
+        event log shows the pipeline ran from the home-dir fallback (hermetic
+        via HOME + CLAUDE_VAULT overrides, so nothing touches the real vault
+        or real ~/.claude).
+        """
+        fake_home = tmp_path / "vanish-home"
+        fake_home.mkdir()
+        vanished_dir = tmp_path / "gone"
+        vanished_dir.mkdir()
+        runner = tmp_path / "run_vanished_cwd.py"
+        runner.write_text(
+            "import os, sys\n"
+            f"os.chdir({str(vanished_dir)!r})\n"
+            f"os.rmdir({str(vanished_dir)!r})\n"
+            f"sys.path.insert(0, {str(_SCRIPTS_DIR)!r})\n"
+            "import session_start_hook\n"
+            "session_start_hook.main()\n",
+            encoding="utf-8",
+        )
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        env["CLAUDE_VAULT"] = str(tmp_vault)
+        env["XDG_CONFIG_HOME"] = str(tmp_path / ".config")
+        proc = subprocess.run(
+            [sys.executable, "-I", str(runner)],
+            input="",
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "Traceback" not in proc.stderr
+        parsed = json.loads(proc.stdout)
+        assert parsed["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+        event_log = tmp_vault / "hook_events.log"
+        assert event_log.exists()
+        last_event = json.loads(
+            event_log.read_text(encoding="utf-8").strip().splitlines()[-1]
+        )
+        assert last_event["hook"] == "SessionStart"
+        assert last_event["project"] == fake_home.name

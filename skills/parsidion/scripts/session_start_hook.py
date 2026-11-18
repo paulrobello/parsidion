@@ -789,7 +789,21 @@ def main() -> None:
         source: str = str(input_data.get("source", "") or "")
 
         if not cwd:
-            cwd = str(Path.cwd())
+            # Card 01a1e7c2 (incident 01a1e7e9d8d): a worktree deleted
+            # mid-start leaves the process inside a vanished directory, where
+            # Path.cwd() raises FileNotFoundError — and so would every later
+            # no-arg resolve_vault()/load_config() call inside the pipeline
+            # (vault_path falls back to Path.cwd() when no cwd is passed).
+            # Move to the stable home dir once, up front, so the reported cwd
+            # AND the process cwd are both real again and the hook keeps its
+            # never-crash-the-session-start contract (no traceback, no
+            # hook-error log). If even home is gone, the residual OSError
+            # falls to the broad handler, which still emits valid hook JSON.
+            try:
+                cwd = str(Path.cwd())
+            except OSError:
+                os.chdir(Path.home())
+                cwd = str(Path.home())
 
         # Resolve vault path from cwd (supports multi-vault)
         vault_path: Path = resolve_vault(cwd=cwd)
