@@ -34,6 +34,8 @@ __all__: list[str] = [
     # Secure logging
     "secure_log_dir",
     "rotate_log_file",
+    # Process-cwd fallbacks
+    "safe_cwd",
     # Vault resolver
     "VaultConfigError",
     "active_vault_scope",
@@ -760,6 +762,26 @@ def _flush_config_cache_for_scope() -> None:
             clear()
 
 
+def safe_cwd() -> Path:
+    """Return the process cwd, degrading to the stable home dir when vanished.
+
+    A hook or CLI whose process cwd was deleted mid-run (a worktree removed
+    underneath it) raises FileNotFoundError from a bare ``Path.cwd()`` — and
+    that same call is the fallback detonation point shared by every no-arg
+    ``resolve_vault()`` / ``get_config()`` caller (card 01a1ecc537, round 2
+    of the 01a1e7c2 vanished-cwd family). The home fallback plays the same
+    role as session_start_hook's landed guard (card 01a1e7c2) but is
+    deliberately narrower: it RETURNS the home dir without chdir-ing, so the
+    process cwd stays vanished and every OTHER bare ``Path.cwd()`` /
+    ``os.getcwd()`` in the caller's own code must still use this helper —
+    that is why agent_pipeline._resolve_transcript had to switch too.
+    """
+    try:
+        return Path.cwd()
+    except OSError:
+        return Path.home()
+
+
 def resolve_vault(
     explicit: str | Path | None = None,
     cwd: str | Path | None = None,
@@ -793,7 +815,8 @@ def resolve_vault(
     Args:
         explicit: Optional explicit vault reference (name or path).
         cwd: Optional working directory for project-local vault lookup.
-            If None, uses current working directory.
+            If None or empty, uses :func:`safe_cwd` — the process cwd, or
+            the home dir when that has vanished (card 01a1ecc537).
 
     Returns:
         Absolute Path to the resolved vault directory.
@@ -814,10 +837,18 @@ def resolve_vault(
         scoped = _active_vault.get()
         if scoped is not None:
             return scoped
-    # ARC-009: Normalize cwd to a resolved str for consistent cache keys
+    # ARC-009: Normalize cwd to a resolved str for consistent cache keys.
+    # An empty string is "no cwd" (same fallback as None): Path("") is ".",
+    # and realpath(".") needs getcwd(), which raises FileNotFoundError on a
+    # vanished process cwd (card 01a1ecc537). A non-empty cwd that cannot be
+    # resolved on a vanished process cwd keeps its literal form as the cache
+    # key rather than detonating.
     normalized_cwd: str | None = None
-    if cwd is not None:
-        normalized_cwd = str(Path(cwd).resolve())
+    if cwd:
+        try:
+            normalized_cwd = str(Path(cwd).resolve())
+        except OSError:
+            normalized_cwd = str(cwd)
     # A Path explicit (e.g. doctor/cli.py's ``--vault`` uses ``type=Path``)
     # must be coerced to str before the named-vault dict lookup in
     # _resolve_vault_reference, which is keyed by vault NAME.
@@ -850,7 +881,7 @@ def _resolve_vault_cached(
     # malicious repo cannot crash the hook -- it simply falls through to
     # the next resolution branch instead of writing vault content into
     # the attacker-chosen location.
-    work_dir = Path(cwd) if cwd else Path.cwd()
+    work_dir = Path(cwd) if cwd else safe_cwd()
     project_vault_file = work_dir / ".claude" / "vault"
     if project_vault_file.exists():
         vault_ref = ""

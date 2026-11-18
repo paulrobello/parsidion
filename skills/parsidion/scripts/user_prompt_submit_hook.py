@@ -11,7 +11,8 @@ the omp/pi runtime mirrors it in TypeScript):
 
 - stdin carries a JSON payload with optional ``prompt``, ``cwd`` and
   ``session_id`` keys (Codex sends no ``cwd`` — the script falls back to
-  ``os.getcwd()``).
+  ``safe_cwd()``, which degrades to the home dir when the process cwd has
+  vanished).
 - stdout carries exactly one JSON object: ``{}`` when nothing is injected,
   else ``{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
   "additionalContext": <text>}}``.
@@ -49,6 +50,7 @@ from parsidion.core.vault_hooks import get_project_name, write_hook_event
 from parsidion.core.vault_path import (
     drain_resolution_warnings,
     resolve_vault,
+    safe_cwd,
     secure_log_dir,
 )
 from parsidion.recall_context import (
@@ -399,7 +401,10 @@ def _run_recall(payload: dict, warnings: list[str]) -> dict:
             payload = {}
         ctx.payload = payload
         ctx.prompt = str(payload.get("prompt") or "")
-        ctx.cwd = str(payload.get("cwd") or os.getcwd())
+        # safe_cwd over the bare os.getcwd() fallback: a vanished process cwd
+        # (worktree deleted mid-session) must degrade the recall to the home
+        # dir, not skip it entirely via the broad handler (card 01a1ecc537).
+        ctx.cwd = str(payload.get("cwd") or safe_cwd())
         if is_noise_prompt(ctx.prompt):
             return {}
 

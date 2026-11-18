@@ -44,7 +44,7 @@ from parsidion.core.vault_hooks import (
     parse_transcript_lines,
     write_hook_event,
 )
-from parsidion.core.vault_path import rotate_log_file, secure_log_dir
+from parsidion.core.vault_path import rotate_log_file, safe_cwd, secure_log_dir
 
 if TYPE_CHECKING:  # pragma: no cover - import-time-only, never executed
     from parsidion.agent_adapter import AgentAdapter
@@ -593,8 +593,12 @@ def _resolve_transcript(
         SEC-004 allowed roots, or rejected by the adapter's own validator —
         and the caller acknowledges with ``{}`` and returns.
     """
+    # safe_cwd over the bare Path.cwd() fallback: a vanished process cwd
+    # (worktree deleted mid-session) must degrade to the home dir so the
+    # session-end pipeline still reads the transcript and updates the daily
+    # note instead of dying in the broad handler (card 01a1ecc537).
     cwd_value = payload.get("cwd")
-    cwd = str(cwd_value) if cwd_value else str(Path.cwd())
+    cwd = str(cwd_value) if cwd_value else str(safe_cwd())
 
     transcript_key = "agent_transcript_path" if subagent else "transcript_path"
     transcript_value = payload.get(transcript_key)
