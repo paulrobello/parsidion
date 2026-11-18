@@ -57,7 +57,11 @@ from parsidion.core.vault_hooks import (
     parse_transcript_lines,
     write_hook_event,
 )
-from parsidion.core.vault_path import drain_resolution_warnings, resolve_vault
+from parsidion.core.vault_path import (
+    drain_resolution_warnings,
+    resolve_vault,
+    safe_cwd,
+)
 
 # ARC-203: session-end pipeline stage bodies live in ``parsidion.agent_pipeline``;
 # the names are re-exported here so ``session_stop_hook``'s
@@ -645,7 +649,7 @@ def run_session_start(
             return
 
         cwd_value = payload.get("cwd")
-        cwd = str(cwd_value) if cwd_value else str(Path.cwd())
+        cwd = str(cwd_value) if cwd_value else str(safe_cwd())
 
         vault_path = resolve_vault(cwd=cwd)
         resolution_warnings = drain_resolution_warnings()

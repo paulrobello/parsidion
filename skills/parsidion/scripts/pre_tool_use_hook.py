@@ -59,6 +59,7 @@ from parsidion.core.vault_index import load_note_index_metadata
 from parsidion.core.vault_path import (
     is_path_inside_vault,
     resolve_vault,
+    safe_cwd,
     secure_log_dir,
 )
 from parsidion.recall_context import (
@@ -425,7 +426,7 @@ def run_injection(payload: dict) -> dict:
     try:
         if not isinstance(payload, dict):
             payload = {}
-        cwd = str(payload.get("cwd") or os.getcwd())
+        cwd = str(payload.get("cwd") or safe_cwd())
         file_path = _extract_file_path(
             payload.get("tool_name"), payload.get("tool_input"), cwd=cwd
         )

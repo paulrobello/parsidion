@@ -284,3 +284,48 @@ class TestUserPromptSubmitHookVanishedCwd(_VanishedCwdHookContract):
         # stderr). With the safe-cwd fallback the recall pipeline runs to its
         # natural empty result instead.
         assert "recall skipped" not in proc.stderr
+
+
+class TestCodexSessionStartVanishedCwd(_VanishedCwdHookContract):
+    """The adapter SessionStart path (codex/antigravity/pi) shares
+    agent_adapter.run_session_start, whose cwd fallback was the last bare
+    Path.cwd() in the family (card 01a1ecfa, round 3)."""
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows cannot rmdir the cwd of a live process",
+    )
+    def test_survives_vanished_process_cwd(self, tmp_path: Path) -> None:
+        proc = _run_hook_in_vanished_cwd(
+            tmp_path, "codex_session_start_hook", '{"cwd": ""}'
+        )
+        parsed = self.assert_contract(proc, tmp_path / "fake-home")
+        # SessionStart JSON on the success path, {} on the degraded path —
+        # both are valid adapter-hook output; the contract is no traceback
+        # and a dict.
+        assert isinstance(parsed, dict)
+
+
+class TestPreToolUseHookVanishedCwd(_VanishedCwdHookContract):
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows cannot rmdir the cwd of a live process",
+    )
+    def test_recall_runs_instead_of_skipping(self, tmp_path: Path) -> None:
+        proc = _run_hook_in_vanished_cwd(
+            tmp_path,
+            "pre_tool_use_hook",
+            json.dumps(
+                {
+                    "tool_name": "Read",
+                    "tool_input": {"file_path": "/tmp/example.py"},
+                    "cwd": "",
+                }
+            ),
+        )
+        parsed = self.assert_contract(proc, tmp_path / "fake-home")
+        assert parsed == {}
+        # Same discriminator as user_prompt_submit: the bare os.getcwd()
+        # fallback raised into the never-block handler and the recall was
+        # skipped entirely ("recall skipped: ..." on stderr) when unfixed.
+        assert "recall skipped" not in proc.stderr
