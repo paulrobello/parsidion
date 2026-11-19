@@ -757,9 +757,9 @@ class SummarizerConfig:
         },
     )
     doctor_timeout: int = field(
-        default=600,
+        default=1800,
         metadata={
-            "doc": "Ceiling in seconds for --run-doctor sub-run (default 600 = 10m)",
+            "doc": "Ceiling in seconds for --run-doctor sub-run (default 1800 = 30m; full --fix-all observed ~13m on a 12k-note vault)",
             "read_by": "summarize_sessions.py",
         },
     )

@@ -665,7 +665,10 @@ class _SummarizerOptions(NamedTuple):
 
 _MAX_PARALLEL_CEILING = 16
 # QA-005: ceiling for the optional --run-doctor sub-run (see its call site).
-_DOCTOR_TIMEOUT_SECS = 600
+# A full --fix-all on the production vault takes ~13 min (observed 2026-09-24
+# and 2026-10-15), so the original 600s default killed the doctor leg every
+# time; 1800s gives it room to finish inside the --run-doctor flow.
+_DOCTOR_TIMEOUT_SECS = 1800
 
 
 def _clamp_max_parallel(value: object) -> int:
@@ -995,8 +998,19 @@ def _run_doctor_stage(vault_path: Path, args: argparse.Namespace) -> None:
     )
     # --all-vaults must point the doctor at THIS vault, not the default.
     _doctor_vault_args = ["--vault", str(vault_path)] if args.all_vaults else []
+    # The doctor's per-call AI timeout must scale with this ceiling: its
+    # 120s CLI default kills observed ~130s AI vetting calls mid-flight
+    # (2026-10-15), so hand down half the ceiling (600 -> 300s).
+    _doctor_argv = [
+        sys.executable,
+        str(_doctor),
+        "--fix-all",
+        "--timeout",
+        str(max(1, _doctor_timeout // 2)),
+        *_doctor_vault_args,
+    ]
     _reason, _proc = run_with_pgkill(
-        [sys.executable, str(_doctor), "--fix-all", *_doctor_vault_args],
+        _doctor_argv,
         cwd=Path.cwd(),
         timeout=_doctor_timeout,
     )

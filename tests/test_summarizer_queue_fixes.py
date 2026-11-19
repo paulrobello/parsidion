@@ -745,7 +745,7 @@ def test_run_doctor_goes_through_run_with_pgkill(
 
     assert len(calls) == 1
     assert Path(calls[0][1]).name == "vault_doctor.py"
-    assert calls[0][2:] == ["--fix-all"]
+    assert calls[0][2:] == ["--fix-all", "--timeout", "900"]
     assert "doctor output" in capsys.readouterr().out
 
 
@@ -767,7 +767,7 @@ def test_run_doctor_timeout_warns_and_continues(
 
     mod.main()  # must not raise
 
-    assert "timed out after 600s" in capsys.readouterr().err
+    assert "timed out after 1800s" in capsys.readouterr().err
 
 
 def test_run_doctor_configured_timeout_overrides_default(
@@ -782,8 +782,10 @@ def test_run_doctor_configured_timeout_overrides_default(
     )
 
     captured_timeout: list[int] = []
+    captured_cmds: list[list[str]] = []
 
     def fake_run_with_pgkill(cmd, cwd, timeout):
+        captured_cmds.append(cmd)
         captured_timeout.append(timeout)
         return ("timeout", None)
 
@@ -797,6 +799,8 @@ def test_run_doctor_configured_timeout_overrides_default(
 
     mod.main()
     assert captured_timeout == [1200]
+    assert "--timeout" in captured_cmds[0]
+    assert captured_cmds[0][captured_cmds[0].index("--timeout") + 1] == "600"
     assert "timed out after 1200s" in capsys.readouterr().err
 
 
