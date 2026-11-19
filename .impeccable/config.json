@@ -74,6 +74,294 @@
         ],
         "createdAt": "2026-11-17T16:24:06.560Z",
         "reason": "Intentional demo fixture: slideshow depicts Claude Code sessions in Claude's own cyan/purple brand palette; palette is subject fidelity, preserved by the 2026-11-17 design-polish scope decision"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.getVaultHealth.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.276Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.getVaultHealth.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.290Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.spawnSummarizer.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.304Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.spawnSummarizer.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.318Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.isPidAlive.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.333Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.isPidAlive.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.347Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.countPendingSummaries.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.362Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.countPendingSummaries.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.378Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.getSummarizerStatus.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.392Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultStatsServer.getSummarizerStatus.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.408Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/classes/vaultStatsServer.HealthReportFailedError.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.423Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/classes/vaultStatsServer.HealthReportFailedError.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.439Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.VaultHealthReport.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.455Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.VaultHealthReport.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.471Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/types/vaultStatsServer.SpawnResult.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.487Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/types/vaultStatsServer.SpawnResult.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.503Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/variables/vaultStatsServer.SECURE_LOG_DIR.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.518Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/variables/vaultStatsServer.SECURE_LOG_DIR.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.532Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/modules/vaultStatsServer.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.548Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/modules/vaultStatsServer.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.564Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.HealthDimension.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.580Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.HealthDimension.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.595Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.SummarizerStatus.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.611Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.SummarizerStatus.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.626Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.Progress.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.641Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/vaultStatsServer.Progress.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.656Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/classes/vaultStatsServer.HealthScriptMissingError.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.670Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/classes/vaultStatsServer.HealthScriptMissingError.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.685Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultResolver.validateVaultPath.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.699Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultResolver.validateVaultPath.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.716Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultResolver.resolveVault.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.731Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/functions/vaultResolver.resolveVault.html"
+        ],
+        "createdAt": "2026-11-19T21:09:08.746Z",
+        "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
       }
     ]
   }
