@@ -13,6 +13,7 @@ from pathlib import Path
 
 import parsidion.core.vault_index as vault_index
 import parsidion.core.vault_links as vault_links
+from parsidion.core.vault_hooks import is_ephemeral_agent_id
 
 from parsidion.doctor._state import (
     REQUIRED_FIELDS_ALL,
@@ -189,11 +190,14 @@ def _report_frontmatter_defects(
             )
         )
 
-    # An orphan close bracket left in the body by a collapsed inline list.
-    for bline in vault_index.get_body(content).splitlines():
+    # An orphan close bracket / stray token / outer body fence left right after
+    # frontmatter by a collapsed inline list or LLM formatting artifact.
+    body_text = vault_index.get_body(content)
+    for bline in body_text.splitlines():
         if not bline.strip():
             continue
-        if bline.strip() in ("]", "],"):
+        stripped_b = bline.strip()
+        if stripped_b in ("]", "],"):
             issues.append(
                 Issue(
                     path,
@@ -203,7 +207,55 @@ def _report_frontmatter_defects(
                     "frontmatter list whose opening line was rewritten",
                 )
             )
+        elif stripped_b in ("}", "-->", "--"):
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "STRAY_BODY_TOKEN",
+                    f"Body starts with stray leading token {stripped_b!r} right after frontmatter",
+                )
+            )
+        elif stripped_b.startswith("```") and re.match(
+            r"^```(?:markdown|md)?[ \t]*\r?\n(?:\s*\r?\n)*#+\s+",
+            body_text.lstrip("\r\n"),
+        ):
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "BODY_WRAPPED_IN_FENCE",
+                    "Note body is wrapped in an outer markdown code fence",
+                )
+            )
         break
+
+    # Ephemeral subagent worktree / workflow IDs leaked into tags or project.
+    raw_proj = fm.get("project")
+    if isinstance(raw_proj, str) and is_ephemeral_agent_id(raw_proj):
+        issues.append(
+            Issue(
+                path,
+                "warning",
+                "EPHEMERAL_AGENT_TAG",
+                f"Field 'project' holds ephemeral agent/workflow ID {raw_proj!r}",
+            )
+        )
+    raw_tags = fm.get("tags")
+    if isinstance(raw_tags, list):
+        bad_agent_tags = [
+            str(t) for t in raw_tags if isinstance(t, str) and is_ephemeral_agent_id(t)
+        ]
+        if bad_agent_tags:
+            issues.append(
+                Issue(
+                    path,
+                    "warning",
+                    "EPHEMERAL_AGENT_TAG",
+                    f"Field 'tags' contains ephemeral agent/workflow ID(s): "
+                    f"{', '.join(bad_agent_tags)}",
+                )
+            )
 
     # A list-typed field holding a bare scalar. Skipped for a field already
     # reported as unterminated, where the scalar is that defect's symptom.

@@ -267,16 +267,58 @@ def _merge_notes(
         merged_related.append(r)
 
     merged_fm: dict = {}
-    merged_fm["date"] = fm_a.get("date") or fm_b.get("date") or ""
+    date_a = str(fm_a.get("date") or "")
+    date_b = str(fm_b.get("date") or "")
+    merged_fm["date"] = (
+        max(date_a, date_b) if (date_a and date_b) else (date_a or date_b)
+    )
     merged_fm["type"] = fm_a.get("type") or fm_b.get("type") or ""
     merged_fm["tags"] = merged_tags
     project_a = fm_a.get("project", "")
     project_b = fm_b.get("project", "")
     merged_fm["project"] = project_a if project_a else project_b
-    merged_fm["confidence"] = (
-        fm_a.get("confidence") or fm_b.get("confidence") or "medium"
-    )
-    merged_fm["sources"] = fm_a.get("sources", [])
+    _conf_rank = {"high": 3, "medium": 2, "low": 1}
+    conf_a = str(fm_a.get("confidence") or "").lower()
+    conf_b = str(fm_b.get("confidence") or "").lower()
+    if _conf_rank.get(conf_b, 0) > _conf_rank.get(conf_a, 0):
+        merged_fm["confidence"] = conf_b
+    else:
+        merged_fm["confidence"] = conf_a or conf_b or "medium"
+
+    # Union sources preserving order, deduplicated
+    raw_sources_a = fm_a.get("sources") or []
+    raw_sources_b = fm_b.get("sources") or []
+    if isinstance(raw_sources_a, str):
+        raw_sources_a = [raw_sources_a] if raw_sources_a.strip() else []
+    if isinstance(raw_sources_b, str):
+        raw_sources_b = [raw_sources_b] if raw_sources_b.strip() else []
+    merged_sources: list[str] = []
+    seen_sources: set[str] = set()
+    for src in list(raw_sources_a) + list(raw_sources_b):
+        s = str(src).strip()
+        if s and s not in seen_sources:
+            seen_sources.add(s)
+            merged_sources.append(s)
+    merged_fm["sources"] = merged_sources
+
+    # Preserve triggers union when merging rule notes
+    if merged_fm["type"] == "rule":
+        raw_trig_a = fm_a.get("triggers") or []
+        raw_trig_b = fm_b.get("triggers") or []
+        if isinstance(raw_trig_a, str):
+            raw_trig_a = [raw_trig_a] if raw_trig_a.strip() else []
+        if isinstance(raw_trig_b, str):
+            raw_trig_b = [raw_trig_b] if raw_trig_b.strip() else []
+        merged_triggers: list[str] = []
+        seen_trigs: set[str] = set()
+        for tr in list(raw_trig_a) + list(raw_trig_b):
+            t_str = str(tr).strip()
+            if t_str and t_str.lower() not in seen_trigs:
+                seen_trigs.add(t_str.lower())
+                merged_triggers.append(t_str)
+        if merged_triggers:
+            merged_fm["triggers"] = merged_triggers
+
     merged_fm["related"] = merged_related
     merged_fm["provenance"] = (
         fm_a.get("provenance") or fm_b.get("provenance") or "inferred"

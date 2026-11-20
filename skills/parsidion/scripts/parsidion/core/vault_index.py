@@ -163,8 +163,11 @@ def _walk_vault_notes(vault: str | Path | None = None) -> list[Path]:
     vault_root_resolved = vault.resolve()
 
     for dirpath, dirnames, filenames in os.walk(vault):
-        # Prune excluded directories in-place so os.walk skips them
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        # Prune excluded and hidden dot-directories (e.g. .pytest_cache, .claude,
+        # .pi, .parsight) in-place so os.walk never indexes tool caches as notes.
+        dirnames[:] = [
+            d for d in dirnames if not d.startswith(".") and d not in EXCLUDE_DIRS
+        ]
 
         for fname in filenames:
             if not fname.endswith(".md"):

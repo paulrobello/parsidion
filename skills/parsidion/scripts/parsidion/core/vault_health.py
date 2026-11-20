@@ -33,6 +33,8 @@ from pathlib import Path
 # deprecated root-shim facade (``import vault_metrics`` here previously
 # resolved to the root shim module, not this package's sibling).
 from . import vault_metrics
+from .vault_config import get_config
+from .vault_hooks import is_ephemeral_agent_id
 from .vault_index import all_vault_notes_walk, note_index_age
 from .vault_path import get_embeddings_db_path, resolve_vault
 
@@ -415,6 +417,14 @@ def score_metadata_quality(vault: Path, *, scan=None) -> DimensionScore:
 def score_embedding_coverage(vault: Path) -> DimensionScore:
     """Embedding coverage: notes-with-embeddings ÷ total notes."""
     weight = DIMENSION_WEIGHTS["embedding_coverage"]
+    if not bool(get_config("embeddings", "enabled", True, vault=vault)):
+        return DimensionScore(
+            name="embedding_coverage",
+            score=100,
+            weight=weight,
+            detail="embeddings disabled in config",
+            action=None,
+        )
     db_path = get_embeddings_db_path(vault)
     if not db_path.exists():
         return DimensionScore(
@@ -466,7 +476,8 @@ def score_embedding_coverage(vault: Path) -> DimensionScore:
     else:
         detail = f"{missing} of {total} note(s) unembedded"
         action = (
-            "uv run --no-project ~/.claude/skills/parsidion/scripts/update_index.py"
+            "uv run --no-project ~/.claude/skills/parsidion/scripts/"
+            "build_embeddings.py --incremental"
         )
     return DimensionScore(
         name="embedding_coverage",
@@ -477,14 +488,45 @@ def score_embedding_coverage(vault: Path) -> DimensionScore:
     )
 
 
-def _tag_pairs_near_duplicate(tags: list[str]) -> list[tuple[str, str]]:
-    """Detect near-duplicate tags: singular↔plural and Levenshtein-1 pairs.
+def _is_near_duplicate_tag_pair(a: str, b: str) -> bool:
+    """True when *a* and *b* are likely near-duplicate tags rather than distinct terms.
 
-    Operates on lowercase forms. ``hook`` vs ``hooks`` is the canonical
-    false pair this catches; the audit also called out underscores but
-    those are a separate dimension (they fail the project's tag-convention
-    rule rather than duplicate an existing tag).
+    Matches:
+    - singular ↔ plural (``hook`` / ``hooks``, ``patch`` / ``patches``)
+    - hyphen/underscore/dot collapsed equivalents (``par-splat`` / ``parsplat``,
+      ``my_tag`` / ``my-tag``, ``.omp`` / ``omp``)
+    - Levenshtein-1 typos on longer non-numeric-variant tags (``len >= 7``,
+      excluding pairs that differ only by digits such as ``macos-26`` vs
+      ``macos-27`` or ``codex-phase3`` vs ``codex-phase4``).
+
+    Avoids false positives on short distinct acronyms/terms like ``cpu``/``gpu``,
+    ``rust``/``rustc``, ``ci``/``cli``, ``sql``/``sqlx``, ``tls``/``tts``.
     """
+    al = a.lower()
+    bl = b.lower()
+    if al == bl:
+        return False
+    # Singular <-> plural
+    if bl == f"{al}s" or al == f"{bl}s" or bl == f"{al}es" or al == f"{bl}es":
+        return True
+    # Hyphen/underscore/punctuation collapsed form (e.g. par-splat vs parsplat, @mainactor vs mainactor)
+    norm_a = al.replace("-", "").replace("_", "").lstrip(".@")
+    norm_b = bl.replace("-", "").replace("_", "").lstrip(".@")
+    if norm_a and norm_a == norm_b:
+        return True
+    # Long-word single-character typo check (ignore version/numbered suffixes)
+    if min(len(al), len(bl)) >= 7 and _levenshtein1(al, bl):
+        # Exclude pairs that only differ in a digit (e.g. workstream-a-stage2 vs stage4)
+        if len(al) == len(bl):
+            diffs = [(x, y) for x, y in zip(al, bl, strict=True) if x != y]
+            if len(diffs) == 1 and diffs[0][0].isdigit() and diffs[0][1].isdigit():
+                return False
+        return True
+    return False
+
+
+def _tag_pairs_near_duplicate(tags: list[str]) -> list[tuple[str, str]]:
+    """Detect near-duplicate tags: singular↔plural, punctuation, and long typos."""
     seen: set[str] = set()
     pairs: list[tuple[str, str]] = []
     sorted_tags = sorted(set(tags))
@@ -494,7 +536,7 @@ def _tag_pairs_near_duplicate(tags: list[str]) -> list[tuple[str, str]]:
         for b in sorted_tags:
             if a >= b:
                 continue
-            if _levenshtein1(a, b):
+            if _is_near_duplicate_tag_pair(a, b):
                 pairs.append((a, b))
                 seen.add(a)
                 seen.add(b)
@@ -557,15 +599,17 @@ def score_tag_hygiene(vault: Path) -> DimensionScore:
     singleton_ratio = len(singletons) / total_tags
     near_dup_pairs = _tag_pairs_near_duplicate([t for t, _ in tags])
     underscore_tags = [t for t, _ in tags if "_" in t]
+    ephemeral_tags = [t for t, _ in tags if is_ephemeral_agent_id(t)]
 
     # Singleton ratio penalty (capped at 40 — having niche tags isn't fatal),
     # 8 per near-duplicate pair (capped at 40), 10 per underscore violation
-    # (capped at 30). Floor at 0.
+    # (capped at 30), 2 per ephemeral agent/workflow ID tag (capped at 30).
     raw = (
         100
         - min(40, int(round(singleton_ratio * 100)))
         - min(40, len(near_dup_pairs) * 8)
         - min(30, len(underscore_tags) * 10)
+        - min(30, len(ephemeral_tags) * 2)
     )
     score = max(0, min(100, raw))
 
@@ -576,8 +620,14 @@ def score_tag_hygiene(vault: Path) -> DimensionScore:
         bits.append(f"{len(near_dup_pairs)} near-duplicate pair(s)")
     if underscore_tags:
         bits.append(f"{len(underscore_tags)} underscore tag(s)")
+    if ephemeral_tags:
+        bits.append(f"{len(ephemeral_tags)} ephemeral agent tag(s)")
     detail = "; ".join(bits) if bits else "tags are clean"
-    action = "vault-doctor --fix-tags" if (near_dup_pairs or underscore_tags) else None
+    action = (
+        "vault-doctor --fix-tags"
+        if (near_dup_pairs or underscore_tags or ephemeral_tags)
+        else None
+    )
     return DimensionScore(
         name="tag_hygiene",
         score=score,

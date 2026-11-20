@@ -372,7 +372,7 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
     """
     all_rows = fetch_all(
         conn,
-        "SELECT stem, title, folder, incoming_links, related FROM note_index",
+        "SELECT stem, path, title, folder, incoming_links, related FROM note_index",
     )
     if not all_rows:
         return {
@@ -408,13 +408,39 @@ def collect_graph(conn: sqlite3.Connection) -> dict:
 
     # Retrieval-readiness metrics for the graph-expansion feature.
     valid_stems = {r["stem"] for r in all_rows}
+    # Also index relative path suffixes (e.g. "parvitar/overview",
+    # "Daily/2026-07/07-probello", "Forks/epoch-stamped-courier-membership-sets")
+    # so valid path-qualified Obsidian wikilinks are not miscounted as dangling.
+    valid_path_targets: set[str] = set()
+    for r in all_rows:
+        folder = str(r["folder"] or "").strip("/")
+        stem = str(r["stem"] or "")
+        if folder and stem:
+            valid_path_targets.add(f"{folder}/{stem}")
+            valid_path_targets.add(f"{folder}/{stem}.md")
+        raw_path = str(r["path"] or "").replace("\\", "/")
+        if raw_path and stem:
+            parts = [p for p in raw_path.split("/") if p]
+            for depth in (2, 3):
+                if len(parts) >= depth:
+                    suffix = "/".join(parts[-depth:])
+                    valid_path_targets.add(suffix)
+                    if suffix.endswith(".md"):
+                        valid_path_targets.add(suffix[:-3])
+
     expandable_count = sum(1 for r in all_rows if (r["related"] or "").strip())
     total_targets = 0
     dangling_targets = 0
     for r in all_rows:
         for target in parse_related_stems(r["related"] or ""):
             total_targets += 1
-            if target not in valid_stems:
+            clean_target = target.strip().removesuffix(".md")
+            if (
+                target not in valid_stems
+                and clean_target not in valid_stems
+                and target not in valid_path_targets
+                and clean_target not in valid_path_targets
+            ):
                 dangling_targets += 1
     avg_related_per_note = total_targets / total if total else 0.0
 

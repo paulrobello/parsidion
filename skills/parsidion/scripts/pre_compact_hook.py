@@ -9,6 +9,7 @@ writes a pre-compact snapshot section to today's daily note.
 import argparse
 import json
 import os
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -41,19 +42,51 @@ _FILE_TOOLS: dict[str, list[str]] = {
 }
 
 
+# Synthetic XML wrapper blocks injected into user-role transcript entries by
+# Claude Code / agent harnesses that should never be reported as the user's task.
+_SYNTHETIC_XML_BLOCK_RE = re.compile(
+    r"<(?P<tag>system-reminder|command-name|command-message|command-args|"
+    r"local-command-stdout|local-command-stderr|local-command-caveat|"
+    r"task-notification|EPHEMERAL_MESSAGE)\b[^>]*>.*?</(?P=tag)>",
+    re.DOTALL | re.IGNORECASE,
+)
+_SYNTHETIC_XML_TAG_RE = re.compile(
+    r"^</?(?:system-reminder|command-name|command-message|command-args|"
+    r"local-command-stdout|local-command-stderr|local-command-caveat|"
+    r"task-notification|EPHEMERAL_MESSAGE)\b[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def _extract_meaningful_user_line(raw_text: str) -> str | None:
+    """Return the first meaningful non-synthetic line when cleaned text >10 chars."""
+    cleaned = _SYNTHETIC_XML_BLOCK_RE.sub("", raw_text)
+    meaningful_lines = [
+        line.strip()
+        for line in cleaned.splitlines()
+        if line.strip() and not _SYNTHETIC_XML_TAG_RE.match(line.strip())
+    ]
+    if not meaningful_lines:
+        return None
+    if len("\n".join(meaningful_lines)) <= 10:
+        return None
+    return meaningful_lines[0][:200].strip()
+
+
 def extract_user_task(lines: list[str]) -> str:
     """Extract the current task from the most recent user text message.
 
     Scans lines in reverse to find the latest ``type: "user"`` entry that
-    contains a plain text block (not a tool_result). In active sessions the
-    tail of a transcript is dominated by tool_result/tool_use pairs; the
+    contains a plain text block (not a tool_result or synthetic XML wrapper
+    such as ``<system-reminder>`` or ``<command-name>``). In active sessions
+    the tail of a transcript is dominated by tool_result/tool_use pairs; the
     actual typed user message is further back.
 
     Args:
         lines: Raw JSONL lines from the transcript.
 
     Returns:
-        First line of the most recent user text message (max 200 chars),
+        First meaningful line of the most recent user text message (max 200 chars),
         or ``"Unknown task"`` if none is found.
     """
     for raw_line in reversed(lines):
@@ -86,9 +119,9 @@ def extract_user_task(lines: list[str]) -> str:
 
         # Plain string content
         if isinstance(content, str):
-            text = content.strip()
-            if len(text) > 10:
-                return text.split("\n")[0][:200].strip()
+            found = _extract_meaningful_user_line(content)
+            if found is not None:
+                return found
             continue
 
         # List of content blocks — look for text blocks, skip tool_result
@@ -98,8 +131,10 @@ def extract_user_task(lines: list[str]) -> str:
                     continue
                 if block.get("type") == "text":
                     text = block.get("text", "")
-                    if isinstance(text, str) and len(text.strip()) > 10:
-                        return text.strip().split("\n")[0][:200].strip()
+                    if isinstance(text, str):
+                        found = _extract_meaningful_user_line(text)
+                        if found is not None:
+                            return found
 
     return "Unknown task"
 
@@ -287,15 +322,22 @@ def append_snapshot_to_daily(
         vault_path = resolve_vault(cwd=cwd)
 
     daily_path = today_daily_path(vault=vault_path)
-    # Ensure the daily note exists
+    # Ensure the daily note exists with valid YAML frontmatter so pre-compact
+    # never creates a frontmatter-less Daily note when firing first in a day.
     if not daily_path.exists():
         ensure_vault_dirs(vault=vault_path)
         from datetime import date as _date
 
-        _month = f"{_date.today().year:04d}-{_date.today().month:02d}"
+        today_obj = _date.today()
+        _month = f"{today_obj.year:04d}-{today_obj.month:02d}"
         daily_dir = vault_path / "Daily" / _month
         daily_dir.mkdir(parents=True, exist_ok=True)
-        daily_path.touch()
+        today_iso = today_obj.isoformat()
+        daily_path.write_text(
+            f"---\ndate: {today_iso}\ntype: daily\ntags: [daily]\n"
+            f"sources: []\nrelated: []\n---\n\n# {today_iso}\n",
+            encoding="utf-8",
+        )
 
     now_time = datetime.now().strftime("%H:%M")
 

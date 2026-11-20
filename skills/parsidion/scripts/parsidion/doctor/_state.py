@@ -222,11 +222,32 @@ def save_state(state: dict, vault_path: Path) -> None:
     _write_json_atomic(state, _get_state_file(vault_path))
 
 
-def should_skip(key: str, state: dict) -> bool:
-    """Return True if this note should be skipped based on its state entry."""
+def _note_mtime(path: Path | None) -> float | None:
+    """Return rounded mtime of *path*, or None if unavailable."""
+    if path is None:
+        return None
+    try:
+        return round(path.stat().st_mtime, 3)
+    except OSError:
+        return None
+
+
+def should_skip(key: str, state: dict, path: Path | None = None) -> bool:
+    """Return True if this note should be skipped based on its state entry.
+
+    When *path* is provided and the state entry recorded an ``mtime``, any
+    file modification since that check invalidates the skip — including
+    ``skipped`` and ``needs_review`` entries, so manually repaired notes are
+    re-evaluated on the next run instead of staying stuck permanently.
+    """
     entry = state.get("notes", {}).get(key)
     if not entry:
         return False
+    recorded_mtime = entry.get("mtime")
+    if path is not None and isinstance(recorded_mtime, (int, float)):
+        current_mtime = _note_mtime(path)
+        if current_mtime is not None and current_mtime > float(recorded_mtime) + 0.01:
+            return False
     status = entry.get("status", "")
     if status in ("skipped", "needs_review"):
         return True

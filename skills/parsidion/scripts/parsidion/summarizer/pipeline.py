@@ -423,6 +423,7 @@ async def summarize_one(
     cluster_model: str | None = None,
     vault_notes: list[Path] | None = None,
     dead_lettered_ids: set[str] | None = None,
+    in_flight_notes: list[tuple[str, str, str]] | None = None,
 ) -> tuple[dict[str, object], Path | str | None]:
     """Summarize one pending session entry.
 
@@ -493,9 +494,20 @@ async def summarize_one(
         # causing duplicate notes to be written.
         query_seed = (cleaned or "")[:400].replace("\n", " ").strip()
         topic_query = f"{project} {' '.join(categories)} {query_seed}".strip()
-        similar_notes = _find_dedup_candidates(
-            topic_query, vault, threshold=dedup_threshold
-        )
+        try:
+            similar_notes = _find_dedup_candidates(
+                topic_query,
+                vault,
+                threshold=dedup_threshold,
+                project=project,
+                in_flight=in_flight_notes,
+            )
+        except TypeError:
+            # Backwards-compatible fallback for test monkeypatches with the
+            # legacy 3-arg signature (topic_query, vault, threshold=...).
+            similar_notes = _find_dedup_candidates(
+                topic_query, vault, threshold=dedup_threshold
+            )
 
         prompt = build_prompt(
             project, categories, cleaned, existing_tags, session_id, similar_notes
@@ -575,6 +587,19 @@ async def summarize_one(
                 FailureReason.NOTE_VALIDATION,
                 refusal or "write_note returned None",
             )
+
+        # Record newly written note in the shared batch registry so concurrent
+        # workers in the same run can deduplicate against it before reindexing.
+        if written is not None and in_flight_notes is not None:
+            try:
+                from parsidion.core.vault_index import extract_title, read_note_summary
+
+                written_text = written.read_text(encoding="utf-8")
+                title = extract_title(written_text, written.stem)
+                summary = " ".join(read_note_summary(written).splitlines()[:3])[:400]
+                in_flight_notes.append((written.stem, title, summary))
+            except (OSError, UnicodeDecodeError):
+                in_flight_notes.append((written.stem, written.stem, ""))
 
         # Automated backlink suggestion
         _apply_backlinks_and_strip_links(written, vault, vault_notes)

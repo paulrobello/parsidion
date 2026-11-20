@@ -142,12 +142,30 @@ def _split_frontmatter_block(text: str) -> tuple[str, str] | None:
     """Split *text* into (frontmatter block incl. delimiters, body).
 
     Returns None when the text does not open with a ``---`` delimited block.
+    Also tolerates a malformed glued closing delimiter such as ``tags: [...]---``
+    so ``splice_frontmatter_onto_original`` never stacks a duplicate frontmatter
+    block on top of an already-present broken header.
     """
     lines = text.splitlines(keepends=True)
-    if not lines or _FM_DELIM_RE.match(lines[0].rstrip("\n")) is None:
+    if not lines or _FM_DELIM_RE.match(lines[0].rstrip("\r\n")) is None:
         return None
     for i in range(1, len(lines)):
-        if _FM_DELIM_RE.match(lines[i].rstrip("\n")):
+        stripped = lines[i].rstrip("\r\n")
+        if _FM_DELIM_RE.match(stripped):
+            return "".join(lines[: i + 1]), "".join(lines[i + 1 :])
+        # Glued closer at end of a YAML field line (e.g. ``tags: [a, b]---``)
+        if (
+            stripped.endswith("---")
+            and len(stripped) > 3
+            and _FM_KEY_RE.match(stripped)
+        ):
+            return "".join(lines[: i + 1]), "".join(lines[i + 1 :])
+        # Glued closer at end of a YAML field line (e.g. ``tags: [a, b]---``)
+        if (
+            stripped.endswith("---")
+            and len(stripped) > 3
+            and _FM_KEY_RE.match(stripped)
+        ):
             return "".join(lines[: i + 1]), "".join(lines[i + 1 :])
     return None
 
@@ -249,7 +267,7 @@ def _normalize_repaired_note(
     else:
         closer = delim_idx[1]
 
-    fm_lines = lines[opener + 1 : closer]
+    fm_lines = [ln.rstrip(" \t") for ln in lines[opener + 1 : closer]]
     body_lines = lines[closer + 1 :]
 
     # Reject stacked/duplicate frontmatter blocks: if the body itself opens
@@ -539,6 +557,110 @@ def _auto_fix_stray_list_items(path: Path) -> bool:
 
     new_lines = lines[:1] + new_fm_lines + lines[closer:]
     new_content = "\n".join(new_lines)
+    if new_content == content:
+        return False
+    _backup_note(_active_vault(), path)
+    vault_fs.atomic_write_text(path, new_content)
+    return True
+
+
+def _auto_fix_body_and_agent_artifacts(path: Path) -> bool:
+    """Deterministically strip stray leading body tokens, outer body fences,
+    and ephemeral ``agent-<hex>`` / ``wf-<hex>`` tags or project fields.
+
+    Python-only, zero AI calls. Handles ``STRAY_BODY_TOKEN``,
+    ``BODY_WRAPPED_IN_FENCE``, and ``EPHEMERAL_AGENT_TAG``.
+    """
+    from parsidion.core.vault_hooks import is_ephemeral_agent_id
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    m = re.match(
+        r"^(---[ \t]*\r?\n)(.*?)(\r?\n---[ \t]*(?:\r?\n|$))(.*)$",
+        content,
+        re.DOTALL,
+    )
+    if not m:
+        return False
+    _, fm_raw, _, body = m.groups()
+    fm_lines = [ln.rstrip(" \t") for ln in fm_raw.splitlines()]
+    new_fm_lines: list[str] = []
+
+    i = 0
+    while i < len(fm_lines):
+        line = fm_lines[i]
+        pm = re.match(r"^project:\s*(.+)$", line)
+        if pm and is_ephemeral_agent_id(pm.group(1).strip().strip("\"'")):
+            i += 1
+            continue
+        tm_inline = re.match(r"^tags:\s*\[(.*)\]\s*$", line)
+        if tm_inline:
+            items = [
+                x.strip().strip("\"'")
+                for x in tm_inline.group(1).split(",")
+                if x.strip()
+            ]
+            kept = [x for x in items if not is_ephemeral_agent_id(x)]
+            if len(kept) != len(items):
+                if not kept:
+                    type_m = re.search(r"^type:\s*(\S+)", fm_raw, re.M)
+                    kept = [type_m.group(1).strip() if type_m else "note"]
+                new_fm_lines.append("tags: [" + ", ".join(kept) + "]")
+                i += 1
+                continue
+        if re.match(r"^tags:\s*$", line):
+            j = i + 1
+            block_items: list[str] = []
+            while j < len(fm_lines) and re.match(r"^\s+-\s*", fm_lines[j]):
+                block_items.append(
+                    re.sub(r"^\s+-\s*", "", fm_lines[j]).strip().strip("\"'")
+                )
+                j += 1
+            kept = [x for x in block_items if x and not is_ephemeral_agent_id(x)]
+            if len(kept) != len(block_items):
+                if not kept:
+                    type_m = re.search(r"^type:\s*(\S+)", fm_raw, re.M)
+                    kept = [type_m.group(1).strip() if type_m else "note"]
+                new_fm_lines.append("tags: [" + ", ".join(kept) + "]")
+                i = j
+                continue
+        new_fm_lines.append(line)
+        i += 1
+
+    body_l = body.lstrip("\r\n")
+    while body_l:
+        blines = body_l.splitlines()
+        if blines and blines[0].strip() in ("}", "-->", "--"):
+            body_l = "\n".join(blines[1:]).lstrip("\r\n")
+        else:
+            break
+
+    bm = re.match(
+        r"^```(?:markdown|md)?[ \t]*\r?\n((?:\s*\r?\n)*#+\s+.*)$",
+        body_l,
+        re.DOTALL,
+    )
+    if bm:
+        inner = bm.group(1).rstrip()
+        if inner.endswith("\n```"):
+            candidate = inner[:-4].rstrip()
+            if (
+                len([ln for ln in candidate.splitlines() if re.match(r"^\s*```", ln)])
+                % 2
+                == 0
+            ):
+                body_l = candidate.lstrip("\r\n")
+        elif (
+            len([ln for ln in inner.splitlines() if re.match(r"^\s*```", ln)]) % 2 == 0
+        ):
+            body_l = inner.lstrip("\r\n")
+
+    new_content = "---\n" + "\n".join(new_fm_lines) + "\n---\n"
+    if body_l:
+        new_content += "\n" + body_l.rstrip() + "\n"
     if new_content == content:
         return False
     _backup_note(_active_vault(), path)

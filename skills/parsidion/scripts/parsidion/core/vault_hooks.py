@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -46,6 +47,7 @@ __all__: list[str] = [
     "is_pi_transcript_path",
     # Project detection
     "get_project_name",
+    "is_ephemeral_agent_id",
     # Process utilities
     "is_process_running",
     # Transcript analysis (shared by session_stop and subagent_stop hooks)
@@ -479,21 +481,91 @@ def is_antigravity_transcript_path(
 # ---------------------------------------------------------------------------
 
 
+# Ephemeral worktree / workflow identifiers that must never be persisted as
+# project names or vault tags (e.g. Claude Code subagent worktree names like
+# ``agent-af1ab6ce50dba80a1`` or workflow run IDs like ``wf-494de409-e3a-1``).
+_EPHEMERAL_AGENT_ID_RE = re.compile(
+    r"^(?:(?:worktree-)?agent-[a-f0-9]{8,}|wf-[a-f0-9]{6,}(?:-[a-z0-9]+)*)$",
+    re.IGNORECASE,
+)
+
+
+def is_ephemeral_agent_id(name: str) -> bool:
+    """Return True if *name* is an ephemeral agent-worktree or workflow-run ID."""
+    return bool(_EPHEMERAL_AGENT_ID_RE.match(name.strip()))
+
+
+def _resolve_git_worktree_project(git_file: Path) -> str | None:
+    """Resolve the main repository name from a git worktree ``.git`` file.
+
+    A git worktree's ``.git`` is a regular file containing
+    ``gitdir: /path/to/<repo>/.git/worktrees/<worktree-name>``. Returning the
+    main repo's basename avoids misidentifying ephemeral worktrees like
+    ``.claude/worktrees/agent-<hex>`` as separate projects.
+    """
+    try:
+        first_line = git_file.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    if not first_line:
+        return None
+    line = first_line[0].strip()
+    if not line.lower().startswith("gitdir:"):
+        return None
+    raw_target = line.split(":", 1)[1].strip()
+    if not raw_target:
+        return None
+    gitdir = Path(raw_target)
+    if not gitdir.is_absolute():
+        gitdir = (git_file.parent / gitdir).resolve()
+    else:
+        gitdir = gitdir.resolve()
+
+    # Standard worktree layout: <main-repo>/.git/worktrees/<worktree-name>
+    if gitdir.parent.name == "worktrees" and gitdir.parent.parent.name == ".git":
+        main_repo = gitdir.parent.parent.parent
+        if main_repo.name:
+            return main_repo.name
+
+    # Submodule / commondir fallback: walk up from gitdir for a ``commondir`` file
+    # (git writes a relative pointer to the shared .git directory there).
+    commondir_file = gitdir / "commondir"
+    if commondir_file.is_file():
+        try:
+            common_raw = commondir_file.read_text(encoding="utf-8").strip()
+            if common_raw:
+                common_path = (gitdir / common_raw).resolve()
+                if common_path.name == ".git" and common_path.parent.name:
+                    return common_path.parent.name
+        except OSError:
+            pass
+    return None
+
+
 def get_project_name(cwd: str | None = None) -> str:
     """Extract a project name from *cwd* or the current directory.
 
     Uses the basename of the directory. If the directory is inside a git
-    repository, uses the repository root basename instead.
+    repository, uses the repository root basename instead. For git worktrees
+    (where ``.git`` is a pointer file rather than a directory), resolves to
+    the main repository's basename so ephemeral worktree directories such as
+    ``.claude/worktrees/agent-<hex>`` never pollute project metadata.
     """
     if cwd is None:
         cwd = os.getcwd()
 
     path = Path(cwd).resolve()
 
-    # Walk up to find a .git directory
+    # Walk up to find a .git directory or worktree .git file
     check = path
     while check != check.parent:
-        if (check / ".git").exists():
+        dot_git = check / ".git"
+        if dot_git.is_file():
+            resolved = _resolve_git_worktree_project(dot_git)
+            if resolved:
+                return resolved
+            return check.name
+        if dot_git.is_dir():
             return check.name
         check = check.parent
 

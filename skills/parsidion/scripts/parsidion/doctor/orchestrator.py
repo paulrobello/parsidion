@@ -28,6 +28,7 @@ from parsidion.doctor._state import (
     REPAIRABLE_CODES,
     STALE_COMMIT_MINUTES,
     Issue,
+    _note_mtime,
     _rel,
     save_state,
     should_skip,
@@ -41,6 +42,7 @@ from parsidion.doctor.protocol import (
     rule_enabled,
 )
 from parsidion.doctor.frontmatter import (  # noqa: F401 — _note_is_daily re-export parity
+    _auto_fix_body_and_agent_artifacts,
     _auto_fix_metadata_wrapper,
     _auto_fix_scalar_list_field,
     _auto_fix_stray_list_items,
@@ -132,7 +134,9 @@ def _apply_prefix_clusters(
     ]
     if not ctx.explicit and not ctx.options.no_state:
         new_target = [
-            p for p in all_filtered if not should_skip(_rel(p, vault), ctx.state)
+            p
+            for p in all_filtered
+            if not should_skip(_rel(p, vault), ctx.state, path=p)
         ]
         ctx.target_notes = new_target
         ctx.skipped_by_state = len(all_filtered) - len(new_target)
@@ -162,12 +166,16 @@ def _scan_notes_for_issues(ctx: ScanContext) -> dict[Path, list[Issue]]:
         if note_issues:
             issues_by_note[note] = note_issues
         else:
-            # Record as clean so it can be skipped next run
-            ctx.state.setdefault("notes", {})[key] = {
+            # Record as clean (with mtime so later edits trigger a re-scan)
+            entry_ok: dict[str, object] = {
                 "status": "ok",
                 "last_checked": ctx.today_str,
                 "issues": [],
             }
+            mtime_val = _note_mtime(note)
+            if mtime_val is not None:
+                entry_ok["mtime"] = mtime_val
+            ctx.state.setdefault("notes", {})[key] = entry_ok
     return issues_by_note
 
 
@@ -218,11 +226,15 @@ def _classify_repair_candidates(
         if any(c in DETECTION_ONLY_CODES for c in codes):
             continue
         key = _rel(p, vault)
-        state.setdefault("notes", {})[key] = {
+        entry_skip: dict[str, object] = {
             "status": "skipped",
             "last_checked": today_str,
             "issues": codes,
         }
+        mtime_val = _note_mtime(p)
+        if mtime_val is not None:
+            entry_skip["mtime"] = mtime_val
+        state.setdefault("notes", {})[key] = entry_skip
     return repair_candidates, manual_only
 
 
@@ -246,7 +258,17 @@ def _run_deterministic_frontmatter_fixes(
     """
     for note_path in list(issues_by_note.keys()):
         codes = {i.code for i in issues_by_note[note_path]}
-        if not (codes & {"NESTED_FM_KEY", "SCALAR_LIST_FIELD", "STRAY_FM_LIST_ITEM"}):
+        if not (
+            codes
+            & {
+                "NESTED_FM_KEY",
+                "SCALAR_LIST_FIELD",
+                "STRAY_FM_LIST_ITEM",
+                "STRAY_BODY_TOKEN",
+                "BODY_WRAPPED_IN_FENCE",
+                "EPHEMERAL_AGENT_TAG",
+            }
+        ):
             continue
         changed = False
         # metadata-wrapper first: it lifts nested fields to top level, which
@@ -257,6 +279,12 @@ def _run_deterministic_frontmatter_fixes(
             changed |= _auto_fix_scalar_list_field(note_path)
         if "STRAY_FM_LIST_ITEM" in codes:
             changed |= _auto_fix_stray_list_items(note_path)
+        if codes & {
+            "STRAY_BODY_TOKEN",
+            "BODY_WRAPPED_IN_FENCE",
+            "EPHEMERAL_AGENT_TAG",
+        }:
+            changed |= _auto_fix_body_and_agent_artifacts(note_path)
         if not changed:
             continue
         # ENH-015: these codes belong to the frontmatter-syntax rule.
@@ -432,8 +460,15 @@ def _build_scan_context(
     if not explicit and not options.no_state:
         before = len(target_notes)
         target_notes = [
-            p for p in target_notes if not should_skip(_rel(p, vault), state)
+            p for p in target_notes if not should_skip(_rel(p, vault), state, path=p)
         ]
+        # Prune deleted notes from state so doctor_state.json does not accumulate
+        # stale entries after vault cleanups/merges.
+        existing_keys = {_rel(p, vault) for p in all_notes}
+        state_notes = state.get("notes")
+        if isinstance(state_notes, dict):
+            for stale_key in [k for k in state_notes if k not in existing_keys]:
+                del state_notes[stale_key]
         skipped_by_state = before - len(target_notes)
     else:
         skipped_by_state = 0

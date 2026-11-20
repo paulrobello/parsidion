@@ -17,6 +17,7 @@ from pathlib import Path
 
 from parsidion.core.vault_config import resolve_taxonomy
 from parsidion.core.vault_fs import atomic_write_text, backup_note
+from parsidion.core.vault_hooks import is_ephemeral_agent_id
 from parsidion.core.vault_index import parse_frontmatter, slugify
 from parsidion.core.vault_path import is_path_inside_vault
 
@@ -80,7 +81,7 @@ def inject_project_tag(note_content: str, project: str) -> str:
     Returns:
         Updated note content with project tag present.
     """
-    if not project or project == "unknown":
+    if not project or project == "unknown" or is_ephemeral_agent_id(project):
         return note_content
 
     # Match YAML list tags block:  tags:\n  - a\n  - b
@@ -109,6 +110,106 @@ def inject_project_tag(note_content: str, project: str) -> str:
         return note_content
 
     return note_content
+
+
+# Patterns indicating the backend emitted a refusal, permission prompt, or raw
+# write-gate decision JSON rather than a real markdown note body.
+_REFUSAL_OR_JSON_BODY_RE = re.compile(
+    r'^\s*(?:\(?\s*\{\s*"decision"\s*:|'
+    r"No chart is needed|"
+    r"Please approve the write|"
+    r"The write was blocked by permissions|"
+    r"The edit was blocked by permissions|"
+    r"The specific file .+ doesn't exist in the codebase)",
+    re.IGNORECASE,
+)
+
+# Trailing write-gate JSON trailer occasionally leaked at the bottom of an
+# otherwise valid note body (either a fenced ```json ... ``` block or a bare
+# JSON/escaped-JSON line).
+_TRAILING_DECISION_JSON_RE = re.compile(
+    r"(?:\n+---\s*)?\n+(?:"
+    r'```(?:json)?[ \t]*\n\s*\{\s*"decision"\s*:\s*"(?:save|skip|merge)"[^\n]*\}\s*\n```'
+    r"|"
+    r'\\?\(?\s*\{\s*"decision"\s*:\s*"(?:save|skip|merge)"[^\n]*\}\\?\)?'
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_refusal_or_json(text: str) -> bool:
+    """Return True if *text* looks like raw decision JSON or an LLM refusal."""
+    stripped = text.strip()
+    if not stripped:
+        return True
+    return bool(_REFUSAL_OR_JSON_BODY_RE.match(stripped))
+
+
+def _sanitize_generated_note(note_content: str) -> str:
+    """Clean common LLM formatting artifacts from frontmatter and body.
+
+    - Strips trailing whitespace from frontmatter lines and ``---`` delimiters.
+    - Drops ephemeral ``agent-<hex>`` / ``wf-<hex>`` project fields.
+    - Strips stray leading tokens (``}``, ``-->``, ``--``) immediately after
+      closing ``---``.
+    - Unwraps a code fence wrapping the entire note body (when balanced).
+    - Strips leaked trailing ``{"decision": ...}`` JSON trailers.
+    """
+    m = re.match(
+        r"^(---[ \t]*\r?\n)(.*?)(\r?\n---[ \t]*(?:\r?\n|$))(.*)$",
+        note_content,
+        re.DOTALL,
+    )
+    if not m:
+        return note_content
+    _, fm_inner, _, body = m.groups()
+
+    # Clean frontmatter lines: strip trailing whitespace and drop ephemeral agent project
+    clean_fm_lines: list[str] = []
+    for line in fm_inner.splitlines():
+        line_clean = line.rstrip(" \t")
+        pm = re.match(r"^project:\s*(.+)$", line_clean)
+        if pm and is_ephemeral_agent_id(pm.group(1).strip().strip("\"'")):
+            continue
+        clean_fm_lines.append(line_clean)
+
+    # Clean body: strip stray leading tokens right after frontmatter
+    body_l = body.lstrip("\r\n")
+    while body_l:
+        lines = body_l.splitlines()
+        if lines and lines[0].strip() in ("}", "-->", "--"):
+            body_l = "\n".join(lines[1:]).lstrip("\r\n")
+        else:
+            break
+
+    # Strip trailing leaked {"decision": ...} JSON trailer before checking
+    # whether the body ends with a matching outer closing code fence.
+    body_l = _TRAILING_DECISION_JSON_RE.sub("", body_l).rstrip()
+
+    # Unwrap outer code fence wrapping the note body (after frontmatter)
+    bm = re.match(
+        r"^```(?:markdown|md)?[ \t]*\r?\n((?:\s*\r?\n)*#+\s+.*)$",
+        body_l,
+        re.DOTALL,
+    )
+    if bm:
+        inner = bm.group(1).rstrip()
+        if inner.endswith("\n```"):
+            candidate = inner[:-4].rstrip()
+            fence_lines = [
+                ln for ln in candidate.splitlines() if re.match(r"^\s*```", ln)
+            ]
+            if len(fence_lines) % 2 == 0:
+                body_l = candidate.lstrip("\r\n")
+        else:
+            fence_lines = [ln for ln in inner.splitlines() if re.match(r"^\s*```", ln)]
+            if len(fence_lines) % 2 == 0:
+                body_l = inner.lstrip("\r\n")
+
+    fm_clean = "---\n" + "\n".join(clean_fm_lines) + "\n---\n"
+    if body_l:
+        return fm_clean + "\n" + body_l + "\n"
+    return fm_clean
 
 
 def _validate_frontmatter(note_content: str) -> str | None:
@@ -143,6 +244,10 @@ def _validate_frontmatter(note_content: str) -> str | None:
     provenance = fm.get("provenance")
     if provenance is not None and provenance not in _VALID_PROVENANCE_VALUES:
         return f"Frontmatter 'provenance' has invalid value: {provenance!r}"
+
+    body = _note_body(note_content)
+    if _looks_like_refusal_or_json(body):
+        return "Note body is empty, raw decision JSON, or an LLM refusal"
 
     return None
 
@@ -249,11 +354,20 @@ def _synthesize_frontmatter_if_missing(
     shape; prepending a second header would leave the dead pair as body junk —
     an empty ``---\\n---`` block must stay refused, not double-wrapped).
     """
-    if not note_content.strip():
+    stripped = note_content.strip()
+    if not stripped:
         return note_content
     if parse_frontmatter(note_content):
         return note_content
     if note_content.lstrip().startswith("---"):
+        return note_content
+    # Never wrap raw decision JSON, refusals, or tiny fragments without a heading
+    # in synthesized frontmatter — let validation refuse them instead of creating
+    # garbage Research/session-note.md files.
+    if _looks_like_refusal_or_json(stripped):
+        return note_content
+    has_heading = bool(re.search(r"^#{1,2}\s+\S", stripped, re.MULTILINE))
+    if not has_heading and len(stripped) < 200:
         return note_content
     today = date.today().isoformat()
     header = f"---\ndate: {today}\ntype: research\ntags: []\n"
@@ -361,7 +475,10 @@ def _clean_tag(value: object) -> str:
     s = str(value).strip().lower().lstrip(".")
     s = s.replace("_", "-")
     s = re.sub(r"[^a-z0-9-]+", "", s)
-    return s.strip("-")
+    cleaned = s.strip("-")
+    if is_ephemeral_agent_id(cleaned):
+        return ""
+    return cleaned
 
 
 def _backfill_tags_if_empty(
@@ -521,6 +638,11 @@ def write_note_with_reason(
     # so the note passes validation instead of being refused and dead-lettered.
     note_content = _backfill_tags_if_empty(note_content, project, categories or [])
 
+    # Clean trailing frontmatter whitespace, body-level outer code fences,
+    # stray leading tokens (}, -->, --), ephemeral project IDs, and trailing
+    # decision JSON trailers before validation and writing.
+    note_content = _sanitize_generated_note(note_content)
+
     # SEC-004: Validate YAML frontmatter conformance before writing.  Rejects notes
     # that lack required fields or have an invalid type — guards against adversarial
     # transcript content producing malformed notes that bypass folder routing.
@@ -594,10 +716,28 @@ def write_note_with_reason(
             existing = target_path.read_text(encoding="utf-8")
         except OSError:
             existing = ""
+        new_body = _note_body(note_content)
+        existing_body = _note_body(existing)
+        # Skip redundant slug-collision appends when the new body heavily
+        # overlaps the existing note (or when a note has already accumulated
+        # many session-update appends and exceeds 16 KB).
+        existing_words = set(re.findall(r"[a-z0-9]{3,}", existing_body.lower()))
+        new_words = set(re.findall(r"[a-z0-9]{3,}", new_body.lower()))
+        overlap = len(existing_words & new_words) / len(new_words) if new_words else 1.0
+        update_count = len(re.findall(r"^## Session update ", existing, re.MULTILINE))
+        if (len(new_words) >= 20 and overlap >= 0.80) or (
+            len(existing) >= 16_384 and update_count >= 3
+        ):
+            print(
+                f"  [dedup] Slug collision skipped redundant append for "
+                f"{target_path.name} (overlap={overlap:.2f}, updates={update_count})",
+                file=sys.stderr,
+            )
+            return target_path, ""
         merged = (
             existing.rstrip()
             + f"\n\n## Session update {date.today().isoformat()}\n\n"
-            + _note_body(note_content)
+            + new_body
             + "\n"
         )
         # SEC-127: route through parsidion.core.vault_fs.atomic_write_text so the rewrite is

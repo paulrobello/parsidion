@@ -193,6 +193,7 @@ async def run_all(
     # dead_letters.jsonl 50 times; the file grows monotonically so the cost
     # compounded across a long run.
     dead_lettered = _dead_lettered_ids(vault)
+    in_flight_notes: list[tuple[str, str, str]] = []
     semaphore = anyio.Semaphore(max_parallel)
     results: list[tuple[dict[str, object], Path | str | None]] = []
     total = len(entries)
@@ -253,6 +254,7 @@ async def run_all(
                     cluster_model,
                     vault_notes=vault_notes,
                     dead_lettered_ids=dead_lettered,
+                    in_flight_notes=in_flight_notes,
                 )
             except anyio.get_cancelled_exc_class():
                 # Ctrl-C / task cancellation must propagate so the user can
