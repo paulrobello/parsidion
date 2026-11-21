@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-21
+
+Summarizer queue-hygiene family:
+
+### Fixed
+- **Active-session queue rows no longer defer forever** — a summarizer row pending longer than 6 hours processes on the next run even while its transcript is hot (17h-invisible-stall class).
+- **Unparseable frontmatter blocks are salvaged instead of dead-lettering** — a leading frontmatter block with delimiters present but unparseable content is cut so the synthesizer wraps the body; every refused note is also persisted to `~/.claude/logs/` for diagnosis instead of being lost with the dead letter.
+- **`--run-doctor` no longer kills its own doctor leg** — the doctor's per-call AI timeout is derived from the summarizer ceiling (half of it) and the default ceiling rises to 1800s (a real `--fix-all` runs ~13m on a 12k-note vault).
+- **Vault hygiene hardening** — project detection, summarizer note/dedup hygiene, doctor checks, merge, and health-scoring fixes pinned by a 519-line regression suite.
+
 ## [0.31.0] - 2026-11-17
 
 Vanished-cwd hardening family (rounds 1–3), manifest fix, and gate parity:

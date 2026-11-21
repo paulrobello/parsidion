@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.31.0:** Vanished-working-directory hardening across every vault hook — a worktree deleted mid-session no longer crashes session end or the recall hooks — plus stale index manifests cleared in emptied note folders and the docs-api build wired into `make checkall-ci`. See the [Changelog](CHANGELOG.md).
+> **New in 0.32.0:** Summarizer queue hygiene — stuck active-session rows now process instead of deferring forever, unparseable frontmatter is salvaged instead of dead-lettering the note, and `--run-doctor` gets a workable doctor timeout. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -675,7 +675,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.31.0** (vanished-cwd hardening across the hook family; stale manifests cleared in emptied note folders; docs-api leg added to checkall-ci). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.32.0** (summarizer queue hygiene: stuck active-session rows process instead of deferring forever, unparseable frontmatter salvaged, `--run-doctor` timeout fixed). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 
