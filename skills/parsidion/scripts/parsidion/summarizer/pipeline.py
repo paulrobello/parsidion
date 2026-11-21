@@ -25,6 +25,7 @@ import json
 import sys
 import time
 import traceback
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from typing import TYPE_CHECKING
@@ -46,6 +47,7 @@ from parsidion.summarizer._state_const import (
     _DEFAULT_SUMMARIZER_AI_TIMEOUT,
     _DEFAULT_TRANSCRIPT_TAIL_LINES,
     _DEFERRED,
+    _DEFER_FORCE_AFTER_HOURS,
     _SKIPPED,
     _STALE,
     FailureReason,
@@ -143,19 +145,51 @@ def _early_gate(
     # session, or one whose process is still flushing) is mutating under us.
     # Summarizing it mid-flight is racy and yields partial notes, so defer
     # it — leave it in the queue for a later run once it's genuinely idle.
+    # The deferral is bounded by row age (_DEFER_FORCE_AFTER_HOURS): a
+    # long-lived agent session keeps its mtime fresh on every run, which
+    # used to defer the row on every pass with zero attempts, no dead
+    # letter, and no trace — invisible to queue triage (observed 2026-11-21
+    # on a codex session, 17h queued).
     try:
         _transcript_age = time.time() - Path(transcript_path_str).stat().st_mtime
     except OSError:
         _transcript_age = float("inf")
     if _transcript_age < _ACTIVE_SESSION_GRACE_SECS:
+        if not _deferral_bound_reached(entry):
+            print(
+                f"  Deferring active session {session_id[:8]} "
+                f"(transcript modified {int(_transcript_age)}s ago)",
+                file=sys.stderr,
+            )
+            return entry, _DEFERRED
         print(
-            f"  Deferring active session {session_id[:8]} "
-            f"(transcript modified {int(_transcript_age)}s ago)",
+            f"  Processing long-queued session {session_id[:8]} despite active "
+            f"transcript (queued >= {_DEFER_FORCE_AFTER_HOURS:g}h — deferral "
+            "bound reached)",
             file=sys.stderr,
         )
-        return entry, _DEFERRED
 
     return None
+
+
+def _deferral_bound_reached(entry: dict[str, object]) -> bool:
+    """Return whether *entry* has been pending longer than the deferral bound.
+
+    The bound converts the active-session guard from an unbounded defer loop
+    into a bounded-latency window: a row older than ``_DEFER_FORCE_AFTER_HOURS``
+    is processed on the next run even while its transcript is hot (the
+    later growth is captured by a fresh stop-hook requeue). Naive-local
+    timestamps — the queue file's own convention (see the hook_events.log
+    tz note in the project docs).
+    """
+    try:
+        queued_at = datetime.fromisoformat(str(entry.get("timestamp", "")))
+    except ValueError:
+        # Missing or malformed timestamp: never force (safe default — the
+        # bound only ever widens when the row provably predates it).
+        return False
+    _row_age = datetime.now() - queued_at
+    return _row_age >= timedelta(hours=_DEFER_FORCE_AFTER_HOURS)
 
 
 def _apply_merge_decision(

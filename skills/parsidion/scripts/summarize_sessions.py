@@ -127,12 +127,14 @@ from parsidion.prompt_templates import load_prompt, render  # re-exported for te
 
 from parsidion.summarizer.notes import (  # re-exported for tests
     _backfill_tags_if_empty,
+    _capture_refused_note,
     _clean_tag,
     _ensure_closing_frontmatter_delimiter,
     _note_body,
     _normalize_related_field,
     _stamp_prompt_version,
     _strip_leading_preamble,
+    _strip_unparseable_frontmatter,
     _validate_frontmatter,
     inject_project_tag,
     parse_note_title_slug,

@@ -46,8 +46,20 @@ _DEFERRED = "__DEFERRED__"
 
 # A transcript whose mtime is within this window is treated as an active session
 # and deferred.  Long enough to absorb a just-ended session flushing its final
-# lines, short enough that a genuinely idle queued session is processed promptly.
+# lines, short enough that a genuinely idle queued session is attempted on the
+# next run — and bounded by _DEFER_FORCE_AFTER_HOURS so it cannot defer forever.
 _ACTIVE_SESSION_GRACE_SECS = 120
+
+# Active-session deferrals must not hold a queue row forever: a long-lived
+# agent session keeps its transcript mtime fresh on every summarizer run, so
+# the grace guard above would defer the row indefinitely (observed 2026-11-21:
+# a codex session deferred for 17h across every run while the consumer made
+# zero attempts and wrote no dead letter — the row was invisible to queue
+# triage). When the row has been pending this many hours, the guard stops
+# deferring and processes the transcript as-is; the session's later growth is
+# captured by a fresh stop-hook requeue, matching the existing behavior for
+# sessions that end while queued.
+_DEFER_FORCE_AFTER_HOURS = 6.0
 
 # Dead-letter cap: a queue entry that fails this many times is purged from
 # pending_summaries.jsonl instead of retrying (and re-billing an AI call) on

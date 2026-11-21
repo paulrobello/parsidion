@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from parsidion.core.vault_config import resolve_taxonomy
@@ -380,6 +380,79 @@ def _synthesize_frontmatter_if_missing(
     return header + note_content.lstrip()
 
 
+def _strip_unparseable_frontmatter(note_content: str) -> str:
+    """Cut a leading frontmatter block whose YAML cannot parse, keeping the body.
+
+    Fifth salvage, for the residual shape after the first four: the model
+    emitted ``---``, fields, and a closing ``---`` but the YAML between them
+    fails :func:`parse_frontmatter` (the exact failing shape of the two
+    2026-11-21 rogue-xr refusals is unconfirmed — the raw output was not
+    captured — but unparseable YAML and the empty ``---\n---`` pair are the
+    only ``---``-leading shapes all four earlier salvages decline), or
+    the block is the empty pair. The delimiter-repair salvage (fourth) can't
+    help — the block already has both delimiters — and the synthesizer
+    deliberately declines ``---``-leading content, so the note refused as
+    "Note has no YAML frontmatter block" and died as a NON-RETRYABLE
+    note_validation dead letter even though the body was fine.
+    has both delimiters — and the synthesizer deliberately declines
+    ``---``-leading content, so the note refused as "Note has no YAML
+    frontmatter block" and died as a NON-RETRYABLE note_validation dead letter
+    even though the body was fine.
+
+    Strips only when a closing ``---`` delimiter line exists — the same
+    contract as the delimiter-repair salvage (no closing delimiter → the
+    repair salvage owns the shape) — then the synthesizer wraps the
+    remainder. No-op when the block parses, when there is no opening ``---``
+    at all, or when nothing follows the block (an all-delimiters note stays
+    refused; there is no body to salvage).
+    """
+    stripped = note_content.lstrip()
+    if not stripped.startswith("---"):
+        return note_content
+    if parse_frontmatter(note_content):
+        return note_content
+    lines = stripped.splitlines(keepends=True)
+    closer = next(
+        (i for i, line in enumerate(lines) if line.strip() == "---" and i > 0),
+        None,
+    )
+    if closer is None:
+        return note_content
+    remainder = "".join(lines[closer + 1 :])
+    if not remainder.strip():
+        return note_content
+    return remainder
+
+
+def _capture_refused_note(note_content: str, error: str) -> None:
+    """Persist refused note output to a sidecar for post-mortem diagnosis.
+
+    The note_validation dead-letter record carries only the refusal reason,
+    so when the salvage chain declines a backend output the RAW shape is
+    lost — the operator sees "Note has no YAML frontmatter block" with no
+    way to reconstruct what the backend actually returned (the 2026-11-21
+    rogue-xr occurrences left no specimen). Writes the post-salvage content
+    (what actually refused) to ``~/.claude/logs/parsidion-refused-note-<ts>.md``
+    and is best-effort: any failure is swallowed so diagnostics never break
+    the write path.
+    """
+    try:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_dir = Path.home() / ".claude" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        target = log_dir / f"parsidion-refused-note-{stamp}.md"
+        # Diagnostics header as an HTML comment; the payload below is the
+        # post-salvage content exactly as the validator refused it.
+        target.write_text(
+            f"<!-- refused: {error} -->\n{note_content}",
+            encoding="utf-8",
+            errors="replace",
+        )
+        print(f"  Captured refused note to {target}", file=sys.stderr)
+    except OSError:
+        pass
+
+
 def _stamp_prompt_version(note_content: str, prompt_version: str) -> str:
     """Inject ``prompt_version: <value>`` into a note's frontmatter.
 
@@ -623,6 +696,10 @@ def write_note_with_reason(
     # model failure mode. parse_frontmatter (used by the write-gate) requires
     # both delimiters, so without this otherwise-valid frontmatter is rejected.
     note_content = _ensure_closing_frontmatter_delimiter(note_content)
+    # Fifth salvage: cut a leading FM block whose YAML cannot parse (GLM
+    # truncation-style YAML, empty ---\n--- pair) so the synthesizer can wrap
+    # the body instead of the note dying as a non-retryable dead letter.
+    note_content = _strip_unparseable_frontmatter(note_content)
     # Normalize 'related' to clean [[wikilinks]] — repairs AI malformations
     # ([stem], [["stem"]], quoted wikilinks) before the note is written.
     note_content = _normalize_related_field(note_content)
@@ -648,6 +725,7 @@ def write_note_with_reason(
     # transcript content producing malformed notes that bypass folder routing.
     fm_error = _validate_frontmatter(note_content)
     if fm_error:
+        _capture_refused_note(note_content, fm_error)
         print(f"  Refusing to write note: {fm_error}", file=sys.stderr)
         return None, fm_error
 

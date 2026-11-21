@@ -851,13 +851,15 @@ def test_write_note_synthesizes_frontmatter_for_frontmatterless_note(
     assert "dead-reckoning" in text
 
 
-def test_write_note_synthesis_refuses_empty_frontmatter_block(
+def test_write_note_synthesis_salvages_empty_frontmatter_block(
     tmp_path: Path,
 ) -> None:
     """Content with an EMPTY ``---\\n---`` block parses as falsy {} — the
-    same truthiness as no frontmatter. Synthesis must not prepend a second
-    header (leaving the dead delimiter pair as body junk); the note stays
-    refused for validation to report."""
+    same truthiness as no frontmatter. Since the strip salvage (2026-11-21,
+    card 01a1fec951) the dead pair is CUT before synthesis runs, so the note
+    salvages instead of dead-lettering as non-retryable. Synthesis still
+    never double-wraps: an empty pair with NO body after it has nothing to
+    salvage and stays refused."""
     import importlib
 
     mod_notes = importlib.import_module("parsidion.summarizer.notes")
@@ -872,8 +874,22 @@ def test_write_note_synthesis_refuses_empty_frontmatter_block(
         categories=[],
     )
 
-    assert path is None
-    assert refusal  # refused (which schema complaint is parse_frontmatter's)
+    assert path is not None
+    assert refusal == ""
+    written = path.read_text(encoding="utf-8")
+    assert "type: research" in written  # synthesized defaults, not double-wrapped
+    assert "# Title" in written
+
+    # All-delimiters, no body: nothing to salvage, still refused.
+    path2, refusal2 = mod_notes.write_note_with_reason(
+        "---\n---\n",
+        dry_run=False,
+        vault=vault,
+        project="p",
+        categories=[],
+    )
+    assert path2 is None
+    assert refusal2
 
 
 def test_write_note_synthesis_skips_empty_content(tmp_path: Path) -> None:
@@ -1048,3 +1064,68 @@ def test_resurrect_no_duplicates_when_stop_hook_already_requeued(
     lines = _read_pending_lines(pending)
     assert len(lines) == 1  # … no duplicate
     assert _read_pending_lines(dl) == []  # record cleared so _DEAD won't purge
+
+
+# ---------------------------------------------------------------------------
+# Active-session deferral bound (card 01a1fea6d1, criterion 3)
+# ---------------------------------------------------------------------------
+
+
+def test_early_gate_defers_hot_transcript_of_fresh_row(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A hot transcript on a recent row still defers — the bound is not a
+    bypass of the active-session guard."""
+    pipeline = _pipeline_module()
+    transcript = tmp_path / "rollout.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")  # fresh mtime
+    entry = {
+        "session_id": "abcdef12-3456",
+        "transcript_path": str(transcript),
+        "timestamp": datetime.now().isoformat(),
+    }
+    monkeypatch.setattr(pipeline, "_ACTIVE_SESSION_GRACE_SECS", 300)
+    monkeypatch.setattr(pipeline, "_DEFER_FORCE_AFTER_HOURS", 24.0)
+
+    result = pipeline._early_gate(entry, tmp_path, set())
+
+    assert result == (entry, pipeline._DEFERRED)
+
+
+def test_early_gate_forces_after_deferral_bound(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A hot transcript on a row older than the bound is processed anyway."""
+    pipeline = _pipeline_module()
+    transcript = tmp_path / "rollout.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")  # fresh mtime
+    entry = {
+        "session_id": "abcdef12-3456",
+        "transcript_path": str(transcript),
+        "timestamp": (datetime.now() - timedelta(hours=7)).isoformat(),
+    }
+    monkeypatch.setattr(pipeline, "_ACTIVE_SESSION_GRACE_SECS", 300)
+    monkeypatch.setattr(pipeline, "_DEFER_FORCE_AFTER_HOURS", 6.0)
+
+    result = pipeline._early_gate(entry, tmp_path, set())
+
+    assert result is None  # past the guard, on to normal summarization
+
+
+def test_early_gate_never_forces_on_malformed_timestamp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pipeline = _pipeline_module()
+    transcript = tmp_path / "rollout.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")
+    entry = {
+        "session_id": "abcdef12-6def",
+        "transcript_path": str(transcript),
+        "timestamp": "not-a-date",
+    }
+    monkeypatch.setattr(pipeline, "_ACTIVE_SESSION_GRACE_SECS", 300)
+    monkeypatch.setattr(pipeline, "_DEFER_FORCE_AFTER_HOURS", 0.0)  # bound = force-all
+
+    result = pipeline._early_gate(entry, tmp_path, set())
+
+    assert result == (entry, pipeline._DEFERRED)

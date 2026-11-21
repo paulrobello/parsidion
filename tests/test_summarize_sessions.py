@@ -2113,3 +2113,134 @@ def test_requeue_dead_letters_filters_prefix_and_moves_to_pending(
     )
     assert result.requeued == 1
     assert result.unrecoverable == 0
+
+
+# ---------------------------------------------------------------------------
+# Fifth salvage: _strip_unparseable_frontmatter (card 01a1fec951)
+# ---------------------------------------------------------------------------
+
+
+def test_strip_unparseable_frontmatter_junk_yaml_is_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Junk YAML *values* (unclosed inline list) still PARSE — the lenient
+    parser reads them as bare strings — so the strip must not fire and the
+    model's own metadata survives (tags get backfilled downstream instead).
+    Only delimiter-structure failures are salvageable by the strip."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    note = (
+        "---\n"
+        "date: 2026-11-21\n"
+        "type: pattern\n"
+        "tags: [rogue-xr, [nested, broken\n"  # junk value, still parses
+        "---\n"
+        "# Junk YAML Note\n\n"
+        "Solid body content that should survive.\n"
+    )
+
+    out = summarize_sessions._strip_unparseable_frontmatter(note)
+
+    assert out == note  # no-op: the block parses (leniently)
+
+
+def test_strip_unparseable_frontmatter_empty_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    note = "---\n---\n# Empty Pair\n\nBody that should survive.\n"
+    out = summarize_sessions._strip_unparseable_frontmatter(note)
+    assert out == "# Empty Pair\n\nBody that should survive.\n"
+
+
+def test_strip_unparseable_frontmatter_noop_cases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    # Parseable FM — unchanged.
+    good = (
+        "---\ndate: 2026-11-21\ntype: debugging\ntags: [debugging]\n---\n"
+        "# Fine\n\nBody.\n"
+    )
+    assert summarize_sessions._strip_unparseable_frontmatter(good) == good
+    # No opening '---' — unchanged.
+    plain = "# Plain\n\nBody.\n"
+    assert summarize_sessions._strip_unparseable_frontmatter(plain) == plain
+    # All-delimiters no-body — stays refused (nothing to salvage).
+    empty = "---\n---\n"
+    assert summarize_sessions._strip_unparseable_frontmatter(empty) == empty
+    # Opening '---' but no closing delimiter — delimiter-repair salvage owns
+    # the shape; strip is a no-op there.
+    no_closer = (
+        "---\ndate: 2026-11-21\ntype: debugging\ntags: [debugging]\n"
+        "# No Closer\n\nBody.\n"
+    )
+    assert summarize_sessions._strip_unparseable_frontmatter(no_closer) == no_closer
+
+
+def test_write_note_salvages_unparseable_frontmatter_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """End-to-end: the empty ``---\\n---`` pair is stripped, the body
+    synthesized, tags derived — a formerly-dead-lettered note now writes."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = (
+        "---\n---\n# Salvaged End To End\n\n" + ("Solid reusable content. " * 12) + "\n"
+    )
+
+    path, reason = summarize_sessions.write_note_with_reason(note, False, vault)
+
+    assert path is not None, f"expected salvage, refused with: {reason}"
+    assert reason == ""
+    written = path.read_text(encoding="utf-8")
+    # Synthesized header + derived tags, body intact.
+    assert "# Salvaged End To End" in written
+    assert "type: research" in written
+    assert "Solid reusable content." in written
+
+
+def test_capture_refused_note_writes_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Refused note output must be persisted for post-mortem (card 01a1fec951
+    criterion 1: without a specimen the failing shape is unconfirmable)."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    monkeypatch.setattr(
+        summarize_sessions.Path, "home", classmethod(lambda cls: tmp_path)
+    )
+
+    summarize_sessions._capture_refused_note(
+        "---\n[bad yaml\n---\n# X\n\nbody\n", "Note has no YAML frontmatter block"
+    )
+
+    sidecars = list((tmp_path / ".claude" / "logs").glob("parsidion-refused-note-*.md"))
+    assert len(sidecars) == 1
+    text = sidecars[0].read_text(encoding="utf-8")
+    assert "refused: Note has no YAML frontmatter block" in text
+    assert "# X" in text
+
+
+def test_write_note_with_reason_captures_still_refused_note(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A note that refuses even after salvage leaves a capture sidecar."""
+    summarize_sessions = _fresh_summarize_sessions(monkeypatch)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    monkeypatch.setattr(
+        summarize_sessions.Path, "home", classmethod(lambda cls: tmp_path)
+    )
+    note = (
+        "---\ndate: 2026-11-21\ntype: bogus\ntags: [debugging]\n---\n# Bad\n\nBody.\n"
+    )
+
+    path, reason = summarize_sessions.write_note_with_reason(note, False, vault)
+
+    assert path is None
+    assert reason  # refused
+    sidecars = list((tmp_path / ".claude" / "logs").glob("parsidion-refused-note-*.md"))
+    assert len(sidecars) == 1
