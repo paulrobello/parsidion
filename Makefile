@@ -103,8 +103,14 @@ docs-api:
 visualizer-check:
 	cd visualizer && bunx tsc --noEmit && bun run lint && bun test && bun run build
 
+# Fails on high-confidence broken markdown doc links via parsight doc_links.
+# Skips (exit 0 + stderr warning) when parsight is unavailable or its index is
+# stale/partial, so hosts without parsight (CI) and catch-up indexing stay green.
+doc-links-check:
+	python scripts/check_doc_links.py
+
 # Run all checks in sequence: format check, lint, typecheck, test
-checkall: fmt-check lint typecheck test test-graph test-search visualizer-check checkall-mcp config-docs-check
+checkall: fmt-check lint typecheck test test-graph test-search visualizer-check checkall-mcp config-docs-check doc-links-check
 
 # CI-parity gate (ci-gate-parity convention): checkall plus every CI check
 # that checkall alone does not run — the parity-fixtures drift gate, the wheel

@@ -209,7 +209,7 @@ Good:
 
 - “See `src/client.ts` for the client implementation.”
 - “The `createClient()` function validates the options object.”
-- “The deployment workflow lives in `.github/workflows/deploy.yml`.”
+- “The deployment workflow lives in `.github/workflows/pages.yml`.”
 
 Avoid:
 

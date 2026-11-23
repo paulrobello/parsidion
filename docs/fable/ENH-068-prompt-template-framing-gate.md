@@ -27,8 +27,7 @@ SEC-002). This enhancement prevents the next gap from needing an audit to find.
 
 1. Land SEC-001 and SEC-002 first (they close the known gaps; the gate then enforces the
    corrected baseline).
-2. New module `tests/prompt_framing_gate.py` (or a plain test module
-   `tests/test_prompt_framing_gate.py` — preferred, no new harness):
+2. New test module `tests/test_prompt_framing_gate.py` (no new harness):
    - Enumerate every template file in `skills/parsidion/templates/prompts/` (the directory
      is the contract — a new template is automatically covered).
    - Maintain an explicit allowlist of (template id, variable) pairs that are NOT
