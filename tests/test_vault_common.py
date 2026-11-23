@@ -711,6 +711,46 @@ class TestAntigravityTranscriptHelpers:
             "Root cause was config",
         ]
 
+    def test_parse_antigravity_transcript_lines_agy_15_schema(self) -> None:
+        """agy 1.5.x records: source/type/content; only MODEL PLANNER_RESPONSE
+        turns are assistant text — EPHEMERAL_MESSAGE (injected hook context)
+        and USER_INPUT are excluded."""
+        lines = [
+            json.dumps(
+                {
+                    "source": "MODEL",
+                    "type": "PLANNER_RESPONSE",
+                    "content": "Rebasing replays each commit onto the target tip.",
+                    "step_index": 3,
+                }
+            ),
+            json.dumps(
+                {
+                    "source": "USER_EXPLICIT",
+                    "type": "USER_INPUT",
+                    "content": "<USER_REQUEST>\nexplain rebase",
+                }
+            ),
+            json.dumps(
+                {
+                    "source": "SYSTEM_SDK",
+                    "type": "EPHEMERAL_MESSAGE",
+                    "content": "# Vault Context for parsidion (vault: ParsidionVault)",
+                }
+            ),
+            json.dumps(
+                {
+                    "source": "MODEL",
+                    "type": "TOOL_CALL",
+                    "content": "run_command: true",
+                }
+            ),
+        ]
+
+        assert vault_hooks.parse_antigravity_transcript_lines(lines) == [
+            "Rebasing replays each commit onto the target tip."
+        ]
+
     def test_parse_antigravity_transcript_lines_extracts_message_wrapper_and_llm_response(
         self,
     ) -> None:

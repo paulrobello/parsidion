@@ -446,9 +446,10 @@ def is_antigravity_transcript_path(
 ) -> bool:
     """True when *transcript_path* is an Antigravity CLI conversation transcript.
 
-    Antigravity (the Gemini CLI successor) writes conversation logs ONLY at
+    Antigravity (the Gemini CLI successor) writes conversation logs at
     ``<root>/antigravity-cli/brain/<conversationId>/.system_generated/logs/
-    transcript.jsonl`` where ``<root>`` is ``$ANTIGRAVITY_HOME`` /
+    transcript.jsonl`` (and the ``transcript_full.jsonl`` variant that agy
+    1.5.x hook payloads carry) where ``<root>`` is ``$ANTIGRAVITY_HOME`` /
     ``$GEMINI_HOME`` / ``~/.gemini``. The path must match that exact shape —
     the ``~/.gemini`` tree also holds settings, MCP configs, and legacy
     Gemini IDE data that must never be treated as transcripts, and no
@@ -472,7 +473,7 @@ def is_antigravity_transcript_path(
         and bool(parts[2])
         and parts[3] == ".system_generated"
         and parts[4] == "logs"
-        and parts[5] == "transcript.jsonl"
+        and parts[5] in {"transcript.jsonl", "transcript_full.jsonl"}
     )
 
 
@@ -786,6 +787,16 @@ def parse_antigravity_transcript_lines(lines: list[str]) -> list[str]:
         except (json.JSONDecodeError, ValueError, TypeError):
             continue
         if not isinstance(record, dict):
+            continue
+
+        # agy 1.5.x transcript schema: assistant/model turns are
+        # {"source": "MODEL", "type": "PLANNER_RESPONSE", "content": str}.
+        # EPHEMERAL_MESSAGE records carry injected hook context and
+        # USER_INPUT carries the prompt — neither is assistant text.
+        if record.get("type") == "PLANNER_RESPONSE":
+            text = _extract_antigravity_content(record.get("content"))
+            if text:
+                texts.append(text)
             continue
 
         message = record.get("message")

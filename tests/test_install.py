@@ -385,26 +385,70 @@ class TestAntigravityHooks:
         hooks_file = antigravity_home / "config" / "hooks.json"
         config = json.loads(hooks_file.read_text(encoding="utf-8"))
         assert "parsidion" in config
-        assert set(config["parsidion"]) == {"PreInvocation", "Stop"}
-        commands = [
-            hook["command"]
-            for entries in config["parsidion"].values()
-            for entry in entries
-            for hook in entry["hooks"]
-        ]
-        assert any(
-            "antigravity_session_start_hook.py" in command for command in commands
-        )
-        assert any("antigravity_session_end_hook.py" in command for command in commands)
+        assert set(config["parsidion"]) == {"SessionStart", "Stop"}
         entries = [
             entry
             for event_entries in config["parsidion"].values()
             for entry in event_entries
         ]
-        assert all(entry["matcher"] == "" for entry in entries)
-        assert all(
-            hook["timeout"] == 60 for entry in entries for hook in entry["hooks"]
+        # agy 1.5.x: flat command entries — nested {"matcher", "hooks"} makes
+        # the CLI reject the whole hooks.json on session events.
+        assert all(entry["type"] == "command" for entry in entries)
+        assert all("matcher" not in entry and "hooks" not in entry for entry in entries)
+        assert all("timeout" in entry for entry in entries)
+        assert any(
+            "antigravity_session_start_hook.py" in entry["command"] for entry in entries
         )
+        assert any(
+            "antigravity_session_end_hook.py" in entry["command"] for entry in entries
+        )
+
+    def test_merge_replaces_legacy_nested_entries(self, tmp_path: Path) -> None:
+        """A pre-existing 2026-09-era nested parsidion block is rebuilt flat —
+        a leftover nested session-event entry makes agy reject the whole file."""
+        antigravity_home = tmp_path / ".gemini"
+        claude_dir = tmp_path / ".claude"
+        hooks_file = antigravity_home / "config" / "hooks.json"
+        legacy = {
+            "parsidion": {
+                "PreInvocation": [
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {
+                                "name": "parsidion-session-start",
+                                "type": "command",
+                                "command": "uv run --no-project legacy",
+                                "timeout": 60,
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        hooks_file.parent.mkdir(parents=True)
+        hooks_file.write_text(json.dumps(legacy), encoding="utf-8")
+        installer_hooks.merge_antigravity_hooks(antigravity_home, claude_dir)
+        config = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert set(config["parsidion"]) == {"SessionStart", "Stop"}
+        for entries in config["parsidion"].values():
+            assert all(
+                "matcher" not in entry and "hooks" not in entry for entry in entries
+            )
+        assert all(
+            entry["command"] != "uv run --no-project legacy"
+            for entries in config["parsidion"].values()
+            for entry in entries
+        )
+
+    def test_merge_is_idempotent(self, tmp_path: Path) -> None:
+        antigravity_home = tmp_path / ".gemini"
+        claude_dir = tmp_path / ".claude"
+        installer_hooks.merge_antigravity_hooks(antigravity_home, claude_dir)
+        hooks_file = antigravity_home / "config" / "hooks.json"
+        before = hooks_file.read_text(encoding="utf-8")
+        installer_hooks.merge_antigravity_hooks(antigravity_home, claude_dir)
+        assert hooks_file.read_text(encoding="utf-8") == before
 
     def test_merge_antigravity_hooks_preserves_foreign_named_hooks(
         self, tmp_path: Path
@@ -737,7 +781,7 @@ class TestRuntimeFlow:
             in output
         )
         assert "Codex hooks : SessionStart, Stop" in output
-        assert "Antigravity hooks: PreInvocation, Stop" in output
+        assert "Antigravity hooks: SessionStart, Stop" in output
         assert not (codex_home / "hooks.json").exists()
         assert not (antigravity_home / "config" / "hooks.json").exists()
 
@@ -773,7 +817,7 @@ class TestRuntimeFlow:
         assert result == 0
         assert "Runtime     : antigravity" in output
         assert f"Antigravity home : {antigravity_home}" in output
-        assert "Antigravity hooks: PreInvocation, Stop" in output
+        assert "Antigravity hooks: SessionStart, Stop" in output
         assert "Claude hooks:" not in output
         assert "Codex hooks :" not in output
         assert not (antigravity_home / "config" / "hooks.json").exists()

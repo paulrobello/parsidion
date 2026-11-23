@@ -138,9 +138,12 @@ class InstallerSpec:
     timeout_unit: Literal["ms", "s"] = "s"
     """Unit of ``entry_timeout`` — 's' (codex/antigravity) or 'ms' (claude). ARC-048a."""
 
-    entry_names: dict[str, str] | None = None
-    """Per-event ``name`` values when the runtime's schema requires a name
-    (antigravity). None otherwise."""
+    flat_entries: bool = False
+    """Session-event hook entries are bare command objects
+    (``{"type": "command", "command": ..., "timeout": ...}``), not the nested
+    ``{"matcher": ..., "hooks": [...]}`` shape. Antigravity's CLI parser
+    rejects nested entries on session events — hooks.go then refuses the
+    whole hooks.json (live-verified 2026-11-22, agy 1.5.14)."""
 
     instructions_filename: str | None = None
     """Instructions file the installer injects into the runtime home
@@ -159,7 +162,7 @@ class InstallerSpec:
     )
     """Optional entry-builder override for runtimes whose entry needs logic, not
     just data (Claude's AI-mode timeout raise). When None the installer builds
-    the entry from ``entry_matcher``/``entry_timeout``/``entry_names``."""
+    the entry from ``entry_matcher``/``entry_timeout``/``flat_entries``."""
 
 
 @dataclass(frozen=True)
@@ -258,9 +261,9 @@ class AgentAdapter:
         return self.install.timeout_unit if self.install is not None else "s"
 
     @property
-    def entry_names(self) -> dict[str, str] | None:
-        """Deprecated compat shim — read ``install.entry_names``."""
-        return self.install.entry_names if self.install is not None else None
+    def flat_entries(self) -> bool:
+        """Compat shim — read ``install.flat_entries``."""
+        return self.install.flat_entries if self.install is not None else False
 
     @property
     def instructions_filename(self) -> str | None:
@@ -455,16 +458,18 @@ _CODEX_HOOK_SCRIPTS: dict[str, str] = {
 # Antigravity defines no UserPromptSubmit event; only claude/codex wire it.
 # Codex wires PreToolUse (apply_patch matcher); Antigravity cannot — its PreToolUse
 # output is decision/reason only with no context-injection channel (context
-# rides PreInvocation/PostInvocation injectSteps per antigravity.google/docs/hooks).
-# Session-start maps to PreInvocation (invocationNum==0 gate in the shim),
+# rides SessionStart/PreInvocation/PostInvocation injectSteps per
+# antigravity.google/docs/hooks).
+# Session-start maps to SessionStart (native event since agy 1.5.x; the shim's
+# invocationNum==0 gate still accepts PreInvocation payloads for older CLIs),
 # session-end to Stop (fullyIdle gate in the shim).
+# Entry shape: agy CLI parses ONLY flat command entries on session events —
+# nested {"matcher": ..., "hooks": [...]} entries make hooks.go reject the
+# whole hooks.json (live-verified 2026-11-22 against agy 1.5.14), so the
+# antigravity spec sets flat_entries=True.
 _ANTIGRAVITY_HOOK_SCRIPTS: dict[str, str] = {
-    "PreInvocation": "antigravity_session_start_hook.py",
+    "SessionStart": "antigravity_session_start_hook.py",
     "Stop": "antigravity_session_end_hook.py",
-}
-_ANTIGRAVITY_HOOK_NAMES: dict[str, str] = {
-    "PreInvocation": "parsidion-session-start",
-    "Stop": "parsidion-session-end",
 }
 
 
@@ -523,7 +528,7 @@ def _register_builtin_adapters() -> None:
     register(
         AgentAdapter(
             name="antigravity",
-            hook_event_name_start="AntigravityPreInvocation",
+            hook_event_name_start="AntigravitySessionStart",
             hook_event_name_end="AntigravityStop",
             is_transcript_path=lambda p, cwd: is_antigravity_transcript_path(
                 p, cwd=cwd
@@ -537,7 +542,7 @@ def _register_builtin_adapters() -> None:
                 entry_matcher="",
                 entry_timeout=60,
                 timeout_unit="s",
-                entry_names=_ANTIGRAVITY_HOOK_NAMES,
+                flat_entries=True,
                 instructions_filename="GEMINI.md",
             ),
         )
@@ -561,7 +566,13 @@ def _register_builtin_adapters() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _emit_hook_event(hook: str, project: str, vault: Path, **extra: object) -> None:
+def _emit_hook_event(
+    hook: str,
+    project: str,
+    vault: Path,
+    notes_injected: int = 0,
+    duration_ms: float = 0.0,
+) -> None:
     """Best-effort write_hook_event + git_commit_vault.
 
     Both calls are best-effort (swallow OSError) so a failure in the
@@ -572,7 +583,11 @@ def _emit_hook_event(hook: str, project: str, vault: Path, **extra: object) -> N
     """
     try:
         write_hook_event(
-            hook=hook, project=project, duration_ms=0.0, vault=vault, **extra
+            hook=hook,
+            project=project,
+            duration_ms=duration_ms,
+            vault=vault,
+            notes_injected=notes_injected,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"hook event emit failed: {exc}", file=sys.stderr)
@@ -658,6 +673,7 @@ def run_session_start(
         )
         old_runtime = os.environ.get("PARSIDION_RUNTIME")
         os.environ["PARSIDION_RUNTIME"] = adapter.runtime_env_value or adapter.name
+        _start_clock = time.monotonic()
         try:
             context, _notes_injected = build_session_context(
                 cwd,
@@ -691,7 +707,11 @@ def run_session_start(
         try:
             project = get_project_name(cwd)
             _emit_hook_event(
-                adapter.hook_event_name_start, project, vault_path, notes_injected=0
+                adapter.hook_event_name_start,
+                project,
+                vault_path,
+                notes_injected=_notes_injected,
+                duration_ms=round((time.monotonic() - _start_clock) * 1000, 1),
             )
         except Exception as exc:  # noqa: BLE001
             print(f"hook event emit failed: {exc}", file=sys.stderr)

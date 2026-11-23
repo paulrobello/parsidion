@@ -199,9 +199,19 @@ def _hook_already_registered(hooks_list: list[dict], command: str) -> bool:
 
 
 def _find_hook_handler(hooks_list: list[dict], command: str) -> dict | None:
-    """Return the hook handler dict matching *command*, or None."""
+    """Return the hook handler dict matching *command*, or None.
+
+    Understands both entry shapes: nested ``{"matcher": ..., "hooks": [...]}``
+    (claude/codex/antigravity tool events) and flat command objects
+    (antigravity session events — agy CLI's parser rejects nested entries
+    there).
+    """
     for entry in hooks_list:
         if not isinstance(entry, dict):
+            continue
+        if "hooks" not in entry:
+            if entry.get("command", "") == command:
+                return entry
             continue
         hooks = entry.get("hooks", [])
         if not isinstance(hooks, list):
@@ -482,11 +492,15 @@ def _build_entry(spec: agent_adapter.InstallerSpec, event: str, command: str) ->
     Matches the former ``_build_codex_entry`` / ``_build_antigravity_entry`` output
     exactly (key order included): a ``matcher`` + ``hooks`` list whose hook
     carries an optional ``name`` (Antigravity schema), ``type``, ``command``,
-    ``timeout``.
+    ``timeout``. Flat-entry runtimes (antigravity session events; agy CLI's
+    parser rejects nested entries there) emit bare command objects instead.
     """
+    if spec.flat_entries:
+        entry: dict[str, object] = {"type": "command", "command": command}
+        if spec.entry_timeout:
+            entry["timeout"] = spec.entry_timeout
+        return entry
     hook: dict[str, object] = {"type": "command", "command": command}
-    if spec.entry_names and event in spec.entry_names:
-        hook = {"name": spec.entry_names[event], **hook}
     if spec.entry_timeout:
         hook["timeout"] = spec.entry_timeout
     matcher = spec.event_matchers.get(event, spec.entry_matcher)
@@ -620,15 +634,21 @@ def merge_antigravity_hooks(
         if not isinstance(named, dict):
             _warn(f"{hooks_file} has a non-object parsidion hook; skipping update")
             return
+        # Rebuild Parsidion's own block fresh from the spec: flat command
+        # entries (agy CLI's parser rejects nested {"matcher", "hooks"}
+        # entries on session events — live-verified 2026-11-22, agy 1.5.14).
+        # Wholesale per-event replacement also retires the 2026-09-era
+        # nested PreInvocation wiring; a leftover nested entry would make
+        # agy reject the whole hooks.json. Sibling top-level hook names
+        # (other tools' registrations) are preserved untouched.
+        fresh: dict[str, object] = {}
         added: list[str] = []
         skipped: list[str] = []
         for event in spec.event_scripts:
             command = _build_managed_command(spec, claude_dir, event)
-            event_hooks = named.setdefault(event, [])
-            if not isinstance(event_hooks, list):
-                _warn(f"Antigravity hook event {event} is not a list; skipping")
-                continue
-            if _hook_already_registered(event_hooks, command):
+            entry = _build_entry(spec, event, command)
+            fresh[event] = [entry]
+            if named.get(event) == [entry]:
                 skipped.append(event)
                 _print(
                     f"  Antigravity hook {event} already registered",
@@ -640,13 +660,11 @@ def merge_antigravity_hooks(
                 f"Register Antigravity hook {bold(event)}: {dim(command)}",
                 dry_run=dry_run,
             )
-            if not dry_run:
-                event_hooks.append(_build_entry(spec, event, command))
             added.append(event)
         if dry_run:
             return
-        if added:
-            data["parsidion"] = named
+        if added or named != fresh:
+            data["parsidion"] = fresh
             try:
                 _atomic_write_json(hooks_file, data)
                 _ok(f"Updated {hooks_file}")

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Antigravity PreInvocation hook shim — vault context at session start.
+"""Antigravity SessionStart hook shim — vault context at session start.
 
-Antigravity (successor to the discontinued Gemini CLI) fires PreInvocation
-before every model call; parsidion injects vault context only on the first
-invocation of a conversation (``invocationNum == 0``), which is the
-session-start analog. Output uses Antigravity's ``injectSteps`` envelope:
-the context rides an ``ephemeralMessage`` step, so it reaches the model
-without polluting the persistent transcript.
+Antigravity (successor to the discontinued Gemini CLI) fires SessionStart
+once when a conversation starts, before the first model call (native event
+since agy 1.5.x). The shim still accepts legacy PreInvocation payloads
+gated on ``invocationNum == 0`` for older CLIs. Output uses Antigravity's
+``injectSteps`` envelope: the context rides an ``ephemeralMessage`` step,
+so it reaches the model without polluting the persistent transcript.
 
 Wire contract (antigravity.google/docs/hooks, camelCase on stdin):
 ``conversationId``, ``workspacePaths``, ``transcriptPath``,
-``artifactDirectoryPath``, ``modelName``, plus event fields
+``artifactDirectoryPath``, ``modelName``, ``hookEventName``; SessionStart
+carries none of the invocation fields, legacy PreInvocation adds
 ``invocationNum`` and ``initialNumSteps``.
 """
 
@@ -39,12 +40,13 @@ def main() -> None:
     assert adapter is not None, "antigravity adapter not registered"
 
     payload = _read_payload()
-    # Only the literal first invocation (exact integer 0) is a session start.
-    # Missing/malformed invocationNum means an off-contract payload — a
-    # quiet no-op, never an injection. (bool is excluded because in Python
-    # False == 0.)
+    # Native SessionStart payloads (agy 1.5.x+) carry hookEventName and no
+    # invocationNum; legacy PreInvocation payloads gate on the literal first
+    # invocation (exact integer 0). Missing/malformed fields mean an
+    # off-contract payload — a quiet no-op, never an injection. (bool is
+    # excluded because in Python False == 0.)
     invocation_num = payload.get("invocationNum")
-    is_first = (
+    is_first = payload.get("hookEventName") == "SessionStart" or (
         isinstance(invocation_num, int)
         and not isinstance(invocation_num, bool)
         and invocation_num == 0

@@ -479,10 +479,10 @@ class TestHookScriptMapsSingleSource:
     def test_antigravity_hook_names_are_the_same_object(self) -> None:
         import installer.paths
 
-        assert (
-            installer.paths._ANTIGRAVITY_HOOK_NAMES
-            is agent_adapter._ANTIGRAVITY_HOOK_NAMES
-        )
+        # _ANTIGRAVITY_HOOK_NAMES retired: agy 1.5.x session events take flat
+        # command entries with no per-hook name field.
+        assert not hasattr(installer.paths, "_ANTIGRAVITY_HOOK_NAMES")
+        assert not hasattr(agent_adapter, "_ANTIGRAVITY_HOOK_NAMES")
 
     def test_user_prompt_submit_wired_for_claude_and_codex_only(self) -> None:
         assert (
@@ -528,7 +528,6 @@ class TestHookScriptMapsSingleSource:
             "_CLAUDE_HOOK_SCRIPTS",
             "_CODEX_HOOK_SCRIPTS",
             "_ANTIGRAVITY_HOOK_SCRIPTS",
-            "_ANTIGRAVITY_HOOK_NAMES",
         }
         # The installer/paths.py back-compat re-export imports these names
         # from agent_adapter — that is the allowed alias site.
@@ -587,7 +586,7 @@ class TestInstallerSpecSplit:
         assert spec.entry_matcher == ""
         assert spec.entry_timeout == 0
         assert spec.timeout_unit == "s"
-        assert spec.entry_names is None
+        assert spec.flat_entries is False
         assert spec.instructions_filename is None
         assert spec.config_validator is None
         assert spec.build_entry is None
@@ -610,7 +609,7 @@ class TestInstallerSpecSplit:
         assert codex.install.entry_matcher == ""
         assert codex.install.entry_timeout == 60
         assert codex.install.timeout_unit == "s"
-        assert codex.install.entry_names is None
+        assert codex.install.flat_entries is False
         assert codex.install.instructions_filename == "AGENTS.md"
 
     def test_antigravity_spec_matches_former_flat_values(self) -> None:
@@ -625,7 +624,13 @@ class TestInstallerSpecSplit:
         assert antigravity.install.entry_matcher == ""
         assert antigravity.install.entry_timeout == 60
         assert antigravity.install.timeout_unit == "s"
-        assert antigravity.install.entry_names is agent_adapter._ANTIGRAVITY_HOOK_NAMES
+        # agy 1.5.x: session events take flat command entries, not the
+        # 2026-09-era nested matcher/hooks shape (hooks.go rejects the file).
+        assert antigravity.install.flat_entries is True
+        assert antigravity.install.event_scripts == {
+            "SessionStart": "antigravity_session_start_hook.py",
+            "Stop": "antigravity_session_end_hook.py",
+        }
         assert antigravity.install.instructions_filename == "GEMINI.md"
 
     def test_claude_spec_matches_former_flat_values(self) -> None:
@@ -648,11 +653,11 @@ class TestInstallerSpecSplit:
         assert codex.entry_matcher == codex.install.entry_matcher
         assert codex.entry_timeout == codex.install.entry_timeout
         assert codex.timeout_unit == codex.install.timeout_unit
-        assert codex.entry_names == codex.install.entry_names
+        assert codex.flat_entries == codex.install.flat_entries
         assert codex.instructions_filename == codex.install.instructions_filename
         antigravity = agent_adapter.get("antigravity")
         assert antigravity is not None and antigravity.install is not None
-        assert antigravity.entry_names is antigravity.install.entry_names
+        assert antigravity.flat_entries is antigravity.install.flat_entries
 
     def test_flat_properties_safe_without_spec(self) -> None:
         pi = agent_adapter.get("pi")
@@ -665,7 +670,7 @@ class TestInstallerSpecSplit:
         assert pi.entry_matcher == ""
         assert pi.entry_timeout == 0
         assert pi.timeout_unit == "s"
-        assert pi.entry_names is None
+        assert pi.flat_entries is False
         assert pi.instructions_filename is None
         assert pi.config_validator is None
         assert pi.build_entry is None

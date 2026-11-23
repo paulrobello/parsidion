@@ -108,6 +108,43 @@ def test_start_off_contract_invocation_is_quiet(
     assert calls["context"] == []
 
 
+def test_start_session_start_event_injects(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """agy 1.5.x native SessionStart payloads (hookEventName, no invocationNum)."""
+    calls = _patch_pipeline(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    _stdin(
+        monkeypatch,
+        json.dumps(
+            {
+                "hookEventName": "SessionStart",
+                "workspacePaths": [str(workspace)],
+                "conversationId": "conv-ss",
+                "transcriptPath": "/tmp/transcript_full.jsonl",
+            }
+        ),
+    )
+    start_shim.main()
+    output = json.loads(capsys.readouterr().out)
+    assert output == {"injectSteps": [{"ephemeralMessage": "CONTEXT"}]}
+    assert calls["context"] == [str(workspace)]
+
+
+def test_start_wrong_event_name_is_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = _patch_pipeline(monkeypatch, tmp_path)
+    _stdin(monkeypatch, json.dumps({"hookEventName": "PostInvocation"}))
+    start_shim.main()
+    assert capsys.readouterr().out == "{}"
+    assert calls["context"] == []
+
+
 def test_start_malformed_stdin_is_quiet(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -307,6 +344,23 @@ class TestAntigravityTranscriptPathValidator:
             / "transcript.jsonl"
         )
         assert is_antigravity_transcript_path(lookalike) is False
+
+    def test_accepts_transcript_full_variant(self, monkeypatch, tmp_path) -> None:
+        """agy 1.5.x hook payloads carry transcript_full.jsonl, not transcript.jsonl."""
+        from parsidion.core.vault_hooks import is_antigravity_transcript_path
+
+        home = tmp_path / "antigravity-home"
+        monkeypatch.setenv("ANTIGRAVITY_HOME", str(home))
+        full = (
+            home
+            / "antigravity-cli"
+            / "brain"
+            / "conv-1"
+            / ".system_generated"
+            / "logs"
+            / "transcript_full.jsonl"
+        )
+        assert is_antigravity_transcript_path(full) is True
 
     def test_rejects_project_local_gemini_tree(self, monkeypatch, tmp_path) -> None:
         from parsidion.core.vault_hooks import is_antigravity_transcript_path

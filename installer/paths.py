@@ -59,7 +59,6 @@ AGENT_INSTRUCTIONS_SRC: Path = (
 _HOOK_SCRIPTS: dict[str, str] = _agent_adapter._CLAUDE_HOOK_SCRIPTS
 _CODEX_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._CODEX_HOOK_SCRIPTS
 _ANTIGRAVITY_HOOK_SCRIPTS: dict[str, str] = _agent_adapter._ANTIGRAVITY_HOOK_SCRIPTS
-_ANTIGRAVITY_HOOK_NAMES: dict[str, str] = _agent_adapter._ANTIGRAVITY_HOOK_NAMES
 
 # Per-event hook options merged into the hook handler entry in settings.json.
 # Installer-only data — no equivalent on AgentAdapter today, so this stays
