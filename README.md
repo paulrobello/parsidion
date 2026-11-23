@@ -8,7 +8,7 @@ A second brain for coding agents -- a markdown knowledge vault that gives AI cod
 
 Parsidion replaces fragile, tool-specific memory with a richly organized markdown vault. Runtime adapters load relevant context at startup, capture durable learnings from sessions, and snapshot working state before compaction where supported. A research agent saves structured findings, and an AI-powered summarizer generates vault notes from session transcripts.
 
-> **New in 0.32.0:** Summarizer queue hygiene — stuck active-session rows now process instead of deferring forever, unparseable frontmatter is salvaged instead of dead-lettering the note, and `--run-doctor` gets a workable doctor timeout. See the [Changelog](CHANGELOG.md).
+> **New in 0.33.0:** Antigravity CLI support actually works — hooks now parse under agy 1.5.x (flat session-event entries), SessionStart injects vault context and Stop queues sessions, the summarizer reads agy transcripts, and `make checkall` gained a broken-doc-links gate. See the [Changelog](CHANGELOG.md).
 
 ![Parsidion Architecture](https://raw.githubusercontent.com/paulrobello/parsidion/main/docs/parsidion-architecture.png)
 
@@ -675,7 +675,7 @@ See [docs/VAULT_SYNC.md](docs/VAULT_SYNC.md) for the full setup guide and troubl
 
 ## Changelog
 
-Latest release: **0.32.0** (summarizer queue hygiene: stuck active-session rows process instead of deferring forever, unparseable frontmatter salvaged, `--run-doctor` timeout fixed). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
+Latest release: **0.33.0** (Antigravity CLI integration fixed end-to-end: hooks parse under agy 1.5.x, SessionStart/Stop wired, agy transcripts summarize; plus a broken-doc-links gate in `make checkall`). See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## Contributing
 

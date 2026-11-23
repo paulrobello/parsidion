@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-23
+
+Antigravity CLI integration family and doc-link gating:
+
+### Added
+- **`make doc-links-check` gate** — `make checkall` fails on high-confidence broken markdown doc links via parsight's link graph; the leg skips cleanly when parsight is unavailable or its index is stale, so CI and catch-up indexing stay green. `tests/fixtures/` sources are excluded and `<!-- doc-path: ... -->` waivers are honored.
+
+### Fixed
+- **The Antigravity CLI (`agy`) integration actually works now** — the installer's nested hook-schema entries were silently rejected by agy 1.5.x's parser since the 2026-09 wiring, so no parsidion hook ever fired. Hooks are now written as flat command entries (nested entries remain valid only on PreToolUse/PostToolUse), the native 1.5.x `SessionStart` event injects vault context before the first model call, and `Stop` payloads feed the session-end pipeline. Live-verified end-to-end with real `agy -p` runs.
+- **Antigravity sessions summarize instead of dead-lettering** — the summarizer's transcript extraction had no branch for agy 1.5.x records (`USER_EXPLICIT`/`USER_INPUT`, `MODEL`/`PLANNER_RESPONSE`), so every queued agy session preprocessed to zero dialogue and died as `transcript_read` after 3 attempts.
+
 ## [0.32.0] - 2026-11-21
 
 Summarizer queue-hygiene family:
