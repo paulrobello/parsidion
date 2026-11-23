@@ -94,6 +94,22 @@ def _extract_role_and_content(entry: dict[str, object]) -> tuple[str | None, obj
                 role = role_raw
                 content = payload.get("content")
 
+    # Antigravity CLI (agy 1.5.x): human turns are
+    # {"source": "USER_EXPLICIT", "type": "USER_INPUT", "content": str},
+    # model turns are {"source": "MODEL", "type": "PLANNER_RESPONSE", ...}.
+    # SYSTEM_SDK EPHEMERAL_MESSAGE records are injected hook context, not
+    # dialogue; without this branch every agy session preprocesses to zero
+    # pairs and dead-letters as transcript_read.
+    if role is None:
+        source = entry.get("source")
+        msg_type = entry.get("type")
+        if source == "USER_EXPLICIT" and msg_type == "USER_INPUT":
+            role = "user"
+            content = entry.get("content")
+        elif source == "MODEL" and msg_type == "PLANNER_RESPONSE":
+            role = "assistant"
+            content = entry.get("content")
+
     return role, content
 
 

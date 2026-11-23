@@ -160,3 +160,62 @@ class TestAdaptiveTailWindow:
         assert "Straightforward session" in cleaned
         assert len(_spy_read_tail) == 1
         assert _spy_read_tail[0] == (_BASE_WINDOW, _MAX_LINE_BYTES)
+
+
+class TestAntigravityTranscripts:
+    """agy 1.5.x records must preprocess to dialogue, not transcript_read.
+
+    Every queued antigravity session dead-lettered with transcript_read
+    because ``_extract_role_and_content`` matched no agy record shape; the
+    preprocessor returned zero pairs on every agy transcript.
+    """
+
+    def _agy_lines(self) -> list[str]:
+        return [
+            json.dumps(
+                {
+                    "source": "SYSTEM_SDK",
+                    "type": "EPHEMERAL_MESSAGE",
+                    "content": "injected hook context that is not dialogue",
+                }
+            )
+            + "\n",
+            json.dumps(
+                {
+                    "source": "USER_EXPLICIT",
+                    "type": "USER_INPUT",
+                    "content": "<USER_REQUEST>\nExplain the hook schema.\n</USER_REQUEST>",
+                }
+            )
+            + "\n",
+            json.dumps(
+                {
+                    "source": "MODEL",
+                    "type": "PLANNER_RESPONSE",
+                    "content": "Session events take flat command entries only.",
+                }
+            )
+            + "\n",
+        ]
+
+    def test_agy_records_become_dialogue_pairs(
+        self, tmp_path: Path, preprocess
+    ) -> None:
+        path = tmp_path / "transcript_full.jsonl"
+        _write_transcript(path, self._agy_lines())
+
+        cleaned = preprocess(str(path), 400, None, _BASE_WINDOW, vault=tmp_path)
+
+        assert "Human: <USER_REQUEST>" in cleaned
+        assert "Explain the hook schema." in cleaned
+        assert "Assistant: Session events take flat command entries only." in cleaned
+
+    def test_ephemeral_context_never_enters_dialogue(
+        self, tmp_path: Path, preprocess
+    ) -> None:
+        path = tmp_path / "transcript_full.jsonl"
+        _write_transcript(path, self._agy_lines())
+
+        cleaned = preprocess(str(path), 400, None, _BASE_WINDOW, vault=tmp_path)
+
+        assert "injected hook context" not in cleaned
