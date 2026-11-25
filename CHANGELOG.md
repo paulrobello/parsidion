@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-25
+
+Grok backend context lockdown completed:
+
+### Fixed
+- **`grok-cli` minimal-context calls stop ingesting Claude's config** — grok ≥ 1.0.70 grew per-vendor compat suppression, and `_run_grok_prompt` now sets all six `GROK_CLAUDE_*_ENABLED=false` vars under `minimal_context` (the default), closing the hardcoded cross-agent discovery of `~/.claude` that ignored `GROK_HOME` and cwd. Measured on a one-word task with the full lockdown shape (scratch home, clean cwd, tools off, system-prompt override): 30,649 → 17,140 input tokens (−44%) per call, identical output. Pre-1.0.70 grok ignores the unknown vars.
+
 ## [0.33.0] - 2026-11-23
 
 Antigravity CLI integration family and doc-link gating:
