@@ -296,11 +296,12 @@ def _minimal_grok_home() -> Path | None:
     Grok's user home carries its native skills catalog and session state;
     a scratch home drops the native skills (measured 2026-08-28: 27,579 →
     25,657 input tokens on a one-word task) and keeps grok's state writes
-    out of the real home. Auth is the symlinked ``auth.json``. Note grok
-    1.0.5 offers no per-invocation way to suppress its cross-agent
-    discovery of ``~/.claude`` skills (139), Claude MCP servers (5), or the
-    global Claude.md — those stay loaded regardless of home, cwd, env, or
-    per-dir config; re-measure when grok grows suppression flags.
+    out of the real home. Auth is the symlinked ``auth.json``. The
+    cross-agent ``~/.claude`` discovery (Claude-sourced skills, MCP
+    servers, global Claude.md) ignores GROK_HOME entirely; it is
+    suppressed per invocation via the ``GROK_CLAUDE_*_ENABLED`` env vars
+    in :data:`_GROK_COMPAT_SUPPRESSION_ENV` (grok >= 1.0.70; measured
+    2026-11-25: 30,649 → 17,140 input tokens on a one-word task).
     Mirrors :func:`_minimal_codex_home`.
     """
     real_home = Path(os.environ.get("GROK_HOME") or Path.home() / ".grok")
@@ -830,6 +831,18 @@ def _grok_env() -> dict[str, str]:
     return env
 
 
+# Per-vendor external-compat suppression for the grok CLI (grok >= 1.0.70).
+# Equivalent config.toml form: [compat.claude] <surface> = false.
+_GROK_COMPAT_SUPPRESSION_ENV: dict[str, str] = {
+    "GROK_CLAUDE_SKILLS_ENABLED": "false",
+    "GROK_CLAUDE_RULES_ENABLED": "false",
+    "GROK_CLAUDE_AGENTS_ENABLED": "false",
+    "GROK_CLAUDE_HOOKS_ENABLED": "false",
+    "GROK_CLAUDE_MCPS_ENABLED": "false",
+    "GROK_CLAUDE_SESSIONS_ENABLED": "false",
+}
+
+
 def _minimal_context_cwd() -> Path:
     """Return an empty non-git scratch dir for minimal-context CLI calls.
 
@@ -880,11 +893,10 @@ def _run_grok_prompt(
     transcript/vault content, not context options. Only the explicit
     ``grok_cli.allow_tools`` double opt-in (mirroring
     ``codex_cli.allow_danger_full_access``) omits them, with a stderr warning.
-    ``grok_cli.minimal_context`` (default true) now controls only the system
-    prompt override; without it grok ingests the project's CLAUDE.md/AGENTS.md
-    rules and its full skill catalog, which is dead context for parsidion's
-    selector/summarizer prompts. SEC-123: the prompt travels via a temp
-    file, not ``argv``.
+    ``grok_cli.minimal_context`` (default true) adds the system prompt
+    override, uses a scratch Grok home when available, and disables Claude
+    compatibility discovery on supported Grok versions. SEC-123: the
+    prompt travels via a temp file, not ``argv``.
     """
     command_raw = _config_str("grok_cli", "command", "grok", vault=vault)
     try:
@@ -939,6 +951,8 @@ def _run_grok_prompt(
             scratch_home = _minimal_grok_home()
             if scratch_home is not None:
                 env["GROK_HOME"] = str(scratch_home)
+            # Scratch GROK_HOME and cwd do not prevent global Claude discovery.
+            env.update(_GROK_COMPAT_SUPPRESSION_ENV)
 
         result = _run_prompt_subprocess(
             cmd,

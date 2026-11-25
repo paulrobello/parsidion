@@ -782,6 +782,74 @@ class TestRunAiPrompt:
         assert auth_link.is_symlink()
         assert Path(os.readlink(auth_link)) == real_home / "auth.json"
 
+    def test_grok_minimal_context_sets_compat_suppression_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """minimal_context suppresses grok's cross-agent ~/.claude discovery.
+
+        grok >= 1.0.70 grew per-invocation compat suppression env vars; with
+        all six set, grok inspect shows the claude-sourced skills, MCP
+        servers, and the global Claude.md instruction disabled (measured
+        2026-11-25, baseline had none disabled).
+        """
+        vault = _reset_config(monkeypatch, tmp_path, "ai:\n  backend: grok-cli\n")
+        real_home = tmp_path / "real-grok"
+        real_home.mkdir()
+        (real_home / "auth.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("GROK_HOME", str(real_home))
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, stdout="grok answer", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        result = ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault)
+
+        assert result == "grok answer"
+        _cmd, kwargs = calls[0]
+        env = kwargs["env"]
+        for surface in ("SKILLS", "RULES", "AGENTS", "HOOKS", "MCPS", "SESSIONS"):
+            assert env[f"GROK_CLAUDE_{surface}_ENABLED"] == "false"
+
+    def test_grok_full_context_keeps_compat_discovery(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """minimal_context=false opts back into grok's discovery surfaces.
+
+        The suppression env vars are context options gated on the same
+        minimal_context switch as the scratch GROK_HOME; a caller that
+        turns minimal_context off gets grok's full context, Claude config
+        included.
+        """
+        vault = _reset_config(
+            monkeypatch,
+            tmp_path,
+            "ai:\n  backend: grok-cli\ngrok_cli:\n  minimal_context: false\n",
+        )
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, stdout="grok answer", stderr="")
+
+        monkeypatch.setattr(ai_backend, "_run_prompt_subprocess", fake_run)
+        monkeypatch.setattr(
+            ai_backend.shutil, "which", lambda name: f"/usr/local/bin/{name}"
+        )
+
+        result = ai_backend.run_ai_prompt("hello", cwd=tmp_path, vault=vault)
+
+        assert result == "grok answer"
+        _cmd, kwargs = calls[0]
+        env = kwargs["env"]
+        for surface in ("SKILLS", "RULES", "AGENTS", "HOOKS", "MCPS", "SESSIONS"):
+            assert f"GROK_CLAUDE_{surface}_ENABLED" not in env
+
     def test_codex_cli_config_controls_command_timeout_and_safety_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
