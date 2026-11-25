@@ -677,6 +677,24 @@
         ],
         "createdAt": "2026-11-19T21:33:13.219Z",
         "reason": "generated typedoc stock-theme output (make docs-api, gitignored per ARC-206) - padding/heading semantics come from the generator theme, not repo-authored UI; pre-existing, attribution unknown"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/useSigmaInstance.UseSigmaInstanceOptions.html"
+        ],
+        "createdAt": "2026-11-25T16:18:08.479Z",
+        "reason": "typedoc stock template output, not hand-designed UI: docs/api is a gitignored generated artifact (ARC-206), padding/heading structure are typedoc defaults — agent triage 2026-11-25"
+      },
+      {
+        "rule": "skipped-heading",
+        "value": "*",
+        "files": [
+          "docs/api/visualizer/interfaces/useSigmaInstance.UseSigmaInstanceOptions.html"
+        ],
+        "createdAt": "2026-11-25T16:18:08.498Z",
+        "reason": "typedoc stock template output, not hand-designed UI: docs/api is a gitignored generated artifact (ARC-206), heading hierarchy is typedoc's default theme — agent triage 2026-11-25"
       }
     ]
   }
